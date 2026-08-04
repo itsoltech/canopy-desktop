@@ -10,12 +10,29 @@ export type CiError =
   // version, a legacy tracker provider; the last two parse fine, which is why
   // this is "cannot be used" and not "cannot be read"). saveConfig refuses then.
   // 'block' = only the ci block's shape is rejected (re-saving replaces it).
-  | { _tag: 'CiConfigInvalid'; scope: 'file' | 'block'; reason: string }
+  | {
+      _tag: 'CiConfigInvalid'
+      scope: 'file' | 'block'
+      reason: string
+      provider?: 'teamcity' | 'github-actions'
+    }
   // A local filesystem failure while saving the repo config — never TeamCity's
   // fault, so it must not wear the "TeamCity:" prefix CiApiError renders with.
   | { _tag: 'CiConfigUnwritable'; reason: string }
-  | { _tag: 'CiAuthMissing'; baseUrl: string }
-  | { _tag: 'CiApiError'; status: number; message: string }
+  | { _tag: 'CiAuthMissing'; baseUrl: string; provider?: 'teamcity' | 'github-actions' }
+  | { _tag: 'CiRepositoryMismatch'; expected: string; actual: string }
+  | { _tag: 'CiWorkflowSchemaInvalid'; reason: string }
+  | { _tag: 'CiWorkflowSchemaChanged' }
+  | { _tag: 'CiRefChanged' }
+  | { _tag: 'CiDispatchCancelled' }
+  | { _tag: 'CiDispatchAmbiguous'; workflowUrl: string }
+  | { _tag: 'CiRateLimited'; resetAt: number | undefined }
+  | {
+      _tag: 'CiApiError'
+      status: number
+      message: string
+      provider?: 'teamcity' | 'github-actions'
+    }
 
 export function ciErrorMessage(error: CiError): string {
   return (
@@ -46,11 +63,39 @@ export function ciErrorMessage(error: CiError): string {
       )
       .with(
         { _tag: 'CiAuthMissing' },
-        (e) => `No TeamCity token stored for ${e.baseUrl} — connect it in Settings`,
+        (e) =>
+          `No ${e.provider === 'github-actions' ? 'GitHub' : 'TeamCity'} token stored for ${e.baseUrl} — connect it in Settings`,
       )
-      .with({ _tag: 'CiApiError' }, (e) =>
-        e.status > 0 ? `TeamCity API error ${e.status}: ${e.message}` : `TeamCity: ${e.message}`,
+      .with(
+        { _tag: 'CiRepositoryMismatch' },
+        (e) =>
+          `Configured GitHub repository ${e.expected} does not match this workspace (${e.actual})`,
       )
+      .with({ _tag: 'CiWorkflowSchemaInvalid' }, (e) => `GitHub workflow: ${e.reason}`)
+      .with(
+        { _tag: 'CiWorkflowSchemaChanged' },
+        () => 'The workflow inputs changed. Review the refreshed form before running it.',
+      )
+      .with(
+        { _tag: 'CiRefChanged' },
+        () => 'The selected GitHub ref moved. Review its new commit before running the workflow.',
+      )
+      .with({ _tag: 'CiDispatchCancelled' }, () => 'Workflow run cancelled before dispatch')
+      .with(
+        { _tag: 'CiDispatchAmbiguous' },
+        () => 'GitHub may have accepted the workflow run. Check Actions before trying again.',
+      )
+      .with({ _tag: 'CiRateLimited' }, (e) =>
+        e.resetAt
+          ? `GitHub API rate limit reached until ${new Date(e.resetAt).toLocaleTimeString()}`
+          : 'GitHub API rate limit reached',
+      )
+      .with({ _tag: 'CiApiError' }, (e) => {
+        const provider = e.provider === 'github-actions' ? 'GitHub' : 'TeamCity'
+        return e.status > 0
+          ? `${provider} API error ${e.status}: ${e.message}`
+          : `${provider}: ${e.message}`
+      })
       .exhaustive()
   )
 }

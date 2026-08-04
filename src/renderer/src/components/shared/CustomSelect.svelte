@@ -25,6 +25,7 @@
     groups?: OptionGroup[]
     onchange?: (value: string) => void
     id?: string
+    ariaDescribedby?: string
     maxWidth?: string
     /** Renders the trigger inert (e.g. a sprint select before a board is picked). */
     disabled?: boolean
@@ -38,6 +39,7 @@
     groups,
     onchange,
     id,
+    ariaDescribedby,
     maxWidth = 'none',
     disabled = false,
     placeholder = '',
@@ -191,6 +193,7 @@
   onkeydown={handleTriggerKeydown}
   aria-haspopup="listbox"
   aria-expanded={open}
+  aria-describedby={ariaDescribedby}
 >
   <span class="flex-1 truncate inline-flex items-center gap-1.5 min-w-0">
     {#if selectedItem?.icon}<img
@@ -250,6 +253,7 @@
             class:text-accent={item.value === value}
             class:text-text={item.value !== value}
             role="option"
+            tabindex="-1"
             aria-selected={item.value === value}
             onclick={() => select(item.value!)}
             onpointerenter={() => (focusedIndex = i)}

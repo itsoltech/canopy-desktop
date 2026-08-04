@@ -1,4 +1,4 @@
-import type { CiBuildTypeConfig, CiConfig } from './types'
+import type { CiBuildTypeConfig, CiConfig, CiWorkflowConfig, GitHubActionsCiConfig } from './types'
 
 // Build configuration ids are embedded verbatim in TeamCity locators — the charset
 // (TeamCity's own id alphabet) doubles as injection defence for `buildType:(id:…)`.
@@ -9,7 +9,13 @@ export const BUILD_TYPE_ID_PATTERN = /^[A-Za-z0-9_]{1,255}$/
 // mirror in src/renderer/src/lib/ci/limits.ts (it cannot import main modules),
 // guarded by a drift test there.
 export const CI_MAX_BUILD_TYPES = 50
+export const CI_MAX_WORKFLOWS = 50
 export const CI_MAX_LABEL_LEN = 100
+export const GITHUB_ACTIONS_BASE_URL = 'https://github.com' as const
+export const GITHUB_REPOSITORY_PATTERN =
+  /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/
+export const GITHUB_WORKFLOW_PATH_PATTERN =
+  /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9_.-]*\.ya?ml$/i
 
 // The warning copy can only fit a sample — counts stay exact, names are capped.
 // Exported: the block-scope reason in CiManager uses the same sample bound.
@@ -35,6 +41,7 @@ export interface CiConfigParseResult {
 export function parseCiConfig(raw: unknown): CiConfigParseResult {
   if (!raw || typeof raw !== 'object') return { invalidIds: [] }
   const o = raw as Record<string, unknown>
+  if (o.provider === 'github-actions') return parseGitHubActionsConfig(o)
   if (o.provider !== 'teamcity') return { invalidIds: [] }
   if (typeof o.baseUrl !== 'string' || !/^https?:\/\//i.test(o.baseUrl)) return { invalidIds: [] }
 
@@ -98,4 +105,79 @@ export function parseCiConfig(raw: unknown): CiConfigParseResult {
         : {}),
     },
   }
+}
+
+function workflowLabel(path: string): string {
+  const filename = path.slice(path.lastIndexOf('/') + 1)
+  return filename.replace(/\.ya?ml$/i, '')
+}
+
+function parseGitHubActionsConfig(o: Record<string, unknown>): CiConfigParseResult {
+  if (typeof o.baseUrl !== 'string') return { invalidIds: [] }
+  let url: URL
+  try {
+    url = new URL(o.baseUrl)
+  } catch {
+    return { invalidIds: [] }
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.hostname.toLowerCase() !== 'github.com' ||
+    url.port ||
+    (url.pathname !== '/' && url.pathname !== '') ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    return { invalidIds: [] }
+  }
+  if (typeof o.repository !== 'string' || !GITHUB_REPOSITORY_PATTERN.test(o.repository)) {
+    return { invalidIds: [] }
+  }
+
+  const rawWorkflows = Array.isArray(o.workflows) ? o.workflows : []
+  const seen = new Set<string>()
+  const invalidIds: string[] = []
+  const workflows: CiWorkflowConfig[] = rawWorkflows.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const { path, label } = entry as Record<string, unknown>
+    if (typeof path !== 'string') return []
+    if (path.length > 255 || !GITHUB_WORKFLOW_PATH_PATTERN.test(path)) {
+      invalidIds.push(path.slice(0, 120))
+      return []
+    }
+    const key = path.toLowerCase()
+    if (seen.has(key)) return []
+    seen.add(key)
+    const trimmed = typeof label === 'string' ? label.trim().slice(0, CI_MAX_LABEL_LEN) : ''
+    return [{ path, label: trimmed || workflowLabel(path) }]
+  })
+  if (workflows.length === 0) return { invalidIds }
+
+  const accepted = workflows.slice(0, CI_MAX_WORKFLOWS)
+  const overCapIds = workflows.slice(CI_MAX_WORKFLOWS).map((workflow) => workflow.path)
+  const config: GitHubActionsCiConfig = {
+    provider: 'github-actions',
+    baseUrl: GITHUB_ACTIONS_BASE_URL,
+    repository: o.repository.toLowerCase(),
+    workflows: accepted,
+    ...(invalidIds.length > 0
+      ? {
+          droppedInvalid: {
+            count: invalidIds.length,
+            ids: invalidIds.slice(0, DROPPED_ID_SAMPLE),
+          },
+        }
+      : {}),
+    ...(overCapIds.length > 0
+      ? {
+          droppedOverCap: {
+            count: overCapIds.length,
+            ids: overCapIds.slice(0, DROPPED_ID_SAMPLE),
+          },
+        }
+      : {}),
+  }
+  return { config, invalidIds }
 }

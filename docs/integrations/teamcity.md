@@ -15,7 +15,7 @@ The integration follows the Project management architecture:
   `.canopy/config.json`, written by the per-repo configurator (CI/CD sidebar section →
   gear icon). Committing the file shares the setup with the whole team.
 - **Personal credentials**: access tokens are stored per server URL in the OS-encrypted
-  keychain, managed globally in **Settings → CI connections** (its own section, separate from the Project management connections; TeamCity is the only provider today, and the add form carries a "Generate →" link to the server's token page once the URL is typed).
+  keychain, managed globally in **Settings → CI connections** (its own section, separate from the Project management connections; the TeamCity add form carries a "Generate →" link to the server's token page once the URL is typed).
 - **Personal opt-in**: the whole feature is gated by the **CI/CD sidebar section**
   (`sidebar.sections`, hidden by default — enable it in Settings → Sidebar). A `ci`
   block arriving via the git-shared config never turns the feature on by itself.
@@ -128,7 +128,8 @@ Written by the configurator (hand-editing works too) in `.canopy/config.json`:
 }
 ```
 
-- `provider` — only `teamcity` is supported.
+- `provider` — `teamcity` selects this provider; GitHub Actions uses a separate configuration
+  shape documented in [github-actions.md](github-actions.md).
 - `baseUrl` — http(s) origin of the TeamCity server. All requests go to this origin
   only (the renderer never supplies a URL for repo-scoped calls).
 - `buildTypes[].id` — TeamCity build configuration id (`[A-Za-z0-9_]`, ≤255 chars).

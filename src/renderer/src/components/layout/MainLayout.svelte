@@ -12,9 +12,9 @@
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import ProjectTrackerModal from '../preferences/ProjectTrackerModal.svelte'
-  import ProjectCiModal from '../preferences/ProjectCiModal.svelte'
-  import CiRunJobModal from '../ci/CiRunJobModal.svelte'
-  import CiActivityModal from '../ci/CiActivityModal.svelte'
+  import ProjectCiModalRouter from '../preferences/ProjectCiModalRouter.svelte'
+  import CiRunJobModalRouter from '../ci/CiRunJobModalRouter.svelte'
+  import CiActivityModalRouter from '../ci/CiActivityModalRouter.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
@@ -606,14 +606,14 @@
 {:else if dialogState.current.type === 'projectTracker'}
   <ProjectTrackerModal />
 {:else if dialogState.current.type === 'projectCi'}
-  <ProjectCiModal />
+  <ProjectCiModalRouter />
 {:else if dialogState.current.type === 'ciRunJob'}
-  <CiRunJobModal
+  <CiRunJobModalRouter
     repoRoot={dialogState.current.repoRoot}
     initialBranch={dialogState.current.branch}
   />
 {:else if dialogState.current.type === 'ciActivity'}
-  <CiActivityModal repoRoot={dialogState.current.repoRoot} />
+  <CiActivityModalRouter repoRoot={dialogState.current.repoRoot} />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}

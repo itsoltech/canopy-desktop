@@ -8,7 +8,7 @@
   import { loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { CI_MAX_BUILD_TYPES } from '../../lib/ci/limits'
-  import type { CiRepoConfigInfo } from '../../lib/ci/types'
+  import type { TeamCityCiRepoConfigInfo } from '../../lib/ci/types'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CiJobPicker from '../ci/CiJobPicker.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
@@ -32,7 +32,7 @@
 
   // The SHARED shape (renderer mirror of the preload CiConfigInfo) — an inline
   // copy already drifted once, reading a field the copy didn't declare.
-  let existingConfig = $state<CiRepoConfigInfo | null>(null)
+  let existingConfig = $state<TeamCityCiRepoConfigInfo | null>(null)
   /** Set when a ci block exists but could not be used — shown so the advertised
       fix-and-re-save path names what is wrong. The scope picks the ONE recovery
       route to offer (file → hand-edit, Save disabled; block → re-save replaces). */
@@ -92,7 +92,7 @@
     if (repoRoot) {
       try {
         const res = await window.api.ciConfig(repoRoot)
-        existingConfig = res.config
+        existingConfig = res.config?.provider === 'teamcity' ? res.config : null
         // A block that EXISTS but cannot be used — this modal is the advertised
         // fix path, so it must show what is wrong instead of opening as if the
         // repo had never been configured.

@@ -39,7 +39,9 @@ export function toggleMultiValue(param: CiParameter, value: string, option: stri
 }
 
 export function missingRequired(params: CiParameter[], values: Record<string, string>): string[] {
-  return params.filter((p) => p.required && (values[p.name] ?? '').trim() === '').map((p) => p.name)
+  return params
+    .filter((p) => p.required && !p.hasDefault && (values[p.name] ?? '').trim() === '')
+    .map((p) => p.name)
 }
 
 export function toProperties(
@@ -55,4 +57,23 @@ export function toProperties(
       .filter((p) => !(p.kind === 'password' && (values[p.name] ?? '') === ''))
       .map((p) => ({ name: p.name, value: values[p.name] ?? '' }))
   )
+}
+
+export function toInputs(
+  params: CiParameter[],
+  values: Record<string, string>,
+): Record<string, string | boolean> {
+  const entries: Array<[string, string | boolean]> = []
+  for (const param of params) {
+    const value = values[param.name] ?? ''
+    if (param.valueType === 'boolean') {
+      if (value !== 'true' && value !== 'false') {
+        throw new Error(`Invalid boolean value for ${param.name}`)
+      }
+      entries.push([param.name, value === 'true'])
+    } else if (value !== '' || (param.required && !param.hasDefault)) {
+      entries.push([param.name, value])
+    }
+  }
+  return Object.fromEntries(entries)
 }

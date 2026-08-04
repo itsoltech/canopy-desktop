@@ -15,7 +15,7 @@
   // managed from the CI/CD sidebar section — not here. Kept as a separate Settings
   // section from the Project management connections on purpose.
 
-  let servers = $state<Array<{ baseUrl: string; username?: string }>>([])
+  let servers = $state<Array<{ provider: string; baseUrl: string; username?: string }>>([])
   let editing = $state<string | null>(null) // '__new__' or the server baseUrl
   let formUrl = $state('')
   let formToken = $state('')
@@ -39,7 +39,9 @@
   async function reloadServers(): Promise<void> {
     try {
       const all = await window.api.keychainListCredentials()
-      servers = all.filter((c) => c.provider === 'teamcity')
+      servers = all.filter(
+        (connection) => connection.provider === 'teamcity' || connection.provider === 'github',
+      )
     } catch {
       servers = []
     }
@@ -52,7 +54,8 @@
     testResult = ''
   }
 
-  function startEdit(server: { baseUrl: string }): void {
+  function startEdit(server: { provider: string; baseUrl: string }): void {
+    if (server.provider !== 'teamcity') return
     editing = server.baseUrl
     formUrl = server.baseUrl
     formToken = ''
@@ -134,7 +137,7 @@
     }
   }
 
-  async function removeServer(server: { baseUrl: string }): Promise<void> {
+  async function removeServer(server: { provider: string; baseUrl: string }): Promise<void> {
     if (removingServer) return
     // Guard set before the await — that is what blocks a second confirm. The
     // VISIBLE busy state (removingUrl) waits for the answer: a spinner while the
@@ -144,16 +147,16 @@
     try {
       const ok = await confirm({
         title: 'Remove CI connection',
-        message: `Remove your stored token for TeamCity at ${server.baseUrl}?`,
+        message: `Remove your stored token for ${server.provider === 'github' ? 'GitHub' : 'TeamCity'} at ${server.baseUrl}?`,
         details:
           'Clears the token on this machine only. Repositories that configure this server will show a reconnect hint until a new token is saved.',
         confirmLabel: 'Remove connection',
         destructive: true,
       })
       if (!ok) return
-      removingUrl = server.baseUrl
+      removingUrl = `${server.provider}:${server.baseUrl}`
       try {
-        await window.api.keychainDeleteCredentials('teamcity', server.baseUrl)
+        await window.api.keychainDeleteCredentials(server.provider, server.baseUrl)
       } catch (e) {
         addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
         return
@@ -176,7 +179,7 @@
       <p class="text-sm text-text-faint m-0">No CI connections yet.</p>
     {/if}
 
-    {#each servers as server (server.baseUrl)}
+    {#each servers as server (`${server.provider}:${server.baseUrl}`)}
       {#if editing === server.baseUrl}
         <CiServerForm
           bind:url={formUrl}
@@ -195,12 +198,18 @@
         <div class="flex items-center gap-1">
           <button
             type="button"
-            class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm font-inherit cursor-pointer text-left hover:border-border min-w-0"
+            class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm font-inherit cursor-pointer text-left enabled:hover:border-border disabled:cursor-default min-w-0"
             onclick={() => startEdit(server)}
-            title="Update the stored token for this server"
+            disabled={server.provider !== 'teamcity'}
+            title={server.provider === 'teamcity'
+              ? 'Update the stored token for this server'
+              : 'GitHub token — update it from a repository GitHub Actions configurator'}
           >
-            <span class="inline-flex items-center shrink-0 text-text-muted" title="TeamCity">
-              <TrackerProviderIcon provider="teamcity" size={14} />
+            <span
+              class="inline-flex items-center shrink-0 text-text-muted"
+              title={server.provider === 'github' ? 'GitHub' : 'TeamCity'}
+            >
+              <TrackerProviderIcon provider={server.provider} size={14} />
             </span>
             <span class="flex-1 text-text-secondary truncate" title={server.baseUrl}
               >{server.baseUrl}</span
@@ -221,15 +230,15 @@
             class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
             onclick={() => removeServer(server)}
             aria-disabled={removingUrl !== ''}
-            aria-busy={removingUrl === server.baseUrl}
+            aria-busy={removingUrl === `${server.provider}:${server.baseUrl}`}
             aria-label="Remove CI connection"
             title={removingUrl !== ''
-              ? removingUrl === server.baseUrl
+              ? removingUrl === `${server.provider}:${server.baseUrl}`
                 ? 'Removing…'
                 : 'Disabled while another connection is being removed'
               : 'Remove the stored token for this server'}
           >
-            {#if removingUrl === server.baseUrl}
+            {#if removingUrl === `${server.provider}:${server.baseUrl}`}
               <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
             {:else}
               <Trash2 size={12} />

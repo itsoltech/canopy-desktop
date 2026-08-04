@@ -7,6 +7,7 @@ import {
   toggleMultiValue,
   missingRequired,
   toProperties,
+  toInputs,
 } from './runBuildForm'
 
 function param(overrides: Partial<CiParameter>): CiParameter {
@@ -105,6 +106,13 @@ describe('missingRequired', () => {
       missingRequired(params, { AppVersion: '1.2.3', Environment: 'Test', Optional: '' }),
     ).toEqual([])
   })
+
+  it('allows an explicit empty workflow default to satisfy a required input', () => {
+    const parameter = param({ name: 'notes', required: true, hasDefault: true })
+
+    expect(missingRequired([parameter], { notes: '' })).toEqual([])
+    expect(toInputs([parameter], { notes: '' })).toEqual({})
+  })
 })
 
 describe('toProperties', () => {
@@ -127,5 +135,30 @@ describe('toProperties', () => {
       { name: 'DeployKey', value: 'typed-secret' },
       { name: 'Env', value: 'Test' },
     ])
+  })
+})
+
+describe('toInputs', () => {
+  it('keeps GitHub boolean values typed and omits blank optional strings', () => {
+    const params = [
+      param({
+        name: 'dry_run',
+        kind: 'checkbox',
+        valueType: 'boolean',
+        checkedValue: 'true',
+        uncheckedValue: 'false',
+      }),
+      param({ name: 'notes', valueType: 'string' }),
+      param({ name: 'channel', kind: 'select', valueType: 'string', required: true }),
+    ]
+    expect(toInputs(params, { dry_run: 'true', notes: '', channel: 'next' })).toEqual({
+      dry_run: true,
+      channel: 'next',
+    })
+    expect(toInputs(params, { dry_run: 'false', notes: 'safe', channel: 'next' })).toEqual({
+      dry_run: false,
+      notes: 'safe',
+      channel: 'next',
+    })
   })
 })

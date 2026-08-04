@@ -3,9 +3,9 @@ import type { Result } from 'neverthrow'
 import type { GitHubError } from './errors'
 import type { RepoIdentifier } from './types'
 
-const SSH_SHORTHAND = /^git@([^:]+):([^/]+)\/([^/.]+?)(?:\.git)?$/
-const HTTPS_URL = /^https?:\/\/([^/]+)\/([^/]+)\/([^/.]+?)(?:\.git)?$/
-const SSH_URL = /^ssh:\/\/git@([^/]+)\/([^/]+)\/([^/.]+?)(?:\.git)?$/
+const SSH_SHORTHAND = /^git@([^:]+):([^/]+)\/([^/]+?)(?:\.git)?$/
+const HTTPS_URL = /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+?)(?:\.git)?$/
+const SSH_URL = /^ssh:\/\/git@([^/]+)\/([^/]+)\/([^/]+?)(?:\.git)?$/
 
 // Strip any embedded `userinfo@` credentials from a captured host (e.g. a
 // remote configured as `https://x-access-token:ghp_TOKEN@github.com/o/r`) so a

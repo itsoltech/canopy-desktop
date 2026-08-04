@@ -73,7 +73,8 @@
     "tailwindcss": "^4.2.4",
     "ts-pattern": "^5.9.0",
     "turndown": "^7.2.4",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",

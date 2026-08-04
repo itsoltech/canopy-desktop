@@ -1368,8 +1368,33 @@ const api = {
       Array<{ provider: string; baseUrl: string; username?: string }>
     >,
 
-  // CI (TeamCity)
+  // CI/CD
   ciConfig: (repoRoot: string) => ipcRenderer.invoke('ci:config', { repoRoot }),
+  ciGitHubSetup: (repoRoot: string) => ipcRenderer.invoke('ci:githubSetup', { repoRoot }),
+  ciTestGitHubConnection: (repoRoot: string, token: string) =>
+    ipcRenderer.invoke('ci:testGitHubConnection', { repoRoot, token }),
+  ciSetGitHubCredential: (repoRoot: string, token: string) =>
+    ipcRenderer.invoke('ci:setGitHubCredential', { repoRoot, token }),
+  ciJobsStatus: (repoRoot: string, ref: { name: string; kind: 'branch' | 'tag' }) =>
+    ipcRenderer.invoke('ci:jobsStatus', { repoRoot, ref }),
+  ciJobRefs: (repoRoot: string, jobId: string) =>
+    ipcRenderer.invoke('ci:jobRefs', { repoRoot, jobId }),
+  ciJobParameters: (
+    repoRoot: string,
+    jobId: string,
+    ref: { name: string; kind: 'branch' | 'tag' },
+  ) => ipcRenderer.invoke('ci:jobParameters', { repoRoot, jobId, ref }),
+  ciTriggerJob: (
+    repoRoot: string,
+    request: {
+      jobId: string
+      ref: { name: string; kind: 'branch' | 'tag' }
+      schemaRevision?: string
+      inputs: Record<string, string | boolean>
+    },
+  ) => ipcRenderer.invoke('ci:triggerJob', { repoRoot, ...request }),
+  ciRunActivity: (repoRoot: string) => ipcRenderer.invoke('ci:runActivity', { repoRoot }),
+  ciRun: (repoRoot: string, runId: string) => ipcRenderer.invoke('ci:run', { repoRoot, runId }),
   ciStatus: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('ci:status', { repoRoot, branch }),
   ciTrigger: (
@@ -1390,7 +1415,19 @@ const api = {
   ciListBuildTypes: (baseUrl: string) => ipcRenderer.invoke('ci:listBuildTypes', { baseUrl }),
   ciSaveConfig: (
     repoRoot: string,
-    ci: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null,
+    ci:
+      | {
+          provider?: 'teamcity'
+          baseUrl: string
+          buildTypes: Array<{ id: string; label: string }>
+        }
+      | {
+          provider: 'github-actions'
+          baseUrl: 'https://github.com'
+          repository: string
+          workflows: Array<{ path: string; label: string }>
+        }
+      | null,
   ) => ipcRenderer.invoke('ci:saveConfig', { repoRoot, ci }),
 
   // Task Tracker

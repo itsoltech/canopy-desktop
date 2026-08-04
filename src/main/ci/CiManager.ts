@@ -1,15 +1,26 @@
-import { ResultAsync, errAsync, okAsync, type Result } from 'neverthrow'
+import { ResultAsync, err, errAsync, ok, okAsync, type Result } from 'neverthrow'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
+import { GitRepository } from '../git/GitRepository'
+import { parseGitHubRemote } from '../github/remoteUrl'
 import type {
   CiActivity,
   CiBuildStatus,
   CiBuildTypeStatus,
   CiConfig,
+  CiJobStatus,
   CiParameter,
+  CiParameterSet,
+  CiRef,
+  CiRun,
+  CiRunActivity,
+  CiRunTriggerResult,
+  GitHubActionsSetupInfo,
   CiServerBuildType,
+  CiTriggerRequest,
   CiTriggerResult,
+  TeamCityCiConfig,
 } from './types'
 import type { CiError } from './errors'
 import { ciErrorMessage } from './errors'
@@ -23,6 +34,68 @@ import {
   fetchPromptParameters,
   triggerBuild,
 } from './teamcity'
+import { GitHubActionsClient } from './github-actions/client'
+import { discoverGitHubWorkflows, GitHubActionsAdapter } from './providers/github-actions'
+import { TeamCityAdapter } from './providers/teamcity'
+import type { CiProviderAdapter } from './providers/types'
+
+type RemoteUrlResolver = (repoRoot: string) => ResultAsync<string, unknown>
+type GitHubClientFactory = (owner: string, repository: string, token: string) => GitHubActionsClient
+
+export interface CiDispatchConfirmation {
+  repository: string
+  workflowPath: string
+  workflowLabel: string
+  ref: CiRef
+  inputs: Record<string, string | boolean>
+}
+
+export type ConfirmCiDispatch = (details: CiDispatchConfirmation) => Promise<boolean>
+
+function validateConfirmationInputs(
+  parameters: CiParameter[],
+  inputs: Record<string, string | boolean>,
+): Result<void, CiError> {
+  const definitions = new Map(parameters.map((parameter) => [parameter.name, parameter]))
+  for (const [name, value] of Object.entries(inputs)) {
+    const parameter = definitions.get(name)
+    if (!parameter) {
+      return err({
+        _tag: 'CiWorkflowSchemaInvalid',
+        reason: `workflow input ${name} is not declared`,
+      })
+    }
+    if (parameter.valueType === 'boolean') {
+      if (typeof value !== 'boolean') {
+        return err({
+          _tag: 'CiWorkflowSchemaInvalid',
+          reason: `workflow input ${name} must be boolean`,
+        })
+      }
+      continue
+    }
+    if (typeof value !== 'string') {
+      return err({ _tag: 'CiWorkflowSchemaInvalid', reason: `workflow input ${name} must be text` })
+    }
+    if (parameter.options && value && !parameter.options.includes(value)) {
+      return err({
+        _tag: 'CiWorkflowSchemaInvalid',
+        reason: `workflow input ${name} is not an allowed option`,
+      })
+    }
+  }
+  for (const parameter of parameters) {
+    if (!parameter.required || parameter.hasDefault) continue
+    const value = inputs[parameter.name]
+    if (value === undefined || value === '') {
+      return err({
+        _tag: 'CiWorkflowSchemaInvalid',
+        reason: `workflow input ${parameter.name} is required`,
+      })
+    }
+  }
+  return ok(undefined)
+}
 
 /**
  * Glue between the repo config, the keychain and the TeamCity client. The base URL
@@ -39,6 +112,10 @@ export class CiManager {
   constructor(
     private repoConfigManager: RepoConfigManager,
     private tokenStore: KeychainTokenStore,
+    private remoteUrlResolver: RemoteUrlResolver = (repoRoot) =>
+      GitRepository.getRemoteUrl(repoRoot),
+    private githubClientFactory: GitHubClientFactory = (owner, repository, token) =>
+      new GitHubActionsClient(owner, repository, token),
   ) {}
 
   loadConfig(repoRoot: string): ResultAsync<CiConfig, CiError> {
@@ -53,15 +130,22 @@ export class CiManager {
         if (cfg.ci == null) return errAsync<CiConfig, CiError>({ _tag: 'CiNotConfigured' })
         const parsed = parseCiConfig(cfg.ci)
         if (parsed.config) return okAsync(parsed.config)
+        const provider =
+          cfg.ci && typeof cfg.ci === 'object'
+            ? (cfg.ci as { provider?: unknown }).provider
+            : undefined
+        const providerHint =
+          provider === 'teamcity' || provider === 'github-actions' ? provider : undefined
         // When EVERY entry is a typo (a bulk rename), the names must still reach
         // the user — a generic "unrecognized shape" would steer them at a Save
         // that deletes the entries with their names never shown.
         return errAsync<CiConfig, CiError>({
           _tag: 'CiConfigInvalid',
           scope: 'block',
+          provider: providerHint,
           reason:
             parsed.invalidIds.length > 0
-              ? `invalid build type ids — fix them in the ci block: ${parsed.invalidIds
+              ? `${providerHint === 'github-actions' ? 'invalid workflow paths' : 'invalid build type ids'} — fix them in the ci block: ${parsed.invalidIds
                   .slice(0, DROPPED_ID_SAMPLE)
                   .join(', ')}`
               : 'unrecognized ci block shape',
@@ -74,8 +158,135 @@ export class CiManager {
     return creds?.token ? okAsync(creds.token) : errAsync({ _tag: 'CiAuthMissing', baseUrl })
   }
 
-  private tokenFor(ci: CiConfig): ResultAsync<string, CiError> {
+  private tokenFor(ci: TeamCityCiConfig): ResultAsync<string, CiError> {
     return this.tokenForUrl(ci.baseUrl)
+  }
+
+  private githubToken(): ResultAsync<string, CiError> {
+    const baseUrl = 'https://github.com'
+    const creds = this.tokenStore.getCredentials('github', baseUrl)
+    return creds?.token
+      ? okAsync(creds.token)
+      : errAsync({ _tag: 'CiAuthMissing', baseUrl, provider: 'github-actions' })
+  }
+
+  private githubClientForWorkspace(
+    repoRoot: string,
+    candidateToken?: string,
+  ): ResultAsync<{ repository: string; client: GitHubActionsClient }, CiError> {
+    return this.remoteUrlResolver(repoRoot)
+      .mapErr((): CiError => ({
+        _tag: 'CiApiError',
+        status: 0,
+        message: 'Could not resolve the GitHub remote for this workspace',
+        provider: 'github-actions',
+      }))
+      .andThen((remoteUrl) => {
+        const parsed = parseGitHubRemote(remoteUrl)
+        if (parsed.isErr() || parsed.value.host.toLowerCase() !== 'github.com') {
+          return errAsync<{ repository: string; client: GitHubActionsClient }, CiError>({
+            _tag: 'CiRepositoryMismatch',
+            expected: 'github.com workspace remote',
+            actual: parsed.isOk() ? parsed.value.host : 'non-GitHub remote',
+          })
+        }
+        const repository = `${parsed.value.owner}/${parsed.value.repo}`
+        const makeClient = (
+          token: string,
+        ): { repository: string; client: GitHubActionsClient } => ({
+          repository,
+          client: this.githubClientFactory(parsed.value.owner, parsed.value.repo, token),
+        })
+        return candidateToken
+          ? okAsync(makeClient(candidateToken))
+          : this.githubToken().map(makeClient)
+      })
+  }
+
+  private adapterForConfig(
+    repoRoot: string,
+    ci: CiConfig,
+  ): ResultAsync<{ ci: CiConfig; adapter: CiProviderAdapter }, CiError> {
+    if (ci.provider === 'teamcity') {
+      return this.tokenFor(ci).map((token) => ({
+        ci,
+        adapter: new TeamCityAdapter(ci, token),
+      }))
+    }
+
+    return this.remoteUrlResolver(repoRoot)
+      .mapErr((): CiError => ({
+        _tag: 'CiApiError',
+        status: 0,
+        message: 'Could not resolve the GitHub remote for this workspace',
+        provider: 'github-actions',
+      }))
+      .andThen((remoteUrl) => {
+        const parsed = parseGitHubRemote(remoteUrl)
+        if (parsed.isErr()) {
+          return errAsync<{ ci: CiConfig; adapter: CiProviderAdapter }, CiError>({
+            _tag: 'CiRepositoryMismatch',
+            expected: ci.repository,
+            actual: 'non-GitHub remote',
+          })
+        }
+        const actual = `${parsed.value.owner}/${parsed.value.repo}`
+        if (
+          parsed.value.host.toLowerCase() !== 'github.com' ||
+          actual.toLowerCase() !== ci.repository.toLowerCase()
+        ) {
+          return errAsync<{ ci: CiConfig; adapter: CiProviderAdapter }, CiError>({
+            _tag: 'CiRepositoryMismatch',
+            expected: ci.repository,
+            actual: `${parsed.value.host}/${actual}`,
+          })
+        }
+        return this.githubToken().map((token) => ({
+          ci,
+          adapter: new GitHubActionsAdapter(
+            ci,
+            this.githubClientFactory(parsed.value.owner, parsed.value.repo, token),
+          ),
+        }))
+      })
+  }
+
+  private adapter(
+    repoRoot: string,
+  ): ResultAsync<{ ci: CiConfig; adapter: CiProviderAdapter }, CiError> {
+    return this.loadConfig(repoRoot).andThen((ci) => this.adapterForConfig(repoRoot, ci))
+  }
+
+  private validateGitHubWorkspace(
+    repoRoot: string,
+    expectedRepository: string,
+  ): ResultAsync<void, CiError> {
+    return this.remoteUrlResolver(repoRoot)
+      .mapErr((): CiError => ({
+        _tag: 'CiApiError',
+        status: 0,
+        message: 'Could not resolve the GitHub remote for this workspace',
+        provider: 'github-actions',
+      }))
+      .andThen((remoteUrl) => {
+        const parsed = parseGitHubRemote(remoteUrl)
+        const actual = parsed.isOk()
+          ? `${parsed.value.host}/${parsed.value.owner}/${parsed.value.repo}`
+          : 'non-GitHub remote'
+        if (
+          parsed.isErr() ||
+          parsed.value.host.toLowerCase() !== 'github.com' ||
+          `${parsed.value.owner}/${parsed.value.repo}`.toLowerCase() !==
+            expectedRepository.toLowerCase()
+        ) {
+          return errAsync<void, CiError>({
+            _tag: 'CiRepositoryMismatch',
+            expected: expectedRepository,
+            actual,
+          })
+        }
+        return okAsync(undefined)
+      })
   }
 
   /**
@@ -84,6 +295,14 @@ export class CiManager {
    * every 10–45 s) don't pay a second config read per tick.
    */
   statusFor(ci: CiConfig, branch: string): ResultAsync<CiBuildTypeStatus[], CiError> {
+    if (ci.provider !== 'teamcity') {
+      return errAsync({
+        _tag: 'CiApiError',
+        status: 0,
+        message: 'Use provider-neutral status for GitHub Actions',
+        provider: 'github-actions',
+      })
+    }
     return this.tokenFor(ci).andThen((token) =>
       ResultAsync.combine(
         ci.buildTypes.map((bt) =>
@@ -133,22 +352,29 @@ export class CiManager {
   /** Activity limited to build configurations selected in this repository's CI config. */
   activity(repoRoot: string): ResultAsync<CiActivity, CiError> {
     return this.loadConfig(repoRoot).andThen((ci) =>
-      this.tokenFor(ci).andThen((token) =>
-        fetchActivity(
-          ci.baseUrl,
-          token,
-          ci.buildTypes.map((bt) => bt.id),
-        ).map((activity) => {
-          const configured = new Set(ci.buildTypes.map((bt) => bt.id))
-          const keepConfigured = (build: CiActivity['recent'][number]): boolean =>
-            configured.has(build.buildTypeId)
-          return {
-            running: activity.running.filter(keepConfigured),
-            queued: activity.queued.filter(keepConfigured),
-            recent: activity.recent.filter(keepConfigured),
-          }
-        }),
-      ),
+      ci.provider !== 'teamcity'
+        ? errAsync<CiActivity, CiError>({
+            _tag: 'CiApiError',
+            status: 0,
+            message: 'Use provider-neutral activity for GitHub Actions',
+            provider: 'github-actions',
+          })
+        : this.tokenFor(ci).andThen((token) =>
+            fetchActivity(
+              ci.baseUrl,
+              token,
+              ci.buildTypes.map((bt) => bt.id),
+            ).map((activity) => {
+              const configured = new Set(ci.buildTypes.map((bt) => bt.id))
+              const keepConfigured = (build: CiActivity['recent'][number]): boolean =>
+                configured.has(build.buildTypeId)
+              return {
+                running: activity.running.filter(keepConfigured),
+                queued: activity.queued.filter(keepConfigured),
+                recent: activity.recent.filter(keepConfigured),
+              }
+            }),
+          ),
     )
   }
 
@@ -164,16 +390,27 @@ export class CiManager {
   private requireConfiguredBuildType(
     repoRoot: string,
     buildTypeId: string,
-  ): ResultAsync<{ ci: CiConfig; token: string }, CiError> {
+  ): ResultAsync<{ ci: TeamCityCiConfig; token: string }, CiError> {
     return this.loadConfig(repoRoot).andThen((ci) => {
+      if (ci.provider !== 'teamcity') {
+        return errAsync<{ ci: TeamCityCiConfig; token: string }, CiError>({
+          _tag: 'CiApiError',
+          status: 0,
+          message: 'This endpoint is only available for TeamCity',
+          provider: 'github-actions',
+        })
+      }
       if (!ci.buildTypes.some((bt) => bt.id === buildTypeId)) {
-        return errAsync<{ ci: CiConfig; token: string }, CiError>({
+        return errAsync<{ ci: TeamCityCiConfig; token: string }, CiError>({
           _tag: 'CiApiError',
           status: 0,
           message: `Build type ${buildTypeId} is not configured for this repository`,
         })
       }
-      return this.tokenFor(ci).map((token) => ({ ci, token }))
+      return this.tokenFor(ci).map((token): { ci: TeamCityCiConfig; token: string } => ({
+        ci,
+        token,
+      }))
     })
   }
 
@@ -199,6 +436,15 @@ export class CiManager {
    * same behavior as the Project tracker init flow. Serialized per repo.
    */
   saveConfig(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
+    if (ci?.provider === 'github-actions') {
+      return this.validateGitHubWorkspace(repoRoot, ci.repository).andThen(() =>
+        this.enqueueSaveConfig(repoRoot, ci),
+      )
+    }
+    return this.enqueueSaveConfig(repoRoot, ci)
+  }
+
+  private enqueueSaveConfig(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
     const prev = this.saveChains.get(repoRoot) ?? Promise.resolve()
     const run: Promise<Result<void, CiError>> = prev.then(
       () => this.performSaveConfig(repoRoot, ci),
@@ -243,7 +489,158 @@ export class CiManager {
 
   build(repoRoot: string, buildId: number): ResultAsync<CiBuildStatus, CiError> {
     return this.loadConfig(repoRoot).andThen((ci) =>
-      this.tokenFor(ci).andThen((token) => fetchBuild(ci.baseUrl, token, buildId)),
+      ci.provider === 'teamcity'
+        ? this.tokenFor(ci).andThen((token) => fetchBuild(ci.baseUrl, token, buildId))
+        : errAsync<CiBuildStatus, CiError>({
+            _tag: 'CiApiError',
+            status: 0,
+            message: 'Use provider-neutral run lookup for GitHub Actions',
+            provider: 'github-actions',
+          }),
     )
+  }
+
+  jobsStatus(repoRoot: string, ref: CiRef): ResultAsync<CiJobStatus[], CiError> {
+    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.status(ref))
+  }
+
+  jobRefs(repoRoot: string, jobId: string): ResultAsync<CiRef[], CiError> {
+    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.refs(jobId))
+  }
+
+  jobParameters(repoRoot: string, jobId: string, ref: CiRef): ResultAsync<CiParameterSet, CiError> {
+    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.parameters(jobId, ref))
+  }
+
+  runActivity(repoRoot: string): ResultAsync<CiRunActivity, CiError> {
+    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.activity())
+  }
+
+  runById(repoRoot: string, runId: string): ResultAsync<CiRun, CiError> {
+    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.run(runId))
+  }
+
+  githubSetup(repoRoot: string): ResultAsync<GitHubActionsSetupInfo, CiError> {
+    return this.githubClientForWorkspace(repoRoot).andThen(({ repository, client }) =>
+      client.getRepository().andThen((metadata) => {
+        if (metadata.fullName.toLowerCase() !== repository.toLowerCase()) {
+          return errAsync<GitHubActionsSetupInfo, CiError>({
+            _tag: 'CiRepositoryMismatch',
+            expected: repository,
+            actual: metadata.fullName,
+          })
+        }
+        return discoverGitHubWorkflows(client, metadata.defaultBranch).map((workflows) => ({
+          repository: metadata.fullName.toLowerCase(),
+          defaultBranch: metadata.defaultBranch,
+          workflows,
+        }))
+      }),
+    )
+  }
+
+  testGitHubConnection(repoRoot: string, token: string): ResultAsync<void, CiError> {
+    return this.githubClientForWorkspace(repoRoot, token).andThen(({ repository, client }) =>
+      client.getRepository().andThen((metadata) =>
+        metadata.fullName.toLowerCase() === repository.toLowerCase()
+          ? okAsync(undefined)
+          : errAsync<void, CiError>({
+              _tag: 'CiRepositoryMismatch',
+              expected: repository,
+              actual: metadata.fullName,
+            }),
+      ),
+    )
+  }
+
+  saveGitHubCredential(repoRoot: string, token: string): ResultAsync<void, CiError> {
+    return this.githubClientForWorkspace(repoRoot, token).andThen(() =>
+      ResultAsync.fromPromise(
+        Promise.resolve().then(() => {
+          this.tokenStore.setCredentials('github', 'https://github.com', token)
+        }),
+        (): CiError => ({
+          _tag: 'CiApiError',
+          status: 0,
+          message: 'Could not store the GitHub token',
+          provider: 'github-actions',
+        }),
+      ),
+    )
+  }
+
+  private triggerChains = new Map<string, Promise<Result<CiRunTriggerResult, CiError>>>()
+
+  triggerJob(
+    repoRoot: string,
+    request: CiTriggerRequest,
+    confirm?: ConfirmCiDispatch,
+  ): ResultAsync<CiRunTriggerResult, CiError> {
+    const orderedInputs = Object.fromEntries(
+      Object.entries(request.inputs).sort(([left], [right]) => left.localeCompare(right)),
+    )
+    const key = JSON.stringify([
+      repoRoot,
+      request.jobId,
+      request.ref,
+      request.schemaRevision,
+      orderedInputs,
+    ])
+    const existing = this.triggerChains.get(key)
+    if (existing) return new ResultAsync(existing)
+
+    const run = this.performTriggerJob(repoRoot, request, confirm)
+    this.triggerChains.set(key, run)
+    void run.finally(() => {
+      if (this.triggerChains.get(key) === run) this.triggerChains.delete(key)
+    })
+    return new ResultAsync(run)
+  }
+
+  private async performTriggerJob(
+    repoRoot: string,
+    request: CiTriggerRequest,
+    confirm?: ConfirmCiDispatch,
+  ): Promise<Result<CiRunTriggerResult, CiError>> {
+    const context = await this.adapter(repoRoot)
+    if (context.isErr()) return err(context.error)
+    if (context.value.ci.provider === 'github-actions') {
+      const refs = await context.value.adapter.refs(request.jobId)
+      if (refs.isErr()) return err(refs.error)
+      const sameName = refs.value.filter((ref) => ref.name === request.ref.name)
+      const resolved = sameName.find((ref) => ref.kind === request.ref.kind)
+      if (!resolved || sameName.length !== 1) {
+        return err({
+          _tag: 'CiApiError',
+          status: 0,
+          message: `GitHub ref ${request.ref.name} is missing or ambiguous`,
+          provider: 'github-actions',
+        })
+      }
+      const parameters = await context.value.adapter.parameters(request.jobId, resolved)
+      if (parameters.isErr()) return err(parameters.error)
+      if (!request.schemaRevision || parameters.value.schemaRevision !== request.schemaRevision) {
+        return err({ _tag: 'CiWorkflowSchemaChanged' })
+      }
+      const validatedInputs = validateConfirmationInputs(
+        parameters.value.parameters,
+        request.inputs,
+      )
+      if (validatedInputs.isErr()) return err(validatedInputs.error)
+      const workflow = context.value.ci.workflows.find((item) => item.path === request.jobId)
+      if (!workflow)
+        return err({ _tag: 'CiWorkflowSchemaInvalid', reason: 'workflow is not configured' })
+      if (!confirm) return err({ _tag: 'CiDispatchCancelled' })
+      const accepted = await confirm({
+        repository: context.value.ci.repository,
+        workflowPath: workflow.path,
+        workflowLabel: workflow.label,
+        ref: resolved,
+        inputs: request.inputs,
+      })
+      if (!accepted) return err({ _tag: 'CiDispatchCancelled' })
+      request = { ...request, ref: resolved }
+    }
+    return context.value.adapter.trigger(request)
   }
 }

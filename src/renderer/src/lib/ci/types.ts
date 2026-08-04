@@ -39,7 +39,7 @@ export interface CiBuildTypeStatus {
 }
 
 /** `ci:config`'s parsed-config shape (mirror of the preload `CiConfigInfo`). */
-export interface CiRepoConfigInfo {
+export interface TeamCityCiRepoConfigInfo {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: Array<{ id: string; label: string }>
@@ -48,6 +48,17 @@ export interface CiRepoConfigInfo {
   /** Valid entries beyond the parse cap — recovery is re-ticking in the picker. */
   droppedOverCap?: { count: number; ids: string[] }
 }
+
+export interface GitHubActionsCiRepoConfigInfo {
+  provider: 'github-actions'
+  baseUrl: 'https://github.com'
+  repository: string
+  workflows: Array<{ path: string; label: string }>
+  droppedInvalid?: { count: number; ids: string[] }
+  droppedOverCap?: { count: number; ids: string[] }
+}
+
+export type CiRepoConfigInfo = TeamCityCiRepoConfigInfo | GitHubActionsCiRepoConfigInfo
 
 export interface CiParameter {
   name: string
@@ -61,4 +72,48 @@ export interface CiParameter {
   valueSeparator: string
   checkedValue: string | undefined
   uncheckedValue: string | undefined
+  valueType?: 'string' | 'boolean'
+  hasDefault?: boolean
+}
+
+export interface CiRef {
+  name: string
+  kind: 'branch' | 'tag'
+  commitSha?: string
+}
+
+export interface CiParameterSet {
+  parameters: CiParameter[]
+  schemaRevision: string
+}
+
+export interface CiRun {
+  provider: 'teamcity' | 'github-actions'
+  runId: string
+  number: string | undefined
+  jobId: string
+  jobLabel: string
+  state: 'queued' | 'running' | 'waiting' | 'finished' | 'unknown'
+  conclusion: 'success' | 'failure' | 'cancelled' | 'neutral' | 'unknown'
+  statusText: string | undefined
+  webUrl: string
+  ref: CiRef | undefined
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
+}
+
+export interface CiJobStatus {
+  jobId: string
+  label: string
+  provider: 'teamcity' | 'github-actions'
+  run: CiRun | null
+  error?: string
+}
+
+export interface CiRunActivity {
+  running: CiRun[]
+  queued: CiRun[]
+  recent: CiRun[]
+  partialErrors?: string[]
 }

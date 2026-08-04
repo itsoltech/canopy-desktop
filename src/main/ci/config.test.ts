@@ -1,26 +1,113 @@
 import { describe, expect, it } from 'vitest'
 import { parseCiConfig } from './config'
+import type { CiConfig, TeamCityCiConfig } from './types'
+
+function teamcity(config: CiConfig | undefined): TeamCityCiConfig {
+  expect(config?.provider).toBe('teamcity')
+  if (config?.provider !== 'teamcity') throw new Error('Expected TeamCity config')
+  return config
+}
 
 describe('parseCiConfig', () => {
+  it('accepts a GitHub Actions config and normalizes repository workflow entries', () => {
+    expect(
+      parseCiConfig({
+        provider: 'github-actions',
+        baseUrl: 'https://github.com/',
+        repository: 'itsoltech/canopy-desktop',
+        workflows: [
+          { path: '.github/workflows/release.yml', label: ' Release ' },
+          { path: '.github/workflows/tests.yaml' },
+        ],
+      }).config,
+    ).toEqual({
+      provider: 'github-actions',
+      baseUrl: 'https://github.com',
+      repository: 'itsoltech/canopy-desktop',
+      workflows: [
+        { path: '.github/workflows/release.yml', label: 'Release' },
+        { path: '.github/workflows/tests.yaml', label: 'tests' },
+      ],
+    })
+  })
+
+  it('fails closed for non-GitHub.com origins, malformed repositories and unsafe workflows', () => {
+    const invalid = [
+      { baseUrl: 'https://github.example.com', repository: 'itsoltech/canopy-desktop' },
+      { baseUrl: 'http://github.com', repository: 'itsoltech/canopy-desktop' },
+      { baseUrl: 'https://github.com', repository: 'itsoltech' },
+      { baseUrl: 'https://github.com', repository: '../canopy-desktop' },
+      {
+        baseUrl: 'https://github.com',
+        repository: 'itsoltech/canopy-desktop',
+        workflows: [{ path: `.github/workflows/${'a'.repeat(240)}.yml` }],
+      },
+    ]
+    for (const entry of invalid) {
+      expect(
+        parseCiConfig({
+          provider: 'github-actions',
+          workflows: [{ path: '.github/workflows/release.yml' }],
+          ...entry,
+        }).config,
+      ).toBeUndefined()
+    }
+
+    expect(
+      parseCiConfig({
+        provider: 'github-actions',
+        baseUrl: 'https://github.com',
+        repository: 'itsoltech/canopy-desktop',
+        workflows: [{ path: '.github/workflows/../release.yml' }],
+      }).config,
+    ).toBeUndefined()
+  })
+
+  it('deduplicates and caps GitHub workflows while preserving a warning', () => {
+    const parsed = parseCiConfig({
+      provider: 'github-actions',
+      baseUrl: 'https://github.com',
+      repository: 'itsoltech/canopy-desktop',
+      workflows: [
+        { path: '.github/workflows/release.yml', label: 'first' },
+        { path: '.github/workflows/release.yml', label: 'second' },
+        ...Array.from({ length: 55 }, (_, i) => ({ path: `.github/workflows/job-${i}.yml` })),
+      ],
+    }).config
+
+    expect(parsed?.provider).toBe('github-actions')
+    if (parsed?.provider !== 'github-actions') throw new Error('Expected GitHub Actions config')
+    expect(parsed.workflows).toHaveLength(50)
+    expect(parsed.workflows[0]).toEqual({
+      path: '.github/workflows/release.yml',
+      label: 'first',
+    })
+    expect(parsed.droppedOverCap?.count).toBe(6)
+  })
+
   it('collapses duplicate ids (first wins) and enforces the 50-entry cap', () => {
     // A hand-edited or committed file is untrusted input: without the cap, every
     // entry becomes an authenticated status fetch on every poll.
-    const dupes = parseCiConfig({
-      provider: 'teamcity',
-      baseUrl: 'https://x',
-      buildTypes: [{ id: 'A', label: 'first' }, { id: 'A', label: 'second' }, { id: 'B' }],
-    }).config
-    expect(dupes?.buildTypes).toEqual([
+    const dupes = teamcity(
+      parseCiConfig({
+        provider: 'teamcity',
+        baseUrl: 'https://x',
+        buildTypes: [{ id: 'A', label: 'first' }, { id: 'A', label: 'second' }, { id: 'B' }],
+      }).config,
+    )
+    expect(dupes.buildTypes).toEqual([
       { id: 'A', label: 'first' },
       { id: 'B', label: 'B' },
     ])
-    const many = parseCiConfig({
-      provider: 'teamcity',
-      baseUrl: 'https://x',
-      buildTypes: Array.from({ length: 200 }, (_, i) => ({ id: `Bt_${i}` })),
-    }).config
-    expect(many?.buildTypes).toHaveLength(50)
-    expect(many?.buildTypes[0]?.id).toBe('Bt_0')
+    const many = teamcity(
+      parseCiConfig({
+        provider: 'teamcity',
+        baseUrl: 'https://x',
+        buildTypes: Array.from({ length: 200 }, (_, i) => ({ id: `Bt_${i}` })),
+      }).config,
+    )
+    expect(many.buildTypes).toHaveLength(50)
+    expect(many.buildTypes[0]?.id).toBe('Bt_0')
     // NOT silent: the configurator announces the dropped entries (a capped sample
     // of names, exact count) before a Save would delete them from the file.
     expect(many?.droppedOverCap?.count).toBe(150)
@@ -33,15 +120,17 @@ describe('parseCiConfig', () => {
   it('keeps the two drop populations separate - their recoveries are opposite', () => {
     // Ten invalid ids must not crowd the over-cap names out of the sample: the
     // invalid ones need a fix-the-file message, the over-cap ones a re-tick.
-    const parsed = parseCiConfig({
-      provider: 'teamcity',
-      baseUrl: 'https://x',
-      buildTypes: [
-        ...Array.from({ length: 12 }, (_, i) => ({ id: `bad id ${i}` })),
-        ...Array.from({ length: 55 }, (_, i) => ({ id: `Bt_${i}` })),
-      ],
-    }).config
-    expect(parsed?.buildTypes).toHaveLength(50)
+    const parsed = teamcity(
+      parseCiConfig({
+        provider: 'teamcity',
+        baseUrl: 'https://x',
+        buildTypes: [
+          ...Array.from({ length: 12 }, (_, i) => ({ id: `bad id ${i}` })),
+          ...Array.from({ length: 55 }, (_, i) => ({ id: `Bt_${i}` })),
+        ],
+      }).config,
+    )
+    expect(parsed.buildTypes).toHaveLength(50)
     expect(parsed?.droppedInvalid?.count).toBe(12)
     expect(parsed?.droppedInvalid?.ids).toHaveLength(10)
     expect(parsed?.droppedOverCap?.count).toBe(5)
@@ -52,11 +141,13 @@ describe('parseCiConfig', () => {
     // The configurator filters these against the server's build types; a
     // truncated id can never match and would report a live job as deleted.
     const longId = `Deep_${'Nested_'.repeat(20)}Job`
-    const parsed = parseCiConfig({
-      provider: 'teamcity',
-      baseUrl: 'https://x',
-      buildTypes: [...Array.from({ length: 50 }, (_, i) => ({ id: `Bt_${i}` })), { id: longId }],
-    }).config
+    const parsed = teamcity(
+      parseCiConfig({
+        provider: 'teamcity',
+        baseUrl: 'https://x',
+        buildTypes: [...Array.from({ length: 50 }, (_, i) => ({ id: `Bt_${i}` })), { id: longId }],
+      }).config,
+    )
     expect(longId.length).toBeGreaterThan(80)
     expect(parsed?.droppedOverCap?.ids).toEqual([longId])
   })
@@ -75,12 +166,14 @@ describe('parseCiConfig', () => {
   })
 
   it('caps labels at 100 chars, like the IPC save path', () => {
-    const parsed = parseCiConfig({
-      provider: 'teamcity',
-      baseUrl: 'https://x',
-      buildTypes: [{ id: 'A', label: 'x'.repeat(500) }],
-    }).config
-    expect(parsed?.buildTypes[0]?.label).toHaveLength(100)
+    const parsed = teamcity(
+      parseCiConfig({
+        provider: 'teamcity',
+        baseUrl: 'https://x',
+        buildTypes: [{ id: 'A', label: 'x'.repeat(500) }],
+      }).config,
+    )
+    expect(parsed.buildTypes[0]?.label).toHaveLength(100)
   })
 
   it('accepts a valid teamcity config and normalizes the base URL', () => {
@@ -118,18 +211,20 @@ describe('parseCiConfig', () => {
   })
 
   it('drops build types with invalid ids and falls back to id as label', () => {
-    const { config: parsed } = parseCiConfig({
-      provider: 'teamcity',
-      baseUrl: 'https://tc.example.com',
-      buildTypes: [
-        { id: 'Gakko_Build' },
-        { id: 'has spaces' },
-        { id: 'evil),locator:(injection' },
-        null,
-        { label: 'no id' },
-      ],
-    })
-    expect(parsed?.buildTypes).toEqual([{ id: 'Gakko_Build', label: 'Gakko_Build' }])
+    const parsed = teamcity(
+      parseCiConfig({
+        provider: 'teamcity',
+        baseUrl: 'https://tc.example.com',
+        buildTypes: [
+          { id: 'Gakko_Build' },
+          { id: 'has spaces' },
+          { id: 'evil),locator:(injection' },
+          null,
+          { label: 'no id' },
+        ],
+      }).config,
+    )
+    expect(parsed.buildTypes).toEqual([{ id: 'Gakko_Build', label: 'Gakko_Build' }])
     // A string id that fails the charset is a TYPO carrying user intent — it must
     // be counted and named, or a Save deletes it from the git-shared file
     // unannounced. Non-object entries and id-less objects lose nothing.

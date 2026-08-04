@@ -3,7 +3,8 @@ import { okAsync, errAsync, ResultAsync } from 'neverthrow'
 import { CiManager } from './CiManager'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
-import type { CiActivityBuild } from './types'
+import type { CiActivityBuild, GitHubActionsCiConfig } from './types'
+import type { GitHubActionsClient } from './github-actions/client'
 
 // The network layer is mocked — these tests pin the SECURITY-relevant glue: the
 // configured-build-type allowlist, the token gate, config validation at read time
@@ -26,6 +27,13 @@ const VALID_CI = {
   buildTypes: [{ id: 'Gakko_Build', label: 'Build' }],
 }
 
+const GITHUB_CI = {
+  provider: 'github-actions',
+  baseUrl: 'https://github.com',
+  repository: 'itsoltech/canopy-desktop',
+  workflows: [{ path: '.github/workflows/release.yml', label: 'Release' }],
+} satisfies GitHubActionsCiConfig
+
 function fakes(opts?: {
   ci?: unknown
   token?: string | null
@@ -33,6 +41,8 @@ function fakes(opts?: {
   /** Overrides what exists() reports — defaults to "file is there unless notFound". */
   exists?: boolean
   saveFails?: boolean
+  remoteUrl?: string
+  githubClient?: GitHubActionsClient
 }): {
   repoConfigManager: RepoConfigManager
   tokenStore: KeychainTokenStore
@@ -59,8 +69,18 @@ function fakes(opts?: {
     getCredentials: vi.fn(() =>
       opts?.token === null ? null : { token: opts?.token ?? 'tok', username: undefined },
     ),
+    setCredentials: vi.fn(async () => undefined),
   } as unknown as KeychainTokenStore
-  return { repoConfigManager, tokenStore, manager: new CiManager(repoConfigManager, tokenStore) }
+  return {
+    repoConfigManager,
+    tokenStore,
+    manager: new CiManager(
+      repoConfigManager,
+      tokenStore,
+      () => okAsync(opts?.remoteUrl ?? 'git@github.com:itsoltech/canopy-desktop.git'),
+      opts?.githubClient ? () => opts.githubClient as GitHubActionsClient : undefined,
+    ),
+  }
 }
 
 beforeEach(() => {
@@ -200,6 +220,38 @@ describe('the configured-build-type allowlist', () => {
 })
 
 describe('the token gate', () => {
+  it('rejects a GitHub repository mismatch before reading the host-wide token', async () => {
+    const { manager, tokenStore } = fakes({
+      ci: GITHUB_CI,
+      remoteUrl: 'git@github.com:someone/other.git',
+    })
+
+    const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
+
+    expect(result.isErr() && result.error._tag).toBe('CiRepositoryMismatch')
+    expect(tokenStore.getCredentials).not.toHaveBeenCalled()
+  })
+
+  it('maps an authorized GitHub repository to the existing GitHub credential key', async () => {
+    const { manager, tokenStore } = fakes({ ci: GITHUB_CI, token: null })
+
+    const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
+
+    expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
+    expect(tokenStore.getCredentials).toHaveBeenCalledWith('github', 'https://github.com')
+  })
+
+  it('does not store a GitHub credential for a non-GitHub workspace', async () => {
+    const { manager, tokenStore } = fakes({
+      remoteUrl: 'https://git.example.com/itsoltech/canopy-desktop.git',
+    })
+
+    const result = await manager.saveGitHubCredential('r', 'candidate-token')
+
+    expect(result.isErr() && result.error._tag).toBe('CiRepositoryMismatch')
+    expect(tokenStore.setCredentials).not.toHaveBeenCalled()
+  })
+
   it('fails with CiAuthMissing before any network call when no token is stored', async () => {
     const { manager } = fakes({ ci: VALID_CI, token: null })
     const result = await manager.trigger('r', 'Gakko_Build', 'next')
@@ -219,6 +271,92 @@ describe('the token gate', () => {
     const result = await manager.listBuildTypes('https://tc.example.com')
     expect(result.isOk()).toBe(true)
     expect(fetchBuildTypes).toHaveBeenCalledWith('https://tc.example.com', 'tok')
+  })
+})
+
+describe('GitHub dispatch confirmation', () => {
+  function githubClient(
+    dispatchWorkflow = vi.fn(() => okAsync({ runId: '1', apiUrl: '', webUrl: 'run-url' })),
+  ): GitHubActionsClient {
+    return {
+      listWorkflows: vi.fn(() =>
+        okAsync([
+          {
+            id: 42,
+            name: 'Release',
+            path: '.github/workflows/release.yml',
+            state: 'active',
+            htmlUrl: '',
+          },
+        ]),
+      ),
+      listBranches: vi.fn(() => okAsync([{ name: 'next', commitSha: 'commit-sha' }])),
+      listTags: vi.fn(() => okAsync([])),
+      getExactRef: vi.fn((kind: 'branch' | 'tag', name: string) =>
+        okAsync(kind === 'branch' ? { name, commitSha: 'commit-sha' } : null),
+      ),
+      getWorkflowFile: vi.fn(() =>
+        okAsync({
+          sha: 'blob-sha',
+          content:
+            'on:\n  workflow_dispatch:\n    inputs:\n      dry_run:\n        type: boolean\n        required: true\n',
+        }),
+      ),
+      listEnvironments: vi.fn(() => okAsync([])),
+      dispatchWorkflow,
+    } as unknown as GitHubActionsClient
+  }
+
+  const request = {
+    jobId: '.github/workflows/release.yml',
+    ref: { name: 'next', kind: 'branch' as const },
+    schemaRevision: 'blob-sha',
+    inputs: { dry_run: true },
+  }
+
+  it('cannot dispatch without a trusted main-process confirmation callback', async () => {
+    const dispatch = vi.fn(() => okAsync({ runId: '1', apiUrl: '', webUrl: 'run-url' }))
+    const { manager } = fakes({ ci: GITHUB_CI, githubClient: githubClient(dispatch) })
+
+    const result = await manager.triggerJob('r', request)
+
+    expect(result.isErr() && result.error._tag).toBe('CiDispatchCancelled')
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('dispatches once only after the trusted confirmation accepts main-resolved details', async () => {
+    const dispatch = vi.fn(() => okAsync({ runId: '1', apiUrl: '', webUrl: 'run-url' }))
+    const confirm = vi.fn(async () => true)
+    const { manager } = fakes({ ci: GITHUB_CI, githubClient: githubClient(dispatch) })
+
+    const result = await manager.triggerJob('r', request, confirm)
+
+    expect(result.isOk() && result.value.runId).toBe('1')
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repository: 'itsoltech/canopy-desktop',
+        workflowPath: '.github/workflows/release.yml',
+        ref: expect.objectContaining({ name: 'next', kind: 'branch', commitSha: 'commit-sha' }),
+        inputs: { dry_run: true },
+      }),
+    )
+    expect(dispatch).toHaveBeenCalledOnce()
+  })
+
+  it('validates renderer inputs before showing the trusted confirmation', async () => {
+    const dispatch = vi.fn(() => okAsync({ runId: '1', apiUrl: '', webUrl: 'run-url' }))
+    const confirm = vi.fn(async () => true)
+    const { manager } = fakes({ ci: GITHUB_CI, githubClient: githubClient(dispatch) })
+
+    const result = await manager.triggerJob(
+      'r',
+      { ...request, inputs: { unexpected: 'value' } },
+      confirm,
+    )
+
+    expect(result.isErr() && result.error._tag).toBe('CiWorkflowSchemaInvalid')
+    expect(confirm).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
   })
 })
 
@@ -276,6 +414,19 @@ describe('statusFor', () => {
 })
 
 describe('saveConfig', () => {
+  it('rejects a GitHub repository mismatch before writing shared configuration', async () => {
+    const { manager, repoConfigManager, tokenStore } = fakes({
+      ci: undefined,
+      remoteUrl: 'git@github.com:someone/other.git',
+    })
+
+    const result = await manager.saveConfig('r', GITHUB_CI)
+
+    expect(result.isErr() && result.error._tag).toBe('CiRepositoryMismatch')
+    expect(repoConfigManager.save).not.toHaveBeenCalled()
+    expect(tokenStore.getCredentials).not.toHaveBeenCalled()
+  })
+
   it('writes the ci block through the normal round-trip', async () => {
     const { manager, repoConfigManager } = fakes({ ci: undefined })
     const ci = { provider: 'teamcity' as const, baseUrl: 'https://tc', buildTypes: [] }

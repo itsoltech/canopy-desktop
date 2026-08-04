@@ -1042,8 +1042,17 @@ interface CanopyAPI {
     Array<{ provider: string; baseUrl: string; username?: string }>
   >
 
-  // CI (TeamCity)
+  // CI/CD
   ciConfig: (repoRoot: string) => Promise<CiConfigResult>
+  ciGitHubSetup: (repoRoot: string) => Promise<GitHubActionsSetupInfo>
+  ciTestGitHubConnection: (repoRoot: string, token: string) => Promise<void>
+  ciSetGitHubCredential: (repoRoot: string, token: string) => Promise<void>
+  ciJobsStatus: (repoRoot: string, ref: CiRef) => Promise<CiJobStatus[]>
+  ciJobRefs: (repoRoot: string, jobId: string) => Promise<CiRef[]>
+  ciJobParameters: (repoRoot: string, jobId: string, ref: CiRef) => Promise<CiParameterSet>
+  ciTriggerJob: (repoRoot: string, request: CiTriggerRequest) => Promise<CiRunTriggerResult>
+  ciRunActivity: (repoRoot: string) => Promise<CiRunActivity>
+  ciRun: (repoRoot: string, runId: string) => Promise<CiRun>
   ciStatus: (repoRoot: string, branch: string) => Promise<CiStatusResponse>
   ciTrigger: (
     repoRoot: string,
@@ -1059,7 +1068,19 @@ interface CanopyAPI {
   ciListBuildTypes: (baseUrl: string) => Promise<CiServerBuildType[]>
   ciSaveConfig: (
     repoRoot: string,
-    ci: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null,
+    ci:
+      | {
+          provider?: 'teamcity'
+          baseUrl: string
+          buildTypes: Array<{ id: string; label: string }>
+        }
+      | {
+          provider: 'github-actions'
+          baseUrl: 'https://github.com'
+          repository: string
+          workflows: Array<{ path: string; label: string }>
+        }
+      | null,
   ) => Promise<void>
 
   // Task Tracker
@@ -1587,7 +1608,7 @@ interface CreatedTask {
 }
 
 /** Validated CI config of a repo, as resolved by the main process (`ci:config`). */
-interface CiConfigInfo {
+interface TeamCityCiConfigInfo {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: Array<{ id: string; label: string }>
@@ -1598,11 +1619,41 @@ interface CiConfigInfo {
   droppedOverCap?: { count: number; ids: string[] }
 }
 
+interface GitHubActionsCiConfigInfo {
+  provider: 'github-actions'
+  baseUrl: 'https://github.com'
+  repository: string
+  workflows: Array<{ path: string; label: string }>
+  droppedInvalid?: { count: number; ids: string[] }
+  droppedOverCap?: { count: number; ids: string[] }
+}
+
+interface CiDiscoveredWorkflow {
+  id: string
+  path: string
+  name: string
+  webUrl: string
+  available: boolean
+  error?: string
+}
+
+interface GitHubActionsSetupInfo {
+  repository: string
+  defaultBranch: string
+  workflows: CiDiscoveredWorkflow[]
+}
+
+type CiConfigInfo = TeamCityCiConfigInfo | GitHubActionsCiConfigInfo
+
 /** Structured `ci:config` answer — `invalid`'s scope gates the recovery routes. */
 interface CiConfigResult {
   config: CiConfigInfo | null
   /** Present when a ci block EXISTS but cannot be used (config is null then). */
-  invalid?: { scope: 'file' | 'block'; message: string }
+  invalid?: {
+    scope: 'file' | 'block'
+    message: string
+    provider?: 'teamcity' | 'github-actions'
+  }
 }
 
 /** A running, queued or recently finished build in the server-wide activity view. */
@@ -1648,6 +1699,64 @@ interface CiParameter {
   valueSeparator: string
   checkedValue: string | undefined
   uncheckedValue: string | undefined
+  valueType?: 'string' | 'boolean'
+  hasDefault?: boolean
+}
+
+interface CiRef {
+  name: string
+  kind: 'branch' | 'tag'
+  commitSha?: string
+}
+
+interface CiParameterSet {
+  parameters: CiParameter[]
+  schemaRevision: string
+}
+
+interface CiRun {
+  provider: 'teamcity' | 'github-actions'
+  runId: string
+  number: string | undefined
+  jobId: string
+  jobLabel: string
+  state: 'queued' | 'running' | 'waiting' | 'finished' | 'unknown'
+  conclusion: 'success' | 'failure' | 'cancelled' | 'neutral' | 'unknown'
+  statusText: string | undefined
+  webUrl: string
+  ref: CiRef | undefined
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
+}
+
+interface CiJobStatus {
+  jobId: string
+  label: string
+  provider: 'teamcity' | 'github-actions'
+  run: CiRun | null
+  error?: string
+}
+
+interface CiRunActivity {
+  running: CiRun[]
+  queued: CiRun[]
+  recent: CiRun[]
+  partialErrors?: string[]
+}
+
+interface CiTriggerRequest {
+  jobId: string
+  ref: CiRef
+  schemaRevision?: string
+  inputs: Record<string, string | boolean>
+}
+
+interface CiRunTriggerResult {
+  provider: 'teamcity' | 'github-actions'
+  runId: string
+  webUrl: string
+  ref: CiRef
 }
 
 interface CiBuildStatus {

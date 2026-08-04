@@ -2,6 +2,7 @@ import { untrack } from 'svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import { match } from 'ts-pattern'
 import { addToast, isStickyToastVisible } from './toast.svelte'
+import type { CiJobStatus, CiRepoConfigInfo, CiRun } from '../ci/types'
 
 // CI (TeamCity) build status for the sidebar GIT section. State is scoped to one
 // (repoRoot, branch) pair at a time — the section only ever shows the active worktree.
@@ -55,6 +56,40 @@ export async function refreshCi(repoRoot: string, branch: string): Promise<void>
   }
 }
 
+interface CiJobsState {
+  key: string
+  loading: boolean
+  rows: CiJobStatus[]
+  error: string
+}
+
+let jobsState = $state<CiJobsState>({ key: '', loading: false, rows: [], error: '' })
+let jobsFetchSeq = 0
+
+export function getCiJobsState(): CiJobsState {
+  return jobsState
+}
+
+export async function refreshCiJobs(repoRoot: string, branch: string): Promise<void> {
+  const key = ciKey(repoRoot, branch)
+  const sequence = ++jobsFetchSeq
+  const previous = untrack(() => (jobsState.key === key ? jobsState.rows : []))
+  jobsState = { key, loading: true, rows: previous, error: '' }
+  try {
+    const rows = await window.api.ciJobsStatus(repoRoot, { name: branch, kind: 'branch' })
+    if (sequence !== jobsFetchSeq) return
+    jobsState = { key, loading: false, rows, error: '' }
+  } catch (error) {
+    if (sequence !== jobsFetchSeq) return
+    jobsState = {
+      key,
+      loading: false,
+      rows: [],
+      error: error instanceof Error ? error.message : 'Failed to load CI status',
+    }
+  }
+}
+
 // --- Validated per-repo CI config (shared by the CI/CD section, the GIT rows and
 // the ProjectCi modal — the modal reloads it after every save) ---
 
@@ -62,7 +97,7 @@ interface CiRepoConfigState {
   /** Normalized repoRoot this state belongs to. */
   key: string
   loaded: boolean
-  config: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null
+  config: CiRepoConfigInfo | null
   hasToken: boolean
   /** Set when a ci block EXISTS but cannot be used (either scope) — null config
       then ≠ "no CI". */
@@ -91,7 +126,10 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
   try {
     const res = await window.api.ciConfig(repoRoot)
     const hasToken = res.config
-      ? await window.api.keychainHasCredentials('teamcity', res.config.baseUrl)
+      ? await window.api.keychainHasCredentials(
+          res.config.provider === 'github-actions' ? 'github' : 'teamcity',
+          res.config.baseUrl,
+        )
       : false
     if (seq !== configSeq) return
     // `invalid` is set exactly when a block EXISTS but cannot be used — dropping
@@ -249,4 +287,91 @@ export async function triggerCiBuild(
   // Show the queued build in the row right away instead of waiting for the next poll.
   void refreshCi(repoRoot, branch)
   return null
+}
+
+const observedRuns = new SvelteMap<string, ReturnType<typeof setTimeout>>()
+
+function stopObservingRun(key: string): void {
+  const timer = observedRuns.get(key)
+  if (timer) clearTimeout(timer)
+  observedRuns.delete(key)
+}
+
+function reportRunConclusion(run: CiRun): void {
+  const number = run.number ? ` #${run.number}` : ''
+  const prefix = `${run.jobLabel}${number}`
+  if (run.conclusion === 'success') addToast(`${prefix}: workflow succeeded`, 'success')
+  else if (run.conclusion === 'failure') addToast(`${prefix}: workflow failed`, 'danger')
+  else if (run.conclusion === 'cancelled') addToast(`${prefix}: workflow cancelled`)
+  else if (run.conclusion === 'neutral') addToast(`${prefix}: workflow finished (neutral)`)
+  else addToast(`${prefix}: workflow finished with unknown status`)
+}
+
+function observeRun(repoRoot: string, runId: string, label: string): void {
+  const key = `${repoRoot.replace(/\\/g, '/')}::${runId}`
+  if (observedRuns.has(key)) return
+  let ticks = 0
+  let failures = 0
+  const poll = async (): Promise<void> => {
+    ticks += 1
+    if (ticks > OBSERVE_MAX_TICKS) {
+      stopObservingRun(key)
+      reportGiveUp(label, undefined, 'still not finished after 2 h — check GitHub Actions')
+      return
+    }
+    try {
+      const run = await window.api.ciRun(repoRoot, runId)
+      if (!observedRuns.has(key)) return
+      failures = 0
+      if (run.provider !== 'github-actions') {
+        stopObservingRun(key)
+        reportGiveUp(label, undefined, 'CI provider changed — check GitHub Actions')
+        return
+      }
+      if (run.state === 'finished') {
+        stopObservingRun(key)
+        reportRunConclusion(run)
+      }
+    } catch {
+      if (!observedRuns.has(key)) return
+      failures += 1
+      if (failures >= OBSERVE_MAX_FAILURES) {
+        stopObservingRun(key)
+        reportGiveUp(label, undefined, 'lost contact with GitHub Actions')
+        return
+      }
+    }
+    if (observedRuns.has(key)) {
+      observedRuns.set(
+        key,
+        setTimeout(() => void poll(), OBSERVE_INTERVAL_MS),
+      )
+    }
+  }
+  const timer = setTimeout(() => void poll(), OBSERVE_INTERVAL_MS)
+  observedRuns.set(key, timer)
+}
+
+/** Returns the failure message, or `null` when the run was accepted or cancelled in native confirmation. */
+export async function triggerCiJob(
+  repoRoot: string,
+  request: {
+    jobId: string
+    ref: { name: string; kind: 'branch' | 'tag' }
+    schemaRevision?: string
+    inputs: Record<string, string | boolean>
+  },
+  label: string,
+): Promise<string | null> {
+  try {
+    const result = await window.api.ciTriggerJob(repoRoot, request)
+    addToast(`${label}: workflow queued on ${result.ref.name}`, 'success')
+    observeRun(repoRoot, result.runId, label)
+    activityTick += 1
+    return null
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to trigger workflow'
+    if (message.includes('cancelled before dispatch')) return null
+    return message
+  }
 }

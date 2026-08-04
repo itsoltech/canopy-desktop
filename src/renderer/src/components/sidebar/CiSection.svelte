@@ -12,6 +12,7 @@
   import CollapsibleSection from './CollapsibleSection.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import CiLastJobCard from '../ci/CiLastJobCard.svelte'
+  import CiLastRunCard from '../ci/CiLastRunCard.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import {
     showPreferences,
@@ -25,6 +26,8 @@
     getCiActivityTick,
     getCiState,
     refreshCi,
+    getCiJobsState,
+    refreshCiJobs,
   } from '../../lib/stores/ci.svelte'
   import { anyBuildActive } from '../../lib/ci/status'
   import type { CiActivityBuild } from '../../lib/ci/types'
@@ -45,6 +48,12 @@
       return config?.baseUrl ?? ''
     }
   })
+  let provider = $derived(config?.provider ?? 'teamcity')
+  let providerUrl = $derived(
+    config?.provider === 'github-actions'
+      ? `https://github.com/${config.repository}`
+      : (config?.baseUrl ?? ''),
+  )
 
   $effect(() => {
     const root = repoRoot
@@ -57,9 +66,9 @@
   // their own window (CiActivityModal) — the sidebar has no room for the list ---
 
   let activity = $state<{
-    running: CiActivityBuild[]
-    queued: CiActivityBuild[]
-    recent: CiActivityBuild[]
+    running: Array<CiActivityBuild | { percentageComplete?: number }>
+    queued: Array<CiActivityBuild | object>
+    recent: Array<CiActivityBuild | object>
   } | null>(null)
   let activityError = $state('')
   let activityLoaded = $state(false)
@@ -68,7 +77,10 @@
   async function refreshActivity(root: string): Promise<void> {
     const seq = ++activitySeq
     try {
-      const result = await window.api.ciActivity(root)
+      const result =
+        config?.provider === 'github-actions'
+          ? await window.api.ciRunActivity(root)
+          : await window.api.ciActivity(root)
       if (seq !== activitySeq) return
       activity = result
       activityError = ''
@@ -93,10 +105,25 @@
     // Triggering a build bumps the tick → immediate re-fetch instead of the chip
     // sitting on "Idle" until the next poll.
     void getCiActivityTick()
-    untrack(() => void refreshActivity(root))
-    const interval = activeCount > 0 ? 10_000 : 30_000
-    const timer = setInterval(() => void refreshActivity(root), interval)
-    return () => clearInterval(timer)
+    const interval =
+      provider === 'github-actions'
+        ? activeCount > 0
+          ? 60_000
+          : 300_000
+        : activeCount > 0
+          ? 10_000
+          : 30_000
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async (): Promise<void> => {
+      await refreshActivity(root)
+      if (!cancelled) timer = setTimeout(() => void poll(), interval)
+    }
+    untrack(() => void poll())
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
   })
 
   // Worktree switches must not show the previous repo's activity while the new
@@ -126,12 +153,22 @@
   // configured job for the active worktree's branch, via ci:status ---
 
   let branchState = $derived(getCiState())
+  let jobsState = $derived(getCiJobsState())
   let branchRows = $derived(branchState.response?.configured ? branchState.response.rows : [])
+  let jobRows = $derived(jobsState.rows)
   // ci:status reports failures as a field (never throws) — surface them, or the
   // Last-job card silently vanishes with nothing naming the reason.
-  let branchError = $derived(branchState.response?.error ?? '')
+  let branchError = $derived(
+    provider === 'github-actions' ? jobsState.error : (branchState.response?.error ?? ''),
+  )
   // Primitive deps for the poll effect (see the activity effect above).
-  let branchBuildActive = $derived(anyBuildActive(branchRows))
+  let branchBuildActive = $derived(
+    provider === 'github-actions'
+      ? jobRows.some((row) =>
+          row.run ? ['queued', 'running', 'waiting'].includes(row.run.state) : false,
+        )
+      : anyBuildActive(branchRows),
+  )
 
   // Coarse state for the live region — no percentage, so a running build announces
   // once instead of on every 10 s poll. The chip keeps the fine-grained summary.
@@ -146,7 +183,10 @@
     if (branchError) {
       parts.push('CI status unavailable')
     } else {
-      const unavailable = branchRows.filter((r) => r.error).length
+      const unavailable =
+        provider === 'github-actions'
+          ? jobRows.filter((row) => row.error).length
+          : branchRows.filter((row) => row.error).length
       if (unavailable > 0) {
         parts.push(`CI status unavailable for ${unavailable} ${unavailable === 1 ? 'job' : 'jobs'}`)
       }
@@ -171,10 +211,26 @@
     const branch = workspaceState.branch
     if (!root || !branch) return
     void getCiActivityTick()
-    untrack(() => void refreshCi(root, branch))
-    const interval = branchBuildActive ? 10_000 : 45_000
-    const timer = setInterval(() => void refreshCi(root, branch), interval)
-    return () => clearInterval(timer)
+    const interval =
+      provider === 'github-actions'
+        ? branchBuildActive
+          ? 60_000
+          : 300_000
+        : branchBuildActive
+          ? 10_000
+          : 45_000
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async (): Promise<void> => {
+      if (provider === 'github-actions') await refreshCiJobs(root, branch)
+      else await refreshCi(root, branch)
+      if (!cancelled) timer = setTimeout(() => void poll(), interval)
+    }
+    untrack(() => void poll())
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
   })
 
   function openRunJob(): void {
@@ -211,14 +267,19 @@
     <div class="flex flex-col">
       <button
         class="group flex items-center gap-2.5 w-full h-7 pl-3 pr-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-        onclick={() => window.api.openExternal(config!.baseUrl)}
-        title="Open TeamCity in the browser"
+        onclick={() => window.api.openExternal(providerUrl)}
+        title={provider === 'github-actions'
+          ? 'Open repository in GitHub'
+          : 'Open TeamCity in the browser'}
       >
         <span class="inline-flex items-center flex-shrink-0"
-          ><TrackerProviderIcon provider="teamcity" size={13} /></span
+          ><TrackerProviderIcon
+            provider={provider === 'github-actions' ? 'github' : 'teamcity'}
+            size={13}
+          /></span
         >
-        <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1" title={config.baseUrl}
-          >{config.baseUrl}</span
+        <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1" title={providerUrl}
+          >{config.provider === 'github-actions' ? config.repository : config.baseUrl}</span
         >
         <ExternalLink
           size={11}
@@ -239,7 +300,8 @@
             <button
               type="button"
               class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-              onclick={() => showPreferences('CI connections')}
+              onclick={() =>
+                provider === 'github-actions' ? showProjectCi() : showPreferences('CI connections')}
             >
               Add credentials
             </button>
@@ -296,7 +358,7 @@
           {/if}
         </button>
 
-        {#if branchState.loading && !branchState.response}
+        {#if provider === 'github-actions' ? jobsState.loading && jobRows.length === 0 : branchState.loading && !branchState.response}
           <!-- First branch-status fetch: without this the card area is just blank
                until ci:status lands, indistinguishable from "nothing to show". -->
           <div class="px-3 py-1 flex items-center gap-2 text-xs text-text-faint">
@@ -307,6 +369,8 @@
           <div class="px-3 py-1 text-xs text-warning-text truncate" title={branchError}>
             Last job unavailable — {branchError}
           </div>
+        {:else if provider === 'github-actions' && jobRows.length > 0 && workspaceState.branch}
+          <CiLastRunCard rows={jobRows} branch={workspaceState.branch} />
         {:else if branchRows.length > 0 && workspaceState.branch}
           <CiLastJobCard rows={branchRows} branch={workspaceState.branch} />
         {/if}
@@ -335,7 +399,7 @@
           onclick={showProjectCi}
         >
           <Plus size={14} />
-          Configure TeamCity
+          Configure CI/CD
         </button>
       </div>
     {/if}

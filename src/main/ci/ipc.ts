@@ -1,7 +1,13 @@
 import type { Result } from 'neverthrow'
-import type { CiManager } from './CiManager'
-import { BUILD_TYPE_ID_PATTERN, CI_MAX_BUILD_TYPES, CI_MAX_LABEL_LEN } from './config'
-import type { CiConfig, CiStatusResponse } from './types'
+import type { CiDispatchConfirmation, CiManager } from './CiManager'
+import {
+  BUILD_TYPE_ID_PATTERN,
+  CI_MAX_BUILD_TYPES,
+  CI_MAX_LABEL_LEN,
+  CI_MAX_WORKFLOWS,
+  parseCiConfig,
+} from './config'
+import type { CiConfig, CiInputValue, CiRef, CiStatusResponse, CiTriggerRequest } from './types'
 import { ciErrorMessage } from './errors'
 import { testConnection as ciTestConnection } from './teamcity'
 
@@ -26,6 +32,8 @@ export interface CiHandlerDeps {
   ciManager: CiManager
   /** Resolves the path and throws unless it belongs to the sender's workspaces. */
   validatePathAccess: (wcId: number, targetPath: string) => Promise<string>
+  /** Trusted native confirmation, parented to the invoking window. */
+  confirmGitHubDispatch?: (event: CiIpcEvent, details: CiDispatchConfirmation) => Promise<boolean>
 }
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
@@ -45,6 +53,10 @@ const CI_BRANCH_RE = /^[A-Za-z0-9._/-]{1,255}$/
 const CI_PROPERTY_NAME_RE = /^[A-Za-z0-9._-]{1,255}$/
 const CI_PROPERTY_VALUE_MAX = 4096
 const CI_PROPERTIES_MAX = 100
+const CI_JOB_ID_RE = /^[A-Za-z0-9._/-]{1,255}$/
+const CI_RUN_ID_RE = /^\d{1,30}$/
+const CI_SCHEMA_REVISION_RE = /^[A-Za-z0-9._:-]{1,200}$/
+const CI_TOKEN_MAX = 10_000
 
 function validateCiProperties(raw: unknown): Array<{ name: string; value: string }> | undefined {
   if (raw === undefined) return undefined
@@ -63,10 +75,38 @@ function validateCiProperties(raw: unknown): Array<{ name: string; value: string
   })
 }
 
+function validateRef(raw: unknown): CiRef {
+  if (!raw || typeof raw !== 'object') throw new Error('Invalid CI ref')
+  const { name, kind } = raw as { name?: unknown; kind?: unknown }
+  if (typeof name !== 'string' || !CI_BRANCH_RE.test(name)) throw new Error('Invalid CI ref name')
+  if (kind !== 'branch' && kind !== 'tag') throw new Error('Invalid CI ref kind')
+  return { name, kind }
+}
+
+function validateInputs(raw: unknown): Record<string, CiInputValue> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid CI inputs')
+  const entries = Object.entries(raw as Record<string, unknown>)
+  if (entries.length > 25 || JSON.stringify(raw).length > 60_000) {
+    throw new Error('CI input payload is too large')
+  }
+  return Object.fromEntries(
+    entries.map(([name, value]) => {
+      if (!CI_PROPERTY_NAME_RE.test(name)) throw new Error('Invalid CI input name')
+      if (typeof value === 'string') {
+        if (value.length > 10_000) throw new Error(`Invalid value for CI input ${name}`)
+        return [name, value]
+      }
+      if (typeof value === 'boolean') return [name, value]
+      throw new Error(`Invalid value for CI input ${name}`)
+    }),
+  )
+}
+
 export function registerCiHandlers({
   ipcMain,
   ciManager,
   validatePathAccess,
+  confirmGitHubDispatch,
 }: CiHandlerDeps): void {
   /** Repo-scoped payloads: type-check, then authorize — the resolved path is the
       ONLY form that continues; the renderer-supplied string never reaches CiManager. */
@@ -88,13 +128,158 @@ export function registerCiHandlers({
     if (result.error._tag === 'CiConfigInvalid') {
       return {
         config: null,
-        invalid: { scope: result.error.scope, message: ciErrorMessage(result.error) },
+        invalid: {
+          scope: result.error.scope,
+          message: ciErrorMessage(result.error),
+          provider: result.error.provider,
+        },
       }
     }
     return { config: null }
   })
 
   // Read: never throws — the sidebar renders whatever state comes back.
+  ipcMain.handle('ci:githubSetup', async (event: CiIpcEvent, payload: { repoRoot: string }) => {
+    const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+    const result = await ciManager.githubSetup(repoRoot)
+    return unwrapOrThrow(result, ciErrorMessage)
+  })
+
+  ipcMain.handle(
+    'ci:testGitHubConnection',
+    async (event: CiIpcEvent, payload: { repoRoot: string; token: string }) => {
+      const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      if (
+        typeof payload.token !== 'string' ||
+        payload.token.length === 0 ||
+        payload.token.length > CI_TOKEN_MAX
+      ) {
+        throw new Error('Invalid GitHub token')
+      }
+      const result = await ciManager.testGitHubConnection(repoRoot, payload.token)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'ci:setGitHubCredential',
+    async (event: CiIpcEvent, payload: { repoRoot: string; token: string }) => {
+      const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      if (
+        typeof payload.token !== 'string' ||
+        payload.token.length === 0 ||
+        payload.token.length > CI_TOKEN_MAX
+      ) {
+        throw new Error('Invalid GitHub token')
+      }
+      const result = await ciManager.saveGitHubCredential(repoRoot, payload.token)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'ci:jobsStatus',
+    async (event: CiIpcEvent, payload: { repoRoot: string; ref: CiRef }) => {
+      const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      const result = await ciManager.jobsStatus(repoRoot, validateRef(payload.ref))
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'ci:jobRefs',
+    async (event: CiIpcEvent, payload: { repoRoot: string; jobId: string }) => {
+      const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      if (typeof payload.jobId !== 'string' || !CI_JOB_ID_RE.test(payload.jobId)) {
+        throw new Error('Invalid CI job id')
+      }
+      const result = await ciManager.jobRefs(repoRoot, payload.jobId)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'ci:jobParameters',
+    async (event: CiIpcEvent, payload: { repoRoot: string; jobId: string; ref: CiRef }) => {
+      const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      if (typeof payload.jobId !== 'string' || !CI_JOB_ID_RE.test(payload.jobId)) {
+        throw new Error('Invalid CI job id')
+      }
+      const result = await ciManager.jobParameters(
+        repoRoot,
+        payload.jobId,
+        validateRef(payload.ref),
+      )
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'ci:triggerJob',
+    async (
+      event: CiIpcEvent,
+      payload: {
+        repoRoot: string
+        jobId: string
+        ref: CiRef
+        schemaRevision?: string
+        inputs: Record<string, CiInputValue>
+      },
+    ) => {
+      const requestedRepoRoot = payload.repoRoot
+      const repoRoot = await authorizedRepoRoot(event, requestedRepoRoot)
+      if (typeof payload.jobId !== 'string' || !CI_JOB_ID_RE.test(payload.jobId)) {
+        throw new Error('Invalid CI job id')
+      }
+      if (
+        payload.schemaRevision !== undefined &&
+        (typeof payload.schemaRevision !== 'string' ||
+          !CI_SCHEMA_REVISION_RE.test(payload.schemaRevision))
+      ) {
+        throw new Error('Invalid workflow schema revision')
+      }
+      const request: CiTriggerRequest = {
+        jobId: payload.jobId,
+        ref: validateRef(payload.ref),
+        schemaRevision: payload.schemaRevision,
+        inputs: validateInputs(payload.inputs),
+      }
+      const confirm = confirmGitHubDispatch
+        ? async (details: CiDispatchConfirmation): Promise<boolean> => {
+            const rootBeforeConfirmation = await authorizedRepoRoot(event, requestedRepoRoot)
+            if (rootBeforeConfirmation !== repoRoot)
+              throw new Error('Repository authorization changed')
+            const accepted = await confirmGitHubDispatch(event, details)
+            if (!accepted) return false
+            const rootAfterConfirmation = await authorizedRepoRoot(event, requestedRepoRoot)
+            if (rootAfterConfirmation !== repoRoot)
+              throw new Error('Repository authorization changed')
+            return true
+          }
+        : undefined
+      const result = await ciManager.triggerJob(repoRoot, request, confirm)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  ipcMain.handle('ci:runActivity', async (event: CiIpcEvent, payload: { repoRoot: string }) => {
+    const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+    const result = await ciManager.runActivity(repoRoot)
+    return unwrapOrThrow(result, ciErrorMessage)
+  })
+
+  ipcMain.handle(
+    'ci:run',
+    async (event: CiIpcEvent, payload: { repoRoot: string; runId: string }) => {
+      const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      if (typeof payload.runId !== 'string' || !CI_RUN_ID_RE.test(payload.runId)) {
+        throw new Error('Invalid CI run id')
+      }
+      const result = await ciManager.runById(repoRoot, payload.runId)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
   ipcMain.handle(
     'ci:status',
     async (event: CiIpcEvent, payload: { repoRoot: string; branch: string }) => {
@@ -221,35 +406,66 @@ export function registerCiHandlers({
       event: CiIpcEvent,
       payload: {
         repoRoot: string
-        ci: { baseUrl: string; buildTypes: Array<{ id: string; label: string }> } | null
+        ci:
+          | {
+              provider?: 'teamcity'
+              baseUrl: string
+              buildTypes: Array<{ id: string; label: string }>
+            }
+          | {
+              provider: 'github-actions'
+              baseUrl: string
+              repository: string
+              workflows: Array<{ path: string; label: string }>
+            }
+          | null
       },
     ) => {
       const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
       let ci: CiConfig | null = null
       if (payload.ci !== null) {
-        if (typeof payload.ci?.baseUrl !== 'string') throw new Error('Invalid base URL')
-        const parsed = new URL(payload.ci.baseUrl)
-        if (!['http:', 'https:'].includes(parsed.protocol)) {
-          throw new Error('Base URL must use http:// or https://')
-        }
-        if (!Array.isArray(payload.ci.buildTypes) || payload.ci.buildTypes.length === 0) {
-          throw new Error('Select at least one build configuration')
-        }
-        if (payload.ci.buildTypes.length > CI_MAX_BUILD_TYPES) {
-          throw new Error('Too many build configurations')
-        }
-        const buildTypes = payload.ci.buildTypes.map((bt) => {
-          if (typeof bt?.id !== 'string' || !CI_BUILD_TYPE_ID_RE.test(bt.id)) {
-            throw new Error('Invalid build type id')
+        if (payload.ci.provider === 'github-actions') {
+          if (!Array.isArray(payload.ci.workflows) || payload.ci.workflows.length === 0) {
+            throw new Error('Select at least one workflow')
           }
-          const label =
-            typeof bt.label === 'string' ? bt.label.trim().slice(0, CI_MAX_LABEL_LEN) : ''
-          return { id: bt.id, label: label || bt.id }
-        })
-        ci = {
-          provider: 'teamcity',
-          baseUrl: payload.ci.baseUrl.replace(/\/$/, ''),
-          buildTypes,
+          if (payload.ci.workflows.length > CI_MAX_WORKFLOWS) {
+            throw new Error('Too many workflows')
+          }
+          const parsedGitHub = parseCiConfig(payload.ci)
+          if (
+            parsedGitHub.config?.provider !== 'github-actions' ||
+            parsedGitHub.config.workflows.length !== payload.ci.workflows.length ||
+            parsedGitHub.config.droppedInvalid ||
+            parsedGitHub.config.droppedOverCap
+          ) {
+            throw new Error('Invalid GitHub Actions configuration')
+          }
+          ci = parsedGitHub.config
+        } else {
+          if (typeof payload.ci?.baseUrl !== 'string') throw new Error('Invalid base URL')
+          const parsed = new URL(payload.ci.baseUrl)
+          if (!['http:', 'https:'].includes(parsed.protocol)) {
+            throw new Error('Base URL must use http:// or https://')
+          }
+          if (!Array.isArray(payload.ci.buildTypes) || payload.ci.buildTypes.length === 0) {
+            throw new Error('Select at least one build configuration')
+          }
+          if (payload.ci.buildTypes.length > CI_MAX_BUILD_TYPES) {
+            throw new Error('Too many build configurations')
+          }
+          const buildTypes = payload.ci.buildTypes.map((bt) => {
+            if (typeof bt?.id !== 'string' || !CI_BUILD_TYPE_ID_RE.test(bt.id)) {
+              throw new Error('Invalid build type id')
+            }
+            const label =
+              typeof bt.label === 'string' ? bt.label.trim().slice(0, CI_MAX_LABEL_LEN) : ''
+            return { id: bt.id, label: label || bt.id }
+          })
+          ci = {
+            provider: 'teamcity',
+            baseUrl: payload.ci.baseUrl.replace(/\/$/, ''),
+            buildTypes,
+          }
         }
       }
       const result = await ciManager.saveConfig(repoRoot, ci)

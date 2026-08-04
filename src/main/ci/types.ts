@@ -7,17 +7,121 @@ export interface CiBuildTypeConfig {
   label: string
 }
 
-export interface CiConfig {
+export type CiProvider = 'teamcity' | 'github-actions'
+
+interface CiConfigWarnings {
+  /** Hand-edited entries that failed provider-specific validation. */
+  droppedInvalid?: { count: number; ids: string[] }
+  /** Valid entries beyond the parse-time cap. */
+  droppedOverCap?: { count: number; ids: string[] }
+}
+
+export interface TeamCityCiConfig extends CiConfigWarnings {
   provider: 'teamcity'
   baseUrl: string
   buildTypes: CiBuildTypeConfig[]
-  /** Hand-edited entries whose id fails the charset — typos, announced with a
-      correct-the-file recovery (they are not TeamCity ids; the picker can never
-      show them). `ids` is a capped sample, `count` is exact. */
-  droppedInvalid?: { count: number; ids: string[] }
-  /** Valid entries beyond the parse-time cap — announced with a re-tick recovery
-      (they are real jobs sitting unticked in the picker). */
-  droppedOverCap?: { count: number; ids: string[] }
+}
+
+export interface CiWorkflowConfig {
+  /** Repository-relative workflow file path under `.github/workflows`. */
+  path: string
+  /** Short label shown in Canopy CI surfaces. */
+  label: string
+}
+
+export interface GitHubActionsCiConfig extends CiConfigWarnings {
+  provider: 'github-actions'
+  baseUrl: 'https://github.com'
+  /** Canonical `owner/repository` identity. */
+  repository: string
+  workflows: CiWorkflowConfig[]
+}
+
+export type CiConfig = TeamCityCiConfig | GitHubActionsCiConfig
+
+export interface CiRef {
+  name: string
+  kind: 'branch' | 'tag'
+  /** Provider-resolved commit at read/confirmation time. */
+  commitSha?: string
+}
+
+export type CiInputValue = string | boolean
+
+export interface CiParameterSet {
+  parameters: CiParameter[]
+  /** Provider-owned immutable workflow/config revision used to reject stale forms. */
+  schemaRevision: string
+}
+
+export type CiRunState = 'queued' | 'running' | 'waiting' | 'finished' | 'unknown'
+export type CiRunConclusion = 'success' | 'failure' | 'cancelled' | 'neutral' | 'unknown'
+
+export interface CiRun {
+  provider: CiProvider
+  runId: string
+  number: string | undefined
+  jobId: string
+  jobLabel: string
+  state: CiRunState
+  conclusion: CiRunConclusion
+  statusText: string | undefined
+  webUrl: string
+  ref: CiRef | undefined
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
+}
+
+export interface CiJob {
+  id: string
+  label: string
+  provider: CiProvider
+}
+
+export interface CiDiscoveredWorkflow {
+  id: string
+  path: string
+  name: string
+  webUrl: string
+  available: boolean
+  error?: string
+}
+
+export interface GitHubActionsSetupInfo {
+  repository: string
+  defaultBranch: string
+  workflows: CiDiscoveredWorkflow[]
+}
+
+export interface CiJobStatus {
+  jobId: string
+  label: string
+  provider: CiProvider
+  run: CiRun | null
+  error?: string
+}
+
+export interface CiRunActivity {
+  running: CiRun[]
+  queued: CiRun[]
+  recent: CiRun[]
+  /** Scoped provider queries that failed or reached a completeness cap. */
+  partialErrors?: string[]
+}
+
+export interface CiTriggerRequest {
+  jobId: string
+  ref: CiRef
+  schemaRevision?: string
+  inputs: Record<string, CiInputValue>
+}
+
+export interface CiRunTriggerResult {
+  provider: CiProvider
+  runId: string
+  webUrl: string
+  ref: CiRef
 }
 
 // --- Normalized build state ---
@@ -77,6 +181,10 @@ export interface CiParameter {
   valueSeparator: string
   checkedValue: string | undefined
   uncheckedValue: string | undefined
+  /** Provider-neutral primitive expected by the trusted IPC validation layer. */
+  valueType?: 'string' | 'boolean'
+  /** Distinguishes an explicit empty workflow default from no default. */
+  hasDefault?: boolean
 }
 
 /** A running, queued or recently finished build in repository-scoped activity. */
