@@ -7,6 +7,7 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import { loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
+  import { githubTokenCreationUrl } from '../../lib/ci/githubToken'
   import type { GitHubActionsCiRepoConfigInfo } from '../../lib/ci/types'
   import CiJobPicker from '../ci/CiJobPicker.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
@@ -64,6 +65,7 @@
   let saveBlocked = $derived(
     saving || loading || !loaded || !repository || selectedWorkflows.length === 0,
   )
+  let loadBlocked = $derived(loading || (!hasToken && token.trim().length === 0))
 
   onMount(async () => {
     containerEl?.focus()
@@ -98,12 +100,13 @@
   }
 
   async function testConnection(): Promise<void> {
-    if (!repoRoot || !token || testing || loading) return
+    const candidateToken = token.trim()
+    if (!repoRoot || !candidateToken || testing || loading) return
     testing = true
     testResult = ''
     error = ''
     try {
-      await window.api.ciTestGitHubConnection(repoRoot, token)
+      await window.api.ciTestGitHubConnection(repoRoot, candidateToken)
       testResult = 'success'
     } catch (cause) {
       testResult = 'fail'
@@ -115,10 +118,11 @@
 
   async function ensureToken(): Promise<boolean> {
     if (hasToken && !token) return true
-    if (!repoRoot || !token) return false
+    const candidateToken = token.trim()
+    if (!repoRoot || !candidateToken) return false
     try {
-      await window.api.ciTestGitHubConnection(repoRoot, token)
-      await window.api.ciSetGitHubCredential(repoRoot, token)
+      await window.api.ciTestGitHubConnection(repoRoot, candidateToken)
+      await window.api.ciSetGitHubCredential(repoRoot, candidateToken)
       token = ''
       hasToken = true
       testResult = 'success'
@@ -129,8 +133,12 @@
     }
   }
 
+  function openTokenPage(): void {
+    void window.api.openExternal(githubTokenCreationUrl(repository))
+  }
+
   async function loadWorkflows(): Promise<void> {
-    if (!repoRoot || loading) return
+    if (!repoRoot || loadBlocked) return
     loading = true
     error = ''
     try {
@@ -261,12 +269,21 @@
 
       {#if !hasToken || token}
         <div class="flex flex-col gap-1">
-          <label
-            for="github-ci-token"
-            class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-          >
-            Personal access token
-          </label>
+          <div class="flex items-center justify-between gap-2">
+            <label
+              for="github-ci-token"
+              class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+            >
+              Personal access token
+            </label>
+            <button
+              type="button"
+              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
+              onclick={openTokenPage}
+            >
+              Generate token on GitHub →
+            </button>
+          </div>
           <input
             id="github-ci-token"
             type="password"
@@ -276,8 +293,11 @@
             placeholder="Fine-grained token"
           />
           <p class="m-0 text-xs text-text-muted">
-            Required permissions: Contents read and Actions write. Workflow inputs are not secret
-            fields.
+            GitHub opens with <strong>Actions — Read and write</strong> and
+            <strong>Contents — Read-only</strong> preselected. Under Repository access choose
+            <strong>Only select repositories</strong> and select
+            <strong>{repository || 'this workspace repository'}</strong>. Workflow inputs are not
+            secret fields.
           </p>
           <CredentialStorageNote
             provider="github"
@@ -288,7 +308,7 @@
       {/if}
 
       <div class="flex items-center gap-2">
-        {#if token}
+        {#if token.trim()}
           <button
             type="button"
             class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary hover:bg-hover-strong aria-disabled:opacity-50"
@@ -299,9 +319,12 @@
         {/if}
         <button
           type="button"
-          class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary hover:bg-hover-strong aria-disabled:opacity-50"
+          class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary enabled:hover:bg-hover-strong disabled:opacity-50 disabled:cursor-not-allowed"
           onclick={loadWorkflows}
-          disabled={loading || (!hasToken && !token)}
+          disabled={loadBlocked}
+          title={loadBlocked && !loading
+            ? 'Add a GitHub token before loading workflows'
+            : undefined}
           aria-busy={loading}>{loading ? 'Loading…' : 'Load workflows'}</button
         >
         <span class="text-xs" aria-live="polite">

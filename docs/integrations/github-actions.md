@@ -19,12 +19,13 @@ are intentionally out of scope.
 
 ## Setup
 
-1. Create a fine-grained personal access token restricted to the repository. Grant
-   **Actions: write** and **Contents: read** repository permissions.
-2. Enable the CI/CD sidebar section in Settings if it is hidden.
-3. Open the repository CI/CD configurator, choose **GitHub Actions**, and add or reuse the
-   GitHub.com credential.
-4. Test the connection. This performs read-only repository and workflow discovery.
+1. Enable the CI/CD sidebar section in Settings if it is hidden.
+2. Open the repository CI/CD configurator and choose **GitHub Actions**.
+3. Select **Generate token on GitHub**. Canopy preselects **Actions: write** and
+   **Contents: read**. On GitHub, choose the repository owner and restrict **Repository access**
+   to this repository, then paste the generated token into Canopy.
+4. Load the workflows. Canopy validates and stores the token, then performs read-only repository
+   and workflow discovery.
 5. Select only the workflows that should be available from Canopy, edit their labels if needed,
    and save. The resulting configuration can be committed for the team; the token is never
    written to the repository.
