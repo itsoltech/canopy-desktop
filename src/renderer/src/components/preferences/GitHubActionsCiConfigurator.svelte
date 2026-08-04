@@ -427,22 +427,9 @@
           />
         </div>
       {:else if repositoryResolving}
-        <div class="flex flex-col gap-2">
-          <p class="m-0 text-xs text-text-muted">
-            Resolving this workspace’s <code class="font-mono">origin</code> remote…
-          </p>
-          <!-- Transient geometry only: unlike a fixed min-height, this disappears once
-               the compact stored-token state is known and never leaves permanent blank space. -->
-          <div
-            class="flex flex-col gap-2 animate-pulse motion-reduce:animate-none"
-            aria-hidden="true"
-          >
-            <div class="h-3 w-32 rounded bg-active"></div>
-            <div class="h-8 rounded-md border border-border bg-bg-input"></div>
-            <div class="h-10 rounded bg-active"></div>
-            <div class="h-8 rounded bg-active"></div>
-          </div>
-        </div>
+        <p class="m-0 text-xs text-text-muted">
+          Resolving this workspace’s <code class="font-mono">origin</code> remote…
+        </p>
       {:else}
         <p class="m-0 text-xs text-text-muted">
           Resolve a supported <code class="font-mono">github.com</code> origin before creating or storing

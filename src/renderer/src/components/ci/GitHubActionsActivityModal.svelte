@@ -134,10 +134,12 @@
       <div class="flex items-center gap-1">
         <button
           type="button"
-          class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover"
+          class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
           onclick={() => !refreshing && void refresh()}
           aria-label="Refresh"
-          disabled={refreshing}
+          aria-disabled={refreshing}
+          aria-busy={refreshing}
+          title={refreshing ? 'Refreshing…' : 'Refresh now (auto-refreshes every 60 s)'}
         >
           <RefreshCw
             size={14}

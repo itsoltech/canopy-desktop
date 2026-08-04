@@ -11,8 +11,8 @@
     {@const status = ciRunChip(row)}
     <button
       type="button"
-      class="group w-full px-2.5 py-1.5 border-0 bg-transparent text-left hover:bg-hover flex items-center gap-2 disabled:cursor-default"
-      disabled={!row.run?.webUrl}
+      class="group w-full px-2.5 py-1.5 border-0 bg-transparent text-left hover:bg-hover flex items-center gap-2 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+      aria-disabled={!row.run?.webUrl}
       onclick={() => row.run?.webUrl && window.api.openExternal(row.run.webUrl)}
       title={row.error || row.run?.statusText || `Latest ${branch} run`}
     >
