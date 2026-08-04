@@ -25,7 +25,8 @@
       <span class="flex-1 min-w-0 flex flex-col">
         <span class="text-xs text-text truncate">{row.label}</span>
         {#if row.run?.statusText}
-          <span class="text-2xs truncate {ciRunStatusTextClass(row.run)}">{row.run.statusText}</span
+          <span class="text-2xs truncate {ciRunStatusTextClass(row.run)}" title={row.run.statusText}
+            >{row.run.statusText}</span
           >
         {:else if row.error}
           <span class="text-2xs text-warning-text truncate">{row.error}</span>

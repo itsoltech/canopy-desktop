@@ -215,7 +215,7 @@
       </div>
       <button
         type="button"
-        class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
+        class="size-7 rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
         onclick={requestClose}
         aria-label="Close"
         aria-disabled={running}
@@ -349,7 +349,7 @@
     <footer class="flex justify-end gap-2 border-t border-border-subtle pt-3">
       <button
         type="button"
-        class="px-3 py-1 rounded-md border border-border bg-transparent text-sm text-text-secondary hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+        class="px-3 py-1 rounded-md border border-border bg-transparent text-sm text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
         onclick={requestClose}
         aria-disabled={running}
         title={running ? 'Disabled while the workflow request is in progress' : 'Cancel'}
@@ -357,7 +357,7 @@
       >
       <button
         type="button"
-        class="px-3 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-sm flex items-center gap-1.5 hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
+        class="px-3 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-sm cursor-pointer flex items-center gap-1.5 hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
         onclick={runWorkflow}
         aria-disabled={!canRun}
         aria-busy={running}

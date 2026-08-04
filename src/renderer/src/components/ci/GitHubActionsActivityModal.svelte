@@ -81,7 +81,7 @@
   {@const chip = ciRunChip({ run })}
   <button
     type="button"
-    class="w-full min-h-10 px-3 py-1.5 rounded-md border-0 bg-transparent text-left text-text hover:bg-hover flex items-center gap-2.5 disabled:cursor-default"
+    class="w-full min-h-10 px-3 py-1.5 rounded-md border-0 bg-transparent text-left text-text flex items-center gap-2.5 enabled:cursor-pointer enabled:hover:bg-hover disabled:cursor-default"
     disabled={!run.webUrl}
     onclick={() => run.webUrl && window.api.openExternal(run.webUrl)}
     title={run.webUrl ? 'Open in GitHub Actions' : undefined}
@@ -148,7 +148,7 @@
         </button>
         <button
           type="button"
-          class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover"
+          class="size-7 rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
           onclick={closeDialog}
           aria-label="Close"><X size={16} /></button
         >

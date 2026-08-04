@@ -339,7 +339,7 @@
       </div>
       <button
         type="button"
-        class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
+        class="size-7 rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
         onclick={requestClose}
         aria-label="Close"
         aria-disabled={saving}><X size={16} /></button
@@ -384,7 +384,7 @@
           </div>
           <button
             type="button"
-            class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+            class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
             onclick={replaceToken}
             aria-disabled={loading || saving}>Replace token</button
           >
@@ -441,7 +441,7 @@
         {#if repositoryReady && token.trim()}
           <button
             type="button"
-            class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
+            class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary cursor-pointer hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
             onclick={testConnection}
             aria-disabled={testing || loading}
             aria-busy={testing}>{testing ? 'Testing…' : 'Test connection'}</button
@@ -449,7 +449,7 @@
         {/if}
         <button
           type="button"
-          class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-bg-input"
+          class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary cursor-pointer hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
           onclick={loadWorkflows}
           aria-disabled={loadBlocked}
           aria-describedby={loadBlockedReason ? 'github-ci-load-blocked' : undefined}
@@ -514,7 +514,7 @@
         {#if existingConfig}
           <button
             type="button"
-            class="flex items-center gap-1 px-2 py-1 border-0 bg-transparent text-xs text-text-faint hover:text-danger-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:text-text-faint"
+            class="flex items-center gap-1 px-2 py-1 border-0 bg-transparent text-xs text-text-faint cursor-pointer hover:text-danger-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:text-text-faint"
             onclick={removeConfiguration}
             aria-disabled={saving}><Trash2 size={12} /> Remove CI configuration</button
           >
@@ -523,7 +523,7 @@
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="px-3 py-1 rounded-md text-sm border border-border bg-transparent text-text-secondary hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+          class="px-3 py-1 rounded-md text-sm border border-border bg-transparent text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
           onclick={requestClose}
           aria-disabled={saving}
           title={saving ? 'Disabled while the configuration is being saved' : 'Cancel'}
@@ -531,7 +531,7 @@
         >
         <button
           type="button"
-          class="px-3 py-1 rounded-md text-sm border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
+          class="px-3 py-1 rounded-md text-sm border-0 bg-accent-bg text-accent-text cursor-pointer hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
           onclick={saveConfiguration}
           aria-disabled={saveBlocked}
           title={saveBlocked
