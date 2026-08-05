@@ -169,7 +169,7 @@
         baseUrl: formBaseUrl.replace(/\/$/, ''),
         projectKey: formProjectKey || undefined,
         username: formUsername || undefined,
-        token: formToken,
+        token: formToken.trim(),
       })
       testResult = 'success'
     } catch {
@@ -216,6 +216,7 @@
         normalizedToken,
         formUsername || undefined,
         connectingId ? `tracker:${connectingId}` : undefined,
+        repoRoot,
       )
       await ensurePersonalConnection(formProvider, url, formProjectKey || undefined)
     } catch (e) {
@@ -242,7 +243,7 @@
     })
     if (!ok) return
     try {
-      await window.api.keychainDeleteCredentials(t.provider, t.baseUrl, `tracker:${t.id}`)
+      await window.api.keychainDeleteCredentials(t.provider, t.baseUrl, `tracker:${t.id}`, repoRoot)
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
       return

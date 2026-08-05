@@ -1352,11 +1352,17 @@ const api = {
   }) => ipcRenderer.invoke('trackerConfig:createTask', payload),
 
   // Keychain
-  keychainHasCredentials: (provider: string, baseUrl: string, bindingKey?: string) =>
+  keychainHasCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+    repoRoot?: string,
+  ) =>
     ipcRenderer.invoke('keychain:hasCredentials', {
       provider,
       baseUrl,
       bindingKey,
+      repoRoot,
     }) as Promise<boolean>,
   keychainSetCredentials: (
     provider: string,
@@ -1364,6 +1370,7 @@ const api = {
     token: string,
     username?: string,
     bindingKey?: string,
+    repoRoot?: string,
   ) =>
     ipcRenderer.invoke('keychain:setCredentials', {
       provider,
@@ -1371,11 +1378,27 @@ const api = {
       token,
       username,
       bindingKey,
+      repoRoot,
     }),
-  keychainDeleteCredentials: (provider: string, baseUrl: string, bindingKey?: string) =>
-    ipcRenderer.invoke('keychain:deleteCredentials', { provider, baseUrl, bindingKey }),
-  keychainGetCredentials: (provider: string, baseUrl: string, bindingKey?: string) =>
-    ipcRenderer.invoke('keychain:getCredentials', { provider, baseUrl, bindingKey }) as Promise<{
+  keychainDeleteCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+    repoRoot?: string,
+  ) =>
+    ipcRenderer.invoke('keychain:deleteCredentials', { provider, baseUrl, bindingKey, repoRoot }),
+  keychainGetCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+    repoRoot?: string,
+  ) =>
+    ipcRenderer.invoke('keychain:getCredentials', {
+      provider,
+      baseUrl,
+      bindingKey,
+      repoRoot,
+    }) as Promise<{
       username?: string
       hasToken: boolean
       credentialId?: string

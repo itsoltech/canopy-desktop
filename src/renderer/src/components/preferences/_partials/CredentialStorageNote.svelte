@@ -44,9 +44,10 @@
       {#if sharingNote}
         <span>
           {#if specific}These credentials are registered for <strong>{providerName}</strong> at
-            <strong>{baseUrl}</strong>. Only compatible integrations explicitly bound on this
-            machine can use them.{:else}Only compatible integrations explicitly bound on this
-            machine can use these credentials.{/if}
+            <strong>{baseUrl}</strong>. An explicit local binding is used when present; otherwise
+            Canopy auto-binds the only credential matching the service, destination and capability.{:else}An
+            explicit local binding is used when present; otherwise Canopy auto-binds the only
+            credential matching the service, destination and capability.{/if}
         </span>
       {/if}
       <span>
@@ -65,9 +66,10 @@
       {#if sharingNote}
         <span>
           {#if specific}These credentials are registered for <strong>{providerName}</strong> at
-            <strong>{baseUrl}</strong>. Only compatible integrations explicitly bound on this
-            machine can use them.{:else}Only compatible integrations explicitly bound on this
-            machine can use these credentials.{/if}
+            <strong>{baseUrl}</strong>. An explicit local binding is used when present; otherwise
+            Canopy auto-binds the only credential matching the service, destination and capability.{:else}An
+            explicit local binding is used when present; otherwise Canopy auto-binds the only
+            credential matching the service, destination and capability.{/if}
         </span>
       {/if}
       <span>

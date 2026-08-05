@@ -67,7 +67,12 @@ import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
-import { normalizeKeychainCredentialPayload, validateKeychainBinding } from './keychainCredentials'
+import {
+  authorizeKeychainBindingForConfig,
+  normalizeKeychainCredentialPayload,
+  validateKeychainBinding,
+} from './keychainCredentials'
+import { normalizeCredentialToken } from '../ci/token'
 import { loadPullRequestSummary } from '../taskTracker/prSummary'
 import { isSafeBranchRef } from '../taskTracker/prCreation'
 
@@ -3201,6 +3206,24 @@ export function registerIpcHandlers(
     return mergeConfigs(global, repo)
   }
 
+  async function authorizeRendererKeychainBinding(
+    event: IpcMainInvokeEvent,
+    payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
+  ): Promise<void> {
+    validateKeychainBinding(payload.provider, payload.bindingKey)
+    if (!payload.bindingKey) return
+    const trackers = payload.repoRoot
+      ? ((await resolveEffectiveConfig(await validatePathAccess(event.sender.id, payload.repoRoot)))
+          ?.config.trackers ?? [])
+      : (globalConfigManager.load()?.trackers ?? [])
+    authorizeKeychainBindingForConfig(
+      payload.provider,
+      payload.baseUrl,
+      payload.bindingKey,
+      trackers,
+    )
+  }
+
   async function resolveTaskTrackerBranchName(
     payload: TaskTrackerBranchFromTaskPayload,
   ): Promise<string> {
@@ -3235,8 +3258,11 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'keychain:hasCredentials',
-    (_event, payload: { provider: string; baseUrl: string; bindingKey?: string }) => {
-      validateKeychainBinding(payload.provider, payload.bindingKey)
+    async (
+      event,
+      payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
+    ) => {
+      await authorizeRendererKeychainBinding(event, payload)
       return keychainTokenStore.hasCredentials(
         payload.provider,
         payload.baseUrl,
@@ -3245,8 +3271,9 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('keychain:setCredentials', (_event, payload: unknown) => {
+  ipcMain.handle('keychain:setCredentials', async (event, payload: unknown) => {
     const credentials = normalizeKeychainCredentialPayload(payload)
+    await authorizeRendererKeychainBinding(event, credentials)
     keychainTokenStore.setCredentials(
       credentials.provider,
       credentials.baseUrl,
@@ -3258,8 +3285,11 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'keychain:deleteCredentials',
-    (_event, payload: { provider: string; baseUrl: string; bindingKey?: string }) => {
-      validateKeychainBinding(payload.provider, payload.bindingKey)
+    async (
+      event,
+      payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
+    ) => {
+      await authorizeRendererKeychainBinding(event, payload)
       return keychainTokenStore.deleteCredentials(
         payload.provider,
         payload.baseUrl,
@@ -3270,8 +3300,11 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'keychain:getCredentials',
-    (_event, payload: { provider: string; baseUrl: string; bindingKey?: string }) => {
-      validateKeychainBinding(payload.provider, payload.bindingKey)
+    async (
+      event,
+      payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
+    ) => {
+      await authorizeRendererKeychainBinding(event, payload)
       const creds = keychainTokenStore.getCredentials(
         payload.provider,
         payload.baseUrl,
@@ -3464,7 +3497,7 @@ export function registerIpcHandlers(
       const { token, projectKey, ...rest } = payload
       const result = await taskTrackerManager.testNewConnection(
         { ...rest, projectKey: projectKey ?? '' },
-        token,
+        normalizeCredentialToken(token),
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },

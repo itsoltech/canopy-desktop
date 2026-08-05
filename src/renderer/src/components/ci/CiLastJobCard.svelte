@@ -1,21 +1,25 @@
 <script lang="ts">
-  import { ciChip, ciLastRunTimestamp, ciStatusTextClass } from '../../lib/ci/status'
+  import { ciChip, ciLastRunTimestampInfo, ciStatusTextClass } from '../../lib/ci/status'
   import type { CiBuildTypeStatus } from '../../lib/ci/types'
   import CiLastStatusCard from './CiLastStatusCard.svelte'
 
   let { rows, branch }: { rows: CiBuildTypeStatus[]; branch: string } = $props()
   let statusRows = $derived(
-    rows.map((row) => ({
-      id: row.buildTypeId,
-      label: row.label,
-      number: row.build?.number,
-      webUrl: row.build?.webUrl,
-      timestamp: row.build ? ciLastRunTimestamp(row.build) : undefined,
-      statusText: row.build?.statusText,
-      statusTextClass: row.build ? ciStatusTextClass(row.build) : undefined,
-      error: row.error,
-      chip: ciChip(row),
-    })),
+    rows.map((row) => {
+      const timestamp = row.build ? ciLastRunTimestampInfo(row.build) : undefined
+      return {
+        id: row.buildTypeId,
+        label: row.label,
+        number: row.build?.number,
+        webUrl: row.build?.webUrl,
+        timestamp: timestamp?.value,
+        timestampLabel: timestamp?.label,
+        statusText: row.build?.statusText,
+        statusTextClass: row.build ? ciStatusTextClass(row.build) : undefined,
+        error: row.error,
+        chip: ciChip(row),
+      }
+    }),
   )
 </script>
 

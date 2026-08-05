@@ -12,9 +12,17 @@ interface TimestampedRun {
   finishedAt: number | undefined
 }
 
-/** Best user-facing execution timestamp for completed and in-progress runs. */
-export function ciLastRunTimestamp(run: TimestampedRun): number | undefined {
-  return run.finishedAt ?? run.startedAt ?? run.queuedAt
+export interface CiLastRunTimestamp {
+  value: number
+  label: 'Queued' | 'Started' | 'Finished'
+}
+
+/** Timestamp plus wording that cannot contradict the run's current state. */
+export function ciLastRunTimestampInfo(run: TimestampedRun): CiLastRunTimestamp | undefined {
+  if (run.finishedAt != null) return { value: run.finishedAt, label: 'Finished' }
+  if (run.startedAt != null) return { value: run.startedAt, label: 'Started' }
+  if (run.queuedAt != null) return { value: run.queuedAt, label: 'Queued' }
+  return undefined
 }
 
 /** The fields the chip logic reads — CiBuildStatus and CiActivityBuild both fit. */

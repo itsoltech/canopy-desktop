@@ -1030,6 +1030,7 @@ interface CanopyAPI {
     provider: string,
     baseUrl: string,
     bindingKey?: string,
+    repoRoot?: string,
   ) => Promise<boolean>
   keychainSetCredentials: (
     provider: string,
@@ -1037,16 +1038,19 @@ interface CanopyAPI {
     token: string,
     username?: string,
     bindingKey?: string,
+    repoRoot?: string,
   ) => Promise<void>
   keychainDeleteCredentials: (
     provider: string,
     baseUrl: string,
     bindingKey?: string,
+    repoRoot?: string,
   ) => Promise<{ removed: boolean; retainedBindings: string[] }>
   keychainGetCredentials: (
     provider: string,
     baseUrl: string,
     bindingKey?: string,
+    repoRoot?: string,
   ) => Promise<{
     username?: string
     hasToken: boolean

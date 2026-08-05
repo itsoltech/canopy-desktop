@@ -3,7 +3,7 @@ import {
   anyBuildActive,
   ciChip,
   ciRunChip,
-  ciLastRunTimestamp,
+  ciLastRunTimestampInfo,
   ciRunStatusTextClass,
   ciStatusTextClass,
 } from './status'
@@ -82,10 +82,16 @@ describe('anyBuildActive', () => {
 })
 
 describe('ciLastRunTimestamp', () => {
-  it('prefers completion, then start, then queue time', () => {
-    expect(ciLastRunTimestamp(build({ queuedAt: 1, startedAt: 2, finishedAt: 3 }))).toBe(3)
-    expect(ciLastRunTimestamp(build({ queuedAt: 1, startedAt: 2 }))).toBe(2)
-    expect(ciLastRunTimestamp(build({ queuedAt: 1 }))).toBe(1)
+  it('prefers and labels queued, started and finished timestamps accurately', () => {
+    expect(ciLastRunTimestampInfo(build({ queuedAt: 1 }))).toEqual({ value: 1, label: 'Queued' })
+    expect(ciLastRunTimestampInfo(build({ queuedAt: 1, startedAt: 2 }))).toEqual({
+      value: 2,
+      label: 'Started',
+    })
+    expect(ciLastRunTimestampInfo(build({ queuedAt: 1, startedAt: 2, finishedAt: 3 }))).toEqual({
+      value: 3,
+      label: 'Finished',
+    })
   })
 })
 

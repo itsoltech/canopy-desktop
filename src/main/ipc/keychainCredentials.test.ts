@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeKeychainCredentialPayload } from './keychainCredentials'
+import {
+  authorizeKeychainBindingForConfig,
+  normalizeKeychainCredentialPayload,
+} from './keychainCredentials'
 
 describe('normalizeKeychainCredentialPayload', () => {
   it('normalizes TeamCity tokens before persistence', () => {
@@ -63,5 +66,36 @@ describe('normalizeKeychainCredentialPayload', () => {
         bindingKey: 'tracker:jira-default',
       }),
     ).toThrow('does not match the provider purpose')
+  })
+})
+
+describe('authorizeKeychainBindingForConfig', () => {
+  const trackers = [
+    {
+      id: 'jira-main',
+      provider: 'jira' as const,
+      baseUrl: 'https://jira.example.com/',
+    },
+  ]
+
+  it('accepts only the configured tracker with the matching provider and audience', () => {
+    expect(() =>
+      authorizeKeychainBindingForConfig(
+        'jira',
+        'https://jira.example.com',
+        'tracker:jira-main',
+        trackers,
+      ),
+    ).not.toThrow()
+  })
+
+  it.each([
+    ['tracker:other', 'jira', 'https://jira.example.com'],
+    ['tracker:jira-main', 'github', 'https://jira.example.com'],
+    ['tracker:jira-main', 'jira', 'https://attacker.example.com'],
+  ])('rejects an unauthorized renderer-selected binding', (bindingKey, provider, baseUrl) => {
+    expect(() =>
+      authorizeKeychainBindingForConfig(provider, baseUrl, bindingKey, trackers),
+    ).toThrow('Credential binding is not authorized')
   })
 })

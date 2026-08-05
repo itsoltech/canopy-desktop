@@ -94,6 +94,13 @@
       : ''
   }
 
+  let credentialIssueAnnouncement = $derived(
+    servers
+      .map((server) => credentialIssue(server))
+      .filter(Boolean)
+      .join(' '),
+  )
+
   // Mirrors the Jira/YouTrack "Generate →" affordance: once the address is typed,
   // jump straight to the server's token page.
   function openTokenPage(): void {
@@ -202,6 +209,8 @@
   description="Personal CI tokens stored on this machine — TeamCity credentials are server-scoped; GitHub Actions credentials are repository-scoped"
 >
   <div class="flex flex-col gap-2">
+    <!-- Mounted before the async credential list arrives; only its text mutates. -->
+    <div class="sr-only" role="status">{credentialIssueAnnouncement}</div>
     {#if servers.length === 0 && editing === null}
       <p class="text-sm text-text-faint m-0">No CI connections yet.</p>
     {/if}
@@ -288,7 +297,7 @@
             </button>
           </div>
           {#if credentialIssueText}
-            <p class="m-0 px-2.5 text-2xs text-warning-text break-words" role="status">
+            <p class="m-0 px-2.5 text-2xs text-warning-text break-words">
               {credentialIssueText}
             </p>
           {/if}

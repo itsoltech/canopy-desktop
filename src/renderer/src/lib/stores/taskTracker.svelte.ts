@@ -99,6 +99,7 @@ export function getTrackerCredential(trackerId: string): TrackerCredentialState 
 
 async function computeCredentials(
   trackers: TrackerConfig[],
+  repoRoot?: string,
 ): Promise<Record<string, TrackerCredentialState>> {
   const entries = await Promise.all(
     trackers
@@ -106,9 +107,19 @@ async function computeCredentials(
       .map(async (t) => {
         try {
           const bindingKey = `tracker:${t.id}`
-          const has = await window.api.keychainHasCredentials(t.provider, t.baseUrl, bindingKey)
+          const has = await window.api.keychainHasCredentials(
+            t.provider,
+            t.baseUrl,
+            bindingKey,
+            repoRoot,
+          )
           if (has) {
-            const info = await window.api.keychainGetCredentials(t.provider, t.baseUrl, bindingKey)
+            const info = await window.api.keychainGetCredentials(
+              t.provider,
+              t.baseUrl,
+              bindingKey,
+              repoRoot,
+            )
             // Carry the verification flag over so frequent refreshes (e.g. template auto-saves)
             // don't wipe it; verifyCredentials re-runs only on config loads.
             return [
@@ -134,8 +145,8 @@ async function computeCredentials(
   return Object.fromEntries(entries)
 }
 
-async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
-  trackerCredentials = await computeCredentials(trackers)
+async function refreshCredentials(trackers: TrackerConfig[], repoRoot?: string): Promise<void> {
+  trackerCredentials = await computeCredentials(trackers, repoRoot)
 }
 
 // Errors that mean the tracker rejected the token itself (vs. network being down etc.).
@@ -199,7 +210,7 @@ export async function loadRepoConfig(
     const nextRepo = await window.api.repoConfigLoad(repoRoot)
     const nextResolved = await window.api.trackerResolvedConfig(repoRoot)
     const nextCredentials = nextResolved
-      ? await computeCredentials(nextResolved.config.trackers)
+      ? await computeCredentials(nextResolved.config.trackers, repoRoot)
       : {}
     if (!shouldApply()) return
     lastRepoRoot = repoRoot
@@ -230,7 +241,7 @@ export async function saveRepoConfig(repoRoot: string, config: RepoConfig): Prom
   repoConfig = plain
   resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
   if (resolvedConfig) {
-    await refreshCredentials(resolvedConfig.config.trackers)
+    await refreshCredentials(resolvedConfig.config.trackers, repoRoot)
   }
 }
 
@@ -261,7 +272,7 @@ export async function loadGlobalConfig(): Promise<void> {
     if (resolved) {
       resolvedConfig = resolved
       const trackers = allKnownTrackers(resolved)
-      await refreshCredentials(trackers)
+      await refreshCredentials(trackers, lastRepoRoot)
       void verifyCredentials(trackers, lastRepoRoot)
     } else if (globalConfig) {
       await refreshCredentials(globalConfig.trackers)
@@ -279,7 +290,7 @@ export async function saveGlobalConfig(config: RepoConfig): Promise<void> {
   globalConfig = plain
   // Re-resolve merged config so sidebar reflects the change
   resolvedConfig = await window.api.trackerResolvedConfig(lastRepoRoot)
-  await refreshCredentials(allKnownTrackers(resolvedConfig))
+  await refreshCredentials(allKnownTrackers(resolvedConfig), lastRepoRoot)
 }
 
 export async function initGlobalConfig(): Promise<RepoConfig> {

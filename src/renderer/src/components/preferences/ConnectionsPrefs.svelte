@@ -79,7 +79,7 @@
         baseUrl: editBaseUrl.replace(/\/$/, ''),
         projectKey: editProjectKey || undefined,
         username: editUsername || undefined,
-        token: editToken,
+        token: editToken.trim(),
       })
       testResult = 'success'
     } catch {

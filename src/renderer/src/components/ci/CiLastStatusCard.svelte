@@ -8,6 +8,7 @@
     number?: string
     webUrl?: string
     timestamp?: number
+    timestampLabel?: 'Queued' | 'Started' | 'Finished'
     statusText?: string
     statusTextClass?: string
     error?: string
@@ -38,7 +39,8 @@
           ? 'group-hover/card:opacity-0 group-focus-within/card:opacity-0'
           : ''}"
         datetime={new Date(row.timestamp).toISOString()}
-        title={`Executed ${formatDateTime(row.timestamp)}`}>{formatDateTime(row.timestamp)}</time
+        title={`${row.timestampLabel ?? 'Updated'} ${formatDateTime(row.timestamp)}`}
+        >{formatDateTime(row.timestamp)}</time
       >
       {#if row.webUrl}
         <span
