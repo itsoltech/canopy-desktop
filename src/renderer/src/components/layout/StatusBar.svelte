@@ -66,12 +66,15 @@
 
   // --- Derived: focused pane type ---
 
-  type PaneKind = 'agent' | 'shell' | 'browser' | 'editor' | 'notes' | 'drawing' | 'none'
+  type PaneKind = 'agent' | 'shell' | 'browser' | 'editor' | 'diff' | 'notes' | 'drawing' | 'none'
 
   let focusedPaneKind: PaneKind = $derived.by(() => {
     if (!focusedPane) return 'none'
     if (focusedPane.paneType === 'browser') return 'browser'
     if (focusedPane.paneType === 'editor') return 'editor'
+    // 'diff' was missing here, so a focused diff pane fell through to the
+    // terminal branches below and reported itself as a shell in the status bar.
+    if (focusedPane.paneType === 'diff') return 'diff'
     if (focusedPane.paneType === 'notes') return 'notes'
     if (focusedPane.paneType === 'drawing') return 'drawing'
     if (isAiToolId(focusedPane.toolId)) return 'agent'

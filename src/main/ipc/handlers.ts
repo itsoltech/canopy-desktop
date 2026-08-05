@@ -2368,27 +2368,43 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('browser:teardown', (_event, payload: { browserId: string }) => {
+  // `browserId` comes from the untrusted renderer and BrowserManager keys every
+  // window's webviews in one shared map, so each privileged browser operation
+  // must confirm the calling window owns that view. Without this, a compromised
+  // renderer could name another window's browserId to attach the DevTools
+  // debugger to, or inject saved credentials into, a page it does not own.
+  // `browser:setup` is exempt: it establishes ownership rather than using it.
+  function assertOwnsBrowser(event: IpcMainInvokeEvent, browserId: string): void {
+    if (!browserManager.isOwnedBy(browserId, event.sender.id)) {
+      throw new Error('Browser view is not owned by this window')
+    }
+  }
+
+  ipcMain.handle('browser:teardown', (event, payload: { browserId: string }) => {
+    assertOwnsBrowser(event, payload.browserId)
     browserManager.teardown(payload.browserId)
   })
 
-  ipcMain.handle('browser:openDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:openDevTools', (event, payload: { browserId: string }) => {
+    assertOwnsBrowser(event, payload.browserId)
     browserManager.openDevTools(payload.browserId)
   })
 
-  ipcMain.handle('browser:closeDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:closeDevTools', (event, payload: { browserId: string }) => {
+    assertOwnsBrowser(event, payload.browserId)
     browserManager.closeDevTools(payload.browserId)
   })
 
   ipcMain.handle(
     'browser:setDevToolsBounds',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         bounds: { x: number; y: number; width: number; height: number }
       },
     ) => {
+      assertOwnsBrowser(event, payload.browserId)
       browserManager.setDevToolsBounds(payload.browserId, payload.bounds)
     },
   )
@@ -2396,12 +2412,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setDeviceEmulation',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null
       },
     ) => {
+      assertOwnsBrowser(event, payload.browserId)
       browserManager.setDeviceEmulation(payload.browserId, payload.device)
     },
   )
@@ -2409,12 +2426,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setBackgroundThrottling',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         allowed: boolean
       },
     ) => {
+      assertOwnsBrowser(event, payload.browserId)
       browserManager.setBackgroundThrottling(payload.browserId, payload.allowed)
     },
   )
@@ -2461,7 +2479,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'browser:fillCredential',
-    (_event, payload: { browserId: string; username: string; password: string }) => {
+    (event, payload: { browserId: string; username: string; password: string }) => {
+      assertOwnsBrowser(event, payload.browserId)
       browserManager.fillCredential(payload.browserId, payload.username, payload.password)
     },
   )

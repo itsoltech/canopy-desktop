@@ -16,6 +16,12 @@ export interface TaskRecord {
   owner: string | null
 }
 
+const TASK_STATUSES = new Set<string>(['pending', 'in_progress', 'completed', 'deleted'])
+
+function isTaskStatus(value: unknown): value is TaskRecord['status'] {
+  return typeof value === 'string' && TASK_STATUSES.has(value)
+}
+
 export interface NotificationRecord {
   title: string
   message: string
@@ -360,11 +366,16 @@ function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEven
       const taskId = String(input.taskId ?? '')
       const existing = session.tasks.find((t) => t.id === taskId)
       if (existing) {
-        if (input.status) existing.status = input.status as TaskRecord['status']
-        if (input.subject) existing.subject = input.subject as string
-        if (input.owner !== undefined) existing.owner = (input.owner as string) ?? null
+        // `input` is an untrusted agent hook payload, so each field is checked
+        // before it lands in a typed slot. An unrecognized status would
+        // otherwise sit in a union that the rest of this module trusts —
+        // the completed-task eviction above reads `t.status` directly.
+        if (isTaskStatus(input.status)) existing.status = input.status
+        if (typeof input.subject === 'string') existing.subject = input.subject
+        if (input.owner !== undefined)
+          existing.owner = typeof input.owner === 'string' ? input.owner : null
         if (input.activeForm !== undefined)
-          existing.activeForm = (input.activeForm as string) ?? null
+          existing.activeForm = typeof input.activeForm === 'string' ? input.activeForm : null
         session.tasks = [...session.tasks]
       }
     })

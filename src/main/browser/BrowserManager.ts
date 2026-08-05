@@ -308,6 +308,19 @@ export class BrowserManager {
     })
   }
 
+  /**
+   * Does `webContentsId` (a calling window's main renderer) own this browserId?
+   *
+   * `entries` is a single map shared by every window and `browserId` is chosen
+   * by the untrusted renderer, so callers of the privileged operations below
+   * (DevTools, debugger attach, credential injection) must confirm ownership
+   * first — otherwise one window could drive another window's webview by
+   * naming its browserId. Mirrors `WindowManager.ownsPtySession`.
+   */
+  isOwnedBy(browserId: string, webContentsId: number): boolean {
+    return this.entries.get(browserId)?.sender.id === webContentsId
+  }
+
   teardown(browserId: string): void {
     const entry = this.entries.get(browserId)
     if (entry) {

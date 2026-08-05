@@ -57,8 +57,11 @@ function disposeEphemeralPaneState(pane: PaneSession): void {
 
 // --- Active process detection ---
 
-const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
-export const isAiToolId = (id: string): boolean => AI_TOOL_IDS.has(id)
+const AI_TOOL_IDS = new Set<string>(['claude', 'codex', 'opencode', 'gemini'])
+// Type predicate rather than plain boolean: the ids in AI_TOOL_IDS are exactly
+// the members of AgentType, so callers narrow through the guard instead of
+// asserting with `as AgentType` afterwards.
+export const isAiToolId = (id: string): id is AgentType => AI_TOOL_IDS.has(id)
 
 type SerializedSplitNode =
   | {
@@ -113,7 +116,7 @@ function paneFromSnapshot(snapshot: PaneSnapshot, previous?: PaneSession): PaneS
     isAiToolId(snapshot.toolId) &&
     snapshot.isRunning
   ) {
-    rekeyAgentSession(previous.sessionId, snapshot.sessionId, snapshot.toolId as AgentType)
+    rekeyAgentSession(previous.sessionId, snapshot.sessionId, snapshot.toolId)
   }
 
   return {
@@ -213,7 +216,7 @@ export function applyTabsSnapshot(
 
 function initPaneRuntimeState(pane: PaneSession): void {
   if (isAiToolId(pane.toolId) && pane.isRunning) {
-    initAgentSession(pane.sessionId, pane.toolId as AgentType)
+    initAgentSession(pane.sessionId, pane.toolId)
   }
 }
 
