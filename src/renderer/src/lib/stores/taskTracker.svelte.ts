@@ -28,6 +28,11 @@ export interface PanelTaskContext extends ActiveTaskContext {
 export interface TrackerCredentialState {
   hasToken: boolean
   username?: string
+  credentialId?: string
+  intendedUses?: string[]
+  capabilities?: string[]
+  verification?: Record<string, { state: string; checkedAt: string; reason?: string }>
+  bindings?: string[]
   /** false = the stored token was rejected by the tracker (expired/revoked); true = verified
    *  against the tracker API; undefined = not verified (e.g. offline or check still running). */
   valid?: boolean
@@ -100,14 +105,24 @@ async function computeCredentials(
       .filter((t) => t.baseUrl)
       .map(async (t) => {
         try {
-          const has = await window.api.keychainHasCredentials(t.provider, t.baseUrl)
+          const bindingKey = `tracker:${t.id}`
+          const has = await window.api.keychainHasCredentials(t.provider, t.baseUrl, bindingKey)
           if (has) {
-            const info = await window.api.keychainGetCredentials(t.provider, t.baseUrl)
+            const info = await window.api.keychainGetCredentials(t.provider, t.baseUrl, bindingKey)
             // Carry the verification flag over so frequent refreshes (e.g. template auto-saves)
             // don't wipe it; verifyCredentials re-runs only on config loads.
             return [
               t.id,
-              { hasToken: true, username: info?.username, valid: trackerCredentials[t.id]?.valid },
+              {
+                hasToken: true,
+                username: info?.username,
+                credentialId: info?.credentialId,
+                intendedUses: info?.intendedUses,
+                capabilities: info?.capabilities,
+                verification: info?.verification,
+                bindings: info?.bindings,
+                valid: trackerCredentials[t.id]?.valid,
+              },
             ] as const
           }
           return [t.id, { hasToken: false }] as const
@@ -124,7 +139,9 @@ async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
 }
 
 // Errors that mean the tracker rejected the token itself (vs. network being down etc.).
-const AUTH_ERROR_RE = /\b(401|403)\b|unauthoriz|authenticat|forbidden|invalid token/i
+// 403 is capability/resource-specific (the token may still be valid for other integrations).
+// Only authentication failures invalidate the whole credential.
+const AUTH_ERROR_RE = /\b401\b|unauthoriz|authenticat|invalid token/i
 
 // Verification runs fire-and-forget after config loads; the UI shows a "checking credentials"
 // hint instead of having the expired-credentials banner pop in unannounced seconds later.
@@ -396,7 +413,10 @@ export async function resolvePanelTask(
 ): Promise<void> {
   const apply = (): boolean => !options.shouldApply || options.shouldApply()
   const normPath = worktreePath.replace(/\\/g, '/')
-  const trackerId = resolvedConfig?.config.trackers[0]?.id ?? ''
+  // Branch-derived task keys belong to the repository context. Personal/global trackers are
+  // available for explicit links, but must never become the implicit owner merely by list order.
+  const trackerId =
+    resolvedConfig?.repoTrackerIds[0] ?? resolvedConfig?.config.trackers[0]?.id ?? ''
 
   const branchKeys = branch ? extractTaskKeys(branch) : []
   const keys = [
@@ -423,7 +443,7 @@ export async function resolvePanelTask(
         : null
       try {
         // Address the tracker that owns the stored link; bare branch keys use the default.
-        const ownerTrackerId = stored?.connectionId || undefined
+        const ownerTrackerId = stored?.connectionId || trackerId || undefined
         const task = await window.api.trackerConfigFindTaskByKey(worktreePath, key, ownerTrackerId)
         // The tracker answered and doesn't know this key — a false match, drop it (unless it is
         // the explicitly linked task, which we keep as stored and flag as missing).

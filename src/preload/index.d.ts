@@ -1026,20 +1026,50 @@ interface CanopyAPI {
   }) => Promise<CreatedTask>
 
   // Keychain
-  keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
+  keychainHasCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+  ) => Promise<boolean>
   keychainSetCredentials: (
     provider: string,
     baseUrl: string,
     token: string,
     username?: string,
+    bindingKey?: string,
   ) => Promise<void>
-  keychainDeleteCredentials: (provider: string, baseUrl: string) => Promise<void>
+  keychainDeleteCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+  ) => Promise<{ removed: boolean; retainedBindings: string[] }>
   keychainGetCredentials: (
     provider: string,
     baseUrl: string,
-  ) => Promise<{ username?: string; hasToken: boolean } | null>
+    bindingKey?: string,
+  ) => Promise<{
+    username?: string
+    hasToken: boolean
+    credentialId?: string
+    intendedUses: string[]
+    capabilities: string[]
+    verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+    authenticationState: string
+    bindings: string[]
+  } | null>
   keychainListCredentials: () => Promise<
-    Array<{ provider: string; baseUrl: string; username?: string }>
+    Array<{
+      id: string
+      provider: string
+      baseUrl: string
+      username?: string
+      service: string
+      intendedUses: string[]
+      capabilities: string[]
+      verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+      authenticationState: string
+      bindings: string[]
+    }>
   >
 
   // CI/CD

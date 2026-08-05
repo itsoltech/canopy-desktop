@@ -179,7 +179,7 @@
       title: 'Confirm CI server address',
       message: `Send your TeamCity token to ${effectiveUrl}?`,
       details:
-        `The token will be sent only to this address and, when saved, stored ${storage}, keyed by provider + URL. Only continue if you recognize it as your TeamCity server.` +
+        `The token will be sent only to this address and, when saved, stored ${storage} for this server-scoped TeamCity integration. Only continue if you recognize it as your TeamCity server.` +
         (insecure
           ? ' Warning: this is a plain http:// address — the token would travel unencrypted.'
           : ''),
@@ -552,7 +552,7 @@
               bind:value={formToken}
               placeholder="Enter token"
               autocomplete="off"
-              title="Stored encrypted on your machine, keyed by provider + URL — never written to your repository"
+              title="Stored for this server-scoped CI integration on your machine — never written to your repository"
             />
             <div class="mt-1">
               <CredentialStorageNote

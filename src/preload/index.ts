@@ -1352,20 +1352,53 @@ const api = {
   }) => ipcRenderer.invoke('trackerConfig:createTask', payload),
 
   // Keychain
-  keychainHasCredentials: (provider: string, baseUrl: string) =>
-    ipcRenderer.invoke('keychain:hasCredentials', { provider, baseUrl }) as Promise<boolean>,
-  keychainSetCredentials: (provider: string, baseUrl: string, token: string, username?: string) =>
-    ipcRenderer.invoke('keychain:setCredentials', { provider, baseUrl, token, username }),
-  keychainDeleteCredentials: (provider: string, baseUrl: string) =>
-    ipcRenderer.invoke('keychain:deleteCredentials', { provider, baseUrl }),
-  keychainGetCredentials: (provider: string, baseUrl: string) =>
-    ipcRenderer.invoke('keychain:getCredentials', { provider, baseUrl }) as Promise<{
+  keychainHasCredentials: (provider: string, baseUrl: string, bindingKey?: string) =>
+    ipcRenderer.invoke('keychain:hasCredentials', {
+      provider,
+      baseUrl,
+      bindingKey,
+    }) as Promise<boolean>,
+  keychainSetCredentials: (
+    provider: string,
+    baseUrl: string,
+    token: string,
+    username?: string,
+    bindingKey?: string,
+  ) =>
+    ipcRenderer.invoke('keychain:setCredentials', {
+      provider,
+      baseUrl,
+      token,
+      username,
+      bindingKey,
+    }),
+  keychainDeleteCredentials: (provider: string, baseUrl: string, bindingKey?: string) =>
+    ipcRenderer.invoke('keychain:deleteCredentials', { provider, baseUrl, bindingKey }),
+  keychainGetCredentials: (provider: string, baseUrl: string, bindingKey?: string) =>
+    ipcRenderer.invoke('keychain:getCredentials', { provider, baseUrl, bindingKey }) as Promise<{
       username?: string
       hasToken: boolean
+      credentialId?: string
+      intendedUses: string[]
+      capabilities: string[]
+      verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+      authenticationState: string
+      bindings: string[]
     } | null>,
   keychainListCredentials: () =>
     ipcRenderer.invoke('keychain:listCredentials') as Promise<
-      Array<{ provider: string; baseUrl: string; username?: string }>
+      Array<{
+        id: string
+        provider: string
+        baseUrl: string
+        username?: string
+        service: string
+        intendedUses: string[]
+        capabilities: string[]
+        verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+        authenticationState: string
+        bindings: string[]
+      }>
     >,
 
   // CI/CD

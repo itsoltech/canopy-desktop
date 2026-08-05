@@ -22,7 +22,7 @@
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
 
   // Project connections = trackers configured in the repo's .canopy/config.json (active worktree).
-  // Here you only CONNECT (authenticate) them — credentials are global per provider+URL. Adding /
+  // Here you only CONNECT (authenticate) them — credentials are purpose-bound locally. Adding /
   // editing / removing the tracker DEFINITION is intentionally not here (managed elsewhere).
   let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let repoCfg = $derived(getRepoConfig())
@@ -214,6 +214,7 @@
         url,
         formToken,
         formUsername || undefined,
+        connectingId ? `tracker:${connectingId}` : undefined,
       )
       await ensurePersonalConnection(formProvider, url, formProjectKey || undefined)
     } catch (e) {
@@ -225,18 +226,22 @@
     addToast('Credentials saved')
   }
 
-  async function removeCredentials(t: { provider: string; baseUrl: string }): Promise<void> {
+  async function removeCredentials(t: {
+    id: string
+    provider: string
+    baseUrl: string
+  }): Promise<void> {
     const ok = await confirm({
       title: 'Remove credentials',
       message: `Remove your stored token for ${providerLabel(t.provider)} at ${t.baseUrl}?`,
       details:
-        'Clears the token on this machine only. The token is global (keyed by provider + URL), so this affects every connection using this URL across all your projects. The tracker stays configured in the repo.',
+        'Disconnects this project tracker on this machine. Other integrations bound to the same credential keep working. The tracker stays configured in the repo.',
       confirmLabel: 'Remove credentials',
       destructive: true,
     })
     if (!ok) return
     try {
-      await window.api.keychainDeleteCredentials(t.provider, t.baseUrl)
+      await window.api.keychainDeleteCredentials(t.provider, t.baseUrl, `tracker:${t.id}`)
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
       return
@@ -331,7 +336,7 @@
             class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
             onclick={() => removeCredentials(tracker)}
             aria-label="Remove credentials"
-            title={`Remove the credentials for ${providerLabel(tracker.provider)} at ${tracker.baseUrl} — affects every project that connects to this URL`}
+            title="Disconnect credentials from this tracker; other explicit bindings keep working"
           >
             <Unlink size={12} />
           </button>

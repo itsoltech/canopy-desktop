@@ -97,7 +97,7 @@
         bind:value={token}
         placeholder={isNew ? 'Enter token' : '••••••••'}
         autocomplete="off"
-        title="Stored encrypted on your machine, keyed by provider + URL — never written to your repository"
+        title="Stored for this server-scoped CI integration on your machine — never written to your repository"
       />
     </div>
   </div>
@@ -154,7 +154,7 @@
           ? URL_REQUIRED
           : !tokenPresent
             ? TOKEN_REQUIRED
-            : 'Save the token (stored globally on this machine, per provider + URL)'}
+            : 'Save the token for this server-scoped CI integration on this machine'}
       >{saving ? 'Saving…' : isNew ? 'Add connection' : 'Save token'}</button
     >
   </div>

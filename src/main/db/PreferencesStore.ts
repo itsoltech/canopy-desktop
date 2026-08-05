@@ -13,7 +13,7 @@ const ENCRYPTED_KEYS = new Set([
   // encrypted at rest and excluded from the renderer-facing getAll() blob.
   'remote.trustedDevices',
 ])
-const ENCRYPTED_KEY_PREFIXES = ['taskTracker.token.']
+const ENCRYPTED_KEY_PREFIXES = ['taskTracker.token.', 'credential.secret.v2.']
 
 /**
  * Preference keys that are bound to this specific machine or represent
@@ -31,7 +31,13 @@ const NON_EXPORTABLE_KEYS = new Set([
   'worktrees.baseDir.trustedResolved',
 ])
 
-const NON_EXPORTABLE_PREFIXES = ['workspace:']
+const NON_EXPORTABLE_PREFIXES = [
+  'workspace:',
+  'taskTracker.token.',
+  'credential.registry.',
+  'credential.bindings.',
+  'credential.secret.',
+]
 
 function isEncryptedKey(key: string): boolean {
   if (ENCRYPTED_KEYS.has(key)) return true

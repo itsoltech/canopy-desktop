@@ -68,9 +68,10 @@ function fakes(opts?: {
     ),
   } as unknown as RepoConfigManager
   const tokenStore = {
-    getCredentials: vi.fn(() =>
+    resolveCredentials: vi.fn(() =>
       opts?.token === null ? null : { token: opts?.token ?? 'tok', username: undefined },
     ),
+    recordResult: vi.fn(),
     setCredentials: vi.fn(async () => undefined),
   } as unknown as KeychainTokenStore
   return {
@@ -234,7 +235,7 @@ describe('the token gate', () => {
     const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
 
     expect(result.isErr() && result.error._tag).toBe('CiRepositoryMismatch')
-    expect(tokenStore.getCredentials).not.toHaveBeenCalled()
+    expect(tokenStore.resolveCredentials).not.toHaveBeenCalled()
   })
 
   it('maps an authorized GitHub repository to its dedicated CI credential key', async () => {
@@ -243,9 +244,10 @@ describe('the token gate', () => {
     const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
 
     expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
-    expect(tokenStore.getCredentials).toHaveBeenCalledWith(
+    expect(tokenStore.resolveCredentials).toHaveBeenCalledWith(
       'github-actions',
       'https://github.com/itsoltech/canopy-desktop',
+      'actions.read',
     )
   })
 
@@ -475,7 +477,7 @@ describe('saveConfig', () => {
 
     expect(result.isErr() && result.error._tag).toBe('CiRepositoryMismatch')
     expect(repoConfigManager.save).not.toHaveBeenCalled()
-    expect(tokenStore.getCredentials).not.toHaveBeenCalled()
+    expect(tokenStore.resolveCredentials).not.toHaveBeenCalled()
   })
 
   it('writes the ci block through the normal round-trip', async () => {

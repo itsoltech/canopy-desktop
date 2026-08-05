@@ -150,7 +150,7 @@
         bind:value={token}
         placeholder={!isNew && hasExistingToken ? '••••••••' : 'Enter token'}
         autocomplete="off"
-        title="Stored encrypted on your machine, keyed by provider + URL — never written to your repository"
+        title="Stored for this tracker integration on your machine — never written to your repository"
       />
     </div>
   </div>
@@ -185,7 +185,7 @@
       onclick={onSave}
       disabled={!baseUrl || (credentialsOnly && !token)}
       title={credentialsOnly
-        ? 'Save credentials (stored globally on this machine, per provider + URL)'
+        ? 'Save credentials for this tracker integration on this machine'
         : "Save the connection — you'll confirm where it goes (Global or Project)"}
       >{credentialsOnly ? 'Save credentials' : 'Save'}</button
     >

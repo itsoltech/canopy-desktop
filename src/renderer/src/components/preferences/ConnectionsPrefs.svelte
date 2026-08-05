@@ -18,8 +18,8 @@
   import { credentialStorageClause } from './_partials/credentialStorage'
 
   // Settings hosts only GLOBAL (personal) connections. Project trackers (.canopy/config.json) are
-  // connected from the dedicated "Project tracker" modal. Credentials are global per provider+URL,
-  // and this is the authoritative place to change/remove them.
+  // connected from the dedicated "Project tracker" modal. Credentials have stable local IDs,
+  // explicit purposes/capabilities and bindings; this is the authoritative registry UI.
   let globalCfg = $derived(getGlobalConfig())
   let trackers = $derived(globalCfg?.trackers ?? [])
   let trackerCreds = $derived(getTrackerCredentials())
@@ -107,7 +107,7 @@
       details:
         'Saved to your personal connections on this machine (reused across all your projects).' +
         (editToken
-          ? ` Your token is stored ${storage}, keyed by provider + URL and used by any connection to ${providerLabel(editProvider)} at ${normalizedUrl} across your projects — never written to your repository. You can change or remove it here later.`
+          ? ` Your token is stored ${storage} and bound to this tracker connection — never written to your repository. You can bind a different credential to another integration on the same host.`
           : ''),
       confirmLabel: isNew ? 'Add connection' : 'Save changes',
     })
@@ -152,6 +152,7 @@
           normalizedUrl,
           editToken,
           editUsername || undefined,
+          `tracker:${newTrackerId ?? editingId}`,
         )
       } catch (e) {
         addToast(e instanceof Error ? e.message : 'Failed to save credentials')
@@ -164,20 +165,27 @@
     addToast('Connection saved')
   }
 
-  // Clears only the locally-stored token (keychain). The token is global per provider+URL, so this
-  // affects every connection using that URL across all your projects.
-  async function removeCredentials(tracker: { provider: string; baseUrl: string }): Promise<void> {
+  // Disconnects this tracker binding. A credential shared by another explicit binding is retained.
+  async function removeCredentials(tracker: {
+    id: string
+    provider: string
+    baseUrl: string
+  }): Promise<void> {
     const ok = await confirm({
       title: 'Remove credentials',
       message: `Remove your stored token for ${providerLabel(tracker.provider)}${tracker.baseUrl ? ` at ${tracker.baseUrl}` : ''}?`,
       details:
-        'Clears the token on this machine only. The token is global (keyed by provider + URL), so this affects every connection using this URL across all your projects. The connection definition stays.',
+        'Disconnects this tracker on this machine. Other integrations bound to the same credential keep working. The connection definition stays.',
       confirmLabel: 'Remove credentials',
       destructive: true,
     })
     if (!ok) return
     try {
-      await window.api.keychainDeleteCredentials(tracker.provider, tracker.baseUrl)
+      await window.api.keychainDeleteCredentials(
+        tracker.provider,
+        tracker.baseUrl,
+        `tracker:${tracker.id}`,
+      )
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
       return
@@ -196,7 +204,8 @@
       message: tracker
         ? `Delete the ${providerLabel(tracker.provider)} connection${tracker.baseUrl ? ` at ${tracker.baseUrl}` : ''}?`
         : 'Delete this connection?',
-      details: 'Removes your personal connection and its stored credentials on this machine.',
+      details:
+        'Removes this personal connection and its local binding. The credential is deleted only when no other integration uses it; otherwise those bindings are retained.',
       confirmLabel: 'Delete connection',
       destructive: true,
     })
@@ -211,7 +220,11 @@
       )
       if (!shared) {
         try {
-          await window.api.keychainDeleteCredentials(tracker.provider, tracker.baseUrl)
+          await window.api.keychainDeleteCredentials(
+            tracker.provider,
+            tracker.baseUrl,
+            `tracker:${tracker.id}`,
+          )
         } catch {
           // best-effort cleanup
         }
@@ -231,7 +244,7 @@
 
 <PrefsSection
   title="Connections & credentials"
-  description="Your personal tracker connections and tokens stored on this machine — credentials are keyed by provider + URL and shared across your projects"
+  description="Your personal tracker connections and purpose-bound credentials stored on this machine"
 >
   <div class="flex flex-col gap-2">
     {#if trackers.length === 0 && editingId === null}
@@ -274,6 +287,11 @@
             {#if tracker.projectKey}
               <span class="font-mono text-xs text-text-muted shrink-0">{tracker.projectKey}</span>
             {/if}
+            <span
+              class="text-2xs text-text-faint shrink-0"
+              title={`Capabilities: ${(creds?.capabilities ?? ['issues.read', 'issues.write']).map((capability) => `${capability} (${creds?.verification?.[capability]?.state ?? 'unverified'})`).join(', ')}. Bindings: ${creds?.bindings?.join(', ') || 'this tracker'}`}
+              >Tracker · issues read/write</span
+            >
             {#if creds?.hasToken && creds.valid === false}
               <span
                 class="text-2xs text-warning-text shrink-0"
@@ -302,7 +320,7 @@
               class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
               onclick={() => removeCredentials(tracker)}
               aria-label="Remove credentials"
-              title={`Remove the credentials for ${providerLabel(tracker.provider)}${tracker.baseUrl ? ` at ${tracker.baseUrl}` : ''} — affects every project that connects to this URL; the connection stays`}
+              title={`Disconnect ${providerLabel(tracker.provider)} credentials from this tracker; other bindings stay connected`}
             >
               <Unlink size={12} />
             </button>

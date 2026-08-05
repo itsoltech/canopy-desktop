@@ -14,6 +14,7 @@ describe('normalizeKeychainCredentialPayload', () => {
       baseUrl: 'https://tc.example.com',
       token: 'token',
       username: undefined,
+      bindingKey: undefined,
     })
   })
 
@@ -29,4 +30,15 @@ describe('normalizeKeychainCredentialPayload', () => {
       ).toThrow('Provider and baseUrl are required')
     },
   )
+
+  it('rejects a renderer-supplied CI binding and cross-purpose tracker binding', () => {
+    expect(() =>
+      normalizeKeychainCredentialPayload({
+        provider: 'github-actions',
+        baseUrl: 'https://github.com/itsoltech/canopy-desktop',
+        token: 'token',
+        bindingKey: 'tracker:jira-default',
+      }),
+    ).toThrow('does not match the provider purpose')
+  })
 })

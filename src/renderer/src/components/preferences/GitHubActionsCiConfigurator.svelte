@@ -437,6 +437,15 @@
         </p>
       {/if}
 
+      {#if repositoryReady}
+        <p class="m-0 text-xs text-text-muted">
+          Git code transport is separate: fetch and push use the workspaceâ€™s
+          <code class="font-mono">origin</code> through Git (SSH or its credential helper). This API
+          token is bound only to GitHub Actions for <strong>{repositoryLabel}</strong> and does not grant
+          Canopy Git push access.
+        </p>
+      {/if}
+
       <div class="flex items-center gap-2">
         {#if repositoryReady && token.trim()}
           <button

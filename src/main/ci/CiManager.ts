@@ -1,6 +1,7 @@
 import { ResultAsync, err, errAsync, ok, okAsync, type Result } from 'neverthrow'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
+import type { CredentialCapability } from '../credentials/CredentialRegistry'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { GitRepository } from '../git/GitRepository'
 import { parseGitHubRemote } from '../github/remoteUrl'
@@ -120,6 +121,25 @@ export class CiManager {
       new GitHubActionsClient(owner, repository, token),
   ) {}
 
+  private observeCredentialResult<T>(
+    provider: 'teamcity' | 'github-actions',
+    baseUrl: string,
+    capability: CredentialCapability,
+    result: ResultAsync<T, CiError>,
+  ): ResultAsync<T, CiError> {
+    const record = (status: number, reason?: string): void =>
+      this.tokenStore.recordResult(provider, baseUrl, capability, status, reason)
+    return result
+      .map((value) => {
+        record(200)
+        return value
+      })
+      .mapErr((error) => {
+        if (error._tag === 'CiApiError') record(error.status, error.message)
+        return error
+      })
+  }
+
   loadConfig(repoRoot: string): ResultAsync<CiConfig, CiError> {
     return this.repoConfigManager
       .load(repoRoot)
@@ -155,19 +175,31 @@ export class CiManager {
       })
   }
 
-  private tokenForUrl(baseUrl: string): ResultAsync<string, CiError> {
-    const creds = this.tokenStore.getCredentials('teamcity', baseUrl)
+  private tokenForUrl(
+    baseUrl: string,
+    capability: Extract<CredentialCapability, 'builds.read' | 'builds.trigger'> = 'builds.read',
+  ): ResultAsync<string, CiError> {
+    const creds = this.tokenStore.resolveCredentials('teamcity', baseUrl, capability)
     const token = normalizedTeamCityToken(creds?.token)
     return token ? okAsync(token) : errAsync({ _tag: 'CiAuthMissing', baseUrl })
   }
 
-  private tokenFor(ci: TeamCityCiConfig): ResultAsync<string, CiError> {
-    return this.tokenForUrl(ci.baseUrl)
+  private tokenFor(
+    ci: TeamCityCiConfig,
+    capability: Extract<CredentialCapability, 'builds.read' | 'builds.trigger'> = 'builds.read',
+  ): ResultAsync<string, CiError> {
+    return this.tokenForUrl(ci.baseUrl, capability)
   }
 
-  private githubToken(repository: string): ResultAsync<string, CiError> {
+  private githubToken(
+    repository: string,
+    capability: Extract<
+      CredentialCapability,
+      'actions.read' | 'actions.dispatch' | 'contents.read'
+    > = 'actions.read',
+  ): ResultAsync<string, CiError> {
     const baseUrl = `https://github.com/${repository.toLowerCase()}`
-    const creds = this.tokenStore.getCredentials('github-actions', baseUrl)
+    const creds = this.tokenStore.resolveCredentials('github-actions', baseUrl, capability)
     return creds?.token
       ? okAsync(creds.token)
       : errAsync({ _tag: 'CiAuthMissing', baseUrl, provider: 'github-actions' })
@@ -347,9 +379,23 @@ export class CiManager {
     branch: string,
     properties?: Array<{ name: string; value: string }>,
   ): ResultAsync<CiTriggerResult, CiError> {
-    return this.requireConfiguredBuildType(repoRoot, buildTypeId).andThen(({ ci, token }) =>
-      triggerBuild(ci.baseUrl, token, buildTypeId, branch, properties),
-    )
+    return this.loadConfig(repoRoot).andThen((ci) => {
+      if (ci.provider !== 'teamcity' || !ci.buildTypes.some((bt) => bt.id === buildTypeId)) {
+        return errAsync<CiTriggerResult, CiError>({
+          _tag: 'CiApiError',
+          status: 0,
+          message: `Build type ${buildTypeId} is not configured for this repository`,
+        })
+      }
+      return this.tokenFor(ci, 'builds.trigger').andThen((token) =>
+        this.observeCredentialResult(
+          'teamcity',
+          ci.baseUrl,
+          'builds.trigger',
+          triggerBuild(ci.baseUrl, token, buildTypeId, branch, properties),
+        ),
+      )
+    })
   }
 
   /** "Run custom build" prompt parameters of a CONFIGURED build type. */
@@ -434,7 +480,14 @@ export class CiManager {
    * just saved for that URL.
    */
   listBuildTypes(baseUrl: string): ResultAsync<CiServerBuildType[], CiError> {
-    return this.tokenForUrl(baseUrl).andThen((token) => fetchBuildTypes(baseUrl, token))
+    return this.tokenForUrl(baseUrl).andThen((token) =>
+      this.observeCredentialResult(
+        'teamcity',
+        baseUrl,
+        'builds.read',
+        fetchBuildTypes(baseUrl, token),
+      ),
+    )
   }
 
   // One in-flight update per repo: Save and Remove are both read-modify-write on
@@ -517,23 +570,78 @@ export class CiManager {
   }
 
   jobsStatus(repoRoot: string, ref: CiRef): ResultAsync<CiJobStatus[], CiError> {
-    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.status(ref))
+    return this.adapter(repoRoot).andThen(({ ci, adapter }) =>
+      this.observeCredentialResult(
+        ci.provider,
+        ci.provider === 'github-actions'
+          ? `https://github.com/${ci.repository.toLowerCase()}`
+          : ci.baseUrl,
+        ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
+        adapter.status(ref),
+      ),
+    )
   }
 
   jobRefs(repoRoot: string, jobId: string): ResultAsync<CiRef[], CiError> {
-    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.refs(jobId))
+    return this.adapter(repoRoot).andThen(({ ci, adapter }) =>
+      this.observeCredentialResult(
+        ci.provider,
+        ci.provider === 'github-actions'
+          ? `https://github.com/${ci.repository.toLowerCase()}`
+          : ci.baseUrl,
+        ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
+        adapter.refs(jobId),
+      ),
+    )
   }
 
   jobParameters(repoRoot: string, jobId: string, ref: CiRef): ResultAsync<CiParameterSet, CiError> {
-    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.parameters(jobId, ref))
+    return this.adapter(repoRoot).andThen(({ ci, adapter }) => {
+      if (ci.provider === 'github-actions') {
+        return this.githubToken(ci.repository, 'contents.read').andThen(() =>
+          this.observeCredentialResult(
+            ci.provider,
+            `https://github.com/${ci.repository.toLowerCase()}`,
+            'contents.read',
+            adapter.parameters(jobId, ref),
+          ),
+        )
+      }
+      return this.tokenFor(ci, 'builds.read').andThen(() =>
+        this.observeCredentialResult(
+          ci.provider,
+          ci.baseUrl,
+          'builds.read',
+          adapter.parameters(jobId, ref),
+        ),
+      )
+    })
   }
 
   runActivity(repoRoot: string): ResultAsync<CiRunActivity, CiError> {
-    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.activity())
+    return this.adapter(repoRoot).andThen(({ ci, adapter }) =>
+      this.observeCredentialResult(
+        ci.provider,
+        ci.provider === 'github-actions'
+          ? `https://github.com/${ci.repository.toLowerCase()}`
+          : ci.baseUrl,
+        ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
+        adapter.activity(),
+      ),
+    )
   }
 
   runById(repoRoot: string, runId: string): ResultAsync<CiRun, CiError> {
-    return this.adapter(repoRoot).andThen(({ adapter }) => adapter.run(runId))
+    return this.adapter(repoRoot).andThen(({ ci, adapter }) =>
+      this.observeCredentialResult(
+        ci.provider,
+        ci.provider === 'github-actions'
+          ? `https://github.com/${ci.repository.toLowerCase()}`
+          : ci.baseUrl,
+        ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
+        adapter.run(runId),
+      ),
+    )
   }
 
   githubSetup(repoRoot: string): ResultAsync<GitHubActionsSetupInfo, CiError> {
@@ -546,7 +654,12 @@ export class CiManager {
             actual: metadata.fullName,
           })
         }
-        return discoverGitHubWorkflows(client, metadata.defaultBranch).map((workflows) => ({
+        return this.observeCredentialResult(
+          'github-actions',
+          `https://github.com/${repository.toLowerCase()}`,
+          'actions.read',
+          discoverGitHubWorkflows(client, metadata.defaultBranch),
+        ).map((workflows) => ({
           repository: metadata.fullName.toLowerCase(),
           defaultBranch: metadata.defaultBranch,
           workflows,
@@ -585,7 +698,7 @@ export class CiManager {
           message: 'Could not store the GitHub token',
           provider: 'github-actions',
         }),
-      ),
+      ).map(() => undefined),
     )
   }
 
@@ -625,6 +738,11 @@ export class CiManager {
     const context = await this.adapter(repoRoot)
     if (context.isErr()) return err(context.error)
     if (context.value.ci.provider === 'github-actions') {
+      const dispatchCredential = await this.githubToken(
+        context.value.ci.repository,
+        'actions.dispatch',
+      )
+      if (dispatchCredential.isErr()) return err(dispatchCredential.error)
       const refs = await context.value.adapter.refs(request.jobId)
       if (refs.isErr()) return err(refs.error)
       const sameName = refs.value.filter((ref) => ref.name === request.ref.name)
@@ -660,7 +778,19 @@ export class CiManager {
       })
       if (!accepted) return err({ _tag: 'CiDispatchCancelled' })
       request = { ...request, ref: resolved }
+    } else {
+      const triggerCredential = await this.tokenFor(context.value.ci, 'builds.trigger')
+      if (triggerCredential.isErr()) return err(triggerCredential.error)
     }
-    return context.value.adapter.trigger(request)
+    const baseUrl =
+      context.value.ci.provider === 'github-actions'
+        ? `https://github.com/${context.value.ci.repository.toLowerCase()}`
+        : context.value.ci.baseUrl
+    return this.observeCredentialResult(
+      context.value.ci.provider,
+      baseUrl,
+      context.value.ci.provider === 'github-actions' ? 'actions.dispatch' : 'builds.trigger',
+      context.value.adapter.trigger(request),
+    )
   }
 }

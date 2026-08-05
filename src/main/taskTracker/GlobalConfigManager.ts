@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { KeychainTokenStore } from './KeychainTokenStore'
 import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types'
@@ -89,39 +88,6 @@ export class GlobalConfigManager {
     this.preferencesStore.set(GLOBAL_CONFIG_KEY, JSON.stringify(config))
     this.cached = config
     this.cacheValid = true
-  }
-
-  /**
-   * Every stored credential is visible as a personal connection. Tokens saved by older builds
-   * (project-tracker modal only) predate that rule — create the missing connection definitions
-   * once at startup. New saves create theirs immediately, so this stays a no-op afterwards.
-   */
-  ensureConnectionsForStoredCredentials(): void {
-    const VALID_PROVIDERS = new Set(['jira', 'youtrack', 'github'])
-    const creds = this.keychainTokenStore.listCredentials()
-    if (creds.length === 0) return
-    const config: RepoConfig = this.load() ?? {
-      version: 1,
-      trackers: [],
-      projectOverrides: {},
-      filters: { assignedToMe: true, statuses: [] },
-    }
-    const norm = (u: string): string => u.replace(/\/$/, '')
-    let added = false
-    for (const cred of creds) {
-      if (!VALID_PROVIDERS.has(cred.provider)) continue
-      const exists = config.trackers.some(
-        (t) => t.provider === cred.provider && norm(t.baseUrl) === norm(cred.baseUrl),
-      )
-      if (exists) continue
-      config.trackers.push({
-        id: `${cred.provider}-${randomUUID().slice(0, 8)}`,
-        provider: cred.provider as RepoConfig['trackers'][0]['provider'],
-        baseUrl: norm(cred.baseUrl),
-      })
-      added = true
-    }
-    if (added) this.save(config)
   }
 
   exists(): boolean {

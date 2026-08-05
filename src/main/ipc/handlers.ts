@@ -67,7 +67,7 @@ import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
-import { normalizeKeychainCredentialPayload } from './keychainCredentials'
+import { normalizeKeychainCredentialPayload, validateKeychainBinding } from './keychainCredentials'
 import { loadPullRequestSummary } from '../taskTracker/prSummary'
 import { isSafeBranchRef } from '../taskTracker/prCreation'
 
@@ -3241,8 +3241,13 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'keychain:hasCredentials',
-    (_event, payload: { provider: string; baseUrl: string }) => {
-      return keychainTokenStore.hasCredentials(payload.provider, payload.baseUrl)
+    (_event, payload: { provider: string; baseUrl: string; bindingKey?: string }) => {
+      validateKeychainBinding(payload.provider, payload.bindingKey)
+      return keychainTokenStore.hasCredentials(
+        payload.provider,
+        payload.baseUrl,
+        payload.bindingKey,
+      )
     },
   )
 
@@ -3253,23 +3258,48 @@ export function registerIpcHandlers(
       credentials.baseUrl,
       credentials.token,
       credentials.username,
+      credentials.bindingKey,
     )
   })
 
   ipcMain.handle(
     'keychain:deleteCredentials',
-    (_event, payload: { provider: string; baseUrl: string }) => {
-      keychainTokenStore.deleteCredentials(payload.provider, payload.baseUrl)
+    (_event, payload: { provider: string; baseUrl: string; bindingKey?: string }) => {
+      validateKeychainBinding(payload.provider, payload.bindingKey)
+      return keychainTokenStore.deleteCredentials(
+        payload.provider,
+        payload.baseUrl,
+        payload.bindingKey,
+      )
     },
   )
 
   ipcMain.handle(
     'keychain:getCredentials',
-    (_event, payload: { provider: string; baseUrl: string }) => {
-      const creds = keychainTokenStore.getCredentials(payload.provider, payload.baseUrl)
+    (_event, payload: { provider: string; baseUrl: string; bindingKey?: string }) => {
+      validateKeychainBinding(payload.provider, payload.bindingKey)
+      const creds = keychainTokenStore.getCredentials(
+        payload.provider,
+        payload.baseUrl,
+        payload.bindingKey,
+      )
       if (!creds) return null
       // Never send token to renderer — only username and hasToken flag
-      return { username: creds.username, hasToken: true }
+      const descriptor = keychainTokenStore.registry
+        .list()
+        .find((credential) => credential.id === creds.credentialId)
+      return {
+        username: creds.username,
+        hasToken: true,
+        credentialId: creds.credentialId,
+        intendedUses: descriptor?.intendedUses ?? [],
+        capabilities: descriptor?.capabilities ?? [],
+        verification: descriptor?.verification ?? {},
+        authenticationState: descriptor?.authenticationState ?? 'unknown',
+        bindings: creds.credentialId
+          ? keychainTokenStore.registry.bindingsFor(creds.credentialId)
+          : [],
+      }
     },
   )
 

@@ -9,13 +9,22 @@
   import CiServerForm from './_partials/CiServerForm.svelte'
   import { credentialStorageClause } from './_partials/credentialStorage'
 
-  // Your PERSONAL CI server connections — tokens keyed provider+URL in the keychain
-  // (the keychain IS the connection list; no global-config entry exists). Which build
+  // Your PERSONAL CI server connections — credentials are capability-scoped and locally bound.
+  // The credential registry is the connection list; no global-config entry exists. Which build
   // configurations a repository uses lives in the repo's own .canopy/config.json,
   // managed from the CI/CD sidebar section — not here. Kept as a separate Settings
   // section from the Project management connections on purpose.
 
-  let servers = $state<Array<{ provider: string; baseUrl: string; username?: string }>>([])
+  let servers = $state<
+    Array<{
+      provider: string
+      baseUrl: string
+      username?: string
+      capabilities: string[]
+      verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+      bindings: string[]
+    }>
+  >([])
   let editing = $state<string | null>(null) // '__new__' or the server baseUrl
   let formUrl = $state('')
   let formToken = $state('')
@@ -91,7 +100,7 @@
       title: 'Confirm CI server address',
       message: `Send your TeamCity token to ${normalizedUrl}?`,
       details:
-        `The token will be sent only to this address and, when saved, stored ${storage}, keyed by provider + URL and used by every repository that configures this CI server — never written to any repository.` +
+        `The token will be sent only to this address and, when saved, stored ${storage} for this TeamCity server. Compatible repositories can bind to it locally; it is never written to any repository.` +
         (insecure
           ? ' Warning: this is a plain http:// address — the token would travel unencrypted.'
           : ''),
@@ -151,7 +160,7 @@
         title: 'Remove CI connection',
         message: `Remove your stored token for ${server.provider === 'github-actions' ? 'GitHub Actions' : 'TeamCity'} at ${server.baseUrl}?`,
         details:
-          'Clears the token on this machine only. Repositories that configure this server will show a reconnect hint until a new token is saved.',
+          'Removes this CI binding on this machine. A credential still bound to another integration is retained; otherwise its secret is deleted.',
         confirmLabel: 'Remove connection',
         destructive: true,
       })
@@ -215,6 +224,13 @@
             </span>
             <span class="flex-1 text-text-secondary truncate" title={server.baseUrl}
               >{server.baseUrl}</span
+            >
+            <span
+              class="text-2xs text-text-faint shrink-0"
+              title={`Capabilities: ${server.capabilities.map((capability) => `${capability} (${server.verification[capability]?.state ?? 'unverified'})`).join(', ')}. Bindings: ${server.bindings.join(', ') || 'none'}`}
+              >{server.provider === 'github-actions'
+                ? 'Actions · repo scoped'
+                : 'Builds · server scoped'}</span
             >
             <span
               class="flex items-center gap-1 text-2xs text-success shrink-0"
