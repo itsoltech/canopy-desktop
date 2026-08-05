@@ -11,14 +11,21 @@ import type {
 } from './types'
 import { ciErrorMessage, type CiError } from './errors'
 import { parsePromptParameters } from './parameters'
-import { parseActivity, parseBranches, type RawActivityResponse } from './activity'
+import { parseActivity, parseBranches, parseTcDate, type RawActivityResponse } from './activity'
 
 // TeamCity REST client (https://www.jetbrains.com/help/teamcity/rest/). Pure
 // response-mapping helpers are exported for unit tests; network access follows the
 // task-tracker provider conventions: Bearer token, 15s timeout, redirects refused
 // (baseUrl comes from repo config — a redirect would forward the token elsewhere).
 
-const BUILD_FIELDS = 'id,number,state,status,percentageComplete,webUrl,branchName'
+const BUILD_FIELDS =
+  'id,number,state,status,percentageComplete,webUrl,branchName,queuedDate,startDate,finishDate'
+const TEAMCITY_LOCATOR_STRUCTURAL_CHARS = /[(),:]/u
+
+/** Refs are parenthesized in TeamCity locators; structural characters must not reach the sink. */
+export function isTeamCityLocatorSafeRef(ref: string): boolean {
+  return ref.length > 0 && ref.length <= 255 && !TEAMCITY_LOCATOR_STRUCTURAL_CHARS.test(ref)
+}
 
 interface RawBuild {
   id: number
@@ -28,6 +35,9 @@ interface RawBuild {
   percentageComplete?: number
   webUrl?: string
   branchName?: string
+  queuedDate?: string
+  startDate?: string
+  finishDate?: string
 }
 
 /**
@@ -36,7 +46,7 @@ interface RawBuild {
  * visible — hiding them would report a stale older build as current. Values are
  * parenthesized: branch names routinely contain `/` (dimension separators
  * otherwise). Characters that would escape the parentheses are rejected at the
- * IPC boundary.
+ * live TeamCity status paths before this helper is called.
  */
 export function buildBranchLocator(buildTypeId: string, branch: string): string {
   return `buildType:(id:${buildTypeId}),branch:(name:(${branch})),running:any,defaultFilter:false,count:1`
@@ -57,6 +67,9 @@ export function mapBuild(raw: RawBuild): CiBuildStatus {
     percentageComplete: raw.percentageComplete,
     webUrl: raw.webUrl ?? '',
     branchName: raw.branchName,
+    queuedAt: parseTcDate(raw.queuedDate),
+    startedAt: parseTcDate(raw.startDate),
+    finishedAt: parseTcDate(raw.finishDate),
   }
 }
 

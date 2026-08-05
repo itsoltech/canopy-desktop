@@ -33,6 +33,7 @@ import {
   fetchBuildForBranch,
   fetchBuildTypes,
   fetchPromptParameters,
+  isTeamCityLocatorSafeRef,
   triggerBuild,
 } from './teamcity'
 import { GitHubActionsClient } from './github-actions/client'
@@ -303,6 +304,13 @@ export class CiManager {
         status: 0,
         message: 'Use provider-neutral status for GitHub Actions',
         provider: 'github-actions',
+      })
+    }
+    if (!isTeamCityLocatorSafeRef(branch)) {
+      return errAsync({
+        _tag: 'CiApiError',
+        status: 0,
+        message: 'TeamCity branch contains locator-unsafe characters',
       })
     }
     return this.tokenFor(ci).andThen((token) =>

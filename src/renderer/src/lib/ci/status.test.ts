@@ -3,6 +3,7 @@ import {
   anyBuildActive,
   ciChip,
   ciRunChip,
+  ciLastRunTimestamp,
   ciRunStatusTextClass,
   ciStatusTextClass,
 } from './status'
@@ -16,6 +17,9 @@ function build(overrides: Partial<CiBuildStatus>): CiBuildStatus {
     percentageComplete: undefined,
     webUrl: 'https://tc/build/1',
     branchName: undefined,
+    queuedAt: undefined,
+    startedAt: undefined,
+    finishedAt: undefined,
     ...overrides,
   }
 }
@@ -73,6 +77,14 @@ describe('anyBuildActive', () => {
   it('is false for finished or absent builds', () => {
     expect(anyBuildActive([row(null), row(build({ status: 'FAILURE' }))])).toBe(false)
     expect(anyBuildActive([])).toBe(false)
+  })
+})
+
+describe('ciLastRunTimestamp', () => {
+  it('prefers completion, then start, then queue time', () => {
+    expect(ciLastRunTimestamp(build({ queuedAt: 1, startedAt: 2, finishedAt: 3 }))).toBe(3)
+    expect(ciLastRunTimestamp(build({ queuedAt: 1, startedAt: 2 }))).toBe(2)
+    expect(ciLastRunTimestamp(build({ queuedAt: 1 }))).toBe(1)
   })
 })
 

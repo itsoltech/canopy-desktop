@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ciChip } from '../../lib/ci/status'
+  import { ciChip, ciLastRunTimestamp } from '../../lib/ci/status'
   import type { CiBuildTypeStatus } from '../../lib/ci/types'
   import CiLastStatusCard from './CiLastStatusCard.svelte'
 
@@ -10,10 +10,17 @@
       label: row.label,
       number: row.build?.number,
       webUrl: row.build?.webUrl,
+      timestamp: row.build ? ciLastRunTimestamp(row.build) : undefined,
       error: row.error,
       chip: ciChip(row),
     })),
   )
 </script>
 
-<CiLastStatusCard rows={statusRows} {branch} providerLabel="TeamCity" />
+<CiLastStatusCard
+  rows={statusRows}
+  {branch}
+  providerLabel="TeamCity"
+  cardTitle="Last job"
+  runNoun="build"
+/>

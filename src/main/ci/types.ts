@@ -139,6 +139,9 @@ export interface CiBuildStatus {
   percentageComplete: number | undefined
   webUrl: string
   branchName: string | undefined
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
 }
 
 /** Per-buildType row returned to the renderer: config label + latest build (if any). */

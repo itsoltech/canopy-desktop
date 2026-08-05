@@ -21,6 +21,9 @@ describe('TeamCityAdapter', () => {
           percentageComplete: 50,
           webUrl: 'build-url',
           branchName: 'next',
+          queuedAt: 1,
+          startedAt: 2,
+          finishedAt: undefined,
         }),
       ),
     }
@@ -37,6 +40,8 @@ describe('TeamCityAdapter', () => {
         runId: '7',
         state: 'running',
         jobId: 'Gakko_Build',
+        queuedAt: 1,
+        startedAt: 2,
       },
     })
     expect(client.fetchBuildForBranch).toHaveBeenCalledWith(

@@ -10,6 +10,7 @@ import { testConnection as ciTestConnection } from './teamcity'
 // the RESOLVED path may flow downstream.
 
 vi.mock('./teamcity', () => ({
+  isTeamCityLocatorSafeRef: vi.fn((ref: string) => !/[(),:]/u.test(ref)),
   testConnection: vi.fn(() => okAsync(undefined)),
 }))
 
@@ -399,6 +400,19 @@ describe('CI IPC authorization', () => {
       configured: true,
       rows: [],
       error: 'Invalid branch name',
+    })
+    expect(ciManager.statusFor).not.toHaveBeenCalled()
+  })
+
+  it('rejects locator-unsafe refs on the shipped legacy TeamCity status channel', async () => {
+    const { invoke, ciManager } = harness()
+
+    await expect(
+      invoke('ci:status', { repoRoot: '/ws/repo', branch: 'feat(ci),v2' }),
+    ).resolves.toMatchObject({
+      configured: true,
+      rows: [],
+      error: 'TeamCity branch contains locator-unsafe characters',
     })
     expect(ciManager.statusFor).not.toHaveBeenCalled()
   })

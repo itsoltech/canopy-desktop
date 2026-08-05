@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { CiJobStatus } from '../../lib/ci/types'
-  import { ciRunChip, ciRunStatusTextClass } from '../../lib/ci/status'
+  import { ciLastRunTimestamp, ciRunChip, ciRunStatusTextClass } from '../../lib/ci/status'
   import CiLastStatusCard from './CiLastStatusCard.svelte'
 
   let { rows, branch }: { rows: CiJobStatus[]; branch: string } = $props()
@@ -10,6 +10,7 @@
       label: row.label,
       number: row.run?.number,
       webUrl: row.run?.webUrl,
+      timestamp: row.run ? ciLastRunTimestamp(row.run) : undefined,
       statusText: row.run?.statusText,
       statusTextClass: row.run ? ciRunStatusTextClass(row.run) : undefined,
       error: row.error,
@@ -18,4 +19,10 @@
   )
 </script>
 
-<CiLastStatusCard rows={statusRows} {branch} providerLabel="GitHub Actions" />
+<CiLastStatusCard
+  rows={statusRows}
+  {branch}
+  providerLabel="GitHub Actions"
+  cardTitle="Last run"
+  runNoun="run"
+/>

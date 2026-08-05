@@ -3,6 +3,7 @@ import {
   activityBuildTypesLocator,
   buildBranchLocator,
   fetchActivity,
+  isTeamCityLocatorSafeRef,
   mapBuild,
   parseBuildsResponse,
   queuedActivityLocator,
@@ -78,6 +79,11 @@ describe('buildBranchLocator', () => {
       'buildType:(id:Gakko_Build),branch:(name:(s152/ISSUE-2148)),running:any,defaultFilter:false,count:1',
     )
   })
+
+  it('accepts non-ASCII refs but rejects locator structural characters', () => {
+    expect(isTeamCityLocatorSafeRef('feature/ąę')).toBe(true)
+    expect(isTeamCityLocatorSafeRef('feat(ci),v2')).toBe(false)
+  })
 })
 
 describe('mapBuild', () => {
@@ -90,6 +96,9 @@ describe('mapBuild', () => {
         status: 'SUCCESS',
         webUrl: 'https://tc/build/123',
         branchName: 's152/ISSUE-2148',
+        queuedDate: '20260801T172200+0200',
+        startDate: '20260801T172255+0200',
+        finishDate: '20260801T172406+0200',
       }),
     ).toEqual({
       id: 123,
@@ -99,6 +108,9 @@ describe('mapBuild', () => {
       percentageComplete: undefined,
       webUrl: 'https://tc/build/123',
       branchName: 's152/ISSUE-2148',
+      queuedAt: Date.parse('2026-08-01T17:22:00+02:00'),
+      startedAt: Date.parse('2026-08-01T17:22:55+02:00'),
+      finishedAt: Date.parse('2026-08-01T17:24:06+02:00'),
     })
   })
 

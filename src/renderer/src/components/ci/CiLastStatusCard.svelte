@@ -1,11 +1,13 @@
 <script lang="ts">
   import { ExternalLink } from '@lucide/svelte'
+  import { formatDateTime } from '../../lib/formatDate'
 
   interface LastStatusRow {
     id: string
     label: string
     number?: string
     webUrl?: string
+    timestamp?: number
     statusText?: string
     statusTextClass?: string
     error?: string
@@ -16,15 +18,64 @@
     rows,
     branch,
     providerLabel,
-  }: { rows: LastStatusRow[]; branch: string; providerLabel: string } = $props()
+    cardTitle,
+    runNoun,
+  }: {
+    rows: LastStatusRow[]
+    branch: string
+    providerLabel: string
+    cardTitle: string
+    runNoun: 'build' | 'run'
+  } = $props()
 </script>
 
-{#snippet statusLine(row: LastStatusRow, showJobLabel: boolean)}
-  <span class="flex items-center gap-2 w-full text-sm text-text">
-    <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted">{branch}</span>
-    {#if showJobLabel}
-      <span class="text-2xs text-text-faint truncate max-w-24">{row.label}</span>
+{#snippet dateAndLink(row: LastStatusRow)}
+  {#if row.timestamp != null}
+    <!-- Grid overlap keeps the top line stable: hover/focus replaces the date with the link icon. -->
+    <span class="grid shrink-0 items-center justify-items-end">
+      <time
+        class="col-start-1 row-start-1 text-2xs text-text-faint text-right transition-opacity duration-fast group-hover/card:opacity-0 group-focus-within/card:opacity-0"
+        datetime={new Date(row.timestamp).toISOString()}
+        title={`Executed ${formatDateTime(row.timestamp)}`}>{formatDateTime(row.timestamp)}</time
+      >
+      {#if row.webUrl}
+        <span
+          class="col-start-1 row-start-1 flex items-center justify-end text-text-muted opacity-0 transition-opacity duration-fast group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+          aria-hidden="true"
+        >
+          <ExternalLink size={11} />
+        </span>
+      {/if}
+    </span>
+  {:else if row.webUrl}
+    <span
+      class="flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-fast group-hover/card:opacity-100 group-focus-within/card:opacity-100 shrink-0"
+      aria-hidden="true"
+    >
+      <ExternalLink size={11} />
+    </span>
+  {/if}
+{/snippet}
+
+{#snippet topLine(row: LastStatusRow, heading?: string)}
+  <span class="flex items-center gap-2 w-full min-w-0">
+    {#if heading}
+      <span
+        class="flex-1 min-w-0 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
+        >{heading}</span
+      >
+    {:else}
+      <span class="flex-1 min-w-0"></span>
     {/if}
+    {@render dateAndLink(row)}
+  </span>
+{/snippet}
+
+{#snippet statusLine(row: LastStatusRow)}
+  <span class="flex items-center gap-2 w-full min-w-0">
+    <span class="flex-1 min-w-0 text-xs text-text-secondary truncate" title={row.label}
+      >{row.label}</span
+    >
     {#if row.number}
       <span
         class="font-mono text-2xs text-text-secondary flex-shrink-0 underline-offset-2 group-hover/card:text-accent-text group-focus-within/card:text-accent-text group-hover/card:underline group-focus-within/card:underline"
@@ -36,6 +87,10 @@
     >
     {#if row.error}<span class="sr-only">{row.error}</span>{/if}
   </span>
+{/snippet}
+
+{#snippet details(row: LastStatusRow)}
+  <span class="w-full truncate font-mono text-xs text-text-muted">{branch}</span>
   {#if row.statusText}
     <span
       class="w-full truncate text-2xs {row.statusTextClass ?? 'text-text-muted'}"
@@ -57,33 +112,21 @@
     aria-disabled={!row.webUrl}
     onclick={() => row.webUrl && window.api.openExternal(row.webUrl)}
     title={row.webUrl
-      ? `${row.label} — open run${row.number ? ` #${row.number}` : ''} in ${providerLabel}`
+      ? `${row.label} — open ${runNoun}${row.number ? ` #${row.number}` : ''} in ${providerLabel}`
       : row.error
         ? `${row.label} — status unavailable: ${row.error}`
         : row.number || row.statusText
-          ? `${row.label} — run${row.number ? ` #${row.number}` : ''} cannot be opened in ${providerLabel}`
-          : `No runs of ${row.label} for ${branch} yet`}
+          ? `${row.label} — ${runNoun}${row.number ? ` #${row.number}` : ''} cannot be opened in ${providerLabel}`
+          : `No ${runNoun}s of ${row.label} for ${branch} yet`}
   >
-    <span class="flex items-center gap-2 w-full">
-      <span
-        class="flex-1 min-w-0 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
-        title={row.label}>Last job · {row.label}</span
-      >
-      {#if row.webUrl}
-        <span
-          class="flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-fast group-hover/card:opacity-100 group-focus-within/card:opacity-100 flex-shrink-0"
-          aria-hidden="true"
-        >
-          <ExternalLink size={11} />
-        </span>
-      {/if}
-    </span>
-    {@render statusLine(row, false)}
+    {@render topLine(row, cardTitle)}
+    {@render statusLine(row)}
+    {@render details(row)}
   </button>
 {:else if rows.length > 1}
   <div class="mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1">
     <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
-      >Last job</span
+      >{cardTitle}</span
     >
     {#each rows as row (row.id)}
       <button
@@ -92,14 +135,16 @@
         aria-disabled={!row.webUrl}
         onclick={() => row.webUrl && window.api.openExternal(row.webUrl)}
         title={row.webUrl
-          ? `${row.label} — open run${row.number ? ` #${row.number}` : ''} in ${providerLabel}`
+          ? `${row.label} — open ${runNoun}${row.number ? ` #${row.number}` : ''} in ${providerLabel}`
           : row.error
             ? `${row.label} — status unavailable: ${row.error}`
             : row.number || row.statusText
-              ? `${row.label} — run${row.number ? ` #${row.number}` : ''} cannot be opened in ${providerLabel}`
-              : `No runs of ${row.label} for ${branch} yet`}
+              ? `${row.label} — ${runNoun}${row.number ? ` #${row.number}` : ''} cannot be opened in ${providerLabel}`
+              : `No ${runNoun}s of ${row.label} for ${branch} yet`}
       >
-        {@render statusLine(row, true)}
+        {@render topLine(row)}
+        {@render statusLine(row)}
+        {@render details(row)}
       </button>
     {/each}
   </div>

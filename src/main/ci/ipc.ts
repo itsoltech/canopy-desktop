@@ -9,7 +9,7 @@ import {
 } from './config'
 import type { CiConfig, CiInputValue, CiRef, CiStatusResponse, CiTriggerRequest } from './types'
 import { ciErrorMessage } from './errors'
-import { testConnection as ciTestConnection } from './teamcity'
+import { isTeamCityLocatorSafeRef, testConnection as ciTestConnection } from './teamcity'
 import { CI_TOKEN_MAX, normalizeTeamCityToken } from './token'
 
 // The CI IPC surface, extracted so the AUTHORIZATION contract is unit-testable:
@@ -326,6 +326,14 @@ export function registerCiHandlers({
           baseUrl: config.baseUrl,
           rows: [],
           error: 'Invalid branch name',
+        } satisfies CiStatusResponse
+      }
+      if (config.provider === 'teamcity' && !isTeamCityLocatorSafeRef(payload.branch)) {
+        return {
+          configured: true,
+          baseUrl: config.baseUrl,
+          rows: [],
+          error: 'TeamCity branch contains locator-unsafe characters',
         } satisfies CiStatusResponse
       }
 

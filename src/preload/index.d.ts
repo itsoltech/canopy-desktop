@@ -1796,6 +1796,9 @@ interface CiBuildStatus {
   percentageComplete: number | undefined
   webUrl: string
   branchName: string | undefined
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
 }
 
 interface CiBuildTypeStatus {

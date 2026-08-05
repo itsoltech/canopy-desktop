@@ -6,6 +6,7 @@ import {
   fetchBuild,
   fetchBuildForBranch,
   fetchPromptParameters,
+  isTeamCityLocatorSafeRef,
   triggerBuild,
 } from '../teamcity'
 import type {
@@ -31,8 +32,6 @@ interface TeamCityClient {
   fetchPromptParameters: typeof fetchPromptParameters
   triggerBuild: typeof triggerBuild
 }
-
-const TEAMCITY_LOCATOR_SAFE_REF = /^[A-Za-z0-9._/+$-]{1,255}$/
 
 const defaultClient: TeamCityClient = {
   fetchBuildForBranch,
@@ -66,9 +65,9 @@ function mapBuild(
     statusText,
     webUrl: build.webUrl,
     ref: build.branchName ? { name: build.branchName, kind: 'branch' } : undefined,
-    queuedAt: undefined,
-    startedAt: undefined,
-    finishedAt: undefined,
+    queuedAt: build.queuedAt,
+    startedAt: build.startedAt,
+    finishedAt: build.finishedAt,
   }
 }
 
@@ -108,7 +107,7 @@ export class TeamCityAdapter implements CiProviderAdapter {
   status(ref: CiRef): ResultAsync<CiJobStatus[], CiError> {
     if (ref.kind !== 'branch')
       return errAsync({ _tag: 'CiApiError', status: 0, message: 'TeamCity requires a branch' })
-    if (!TEAMCITY_LOCATOR_SAFE_REF.test(ref.name)) {
+    if (!isTeamCityLocatorSafeRef(ref.name)) {
       return errAsync({
         _tag: 'CiApiError',
         status: 0,

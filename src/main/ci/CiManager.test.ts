@@ -16,6 +16,7 @@ vi.mock('./teamcity', () => ({
   fetchBuildForBranch: vi.fn(() => okAsync(null)),
   fetchBuildTypes: vi.fn(() => okAsync([])),
   fetchPromptParameters: vi.fn(() => okAsync([])),
+  isTeamCityLocatorSafeRef: vi.fn((ref: string) => !/[(),:]/u.test(ref)),
   triggerBuild: vi.fn(() => okAsync({ buildId: 1, webUrl: 'https://tc/1', branchName: 'next' })),
 }))
 
@@ -395,6 +396,19 @@ describe('GitHub dispatch confirmation', () => {
 })
 
 describe('statusFor', () => {
+  it('rejects locator-unsafe branches before calling TeamCity', async () => {
+    const { manager } = fakes({ ci: VALID_CI })
+    const config = (await manager.loadConfig('r'))._unsafeUnwrap()
+
+    const result = await manager.statusFor(config, 'feat(ci),v2')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'TeamCity branch contains locator-unsafe characters',
+    })
+    expect(fetchBuildForBranch).not.toHaveBeenCalled()
+  })
+
   it('degrades a failed row to Unavailable while siblings keep their builds', async () => {
     const ci = {
       provider: 'teamcity',
@@ -418,6 +432,9 @@ describe('statusFor', () => {
             percentageComplete: undefined,
             webUrl: 'https://tc.example.com/build/7',
             branchName: 'next',
+            queuedAt: undefined,
+            startedAt: undefined,
+            finishedAt: undefined,
           }),
     )
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()

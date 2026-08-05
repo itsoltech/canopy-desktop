@@ -6,6 +6,17 @@ export interface CiChip {
   cls: string
 }
 
+interface TimestampedRun {
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
+}
+
+/** Best user-facing execution timestamp for completed and in-progress runs. */
+export function ciLastRunTimestamp(run: TimestampedRun): number | undefined {
+  return run.finishedAt ?? run.startedAt ?? run.queuedAt
+}
+
 /** The fields the chip logic reads — CiBuildStatus and CiActivityBuild both fit. */
 interface ChipBuild {
   state: 'queued' | 'running' | 'finished'

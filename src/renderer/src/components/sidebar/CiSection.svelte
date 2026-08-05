@@ -93,6 +93,9 @@
   // OBJECT changes on every poll and would loop the effect.
   let hasConfigAndToken = $derived(config != null && cfgState.hasToken)
   let activeCount = $derived(activity ? activity.running.length + activity.queued.length : 0)
+  let activityPartialErrors = $derived(
+    activity && 'partialErrors' in activity ? (activity.partialErrors ?? []) : [],
+  )
   $effect(() => {
     if (!hasConfigAndToken) return
     const root = repoRoot
@@ -100,12 +103,15 @@
     // Triggering a build bumps the tick → immediate re-fetch instead of the chip
     // sitting on "Idle" until the next poll.
     void getCiActivityTick()
+    // A missing slice can hide a running job, so keep recovery polling fast without showing a
+    // competing Partial chip in the compact sidebar (the history window carries the reasons).
+    const activityMayBeIncomplete = activityPartialErrors.length > 0
     const interval =
       provider === 'github-actions'
-        ? activeCount > 0
+        ? activeCount > 0 || activityMayBeIncomplete
           ? 60_000
           : 300_000
-        : activeCount > 0
+        : activeCount > 0 || activityMayBeIncomplete
           ? 10_000
           : 30_000
     let cancelled = false
@@ -193,9 +199,12 @@
       } else {
         const running = activity?.running.length ?? 0
         const queued = activity?.queued.length ?? 0
-        parts.push(
-          running === 0 && queued === 0 ? 'CI idle' : `CI: ${running} running, ${queued} queued`,
-        )
+        if (running > 0 || queued > 0) {
+          parts.push(`CI: ${running} running, ${queued} queued`)
+        } else if (activityPartialErrors.length === 0) {
+          parts.push('CI idle')
+        }
+        if (activityPartialErrors.length > 0) parts.push('CI activity incomplete')
       }
     }
     return parts.join(' · ')
@@ -345,7 +354,7 @@
               size={12}
               class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
             />
-          {:else}
+          {:else if activityPartialErrors.length === 0 || activeCount > 0}
             <span
               class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {activeCount > 0
                 ? 'bg-accent-bg text-accent-text'
