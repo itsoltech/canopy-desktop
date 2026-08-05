@@ -1,7 +1,7 @@
 import { execFile } from 'child_process'
 import { err, ok, ResultAsync, type Result } from 'neverthrow'
 import { errorMessage } from '../errors'
-import { redactGitHubFailureReason } from '../github/redactFailureReason'
+import { gitHubCliFailureReason, isMissingGitHubCli } from '../github/redactFailureReason'
 import type { TaskTrackerError } from './errors'
 
 export const PR_SUMMARY_FIELDS = 'number,state,isDraft'
@@ -34,11 +34,8 @@ const runSummaryCommand: SummaryCommandRunner = (command, args, options) =>
         resolve({ stdout })
         return
       }
-      const reason = error.killed
-        ? `GitHub CLI request timed out after ${PR_SUMMARY_TIMEOUT_MS / 1000} seconds`
-        : stderr.trim() || error.message
       reject(
-        Object.assign(new Error(redactGitHubFailureReason(reason)), {
+        Object.assign(new Error(gitHubCliFailureReason(error, PR_SUMMARY_TIMEOUT_MS, stderr)), {
           code: (error as NodeJS.ErrnoException).code,
         }),
       )
@@ -59,15 +56,6 @@ function isPullRequestSummary(value: unknown): value is PullRequestSummary {
 
 function lookupError(reason: string): TaskTrackerError {
   return { _tag: 'PRLookupFailed', reason }
-}
-
-function isMissingGitHubCli(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'ENOENT'
-  )
 }
 
 function isLookupError(error: unknown): error is TaskTrackerError {
@@ -134,5 +122,10 @@ export function loadPullRequestSummary(
         return isLookupError(e) ? err(e) : err(lookupError(errorMessage(e)))
       })
 
-  return findByState('open').andThen((openPR) => (openPR ? ok(openPR) : findByState('closed')))
+  return findByState('open').andThen((openPR) =>
+    openPR
+      ? ok(openPR)
+      : // The closed lookup is decorative. The open query already proved Create PR is safe.
+        findByState('closed').orElse(() => ok<PullRequestSummary | null, TaskTrackerError>(null)),
+  )
 }

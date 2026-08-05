@@ -170,9 +170,10 @@ When the repository does not have the GitHub API integration configured, the sid
 runs `gh pr list --state open --head <branch> --limit 1`; when there is no open PR, it repeats the
 lookup with `--state closed` so the sidebar can still show the latest merged/closed state while
 keeping **Create PR** available. Both calls return only the PR number, state, and draft flag. The
-lookup is repeated when the active worktree or branch changes and after a PR mutation made inside
-Canopy. A PR created externally — including with `gh pr create` in a Canopy terminal — may therefore
-require switching worktrees or restarting Canopy before the row appears. A missing `gh` executable
+lookup is coalesced per repository and branch, and settled results are cached for 30 seconds; in-app
+PR mutations invalidate the entry immediately. A PR created externally — including with `gh pr
+create` in a Canopy terminal — is picked up after the cache expires when the branch is revisited, or
+after restarting Canopy. A missing `gh` executable
 or repository without a GitHub origin silently disables this optional fallback. Authentication,
 network, timeout, and malformed-response failures are shown as a retryable `PRLookupFailed` row and
 hide **Create PR** until the retry succeeds; they are not treated as proof that the branch has no PR.

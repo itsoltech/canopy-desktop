@@ -1,0 +1,32 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  SUPPORTED_GITHUB_REMOTE_TTL_MS,
+  hasSupportedGitHubRemote,
+  resetSupportedGitHubRemoteCache,
+} from './supportedRemote'
+
+describe('hasSupportedGitHubRemote', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    resetSupportedGitHubRemoteCache()
+  })
+
+  it('coalesces and briefly caches the repository-scoped probe', async () => {
+    let now = 10_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const probe = vi.fn().mockResolvedValue(true)
+
+    await expect(
+      Promise.all([
+        hasSupportedGitHubRemote('C:/repo', probe),
+        hasSupportedGitHubRemote('C:/repo', probe),
+        hasSupportedGitHubRemote('C:/repo', probe),
+      ]),
+    ).resolves.toEqual([true, true, true])
+    expect(probe).toHaveBeenCalledOnce()
+
+    now += SUPPORTED_GITHUB_REMOTE_TTL_MS
+    await expect(hasSupportedGitHubRemote('C:/repo', probe)).resolves.toBe(true)
+    expect(probe).toHaveBeenCalledTimes(2)
+  })
+})

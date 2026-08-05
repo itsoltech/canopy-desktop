@@ -366,4 +366,40 @@ describe('CI IPC authorization', () => {
       )
     },
   )
+
+  it.each(['release+qa', 'hello-$USER'])(
+    'accepts a valid Git ref in legacy TeamCity channels: %s',
+    async (branch) => {
+      const { invoke, ciManager } = harness()
+
+      const status = await invoke('ci:status', { repoRoot: '/ws/repo', branch })
+      await invoke('ci:trigger', {
+        repoRoot: '/ws/repo',
+        buildTypeId: 'Gakko_Build',
+        branch,
+      })
+
+      expect(status).toMatchObject({ configured: true, rows: [] })
+      expect(ciManager.statusFor).toHaveBeenCalledWith(expect.any(Object), branch)
+      expect(ciManager.trigger).toHaveBeenCalledWith(
+        '/resolved/ws/repo',
+        'Gakko_Build',
+        branch,
+        undefined,
+      )
+    },
+  )
+
+  it('reports an unusable TeamCity ref without pretending the repository is unconfigured', async () => {
+    const { invoke, ciManager } = harness()
+
+    await expect(
+      invoke('ci:status', { repoRoot: '/ws/repo', branch: 'invalid:branch' }),
+    ).resolves.toMatchObject({
+      configured: true,
+      rows: [],
+      error: 'Invalid branch name',
+    })
+    expect(ciManager.statusFor).not.toHaveBeenCalled()
+  })
 })

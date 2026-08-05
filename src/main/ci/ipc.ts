@@ -42,12 +42,10 @@ function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string):
   return result.value
 }
 
-// Identifier charsets: build type ids and branch names are embedded in TeamCity
-// locator expressions — reject anything that could escape the parenthesized value
-// (`(`, `)`, `,`, `:`). The renderer is the untrusted boundary. The id charset is
-// shared with the config parser — one definition, or the injection defence drifts.
+// Build type ids are embedded in TeamCity locator expressions. Refs use the provider-neutral
+// Git contract below; the TeamCity adapter enforces its stricter locator-safe subset at the sink.
+// The id charset is shared with the config parser so the injection defence cannot drift.
 const CI_BUILD_TYPE_ID_RE = BUILD_TYPE_ID_PATTERN
-const CI_BRANCH_RE = /^[A-Za-z0-9._/-]{1,255}$/
 
 // Custom-build properties travel in the JSON body (never in a locator), so values
 // only need sane size caps; names get a strict charset anyway.
@@ -317,14 +315,19 @@ export function registerCiHandlers({
     'ci:status',
     async (event: CiIpcEvent, payload: { repoRoot: string; branch: string }) => {
       const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
-      if (typeof payload.branch !== 'string' || !CI_BRANCH_RE.test(payload.branch)) {
-        return { configured: false, rows: [] } satisfies CiStatusResponse
-      }
       // An invalid EXISTING block surfaces through ci:config (which answers
       // { config: null, invalid: { scope, message } }) — the sidebar never polls
       // ci:status in that state, so this call treats every load failure alike.
       const config = await ciManager.loadConfig(repoRoot).unwrapOr(null)
       if (!config) return { configured: false, rows: [] } satisfies CiStatusResponse
+      if (!isValidGitRefName(payload.branch)) {
+        return {
+          configured: true,
+          baseUrl: config.baseUrl,
+          rows: [],
+          error: 'Invalid branch name',
+        } satisfies CiStatusResponse
+      }
 
       // Pass the loaded config down — statusFor doesn't re-read .canopy/config.json.
       const result = await ciManager.statusFor(config, payload.branch)
@@ -364,7 +367,7 @@ export function registerCiHandlers({
       ) {
         throw new Error('Invalid build type id')
       }
-      if (typeof payload.branch !== 'string' || !CI_BRANCH_RE.test(payload.branch)) {
+      if (!isValidGitRefName(payload.branch)) {
         throw new Error('Invalid branch name')
       }
       const properties = validateCiProperties(payload.properties)

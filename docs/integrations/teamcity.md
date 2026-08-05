@@ -115,9 +115,9 @@ queued count, refreshes immediately after a trigger from Canopy, and polls every
 and refreshes every 10 s while open.
 
 The running, queued and recent queries degrade independently. If one or two slices fail, the
-sidebar shows a **Partial** chip (the tooltip carries the reasons), its live announcement says that
-CI activity is partial, and the activity window keeps the available builds with a **Partial
-history** banner. If all three queries fail, the row keeps the **Error** state and its full reason.
+sidebar keeps the more useful **Idle** or running/queued summary while the activity window keeps the
+available builds with a **Partial history** banner and the failure reasons. If all three queries
+fail, the row shows the **Error** state and its full reason.
 
 ## Configuration
 

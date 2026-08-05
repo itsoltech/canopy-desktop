@@ -8,6 +8,7 @@ const api = {
 vi.stubGlobal('window', { api })
 
 import {
+  PR_FALLBACK_TTL_MS,
   getPRFallbackGeneration,
   invalidatePRFallback,
   loadBranchPRs,
@@ -17,6 +18,7 @@ import {
 
 describe('GitHub PR fallback refresh', () => {
   beforeEach(() => {
+    vi.restoreAllMocks()
     vi.clearAllMocks()
     resetGitHubState()
     api.githubFetchBranchPRs.mockResolvedValue({})
@@ -72,6 +74,24 @@ describe('GitHub PR fallback refresh', () => {
     const cached = loadPRFallbackSummary('C:/repo', 'feature/large-pr')
     expect(cached).toBe(refreshed)
     await expect(cached).resolves.toMatchObject({ state: 'MERGED' })
+    expect(api.taskTrackerPRSummary).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshes a settled summary after its short cache lifetime', async () => {
+    let now = 10_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    api.taskTrackerPRSummary.mockResolvedValue(null)
+
+    const first = loadPRFallbackSummary('C:/repo', 'feature/external-pr')
+    await expect(first).resolves.toBeNull()
+
+    now += PR_FALLBACK_TTL_MS - 1
+    expect(loadPRFallbackSummary('C:/repo', 'feature/external-pr')).toBe(first)
+
+    now += 1
+    const refreshed = loadPRFallbackSummary('C:/repo', 'feature/external-pr')
+    expect(refreshed).not.toBe(first)
+    await expect(refreshed).resolves.toBeNull()
     expect(api.taskTrackerPRSummary).toHaveBeenCalledTimes(2)
   })
 })

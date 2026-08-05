@@ -1,41 +1,21 @@
 <script lang="ts">
-  import { ExternalLink } from '@lucide/svelte'
   import type { CiJobStatus } from '../../lib/ci/types'
   import { ciRunChip, ciRunStatusTextClass } from '../../lib/ci/status'
+  import CiLastStatusCard from './CiLastStatusCard.svelte'
 
   let { rows, branch }: { rows: CiJobStatus[]; branch: string } = $props()
+  let statusRows = $derived(
+    rows.map((row) => ({
+      id: row.jobId,
+      label: row.label,
+      number: row.run?.number,
+      webUrl: row.run?.webUrl,
+      statusText: row.run?.statusText,
+      statusTextClass: row.run ? ciRunStatusTextClass(row.run) : undefined,
+      error: row.error,
+      chip: ciRunChip(row),
+    })),
+  )
 </script>
 
-<div class="mx-2 my-1 rounded-lg border border-border-subtle overflow-hidden">
-  {#each rows as row (row.jobId)}
-    {@const status = ciRunChip(row)}
-    <button
-      type="button"
-      class="w-full px-2.5 py-1.5 border-0 bg-transparent text-left hover:bg-hover flex items-center gap-2 cursor-pointer aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
-      aria-disabled={!row.run?.webUrl}
-      onclick={() => row.run?.webUrl && window.api.openExternal(row.run.webUrl)}
-      title={row.run?.webUrl
-        ? `${row.label} — open run${row.run.number ? ` #${row.run.number}` : ''} in GitHub Actions`
-        : row.error
-          ? `${row.label} — status unavailable: ${row.error}`
-          : row.run
-            ? `${row.label} — run${row.run.number ? ` #${row.run.number}` : ''} cannot be opened in GitHub Actions`
-            : `No runs of ${row.label} for ${branch} yet`}
-    >
-      <span class="flex-1 min-w-0 flex flex-col">
-        <span class="text-xs text-text truncate">{row.label}</span>
-        {#if row.run?.statusText}
-          <span class="text-2xs truncate {ciRunStatusTextClass(row.run)}" title={row.run.statusText}
-            >{row.run.statusText}</span
-          >
-        {:else if row.error}
-          <span class="text-2xs text-warning-text truncate" title={row.error}>{row.error}</span>
-        {/if}
-      </span>
-      {#if row.run?.number}<span class="font-mono text-2xs text-text-faint">#{row.run.number}</span
-        >{/if}
-      <span class="px-1.5 py-px rounded-md text-2xs {status.cls}">{status.label}</span>
-      {#if row.run?.webUrl}<ExternalLink size={10} class="opacity-50" />{/if}
-    </button>
-  {/each}
-</div>
+<CiLastStatusCard rows={statusRows} {branch} providerLabel="GitHub Actions" />

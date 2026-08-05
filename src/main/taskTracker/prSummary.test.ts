@@ -68,6 +68,20 @@ describe('loadPullRequestSummary', () => {
     ])
   })
 
+  it('keeps Create PR available when only the decorative closed lookup fails', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: '[]' })
+      .mockRejectedValueOnce(new Error('closed lookup timed out'))
+
+    const result = await loadPullRequestSummary('C:/repo', 'feature/new-pr', run)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toBeNull()
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
   it.each([
     ['invalid JSON', { stdout: '{' }, 'Invalid GitHub CLI response'],
     [

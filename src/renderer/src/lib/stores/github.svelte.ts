@@ -8,13 +8,16 @@ const lastFetchByRepo: Record<string, number> = {}
 let fallbackGenerationByKey: Record<string, number> = $state({})
 // This is deliberately not reactive: GitSection calls the loader from an effect, so tracking
 // cache get/set operations would make the effect depend on and then mutate the same collection.
+type PRFallbackSummary = { number: number; state: string; isDraft: boolean } | null
+interface PRFallbackCacheEntry {
+  request: Promise<PRFallbackSummary>
+  expiresAt: number
+}
 // eslint-disable-next-line svelte/prefer-svelte-reactivity
-const fallbackSummaryRequests = new Map<
-  string,
-  Promise<{ number: number; state: string; isDraft: boolean } | null>
->()
+const fallbackSummaryRequests = new Map<string, PRFallbackCacheEntry>()
 
 const DEBOUNCE_MS = 30_000
+export const PR_FALLBACK_TTL_MS = 30_000
 
 export function getBranchPRMap(): GitHubBranchPRMap {
   return branchPRs
@@ -59,12 +62,24 @@ export function loadPRFallbackSummary(
   const generation = getPRFallbackGeneration(repoRoot, branch)
   const requestKey = `${prKey(repoRoot, branch)}::${generation}`
   const existing = fallbackSummaryRequests.get(requestKey)
-  if (existing) return existing
+  if (existing && existing.expiresAt > Date.now()) return existing.request
+  if (existing) fallbackSummaryRequests.delete(requestKey)
 
-  // Keep settled promises too: the generation is bumped by every in-app PR mutation and Retry,
-  // so freshness has an explicit invalidation boundary instead of re-spawning git/gh on visits.
   const request = window.api.taskTrackerPRSummary(repoRoot, branch)
-  fallbackSummaryRequests.set(requestKey, request)
+  const entry: PRFallbackCacheEntry = { request, expiresAt: Number.POSITIVE_INFINITY }
+  fallbackSummaryRequests.set(requestKey, entry)
+  void request.then(
+    () => {
+      if (fallbackSummaryRequests.get(requestKey) === entry) {
+        entry.expiresAt = Date.now() + PR_FALLBACK_TTL_MS
+      }
+    },
+    () => {
+      if (fallbackSummaryRequests.get(requestKey) === entry) {
+        fallbackSummaryRequests.delete(requestKey)
+      }
+    },
+  )
   return request
 }
 

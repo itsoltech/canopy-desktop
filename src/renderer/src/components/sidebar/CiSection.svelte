@@ -93,10 +93,6 @@
   // OBJECT changes on every poll and would loop the effect.
   let hasConfigAndToken = $derived(config != null && cfgState.hasToken)
   let activeCount = $derived(activity ? activity.running.length + activity.queued.length : 0)
-  let activityPartialErrors = $derived(
-    activity && 'partialErrors' in activity ? (activity.partialErrors ?? []) : [],
-  )
-
   $effect(() => {
     if (!hasConfigAndToken) return
     const root = repoRoot
@@ -200,7 +196,6 @@
         parts.push(
           running === 0 && queued === 0 ? 'CI idle' : `CI: ${running} running, ${queued} queued`,
         )
-        if (activityPartialErrors.length > 0) parts.push('CI activity is partial')
       }
     }
     return parts.join(' · ')
@@ -333,7 +328,6 @@
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
           onclick={openActivity}
           title={activityError ||
-            activityPartialErrors.join(' · ') ||
             `Configured repository jobs running or queued on ${serverHost}, plus recent history — opens in a window`}
         >
           <Hammer
@@ -341,10 +335,10 @@
             class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
           />
           <span class="flex-1">{activeCount > 0 ? 'Running job' : 'Jobs history'}</span>
-          {#if activityError || activityPartialErrors.length > 0}
+          {#if activityError}
             <span
               class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning-bg text-warning-text"
-              >{activityError ? 'Error' : 'Partial'}</span
+              >Error</span
             >
           {:else if !activityLoaded}
             <LoaderCircle

@@ -103,7 +103,8 @@ import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTrack
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import { parseGitHubRemote } from '../github/remoteUrl'
-import { redactGitHubFailureReason } from '../github/redactFailureReason'
+import { gitHubCliFailureReason, isMissingGitHubCli } from '../github/redactFailureReason'
+import { hasSupportedGitHubRemote } from '../github/supportedRemote'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
 import { listSelectableInterfaces } from '../remote/discovery'
@@ -131,27 +132,10 @@ import { AgentCommandService } from '../commands/agentCommands'
 import { RunConfigCommandService } from '../commands/runConfigCommands'
 import type { AppStateSnapshot, EditorFileReadResult } from '../commands/types'
 
-async function hasSupportedGitHubRemote(repoRoot: string): Promise<boolean> {
-  const hasRemote = await GitRepository.hasRemote(repoRoot)
-  if (hasRemote.isErr() || !hasRemote.value) return false
-  const remote = await GitRepository.getRemoteUrl(repoRoot)
-  return remote.isOk() && parseGitHubRemote(remote.value).isOk()
-}
-
 function ghFailureReason(error: unknown): string {
-  if (typeof error === 'object' && error !== null) {
-    if ('code' in error && (error as { code?: unknown }).code === 'ENOENT') {
-      return 'GitHub CLI (gh) is not installed'
-    }
-    if ('killed' in error && (error as { killed?: unknown }).killed === true) {
-      return `GitHub CLI request timed out after ${PR_DETAILS_TIMEOUT_MS / 1000} seconds`
-    }
-    if ('stderr' in error && typeof (error as { stderr?: unknown }).stderr === 'string') {
-      const stderr = (error as { stderr: string }).stderr.trim()
-      if (stderr) return redactGitHubFailureReason(stderr)
-    }
-  }
-  return redactGitHubFailureReason(errorMessage(error))
+  return isMissingGitHubCli(error)
+    ? 'GitHub CLI (gh) is not installed'
+    : gitHubCliFailureReason(error, PR_DETAILS_TIMEOUT_MS)
 }
 
 // Session-level flag: once the user has successfully authenticated to reveal

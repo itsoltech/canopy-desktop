@@ -150,7 +150,7 @@
       role="combobox"
       aria-autocomplete="list"
       aria-expanded={!fillQueryOnPick || listOpen}
-      aria-controls="branch-picker-options"
+      aria-controls={!fillQueryOnPick || listOpen ? 'branch-picker-options' : undefined}
       aria-activedescendant={listOpen && filteredBranches.length > 0
         ? `branch-picker-option-${selectedIdx}`
         : undefined}
@@ -170,7 +170,7 @@
         onclick={() => (listOpen = !listOpen)}
         aria-label={listOpen ? 'Hide branches' : 'Show branches'}
         aria-expanded={listOpen}
-        aria-controls="branch-picker-options"
+        aria-controls={listOpen ? 'branch-picker-options' : undefined}
         tabindex="-1"
         title={listOpen ? 'Hide branches' : 'Show branches'}
       >
