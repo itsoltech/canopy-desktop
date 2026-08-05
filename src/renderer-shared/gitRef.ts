@@ -1,7 +1,8 @@
 /**
  * Provider-neutral safe Git ref contract for renderer/IPC input. Besides Git's ref-name rules,
- * URL path/query metacharacters are rejected because branch names are used by authenticated
- * provider API routes.
+ * URL path/query metacharacters are rejected because renderer-supplied branch names are inserted
+ * into authenticated provider API paths, including `gh api` DELETE requests; validation is safer
+ * than encoding while preserving legitimate `/` path segments.
  */
 export function isSafeGitRefName(value: unknown): value is string {
   if (typeof value !== 'string' || value === '' || value.length > 255 || value !== value.trim()) {

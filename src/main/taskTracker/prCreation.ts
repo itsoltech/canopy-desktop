@@ -244,12 +244,6 @@ export function closePullRequest(
 }
 
 /**
- * Renderer-supplied branch names end up interpolated into the PATH of authenticated `gh api`
- * calls (including a DELETE). Validate against git ref-name rules plus URL metacharacters so a
- * crafted value cannot retarget the request — legitimate branch names keep their `/` segments,
- * so validation is preferred over encoding here.
- */
-/**
  * Does the branch still exist on the remote? 404 → false; any other failure (network, auth) →
  * true, so the delete action stays available and its own error surfaces the real problem.
  */

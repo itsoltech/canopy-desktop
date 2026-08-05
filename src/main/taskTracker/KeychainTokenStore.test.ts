@@ -116,4 +116,16 @@ describe('KeychainTokenStore capability facade', () => {
     expect(store.listCredentials()[0].bindings).toEqual(['tracker:jira-main'])
     expect(store.deleteCredentials('jira', baseUrl, 'tracker:jira-main').removed).toBe(true)
   })
+
+  it('deletes a credential after pruning its only orphaned tracker binding', () => {
+    const baseUrl = 'https://itsol.atlassian.net'
+    const store = new KeychainTokenStore(fakePreferences())
+    store.setCredentials('jira', baseUrl, 'token', undefined, 'tracker:live')
+    expect(store.getCredentials('jira', baseUrl, 'tracker:orphan')?.token).toBe('token')
+
+    expect(
+      store.deleteCredentials('jira', baseUrl, 'tracker:live', new Set(['tracker:live'])),
+    ).toEqual({ removed: true, retainedBindings: [] })
+    expect(store.listCredentials()).toEqual([])
+  })
 })

@@ -77,6 +77,7 @@ import { normalizeCredentialToken } from '../ci/token'
 import { loadPullRequestSummary } from '../taskTracker/prSummary'
 import { isSafeGitRefName } from '../../renderer-shared/gitRef'
 import { credentialErrorMessage } from '../credentials/errors'
+import { trackerBindingKey } from '../../renderer-shared/credentialBindings'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -3211,9 +3212,9 @@ export function registerIpcHandlers(
   async function authorizeRendererKeychainBinding(
     event: IpcMainInvokeEvent,
     payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
-  ): Promise<void> {
+  ): Promise<RepoConfig['trackers']> {
     validateKeychainBinding(payload.provider, payload.bindingKey)
-    if (!payload.bindingKey) return
+    if (!payload.bindingKey) return []
     const trackers = payload.repoRoot
       ? ((await resolveEffectiveConfig(await validatePathAccess(event.sender.id, payload.repoRoot)))
           ?.config.trackers ?? [])
@@ -3224,6 +3225,7 @@ export function registerIpcHandlers(
       payload.bindingKey,
       trackers,
     )
+    return trackers
   }
 
   async function resolveTaskTrackerBranchName(
@@ -3281,11 +3283,14 @@ export function registerIpcHandlers(
 
   ipcMain.handle('keychain:deleteCredentials', async (event, payload: unknown) => {
     const request = normalizeKeychainBindingPayload(payload)
-    await authorizeRendererKeychainBinding(event, request)
+    const trackers = await authorizeRendererKeychainBinding(event, request)
     return keychainTokenStore.deleteCredentials(
       request.provider,
       request.baseUrl,
       request.bindingKey,
+      request.bindingKey
+        ? new Set(trackers.map((tracker) => trackerBindingKey(tracker.id)))
+        : undefined,
     )
   })
 

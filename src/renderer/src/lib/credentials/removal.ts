@@ -9,7 +9,8 @@ export function credentialRemovalMessage(
   disconnectedLabel: string,
 ): string {
   if (result.retainedBindings.length > 0) {
-    return `${disconnectedLabel}. Shared credential retained for: ${result.retainedBindings.join(', ')}`
+    const count = result.retainedBindings.length
+    return `${disconnectedLabel}. Shared credential retained for ${count} other ${count === 1 ? 'connection' : 'connections'}.`
   }
   return result.removed
     ? `${disconnectedLabel}. Stored credential deleted.`

@@ -275,9 +275,17 @@ export class KeychainTokenStore {
     provider: string,
     baseUrl: string,
     bindingKey = defaultBinding(provider, baseUrl),
+    knownTrackerBindingKeys?: ReadonlySet<string>,
   ): { removed: boolean; retainedBindings: string[] } {
     const credentialId = this.registry.listBindings()[bindingKey]
     if (!credentialId) return { removed: false, retainedBindings: [] }
+    if (knownTrackerBindingKeys) {
+      for (const key of this.registry.bindingsFor(credentialId)) {
+        if (parseTrackerBindingKey(key) && !knownTrackerBindingKeys.has(key)) {
+          this.registry.unbind(key)
+        }
+      }
+    }
     this.registry.unbind(bindingKey)
     const retainedBindings = this.registry.bindingsFor(credentialId)
     if (retainedBindings.length > 0) return { removed: false, retainedBindings }

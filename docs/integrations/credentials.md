@@ -38,6 +38,13 @@ The last authentication and per-capability verification results are diagnostic m
 next request can succeed after the token or its server-side permissions are corrected and then
 replace the stale result.
 
+### Deletion
+
+Removing credentials first removes the selected integration binding. Before deciding whether the
+encrypted secret is still shared, Canopy drops tracker bindings whose tracker no longer exists in
+the resolved configuration. The secret is deleted when no live tracker or CI connection still uses
+it; otherwise Settings reports how many other connections retain it and keeps it available to them.
+
 ## Error states
 
 - **No compatible credential:** add a credential whose service, audience and capabilities match
@@ -58,12 +65,6 @@ replace the stale result.
   added in a newer version.
 - **Needs attention after 401/403:** Settings keeps the last authentication or authorization failure
   visible. Correct or replace the token; a subsequent successful request clears the stale state.
-
-### Deletion
-
-Removing credentials first removes the selected integration binding. The encrypted secret is
-deleted only when no other tracker or CI connection still uses it; otherwise Settings reports the
-remaining bindings and keeps the shared credential available to them.
 
 ## Configuration
 
