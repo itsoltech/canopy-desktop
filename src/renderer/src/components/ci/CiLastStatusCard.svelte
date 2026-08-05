@@ -57,25 +57,19 @@
   {/if}
 {/snippet}
 
-{#snippet topLine(row: LastStatusRow, heading?: string)}
+{#snippet topLine(row: LastStatusRow, heading: string)}
   <span class="flex items-center gap-2 w-full min-w-0">
-    {#if heading}
-      <span
-        class="flex-1 min-w-0 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
-        >{heading}</span
-      >
-    {:else}
-      <span class="flex-1 min-w-0"></span>
-    {/if}
+    <span
+      class="flex-1 min-w-0 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
+      title={row.label}>{heading}</span
+    >
     {@render dateAndLink(row)}
   </span>
 {/snippet}
 
 {#snippet statusLine(row: LastStatusRow)}
   <span class="flex items-center gap-2 w-full min-w-0">
-    <span class="flex-1 min-w-0 text-xs text-text-secondary truncate" title={row.label}
-      >{row.label}</span
-    >
+    <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted">{branch}</span>
     {#if row.number}
       <span
         class="font-mono text-2xs text-text-secondary flex-shrink-0 underline-offset-2 group-hover/card:text-accent-text group-focus-within/card:text-accent-text group-hover/card:underline group-focus-within/card:underline"
@@ -90,7 +84,6 @@
 {/snippet}
 
 {#snippet details(row: LastStatusRow)}
-  <span class="w-full truncate font-mono text-xs text-text-muted">{branch}</span>
   {#if row.statusText}
     <span
       class="w-full truncate text-2xs {row.statusTextClass ?? 'text-text-muted'}"
@@ -119,7 +112,7 @@
           ? `${row.label} — ${runNoun}${row.number ? ` #${row.number}` : ''} cannot be opened in ${providerLabel}`
           : `No ${runNoun}s of ${row.label} for ${branch} yet`}
   >
-    {@render topLine(row, cardTitle)}
+    {@render topLine(row, `${cardTitle} · ${row.label}`)}
     {@render statusLine(row)}
     {@render details(row)}
   </button>
@@ -142,7 +135,7 @@
               ? `${row.label} — ${runNoun}${row.number ? ` #${row.number}` : ''} cannot be opened in ${providerLabel}`
               : `No ${runNoun}s of ${row.label} for ${branch} yet`}
       >
-        {@render topLine(row)}
+        {@render topLine(row, row.label)}
         {@render statusLine(row)}
         {@render details(row)}
       </button>
