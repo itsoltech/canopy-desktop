@@ -17,6 +17,7 @@
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import { credentialStorageClause } from './_partials/credentialStorage'
   import { trackerBindingKey } from '../../../../renderer-shared/credentialBindings'
+  import { credentialRemovalMessage } from '../../lib/credentials/removal'
 
   // Settings hosts only GLOBAL (personal) connections. Project trackers (.canopy/config.json) are
   // connected from the dedicated "Project tracker" modal. Credentials have stable local IDs,
@@ -182,8 +183,9 @@
       destructive: true,
     })
     if (!ok) return
+    let result: Awaited<ReturnType<typeof window.api.keychainDeleteCredentials>>
     try {
-      await window.api.keychainDeleteCredentials(
+      result = await window.api.keychainDeleteCredentials(
         tracker.provider,
         tracker.baseUrl,
         trackerBindingKey(tracker.id),
@@ -194,7 +196,7 @@
     }
     await loadGlobalConfig()
 
-    addToast('Credentials removed')
+    addToast(credentialRemovalMessage(result, 'Tracker disconnected'))
   }
 
   async function deleteConnection(trackerId: string): Promise<void> {
@@ -213,23 +215,18 @@
     })
     if (!ok) return
 
-    // Delete stored credentials only when no remaining global tracker shares the same
-    // provider + baseUrl pair the credentials are keyed by.
+    let credentialResult: Awaited<ReturnType<typeof window.api.keychainDeleteCredentials>> | null =
+      null
     if (tracker?.baseUrl) {
-      const shared = trackers.some(
-        (t) =>
-          t.id !== trackerId && t.provider === tracker.provider && t.baseUrl === tracker.baseUrl,
-      )
-      if (!shared) {
-        try {
-          await window.api.keychainDeleteCredentials(
-            tracker.provider,
-            tracker.baseUrl,
-            trackerBindingKey(tracker.id),
-          )
-        } catch {
-          // best-effort cleanup
-        }
+      try {
+        credentialResult = await window.api.keychainDeleteCredentials(
+          tracker.provider,
+          tracker.baseUrl,
+          trackerBindingKey(tracker.id),
+        )
+      } catch {
+        // The connection definition can still be removed; leave credential cleanup recoverable
+        // from another binding instead of blocking config repair.
       }
     }
 
@@ -237,7 +234,11 @@
     updated.trackers = updated.trackers.filter((t) => t.id !== trackerId)
     try {
       await saveGlobalConfig(updated)
-      addToast('Connection deleted')
+      addToast(
+        credentialResult
+          ? credentialRemovalMessage(credentialResult, 'Connection deleted')
+          : 'Connection deleted',
+      )
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to delete connection')
     }

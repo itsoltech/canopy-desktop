@@ -21,6 +21,7 @@
   import TrackerEditForm from './_partials/TrackerEditForm.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import { trackerBindingKey } from '../../../../renderer-shared/credentialBindings'
+  import { credentialRemovalMessage } from '../../lib/credentials/removal'
 
   // Project connections = trackers configured in the repo's .canopy/config.json (active worktree).
   // Here you only CONNECT (authenticate) them — credentials are purpose-bound locally. Adding /
@@ -243,8 +244,9 @@
       destructive: true,
     })
     if (!ok) return
+    let result: Awaited<ReturnType<typeof window.api.keychainDeleteCredentials>>
     try {
-      await window.api.keychainDeleteCredentials(
+      result = await window.api.keychainDeleteCredentials(
         t.provider,
         t.baseUrl,
         trackerBindingKey(t.id),
@@ -255,7 +257,7 @@
       return
     }
     if (repoRoot) await loadRepoConfig(repoRoot)
-    addToast('Credentials removed')
+    addToast(credentialRemovalMessage(result, 'Project tracker disconnected'))
   }
 </script>
 

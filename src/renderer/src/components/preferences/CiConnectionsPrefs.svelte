@@ -3,6 +3,7 @@
   import { Plus, Trash2, Check, LoaderCircle, TriangleAlert } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { credentialRemovalMessage } from '../../lib/credentials/removal'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
@@ -189,14 +190,15 @@
       })
       if (!ok) return
       removingUrl = `${server.provider}:${server.baseUrl}`
+      let result: Awaited<ReturnType<typeof window.api.keychainDeleteCredentials>>
       try {
-        await window.api.keychainDeleteCredentials(server.provider, server.baseUrl)
+        result = await window.api.keychainDeleteCredentials(server.provider, server.baseUrl)
       } catch (e) {
         addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
         return
       }
       await reloadServers()
-      addToast('CI connection removed')
+      addToast(credentialRemovalMessage(result, 'CI connection removed'))
     } finally {
       removingServer = false
       removingUrl = ''

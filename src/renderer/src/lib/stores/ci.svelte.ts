@@ -3,6 +3,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { match } from 'ts-pattern'
 import { addToast, isStickyToastVisible } from './toast.svelte'
 import type { CiJobStatus, CiRepoConfigInfo, CiRun } from '../ci/types'
+import { githubActionsCredentialBaseUrl } from '../../../../renderer-shared/credentialBindings'
 
 // CI (TeamCity) build status for the sidebar GIT section. State is scoped to one
 // (repoRoot, branch) pair at a time — the section only ever shows the active worktree.
@@ -129,7 +130,7 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
       ? await window.api.keychainHasCredentials(
           res.config.provider === 'github-actions' ? 'github-actions' : 'teamcity',
           res.config.provider === 'github-actions'
-            ? `${res.config.baseUrl}/${res.config.repository.toLowerCase()}`
+            ? githubActionsCredentialBaseUrl(res.config.repository)
             : res.config.baseUrl,
         )
       : false

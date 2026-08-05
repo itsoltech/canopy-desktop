@@ -43,7 +43,7 @@ import { TeamCityAdapter } from './providers/teamcity'
 import type { CiProviderAdapter } from './providers/types'
 import { credentialErrorMessage } from '../credentials/errors'
 import { githubActionsCredentialBaseUrl } from '../../renderer-shared/credentialBindings'
-import { ciDegradedCauses } from './degraded'
+import { ciDegradedCauses, withCiDegradedCauses } from './degraded'
 
 type RemoteUrlResolver = (repoRoot: string) => ResultAsync<string, unknown>
 type GitHubClientFactory = (owner: string, repository: string, token: string) => GitHubActionsClient
@@ -134,7 +134,7 @@ export class CiManager {
     return result
       .map((value) => {
         const degradedCauses = ciDegradedCauses(value)
-        if (degradedCauses === undefined) {
+        if (degradedCauses === undefined || degradedCauses.length === 0) {
           record(200)
         } else {
           const authFailure = degradedCauses.find(
@@ -386,8 +386,9 @@ export class CiManager {
         message: 'TeamCity branch contains locator-unsafe characters',
       })
     }
-    return this.tokenFor(ci).andThen((token) =>
-      ResultAsync.combine(
+    return this.tokenFor(ci).andThen((token) => {
+      const causes: CiError[] = []
+      const result = ResultAsync.combine(
         ci.buildTypes.map((bt) =>
           fetchBuildForBranch(ci.baseUrl, token, bt.id, branch)
             // One dead build-type id (deleted/re-ided on TeamCity → 404) must cost
@@ -396,17 +397,23 @@ export class CiManager {
             // branch", so folding an outage into it would claim the branch was
             // never built.
             .map((build): CiBuildTypeStatus => ({ buildTypeId: bt.id, label: bt.label, build }))
-            .orElse((e) =>
-              okAsync<CiBuildTypeStatus, CiError>({
+            .orElse((e) => {
+              causes.push(e)
+              return okAsync<CiBuildTypeStatus, CiError>({
                 buildTypeId: bt.id,
                 label: bt.label,
                 build: null,
                 error: ciErrorMessage(e),
-              }),
-            ),
+              })
+            }),
         ),
-      ),
-    )
+      ).map((rows) =>
+        causes.length > 0 && rows.length > 0 && rows.every((row) => row.error)
+          ? withCiDegradedCauses(rows, causes)
+          : rows,
+      )
+      return this.observeCredentialResult('teamcity', ci.baseUrl, 'builds.read', result)
+    })
   }
 
   /** Convenience wrapper for one-shot callers. */
@@ -456,8 +463,8 @@ export class CiManager {
             message: 'Use provider-neutral activity for GitHub Actions',
             provider: 'github-actions',
           })
-        : this.tokenFor(ci).andThen((token) =>
-            fetchActivity(
+        : this.tokenFor(ci).andThen((token) => {
+            const result = fetchActivity(
               ci.baseUrl,
               token,
               ci.buildTypes.map((bt) => bt.id),
@@ -465,7 +472,7 @@ export class CiManager {
               const configured = new Set(ci.buildTypes.map((bt) => bt.id))
               const keepConfigured = (build: CiActivity['recent'][number]): boolean =>
                 configured.has(build.buildTypeId)
-              return {
+              const filtered: CiActivity = {
                 running: activity.running.filter(keepConfigured),
                 queued: activity.queued.filter(keepConfigured),
                 recent: activity.recent.filter(keepConfigured),
@@ -473,8 +480,11 @@ export class CiManager {
                   ? { partialErrors: activity.partialErrors }
                   : {}),
               }
-            }),
-          ),
+              const causes = ciDegradedCauses(activity)
+              return causes === undefined ? filtered : withCiDegradedCauses(filtered, causes)
+            })
+            return this.observeCredentialResult('teamcity', ci.baseUrl, 'builds.read', result)
+          }),
     )
   }
 

@@ -64,16 +64,23 @@ History is merged across those workflows, preserving GitHub's display title and 
 queued, in progress, waiting, cancelled, neutral, failed, and successful. A run opens directly
 on GitHub.
 
-Queries and pagination are bounded. If one configured workflow cannot be loaded or more history
-exists beyond the bounded page, the activity view marks the result as partial rather than
-presenting it as complete. Environment approvals and run cancellation remain GitHub operations;
-Canopy only shows the waiting state and link.
+Queries and pagination are bounded. The history view deliberately shows only the newest page and
+does not treat older runs beyond that page as a fetch failure. If a configured workflow is missing
+or its page cannot be loaded, the sidebar shows **Incomplete** instead of a potentially false
+**Idle**, its tooltip names the failed workflow, and the activity window keeps available runs under
+a **Partial history** banner. A known active count remains visible while another workflow is
+unavailable. Environment approvals and run cancellation remain GitHub operations; Canopy only
+shows the waiting state and link.
 
 The open history window refreshes every 60 seconds. In the sidebar CI/CD section, the activity
-summary polls every 60 seconds while any configured workflow has a run in flight and every 300
-seconds otherwise. The **Last run** card uses the same cadence, but keys it to runs for the active
-worktree's branch, so a run on another branch speeds up the activity summary but not the card. All
-three surfaces re-fetch immediately after Canopy dispatches a workflow.
+summary polls every 60 seconds while any configured workflow has a run in flight or activity is
+incomplete, and every 300 seconds otherwise. The **Last run** card uses the same cadence, but keys
+it to runs for the active worktree's branch, so a run on another branch speeds up the activity
+summary but not the card. It shows the workflow label and number, branch, GitHub display title and
+status chip. Its first line uses the Queued, Started or Finished timestamp; hover or keyboard focus
+replaces that timestamp with the external-link icon when the run has a URL. A workflow lookup that
+fails shows **Unavailable** with its reason without hiding sibling workflow results. All three
+surfaces re-fetch immediately after Canopy dispatches a workflow.
 
 Run watching is in-memory. Restarting Canopy does not restore an active watcher, but the scoped
 history remains the recovery surface.

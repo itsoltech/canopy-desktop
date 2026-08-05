@@ -278,7 +278,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
           )
         }
         return ok(
-          rows.length > 0 && rows.every((row) => row.error)
+          causes.length > 0 && rows.length > 0 && rows.every((row) => row.error)
             ? withCiDegradedCauses(rows, causes)
             : rows,
         )
@@ -310,11 +310,6 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
             partialErrors.push(`${configured.label}: ${ciErrorMessage(result.error)}`)
             continue
           }
-          if (result.value.totalCount > result.value.runs.length) {
-            partialErrors.push(
-              `${configured.label}: showing the newest ${result.value.runs.length || 100} of ${result.value.totalCount} runs`,
-            )
-          }
           runs.push(
             ...result.value.runs.map((run) => mapGitHubRun(run, configured.path, configured.label)),
           )
@@ -326,7 +321,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
           recent: runs.filter((run) => run.state === 'finished').slice(0, 10),
           ...(partialErrors.length ? { partialErrors } : {}),
         }
-        return ok(partialErrors.length ? withCiDegradedCauses(activity, causes) : activity)
+        return ok(causes.length > 0 ? withCiDegradedCauses(activity, causes) : activity)
       })(),
     )
   }

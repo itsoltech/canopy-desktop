@@ -49,6 +49,13 @@ replace the stale result.
   creates the explicit local binding used from then on.
 - **Bound credential has no secret:** the descriptor still exists but its OS-protected secret is
   missing. Re-enter the token for that connection.
+- **Unknown credential:** a saved binding points at a descriptor that no longer exists. Re-enter
+  the token for that connection to replace the stale binding.
+- **Unsupported provider:** the connection names a credential service this Canopy version does not
+  support. Correct the provider configuration or update Canopy before reconnecting it.
+- **Unsupported capability:** the provider cannot supply the operation requested by this
+  integration. Use the matching connection type and credential, or update Canopy if support was
+  added in a newer version.
 - **Needs attention after 401/403:** Settings keeps the last authentication or authorization failure
   visible. Correct or replace the token; a subsequent successful request clears the stale state.
 

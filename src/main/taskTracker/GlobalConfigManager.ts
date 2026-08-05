@@ -8,6 +8,10 @@ import { trackerBindingKey } from '../../renderer-shared/credentialBindings'
 const GLOBAL_CONFIG_KEY = 'taskTracker.globalConfig'
 const MIGRATION_FLAG_KEY = 'taskTracker.migratedToGlobalConfig'
 
+function legacyTrackerId(provider: string, connectionId: string): string {
+  return `${provider}-${connectionId.slice(0, 8)}`
+}
+
 export class GlobalConfigManager {
   private cached: RepoConfig | null = null
   private cacheValid = false
@@ -128,7 +132,7 @@ export class GlobalConfigManager {
 
       // Migrate ALL legacy connections into trackers array
       const trackers: RepoConfig['trackers'] = connections.map((c) => ({
-        id: `${c.provider}-${c.id.slice(0, 8)}`,
+        id: legacyTrackerId(c.provider, c.id),
         provider: c.provider,
         baseUrl: c.baseUrl,
         projectKey: c.projectKey || undefined,
@@ -198,7 +202,7 @@ export class GlobalConfigManager {
                   conn.baseUrl,
                   oldToken,
                   conn.username,
-                  trackerBindingKey(`${conn.provider}-${conn.id.slice(0, 8)}`),
+                  trackerBindingKey(legacyTrackerId(conn.provider, conn.id)),
                 )
                 .isOk()
           // Delete the old plaintext token only after the encrypted replacement is available.

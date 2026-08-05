@@ -92,9 +92,10 @@ function audienceMatches(stored: CredentialAudience, requested: CredentialAudien
   return true
 }
 
-function sanitizedReason(reason?: string): string | undefined {
+function sanitizedReason(reason?: string, secret?: string): string | undefined {
   if (!reason) return undefined
-  return reason.replace(/[\r\n]+/g, ' ').slice(0, 240)
+  const redacted = secret ? reason.replaceAll(secret, '[redacted]') : reason
+  return redacted.replace(/[\r\n]+/g, ' ').slice(0, 240)
 }
 
 function isCredentialDescriptor(value: unknown): value is CredentialDescriptor {
@@ -237,10 +238,14 @@ export class CredentialRegistry {
     credentialId: string,
     capability: CredentialCapability,
     state: CapabilityVerificationState,
-    reason?: string,
+    rawReason?: string,
   ): void {
     const records = this.list()
     const now = new Date().toISOString()
+    const reason = sanitizedReason(
+      rawReason,
+      this.preferencesStore.get(SECRET_PREFIX + credentialId) ?? undefined,
+    )
     const next = records.map((record): CredentialDescriptor => {
       if (record.id !== credentialId) return record
       return {
@@ -251,7 +256,7 @@ export class CredentialRegistry {
           [capability]: {
             state,
             checkedAt: now,
-            ...(sanitizedReason(reason) ? { reason: sanitizedReason(reason) } : {}),
+            ...(reason ? { reason } : {}),
           },
         },
       }

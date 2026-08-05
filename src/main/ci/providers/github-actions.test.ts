@@ -208,7 +208,7 @@ describe('GitHubActionsAdapter', () => {
     expect(listWorkflowRunsPage).toHaveBeenNthCalledWith(2, 43)
   })
 
-  it('marks activity partial when a configured workflow exceeds the bounded page', async () => {
+  it('treats a bounded history page as a complete successful activity read', async () => {
     const client = fakeClient({
       listWorkflowRunsPage: vi.fn(() => okAsync({ runs: [], totalCount: 101 })),
     })
@@ -216,8 +216,8 @@ describe('GitHubActionsAdapter', () => {
 
     const result = await adapter.activity()
 
-    expect(result.isOk() && result.value.partialErrors).toEqual([
-      'Release: showing the newest 100 of 101 runs',
-    ])
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value.partialErrors).toBeUndefined()
   })
 })

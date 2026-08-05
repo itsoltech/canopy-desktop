@@ -12,6 +12,7 @@
   import CiJobPicker from '../ci/CiJobPicker.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
+  import { githubActionsCredentialBaseUrl } from '../../../../renderer-shared/credentialBindings'
 
   interface InvalidCiConfig {
     scope: 'file' | 'block'
@@ -106,7 +107,7 @@
       !!repository &&
       existingConfig.repository.toLowerCase() !== repository.toLowerCase(),
   )
-  let credentialUrl = $derived(repository ? `https://github.com/${repository.toLowerCase()}` : '')
+  let credentialUrl = $derived(repository ? githubActionsCredentialBaseUrl(repository) : '')
 
   onMount(async () => {
     containerEl?.focus()

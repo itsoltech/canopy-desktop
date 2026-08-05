@@ -109,6 +109,30 @@ describe('CredentialRegistry', () => {
     expect(stored?.authenticationState).not.toBe('invalid')
   })
 
+  it('redacts the stored secret from persisted verification reasons', () => {
+    const registry = new CredentialRegistry(fakePreferences())
+    const secret = 'tracker-secret-token'
+    const credential = registry.save({
+      service: 'jira',
+      authMethod: 'api-token',
+      audience: { host: 'itsol.atlassian.net' },
+      intendedUses: ['tracker'],
+      capabilities: ['issues.read'],
+      secret,
+    })
+
+    registry.recordCapability(
+      credential.id,
+      'issues.read',
+      'denied',
+      `gateway echoed Authorization: Bearer ${secret}`,
+    )
+
+    expect(registry.list()[0].verification['issues.read']?.reason).toBe(
+      'gateway echoed Authorization: Bearer [redacted]',
+    )
+  })
+
   it('keeps a bound credential resolvable so stale 401 and 403 results can self-heal', () => {
     const registry = new CredentialRegistry(fakePreferences())
     const credential = registry.save({

@@ -193,7 +193,7 @@ describe('the configured-build-type allowlist', () => {
   })
 
   it('keeps activity scoped to jobs configured for this repository', async () => {
-    const { manager } = fakes({ ci: VALID_CI })
+    const { manager, tokenStore } = fakes({ ci: VALID_CI })
     const build = (id: number, buildTypeId: string): CiActivityBuild => ({
       id,
       number: String(id),
@@ -210,12 +210,17 @@ describe('the configured-build-type allowlist', () => {
       buildTypeName: buildTypeId,
     })
     vi.mocked(fetchActivity).mockReturnValue(
-      okAsync({
-        running: [build(1, 'Other_Job')],
-        queued: [build(2, 'Gakko_Build'), build(3, 'Other_Job')],
-        recent: [build(4, 'Other_Job'), build(5, 'Gakko_Build')],
-        partialErrors: ['Queued builds unavailable'],
-      }),
+      okAsync(
+        withCiDegradedCauses(
+          {
+            running: [build(1, 'Other_Job')],
+            queued: [build(2, 'Gakko_Build'), build(3, 'Other_Job')],
+            recent: [build(4, 'Other_Job'), build(5, 'Gakko_Build')],
+            partialErrors: ['Queued builds unavailable'],
+          },
+          [{ _tag: 'CiApiError', status: 403, message: 'Queue forbidden' }],
+        ),
+      ),
     )
 
     const result = await manager.activity('r')
@@ -225,6 +230,13 @@ describe('the configured-build-type allowlist', () => {
     expect(result._unsafeUnwrap().queued.map((item) => item.id)).toEqual([2])
     expect(result._unsafeUnwrap().recent.map((item) => item.id)).toEqual([5])
     expect(result._unsafeUnwrap().partialErrors).toEqual(['Queued builds unavailable'])
+    expect(tokenStore.recordResult).toHaveBeenCalledWith(
+      'teamcity',
+      'https://tc.example.com',
+      'builds.read',
+      403,
+      'Queue forbidden',
+    )
   })
 })
 
@@ -401,6 +413,22 @@ describe('GitHub dispatch confirmation', () => {
 })
 
 describe('statusFor', () => {
+  it('records a clean polled TeamCity read as verified', async () => {
+    const { manager, tokenStore } = fakes({ ci: VALID_CI })
+    const config = (await manager.loadConfig('r'))._unsafeUnwrap()
+
+    const result = await manager.statusFor(config, 'next')
+
+    expect(result.isOk()).toBe(true)
+    expect(tokenStore.recordResult).toHaveBeenCalledWith(
+      'teamcity',
+      'https://tc.example.com',
+      'builds.read',
+      200,
+      undefined,
+    )
+  })
+
   it('records an all-row 401 as an authentication failure instead of a verified success', async () => {
     const ci = {
       ...VALID_CI,
@@ -418,7 +446,8 @@ describe('statusFor', () => {
         errAsync({ _tag: 'CiApiError' as const, status: 401, message: 'Unauthorized' }),
       )
 
-    const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
+    const config = (await manager.loadConfig('r'))._unsafeUnwrap()
+    const result = await manager.statusFor(config, 'next')
 
     expect(result.isOk() && result.value.every((row) => row.error?.includes('401'))).toBe(true)
     expect(tokenStore.recordResult).toHaveBeenCalledWith(
