@@ -65,6 +65,15 @@ function isMissingGitHubCli(error: unknown): boolean {
   )
 }
 
+function isLookupError(error: unknown): error is TaskTrackerError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    '_tag' in error &&
+    (error as { _tag?: unknown })._tag === 'PRLookupFailed'
+  )
+}
+
 function parseSummaryList(stdout: string): Result<PullRequestSummary | null, TaskTrackerError> {
   let parsed: unknown
   try {
@@ -115,7 +124,10 @@ export function loadPullRequestSummary(
       (e) => e,
     )
       .andThen(({ stdout }) => parseSummaryList(stdout))
-      .orElse((e) => (isMissingGitHubCli(e) ? ok(null) : err(lookupError(errorMessage(e)))))
+      .orElse((e) => {
+        if (isMissingGitHubCli(e)) return ok(null)
+        return isLookupError(e) ? err(e) : err(lookupError(errorMessage(e)))
+      })
 
   return findByState('open').andThen((openPR) => (openPR ? ok(openPR) : findByState('closed')))
 }

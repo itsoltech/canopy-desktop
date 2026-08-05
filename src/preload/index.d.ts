@@ -1687,6 +1687,7 @@ interface CiActivity {
   running: CiActivityBuild[]
   queued: CiActivityBuild[]
   recent: CiActivityBuild[]
+  partialErrors?: string[]
 }
 
 /** A build configuration on the TeamCity server (config picker source). */

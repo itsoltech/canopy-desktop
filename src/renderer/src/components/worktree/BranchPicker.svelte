@@ -165,6 +165,7 @@
         aria-label={listOpen ? 'Hide branches' : 'Show branches'}
         aria-expanded={listOpen}
         aria-controls="branch-picker-options"
+        tabindex="-1"
         title={listOpen ? 'Hide branches' : 'Show branches'}
       >
         <ChevronDown
@@ -187,7 +188,6 @@
       {:else}
         {#each filteredBranches as branch, i (branch)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- Selection tracks the committed branch; keyboard highlight remains independent. -->
           <div
             class="flex items-baseline px-2.5 py-1.5 text-md text-text cursor-pointer transition-colors duration-fast hover:bg-active"
             class:!bg-active={i === selectedIdx}
@@ -195,7 +195,8 @@
             class:!text-accent-text={highlightPicked && selectedBranch === branch}
             id={`branch-picker-option-${i}`}
             role="option"
-            aria-selected={selectedBranch === branch}
+            aria-selected={i === selectedIdx}
+            aria-current={selectedBranch === branch ? 'true' : undefined}
             data-branch-selected={i === selectedIdx}
             onclick={() => pick(branch)}
             onpointerenter={() => (selectedIdx = i)}

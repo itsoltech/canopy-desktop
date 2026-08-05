@@ -6,18 +6,14 @@
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { formatDuration, formatWhen } from '../../lib/ci/format'
   import { ciChip, ciStatusTextClass } from '../../lib/ci/status'
-  import type { CiActivityBuild } from '../../lib/ci/types'
+  import type { CiActivity, CiActivityBuild } from '../../lib/ci/types'
 
   // Repository activity: running, queued and recent builds whose configurations
   // are selected in this repo's CI config. Refreshes while open.
 
   let { repoRoot }: { repoRoot: string } = $props()
 
-  let activity = $state<{
-    running: CiActivityBuild[]
-    queued: CiActivityBuild[]
-    recent: CiActivityBuild[]
-  } | null>(null)
+  let activity = $state<CiActivity | null>(null)
   let error = $state('')
   let loaded = $state(false)
   let refreshing = $state(false)
@@ -204,6 +200,14 @@
       {:else if error}
         <p class="px-3 py-2 m-0 text-sm text-danger-text" title={error}>{error}</p>
       {:else if activity}
+        {#if activity.partialErrors?.length}
+          <p
+            class="mx-3 mt-0 mb-2 px-2.5 py-2 rounded-md bg-warning-bg text-xs text-warning-text break-words"
+            title={activity.partialErrors.join(' · ')}
+          >
+            Partial history: {activity.partialErrors.join(' · ')}
+          </p>
+        {/if}
         <span
           class="px-3 pt-1 pb-0.5 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
           >Running & queued</span

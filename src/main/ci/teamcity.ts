@@ -1,4 +1,4 @@
-import { ResultAsync, errAsync } from 'neverthrow'
+import { ResultAsync, errAsync, okAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
 import type {
   CiActivity,
@@ -9,7 +9,7 @@ import type {
   CiServerBuildType,
   CiTriggerResult,
 } from './types'
-import type { CiError } from './errors'
+import { ciErrorMessage, type CiError } from './errors'
 import { parsePromptParameters } from './parameters'
 import { parseActivity, parseBranches, type RawActivityResponse } from './activity'
 
@@ -189,8 +189,7 @@ export function activityBuildTypesLocator(buildTypeIds: string[]): string {
 
 export function queuedActivityLocator(buildTypeIds: string[]): string {
   // BuildQueueLocator does not support the `branch` or `defaultFilter` dimensions used by the
-  // BuildLocator siblings below. Adding either makes this request fail and, because activity is
-  // combined fail-fast, prevents running and recent builds from rendering too.
+  // BuildLocator siblings below. Adding either makes the queue slice fail and activity partial.
   return `${activityBuildTypesLocator(buildTypeIds)},count:20`
 }
 
@@ -203,23 +202,39 @@ export function fetchActivity(
   const fields =
     'count,build(id,number,status,statusText,percentageComplete,webUrl,branchName,queuedDate,startDate,finishDate,buildType(id,name))'
   const scope = activityBuildTypesLocator(buildTypeIds)
+  interface ActivityPart {
+    response: RawActivityResponse
+    error?: string
+  }
+  const collect = (label: string, path: string): ResultAsync<ActivityPart, CiError> =>
+    tcFetch<RawActivityResponse>(baseUrl, token, path)
+      .map((response) => ({ response }))
+      .orElse((error) =>
+        okAsync<ActivityPart, CiError>({
+          response: {},
+          error: `${label}: ${ciErrorMessage(error)}`,
+        }),
+      )
   return ResultAsync.combine([
-    tcFetch<RawActivityResponse>(
-      baseUrl,
-      token,
+    collect(
+      'Running builds',
       `/app/rest/builds?locator=${encodeURIComponent(`${scope},running:true,branch:(default:any),defaultFilter:false,count:20`)}&fields=${fields}`,
     ),
-    tcFetch<RawActivityResponse>(
-      baseUrl,
-      token,
+    collect(
+      'Queued builds',
       `/app/rest/buildQueue?locator=${encodeURIComponent(queuedActivityLocator(buildTypeIds))}&fields=${fields}`,
     ),
-    tcFetch<RawActivityResponse>(
-      baseUrl,
-      token,
+    collect(
+      'Recent builds',
       `/app/rest/builds?locator=${encodeURIComponent(`${scope},state:finished,branch:(default:any),defaultFilter:false,count:10`)}&fields=${fields}`,
     ),
-  ]).map(([running, queued, recent]) => parseActivity(running, queued, recent))
+  ]).map(([running, queued, recent]) => {
+    const activity = parseActivity(running.response, queued.response, recent.response)
+    const partialErrors = [running.error, queued.error, recent.error].filter(
+      (error): error is string => Boolean(error),
+    )
+    return { ...activity, ...(partialErrors.length ? { partialErrors } : {}) }
+  })
 }
 
 /** Branches TeamCity knows for a build configuration — default branch first. */

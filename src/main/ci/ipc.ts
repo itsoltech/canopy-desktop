@@ -58,6 +58,33 @@ const CI_JOB_ID_RE = /^[A-Za-z0-9._/-]{1,255}$/
 const CI_RUN_ID_RE = /^\d{1,30}$/
 const CI_SCHEMA_REVISION_RE = /^[A-Za-z0-9._:-]{1,200}$/
 
+function isValidGitRefName(name: unknown): name is string {
+  if (typeof name !== 'string' || name === '' || name.length > 255 || name !== name.trim()) {
+    return false
+  }
+  if (
+    name === '@' ||
+    name.startsWith('-') ||
+    name.startsWith('/') ||
+    name.endsWith('/') ||
+    name.endsWith('.') ||
+    name.includes('//') ||
+    name.includes('..') ||
+    name.includes('@{')
+  ) {
+    return false
+  }
+  if (
+    [...name].some((char) => {
+      const code = char.charCodeAt(0)
+      return code <= 0x20 || code === 0x7f || '~^:?*[\\'.includes(char)
+    })
+  ) {
+    return false
+  }
+  return !name.split('/').some((part) => part.startsWith('.') || part.endsWith('.lock'))
+}
+
 function validateCiProperties(raw: unknown): Array<{ name: string; value: string }> | undefined {
   if (raw === undefined) return undefined
   if (!Array.isArray(raw) || raw.length > CI_PROPERTIES_MAX) {
@@ -78,7 +105,7 @@ function validateCiProperties(raw: unknown): Array<{ name: string; value: string
 function validateRef(raw: unknown): CiRef {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid CI ref')
   const { name, kind } = raw as { name?: unknown; kind?: unknown }
-  if (typeof name !== 'string' || !CI_BRANCH_RE.test(name)) throw new Error('Invalid CI ref name')
+  if (!isValidGitRefName(name)) throw new Error('Invalid CI ref name')
   if (kind !== 'branch' && kind !== 'tag') throw new Error('Invalid CI ref kind')
   return { name, kind }
 }

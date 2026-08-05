@@ -69,16 +69,23 @@ describe('loadPullRequestSummary', () => {
   })
 
   it.each([
-    ['invalid JSON', { stdout: '{' }],
-    ['wrong shape', { stdout: JSON.stringify([{ number: '344', state: 'OPEN' }]) }],
-  ])('returns an error for %s', async (_label, commandResult) => {
+    ['invalid JSON', { stdout: '{' }, 'Invalid GitHub CLI response'],
+    [
+      'wrong shape',
+      { stdout: JSON.stringify([{ number: '344', state: 'OPEN' }]) },
+      'invalid pull request summary',
+    ],
+  ])('returns an error for %s', async (_label, commandResult, expectedReason) => {
     const run = vi.fn().mockResolvedValue(commandResult)
 
     const result = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
 
     expect(result.isErr()).toBe(true)
     if (result.isOk()) throw new Error('Expected PR lookup to fail')
-    expect(result.error._tag).toBe('PRLookupFailed')
+    expect(result.error).toEqual({
+      _tag: 'PRLookupFailed',
+      reason: expect.stringContaining(expectedReason),
+    })
   })
 
   it('returns an error when GitHub CLI fails or times out', async () => {

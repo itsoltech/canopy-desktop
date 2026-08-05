@@ -212,6 +212,8 @@ export interface CiActivity {
   queued: CiActivityBuild[]
   /** Most recent finished builds for configured jobs, newest first. */
   recent: CiActivityBuild[]
+  /** Independent TeamCity activity queries that failed while sibling data remained usable. */
+  partialErrors?: string[]
 }
 
 /**

@@ -374,6 +374,9 @@ export class CiManager {
                 running: activity.running.filter(keepConfigured),
                 queued: activity.queued.filter(keepConfigured),
                 recent: activity.recent.filter(keepConfigured),
+                ...(activity.partialErrors?.length
+                  ? { partialErrors: activity.partialErrors }
+                  : {}),
               }
             }),
           ),
@@ -438,11 +441,6 @@ export class CiManager {
    * same behavior as the Project tracker init flow. Serialized per repo.
    */
   saveConfig(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
-    if (ci?.provider === 'github-actions') {
-      return this.validateGitHubWorkspace(repoRoot, ci.repository).andThen(() =>
-        this.enqueueSaveConfig(repoRoot, ci),
-      )
-    }
     return this.enqueueSaveConfig(repoRoot, ci)
   }
 
@@ -460,6 +458,14 @@ export class CiManager {
   }
 
   private performSaveConfig(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
+    const validation =
+      ci?.provider === 'github-actions'
+        ? this.validateGitHubWorkspace(repoRoot, ci.repository)
+        : okAsync<void, CiError>(undefined)
+    return validation.andThen(() => this.performConfigWrite(repoRoot, ci))
+  }
+
+  private performConfigWrite(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
     return ResultAsync.fromSafePromise(this.repoConfigManager.exists(repoRoot))
       .andThen((exists) =>
         // A file that exists but won't load is never initialized over: `init`

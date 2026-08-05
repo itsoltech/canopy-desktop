@@ -23,6 +23,7 @@ export interface CiActivity {
   running: CiActivityBuild[]
   queued: CiActivityBuild[]
   recent: CiActivityBuild[]
+  partialErrors?: string[]
 }
 
 /** Newest build of a branch (per configured job) — the `ci:status` row shape. */

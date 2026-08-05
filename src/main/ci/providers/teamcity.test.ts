@@ -46,4 +46,14 @@ describe('TeamCityAdapter', () => {
       'next',
     )
   })
+
+  it('rejects locator-unsafe refs before querying TeamCity', async () => {
+    const fetchBuildForBranch = vi.fn(() => okAsync(null))
+    const adapter = new TeamCityAdapter(CONFIG, 'token', { fetchBuildForBranch })
+
+    const result = await adapter.status({ name: 'main),count:999', kind: 'branch' })
+
+    expect(result.isErr()).toBe(true)
+    expect(fetchBuildForBranch).not.toHaveBeenCalled()
+  })
 })

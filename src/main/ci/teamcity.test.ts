@@ -1,11 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   activityBuildTypesLocator,
   buildBranchLocator,
+  fetchActivity,
   mapBuild,
   parseBuildsResponse,
   queuedActivityLocator,
 } from './teamcity'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('activityBuildTypesLocator', () => {
   it('builds a union scoped to every configured build type', () => {
@@ -18,6 +23,39 @@ describe('activityBuildTypesLocator', () => {
     expect(queuedActivityLocator(['Gakko_Build'])).toBe(
       'buildType:(item:(id:Gakko_Build)),count:20',
     )
+  })
+})
+
+describe('fetchActivity', () => {
+  it('keeps running and recent builds when the queue query fails', async () => {
+    const response = (body: unknown, status = 200): Response =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          response({ build: [{ id: 1, state: 'running', buildType: { id: 'Build' } }] }),
+        )
+        .mockResolvedValueOnce(response({ message: 'queue forbidden' }, 403))
+        .mockResolvedValueOnce(
+          response({ build: [{ id: 2, state: 'finished', buildType: { id: 'Build' } }] }),
+        ),
+    )
+
+    const result = await fetchActivity('https://tc.example.com', 'token', ['Build'])
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value.running.map((build) => build.id)).toEqual([1])
+    expect(result.value.queued).toEqual([])
+    expect(result.value.recent.map((build) => build.id)).toEqual([2])
+    expect(result.value.partialErrors).toEqual([
+      expect.stringContaining('Queued builds: TeamCity API error 403'),
+    ])
   })
 })
 

@@ -345,4 +345,25 @@ describe('CI IPC authorization', () => {
     ).rejects.toThrow('Invalid CI ref kind')
     expect(ciManager.triggerJob).not.toHaveBeenCalled()
   })
+
+  it.each(['release+qa', 'hello-$USER'])(
+    'accepts a GitHub picker ref containing valid Git characters: %s',
+    async (refName) => {
+      const { invoke, ciManager } = harness()
+
+      await invoke('ci:triggerJob', {
+        repoRoot: '/ws/repo',
+        jobId: '.github/workflows/release.yml',
+        ref: { name: refName, kind: 'branch' },
+        schemaRevision: 'sha',
+        inputs: {},
+      })
+
+      expect(ciManager.triggerJob).toHaveBeenCalledWith(
+        '/resolved/ws/repo',
+        expect.objectContaining({ ref: { name: refName, kind: 'branch' } }),
+        expect.any(Function),
+      )
+    },
+  )
 })

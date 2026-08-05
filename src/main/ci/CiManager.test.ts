@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { okAsync, errAsync, ResultAsync } from 'neverthrow'
+import { ok, okAsync, errAsync, ResultAsync, type Result } from 'neverthrow'
 import { CiManager } from './CiManager'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
@@ -42,6 +42,7 @@ function fakes(opts?: {
   exists?: boolean
   saveFails?: boolean
   remoteUrl?: string
+  remoteUrlResolver?: () => ResultAsync<string, unknown>
   githubClient?: GitHubActionsClient
 }): {
   repoConfigManager: RepoConfigManager
@@ -77,7 +78,8 @@ function fakes(opts?: {
     manager: new CiManager(
       repoConfigManager,
       tokenStore,
-      () => okAsync(opts?.remoteUrl ?? 'git@github.com:itsoltech/canopy-desktop.git'),
+      opts?.remoteUrlResolver ??
+        (() => okAsync(opts?.remoteUrl ?? 'git@github.com:itsoltech/canopy-desktop.git')),
       opts?.githubClient ? () => opts.githubClient as GitHubActionsClient : undefined,
     ),
   }
@@ -207,6 +209,7 @@ describe('the configured-build-type allowlist', () => {
         running: [build(1, 'Other_Job')],
         queued: [build(2, 'Gakko_Build'), build(3, 'Other_Job')],
         recent: [build(4, 'Other_Job'), build(5, 'Gakko_Build')],
+        partialErrors: ['Queued builds unavailable'],
       }),
     )
 
@@ -216,6 +219,7 @@ describe('the configured-build-type allowlist', () => {
     expect(result._unsafeUnwrap().running).toEqual([])
     expect(result._unsafeUnwrap().queued.map((item) => item.id)).toEqual([2])
     expect(result._unsafeUnwrap().recent.map((item) => item.id)).toEqual([5])
+    expect(result._unsafeUnwrap().partialErrors).toEqual(['Queued builds unavailable'])
   })
 })
 
@@ -521,6 +525,31 @@ describe('saveConfig', () => {
     expect((await first).isOk()).toBe(true)
     expect((await second).isOk()).toBe(true)
     expect(order).toEqual(['load1', 'save1', 'load2', 'save2'])
+  })
+
+  it('queues GitHub validation before a later remove can update the same repo', async () => {
+    let releaseValidation!: () => void
+    const validation = new Promise<Result<string, unknown>>((resolve) => {
+      releaseValidation = () =>
+        resolve(ok<string, unknown>('git@github.com:itsoltech/canopy-desktop.git'))
+    })
+    const { manager, repoConfigManager } = fakes({
+      ci: undefined,
+      remoteUrlResolver: () => new ResultAsync(validation),
+    })
+
+    const save = manager.saveConfig('r', GITHUB_CI)
+    const remove = manager.saveConfig('r', null)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(repoConfigManager.save).not.toHaveBeenCalled()
+    releaseValidation()
+    expect((await save).isOk()).toBe(true)
+    expect((await remove).isOk()).toBe(true)
+    expect(vi.mocked(repoConfigManager.save).mock.calls.map((call) => call[1].ci)).toEqual([
+      GITHUB_CI,
+      undefined,
+    ])
   })
 
   it('reports a write failure as a local error, never as TeamCity', async () => {

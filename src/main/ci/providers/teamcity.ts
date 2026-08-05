@@ -32,6 +32,8 @@ interface TeamCityClient {
   triggerBuild: typeof triggerBuild
 }
 
+const TEAMCITY_LOCATOR_SAFE_REF = /^[A-Za-z0-9._/+$-]{1,255}$/
+
 const defaultClient: TeamCityClient = {
   fetchBuildForBranch,
   fetchBuild,
@@ -106,6 +108,13 @@ export class TeamCityAdapter implements CiProviderAdapter {
   status(ref: CiRef): ResultAsync<CiJobStatus[], CiError> {
     if (ref.kind !== 'branch')
       return errAsync({ _tag: 'CiApiError', status: 0, message: 'TeamCity requires a branch' })
+    if (!TEAMCITY_LOCATOR_SAFE_REF.test(ref.name)) {
+      return errAsync({
+        _tag: 'CiApiError',
+        status: 0,
+        message: 'TeamCity branch contains locator-unsafe characters',
+      })
+    }
     return ResultAsync.combine(
       this.config.buildTypes.map((buildType) =>
         this.client
@@ -206,6 +215,7 @@ export class TeamCityAdapter implements CiProviderAdapter {
         running: activity.running.map(mapActivityBuild),
         queued: activity.queued.map(mapActivityBuild),
         recent: activity.recent.map(mapActivityBuild),
+        ...(activity.partialErrors?.length ? { partialErrors: activity.partialErrors } : {}),
       }))
   }
 }
