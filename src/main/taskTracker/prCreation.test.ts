@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { isSafeBranchRef, prCliFailure, PR_COMMAND_TIMEOUT_MS } from './prCreation'
+import { prCliFailure, PR_COMMAND_TIMEOUT_MS } from './prCreation'
+import { isSafeGitRefName } from '../../renderer-shared/gitRef'
 
-describe('isSafeBranchRef', () => {
+describe('isSafeGitRefName', () => {
   it.each(['feature/ISSUE-123-description', 'release/1.2.3', 'dependabot/npm_and_yarn/pkg-2.0.0'])(
     'accepts safe branch ref %s',
     (branch) => {
-      expect(isSafeBranchRef(branch)).toBe(true)
+      expect(isSafeGitRefName(branch)).toBe(true)
     },
   )
 
@@ -18,7 +19,7 @@ describe('isSafeBranchRef', () => {
     'feature/../escape',
     'feature/query?value',
   ])('rejects unsafe branch ref %j', (branch) => {
-    expect(isSafeBranchRef(branch)).toBe(false)
+    expect(isSafeGitRefName(branch)).toBe(false)
   })
 })
 

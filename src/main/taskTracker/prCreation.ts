@@ -7,6 +7,7 @@ import { renderPRTitle, renderPRBody, resolveTargetBranch } from './prTemplate'
 import { GitRepository } from '../git/GitRepository'
 import { fromExternalCall } from '../errors'
 import { gitHubCliFailureReason, isMissingGitHubCli } from '../github/redactFailureReason'
+import { isSafeGitRefName } from '../../renderer-shared/gitRef'
 
 const execFileAsync = promisify(execFile)
 export const PR_COMMAND_TIMEOUT_MS = 30_000
@@ -242,19 +243,6 @@ export function closePullRequest(
  * crafted value cannot retarget the request — legitimate branch names keep their `/` segments,
  * so validation is preferred over encoding here.
  */
-export function isSafeBranchRef(branch: unknown): branch is string {
-  if (typeof branch !== 'string') return false
-  const b = branch.trim()
-  if (b === '' || b !== branch || b.length > 255) return false
-  if (b.startsWith('-') || b.startsWith('/') || b.endsWith('/') || b.includes('//')) return false
-  if (b.includes('..') || b.endsWith('.') || b.endsWith('.lock')) return false
-  // Control chars, characters git forbids in ref names, and URL path/query metacharacters.
-  // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1f\x7f ~^:?*[\\#%]/.test(b)) return false
-  if (b.includes('@{')) return false
-  return true
-}
-
 /**
  * Does the branch still exist on the remote? 404 → false; any other failure (network, auth) →
  * true, so the delete action stays available and its own error surfaces the real problem.
@@ -263,7 +251,7 @@ export function remoteBranchExists(
   repoRoot: string,
   branch: string,
 ): ResultAsync<boolean, TaskTrackerError> {
-  if (!isSafeBranchRef(branch)) {
+  if (!isSafeGitRefName(branch)) {
     return okAsync(false)
   }
   return fromExternalCall(
@@ -281,7 +269,7 @@ export function deleteRemoteBranch(
   repoRoot: string,
   branch: string,
 ): ResultAsync<void, TaskTrackerError> {
-  if (!isSafeBranchRef(branch)) {
+  if (!isSafeGitRefName(branch)) {
     return errAsync(prErr('Invalid branch name'))
   }
   return fromExternalCall(

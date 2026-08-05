@@ -20,6 +20,7 @@
   import PrefsSection from './_partials/PrefsSection.svelte'
   import TrackerEditForm from './_partials/TrackerEditForm.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
+  import { trackerBindingKey } from '../../../../renderer-shared/credentialBindings'
 
   // Project connections = trackers configured in the repo's .canopy/config.json (active worktree).
   // Here you only CONNECT (authenticate) them — credentials are purpose-bound locally. Adding /
@@ -215,7 +216,7 @@
         url,
         normalizedToken,
         formUsername || undefined,
-        connectingId ? `tracker:${connectingId}` : undefined,
+        connectingId ? trackerBindingKey(connectingId) : undefined,
         repoRoot,
       )
       await ensurePersonalConnection(formProvider, url, formProjectKey || undefined)
@@ -243,7 +244,12 @@
     })
     if (!ok) return
     try {
-      await window.api.keychainDeleteCredentials(t.provider, t.baseUrl, `tracker:${t.id}`, repoRoot)
+      await window.api.keychainDeleteCredentials(
+        t.provider,
+        t.baseUrl,
+        trackerBindingKey(t.id),
+        repoRoot,
+      )
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
       return

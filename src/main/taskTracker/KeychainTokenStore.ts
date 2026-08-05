@@ -1,4 +1,5 @@
 import type { PreferencesStore } from '../db/PreferencesStore'
+import { err, type Result } from 'neverthrow'
 import {
   CredentialRegistry,
   type CredentialAudience,
@@ -8,6 +9,9 @@ import {
   type CredentialService,
 } from '../credentials/CredentialRegistry'
 import type { TrackerConfig } from './types'
+import type { TaskTrackerConnection } from './types'
+import { parseTrackerBindingKey, trackerBindingKey } from '../../renderer-shared/credentialBindings'
+import type { CredentialError } from '../credentials/errors'
 
 export interface TrackerCredentials {
   token: string
@@ -109,7 +113,7 @@ function defaultBinding(provider: string, baseUrl: string): string {
     return `ci:github-actions:${audience.host}/${audience.repository ?? ''}`
   }
   if (provider === 'teamcity') return `ci:teamcity:${normalizeUrl(baseUrl).toLowerCase()}`
-  return `tracker:shared:${provider}:${normalizeUrl(baseUrl).toLowerCase()}`
+  return `credential:shared:tracker:${provider}:${normalizeUrl(baseUrl).toLowerCase()}`
 }
 
 function descriptorProvider(descriptor: CredentialDescriptor): string {
@@ -165,28 +169,55 @@ export class KeychainTokenStore {
     capability: CredentialCapability,
     bindingKey = defaultBinding(provider, baseUrl),
   ): TrackerCredentials | null {
+    return this.resolveCredentialsResult(provider, baseUrl, capability, bindingKey).unwrapOr(null)
+  }
+
+  resolveCredentialsResult(
+    provider: string,
+    baseUrl: string,
+    capability: CredentialCapability,
+    bindingKey = defaultBinding(provider, baseUrl),
+  ): Result<TrackerCredentials, CredentialError> {
     const spec = providerSpec(provider)
-    if (!spec || !spec.capabilities.includes(capability)) return null
-    const resolved = this.registry.resolve({
-      bindingKey,
-      service: spec.service,
-      audience: audienceFor(provider, baseUrl),
-      capability,
-    })
-    return resolved
-      ? { token: resolved.secret, username: resolved.account, credentialId: resolved.id }
-      : null
+    if (!spec) return err({ _tag: 'CredentialProviderUnsupported', provider })
+    if (!spec.capabilities.includes(capability)) {
+      return err({ _tag: 'CredentialCapabilityUnsupported', provider, capability })
+    }
+    const wasBound = this.registry.listBindings()[bindingKey]
+    return this.registry
+      .resolve({
+        bindingKey,
+        service: spec.service,
+        audience: audienceFor(provider, baseUrl),
+        capability,
+      })
+      .map((resolved) => {
+        if (!wasBound && parseTrackerBindingKey(bindingKey)) {
+          const sharedBinding = defaultBinding(provider, baseUrl)
+          if (this.registry.listBindings()[sharedBinding] === resolved.id) {
+            this.registry.unbind(sharedBinding)
+          }
+        }
+        return { token: resolved.secret, username: resolved.account, credentialId: resolved.id }
+      })
   }
 
   getCredentialsForTracker(
     tracker: TrackerConfig,
     capability: Extract<CredentialCapability, 'issues.read' | 'issues.write'> = 'issues.read',
   ): TrackerCredentials | null {
-    return this.resolveCredentials(
+    return this.getCredentialsForTrackerResult(tracker, capability).unwrapOr(null)
+  }
+
+  getCredentialsForTrackerResult(
+    tracker: TrackerConfig,
+    capability: Extract<CredentialCapability, 'issues.read' | 'issues.write'> = 'issues.read',
+  ): Result<TrackerCredentials, CredentialError> {
+    return this.resolveCredentialsResult(
       tracker.provider,
       tracker.baseUrl,
       capability,
-      `tracker:${tracker.id}`,
+      trackerBindingKey(tracker.id),
     )
   }
 
@@ -196,9 +227,9 @@ export class KeychainTokenStore {
     token: string,
     username?: string,
     bindingKey = defaultBinding(provider, baseUrl),
-  ): CredentialDescriptor {
+  ): Result<CredentialDescriptor, CredentialError> {
     const spec = providerSpec(provider)
-    if (!spec) throw new Error(`Unsupported credential provider: ${provider}`)
+    if (!spec) return err({ _tag: 'CredentialProviderUnsupported', provider })
     const currentlyBoundId = this.registry.listBindings()[bindingKey]
     const currentlyBound = this.registry
       .list()
@@ -228,15 +259,16 @@ export class KeychainTokenStore {
       secret: token,
       account: username,
     })
-    this.registry.bind(bindingKey, descriptor.id)
-    if (
-      currentlyBoundId &&
-      currentlyBoundId !== descriptor.id &&
-      this.registry.bindingsFor(currentlyBoundId).length === 0
-    ) {
-      this.registry.remove(currentlyBoundId)
-    }
-    return descriptor
+    return this.registry.bind(bindingKey, descriptor.id).map(() => {
+      if (
+        currentlyBoundId &&
+        currentlyBoundId !== descriptor.id &&
+        this.registry.bindingsFor(currentlyBoundId).length === 0
+      ) {
+        this.registry.remove(currentlyBoundId)
+      }
+      return descriptor
+    })
   }
 
   deleteCredentials(
@@ -292,7 +324,11 @@ export class KeychainTokenStore {
       const provider = identity.slice(0, separator)
       const baseUrl = identity.slice(separator + 1)
       if (!providerSpec(provider)) continue
-      const bindingKey = defaultBinding(provider, baseUrl)
+      const trackerBindings = this.trackersFor(provider, baseUrl).map((tracker) =>
+        trackerBindingKey(tracker.id),
+      )
+      const [bindingKey, ...additionalBindings] =
+        trackerBindings.length > 0 ? trackerBindings : [defaultBinding(provider, baseUrl)]
       const raw = this.preferencesStore.get(key)
       if (!raw) continue
       let credentials: TrackerCredentials
@@ -302,8 +338,63 @@ export class KeychainTokenStore {
         credentials = { token: raw }
       }
       if (!credentials.token) continue
-      this.setCredentials(provider, baseUrl, credentials.token, credentials.username, bindingKey)
-      this.preferencesStore.delete(key)
+      const descriptor = this.setCredentials(
+        provider,
+        baseUrl,
+        credentials.token,
+        credentials.username,
+        bindingKey,
+      )
+      if (descriptor.isErr()) continue
+      let bindingsStored = true
+      for (const additionalBinding of additionalBindings) {
+        if (this.registry.bind(additionalBinding, descriptor.value.id).isErr()) {
+          bindingsStored = false
+          break
+        }
+      }
+      if (bindingsStored) this.preferencesStore.delete(key)
     }
+  }
+
+  private trackersFor(provider: string, baseUrl: string): TrackerConfig[] {
+    const matches = new Map<string, TrackerConfig>()
+    const add = (tracker: TrackerConfig): void => {
+      if (
+        tracker.provider === provider &&
+        normalizeUrl(tracker.baseUrl).toLowerCase() === normalizeUrl(baseUrl).toLowerCase()
+      ) {
+        matches.set(tracker.id, tracker)
+      }
+    }
+
+    const globalRaw = this.preferencesStore.get('taskTracker.globalConfig')
+    if (globalRaw) {
+      try {
+        const parsed = JSON.parse(globalRaw) as { trackers?: TrackerConfig[] }
+        if (Array.isArray(parsed.trackers)) parsed.trackers.forEach(add)
+      } catch {
+        // Invalid legacy config is handled by GlobalConfigManager; token migration stays safe.
+      }
+    }
+
+    const connectionsRaw = this.preferencesStore.get('taskTracker.connections')
+    if (connectionsRaw) {
+      try {
+        const connections = JSON.parse(connectionsRaw) as TaskTrackerConnection[]
+        for (const connection of connections) {
+          add({
+            id: connection.id,
+            provider: connection.provider,
+            baseUrl: connection.baseUrl,
+            projectKey: connection.projectKey || undefined,
+          })
+        }
+      } catch {
+        // Invalid legacy connections are handled by GlobalConfigManager.
+      }
+    }
+
+    return [...matches.values()]
   }
 }

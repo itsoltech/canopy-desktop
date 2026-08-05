@@ -52,6 +52,9 @@ Authentication uses a GitHub token obtained from a matching task tracker connect
 - `loadBranchPRs(repoRoot)` is called when a workspace is activated or a branch changes.
 - `loadRepoInfo(repoRoot)` fetches repo metadata (default branch, repo ID).
 - `resetGitHubState()` clears all cached PR data and repo info (called on workspace switch).
+- The optional `gh`-CLI PR-summary fallback caches one lightweight request per repository and
+  branch. Results expire after `PR_FALLBACK_TTL_MS` (30 seconds), while a per-repository/branch
+  generation invalidates settled and in-flight requests after an in-app PR mutation.
 
 ## Configuration
 

@@ -14,6 +14,8 @@ import { fromExternalCall, errorMessage } from '../errors'
 import { createProviderClient } from './providers'
 import { GitRepository } from '../git/GitRepository'
 import { parseGitHubRemote } from '../github/remoteUrl'
+import { trackerBindingKey } from '../../renderer-shared/credentialBindings'
+import { credentialErrorMessage } from '../credentials/errors'
 import type {
   TaskTrackerConnection,
   TrackerConfig,
@@ -65,7 +67,7 @@ export class TaskTrackerManager {
         capability,
         status,
         reason,
-        `tracker:${connection.id}`,
+        trackerBindingKey(connection.id),
       )
     return result
       .map((value) => {
@@ -111,11 +113,18 @@ export class TaskTrackerManager {
     if (!this.keychainTokenStore) {
       return err({ _tag: 'AuthTokenMissing', connectionName: tracker.baseUrl })
     }
-    const creds = this.keychainTokenStore.getCredentialsForTracker(tracker, capability)
-    if (!creds) {
-      return err({ _tag: 'AuthTokenMissing', connectionName: tracker.baseUrl })
-    }
-    return ok(creds.token)
+    return this.keychainTokenStore
+      .getCredentialsForTrackerResult(tracker, capability)
+      .map((credentials) => credentials.token)
+      .mapErr((error): TaskTrackerError =>
+        error._tag === 'CredentialNotFound'
+          ? { _tag: 'AuthTokenMissing', connectionName: tracker.baseUrl }
+          : {
+              _tag: 'CredentialUnavailable',
+              connectionName: tracker.baseUrl,
+              reason: credentialErrorMessage(error),
+            },
+      )
   }
 
   private resolveConfigConnection(

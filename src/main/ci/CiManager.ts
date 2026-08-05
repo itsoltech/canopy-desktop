@@ -24,7 +24,7 @@ import type {
   TeamCityCiConfig,
 } from './types'
 import type { CiError } from './errors'
-import { normalizedTeamCityToken } from './token'
+import { normalizedCredentialToken } from './token'
 import { ciErrorMessage } from './errors'
 import { DROPPED_ID_SAMPLE, parseCiConfig } from './config'
 import {
@@ -41,6 +41,8 @@ import { GitHubActionsClient } from './github-actions/client'
 import { discoverGitHubWorkflows, GitHubActionsAdapter } from './providers/github-actions'
 import { TeamCityAdapter } from './providers/teamcity'
 import type { CiProviderAdapter } from './providers/types'
+import { credentialErrorMessage } from '../credentials/errors'
+import { githubActionsCredentialBaseUrl } from '../../renderer-shared/credentialBindings'
 
 type RemoteUrlResolver = (repoRoot: string) => ResultAsync<string, unknown>
 type GitHubClientFactory = (owner: string, repository: string, token: string) => GitHubActionsClient
@@ -179,9 +181,25 @@ export class CiManager {
     baseUrl: string,
     capability: Extract<CredentialCapability, 'builds.read' | 'builds.trigger'> = 'builds.read',
   ): ResultAsync<string, CiError> {
-    const creds = this.tokenStore.resolveCredentials('teamcity', baseUrl, capability)
-    const token = normalizedTeamCityToken(creds?.token)
-    return token ? okAsync(token) : errAsync({ _tag: 'CiAuthMissing', baseUrl })
+    return this.tokenStore.resolveCredentialsResult('teamcity', baseUrl, capability).match(
+      (credentials) => {
+        const token = normalizedCredentialToken(credentials.token)
+        return token
+          ? okAsync(token)
+          : errAsync({
+              _tag: 'CiAuthMissing' as const,
+              baseUrl,
+            })
+      },
+      (error) =>
+        error._tag === 'CredentialNotFound'
+          ? errAsync({ _tag: 'CiAuthMissing' as const, baseUrl })
+          : errAsync({
+              _tag: 'CiCredentialUnavailable' as const,
+              baseUrl,
+              reason: credentialErrorMessage(error),
+            }),
+    )
   }
 
   private tokenFor(
@@ -198,11 +216,23 @@ export class CiManager {
       'actions.read' | 'actions.dispatch' | 'contents.read'
     > = 'actions.read',
   ): ResultAsync<string, CiError> {
-    const baseUrl = `https://github.com/${repository.toLowerCase()}`
-    const creds = this.tokenStore.resolveCredentials('github-actions', baseUrl, capability)
-    return creds?.token
-      ? okAsync(creds.token)
-      : errAsync({ _tag: 'CiAuthMissing', baseUrl, provider: 'github-actions' })
+    const baseUrl = githubActionsCredentialBaseUrl(repository)
+    return this.tokenStore.resolveCredentialsResult('github-actions', baseUrl, capability).match(
+      (credentials) => okAsync(credentials.token),
+      (error) =>
+        error._tag === 'CredentialNotFound'
+          ? errAsync({
+              _tag: 'CiAuthMissing' as const,
+              baseUrl,
+              provider: 'github-actions' as const,
+            })
+          : errAsync({
+              _tag: 'CiCredentialUnavailable' as const,
+              baseUrl,
+              provider: 'github-actions' as const,
+              reason: credentialErrorMessage(error),
+            }),
+    )
   }
 
   private githubClientForWorkspace(
@@ -574,7 +604,7 @@ export class CiManager {
       this.observeCredentialResult(
         ci.provider,
         ci.provider === 'github-actions'
-          ? `https://github.com/${ci.repository.toLowerCase()}`
+          ? githubActionsCredentialBaseUrl(ci.repository)
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.status(ref),
@@ -587,7 +617,7 @@ export class CiManager {
       this.observeCredentialResult(
         ci.provider,
         ci.provider === 'github-actions'
-          ? `https://github.com/${ci.repository.toLowerCase()}`
+          ? githubActionsCredentialBaseUrl(ci.repository)
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.refs(jobId),
@@ -601,7 +631,7 @@ export class CiManager {
         return this.githubToken(ci.repository, 'contents.read').andThen(() =>
           this.observeCredentialResult(
             ci.provider,
-            `https://github.com/${ci.repository.toLowerCase()}`,
+            githubActionsCredentialBaseUrl(ci.repository),
             'contents.read',
             adapter.parameters(jobId, ref),
           ),
@@ -623,7 +653,7 @@ export class CiManager {
       this.observeCredentialResult(
         ci.provider,
         ci.provider === 'github-actions'
-          ? `https://github.com/${ci.repository.toLowerCase()}`
+          ? githubActionsCredentialBaseUrl(ci.repository)
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.activity(),
@@ -636,7 +666,7 @@ export class CiManager {
       this.observeCredentialResult(
         ci.provider,
         ci.provider === 'github-actions'
-          ? `https://github.com/${ci.repository.toLowerCase()}`
+          ? githubActionsCredentialBaseUrl(ci.repository)
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.run(runId),
@@ -656,7 +686,7 @@ export class CiManager {
         }
         return this.observeCredentialResult(
           'github-actions',
-          `https://github.com/${repository.toLowerCase()}`,
+          githubActionsCredentialBaseUrl(repository),
           'actions.read',
           discoverGitHubWorkflows(client, metadata.defaultBranch),
         ).map((workflows) => ({
@@ -684,21 +714,15 @@ export class CiManager {
 
   saveGitHubCredential(repoRoot: string, token: string): ResultAsync<void, CiError> {
     return this.githubClientForWorkspace(repoRoot, token).andThen(({ repository }) =>
-      ResultAsync.fromPromise(
-        Promise.resolve().then(() =>
-          this.tokenStore.setCredentials(
-            'github-actions',
-            `https://github.com/${repository.toLowerCase()}`,
-            token,
-          ),
-        ),
-        (): CiError => ({
-          _tag: 'CiApiError',
-          status: 0,
-          message: 'Could not store the GitHub token',
+      this.tokenStore
+        .setCredentials('github-actions', githubActionsCredentialBaseUrl(repository), token)
+        .map(() => undefined)
+        .mapErr((error): CiError => ({
+          _tag: 'CiCredentialUnavailable',
+          baseUrl: githubActionsCredentialBaseUrl(repository),
           provider: 'github-actions',
-        }),
-      ).map(() => undefined),
+          reason: credentialErrorMessage(error),
+        })),
     )
   }
 
@@ -784,7 +808,7 @@ export class CiManager {
     }
     const baseUrl =
       context.value.ci.provider === 'github-actions'
-        ? `https://github.com/${context.value.ci.repository.toLowerCase()}`
+        ? githubActionsCredentialBaseUrl(context.value.ci.repository)
         : context.value.ci.baseUrl
     return this.observeCredentialResult(
       context.value.ci.provider,

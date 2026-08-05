@@ -169,6 +169,10 @@ Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`.
 
 ### Creating a pull request from a task
 
+Repository-declared trackers are ordered before personal/global connections when configurations
+are merged. Operations that do not carry an explicit tracker ID therefore default to repository
+context; an explicit unknown ID always fails closed instead of falling back to another tracker.
+
 When the repository does not have the GitHub API integration configured, the sidebar resolves its
 `View PR #N` row through the lightweight `taskTracker:prSummary` IPC channel. The main process first
 runs `gh pr list --state open --head <branch> --limit 1`; when there is no open PR, it repeats the

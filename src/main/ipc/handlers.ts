@@ -75,7 +75,8 @@ import {
 } from './keychainCredentials'
 import { normalizeCredentialToken } from '../ci/token'
 import { loadPullRequestSummary } from '../taskTracker/prSummary'
-import { isSafeBranchRef } from '../taskTracker/prCreation'
+import { isSafeGitRefName } from '../../renderer-shared/gitRef'
+import { credentialErrorMessage } from '../credentials/errors'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -3266,12 +3267,15 @@ export function registerIpcHandlers(
   ipcMain.handle('keychain:setCredentials', async (event, payload: unknown) => {
     const credentials = normalizeKeychainCredentialPayload(payload)
     await authorizeRendererKeychainBinding(event, credentials)
-    keychainTokenStore.setCredentials(
-      credentials.provider,
-      credentials.baseUrl,
-      credentials.token,
-      credentials.username,
-      credentials.bindingKey,
+    unwrapOrThrow(
+      keychainTokenStore.setCredentials(
+        credentials.provider,
+        credentials.baseUrl,
+        credentials.token,
+        credentials.username,
+        credentials.bindingKey,
+      ),
+      credentialErrorMessage,
     )
   })
 
@@ -4515,7 +4519,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:prSummary',
     async (event, payload: { repoRoot: string; branch: string }) => {
-      if (!isSafeBranchRef(payload.branch)) return null
+      if (!isSafeGitRefName(payload.branch)) return null
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       // The gh CLI fallback is optional. Repositories without a GitHub origin keep the normal
       // Create PR affordance rather than showing a retryable auth/network error for every branch.
@@ -4531,7 +4535,7 @@ export function registerIpcHandlers(
     'taskTracker:prDetails',
     async (event, payload: { repoRoot: string; branch: string }) => {
       // Keep renderer-supplied values within the same safe git-ref contract as PR mutations.
-      if (!isSafeBranchRef(payload.branch)) return null
+      if (!isSafeGitRefName(payload.branch)) return null
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       const result = await fromExternalCall(
         execFileAsync(

@@ -3,6 +3,7 @@ import type { KeychainTokenStore } from './KeychainTokenStore'
 import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types'
 import type { TaskTrackerConnection } from './types'
 import { getBranchTemplate, getPRTemplate } from './configDefaults'
+import { trackerBindingKey } from '../../renderer-shared/credentialBindings'
 
 const GLOBAL_CONFIG_KEY = 'taskTracker.globalConfig'
 const MIGRATION_FLAG_KEY = 'taskTracker.migratedToGlobalConfig'
@@ -189,16 +190,19 @@ export class GlobalConfigManager {
         const oldToken = this.preferencesStore.get(conn.authPrefKey)
         if (oldToken && conn.baseUrl) {
           const existingCreds = this.keychainTokenStore.getCredentials(conn.provider, conn.baseUrl)
-          if (!existingCreds) {
-            this.keychainTokenStore.setCredentials(
-              conn.provider,
-              conn.baseUrl,
-              oldToken,
-              conn.username,
-            )
-          }
-          // Delete old plaintext token from preferences
-          this.preferencesStore.delete(conn.authPrefKey)
+          const stored = existingCreds
+            ? true
+            : this.keychainTokenStore
+                .setCredentials(
+                  conn.provider,
+                  conn.baseUrl,
+                  oldToken,
+                  conn.username,
+                  trackerBindingKey(`${conn.provider}-${conn.id.slice(0, 8)}`),
+                )
+                .isOk()
+          // Delete the old plaintext token only after the encrypted replacement is available.
+          if (stored) this.preferencesStore.delete(conn.authPrefKey)
         }
       }
     } catch (e) {

@@ -1,6 +1,7 @@
 import { setPref } from './preferences.svelte'
 import { trackersNeedingCredentials } from '../../components/preferences/_partials/configScopeLabels'
 import { extractTaskKeys } from '../taskTracker/branchTaskKey'
+import { trackerBindingKey } from '../../../../renderer-shared/credentialBindings'
 
 export interface ActiveTaskContext {
   taskKey: string
@@ -106,7 +107,7 @@ async function computeCredentials(
       .filter((t) => t.baseUrl)
       .map(async (t) => {
         try {
-          const bindingKey = `tracker:${t.id}`
+          const bindingKey = trackerBindingKey(t.id)
           const has = await window.api.keychainHasCredentials(
             t.provider,
             t.baseUrl,

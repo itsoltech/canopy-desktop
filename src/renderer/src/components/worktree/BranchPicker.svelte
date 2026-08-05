@@ -93,6 +93,9 @@
     if (!(e.target instanceof HTMLInputElement)) return
     if (e.key === 'Escape' && fillQueryOnPick && listOpen) {
       e.preventDefault()
+      // Both consumers close their enclosing dialog on a bubbled Escape. Keep this Escape scoped
+      // to the combobox so it only collapses the option list.
+      e.stopPropagation()
       // The chevron is intentionally outside the tab order; Escape gives the focused
       // combobox the equivalent keyboard-only collapse without changing its selection.
       listOpen = false
@@ -172,7 +175,14 @@
       <button
         type="button"
         class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 p-0 border-0 rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
-        onclick={() => (listOpen = !listOpen)}
+        onclick={() => {
+          const nextOpen = !listOpen
+          // The keyboard handler and aria-activedescendant both require focus on the input.
+          inputEl?.focus()
+          // Focusing emits `focus` synchronously and normally opens the list; apply the requested
+          // toggle afterwards so clicking the chevron can still close it.
+          listOpen = nextOpen
+        }}
         aria-label={listOpen ? 'Hide branches' : 'Show branches'}
         aria-expanded={listOpen}
         aria-controls={listOpen ? 'branch-picker-options' : undefined}

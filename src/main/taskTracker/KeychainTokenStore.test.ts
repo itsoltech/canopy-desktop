@@ -78,4 +78,42 @@ describe('KeychainTokenStore capability facade', () => {
     expect(store.listCredentials()).toHaveLength(1)
     expect(store.listCredentials()[0].baseUrl).toBe('https://new.atlassian.net')
   })
+
+  it('migrates a stable tracker token to the configured tracker binding and deletes it', () => {
+    const baseUrl = 'https://itsol.atlassian.net'
+    const preferences = fakePreferences({
+      'taskTracker.connections': JSON.stringify([
+        {
+          id: 'jira-main',
+          provider: 'jira',
+          name: 'Jira',
+          baseUrl,
+          projectKey: 'ABC',
+          authPrefKey: 'legacy-secret',
+        },
+      ]),
+      [`taskTracker.token.jira:${baseUrl}`]: JSON.stringify({ token: 'legacy-token' }),
+    })
+    const store = new KeychainTokenStore(preferences)
+
+    expect(store.getCredentials('jira', baseUrl, 'tracker:jira-main')?.token).toBe('legacy-token')
+    expect(store.deleteCredentials('jira', baseUrl, 'tracker:jira-main')).toEqual({
+      removed: true,
+      retainedBindings: [],
+    })
+    expect(store.listCredentials()).toEqual([])
+  })
+
+  it('removes the temporary shared migration binding after a tracker auto-binds', () => {
+    const baseUrl = 'https://itsol.atlassian.net'
+    const store = new KeychainTokenStore(
+      fakePreferences({
+        [`taskTracker.token.jira:${baseUrl}`]: JSON.stringify({ token: 'legacy-token' }),
+      }),
+    )
+
+    expect(store.getCredentials('jira', baseUrl, 'tracker:jira-main')?.token).toBe('legacy-token')
+    expect(store.listCredentials()[0].bindings).toEqual(['tracker:jira-main'])
+    expect(store.deleteCredentials('jira', baseUrl, 'tracker:jira-main').removed).toBe(true)
+  })
 })

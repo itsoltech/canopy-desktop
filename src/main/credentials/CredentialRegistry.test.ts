@@ -35,20 +35,24 @@ describe('CredentialRegistry', () => {
 
     expect(registry.list()).toHaveLength(2)
     expect(
-      registry.resolve({
-        bindingKey: 'ci:github-actions:github.com/itsoltech/canopy-desktop',
-        service: 'github',
-        audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
-        capability: 'actions.dispatch',
-      }),
+      registry
+        .resolve({
+          bindingKey: 'ci:github-actions:github.com/itsoltech/canopy-desktop',
+          service: 'github',
+          audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
+          capability: 'actions.dispatch',
+        })
+        ._unsafeUnwrap(),
     ).toMatchObject({ id: actions.id, secret: 'actions-token' })
     expect(
-      registry.resolve({
-        bindingKey: `tracker:${tracker.id}`,
-        service: 'github',
-        audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
-        capability: 'issues.read',
-      }),
+      registry
+        .resolve({
+          bindingKey: `tracker:${tracker.id}`,
+          service: 'github',
+          audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
+          capability: 'issues.read',
+        })
+        ._unsafeUnwrap(),
     ).toMatchObject({ id: tracker.id, secret: 'issues-token' })
   })
 
@@ -64,21 +68,25 @@ describe('CredentialRegistry', () => {
     })
 
     expect(
-      registry.resolve({
-        bindingKey: 'tracker:repo:github-default',
-        service: 'github',
-        audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
-        capability: 'issues.read',
-      }),
-    ).toBeNull()
+      registry
+        .resolve({
+          bindingKey: 'tracker:repo:github-default',
+          service: 'github',
+          audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
+          capability: 'issues.read',
+        })
+        ._unsafeUnwrapErr(),
+    ).toEqual({ _tag: 'CredentialNotFound' })
     expect(
-      registry.resolve({
-        bindingKey: 'git-transport:origin',
-        service: 'github',
-        audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
-        capability: 'git.push',
-      }),
-    ).toBeNull()
+      registry
+        .resolve({
+          bindingKey: 'git-transport:origin',
+          service: 'github',
+          audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
+          capability: 'git.push',
+        })
+        ._unsafeUnwrapErr(),
+    ).toEqual({ _tag: 'CredentialNotFound' })
   })
 
   it('records a denied capability without invalidating other verified capabilities', () => {
@@ -117,12 +125,14 @@ describe('CredentialRegistry', () => {
     registry.recordCapability(credential.id, 'actions.dispatch', 'denied', 'HTTP 403')
 
     expect(
-      registry.resolve({
-        bindingKey,
-        service: 'github',
-        audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
-        capability: 'actions.dispatch',
-      }),
+      registry
+        .resolve({
+          bindingKey,
+          service: 'github',
+          audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
+          capability: 'actions.dispatch',
+        })
+        ._unsafeUnwrap(),
     ).toMatchObject({ id: credential.id, secret: 'token' })
 
     registry.recordAuthentication(credential.id, 'valid')
@@ -150,5 +160,32 @@ describe('CredentialRegistry', () => {
       bindings: ['tracker:gakko:jira-default'],
     })
     expect(registry.list()).toHaveLength(1)
+  })
+
+  it('distinguishes missing and ambiguous compatible credentials', () => {
+    const registry = new CredentialRegistry(fakePreferences())
+    const request = {
+      bindingKey: 'tracker:jira-main',
+      service: 'jira' as const,
+      audience: { host: 'itsol.atlassian.net' },
+      capability: 'issues.read' as const,
+    }
+
+    expect(registry.resolve(request)._unsafeUnwrapErr()).toEqual({ _tag: 'CredentialNotFound' })
+    for (const secret of ['first', 'second']) {
+      registry.save({
+        service: 'jira',
+        authMethod: 'api-token',
+        audience: request.audience,
+        intendedUses: ['tracker'],
+        capabilities: ['issues.read'],
+        secret,
+      })
+    }
+
+    expect(registry.resolve(request)._unsafeUnwrapErr()).toEqual({
+      _tag: 'CredentialAmbiguous',
+      candidateCount: 2,
+    })
   })
 })

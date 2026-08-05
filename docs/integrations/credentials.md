@@ -2,7 +2,8 @@
 
 > Keep local credentials scoped to the service, destination and operation they are intended for.
 
-**Status:** Stable
+**Status:** Experimental
+**Introduced:** v0.13.0
 **Platforms:** All
 
 ## Overview
@@ -17,7 +18,9 @@ SSH key for source transport while GitHub Issues and GitHub Actions use differen
 tokens. An Actions token declares `actions.read`, `contents.read` and `actions.dispatch`; it does not
 declare `git.push` and cannot become the Git transport credential.
 
-## Resolution
+## Behavior
+
+### Resolution
 
 A credential is resolved only when all of these match:
 
@@ -47,7 +50,19 @@ replace the stale result.
 - **Needs attention after 401/403:** Settings keeps the last authentication or authorization failure
   visible. Correct or replace the token; a subsequent successful request clears the stale state.
 
-## Storage and migration
+### Deletion
+
+Removing credentials first removes the selected integration binding. The encrypted secret is
+deleted only when no other tracker or CI connection still uses it; otherwise Settings reports the
+remaining bindings and keeps the shared credential available to them.
+
+## Configuration
+
+Credentials are entered from global connection settings or a repository connection dialog. There
+is no generic credential picker: when several compatible credentials exist, re-enter the intended
+token in that connection to create its explicit binding.
+
+## Security and privacy
 
 - Secrets are stored under `credential.secret.v2.<id>` and encrypted with Electron `safeStorage`
   when the OS provides it (DPAPI / Keychain / keyring). Canopy warns when it must fall back to
@@ -58,15 +73,21 @@ replace the stale result.
 - Secrets, descriptors and bindings are excluded from settings export and from renderer preference
   IPC. Integration-specific IPC exposes only the safe descriptor fields required by Settings.
 - Legacy `taskTracker.token.<provider>:<baseUrl>` entries are migrated into stable credential IDs
-  and purpose-specific bindings, then deleted.
+  and the matching configured tracker bindings. If no tracker exists yet, a temporary shared
+  migration binding is removed as soon as the sole compatible credential auto-binds to a tracker.
+  The legacy entry is deleted only after the encrypted credential and all known bindings are saved.
 - No credential data is written to `.canopy/config.json` or another repository file.
 
 ## Source files
 
-- Registry and descriptor model: `src/main/credentials/CredentialRegistry.ts`
+- Registry, descriptor model and typed errors: `src/main/credentials/CredentialRegistry.ts`,
+  `src/main/credentials/errors.ts`
 - Provider/binding facade and migration: `src/main/taskTracker/KeychainTokenStore.ts`
 - Storage and renderer boundary policy: `src/main/db/PreferencesStore.ts`,
-  `src/main/db/preferenceKeys.ts`, `src/main/ipc/handlers.ts`
+  `src/main/db/preferenceKeys.ts`, `src/main/ipc/keychainCredentials.ts`,
+  `src/main/ipc/handlers.ts`, `src/renderer-shared/credentialBindings.ts`
+- Verification metadata writers: `src/main/ci/CiManager.ts`,
+  `src/main/taskTracker/TaskTrackerManager.ts`
 - Global Settings UI: `src/renderer/src/components/preferences/ConnectionsPrefs.svelte`,
   `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte`
 - Sidebar/project UI: `src/renderer/src/components/preferences/ProjectConnections.svelte`,

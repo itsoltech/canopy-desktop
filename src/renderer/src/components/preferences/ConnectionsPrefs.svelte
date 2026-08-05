@@ -16,6 +16,7 @@
   import TrackerEditForm from './_partials/TrackerEditForm.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import { credentialStorageClause } from './_partials/credentialStorage'
+  import { trackerBindingKey } from '../../../../renderer-shared/credentialBindings'
 
   // Settings hosts only GLOBAL (personal) connections. Project trackers (.canopy/config.json) are
   // connected from the dedicated "Project tracker" modal. Credentials have stable local IDs,
@@ -153,7 +154,7 @@
           normalizedUrl,
           normalizedToken,
           editUsername || undefined,
-          `tracker:${newTrackerId ?? editingId}`,
+          trackerBindingKey(newTrackerId ?? editingId),
         )
       } catch (e) {
         addToast(e instanceof Error ? e.message : 'Failed to save credentials')
@@ -185,7 +186,7 @@
       await window.api.keychainDeleteCredentials(
         tracker.provider,
         tracker.baseUrl,
-        `tracker:${tracker.id}`,
+        trackerBindingKey(tracker.id),
       )
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
@@ -224,7 +225,7 @@
           await window.api.keychainDeleteCredentials(
             tracker.provider,
             tracker.baseUrl,
-            `tracker:${tracker.id}`,
+            trackerBindingKey(tracker.id),
           )
         } catch {
           // best-effort cleanup

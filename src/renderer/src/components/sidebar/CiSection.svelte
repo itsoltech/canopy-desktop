@@ -356,7 +356,13 @@
               size={12}
               class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
             />
-          {:else if activityPartialErrors.length === 0 || activeCount > 0}
+          {:else if activityPartialErrors.length > 0 && activeCount === 0}
+            <span
+              class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning-bg text-warning-text"
+              title={`CI activity is incomplete: ${activityPartialErrors.join(' · ')}`}
+              >Incomplete</span
+            >
+          {:else}
             <span
               class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {activeCount > 0
                 ? 'bg-accent-bg text-accent-text'

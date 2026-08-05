@@ -20,6 +20,12 @@ export type CiError =
   // fault, so it must not wear the "TeamCity:" prefix CiApiError renders with.
   | { _tag: 'CiConfigUnwritable'; reason: string }
   | { _tag: 'CiAuthMissing'; baseUrl: string; provider?: 'teamcity' | 'github-actions' }
+  | {
+      _tag: 'CiCredentialUnavailable'
+      baseUrl: string
+      reason: string
+      provider?: 'teamcity' | 'github-actions'
+    }
   | { _tag: 'CiRepositoryMismatch'; expected: string; actual: string }
   | { _tag: 'CiWorkflowSchemaInvalid'; reason: string }
   | { _tag: 'CiWorkflowSchemaChanged' }
@@ -65,6 +71,11 @@ export function ciErrorMessage(error: CiError): string {
         { _tag: 'CiAuthMissing' },
         (e) =>
           `No ${e.provider === 'github-actions' ? 'GitHub' : 'TeamCity'} token stored for ${e.baseUrl} — connect it in Settings`,
+      )
+      .with(
+        { _tag: 'CiCredentialUnavailable' },
+        (e) =>
+          `${e.provider === 'github-actions' ? 'GitHub' : 'TeamCity'} credentials unavailable for ${e.baseUrl}: ${e.reason}`,
       )
       .with(
         { _tag: 'CiRepositoryMismatch' },

@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto'
+import { err, ok, type Result } from 'neverthrow'
 import type { PreferencesStore } from '../db/PreferencesStore'
+import type { CredentialError } from './errors'
 
 const REGISTRY_KEY = 'credential.registry.v2'
 const BINDINGS_KEY = 'credential.bindings.v2'
@@ -178,13 +180,14 @@ export class CredentialRegistry {
     return descriptor
   }
 
-  bind(bindingKey: string, credentialId: string): void {
+  bind(bindingKey: string, credentialId: string): Result<void, CredentialError> {
     if (!this.list().some((record) => record.id === credentialId)) {
-      throw new Error(`Unknown credential: ${credentialId}`)
+      return err({ _tag: 'CredentialUnknown', credentialId })
     }
     const bindings = this.listBindings()
     bindings[bindingKey] = credentialId
     this.preferencesStore.set(BINDINGS_KEY, JSON.stringify(bindings))
+    return ok(undefined)
   }
 
   unbind(bindingKey: string): void {
@@ -194,7 +197,7 @@ export class CredentialRegistry {
     this.preferencesStore.set(BINDINGS_KEY, JSON.stringify(bindings))
   }
 
-  resolve(request: ResolveCredentialRequest): ResolvedCredential | null {
+  resolve(request: ResolveCredentialRequest): Result<ResolvedCredential, CredentialError> {
     const records = this.list()
     const compatible = (record: CredentialDescriptor): boolean =>
       record.service === request.service &&
@@ -209,18 +212,25 @@ export class CredentialRegistry {
     const boundId = this.listBindings()[request.bindingKey]
     if (boundId) {
       const bound = records.find((record) => record.id === boundId)
-      if (!bound || !compatible(bound)) return null
+      if (!bound) return err({ _tag: 'CredentialUnknown', credentialId: boundId })
+      if (!compatible(bound)) {
+        return err({ _tag: 'CredentialBindingIncompatible', bindingKey: request.bindingKey })
+      }
       const secret = this.preferencesStore.get(SECRET_PREFIX + bound.id)
-      return secret ? { ...bound, secret } : null
+      return secret
+        ? ok({ ...bound, secret })
+        : err({ _tag: 'CredentialSecretMissing', credentialId: bound.id })
     }
 
     const candidates = records.filter(compatible)
-    if (candidates.length !== 1) return null
+    if (candidates.length === 0) return err({ _tag: 'CredentialNotFound' })
+    if (candidates.length > 1) {
+      return err({ _tag: 'CredentialAmbiguous', candidateCount: candidates.length })
+    }
     const [candidate] = candidates
     const secret = this.preferencesStore.get(SECRET_PREFIX + candidate.id)
-    if (!secret) return null
-    this.bind(request.bindingKey, candidate.id)
-    return { ...candidate, secret }
+    if (!secret) return err({ _tag: 'CredentialSecretMissing', credentialId: candidate.id })
+    return this.bind(request.bindingKey, candidate.id).map(() => ({ ...candidate, secret }))
   }
 
   recordCapability(

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { ok, okAsync, errAsync, ResultAsync, type Result } from 'neverthrow'
+import { ok, err, okAsync, errAsync, ResultAsync, type Result } from 'neverthrow'
 import { CiManager } from './CiManager'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
@@ -68,11 +68,13 @@ function fakes(opts?: {
     ),
   } as unknown as RepoConfigManager
   const tokenStore = {
-    resolveCredentials: vi.fn(() =>
-      opts?.token === null ? null : { token: opts?.token ?? 'tok', username: undefined },
+    resolveCredentialsResult: vi.fn(() =>
+      opts?.token === null
+        ? err({ _tag: 'CredentialNotFound' as const })
+        : ok({ token: opts?.token ?? 'tok', username: undefined }),
     ),
     recordResult: vi.fn(),
-    setCredentials: vi.fn(async () => undefined),
+    setCredentials: vi.fn(() => ok({})),
   } as unknown as KeychainTokenStore
   return {
     repoConfigManager,
@@ -235,7 +237,7 @@ describe('the token gate', () => {
     const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
 
     expect(result.isErr() && result.error._tag).toBe('CiRepositoryMismatch')
-    expect(tokenStore.resolveCredentials).not.toHaveBeenCalled()
+    expect(tokenStore.resolveCredentialsResult).not.toHaveBeenCalled()
   })
 
   it('maps an authorized GitHub repository to its dedicated CI credential key', async () => {
@@ -244,7 +246,7 @@ describe('the token gate', () => {
     const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
 
     expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
-    expect(tokenStore.resolveCredentials).toHaveBeenCalledWith(
+    expect(tokenStore.resolveCredentialsResult).toHaveBeenCalledWith(
       'github-actions',
       'https://github.com/itsoltech/canopy-desktop',
       'actions.read',
@@ -478,7 +480,7 @@ describe('saveConfig', () => {
 
     expect(result.isErr() && result.error._tag).toBe('CiRepositoryMismatch')
     expect(repoConfigManager.save).not.toHaveBeenCalled()
-    expect(tokenStore.resolveCredentials).not.toHaveBeenCalled()
+    expect(tokenStore.resolveCredentialsResult).not.toHaveBeenCalled()
   })
 
   it('writes the ci block through the normal round-trip', async () => {

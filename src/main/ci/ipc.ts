@@ -10,7 +10,8 @@ import {
 import type { CiConfig, CiInputValue, CiRef, CiStatusResponse, CiTriggerRequest } from './types'
 import { ciErrorMessage } from './errors'
 import { isTeamCityLocatorSafeRef, testConnection as ciTestConnection } from './teamcity'
-import { CI_TOKEN_MAX, normalizeTeamCityToken } from './token'
+import { CREDENTIAL_TOKEN_MAX, normalizedCredentialToken } from './token'
+import { isSafeGitRefName } from '../../renderer-shared/gitRef'
 
 // The CI IPC surface, extracted so the AUTHORIZATION contract is unit-testable:
 // every repo-scoped channel resolves `payload.repoRoot` through the injected
@@ -56,31 +57,13 @@ const CI_JOB_ID_RE = /^[A-Za-z0-9._/-]{1,255}$/
 const CI_RUN_ID_RE = /^\d{1,30}$/
 const CI_SCHEMA_REVISION_RE = /^[A-Za-z0-9._:-]{1,200}$/
 
-function isValidGitRefName(name: unknown): name is string {
-  if (typeof name !== 'string' || name === '' || name.length > 255 || name !== name.trim()) {
-    return false
+function normalizeTeamCityInputToken(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length > CREDENTIAL_TOKEN_MAX) {
+    throw new Error('Invalid TeamCity token')
   }
-  if (
-    name === '@' ||
-    name.startsWith('-') ||
-    name.startsWith('/') ||
-    name.endsWith('/') ||
-    name.endsWith('.') ||
-    name.includes('//') ||
-    name.includes('..') ||
-    name.includes('@{')
-  ) {
-    return false
-  }
-  if (
-    [...name].some((char) => {
-      const code = char.charCodeAt(0)
-      return code <= 0x20 || code === 0x7f || '~^:?*[\\'.includes(char)
-    })
-  ) {
-    return false
-  }
-  return !name.split('/').some((part) => part.startsWith('.') || part.endsWith('.lock'))
+  const token = normalizedCredentialToken(raw)
+  if (!token) throw new Error('TeamCity token is required')
+  return token
 }
 
 function validateCiProperties(raw: unknown): Array<{ name: string; value: string }> | undefined {
@@ -103,7 +86,7 @@ function validateCiProperties(raw: unknown): Array<{ name: string; value: string
 function validateRef(raw: unknown): CiRef {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid CI ref')
   const { name, kind } = raw as { name?: unknown; kind?: unknown }
-  if (!isValidGitRefName(name)) throw new Error('Invalid CI ref name')
+  if (!isSafeGitRefName(name)) throw new Error('Invalid CI ref name')
   if (kind !== 'branch' && kind !== 'tag') throw new Error('Invalid CI ref kind')
   return { name, kind }
 }
@@ -174,7 +157,7 @@ export function registerCiHandlers({
     'ci:testGitHubConnection',
     async (event: CiIpcEvent, payload: { repoRoot: string; token: string }) => {
       const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
-      if (typeof payload.token !== 'string' || payload.token.length > CI_TOKEN_MAX) {
+      if (typeof payload.token !== 'string' || payload.token.length > CREDENTIAL_TOKEN_MAX) {
         throw new Error('Invalid GitHub token')
       }
       const token = payload.token.trim()
@@ -190,7 +173,7 @@ export function registerCiHandlers({
     'ci:setGitHubCredential',
     async (event: CiIpcEvent, payload: { repoRoot: string; token: string }) => {
       const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
-      if (typeof payload.token !== 'string' || payload.token.length > CI_TOKEN_MAX) {
+      if (typeof payload.token !== 'string' || payload.token.length > CREDENTIAL_TOKEN_MAX) {
         throw new Error('Invalid GitHub token')
       }
       const token = payload.token.trim()
@@ -320,7 +303,7 @@ export function registerCiHandlers({
       // ci:status in that state, so this call treats every load failure alike.
       const config = await ciManager.loadConfig(repoRoot).unwrapOr(null)
       if (!config) return { configured: false, rows: [] } satisfies CiStatusResponse
-      if (!isValidGitRefName(payload.branch)) {
+      if (!isSafeGitRefName(payload.branch)) {
         return {
           configured: true,
           baseUrl: config.baseUrl,
@@ -375,7 +358,7 @@ export function registerCiHandlers({
       ) {
         throw new Error('Invalid build type id')
       }
-      if (!isValidGitRefName(payload.branch)) {
+      if (!isSafeGitRefName(payload.branch)) {
         throw new Error('Invalid branch name')
       }
       const properties = validateCiProperties(payload.properties)
@@ -542,7 +525,7 @@ export function registerCiHandlers({
       if (!['http:', 'https:'].includes(parsed.protocol)) {
         throw new Error('Base URL must use http:// or https://')
       }
-      const token = normalizeTeamCityToken(payload.token)
+      const token = normalizeTeamCityInputToken(payload.token)
       const result = await ciTestConnection(payload.baseUrl.replace(/\/$/, ''), token)
       return unwrapOrThrow(result, ciErrorMessage)
     },

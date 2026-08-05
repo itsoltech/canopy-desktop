@@ -1,5 +1,6 @@
 import { normalizeCredentialToken } from '../ci/token'
 import type { TrackerConfig } from '../taskTracker/types'
+import { parseTrackerBindingKey } from '../../renderer-shared/credentialBindings'
 
 export interface KeychainBindingPayload {
   provider: string
@@ -33,7 +34,8 @@ export function authorizeKeychainBindingForConfig(
 ): void {
   validateKeychainBinding(provider, bindingKey)
   if (!bindingKey) return
-  const trackerId = bindingKey.slice('tracker:'.length)
+  const trackerId = parseTrackerBindingKey(bindingKey)
+  if (!trackerId) throw new Error('Invalid credential binding')
   const tracker = trackers.find((candidate) => candidate.id === trackerId)
   if (
     !tracker ||
@@ -46,10 +48,7 @@ export function authorizeKeychainBindingForConfig(
 
 export function validateKeychainBinding(provider: string, bindingKey?: string): void {
   if (bindingKey === undefined) return
-  if (
-    !['jira', 'youtrack', 'github'].includes(provider) ||
-    !/^tracker:[^\r\n]{1,256}$/.test(bindingKey)
-  ) {
+  if (!['jira', 'youtrack', 'github'].includes(provider) || !parseTrackerBindingKey(bindingKey)) {
     throw new Error('Credential binding does not match the provider purpose')
   }
 }
