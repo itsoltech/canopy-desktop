@@ -113,20 +113,21 @@ workflows.
 
 ## Error states
 
-| `CiError` variant         | Behavior                                                                   |
-| ------------------------- | -------------------------------------------------------------------------- |
-| `CiNotConfigured`         | Offer CI setup instead of making an API call.                              |
-| `CiConfigInvalid`         | Keep the invalid file/block reason visible so it can be corrected.         |
-| `CiConfigUnwritable`      | Preserve the configuration and report the local update failure.            |
-| `CiAuthMissing`           | Open the repository CI/CD configurator; no authenticated API call is made. |
-| `CiRepositoryMismatch`    | Reject before token access or network use.                                 |
-| `CiWorkflowSchemaInvalid` | Block discovery or dispatch and show the schema reason.                    |
-| `CiWorkflowSchemaChanged` | Reload the inputs and require the user to review them again.               |
-| `CiRefChanged`            | Require a fresh confirmation for the ref's new commit.                     |
-| `CiDispatchCancelled`     | Keep the run form open; nothing was dispatched.                            |
-| `CiDispatchAmbiguous`     | Do not retry; instruct the user to check repository Actions history.       |
-| `CiRateLimited`           | Pause background work until the reported reset time.                       |
-| `CiApiError`              | Show the sanitized GitHub status and message.                              |
+| `CiError` variant         | Behavior                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `CiNotConfigured`         | Offer CI setup instead of making an API call.                                                                                  |
+| `CiConfigInvalid`         | Keep the invalid file/block reason visible so it can be corrected.                                                             |
+| `CiConfigUnwritable`      | Preserve the configuration and report the local update failure.                                                                |
+| `CiAuthMissing`           | Open the repository CI/CD configurator; no authenticated API call is made.                                                     |
+| `CiCredentialUnavailable` | Explain that a stored credential is ambiguous, incompatible, or missing its secret and must be re-entered for this connection. |
+| `CiRepositoryMismatch`    | Reject before token access or network use.                                                                                     |
+| `CiWorkflowSchemaInvalid` | Block discovery or dispatch and show the schema reason.                                                                        |
+| `CiWorkflowSchemaChanged` | Reload the inputs and require the user to review them again.                                                                   |
+| `CiRefChanged`            | Require a fresh confirmation for the ref's new commit.                                                                         |
+| `CiDispatchCancelled`     | Keep the run form open; nothing was dispatched.                                                                                |
+| `CiDispatchAmbiguous`     | Do not retry; instruct the user to check repository Actions history.                                                           |
+| `CiRateLimited`           | Pause background work until the reported reset time.                                                                           |
+| `CiApiError`              | Show the sanitized GitHub status and message.                                                                                  |
 
 An unknown GitHub run state is displayed as **Unknown** rather than inferred as success or
 failure.

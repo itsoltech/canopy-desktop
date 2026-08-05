@@ -4518,12 +4518,23 @@ export function registerIpcHandlers(
   // the details modal: large review histories made repeated startup queries costly.
   ipcMain.handle(
     'taskTracker:prSummary',
-    async (event, payload: { repoRoot: string; branch: string }) => {
+    async (event, payload: { repoRoot: string; branch: string; forceRemoteProbe?: boolean }) => {
       if (!isSafeGitRefName(payload.branch)) return null
+      if (payload.forceRemoteProbe !== undefined && typeof payload.forceRemoteProbe !== 'boolean') {
+        return null
+      }
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       // The gh CLI fallback is optional. Repositories without a GitHub origin keep the normal
       // Create PR affordance rather than showing a retryable auth/network error for every branch.
-      if (!(await hasSupportedGitHubRemote(resolvedRepo))) return null
+      if (
+        !(await hasSupportedGitHubRemote(
+          resolvedRepo,
+          undefined,
+          payload.forceRemoteProbe === true,
+        ))
+      ) {
+        return null
+      }
       const result = await loadPullRequestSummary(resolvedRepo, payload.branch)
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },

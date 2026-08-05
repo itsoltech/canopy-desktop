@@ -1264,6 +1264,7 @@ interface CanopyAPI {
   taskTrackerPRSummary: (
     repoRoot: string,
     branch: string,
+    forceRemoteProbe?: boolean,
   ) => Promise<{ number: number; state: string; isDraft: boolean } | null>
 
   taskTrackerPRDetails: (

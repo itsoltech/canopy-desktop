@@ -2,6 +2,7 @@ import { GitRepository } from '../git/GitRepository'
 import { parseGitHubRemote } from './remoteUrl'
 
 export const SUPPORTED_GITHUB_REMOTE_TTL_MS = 30_000
+const SUPPORTED_REMOTE_CACHE_MAX = 100
 
 type SupportedRemoteProbe = (repoRoot: string) => Promise<boolean>
 
@@ -28,11 +29,21 @@ const probeSupportedGitHubRemote: SupportedRemoteProbe = async (repoRoot) => {
 export function hasSupportedGitHubRemote(
   repoRoot: string,
   probe: SupportedRemoteProbe = probeSupportedGitHubRemote,
+  force = false,
 ): Promise<boolean> {
   const key = cacheKey(repoRoot)
   const now = Date.now()
+  if (force) supportedRemoteCache.delete(key)
   const existing = supportedRemoteCache.get(key)
   if (existing && existing.expiresAt > now) return existing.request
+
+  for (const [cachedKey, entry] of supportedRemoteCache) {
+    if (entry.expiresAt <= now) supportedRemoteCache.delete(cachedKey)
+  }
+  if (supportedRemoteCache.size >= SUPPORTED_REMOTE_CACHE_MAX) {
+    const oldestKey = supportedRemoteCache.keys().next().value
+    if (oldestKey !== undefined) supportedRemoteCache.delete(oldestKey)
+  }
 
   const request = Promise.resolve().then(() => probe(repoRoot))
   const entry = { request, expiresAt: Number.POSITIVE_INFINITY }

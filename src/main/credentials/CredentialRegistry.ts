@@ -259,6 +259,37 @@ export class CredentialRegistry {
     this.preferencesStore.set(REGISTRY_KEY, JSON.stringify(next))
   }
 
+  recordSuccess(credentialId: string, capability: CredentialCapability): void {
+    const records = this.list()
+    const current = records.find((record) => record.id === credentialId)
+    if (!current) return
+    if (
+      current.authenticationState === 'valid' &&
+      current.verification[capability]?.state === 'verified'
+    ) {
+      return
+    }
+    const now = new Date().toISOString()
+    this.preferencesStore.set(
+      REGISTRY_KEY,
+      JSON.stringify(
+        records.map((record): CredentialDescriptor =>
+          record.id === credentialId
+            ? {
+                ...record,
+                updatedAt: now,
+                authenticationState: 'valid',
+                verification: {
+                  ...record.verification,
+                  [capability]: { state: 'verified', checkedAt: now },
+                },
+              }
+            : record,
+        ),
+      ),
+    )
+  }
+
   recordAuthentication(credentialId: string, state: 'valid' | 'invalid'): void {
     const now = new Date().toISOString()
     this.preferencesStore.set(

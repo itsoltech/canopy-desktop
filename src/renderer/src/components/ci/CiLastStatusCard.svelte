@@ -44,7 +44,7 @@
       >
       {#if row.webUrl}
         <span
-          class="col-start-1 row-start-1 flex items-center justify-end text-text-muted opacity-0 transition-opacity duration-fast group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+          class="col-start-1 row-start-1 flex items-center justify-end text-text-muted opacity-0 pointer-events-none transition-opacity duration-fast group-hover/card:opacity-100 group-focus-within/card:opacity-100"
           aria-hidden="true"
         >
           <ExternalLink size={11} />

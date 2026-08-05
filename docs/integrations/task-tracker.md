@@ -321,6 +321,7 @@ and `Attachment not found on this task`.
 | -------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |
 | `ConnectionNotFound`       | "Connection not found: {id}"                     | Deleted or invalid connection ID referenced                               |
 | `AuthTokenMissing`         | "No auth token for {name}"                       | No credentials stored for this tracker's provider/URL pair                |
+| `CredentialUnavailable`    | "Credentials unavailable for {name}: {reason}"   | Stored credentials are ambiguous, incompatibly bound, or missing a secret |
 | `ProviderApiError`         | "{provider} API error {status}: {message}"       | HTTP error from the provider API (auth failure, rate limit, server error) |
 | `AttachmentDownloadFailed` | "Failed to download {filename}: {reason}"        | Download timeout, file too large (>50 MB), URL mismatch, or network error |
 | `ConfigNotFound`           | "Config not found at {root}/.canopy/config.json" | Repo config file does not exist                                           |

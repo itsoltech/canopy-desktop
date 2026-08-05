@@ -46,6 +46,16 @@ import { githubActionsCredentialBaseUrl } from '../../renderer-shared/credential
 
 type RemoteUrlResolver = (repoRoot: string) => ResultAsync<string, unknown>
 type GitHubClientFactory = (owner: string, repository: string, token: string) => GitHubActionsClient
+type DegradedCredentialResult = string[] | undefined
+
+function credentialFailureStatus(reasons: string[]): 401 | 403 | undefined {
+  for (const reason of reasons) {
+    const match = reason.match(/(?:API error|HTTP)\s+(401|403)\b/i)
+    if (match?.[1] === '401') return 401
+    if (match?.[1] === '403') return 403
+  }
+  return undefined
+}
 
 export interface CiDispatchConfirmation {
   repository: string
@@ -128,12 +138,19 @@ export class CiManager {
     baseUrl: string,
     capability: CredentialCapability,
     result: ResultAsync<T, CiError>,
+    degraded?: (value: T) => DegradedCredentialResult,
   ): ResultAsync<T, CiError> {
     const record = (status: number, reason?: string): void =>
       this.tokenStore.recordResult(provider, baseUrl, capability, status, reason)
     return result
       .map((value) => {
-        record(200)
+        const degradedReasons = degraded?.(value)
+        if (degradedReasons === undefined) {
+          record(200)
+        } else {
+          const status = credentialFailureStatus(degradedReasons)
+          if (status) record(status, degradedReasons.join(' · '))
+        }
         return value
       })
       .mapErr((error) => {
@@ -608,6 +625,10 @@ export class CiManager {
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.status(ref),
+        (rows) =>
+          rows.length > 0 && rows.every((row) => row.error)
+            ? rows.flatMap((row) => (row.error ? [row.error] : []))
+            : undefined,
       ),
     )
   }
@@ -657,6 +678,7 @@ export class CiManager {
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.activity(),
+        (activity) => activity.partialErrors,
       ),
     )
   }

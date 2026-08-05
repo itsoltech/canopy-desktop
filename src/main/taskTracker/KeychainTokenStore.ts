@@ -311,8 +311,7 @@ export class KeychainTokenStore {
       return
     }
     if (status >= 200 && status < 400) {
-      this.registry.recordAuthentication(credentialId, 'valid')
-      this.registry.recordCapability(credentialId, capability, 'verified')
+      this.registry.recordSuccess(credentialId, capability)
     }
   }
 

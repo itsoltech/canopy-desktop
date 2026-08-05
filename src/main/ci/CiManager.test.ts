@@ -400,6 +400,38 @@ describe('GitHub dispatch confirmation', () => {
 })
 
 describe('statusFor', () => {
+  it('records an all-row 401 as an authentication failure instead of a verified success', async () => {
+    const ci = {
+      ...VALID_CI,
+      buildTypes: [
+        { id: 'First_Job', label: 'First' },
+        { id: 'Second_Job', label: 'Second' },
+      ],
+    }
+    const { manager, tokenStore } = fakes({ ci })
+    vi.mocked(fetchBuildForBranch)
+      .mockImplementationOnce(() =>
+        errAsync({ _tag: 'CiApiError' as const, status: 401, message: 'Unauthorized' }),
+      )
+      .mockImplementationOnce(() =>
+        errAsync({ _tag: 'CiApiError' as const, status: 401, message: 'Unauthorized' }),
+      )
+
+    const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
+
+    expect(result.isOk() && result.value.every((row) => row.error?.includes('401'))).toBe(true)
+    expect(tokenStore.recordResult).toHaveBeenCalledWith(
+      'teamcity',
+      'https://tc.example.com',
+      'builds.read',
+      401,
+      expect.stringContaining('401'),
+    )
+    expect(vi.mocked(tokenStore.recordResult).mock.calls.some((call) => call[3] === 200)).toBe(
+      false,
+    )
+  })
+
   it('rejects locator-unsafe branches before calling TeamCity', async () => {
     const { manager } = fakes({ ci: VALID_CI })
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()

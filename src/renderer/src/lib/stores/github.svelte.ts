@@ -15,6 +15,10 @@ interface PRFallbackCacheEntry {
 }
 // eslint-disable-next-line svelte/prefer-svelte-reactivity
 const fallbackSummaryRequests = new Map<string, PRFallbackCacheEntry>()
+// Invalidating the renderer cache also forces the next main-process origin probe. This makes the
+// visible Retry action recover immediately after an origin is added or changed.
+// eslint-disable-next-line svelte/prefer-svelte-reactivity
+const forceRemoteProbeKeys = new Set<string>()
 
 const DEBOUNCE_MS = 30_000
 export const PR_FALLBACK_TTL_MS = 30_000
@@ -53,6 +57,7 @@ export function invalidatePRFallback(repoRoot: string, branch: string): void {
     if (requestKey.startsWith(`${key}::`)) fallbackSummaryRequests.delete(requestKey)
   }
   fallbackGenerationByKey[key] = (fallbackGenerationByKey[key] ?? 0) + 1
+  forceRemoteProbeKeys.add(key)
 }
 
 export function loadPRFallbackSummary(
@@ -65,7 +70,8 @@ export function loadPRFallbackSummary(
   if (existing && existing.expiresAt > Date.now()) return existing.request
   if (existing) fallbackSummaryRequests.delete(requestKey)
 
-  const request = window.api.taskTrackerPRSummary(repoRoot, branch)
+  const forceRemoteProbe = forceRemoteProbeKeys.delete(prKey(repoRoot, branch))
+  const request = window.api.taskTrackerPRSummary(repoRoot, branch, forceRemoteProbe)
   const entry: PRFallbackCacheEntry = { request, expiresAt: Number.POSITIVE_INFINITY }
   fallbackSummaryRequests.set(requestKey, entry)
   void request.then(
@@ -123,6 +129,7 @@ export function resetGitHubState(): void {
   repoInfo = null
   fallbackGenerationByKey = {}
   fallbackSummaryRequests.clear()
+  forceRemoteProbeKeys.clear()
   for (const key of Object.keys(lastFetchByRepo)) delete lastFetchByRepo[key]
 }
 

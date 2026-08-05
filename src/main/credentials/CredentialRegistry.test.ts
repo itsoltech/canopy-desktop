@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import { CredentialRegistry } from './CredentialRegistry'
 
@@ -187,5 +187,27 @@ describe('CredentialRegistry', () => {
       _tag: 'CredentialAmbiguous',
       candidateCount: 2,
     })
+  })
+
+  it('records a verified success in one write and skips unchanged poll results', () => {
+    const preferences = fakePreferences()
+    const set = vi.spyOn(preferences, 'set')
+    const registry = new CredentialRegistry(preferences)
+    const credential = registry.save({
+      service: 'teamcity',
+      authMethod: 'access-token',
+      audience: { host: 'tc.example.com' },
+      intendedUses: ['teamcity'],
+      capabilities: ['builds.read'],
+      secret: 'token',
+    })
+    set.mockClear()
+
+    registry.recordSuccess(credential.id, 'builds.read')
+    expect(set).toHaveBeenCalledTimes(1)
+    set.mockClear()
+
+    registry.recordSuccess(credential.id, 'builds.read')
+    expect(set).not.toHaveBeenCalled()
   })
 })

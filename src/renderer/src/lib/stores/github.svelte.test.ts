@@ -64,6 +64,7 @@ describe('GitHub PR fallback refresh', () => {
 
     expect(refreshed).not.toBe(a)
     expect(api.taskTrackerPRSummary).toHaveBeenCalledTimes(2)
+    expect(api.taskTrackerPRSummary).toHaveBeenLastCalledWith('C:/repo', 'feature/large-pr', true)
 
     first.resolve({ number: 344, state: 'OPEN', isDraft: false })
     second.resolve({ number: 344, state: 'MERGED', isDraft: false })
