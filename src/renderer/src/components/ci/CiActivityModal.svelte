@@ -193,6 +193,9 @@
 
     <div class="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-1">
       <div role="status" class:sr-only={!activity?.partialErrors?.length}>
+        {#if activity?.partialErrors?.length}<span
+            >Partial history — some jobs could not be loaded</span
+          >{/if}
         {#if activity?.partialErrors?.length}
           <p
             class="mx-3 mt-0 mb-2 px-2.5 py-2 rounded-md bg-warning-bg text-xs text-warning-text break-words"
@@ -207,9 +210,12 @@
           <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
           Loading activity…
         </div>
-      {:else if error}
+      {:else if error && !activity}
         <p class="px-3 py-2 m-0 text-sm text-danger-text" title={error}>{error}</p>
       {:else if activity}
+        {#if error}<p class="px-3 py-2 m-0 text-sm text-warning-text" title={error}>
+            Could not refresh; showing the last loaded history. {error}
+          </p>{/if}
         <span
           class="px-3 pt-1 pb-0.5 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
           >Running & queued</span

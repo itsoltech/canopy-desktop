@@ -132,9 +132,7 @@ export class TeamCityAdapter implements CiProviderAdapter {
             })
           }),
       ),
-    ).map((rows) =>
-      rows.length > 0 && rows.every((row) => row.error) ? withCiDegradedCauses(rows, causes) : rows,
-    )
+    ).map((rows) => (causes.length > 0 ? withCiDegradedCauses(rows, causes) : rows))
   }
 
   refs(jobId: string): ResultAsync<CiRef[], CiError> {

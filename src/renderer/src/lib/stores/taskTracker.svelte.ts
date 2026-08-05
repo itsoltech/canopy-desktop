@@ -34,6 +34,7 @@ export interface TrackerCredentialState {
   capabilities?: string[]
   verification?: Record<string, { state: string; checkedAt: string; reason?: string }>
   bindings?: string[]
+  authenticationState?: 'valid' | 'invalid' | 'unknown'
   /** false = the stored token was rejected by the tracker (expired/revoked); true = verified
    *  against the tracker API; undefined = not verified (e.g. offline or check still running). */
   valid?: boolean
@@ -133,7 +134,9 @@ async function computeCredentials(
                 capabilities: info?.capabilities,
                 verification: info?.verification,
                 bindings: info?.bindings,
-                valid: trackerCredentials[t.id]?.valid,
+                authenticationState: info?.authenticationState,
+                valid:
+                  info?.authenticationState === 'invalid' ? false : trackerCredentials[t.id]?.valid,
               },
             ] as const
           }

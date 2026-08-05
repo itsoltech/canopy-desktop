@@ -159,6 +159,9 @@
     </header>
     <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
       <div role="status" class:sr-only={!activity?.partialErrors?.length}>
+        {#if activity?.partialErrors?.length}<span
+            >Partial history — some jobs could not be loaded</span
+          >{/if}
         {#if activity?.partialErrors?.length}
           <div
             class="p-2 rounded-md bg-warning-bg text-xs text-warning-text break-words"

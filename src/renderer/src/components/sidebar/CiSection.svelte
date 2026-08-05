@@ -68,7 +68,6 @@
   let activity = $state<CiActivity | CiRunActivity | null>(null)
   let activityError = $state('')
   let activityLoaded = $state(false)
-  let partialSignature = $state('')
   let identicalPartialCount = $state(0)
   let activitySeq = 0
 
@@ -82,16 +81,11 @@
       if (seq !== activitySeq) return
       activity = result
       activityError = ''
-      const nextPartialSignature =
-        'partialErrors' in result ? (result.partialErrors ?? []).slice().sort().join('\n') : ''
-      if (!nextPartialSignature) {
-        partialSignature = ''
+      const hasPartial = 'partialErrors' in result && (result.partialErrors?.length ?? 0) > 0
+      if (!hasPartial) {
         identicalPartialCount = 0
-      } else if (nextPartialSignature === partialSignature) {
-        identicalPartialCount += 1
       } else {
-        partialSignature = nextPartialSignature
-        identicalPartialCount = 1
+        identicalPartialCount += 1
       }
     } catch (e) {
       if (seq !== activitySeq) return
@@ -150,7 +144,6 @@
     activity = null
     activityLoaded = false
     activityError = ''
-    partialSignature = ''
     identicalPartialCount = 0
   })
 

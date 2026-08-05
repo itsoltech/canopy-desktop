@@ -256,6 +256,12 @@
 
     {#each trackers as tracker (tracker.id)}
       {@const creds = trackerCreds[tracker.id]}
+      {@const credentialIssue =
+        creds?.authenticationState === 'invalid'
+          ? 'The stored token was rejected by the tracker'
+          : Object.values(creds?.verification ?? {}).some((entry) => entry.state === 'denied')
+            ? 'The stored token lacks a required permission'
+            : ''}
       {#if editingId === tracker.id}
         <TrackerEditForm
           bind:provider={editProvider}
@@ -295,11 +301,11 @@
               title={`Capabilities: ${(creds?.capabilities ?? ['issues.read', 'issues.write']).map((capability) => `${capability} (${creds?.verification?.[capability]?.state ?? 'unverified'})`).join(', ')}. Bindings: ${creds?.bindings?.join(', ') || 'this tracker'}`}
               >Tracker · issues read/write</span
             >
-            {#if creds?.hasToken && creds.valid === false}
+            {#if creds?.hasToken && (creds.valid === false || credentialIssue)}
               <span
                 class="text-2xs text-warning-text shrink-0"
-                title="The stored token was rejected by the tracker — it may have expired or been revoked"
-                >Credentials expired</span
+                title={credentialIssue || 'The stored token was rejected by the tracker'}
+                >Needs attention</span
               >
             {:else if creds?.hasToken}
               <span

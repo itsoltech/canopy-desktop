@@ -40,7 +40,9 @@
           : ''}"
         datetime={new Date(row.timestamp).toISOString()}
         title={`${row.timestampLabel ?? 'Updated'} ${formatDateTime(row.timestamp)}`}
-        >{formatDateTime(row.timestamp)}</time
+        ><span class="sr-only">{row.timestampLabel ?? 'Updated'} </span>{formatDateTime(
+          row.timestamp,
+        )}</time
       >
       {#if row.webUrl}
         <span
@@ -108,7 +110,7 @@
   {@const row = rows[0]}
   <button
     type="button"
-    class="group/card mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1 bg-transparent text-left font-inherit cursor-pointer aria-disabled:cursor-default"
+    class="group/card mx-2 my-1 px-2.5 py-1.5 rounded-lg border border-accent-muted flex flex-col gap-1 bg-transparent text-left font-inherit cursor-pointer hover:bg-hover aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:opacity-60"
     aria-disabled={!row.webUrl}
     onclick={() => row.webUrl && window.api.openExternal(row.webUrl)}
     title={row.webUrl
@@ -131,7 +133,7 @@
     {#each rows as row (row.id)}
       <button
         type="button"
-        class="group/card flex flex-col gap-1 w-full border-0 bg-transparent p-0 text-sm text-text font-inherit text-left cursor-pointer aria-disabled:cursor-default"
+        class="group/card flex flex-col gap-1 w-full border-0 bg-transparent p-0 text-sm text-text font-inherit text-left cursor-pointer hover:bg-hover aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:opacity-60"
         aria-disabled={!row.webUrl}
         onclick={() => row.webUrl && window.api.openExternal(row.webUrl)}
         title={row.webUrl

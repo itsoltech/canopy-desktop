@@ -277,11 +277,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
                 },
           )
         }
-        return ok(
-          causes.length > 0 && rows.length > 0 && rows.every((row) => row.error)
-            ? withCiDegradedCauses(rows, causes)
-            : rows,
-        )
+        return ok(causes.length > 0 ? withCiDegradedCauses(rows, causes) : rows)
       })(),
     )
   }

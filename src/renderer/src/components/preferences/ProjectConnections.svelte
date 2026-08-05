@@ -277,6 +277,12 @@
 
     {#each trackers as tracker (tracker.id)}
       {@const creds = trackerCreds[tracker.id]}
+      {@const credentialIssue =
+        creds?.authenticationState === 'invalid'
+          ? 'The stored token was rejected by the tracker'
+          : Object.values(creds?.verification ?? {}).some((entry) => entry.state === 'denied')
+            ? 'The stored token lacks a required permission'
+            : ''}
       <div class="flex items-center gap-1">
         <div
           class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm min-w-0"
@@ -299,11 +305,11 @@
               {tracker.projects.length === 1 ? 'project' : 'projects'}</span
             >
           {/if}
-          {#if creds?.hasToken && creds.valid === false}
+          {#if creds?.hasToken && (creds.valid === false || credentialIssue)}
             <span
               class="text-2xs text-warning-text shrink-0"
-              title="The stored token was rejected by the tracker — it may have expired or been revoked"
-              >Credentials expired</span
+              title={credentialIssue || 'The stored token was rejected by the tracker'}
+              >Needs attention</span
             >
           {:else if creds?.hasToken}
             <span
@@ -320,7 +326,7 @@
           {/if}
         </div>
         {#if creds?.hasToken}
-          {#if creds.valid === false}
+          {#if creds.valid === false || credentialIssue}
             <button
               type="button"
               class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-accent-bg border-0 text-accent-text text-xs font-inherit cursor-pointer hover:bg-accent-bg-hover"
