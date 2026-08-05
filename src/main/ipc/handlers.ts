@@ -3227,28 +3227,34 @@ export function registerIpcHandlers(
     )
   }
 
-  /** Tracker bindings are machine-global; prune only against every currently live config view. */
-  async function liveTrackerBindingKeys(): Promise<Set<string>> {
+  /** Tracker bindings are machine-global; prune only against persisted workspace configs too. */
+  async function liveTrackerBindingKeys(): Promise<Set<string> | undefined> {
     const keys = new Set<string>()
     const add = (trackers: RepoConfig['trackers']): void => {
       for (const tracker of trackers) keys.add(trackerBindingKey(tracker.id))
     }
     add(globalConfigManager.load()?.trackers ?? [])
-    const paths = new Set(
+    const paths = new Set(workspaceStore.list(100).map((workspace) => workspace.path))
+    for (const path of new Set(
       windowManager
         .getAllWindowConfigs()
         .flatMap((config) => [
           ...config.paths,
           ...(config.activeWorktreePath ? [config.activeWorktreePath] : []),
         ]),
-    )
+    ))
+      paths.add(path)
+    let unknownConfig = false
     await Promise.all(
       [...paths].map(async (repoRoot) => {
         const result = await repoConfigManager.load(repoRoot)
         if (result.isOk()) add(result.value.trackers)
+        else unknownConfig = true
       }),
     )
-    return keys
+    // A parse/read failure must fail open: pruning with an incomplete set could delete
+    // a credential still used by the unreadable repository.
+    return unknownConfig ? undefined : keys
   }
 
   async function resolveTaskTrackerBranchName(
