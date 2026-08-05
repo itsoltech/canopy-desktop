@@ -18,6 +18,29 @@ describe('normalizeKeychainCredentialPayload', () => {
     })
   })
 
+  it.each(['jira', 'youtrack', 'github'])('normalizes %s tokens before persistence', (provider) => {
+    expect(
+      normalizeKeychainCredentialPayload({
+        provider,
+        baseUrl: 'https://service.example.com',
+        token: '  token\r\n',
+      }).token,
+    ).toBe('token')
+  })
+
+  it.each(['', ' \r\n\t'])(
+    'rejects an empty or whitespace-only token before persistence',
+    (token) => {
+      expect(() =>
+        normalizeKeychainCredentialPayload({
+          provider: 'jira',
+          baseUrl: 'https://jira.example.com',
+          token,
+        }),
+      ).toThrow('Credential token is required')
+    },
+  )
+
   it.each([[['teamcity']], [new String('teamcity')]])(
     'rejects a non-primitive provider before it can bypass TeamCity normalization',
     (provider) => {

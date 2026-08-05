@@ -5,9 +5,23 @@ import type { TrackerTask, PRTemplateConfig, PRTargetRule } from './types'
 import type { TaskTrackerError } from './errors'
 import { renderPRTitle, renderPRBody, resolveTargetBranch } from './prTemplate'
 import { GitRepository } from '../git/GitRepository'
-import { fromExternalCall, errorMessage } from '../errors'
+import { fromExternalCall } from '../errors'
+import { gitHubCliFailureReason } from '../github/redactFailureReason'
 
 const execFileAsync = promisify(execFile)
+export const PR_COMMAND_TIMEOUT_MS = 30_000
+
+interface PRCommandOptions {
+  cwd: string
+  timeout: number
+  windowsHide: true
+}
+
+const commandOptions = (repoRoot: string): PRCommandOptions => ({
+  cwd: repoRoot,
+  timeout: PR_COMMAND_TIMEOUT_MS,
+  windowsHide: true,
+})
 
 export interface CreatePRParams {
   repoRoot: string
@@ -58,6 +72,10 @@ export interface CreatePRResult {
 
 function prErr(reason: string): TaskTrackerError {
   return { _tag: 'PRCreationFailed', reason }
+}
+
+export function prCliFailure(error: unknown): TaskTrackerError {
+  return prErr(gitHubCliFailureReason(error, PR_COMMAND_TIMEOUT_MS))
 }
 
 function detectGhCli(): ResultAsync<true, TaskTrackerError> {
@@ -162,8 +180,9 @@ export function createPullRequest(
         for (const reviewer of reviewers) {
           args.push('--reviewer', reviewer.trim())
         }
-        return fromExternalCall(execFileAsync('gh', args, { cwd: repoRoot }), (e) =>
-          prErr(errorMessage(e)),
+        return fromExternalCall(
+          execFileAsync('gh', args, commandOptions(repoRoot)),
+          prCliFailure,
         ).map((result): CreatePRResult => ({
           url: result.stdout.trim(),
           title,
@@ -192,9 +211,9 @@ export function mergePullRequest(
   if (!MERGE_STRATEGIES.includes(strategy)) return errAsync(prErr('Invalid merge strategy'))
   const args = ['pr', 'merge', String(prNumber), `--${strategy}`]
   if (deleteBranch) args.push('--delete-branch')
-  return fromExternalCall(execFileAsync('gh', args, { cwd: repoRoot }), (e) =>
-    prErr(errorMessage(e)),
-  ).map(() => undefined)
+  return fromExternalCall(execFileAsync('gh', args, commandOptions(repoRoot)), prCliFailure).map(
+    () => undefined,
+  )
 }
 
 /** Close an open PR without merging. */
@@ -206,9 +225,9 @@ export function closePullRequest(
   if (!validPRNumber(prNumber)) return errAsync(prErr('Invalid PR number'))
   const args = ['pr', 'close', String(prNumber)]
   if (deleteBranch) args.push('--delete-branch')
-  return fromExternalCall(execFileAsync('gh', args, { cwd: repoRoot }), (e) =>
-    prErr(errorMessage(e)),
-  ).map(() => undefined)
+  return fromExternalCall(execFileAsync('gh', args, commandOptions(repoRoot)), prCliFailure).map(
+    () => undefined,
+  )
 }
 
 /**
@@ -243,10 +262,10 @@ export function remoteBranchExists(
   }
   return fromExternalCall(
     execFileAsync('gh', ['api', `repos/{owner}/{repo}/branches/${branch.trim()}`], {
-      cwd: repoRoot,
+      ...commandOptions(repoRoot),
       maxBuffer: 1024 * 1024,
     }),
-    (e) => prErr(errorMessage(e)),
+    prCliFailure,
   )
     .map(() => true)
     .orElse((e) => okAsync(!/HTTP 404|Not Found/i.test('reason' in e ? String(e.reason) : '')))
@@ -264,9 +283,9 @@ export function deleteRemoteBranch(
     execFileAsync(
       'gh',
       ['api', '-X', 'DELETE', `repos/{owner}/{repo}/git/refs/heads/${branch.trim()}`],
-      { cwd: repoRoot },
+      commandOptions(repoRoot),
     ),
-    (e) => prErr(errorMessage(e)),
+    prCliFailure,
   ).map(() => undefined)
 }
 

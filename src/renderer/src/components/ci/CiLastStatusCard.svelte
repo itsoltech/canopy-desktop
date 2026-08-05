@@ -34,7 +34,9 @@
     <!-- Grid overlap keeps the top line stable: hover/focus replaces the date with the link icon. -->
     <span class="grid shrink-0 items-center justify-items-end">
       <time
-        class="col-start-1 row-start-1 text-2xs text-text-faint text-right transition-opacity duration-fast group-hover/card:opacity-0 group-focus-within/card:opacity-0"
+        class="col-start-1 row-start-1 text-2xs text-text-faint text-right transition-opacity duration-fast {row.webUrl
+          ? 'group-hover/card:opacity-0 group-focus-within/card:opacity-0'
+          : ''}"
         datetime={new Date(row.timestamp).toISOString()}
         title={`Executed ${formatDateTime(row.timestamp)}`}>{formatDateTime(row.timestamp)}</time
       >
@@ -69,7 +71,9 @@
 
 {#snippet statusLine(row: LastStatusRow)}
   <span class="flex items-center gap-2 w-full min-w-0">
-    <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted">{branch}</span>
+    <span class="flex-1 min-w-0 truncate font-mono text-xs text-text-muted" title={branch}
+      >{branch}</span
+    >
     {#if row.number}
       <span
         class="font-mono text-2xs text-text-secondary flex-shrink-0 underline-offset-2 group-hover/card:text-accent-text group-focus-within/card:text-accent-text group-hover/card:underline group-focus-within/card:underline"

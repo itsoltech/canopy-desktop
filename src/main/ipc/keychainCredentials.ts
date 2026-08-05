@@ -1,4 +1,4 @@
-import { normalizeTeamCityToken } from '../ci/token'
+import { normalizeCredentialToken } from '../ci/token'
 
 export interface KeychainCredentialPayload {
   provider: string
@@ -35,7 +35,7 @@ export function normalizeKeychainCredentialPayload(raw: unknown): KeychainCreden
   return {
     provider,
     baseUrl,
-    token: provider === 'teamcity' ? normalizeTeamCityToken(token) : token,
+    token: normalizeCredentialToken(token),
     username,
     bindingKey,
   }

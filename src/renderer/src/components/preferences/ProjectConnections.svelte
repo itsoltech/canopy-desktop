@@ -208,11 +208,12 @@
   // so there's no extra confirm here.
   async function saveCredentials(): Promise<void> {
     const url = formBaseUrl.replace(/\/$/, '')
+    const normalizedToken = formToken.trim()
     try {
       await window.api.keychainSetCredentials(
         formProvider,
         url,
-        formToken,
+        normalizedToken,
         formUsername || undefined,
         connectingId ? `tracker:${connectingId}` : undefined,
       )

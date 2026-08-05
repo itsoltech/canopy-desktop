@@ -145,12 +145,13 @@
 
     if (newTrackerId) editingId = newTrackerId
 
-    if (editToken) {
+    const normalizedToken = editToken.trim()
+    if (normalizedToken) {
       try {
         await window.api.keychainSetCredentials(
           editProvider,
           normalizedUrl,
-          editToken,
+          normalizedToken,
           editUsername || undefined,
           `tracker:${newTrackerId ?? editingId}`,
         )

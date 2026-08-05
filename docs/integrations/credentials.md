@@ -35,6 +35,17 @@ The last authentication and per-capability verification results are diagnostic m
 next request can succeed after the token or its server-side permissions are corrected and then
 replace the stale result.
 
+## Error states
+
+- **No compatible credential:** add a credential whose service, audience and capabilities match
+  the integration, then bind it to the tracker or CI connection.
+- **Multiple compatible credentials:** automatic binding deliberately stops because Canopy cannot
+  safely choose between candidates. Select the intended credential in the connection settings.
+- **Bound credential has no secret:** the descriptor still exists but its OS-protected secret is
+  missing. Re-enter the token for that connection.
+- **Needs attention after 401/403:** Settings keeps the last authentication or authorization failure
+  visible. Correct or replace the token; a subsequent successful request clears the stale state.
+
 ## Storage and migration
 
 - Secrets are stored under `credential.secret.v2.<id>` and encrypted with Electron `safeStorage`
@@ -55,5 +66,7 @@ replace the stale result.
 - Provider/binding facade and migration: `src/main/taskTracker/KeychainTokenStore.ts`
 - Storage and renderer boundary policy: `src/main/db/PreferencesStore.ts`,
   `src/main/db/preferenceKeys.ts`, `src/main/ipc/handlers.ts`
-- Settings UI: `src/renderer/src/components/preferences/TaskTrackerPrefs.svelte`,
+- Global Settings UI: `src/renderer/src/components/preferences/ConnectionsPrefs.svelte`,
   `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte`
+- Sidebar/project UI: `src/renderer/src/components/preferences/ProjectConnections.svelte`,
+  `src/renderer/src/components/preferences/_partials/TrackerEditForm.svelte`
