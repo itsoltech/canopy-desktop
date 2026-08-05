@@ -3212,9 +3212,9 @@ export function registerIpcHandlers(
   async function authorizeRendererKeychainBinding(
     event: IpcMainInvokeEvent,
     payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
-  ): Promise<RepoConfig['trackers']> {
+  ): Promise<void> {
     validateKeychainBinding(payload.provider, payload.bindingKey)
-    if (!payload.bindingKey) return []
+    if (!payload.bindingKey) return
     const trackers = payload.repoRoot
       ? ((await resolveEffectiveConfig(await validatePathAccess(event.sender.id, payload.repoRoot)))
           ?.config.trackers ?? [])
@@ -3225,7 +3225,30 @@ export function registerIpcHandlers(
       payload.bindingKey,
       trackers,
     )
-    return trackers
+  }
+
+  /** Tracker bindings are machine-global; prune only against every currently live config view. */
+  async function liveTrackerBindingKeys(): Promise<Set<string>> {
+    const keys = new Set<string>()
+    const add = (trackers: RepoConfig['trackers']): void => {
+      for (const tracker of trackers) keys.add(trackerBindingKey(tracker.id))
+    }
+    add(globalConfigManager.load()?.trackers ?? [])
+    const paths = new Set(
+      windowManager
+        .getAllWindowConfigs()
+        .flatMap((config) => [
+          ...config.paths,
+          ...(config.activeWorktreePath ? [config.activeWorktreePath] : []),
+        ]),
+    )
+    await Promise.all(
+      [...paths].map(async (repoRoot) => {
+        const result = await repoConfigManager.load(repoRoot)
+        if (result.isOk()) add(result.value.trackers)
+      }),
+    )
+    return keys
   }
 
   async function resolveTaskTrackerBranchName(
@@ -3283,14 +3306,12 @@ export function registerIpcHandlers(
 
   ipcMain.handle('keychain:deleteCredentials', async (event, payload: unknown) => {
     const request = normalizeKeychainBindingPayload(payload)
-    const trackers = await authorizeRendererKeychainBinding(event, request)
+    await authorizeRendererKeychainBinding(event, request)
     return keychainTokenStore.deleteCredentials(
       request.provider,
       request.baseUrl,
       request.bindingKey,
-      request.bindingKey
-        ? new Set(trackers.map((tracker) => trackerBindingKey(tracker.id)))
-        : undefined,
+      request.bindingKey ? await liveTrackerBindingKeys() : undefined,
     )
   })
 

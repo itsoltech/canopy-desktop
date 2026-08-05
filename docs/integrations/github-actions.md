@@ -73,8 +73,10 @@ unavailable. Environment approvals and run cancellation remain GitHub operations
 shows the waiting state and link.
 
 The open history window refreshes every 60 seconds. In the sidebar CI/CD section, the activity
-summary polls every 60 seconds while any configured workflow has a run in flight or activity is
-incomplete, and every 300 seconds otherwise. The **Last run** card uses the same cadence, but keys
+summary polls every 60 seconds while any configured workflow has a run in flight. A new or changed
+incomplete result gets up to three fast recovery polls before decaying to the 300-second idle
+cadence, so permanent configuration drift does not consume the API budget indefinitely. The
+**Last run** card uses the same cadence, but keys
 it to runs for the active worktree's branch, so a run on another branch speeds up the activity
 summary but not the card. It shows the workflow label and number, branch, GitHub display title and
 status chip. Its first line uses the Queued, Started or Finished timestamp; hover or keyboard focus

@@ -4,11 +4,14 @@ const ENCRYPTED_KEYS = new Set([
   'opencode.apiKey',
   'codex.apiKey',
   'worktrees.baseDir.trustedResolved',
+  // deviceId is the sole auth factor for trusted-device auto-accept, so this list must be
+  // encrypted at rest and excluded from the renderer-facing preferences blob.
   'remote.trustedDevices',
 ])
 
 const ENCRYPTED_KEY_PREFIXES = ['taskTracker.token.', 'credential.secret.v2.']
 
+/** Machine-bound state must not be restored elsewhere, where it would corrupt local state. */
 const NON_EXPORTABLE_KEYS = new Set([
   'app.lastSeenVersion',
   'openWindowConfigs',

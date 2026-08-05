@@ -42,8 +42,9 @@ replace the stale result.
 
 Removing credentials first removes the selected integration binding. Before deciding whether the
 encrypted secret is still shared, Canopy drops tracker bindings whose tracker no longer exists in
-the resolved configuration. The secret is deleted when no live tracker or CI connection still uses
-it; otherwise Settings reports how many other connections retain it and keeps it available to them.
+the union of global and currently open repository configurations. The secret is deleted when no
+known live tracker or CI connection still uses it; otherwise Settings reports how many other
+connections retain it and keeps it available to them.
 
 ## Error states
 

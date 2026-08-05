@@ -97,7 +97,10 @@
 
   let credentialIssueAnnouncement = $derived(
     servers
-      .map((server) => credentialIssue(server))
+      .map((server) => {
+        const issue = credentialIssue(server)
+        return issue ? `${server.baseUrl}: ${issue}` : ''
+      })
       .filter(Boolean)
       .join(' '),
   )
@@ -238,9 +241,9 @@
           <div class="flex items-center gap-1">
             <button
               type="button"
-              class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm font-inherit cursor-pointer text-left enabled:hover:border-border disabled:cursor-default min-w-0"
+              class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm font-inherit cursor-pointer text-left hover:border-border aria-disabled:cursor-default aria-disabled:hover:border-border-subtle min-w-0"
               onclick={() => startEdit(server)}
-              disabled={server.provider !== 'teamcity'}
+              aria-disabled={server.provider !== 'teamcity'}
               title={server.provider === 'teamcity'
                 ? 'Update the stored token for this server'
                 : 'GitHub token — update it from a repository GitHub Actions configurator'}

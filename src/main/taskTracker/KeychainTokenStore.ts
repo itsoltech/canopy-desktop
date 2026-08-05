@@ -275,13 +275,13 @@ export class KeychainTokenStore {
     provider: string,
     baseUrl: string,
     bindingKey = defaultBinding(provider, baseUrl),
-    knownTrackerBindingKeys?: ReadonlySet<string>,
+    liveTrackerBindingKeys?: ReadonlySet<string>,
   ): { removed: boolean; retainedBindings: string[] } {
     const credentialId = this.registry.listBindings()[bindingKey]
     if (!credentialId) return { removed: false, retainedBindings: [] }
-    if (knownTrackerBindingKeys) {
+    if (liveTrackerBindingKeys) {
       for (const key of this.registry.bindingsFor(credentialId)) {
-        if (parseTrackerBindingKey(key) && !knownTrackerBindingKeys.has(key)) {
+        if (parseTrackerBindingKey(key) && !liveTrackerBindingKeys.has(key)) {
           this.registry.unbind(key)
         }
       }

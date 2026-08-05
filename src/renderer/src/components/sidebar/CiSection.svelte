@@ -68,6 +68,8 @@
   let activity = $state<CiActivity | CiRunActivity | null>(null)
   let activityError = $state('')
   let activityLoaded = $state(false)
+  let partialSignature = $state('')
+  let identicalPartialCount = $state(0)
   let activitySeq = 0
 
   async function refreshActivity(root: string): Promise<void> {
@@ -80,6 +82,17 @@
       if (seq !== activitySeq) return
       activity = result
       activityError = ''
+      const nextPartialSignature =
+        'partialErrors' in result ? (result.partialErrors ?? []).slice().sort().join('\n') : ''
+      if (!nextPartialSignature) {
+        partialSignature = ''
+        identicalPartialCount = 0
+      } else if (nextPartialSignature === partialSignature) {
+        identicalPartialCount += 1
+      } else {
+        partialSignature = nextPartialSignature
+        identicalPartialCount = 1
+      }
     } catch (e) {
       if (seq !== activitySeq) return
       activity = null
@@ -99,6 +112,7 @@
   // Keep the polling effect dependent on a primitive. Depending on the derived array would
   // invalidate the effect after every response because each activity object produces a new array.
   let activityIncomplete = $derived(activityPartialErrors.length > 0)
+  let fastPartialRecovery = $derived(activityIncomplete && identicalPartialCount <= 3)
   $effect(() => {
     if (!hasConfigAndToken) return
     const root = repoRoot
@@ -106,14 +120,14 @@
     // Triggering a build bumps the tick → immediate re-fetch instead of the chip
     // sitting on "Idle" until the next poll.
     void getCiActivityTick()
-    // A missing slice can hide a running job, so keep recovery polling fast without showing a
-    // competing Partial chip in the compact sidebar (the history window carries the reasons).
+    // A transient missing slice can hide a running job. Retry the same partial result quickly a
+    // few times, then decay to idle cadence so permanent config drift cannot poll fast forever.
     const interval =
       provider === 'github-actions'
-        ? activeCount > 0 || activityIncomplete
+        ? activeCount > 0 || fastPartialRecovery
           ? 60_000
           : 300_000
-        : activeCount > 0 || activityIncomplete
+        : activeCount > 0 || fastPartialRecovery
           ? 10_000
           : 30_000
     let cancelled = false
@@ -136,6 +150,8 @@
     activity = null
     activityLoaded = false
     activityError = ''
+    partialSignature = ''
+    identicalPartialCount = 0
   })
 
   let activitySummary = $derived.by(() => {

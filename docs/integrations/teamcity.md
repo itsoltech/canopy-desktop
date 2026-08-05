@@ -122,8 +122,9 @@ queued count, refreshes immediately after a trigger from Canopy, and polls every
 and refreshes every 10 s while open.
 
 The running, queued and recent queries degrade independently. If one or two slices fail, the
-sidebar temporarily omits its activity summary (so incomplete data cannot claim **Idle**) and keeps
-the faster recovery poll without adding a competing **Partial** chip. The activity window keeps the
+sidebar temporarily omits its activity summary (so incomplete data cannot claim **Idle**) and uses
+up to three faster recovery polls for a new or changed partial result before returning to idle
+cadence, without adding a competing **Partial** chip. The activity window keeps the
 available builds with a **Partial history** banner and the failure reasons. If all three queries
 fail, the row shows the **Error** state and its full reason.
 

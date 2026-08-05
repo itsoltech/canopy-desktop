@@ -128,4 +128,20 @@ describe('KeychainTokenStore capability facade', () => {
     ).toEqual({ removed: true, retainedBindings: [] })
     expect(store.listCredentials()).toEqual([])
   })
+
+  it('retains a credential for a tracker proven live in another config', () => {
+    const baseUrl = 'https://itsol.atlassian.net'
+    const store = new KeychainTokenStore(fakePreferences())
+    store.setCredentials('jira', baseUrl, 'token', undefined, 'tracker:current')
+    expect(store.getCredentials('jira', baseUrl, 'tracker:other-repo')?.token).toBe('token')
+
+    expect(
+      store.deleteCredentials(
+        'jira',
+        baseUrl,
+        'tracker:current',
+        new Set(['tracker:current', 'tracker:other-repo']),
+      ),
+    ).toEqual({ removed: false, retainedBindings: ['tracker:other-repo'] })
+  })
 })
