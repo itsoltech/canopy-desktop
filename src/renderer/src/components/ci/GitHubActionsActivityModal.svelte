@@ -135,7 +135,7 @@
       <div class="flex items-center gap-1">
         <button
           type="button"
-          class="size-7 rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+          class="flex size-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
           onclick={() => !refreshing && void refresh()}
           aria-label="Refresh"
           aria-disabled={refreshing}
@@ -149,10 +149,12 @@
         </button>
         <button
           type="button"
-          class="size-7 rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+          class="flex size-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
           onclick={closeDialog}
-          aria-label="Close"><X size={16} /></button
+          aria-label="Close"
         >
+          <X size={16} />
+        </button>
       </div>
     </header>
     <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-3">

@@ -62,10 +62,12 @@
         </h3>
         <button
           type="button"
-          class="size-7 rounded-md border-0 bg-transparent text-text-muted hover:bg-hover"
+          class="flex size-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-text-muted hover:bg-hover"
           onclick={closeDialog}
-          aria-label="Close"><X size={16} /></button
+          aria-label="Close"
         >
+          <X size={16} />
+        </button>
       </div>
       {#if loading}
         <div class="my-3 flex items-center gap-2 text-sm text-text-muted" role="status">
