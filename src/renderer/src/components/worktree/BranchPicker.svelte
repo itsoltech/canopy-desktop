@@ -91,7 +91,12 @@
 
   function handleKeydown(e: KeyboardEvent): void {
     if (!(e.target instanceof HTMLInputElement)) return
-    if (e.key === 'ArrowDown') {
+    if (e.key === 'Escape' && fillQueryOnPick && listOpen) {
+      e.preventDefault()
+      // The chevron is intentionally outside the tab order; Escape gives the focused
+      // combobox the equivalent keyboard-only collapse without changing its selection.
+      listOpen = false
+    } else if (e.key === 'ArrowDown') {
       e.preventDefault()
       listOpen = true
       selectedIdx = (selectedIdx + 1) % Math.max(1, filteredBranches.length)

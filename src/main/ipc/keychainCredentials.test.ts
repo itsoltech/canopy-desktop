@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   authorizeKeychainBindingForConfig,
+  normalizeKeychainBindingPayload,
   normalizeKeychainCredentialPayload,
 } from './keychainCredentials'
 
@@ -67,6 +68,22 @@ describe('normalizeKeychainCredentialPayload', () => {
       }),
     ).toThrow('does not match the provider purpose')
   })
+})
+
+describe('normalizeKeychainBindingPayload', () => {
+  it.each([
+    [{ provider: ['jira'], baseUrl: 'https://jira.example.com' }, 'Provider and baseUrl'],
+    [{ provider: 'jira', baseUrl: 123 }, 'Provider and baseUrl'],
+    [
+      { provider: 'jira', baseUrl: 'https://jira.example.com', repoRoot: 123 },
+      'Invalid credential repository',
+    ],
+  ])(
+    'rejects malformed read/delete payloads before they reach the token store',
+    (payload, error) => {
+      expect(() => normalizeKeychainBindingPayload(payload)).toThrow(error)
+    },
+  )
 })
 
 describe('authorizeKeychainBindingForConfig', () => {

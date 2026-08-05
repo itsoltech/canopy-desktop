@@ -69,6 +69,7 @@ import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse 
 import { fromExternalCall, errorMessage } from '../errors'
 import {
   authorizeKeychainBindingForConfig,
+  normalizeKeychainBindingPayload,
   normalizeKeychainCredentialPayload,
   validateKeychainBinding,
 } from './keychainCredentials'
@@ -3256,20 +3257,11 @@ export function registerIpcHandlers(
 
   // --- Keychain ---
 
-  ipcMain.handle(
-    'keychain:hasCredentials',
-    async (
-      event,
-      payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
-    ) => {
-      await authorizeRendererKeychainBinding(event, payload)
-      return keychainTokenStore.hasCredentials(
-        payload.provider,
-        payload.baseUrl,
-        payload.bindingKey,
-      )
-    },
-  )
+  ipcMain.handle('keychain:hasCredentials', async (event, payload: unknown) => {
+    const request = normalizeKeychainBindingPayload(payload)
+    await authorizeRendererKeychainBinding(event, request)
+    return keychainTokenStore.hasCredentials(request.provider, request.baseUrl, request.bindingKey)
+  })
 
   ipcMain.handle('keychain:setCredentials', async (event, payload: unknown) => {
     const credentials = normalizeKeychainCredentialPayload(payload)
@@ -3283,52 +3275,42 @@ export function registerIpcHandlers(
     )
   })
 
-  ipcMain.handle(
-    'keychain:deleteCredentials',
-    async (
-      event,
-      payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
-    ) => {
-      await authorizeRendererKeychainBinding(event, payload)
-      return keychainTokenStore.deleteCredentials(
-        payload.provider,
-        payload.baseUrl,
-        payload.bindingKey,
-      )
-    },
-  )
+  ipcMain.handle('keychain:deleteCredentials', async (event, payload: unknown) => {
+    const request = normalizeKeychainBindingPayload(payload)
+    await authorizeRendererKeychainBinding(event, request)
+    return keychainTokenStore.deleteCredentials(
+      request.provider,
+      request.baseUrl,
+      request.bindingKey,
+    )
+  })
 
-  ipcMain.handle(
-    'keychain:getCredentials',
-    async (
-      event,
-      payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
-    ) => {
-      await authorizeRendererKeychainBinding(event, payload)
-      const creds = keychainTokenStore.getCredentials(
-        payload.provider,
-        payload.baseUrl,
-        payload.bindingKey,
-      )
-      if (!creds) return null
-      // Never send token to renderer — only username and hasToken flag
-      const descriptor = keychainTokenStore.registry
-        .list()
-        .find((credential) => credential.id === creds.credentialId)
-      return {
-        username: creds.username,
-        hasToken: true,
-        credentialId: creds.credentialId,
-        intendedUses: descriptor?.intendedUses ?? [],
-        capabilities: descriptor?.capabilities ?? [],
-        verification: descriptor?.verification ?? {},
-        authenticationState: descriptor?.authenticationState ?? 'unknown',
-        bindings: creds.credentialId
-          ? keychainTokenStore.registry.bindingsFor(creds.credentialId)
-          : [],
-      }
-    },
-  )
+  ipcMain.handle('keychain:getCredentials', async (event, payload: unknown) => {
+    const request = normalizeKeychainBindingPayload(payload)
+    await authorizeRendererKeychainBinding(event, request)
+    const creds = keychainTokenStore.getCredentials(
+      request.provider,
+      request.baseUrl,
+      request.bindingKey,
+    )
+    if (!creds) return null
+    // Never send token to renderer — only username and hasToken flag
+    const descriptor = keychainTokenStore.registry
+      .list()
+      .find((credential) => credential.id === creds.credentialId)
+    return {
+      username: creds.username,
+      hasToken: true,
+      credentialId: creds.credentialId,
+      intendedUses: descriptor?.intendedUses ?? [],
+      capabilities: descriptor?.capabilities ?? [],
+      verification: descriptor?.verification ?? {},
+      authenticationState: descriptor?.authenticationState ?? 'unknown',
+      bindings: creds.credentialId
+        ? keychainTokenStore.registry.bindingsFor(creds.credentialId)
+        : [],
+    }
+  })
 
   // Tokens never cross this boundary — listCredentials returns provider/baseUrl/username only.
   ipcMain.handle('keychain:listCredentials', () => {

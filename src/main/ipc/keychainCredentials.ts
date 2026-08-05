@@ -1,13 +1,16 @@
 import { normalizeCredentialToken } from '../ci/token'
 import type { TrackerConfig } from '../taskTracker/types'
 
-export interface KeychainCredentialPayload {
+export interface KeychainBindingPayload {
   provider: string
   baseUrl: string
-  token: string
-  username?: string
   bindingKey?: string
   repoRoot?: string
+}
+
+export interface KeychainCredentialPayload extends KeychainBindingPayload {
+  token: string
+  username?: string
 }
 
 function comparableBaseUrl(baseUrl: string): string {
@@ -51,18 +54,11 @@ export function validateKeychainBinding(provider: string, bindingKey?: string): 
   }
 }
 
-export function normalizeKeychainCredentialPayload(raw: unknown): KeychainCredentialPayload {
+export function normalizeKeychainBindingPayload(raw: unknown): KeychainBindingPayload {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid credential payload')
-  const { provider, baseUrl, token, username, bindingKey, repoRoot } = raw as Record<
-    string,
-    unknown
-  >
+  const { provider, baseUrl, bindingKey, repoRoot } = raw as Record<string, unknown>
   if (typeof provider !== 'string' || !provider || typeof baseUrl !== 'string' || !baseUrl) {
     throw new Error('Provider and baseUrl are required')
-  }
-  if (typeof token !== 'string') throw new Error('Token is required')
-  if (username !== undefined && typeof username !== 'string') {
-    throw new Error('Invalid credential username')
   }
   if (bindingKey !== undefined && (typeof bindingKey !== 'string' || !bindingKey)) {
     throw new Error('Invalid credential binding')
@@ -71,12 +67,19 @@ export function normalizeKeychainCredentialPayload(raw: unknown): KeychainCreden
     throw new Error('Invalid credential repository')
   }
   validateKeychainBinding(provider, bindingKey)
+  return { provider, baseUrl, bindingKey, repoRoot }
+}
+
+export function normalizeKeychainCredentialPayload(raw: unknown): KeychainCredentialPayload {
+  const binding = normalizeKeychainBindingPayload(raw)
+  const { token, username } = raw as Record<string, unknown>
+  if (typeof token !== 'string') throw new Error('Token is required')
+  if (username !== undefined && typeof username !== 'string') {
+    throw new Error('Invalid credential username')
+  }
   return {
-    provider,
-    baseUrl,
+    ...binding,
     token: normalizeCredentialToken(token),
     username,
-    bindingKey,
-    repoRoot,
   }
 }

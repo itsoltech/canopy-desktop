@@ -40,7 +40,8 @@ replace the stale result.
 - **No compatible credential:** add a credential whose service, audience and capabilities match
   the integration, then bind it to the tracker or CI connection.
 - **Multiple compatible credentials:** automatic binding deliberately stops because Canopy cannot
-  safely choose between candidates. Select the intended credential in the connection settings.
+  safely choose between candidates. Re-enter the intended token for that connection; saving it
+  creates the explicit local binding used from then on.
 - **Bound credential has no secret:** the descriptor still exists but its OS-protected secret is
   missing. Re-enter the token for that connection.
 - **Needs attention after 401/403:** Settings keeps the last authentication or authorization failure

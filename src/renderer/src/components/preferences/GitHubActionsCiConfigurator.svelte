@@ -439,7 +439,7 @@
 
       {#if repositoryReady}
         <p class="m-0 text-xs text-text-muted">
-          Git code transport is separate: fetch and push use the workspaceâ€™s
+          Git code transport is separate: fetch and push use the workspace’s
           <code class="font-mono">origin</code> through Git (SSH or its credential helper). This API
           token is bound only to GitHub Actions for <strong>{repositoryLabel}</strong> and does not grant
           Canopy Git push access.
