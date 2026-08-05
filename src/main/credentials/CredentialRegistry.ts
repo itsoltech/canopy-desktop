@@ -199,9 +199,12 @@ export class CredentialRegistry {
     const compatible = (record: CredentialDescriptor): boolean =>
       record.service === request.service &&
       audienceMatches(record.audience, request.audience) &&
-      record.capabilities.includes(request.capability) &&
-      record.authenticationState !== 'invalid' &&
-      record.verification[request.capability]?.state !== 'denied'
+      record.capabilities.includes(request.capability)
+
+    // Authentication/verification states are diagnostics from the last request, not a second
+    // authorization policy. Keeping the bound credential resolvable lets a token recover after
+    // permissions are changed server-side and lets the next successful request clear stale 401/403
+    // metadata. Service, audience, declared capability and the local binding remain hard gates.
 
     const boundId = this.listBindings()[request.bindingKey]
     if (boundId) {

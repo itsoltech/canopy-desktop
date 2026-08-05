@@ -14,6 +14,7 @@ function build(overrides: Partial<CiBuildStatus>): CiBuildStatus {
     number: '1',
     state: 'finished',
     status: 'SUCCESS',
+    statusText: undefined,
     percentageComplete: undefined,
     webUrl: 'https://tc/build/1',
     branchName: undefined,

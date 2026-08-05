@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ciChip, ciLastRunTimestamp } from '../../lib/ci/status'
+  import { ciChip, ciLastRunTimestamp, ciStatusTextClass } from '../../lib/ci/status'
   import type { CiBuildTypeStatus } from '../../lib/ci/types'
   import CiLastStatusCard from './CiLastStatusCard.svelte'
 
@@ -11,6 +11,8 @@
       number: row.build?.number,
       webUrl: row.build?.webUrl,
       timestamp: row.build ? ciLastRunTimestamp(row.build) : undefined,
+      statusText: row.build?.statusText,
+      statusTextClass: row.build ? ciStatusTextClass(row.build) : undefined,
       error: row.error,
       chip: ciChip(row),
     })),

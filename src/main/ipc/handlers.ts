@@ -1012,23 +1012,20 @@ export function registerIpcHandlers(
   // --- Preferences ---
 
   ipcMain.handle('db:prefs:get', (_event, payload: { key: string }) => {
-    // Encrypted keys (API keys, tracker tokens) are main-process-only —
-    // returning their plaintext to the renderer would let any compromised
-    // page or webview script extract credentials. The renderer reads
-    // non-secret prefs only; secrets reach agent processes via env vars
-    // built inside the main process.
-    if (preferencesStore.isEncrypted(payload.key)) return null
+    // Secrets and credential authorization metadata are main-process-only.
+    // Returning either would let a compromised renderer extract a secret or
+    // rewrite which credential is allowed to satisfy an integration operation.
+    if (preferencesStore.isMainProcessOnly(payload.key)) return null
     return preferencesStore.get(payload.key)
   })
 
   ipcMain.handle('db:prefs:set', async (event, payload: { key: string; value: string }) => {
-    // Renderer must not be able to overwrite encrypted pref keys (API keys,
-    // tracker tokens) — `preferencesStore.set` auto-encrypts via safeStorage,
-    // so a write here would silently replace the user's stored credential
-    // with an attacker-controlled value, redirecting agent calls. Secret
-    // writes go through `profile:save` / `keychain:setCredentials`.
-    if (preferencesStore.isEncrypted(payload.key)) {
-      throw new Error(`Refusing to set encrypted preference key "${payload.key}" via db:prefs:set`)
+    // Renderer must not overwrite secrets or credential registry/binding metadata.
+    // Their lifecycle goes through purpose-specific main-process services.
+    if (preferencesStore.isMainProcessOnly(payload.key)) {
+      throw new Error(
+        `Refusing to set main-process-only preference key "${payload.key}" via db:prefs:set`,
+      )
     }
     if (payload.key === WORKTREE_BASE_DIR_PREF_KEY) {
       await updateTrustedWorktreeBaseDir(event.sender.id, payload.value)
@@ -1070,14 +1067,11 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('db:prefs:delete', (_event, payload: { key: string }) => {
-    // Symmetry with db:prefs:get/set: the renderer must not be able to delete
-    // encrypted pref keys (API keys, tracker tokens) either — dropping a stored
-    // credential from a compromised page/webview would silently de-auth the
-    // user's agents/trackers. Secret lifecycle goes through profile:save /
-    // keychain:setCredentials.
-    if (preferencesStore.isEncrypted(payload.key)) {
+    // Symmetry with db:prefs:get/set: deleting a secret, registry or binding key
+    // could de-auth integrations or orphan encrypted credential rows.
+    if (preferencesStore.isMainProcessOnly(payload.key)) {
       throw new Error(
-        `Refusing to delete encrypted preference key "${payload.key}" via db:prefs:delete`,
+        `Refusing to delete main-process-only preference key "${payload.key}" via db:prefs:delete`,
       )
     }
     preferencesStore.delete(payload.key)

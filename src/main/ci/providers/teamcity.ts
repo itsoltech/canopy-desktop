@@ -48,12 +48,7 @@ function conclusion(status: string | undefined): CiRunConclusion {
   return 'unknown'
 }
 
-function mapBuild(
-  build: CiBuildStatus,
-  jobId: string,
-  jobLabel: string,
-  statusText?: string,
-): CiRun {
+function mapBuild(build: CiBuildStatus, jobId: string, jobLabel: string): CiRun {
   return {
     provider: 'teamcity',
     runId: String(build.id),
@@ -62,7 +57,7 @@ function mapBuild(
     jobLabel,
     state: build.state,
     conclusion: conclusion(build.status),
-    statusText,
+    statusText: build.statusText,
     webUrl: build.webUrl,
     ref: build.branchName ? { name: build.branchName, kind: 'branch' } : undefined,
     queuedAt: build.queuedAt,

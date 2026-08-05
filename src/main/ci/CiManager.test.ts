@@ -431,6 +431,7 @@ describe('statusFor', () => {
             number: '42',
             state: 'finished' as const,
             status: 'SUCCESS' as const,
+            statusText: 'Build completed',
             percentageComplete: undefined,
             webUrl: 'https://tc.example.com/build/7',
             branchName: 'next',

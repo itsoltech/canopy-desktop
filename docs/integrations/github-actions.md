@@ -133,9 +133,10 @@ failure.
 
 ## Security and privacy
 
-- GitHub Actions tokens use the dedicated `github-actions` credential namespace and are keyed by
-  the normalized repository URL (`https://github.com/owner/repository`). They cannot collide with
-  GitHub issue-tracker credentials or silently flow to another configured repository.
+- GitHub Actions uses a repository-audience binding to a credential declaring `actions.read`,
+  `contents.read` and `actions.dispatch`. Service, repository and capability checks keep it separate
+  from GitHub Issues tokens and Git source transport. See
+  [Integration credentials](credentials.md).
 - Tokens are stored through `KeychainTokenStore`, encrypted with Electron `safeStorage` when the
   operating system provides it, and never written to `.canopy/config.json` or workflow inputs. If
   no OS keyring is available, Canopy warns before storing the token unencrypted in its local
@@ -159,3 +160,5 @@ failure.
   `ci:githubSetup`, `ci:testGitHubConnection`, and `ci:setGitHubCredential`
 - Renderer flows: `src/renderer/src/components/ci/`,
   `src/renderer/src/components/preferences/GitHubActionsCiConfigurator.svelte`
+- Shared credential registry: `src/main/credentials/`,
+  `src/main/taskTracker/KeychainTokenStore.ts`

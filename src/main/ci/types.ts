@@ -136,6 +136,8 @@ export interface CiBuildStatus {
   number: string
   state: CiBuildState
   status: CiBuildResult
+  /** TeamCity's build-specific summary, for example "sylabusy-api-test deployed". */
+  statusText: string | undefined
   percentageComplete: number | undefined
   webUrl: string
   branchName: string | undefined

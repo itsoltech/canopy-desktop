@@ -96,6 +96,9 @@
   let activityPartialErrors = $derived(
     activity && 'partialErrors' in activity ? (activity.partialErrors ?? []) : [],
   )
+  // Keep the polling effect dependent on a primitive. Depending on the derived array would
+  // invalidate the effect after every response because each activity object produces a new array.
+  let activityIncomplete = $derived(activityPartialErrors.length > 0)
   $effect(() => {
     if (!hasConfigAndToken) return
     const root = repoRoot
@@ -105,13 +108,12 @@
     void getCiActivityTick()
     // A missing slice can hide a running job, so keep recovery polling fast without showing a
     // competing Partial chip in the compact sidebar (the history window carries the reasons).
-    const activityMayBeIncomplete = activityPartialErrors.length > 0
     const interval =
       provider === 'github-actions'
-        ? activeCount > 0 || activityMayBeIncomplete
+        ? activeCount > 0 || activityIncomplete
           ? 60_000
           : 300_000
-        : activeCount > 0 || activityMayBeIncomplete
+        : activeCount > 0 || activityIncomplete
           ? 10_000
           : 30_000
     let cancelled = false

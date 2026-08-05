@@ -19,7 +19,7 @@ import { parseActivity, parseBranches, parseTcDate, type RawActivityResponse } f
 // (baseUrl comes from repo config — a redirect would forward the token elsewhere).
 
 const BUILD_FIELDS =
-  'id,number,state,status,percentageComplete,webUrl,branchName,queuedDate,startDate,finishDate'
+  'id,number,state,status,statusText,percentageComplete,webUrl,branchName,queuedDate,startDate,finishDate'
 const TEAMCITY_LOCATOR_STRUCTURAL_CHARS = /[(),:]/u
 
 /** Refs are parenthesized in TeamCity locators; structural characters must not reach the sink. */
@@ -32,6 +32,7 @@ interface RawBuild {
   number?: string
   state?: string
   status?: string
+  statusText?: string
   percentageComplete?: number
   webUrl?: string
   branchName?: string
@@ -64,6 +65,7 @@ export function mapBuild(raw: RawBuild): CiBuildStatus {
     number: raw.number ?? String(raw.id),
     state,
     status,
+    statusText: raw.statusText,
     percentageComplete: raw.percentageComplete,
     webUrl: raw.webUrl ?? '',
     branchName: raw.branchName,

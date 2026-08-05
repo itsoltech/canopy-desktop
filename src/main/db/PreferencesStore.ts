@@ -1,53 +1,11 @@
 import { safeStorage } from 'electron'
 import type { Database as BetterSqlite3Database } from 'better-sqlite3'
 import type { Database } from './Database'
-
-const ENCRYPTED_KEYS = new Set([
-  'claude.apiKey',
-  'gemini.apiKey',
-  'opencode.apiKey',
-  'codex.apiKey',
-  'worktrees.baseDir.trustedResolved',
-  // Trusted remote-device identities. The deviceId is the sole auth factor for
-  // trusted-device auto-accept (RemoteSessionService), so the list must be
-  // encrypted at rest and excluded from the renderer-facing getAll() blob.
-  'remote.trustedDevices',
-])
-const ENCRYPTED_KEY_PREFIXES = ['taskTracker.token.', 'credential.secret.v2.']
-
-/**
- * Preference keys that are bound to this specific machine or represent
- * transient runtime state. They must never be written to a settings export,
- * because restoring them on another machine would corrupt local state
- * (orphan workspace IDs, stale window geometry, wrong device identity, etc).
- */
-const NON_EXPORTABLE_KEYS = new Set([
-  'app.lastSeenVersion',
-  'openWindowConfigs',
-  'telemetry.lastPingDate',
-  'remote.lastPort',
-  'remote.trustedDevices',
-  'taskTracker.migratedToGlobalConfig',
-  'worktrees.baseDir.trustedResolved',
-])
-
-const NON_EXPORTABLE_PREFIXES = [
-  'workspace:',
-  'taskTracker.token.',
-  'credential.registry.',
-  'credential.bindings.',
-  'credential.secret.',
-]
-
-function isEncryptedKey(key: string): boolean {
-  if (ENCRYPTED_KEYS.has(key)) return true
-  return ENCRYPTED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
-}
-
-function isExportableKey(key: string): boolean {
-  if (NON_EXPORTABLE_KEYS.has(key)) return false
-  return !NON_EXPORTABLE_PREFIXES.some((prefix) => key.startsWith(prefix))
-}
+import {
+  isEncryptedPreferenceKey,
+  isExportablePreferenceKey,
+  isMainProcessOnlyPreferenceKey,
+} from './preferenceKeys'
 
 export class PreferencesStore {
   constructor(private database: Database) {}
@@ -60,7 +18,7 @@ export class PreferencesStore {
     const row = this.db.prepare('SELECT value FROM preferences WHERE key = ?').get(key) as
       { value: string } | undefined
     if (!row) return null
-    if (isEncryptedKey(key) && safeStorage.isEncryptionAvailable()) {
+    if (isEncryptedPreferenceKey(key) && safeStorage.isEncryptionAvailable()) {
       try {
         return safeStorage.decryptString(Buffer.from(row.value, 'base64'))
       } catch {
@@ -72,7 +30,11 @@ export class PreferencesStore {
   }
 
   isEncrypted(key: string): boolean {
-    return isEncryptedKey(key)
+    return isEncryptedPreferenceKey(key)
+  }
+
+  isMainProcessOnly(key: string): boolean {
+    return isMainProcessOnlyPreferenceKey(key)
   }
 
   /** Keys only — values stay in the store, so this is safe for secret-class key enumeration. */
@@ -90,7 +52,7 @@ export class PreferencesStore {
    * than silently persisting a secret in cleartext.
    */
   private encryptForStorage(key: string, value: string): string {
-    if (!isEncryptedKey(key)) return value
+    if (!isEncryptedPreferenceKey(key)) return value
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.encryptString(value).toString('base64')
     }
@@ -114,7 +76,7 @@ export class PreferencesStore {
     }[]
     const result: Record<string, string> = {}
     for (const row of rows) {
-      if (isEncryptedKey(row.key)) continue
+      if (isMainProcessOnlyPreferenceKey(row.key)) continue
 
       result[row.key] = row.value
     }
@@ -134,8 +96,8 @@ export class PreferencesStore {
     }[]
     const result: Record<string, string> = {}
     for (const row of rows) {
-      if (!isExportableKey(row.key)) continue
-      if (isEncryptedKey(row.key) && safeStorage.isEncryptionAvailable()) {
+      if (!isExportablePreferenceKey(row.key)) continue
+      if (isEncryptedPreferenceKey(row.key) && safeStorage.isEncryptionAvailable()) {
         try {
           result[row.key] = safeStorage.decryptString(Buffer.from(row.value, 'base64'))
           continue
@@ -160,7 +122,7 @@ export class PreferencesStore {
     const stmt = this.db.prepare('INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)')
     let count = 0
     for (const [key, value] of Object.entries(entries)) {
-      if (!isExportableKey(key)) continue
+      if (!isExportablePreferenceKey(key)) continue
       const stored = this.encryptForStorage(key, value)
       stmt.run(key, stored)
       count++

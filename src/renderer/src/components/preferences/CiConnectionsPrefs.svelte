@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Plus, Trash2, Check, LoaderCircle } from '@lucide/svelte'
+  import { Plus, Trash2, Check, LoaderCircle, TriangleAlert } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
@@ -22,6 +22,7 @@
       username?: string
       capabilities: string[]
       verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+      authenticationState: string
       bindings: string[]
     }>
   >([])
@@ -76,6 +77,21 @@
   function cancelEdit(): void {
     editing = null
     testResult = ''
+  }
+
+  function credentialIssue(server: (typeof servers)[number]): string {
+    if (server.authenticationState === 'invalid') {
+      return 'The stored token was rejected. Reconnect it or retry after correcting the token.'
+    }
+    const denied = server.capabilities.flatMap((capability) => {
+      const result = server.verification[capability]
+      return result?.state === 'denied'
+        ? [`${capability}${result.reason ? `: ${result.reason}` : ''}`]
+        : []
+    })
+    return denied.length > 0
+      ? `Permission check failed for ${denied.join(', ')}. Check the token permissions; Canopy will retry on the next request.`
+      : ''
   }
 
   // Mirrors the Jira/YouTrack "Generate →" affordance: once the address is typed,
@@ -191,6 +207,7 @@
     {/if}
 
     {#each servers as server (`${server.provider}:${server.baseUrl}`)}
+      {@const credentialIssueText = credentialIssue(server)}
       {#if editing === server.baseUrl}
         <CiServerForm
           bind:url={formUrl}
@@ -206,62 +223,75 @@
           onOpenTokenPage={openTokenPage}
         />
       {:else}
-        <div class="flex items-center gap-1">
-          <button
-            type="button"
-            class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm font-inherit cursor-pointer text-left enabled:hover:border-border disabled:cursor-default min-w-0"
-            onclick={() => startEdit(server)}
-            disabled={server.provider !== 'teamcity'}
-            title={server.provider === 'teamcity'
-              ? 'Update the stored token for this server'
-              : 'GitHub token — update it from a repository GitHub Actions configurator'}
-          >
-            <span
-              class="inline-flex items-center shrink-0 text-text-muted"
-              title={server.provider === 'github-actions' ? 'GitHub Actions' : 'TeamCity'}
+        <div class="flex flex-col gap-0.5">
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm font-inherit cursor-pointer text-left enabled:hover:border-border disabled:cursor-default min-w-0"
+              onclick={() => startEdit(server)}
+              disabled={server.provider !== 'teamcity'}
+              title={server.provider === 'teamcity'
+                ? 'Update the stored token for this server'
+                : 'GitHub token — update it from a repository GitHub Actions configurator'}
             >
-              <TrackerProviderIcon provider={server.provider} size={14} />
-            </span>
-            <span class="flex-1 text-text-secondary truncate" title={server.baseUrl}
-              >{server.baseUrl}</span
-            >
-            <span
-              class="text-2xs text-text-faint shrink-0"
-              title={`Capabilities: ${server.capabilities.map((capability) => `${capability} (${server.verification[capability]?.state ?? 'unverified'})`).join(', ')}. Bindings: ${server.bindings.join(', ') || 'none'}`}
-              >{server.provider === 'github-actions'
-                ? 'Actions · repo scoped'
-                : 'Builds · server scoped'}</span
-            >
-            <span
-              class="flex items-center gap-1 text-2xs text-success shrink-0"
-              title="Credentials saved"
-            >
-              <Check size={12} />
-            </span>
-          </button>
-          <!-- aria-disabled: a real disabled makes ConfirmDialog's focus restore
+              <span
+                class="inline-flex items-center shrink-0 text-text-muted"
+                title={server.provider === 'github-actions' ? 'GitHub Actions' : 'TeamCity'}
+              >
+                <TrackerProviderIcon provider={server.provider} size={14} />
+              </span>
+              <span class="flex-1 text-text-secondary truncate" title={server.baseUrl}
+                >{server.baseUrl}</span
+              >
+              <span
+                class="text-2xs text-text-faint shrink-0"
+                title={`Capabilities: ${server.capabilities.map((capability) => `${capability} (${server.verification[capability]?.state ?? 'unverified'})`).join(', ')}. Bindings: ${server.bindings.join(', ') || 'none'}`}
+                >{server.provider === 'github-actions'
+                  ? 'Actions · repo scoped'
+                  : 'Builds · server scoped'}</span
+              >
+              {#if credentialIssueText}
+                <span class="flex items-center gap-1 text-2xs text-warning-text shrink-0">
+                  <TriangleAlert size={12} /> Needs attention
+                </span>
+              {:else}
+                <span
+                  class="flex items-center gap-1 text-2xs text-success shrink-0"
+                  title="Credentials saved"
+                >
+                  <Check size={12} />
+                </span>
+              {/if}
+            </button>
+            <!-- aria-disabled: a real disabled makes ConfirmDialog's focus restore
                a no-op (.focus() on a disabled element does nothing), stranding
                the user on <body> after confirming. removeServer's guard blocks
                re-entry. -->
-          <button
-            type="button"
-            class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
-            onclick={() => removeServer(server)}
-            aria-disabled={removingUrl !== ''}
-            aria-busy={removingUrl === `${server.provider}:${server.baseUrl}`}
-            aria-label="Remove CI connection"
-            title={removingUrl !== ''
-              ? removingUrl === `${server.provider}:${server.baseUrl}`
-                ? 'Removing…'
-                : 'Disabled while another connection is being removed'
-              : 'Remove the stored token for this server'}
-          >
-            {#if removingUrl === `${server.provider}:${server.baseUrl}`}
-              <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
-            {:else}
-              <Trash2 size={12} />
-            {/if}
-          </button>
+            <button
+              type="button"
+              class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-danger-bg hover:text-danger-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
+              onclick={() => removeServer(server)}
+              aria-disabled={removingUrl !== ''}
+              aria-busy={removingUrl === `${server.provider}:${server.baseUrl}`}
+              aria-label="Remove CI connection"
+              title={removingUrl !== ''
+                ? removingUrl === `${server.provider}:${server.baseUrl}`
+                  ? 'Removing…'
+                  : 'Disabled while another connection is being removed'
+                : 'Remove the stored token for this server'}
+            >
+              {#if removingUrl === `${server.provider}:${server.baseUrl}`}
+                <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
+              {:else}
+                <Trash2 size={12} />
+              {/if}
+            </button>
+          </div>
+          {#if credentialIssueText}
+            <p class="m-0 px-2.5 text-2xs text-warning-text break-words" role="status">
+              {credentialIssueText}
+            </p>
+          {/if}
         </div>
       {/if}
     {/each}

@@ -3,6 +3,7 @@ import {
   activityBuildTypesLocator,
   buildBranchLocator,
   fetchActivity,
+  fetchBuildForBranch,
   isTeamCityLocatorSafeRef,
   mapBuild,
   parseBuildsResponse,
@@ -105,6 +106,7 @@ describe('mapBuild', () => {
       number: '45',
       state: 'finished',
       status: 'SUCCESS',
+      statusText: undefined,
       percentageComplete: undefined,
       webUrl: 'https://tc/build/123',
       branchName: 's152/ISSUE-2148',
@@ -120,10 +122,12 @@ describe('mapBuild', () => {
       number: '46',
       state: 'running',
       status: 'SUCCESS',
+      statusText: 'Step 3/7',
       percentageComplete: 42,
       webUrl: 'https://tc/build/7',
     })
     expect(mapped.state).toBe('running')
+    expect(mapped.statusText).toBe('Step 3/7')
     expect(mapped.percentageComplete).toBe(42)
     expect(mapped.branchName).toBeUndefined()
   })
@@ -171,11 +175,51 @@ describe('parseBuildsResponse', () => {
     const parsed = parseBuildsResponse({
       count: 2,
       build: [
-        { id: 2, number: '2', state: 'running', webUrl: 'https://tc/2' },
+        {
+          id: 2,
+          number: '2',
+          state: 'running',
+          statusText: 'Compiling',
+          webUrl: 'https://tc/2',
+        },
         { id: 1, number: '1', state: 'finished', status: 'FAILURE', webUrl: 'https://tc/1' },
       ],
     })
     expect(parsed?.id).toBe(2)
     expect(parsed?.state).toBe('running')
+    expect(parsed?.statusText).toBe('Compiling')
+  })
+})
+
+describe('fetchBuildForBranch', () => {
+  it('requests and preserves TeamCity statusText for the last-job card', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      expect(String(input)).toContain('statusText')
+      return new Response(
+        JSON.stringify({
+          count: 1,
+          build: [
+            {
+              id: 42,
+              number: '2624',
+              state: 'finished',
+              status: 'SUCCESS',
+              statusText: 'kadry-backend-test deployed',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchBuildForBranch(
+      'https://tc.example.com',
+      'token',
+      'Gakko_Build',
+      'feature/status',
+    )
+
+    expect(result.isOk() && result.value?.statusText).toBe('kadry-backend-test deployed')
   })
 })

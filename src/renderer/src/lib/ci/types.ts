@@ -32,6 +32,7 @@ export interface CiBuildStatus {
   number: string
   state: 'queued' | 'running' | 'finished'
   status: 'SUCCESS' | 'FAILURE' | 'ERROR' | 'UNKNOWN'
+  statusText: string | undefined
   percentageComplete: number | undefined
   webUrl: string
   branchName: string | undefined

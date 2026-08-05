@@ -92,6 +92,7 @@
   {:else if row.error}
     <span
       class="w-full truncate text-2xs text-warning-text opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity duration-fast"
+      title={row.error}
       aria-hidden="true">{row.error}</span
     >
   {/if}

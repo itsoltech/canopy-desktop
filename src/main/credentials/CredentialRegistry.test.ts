@@ -101,6 +101,38 @@ describe('CredentialRegistry', () => {
     expect(stored?.authenticationState).not.toBe('invalid')
   })
 
+  it('keeps a bound credential resolvable so stale 401 and 403 results can self-heal', () => {
+    const registry = new CredentialRegistry(fakePreferences())
+    const credential = registry.save({
+      service: 'github',
+      authMethod: 'pat',
+      audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
+      intendedUses: ['github-actions'],
+      capabilities: ['actions.dispatch'],
+      secret: 'token',
+    })
+    const bindingKey = 'ci:github-actions:github.com/itsoltech/canopy-desktop'
+    registry.bind(bindingKey, credential.id)
+    registry.recordAuthentication(credential.id, 'invalid')
+    registry.recordCapability(credential.id, 'actions.dispatch', 'denied', 'HTTP 403')
+
+    expect(
+      registry.resolve({
+        bindingKey,
+        service: 'github',
+        audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
+        capability: 'actions.dispatch',
+      }),
+    ).toMatchObject({ id: credential.id, secret: 'token' })
+
+    registry.recordAuthentication(credential.id, 'valid')
+    registry.recordCapability(credential.id, 'actions.dispatch', 'verified')
+    expect(registry.list()[0]).toMatchObject({
+      authenticationState: 'valid',
+      verification: { 'actions.dispatch': { state: 'verified' } },
+    })
+  })
+
   it('does not delete a credential while bindings still depend on it', () => {
     const registry = new CredentialRegistry(fakePreferences())
     const credential = registry.save({

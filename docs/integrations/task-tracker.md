@@ -12,7 +12,11 @@ The task tracker lets users connect one or more issue trackers (Jira Cloud, YouT
 
 Configuration lives in two stores: a personal store in Canopy preferences (tracker connections, private to the user) and the per-repository config in `.canopy/config.json` (naming configuration, shared via git). Tracker definitions are merged additively (repo overrides personal on the same `id`); branch/PR templates and project overrides come from the repo config alone, falling back to built-in defaults when unset. Project-level overrides customize branch and PR templates per tracker project, keyed by the task-key prefix.
 
-Authentication tokens are stored locally on the user's machine in Canopy's SQLite database (`canopy.db` under `app.getPath('userData')`), keyed by `provider:baseUrl`, and encrypted at rest via Electron `safeStorage` (Windows DPAPI / macOS Keychain / Linux keyring; plaintext fallback when no OS keyring is available). They are never written to `.canopy/config.json` and never committed to git. Legacy connections that stored tokens directly in preferences are automatically migrated on first load.
+Authentication tokens are stored locally in Canopy's capability-scoped credential registry. Stable
+credential IDs are bound to individual tracker connections, while service, audience and capability
+checks prevent a token intended for another integration from being reused. Secrets are encrypted at
+rest via Electron `safeStorage` when available and are never written to `.canopy/config.json`. See
+[Integration credentials](credentials.md) for the storage, binding and migration model.
 
 Each provider implements a common `TaskTrackerProviderClient` interface. Jira uses the REST v3 and Agile 1.0 APIs. YouTrack uses the Hub REST API. GitHub Issues uses the GraphQL API (with automatic `owner/repo` detection from git remotes when the `projectKey` is empty).
 
@@ -275,9 +279,9 @@ The `ResolvedConfig` includes a `source` object indicating where each field came
 
 Two separate surfaces, deliberately not mixed:
 
-- **Settings → Project management → Your connections** — your personal tracker connections (stored in the preferences DB, private to you, reused across projects) with full add/edit/delete and credential management. This is the authoritative place to change or remove a token. An **OS-aware** note states where credentials are kept — encrypted via Windows DPAPI / macOS Keychain / Linux keyring in Canopy's local database, keyed by provider + URL, never written to the repository (and warns when OS encryption is unavailable).
+- **Settings → Project management → Your connections** — your personal tracker connections (stored in the preferences DB, private to you, reused across projects) with full add/edit/delete and credential management. This is the authoritative place to change or remove a token. An **OS-aware** note states where credentials are kept — encrypted via Windows DPAPI / macOS Keychain / Linux keyring in Canopy's local database, bound to the connection by stable credential ID, never written to the repository (and warns when OS encryption is unavailable).
 - **Project tracker modal** — opened from the left sidebar's **Project management** section; scoped to the **active worktree** and edits its `.canopy/config.json` (shared with the team via git). Sections:
-  - **Connections** — trackers defined in the repo config; here you only _connect_ them (enter credentials in a dedicated dialog). Credentials are global per provider + URL. Stored tokens are **verified** against the tracker API on config load; a token the tracker rejects (401/403) shows a `Credentials expired` badge with a **Reconnect** action (in the modal, in Settings, and in the sidebar), and blocks task browsing until replaced.
+  - **Connections** — trackers defined in the repo config; here you only _connect_ them (enter credentials in a dedicated dialog). Each tracker has a local binding to a compatible credential. Stored tokens are **verified** against the tracker API on config load; a rejected token shows its last authentication/capability result with a **Reconnect** action. The binding remains resolvable so corrected server-side permissions can recover on the next request.
   - **Branch naming** and **Pull request naming** — per-project rows (`All projects (default)` + one row per project override), each showing the template plus a rendered example. Editing happens in place (Cancel reverts, Done collapses); **Add project override** creates a new per-project template, picking from the tracker's project list. PR rows show the title; the editor exposes title, body (multi-line) and the default target branch. The base branch editor also maps the tracker's task types to {branchType}. Editing is read-only until a tracker is connected.
 - **Reset to default** — removes the project value from `.canopy/config.json` so the **built-in** template applies (there is no other tier). **Remove project override** drops a project-specific override so tasks from that project fall back to the base template.
 - **Template editor** — hybrid: `{field}` placeholders are draggable chips; everything between them is plain text edited in place (any separator works). Renderer-side helpers in `src/renderer/src/components/preferences/_partials/configScopeLabels.ts` (unit-tested with Vitest, `npm test`).
@@ -294,7 +298,10 @@ Project overrides are keyed by the tracker PROJECT key — the task-key prefix (
 
 ### Credential storage
 
-Credentials are stored at key `taskTracker.token.{provider}:{normalizedBaseUrl}` as JSON: `{ "token": "...", "username": "..." }`, in Canopy's local SQLite DB (`canopy.db` under `app.getPath('userData')`). The `taskTracker.token.` prefix is in `PreferencesStore`'s `ENCRYPTED_KEY_PREFIXES`, so values are encrypted at rest via Electron `safeStorage` (Windows DPAPI / macOS Keychain / Linux keyring); if `safeStorage.isEncryptionAvailable()` is false they fall back to plaintext. They are never written to the repo. The UI shows an OS-aware note reflecting this (driven by `window.api.platform` and the `app:isEncryptionAvailable` IPC). Legacy entries that stored plain token strings are read transparently.
+Tracker connections bind to stable records in the capability-scoped credential registry. Secret,
+descriptor and binding storage, renderer isolation and migration of legacy
+`taskTracker.token.<provider>:<baseUrl>` entries are documented in
+[Integration credentials](credentials.md).
 
 ### GitHub auto-detection
 
@@ -328,7 +335,9 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
 
 ## Security and privacy
 
-- Authentication tokens are stored via the `KeychainTokenStore`, which persists credentials in `PreferencesStore` keyed by `provider:baseUrl`, encrypted at rest via Electron `safeStorage` (OS-native: DPAPI / Keychain / keyring; plaintext fallback when no keyring is available). They live only in Canopy's local DB on the user's machine — never in `.canopy/config.json` or git. The legacy migration moves plaintext tokens from connection-specific preference keys to this store and deletes the originals.
+- Authentication tokens are stored through `KeychainTokenStore` in the capability-scoped,
+  main-process-only registry documented in [Integration credentials](credentials.md). Secrets live
+  only in Canopy's local database and never in `.canopy/config.json` or git.
 - Attachment downloads validate that the URL origin matches the connection's `baseUrl` before fetching. Downloads are capped at 50 MB and time out after 60 seconds.
 - Provider API requests use a 15-second timeout (`AbortSignal.timeout`).
 - Jira supports both Basic auth (username + API token) and Bearer token auth, selected based on whether a `username` is present.
@@ -345,11 +354,12 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
   - `prTemplate.ts` - PR title/body rendering, target branch resolution
   - `prCreation.ts` - `gh` CLI integration for push + PR creation
   - `prSummary.ts` - bounded, typed `gh` CLI lookup for sidebar/worktree PR state
-  - `KeychainTokenStore.ts` - credential storage keyed by provider:baseUrl
+  - `KeychainTokenStore.ts` - capability resolution, local bindings and legacy migration
   - `providers/jira.ts` - Jira REST + Agile API client
   - `providers/youtrack.ts` - YouTrack REST API client
   - `providers/github.ts` - GitHub GraphQL API client
   - `errors.ts` - typed error union with message formatter
+- Credential registry: `src/main/credentials/CredentialRegistry.ts`
 - Store: `src/renderer/src/lib/stores/taskTracker.svelte.ts`
 - UI components: `src/renderer/src/components/taskTracker/AttachmentLightbox.svelte` (in-app
   attachment viewer with save-to-disk) and `src/renderer/src/components/shared/Markdown.svelte`
