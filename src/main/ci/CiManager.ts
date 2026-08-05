@@ -43,20 +43,10 @@ import { TeamCityAdapter } from './providers/teamcity'
 import type { CiProviderAdapter } from './providers/types'
 import { credentialErrorMessage } from '../credentials/errors'
 import { githubActionsCredentialBaseUrl } from '../../renderer-shared/credentialBindings'
+import { ciDegradedCauses } from './degraded'
 
 type RemoteUrlResolver = (repoRoot: string) => ResultAsync<string, unknown>
 type GitHubClientFactory = (owner: string, repository: string, token: string) => GitHubActionsClient
-type DegradedCredentialResult = string[] | undefined
-
-function credentialFailureStatus(reasons: string[]): 401 | 403 | undefined {
-  for (const reason of reasons) {
-    const match = reason.match(/(?:API error|HTTP)\s+(401|403)\b/i)
-    if (match?.[1] === '401') return 401
-    if (match?.[1] === '403') return 403
-  }
-  return undefined
-}
-
 export interface CiDispatchConfirmation {
   repository: string
   workflowPath: string
@@ -138,18 +128,22 @@ export class CiManager {
     baseUrl: string,
     capability: CredentialCapability,
     result: ResultAsync<T, CiError>,
-    degraded?: (value: T) => DegradedCredentialResult,
   ): ResultAsync<T, CiError> {
     const record = (status: number, reason?: string): void =>
       this.tokenStore.recordResult(provider, baseUrl, capability, status, reason)
     return result
       .map((value) => {
-        const degradedReasons = degraded?.(value)
-        if (degradedReasons === undefined) {
+        const degradedCauses = ciDegradedCauses(value)
+        if (degradedCauses === undefined) {
           record(200)
         } else {
-          const status = credentialFailureStatus(degradedReasons)
-          if (status) record(status, degradedReasons.join(' · '))
+          const authFailure = degradedCauses.find(
+            (cause) =>
+              cause._tag === 'CiApiError' && (cause.status === 401 || cause.status === 403),
+          )
+          if (authFailure?._tag === 'CiApiError') {
+            record(authFailure.status, authFailure.message)
+          }
         }
         return value
       })
@@ -625,10 +619,6 @@ export class CiManager {
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.status(ref),
-        (rows) =>
-          rows.length > 0 && rows.every((row) => row.error)
-            ? rows.flatMap((row) => (row.error ? [row.error] : []))
-            : undefined,
       ),
     )
   }
@@ -678,7 +668,6 @@ export class CiManager {
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.activity(),
-        (activity) => activity.partialErrors,
       ),
     )
   }

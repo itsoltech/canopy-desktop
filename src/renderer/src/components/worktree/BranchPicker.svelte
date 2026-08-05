@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ChevronDown } from '@lucide/svelte'
-  import { isRemoteOnly } from './utils'
+  import { isRemoteOnly, shouldReopenBranchList } from './utils'
 
   let {
     branches,
@@ -60,7 +60,7 @@
   $effect(() => {
     // Parents can reset the bound selection without remounting this component (for example when
     // CiRunJobModal switches jobs). Never leave an empty/edited picker collapsed after that reset.
-    if (!collapseConfirmedSelection || !selectedBranch || query !== selectedBranch) listOpen = true
+    if (shouldReopenBranchList(collapseConfirmedSelection, selectedBranch, query)) listOpen = true
   })
 
   function pick(branch: string): void {

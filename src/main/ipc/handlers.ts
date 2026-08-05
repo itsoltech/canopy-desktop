@@ -4498,8 +4498,8 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:findPR',
     async (event, payload: { repoRoot: string; branch: string }) => {
-      // Reject leading-`-` branch names so they can't be consumed as gh flags.
-      if (typeof payload.branch !== 'string' || payload.branch.startsWith('-')) return null
+      // Keep renderer-supplied values within the same safe git-ref contract as PR mutations.
+      if (!isSafeGitRefName(payload.branch)) return null
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       try {
         const { stdout } = await execFileAsync(

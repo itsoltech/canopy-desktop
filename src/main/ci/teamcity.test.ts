@@ -8,6 +8,7 @@ import {
   mapBuild,
   parseBuildsResponse,
   queuedActivityLocator,
+  testConnection,
 } from './teamcity'
 
 afterEach(() => {
@@ -71,6 +72,39 @@ describe('fetchActivity', () => {
       _tag: 'CiApiError',
       message: expect.stringContaining('Running builds: TeamCity: VPN unavailable'),
     })
+  })
+})
+
+describe('testConnection', () => {
+  it('redacts a token echoed by a TeamCity error response', async () => {
+    const token = 'secret-token-value'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(`Bearer ${token}`, { status: 401 })),
+    )
+
+    const result = await testConnection('https://tc.example.com', token)
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected the connection to fail')
+    expect(result.error).toMatchObject({
+      _tag: 'CiApiError',
+      status: 401,
+      message: expect.stringContaining('[redacted]'),
+    })
+    expect(result.error._tag === 'CiApiError' && result.error.message).not.toContain(token)
+  })
+
+  it('redacts a token echoed by a network exception', async () => {
+    const token = 'secret-token-value'
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error(`request included ${token}`)))
+
+    const result = await testConnection('https://tc.example.com', token)
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected the connection to fail')
+    expect(result.error._tag === 'CiApiError' && result.error.message).toContain('[redacted]')
+    expect(result.error._tag === 'CiApiError' && result.error.message).not.toContain(token)
   })
 })
 

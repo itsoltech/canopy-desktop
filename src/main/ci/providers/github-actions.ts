@@ -24,6 +24,7 @@ import {
   type GitHubWorkflowSchema,
 } from '../github-actions/workflow'
 import type { CiProviderAdapter } from './types'
+import { withCiDegradedCauses } from '../degraded'
 
 export function discoverGitHubWorkflows(
   client: GitHubActionsClient,
@@ -239,6 +240,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
         if (workflowsResult.isErr()) return err(workflowsResult.error)
         const workflows = workflowsResult.value
         const rows: CiJobStatus[] = []
+        const causes: CiError[] = []
         for (const configured of this.config.workflows) {
           const workflow = workflows.find(
             (candidate) => candidate.path.toLowerCase() === configured.path.toLowerCase(),
@@ -255,6 +257,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
           }
           const runs = await this.client.listWorkflowRuns(workflow.id, ref.name)
           if (runs.isErr() && runs.error._tag === 'CiRateLimited') return err(runs.error)
+          if (runs.isErr()) causes.push(runs.error)
           rows.push(
             runs.isOk()
               ? {
@@ -274,7 +277,11 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
                 },
           )
         }
-        return ok(rows)
+        return ok(
+          rows.length > 0 && rows.every((row) => row.error)
+            ? withCiDegradedCauses(rows, causes)
+            : rows,
+        )
       })(),
     )
   }
@@ -287,6 +294,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
         const workflows = workflowsResult.value
         const runs: CiRun[] = []
         const partialErrors: string[] = []
+        const causes: CiError[] = []
         for (const configured of this.config.workflows) {
           const workflow = workflows.find(
             (candidate) => candidate.path.toLowerCase() === configured.path.toLowerCase(),
@@ -298,6 +306,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
           const result = await this.client.listWorkflowRunsPage(workflow.id)
           if (result.isErr()) {
             if (result.error._tag === 'CiRateLimited') return err(result.error)
+            causes.push(result.error)
             partialErrors.push(`${configured.label}: ${ciErrorMessage(result.error)}`)
             continue
           }
@@ -311,12 +320,13 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
           )
         }
         runs.sort(newestFirst)
-        return ok({
+        const activity: CiRunActivity = {
           running: runs.filter((run) => run.state === 'running' || run.state === 'waiting'),
           queued: runs.filter((run) => run.state === 'queued'),
           recent: runs.filter((run) => run.state === 'finished').slice(0, 10),
           ...(partialErrors.length ? { partialErrors } : {}),
-        })
+        }
+        return ok(partialErrors.length ? withCiDegradedCauses(activity, causes) : activity)
       })(),
     )
   }

@@ -23,6 +23,7 @@ import type {
   TeamCityCiConfig,
 } from '../types'
 import type { CiProviderAdapter } from './types'
+import { ciDegradedCauses, withCiDegradedCauses } from '../degraded'
 
 interface TeamCityClient {
   fetchBuildForBranch: typeof fetchBuildForBranch
@@ -109,6 +110,7 @@ export class TeamCityAdapter implements CiProviderAdapter {
         message: 'TeamCity branch contains locator-unsafe characters',
       })
     }
+    const causes: CiError[] = []
     return ResultAsync.combine(
       this.config.buildTypes.map((buildType) =>
         this.client
@@ -119,16 +121,19 @@ export class TeamCityAdapter implements CiProviderAdapter {
             provider: 'teamcity',
             run: build ? mapBuild(build, buildType.id, buildType.label) : null,
           }))
-          .orElse((error) =>
-            okAsync({
+          .orElse((error) => {
+            causes.push(error)
+            return okAsync({
               jobId: buildType.id,
               label: buildType.label,
               provider: 'teamcity' as const,
               run: null,
               error: ciErrorMessage(error),
-            }),
-          ),
+            })
+          }),
       ),
+    ).map((rows) =>
+      rows.length > 0 && rows.every((row) => row.error) ? withCiDegradedCauses(rows, causes) : rows,
     )
   }
 
@@ -205,11 +210,15 @@ export class TeamCityAdapter implements CiProviderAdapter {
         this.token,
         this.config.buildTypes.map((buildType) => buildType.id),
       )
-      .map((activity) => ({
-        running: activity.running.map(mapActivityBuild),
-        queued: activity.queued.map(mapActivityBuild),
-        recent: activity.recent.map(mapActivityBuild),
-        ...(activity.partialErrors?.length ? { partialErrors: activity.partialErrors } : {}),
-      }))
+      .map((activity) => {
+        const result: CiRunActivity = {
+          running: activity.running.map(mapActivityBuild),
+          queued: activity.queued.map(mapActivityBuild),
+          recent: activity.recent.map(mapActivityBuild),
+          ...(activity.partialErrors?.length ? { partialErrors: activity.partialErrors } : {}),
+        }
+        const causes = ciDegradedCauses(activity)
+        return causes === undefined ? result : withCiDegradedCauses(result, causes)
+      })
   }
 }

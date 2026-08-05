@@ -5,6 +5,7 @@ import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
 import type { CiActivityBuild, GitHubActionsCiConfig } from './types'
 import type { GitHubActionsClient } from './github-actions/client'
+import { withCiDegradedCauses } from './degraded'
 
 // The network layer is mocked — these tests pin the SECURITY-relevant glue: the
 // configured-build-type allowlist, the token gate, config validation at read time
@@ -425,7 +426,7 @@ describe('statusFor', () => {
       'https://tc.example.com',
       'builds.read',
       401,
-      expect.stringContaining('401'),
+      'Unauthorized',
     )
     expect(vi.mocked(tokenStore.recordResult).mock.calls.some((call) => call[3] === 200)).toBe(
       false,
@@ -498,6 +499,61 @@ describe('statusFor', () => {
       'Gakko_Build',
       'next',
     )
+  })
+})
+
+describe('credential verification for partial activity', () => {
+  it('records a structured partial 403 without marking the credential verified', async () => {
+    const { manager, tokenStore } = fakes({ ci: VALID_CI })
+    vi.mocked(fetchActivity).mockReturnValueOnce(
+      okAsync(
+        withCiDegradedCauses(
+          {
+            running: [],
+            queued: [],
+            recent: [],
+            partialErrors: ['Queued builds: forbidden'],
+          },
+          [{ _tag: 'CiApiError', status: 403, message: 'Forbidden' }],
+        ),
+      ),
+    )
+
+    const result = await manager.runActivity('r')
+
+    expect(result.isOk()).toBe(true)
+    expect(tokenStore.recordResult).toHaveBeenCalledWith(
+      'teamcity',
+      'https://tc.example.com',
+      'builds.read',
+      403,
+      'Forbidden',
+    )
+    expect(vi.mocked(tokenStore.recordResult).mock.calls.some((call) => call[3] === 200)).toBe(
+      false,
+    )
+  })
+
+  it('does not infer authentication failure from status-like text in a partial 500', async () => {
+    const { manager, tokenStore } = fakes({ ci: VALID_CI })
+    vi.mocked(fetchActivity).mockReturnValueOnce(
+      okAsync(
+        withCiDegradedCauses(
+          {
+            running: [],
+            queued: [],
+            recent: [],
+            partialErrors: ['Recent builds: upstream said HTTP 403 while handling a 500'],
+          },
+          [{ _tag: 'CiApiError', status: 500, message: 'upstream said HTTP 403' }],
+        ),
+      ),
+    )
+
+    const result = await manager.runActivity('r')
+
+    expect(result.isOk()).toBe(true)
+    expect(tokenStore.recordResult).not.toHaveBeenCalled()
   })
 })
 

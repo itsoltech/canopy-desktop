@@ -42,6 +42,8 @@ replace the stale result.
 
 - **No compatible credential:** add a credential whose service, audience and capabilities match
   the integration, then bind it to the tracker or CI connection.
+- **Incompatible binding:** the saved binding points to a credential whose service, audience or
+  capabilities no longer match. Re-enter the token to replace that binding with a compatible one.
 - **Multiple compatible credentials:** automatic binding deliberately stops because Canopy cannot
   safely choose between candidates. Re-enter the intended token for that connection; saving it
   creates the explicit local binding used from then on.

@@ -84,6 +84,47 @@ describe('normalizeKeychainBindingPayload', () => {
       expect(() => normalizeKeychainBindingPayload(payload)).toThrow(error)
     },
   )
+
+  it('trims renderer-supplied binding fields before they reach persistence or path checks', () => {
+    expect(
+      normalizeKeychainCredentialPayload({
+        provider: ' jira ',
+        baseUrl: ' https://jira.example.com/ ',
+        repoRoot: ' C:\\source\\repo ',
+        token: 'token',
+        username: ' user@example.com ',
+      }),
+    ).toMatchObject({
+      provider: 'jira',
+      baseUrl: 'https://jira.example.com/',
+      repoRoot: 'C:\\source\\repo',
+      username: 'user@example.com',
+    })
+  })
+
+  it.each([
+    [{ provider: 'jira', baseUrl: `https://${'x'.repeat(2_048)}`, token: 'token' }, 'Base URL'],
+    [
+      {
+        provider: 'jira',
+        baseUrl: 'https://jira.example.com',
+        repoRoot: `C:\\${'x'.repeat(32_767)}`,
+        token: 'token',
+      },
+      'Credential repository',
+    ],
+    [
+      {
+        provider: 'jira',
+        baseUrl: 'https://jira.example.com',
+        username: 'x'.repeat(321),
+        token: 'token',
+      },
+      'Credential username',
+    ],
+  ])('rejects oversized renderer-supplied fields', (payload, error) => {
+    expect(() => normalizeKeychainCredentialPayload(payload)).toThrow(error)
+  })
 })
 
 describe('authorizeKeychainBindingForConfig', () => {

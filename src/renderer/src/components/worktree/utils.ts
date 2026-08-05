@@ -12,3 +12,12 @@ export function isRemoteOnly(
   const localName = branch.slice(branch.indexOf('/') + 1)
   return !branches.local.includes(localName)
 }
+
+/** A confirmed combobox selection only reopens when its bound value is reset or edited. */
+export function shouldReopenBranchList(
+  collapseConfirmedSelection: boolean,
+  selectedBranch: string,
+  query: string,
+): boolean {
+  return collapseConfirmedSelection && (!selectedBranch || query !== selectedBranch)
+}

@@ -339,7 +339,9 @@
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
           onclick={openActivity}
           title={activityError ||
-            `Configured repository jobs running or queued on ${serverHost}, plus recent history — opens in a window`}
+            (activityPartialErrors.length > 0
+              ? `CI activity is incomplete: ${activityPartialErrors.join(' · ')}`
+              : `Configured repository jobs running or queued on ${serverHost}, plus recent history — opens in a window`)}
         >
           <Hammer
             size={13}

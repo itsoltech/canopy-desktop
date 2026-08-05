@@ -14,6 +14,28 @@ export interface KeychainCredentialPayload extends KeychainBindingPayload {
   username?: string
 }
 
+const PROVIDER_MAX_LENGTH = 64
+const BASE_URL_MAX_LENGTH = 2_048
+const REPO_ROOT_MAX_LENGTH = 32_767
+const USERNAME_MAX_LENGTH = 320
+
+function requiredText(value: unknown, label: string, maxLength: number): string {
+  if (typeof value !== 'string') throw new Error(`${label} is required`)
+  const normalized = value.trim()
+  if (!normalized) throw new Error(`${label} is required`)
+  if (normalized.length > maxLength) throw new Error(`${label} is too long`)
+  return normalized
+}
+
+function optionalText(value: unknown, label: string, maxLength: number): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') throw new Error(`Invalid ${label.toLowerCase()}`)
+  const normalized = value.trim()
+  if (!normalized) return undefined
+  if (normalized.length > maxLength) throw new Error(`${label} is too long`)
+  return normalized
+}
+
 function comparableBaseUrl(baseUrl: string): string {
   try {
     const parsed = new URL(baseUrl.trim())
@@ -56,17 +78,22 @@ export function validateKeychainBinding(provider: string, bindingKey?: string): 
 export function normalizeKeychainBindingPayload(raw: unknown): KeychainBindingPayload {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid credential payload')
   const { provider, baseUrl, bindingKey, repoRoot } = raw as Record<string, unknown>
-  if (typeof provider !== 'string' || !provider || typeof baseUrl !== 'string' || !baseUrl) {
+  if (typeof provider !== 'string' || typeof baseUrl !== 'string') {
     throw new Error('Provider and baseUrl are required')
   }
   if (bindingKey !== undefined && (typeof bindingKey !== 'string' || !bindingKey)) {
     throw new Error('Invalid credential binding')
   }
-  if (repoRoot !== undefined && (typeof repoRoot !== 'string' || !repoRoot)) {
-    throw new Error('Invalid credential repository')
+  const normalizedProvider = requiredText(provider, 'Provider', PROVIDER_MAX_LENGTH)
+  const normalizedBaseUrl = requiredText(baseUrl, 'Base URL', BASE_URL_MAX_LENGTH)
+  const normalizedRepoRoot = optionalText(repoRoot, 'Credential repository', REPO_ROOT_MAX_LENGTH)
+  validateKeychainBinding(normalizedProvider, bindingKey)
+  return {
+    provider: normalizedProvider,
+    baseUrl: normalizedBaseUrl,
+    bindingKey,
+    repoRoot: normalizedRepoRoot,
   }
-  validateKeychainBinding(provider, bindingKey)
-  return { provider, baseUrl, bindingKey, repoRoot }
 }
 
 export function normalizeKeychainCredentialPayload(raw: unknown): KeychainCredentialPayload {
@@ -79,6 +106,6 @@ export function normalizeKeychainCredentialPayload(raw: unknown): KeychainCreden
   return {
     ...binding,
     token: normalizeCredentialToken(token),
-    username,
+    username: optionalText(username, 'Credential username', USERNAME_MAX_LENGTH),
   }
 }

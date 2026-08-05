@@ -12,6 +12,7 @@ import type {
 import { ciErrorMessage, type CiError } from './errors'
 import { parsePromptParameters } from './parameters'
 import { parseActivity, parseBranches, parseTcDate, type RawActivityResponse } from './activity'
+import { withCiDegradedCauses } from './degraded'
 
 // TeamCity REST client (https://www.jetbrains.com/help/teamcity/rest/). Pure
 // response-mapping helpers are exported for unit tests; network access follows the
@@ -85,10 +86,16 @@ export function parseBuildsResponse(json: {
 
 // --- Network layer ---
 
-const apiError = (status: number, message: string): CiError => ({
+function redactTeamCityToken(message: string, token?: string): string {
+  // These messages can become plaintext credential verification metadata, so redact before the
+  // response body is truncated, persisted, or returned to the renderer.
+  return token ? message.replaceAll(token, '[redacted]') : message
+}
+
+const apiError = (status: number, message: string, token?: string): CiError => ({
   _tag: 'CiApiError',
   status,
-  message,
+  message: redactTeamCityToken(message, token),
 })
 
 function tcFetch<T>(
@@ -110,17 +117,22 @@ function tcFetch<T>(
       redirect: 'error',
       signal: AbortSignal.timeout(15_000),
     }),
-    (e) => apiError(0, errorMessage(e)),
+    (e) => apiError(0, errorMessage(e), token),
   ).andThen((res) => {
     if (!res.ok) {
       return fromExternalCall(
         res.text().catch(() => ''),
-        (e) => apiError(res.status, errorMessage(e)),
+        (e) => apiError(res.status, errorMessage(e), token),
       ).andThen((body) =>
-        errAsync(apiError(res.status, body.trim().slice(0, 300) || res.statusText)),
+        errAsync(
+          apiError(
+            res.status,
+            redactTeamCityToken(body.trim(), token).slice(0, 300) || res.statusText,
+          ),
+        ),
       )
     }
-    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e), token))
   })
 }
 
@@ -220,6 +232,7 @@ export function fetchActivity(
   interface ActivityPart {
     response: RawActivityResponse
     error?: string
+    cause?: CiError
   }
   const collect = (label: string, path: string): ResultAsync<ActivityPart, CiError> =>
     tcFetch<RawActivityResponse>(baseUrl, token, path)
@@ -228,6 +241,7 @@ export function fetchActivity(
         okAsync<ActivityPart, CiError>({
           response: {},
           error: `${label}: ${ciErrorMessage(error)}`,
+          cause: error,
         }),
       )
   return ResultAsync.combine([
@@ -247,18 +261,27 @@ export function fetchActivity(
     const partialErrors = [running.error, queued.error, recent.error].filter(
       (error): error is string => Boolean(error),
     )
+    const causes = [running.cause, queued.cause, recent.cause].filter((cause): cause is CiError =>
+      Boolean(cause),
+    )
     if (partialErrors.length === 3) {
+      const authFailure = causes.find(
+        (cause) => cause._tag === 'CiApiError' && (cause.status === 401 || cause.status === 403),
+      )
       return errAsync<CiActivity, CiError>({
         _tag: 'CiApiError',
-        status: 0,
+        status: authFailure?._tag === 'CiApiError' ? authFailure.status : 0,
         message: partialErrors.join(' · '),
       })
     }
     const activity = parseActivity(running.response, queued.response, recent.response)
-    return okAsync<CiActivity, CiError>({
+    const result: CiActivity = {
       ...activity,
       ...(partialErrors.length ? { partialErrors } : {}),
-    })
+    }
+    return okAsync<CiActivity, CiError>(
+      partialErrors.length ? withCiDegradedCauses(result, causes) : result,
+    )
   })
 }
 
