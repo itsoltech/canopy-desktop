@@ -68,5 +68,10 @@ describe('GitHub PR fallback refresh', () => {
 
     await expect(a).resolves.toMatchObject({ state: 'OPEN' })
     await expect(refreshed).resolves.toMatchObject({ state: 'MERGED' })
+
+    const cached = loadPRFallbackSummary('C:/repo', 'feature/large-pr')
+    expect(cached).toBe(refreshed)
+    await expect(cached).resolves.toMatchObject({ state: 'MERGED' })
+    expect(api.taskTrackerPRSummary).toHaveBeenCalledTimes(2)
   })
 })

@@ -156,6 +156,16 @@
       </div>
     </header>
     <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+      <div role="status" class:sr-only={!activity?.partialErrors?.length}>
+        {#if activity?.partialErrors?.length}
+          <div
+            class="p-2 rounded-md bg-warning-bg text-xs text-warning-text break-words"
+            title={activity.partialErrors.join(' · ')}
+          >
+            Partial history: {activity.partialErrors.join(' · ')}
+          </div>
+        {/if}
+      </div>
       {#if !loaded}
         <div class="flex items-center gap-2 p-3 text-sm text-text-muted" role="status">
           <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" /> Loading history…
@@ -166,11 +176,6 @@
         {#if error}
           <div class="p-2 rounded-md bg-warning-bg text-xs text-warning-text" role="status">
             Could not refresh; showing the last loaded history. {error}
-          </div>
-        {/if}
-        {#if activity.partialErrors?.length}
-          <div class="p-2 rounded-md bg-warning-bg text-xs text-warning-text" role="status">
-            Partial history: {activity.partialErrors.join(' · ')}
           </div>
         {/if}
         {#if activity.running.length}

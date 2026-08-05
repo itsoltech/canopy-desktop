@@ -57,6 +57,12 @@
   // Combobox mode: the list collapses after a pick and reopens when the user edits the input.
   let listOpen = $state(!collapseConfirmedSelection || !selectedBranch || query !== selectedBranch)
 
+  $effect(() => {
+    // Parents can reset the bound selection without remounting this component (for example when
+    // CiRunJobModal switches jobs). Never leave an empty/edited picker collapsed after that reset.
+    if (!collapseConfirmedSelection || !selectedBranch || query !== selectedBranch) listOpen = true
+  })
+
   function pick(branch: string): void {
     selectedBranch = branch
     if (fillQueryOnPick) query = branch

@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { err, ok, ResultAsync, type Result } from 'neverthrow'
 import { errorMessage } from '../errors'
+import { redactGitHubFailureReason } from '../github/redactFailureReason'
 import type { TaskTrackerError } from './errors'
 
 export const PR_SUMMARY_FIELDS = 'number,state,isDraft'
@@ -36,7 +37,11 @@ const runSummaryCommand: SummaryCommandRunner = (command, args, options) =>
       const reason = error.killed
         ? `GitHub CLI request timed out after ${PR_SUMMARY_TIMEOUT_MS / 1000} seconds`
         : stderr.trim() || error.message
-      reject(Object.assign(new Error(reason), { code: (error as NodeJS.ErrnoException).code }))
+      reject(
+        Object.assign(new Error(redactGitHubFailureReason(reason)), {
+          code: (error as NodeJS.ErrnoException).code,
+        }),
+      )
     })
   })
 

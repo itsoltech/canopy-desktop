@@ -57,6 +57,19 @@ describe('fetchActivity', () => {
       expect.stringContaining('Queued builds: TeamCity API error 403'),
     ])
   })
+
+  it('returns an error when every activity query fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('VPN unavailable')))
+
+    const result = await fetchActivity('https://tc.example.com', 'token', ['Build'])
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected total activity failure')
+    expect(result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: expect.stringContaining('Running builds: TeamCity: VPN unavailable'),
+    })
+  })
 })
 
 describe('buildBranchLocator', () => {

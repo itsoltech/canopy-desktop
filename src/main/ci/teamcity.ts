@@ -228,12 +228,22 @@ export function fetchActivity(
       'Recent builds',
       `/app/rest/builds?locator=${encodeURIComponent(`${scope},state:finished,branch:(default:any),defaultFilter:false,count:10`)}&fields=${fields}`,
     ),
-  ]).map(([running, queued, recent]) => {
-    const activity = parseActivity(running.response, queued.response, recent.response)
+  ]).andThen(([running, queued, recent]) => {
     const partialErrors = [running.error, queued.error, recent.error].filter(
       (error): error is string => Boolean(error),
     )
-    return { ...activity, ...(partialErrors.length ? { partialErrors } : {}) }
+    if (partialErrors.length === 3) {
+      return errAsync<CiActivity, CiError>({
+        _tag: 'CiApiError',
+        status: 0,
+        message: partialErrors.join(' · '),
+      })
+    }
+    const activity = parseActivity(running.response, queued.response, recent.response)
+    return okAsync<CiActivity, CiError>({
+      ...activity,
+      ...(partialErrors.length ? { partialErrors } : {}),
+    })
   })
 }
 

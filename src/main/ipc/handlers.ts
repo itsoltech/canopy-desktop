@@ -103,6 +103,7 @@ import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTrack
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import { parseGitHubRemote } from '../github/remoteUrl'
+import { redactGitHubFailureReason } from '../github/redactFailureReason'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
 import { listSelectableInterfaces } from '../remote/discovery'
@@ -147,10 +148,10 @@ function ghFailureReason(error: unknown): string {
     }
     if ('stderr' in error && typeof (error as { stderr?: unknown }).stderr === 'string') {
       const stderr = (error as { stderr: string }).stderr.trim()
-      if (stderr) return stderr
+      if (stderr) return redactGitHubFailureReason(stderr)
     }
   }
-  return errorMessage(error)
+  return redactGitHubFailureReason(errorMessage(error))
 }
 
 // Session-level flag: once the user has successfully authenticated to reveal

@@ -192,6 +192,16 @@
     </header>
 
     <div class="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-1">
+      <div role="status" class:sr-only={!activity?.partialErrors?.length}>
+        {#if activity?.partialErrors?.length}
+          <p
+            class="mx-3 mt-0 mb-2 px-2.5 py-2 rounded-md bg-warning-bg text-xs text-warning-text break-words"
+            title={activity.partialErrors.join(' · ')}
+          >
+            Partial history: {activity.partialErrors.join(' · ')}
+          </p>
+        {/if}
+      </div>
       {#if !loaded}
         <div class="flex items-center gap-2 px-3 py-2 text-sm text-text-faint">
           <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
@@ -200,14 +210,6 @@
       {:else if error}
         <p class="px-3 py-2 m-0 text-sm text-danger-text" title={error}>{error}</p>
       {:else if activity}
-        {#if activity.partialErrors?.length}
-          <p
-            class="mx-3 mt-0 mb-2 px-2.5 py-2 rounded-md bg-warning-bg text-xs text-warning-text break-words"
-            title={activity.partialErrors.join(' · ')}
-          >
-            Partial history: {activity.partialErrors.join(' · ')}
-          </p>
-        {/if}
         <span
           class="px-3 pt-1 pb-0.5 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
           >Running & queued</span

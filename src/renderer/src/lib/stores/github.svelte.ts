@@ -46,6 +46,9 @@ export function getPRFallbackGeneration(repoRoot: string, branch: string): numbe
 
 export function invalidatePRFallback(repoRoot: string, branch: string): void {
   const key = prKey(repoRoot, branch)
+  for (const requestKey of fallbackSummaryRequests.keys()) {
+    if (requestKey.startsWith(`${key}::`)) fallbackSummaryRequests.delete(requestKey)
+  }
   fallbackGenerationByKey[key] = (fallbackGenerationByKey[key] ?? 0) + 1
 }
 
@@ -58,11 +61,9 @@ export function loadPRFallbackSummary(
   const existing = fallbackSummaryRequests.get(requestKey)
   if (existing) return existing
 
-  const request = window.api.taskTrackerPRSummary(repoRoot, branch).finally(() => {
-    if (fallbackSummaryRequests.get(requestKey) === request) {
-      fallbackSummaryRequests.delete(requestKey)
-    }
-  })
+  // Keep settled promises too: the generation is bumped by every in-app PR mutation and Retry,
+  // so freshness has an explicit invalidation boundary instead of re-spawning git/gh on visits.
+  const request = window.api.taskTrackerPRSummary(repoRoot, branch)
   fallbackSummaryRequests.set(requestKey, request)
   return request
 }
