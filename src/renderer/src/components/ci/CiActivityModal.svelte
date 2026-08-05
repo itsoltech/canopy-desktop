@@ -93,7 +93,7 @@
   {@const chip = ciChip({ build })}
   <button
     type="button"
-    class="group flex items-center gap-2.5 w-full min-h-8 px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit text-left rounded-md transition-colors duration-fast enabled:cursor-pointer enabled:hover:bg-hover disabled:cursor-default"
+    class="group flex shrink-0 items-center gap-2.5 w-full min-h-8 px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit text-left rounded-md transition-colors duration-fast enabled:cursor-pointer enabled:hover:bg-hover disabled:cursor-default"
     disabled={!build.webUrl}
     onclick={() => openBuild(build.webUrl)}
     title={build.webUrl ? 'Open in TeamCity' : undefined}
