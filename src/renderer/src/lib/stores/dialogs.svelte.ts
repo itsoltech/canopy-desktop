@@ -65,6 +65,8 @@ interface ProjectCiState {
 interface CiActivityState {
   type: 'ciActivity'
   repoRoot: string
+  /** Preselects the window's branch filter; undefined opens on "All branches". */
+  branch?: string
 }
 
 interface CiRunJobState {
@@ -242,9 +244,13 @@ export function showCiRunJob(repoRoot: string, opts?: { branch?: string }): void
   dialogState.current = { type: 'ciRunJob', repoRoot, ...opts }
 }
 
-/** Server activity window (running / queued / recent history) — the sidebar only shows the summary chip. */
-export function showCiActivity(repoRoot: string): void {
-  dialogState.current = { type: 'ciActivity', repoRoot }
+/**
+ * Jobs history window (running / queued / recent). `branch` preselects the window's
+ * filter so opening it from the branch-scoped sidebar card lands on the same builds
+ * the card was describing, instead of a repository-wide list the card is not part of.
+ */
+export function showCiActivity(repoRoot: string, branch?: string): void {
+  dialogState.current = { type: 'ciActivity', repoRoot, branch }
 }
 
 /** Native PR panel — details fetched via the authenticated gh CLI, no browser login needed. */

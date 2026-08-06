@@ -613,7 +613,10 @@
     initialBranch={dialogState.current.branch}
   />
 {:else if dialogState.current.type === 'ciActivity'}
-  <CiActivityModalRouter repoRoot={dialogState.current.repoRoot} />
+  <CiActivityModalRouter
+    repoRoot={dialogState.current.repoRoot}
+    branch={dialogState.current.branch}
+  />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}

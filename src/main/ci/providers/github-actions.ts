@@ -282,7 +282,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
     )
   }
 
-  activity(): ResultAsync<CiRunActivity, CiError> {
+  activity(branch?: string): ResultAsync<CiRunActivity, CiError> {
     return new ResultAsync(
       (async (): Promise<Result<CiRunActivity, CiError>> => {
         const workflowsResult = await this.client.listWorkflows()
@@ -299,7 +299,10 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
             partialErrors.push(`Configured workflow ${configured.path} is missing`)
             continue
           }
-          const result = await this.client.listWorkflowRunsPage(workflow.id)
+          // `branch` narrows the query itself, not the response: `recent` is sliced to
+          // the ten newest across every configured workflow, so a response-side filter
+          // would drop a branch whose last run is older than that.
+          const result = await this.client.listWorkflowRunsPage(workflow.id, branch)
           if (result.isErr()) {
             if (result.error._tag === 'CiRateLimited') return err(result.error)
             causes.push(result.error)

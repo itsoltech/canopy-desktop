@@ -1449,7 +1449,8 @@ const api = {
       inputs: Record<string, string | boolean>
     },
   ) => ipcRenderer.invoke('ci:triggerJob', { repoRoot, ...request }),
-  ciRunActivity: (repoRoot: string) => ipcRenderer.invoke('ci:runActivity', { repoRoot }),
+  ciRunActivity: (repoRoot: string, branch?: string) =>
+    ipcRenderer.invoke('ci:runActivity', { repoRoot, branch }),
   ciRun: (repoRoot: string, runId: string) => ipcRenderer.invoke('ci:run', { repoRoot, runId }),
   ciStatus: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('ci:status', { repoRoot, branch }),
@@ -1465,7 +1466,8 @@ const api = {
     ipcRenderer.invoke('ci:testNewConnection', { baseUrl, token }),
   ciBuildParameters: (repoRoot: string, buildTypeId: string) =>
     ipcRenderer.invoke('ci:buildParameters', { repoRoot, buildTypeId }),
-  ciActivity: (repoRoot: string) => ipcRenderer.invoke('ci:activity', { repoRoot }),
+  ciActivity: (repoRoot: string, branch?: string) =>
+    ipcRenderer.invoke('ci:activity', { repoRoot, branch }),
   ciBranches: (repoRoot: string, buildTypeId: string) =>
     ipcRenderer.invoke('ci:branches', { repoRoot, buildTypeId }),
   ciListBuildTypes: (baseUrl: string) => ipcRenderer.invoke('ci:listBuildTypes', { baseUrl }),

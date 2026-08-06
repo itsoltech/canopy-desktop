@@ -6,7 +6,7 @@
   import CiActivityModal from './CiActivityModal.svelte'
   import GitHubActionsActivityModal from './GitHubActionsActivityModal.svelte'
 
-  let { repoRoot }: { repoRoot: string } = $props()
+  let { repoRoot, branch }: { repoRoot: string; branch?: string } = $props()
   let provider = $state<'teamcity' | 'github-actions' | ''>('')
   let error = $state('')
   let loading = $state(true)
@@ -36,9 +36,9 @@
 </script>
 
 {#if provider === 'github-actions'}
-  <GitHubActionsActivityModal {repoRoot} />
+  <GitHubActionsActivityModal {repoRoot} initialBranch={branch} />
 {:else if provider === 'teamcity'}
-  <CiActivityModal {repoRoot} />
+  <CiActivityModal {repoRoot} initialBranch={branch} />
 {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div

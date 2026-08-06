@@ -17,5 +17,6 @@ export interface CiProviderAdapter {
   parameters(jobId: string, ref: CiRef): ResultAsync<CiParameterSet, CiError>
   trigger(request: CiTriggerRequest): ResultAsync<CiRunTriggerResult, CiError>
   run(runId: string): ResultAsync<CiRun, CiError>
-  activity(): ResultAsync<CiRunActivity, CiError>
+  /** `branch` scopes the provider's own query — the result caps are applied before we see them. */
+  activity(branch?: string): ResultAsync<CiRunActivity, CiError>
 }

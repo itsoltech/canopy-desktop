@@ -225,7 +225,12 @@ describe('the configured-build-type allowlist', () => {
 
     const result = await manager.activity('r')
 
-    expect(fetchActivity).toHaveBeenCalledWith('https://tc.example.com', 'tok', ['Gakko_Build'])
+    expect(fetchActivity).toHaveBeenCalledWith(
+      'https://tc.example.com',
+      'tok',
+      ['Gakko_Build'],
+      undefined,
+    )
     expect(result._unsafeUnwrap().running).toEqual([])
     expect(result._unsafeUnwrap().queued.map((item) => item.id)).toEqual([2])
     expect(result._unsafeUnwrap().recent.map((item) => item.id)).toEqual([5])

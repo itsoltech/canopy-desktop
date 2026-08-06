@@ -73,6 +73,60 @@ describe('fetchActivity', () => {
       message: expect.stringContaining('Running builds: TeamCity: VPN unavailable'),
     })
   })
+
+  it('narrows running and recent SERVER-side, and the unfilterable queue in the response', async () => {
+    // The whole point of the branch filter: `count:10` is applied by TeamCity, so a
+    // response-side filter would return nothing for a branch whose builds are older.
+    // A fresh Response per call: a body can only be consumed once, so a shared
+    // instance would leave the second and third slices empty for the wrong reason.
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            build: [
+              { id: 1, branchName: 'feat/x', buildType: { id: 'Build' } },
+              { id: 2, branchName: 'main', buildType: { id: 'Build' } },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchActivity('https://tc.example.com', 'token', ['Build'], 'feat/x')
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    const urls = fetchMock.mock.calls.map(([url]) => decodeURIComponent(String(url)))
+    expect(urls[0]).toContain('branch:(name:(feat/x))')
+    expect(urls[2]).toContain('branch:(name:(feat/x))')
+    expect(urls.join(' ')).not.toContain('branch:(default:any)')
+    // BuildQueueLocator has no `branch` dimension, so that slice alone is filtered here.
+    expect(urls[1]).not.toContain('branch:')
+    expect(result.value.queued.map((build) => build.id)).toEqual([1])
+    // The two server-filtered slices are trusted as returned — no second filter pass.
+    expect(result.value.running.map((build) => build.id)).toEqual([1, 2])
+  })
+
+  it('refuses a branch that would escape the locator parentheses', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchActivity(
+      'https://tc.example.com',
+      'token',
+      ['Build'],
+      'feat/x),foo:(',
+    )
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected a rejected branch')
+    expect(result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'TeamCity branch contains locator-unsafe characters',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('testConnection', () => {

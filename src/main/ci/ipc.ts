@@ -91,6 +91,17 @@ function validateRef(raw: unknown): CiRef {
   return { name, kind }
 }
 
+/**
+ * The history window's branch filter. `undefined` is the "All branches" option and
+ * must stay distinguishable from a rejected value — an empty string would otherwise
+ * silently widen a filtered view back to the whole repository.
+ */
+function validateActivityBranch(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined
+  if (!isSafeGitRefName(raw)) throw new Error('Invalid branch name')
+  return raw
+}
+
 function validateInputs(raw: unknown): Record<string, CiInputValue> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid CI inputs')
   const entries = Object.entries(raw as Record<string, unknown>)
@@ -276,11 +287,15 @@ export function registerCiHandlers({
     },
   )
 
-  ipcMain.handle('ci:runActivity', async (event: CiIpcEvent, payload: { repoRoot: string }) => {
-    const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
-    const result = await ciManager.runActivity(repoRoot)
-    return unwrapOrThrow(result, ciErrorMessage)
-  })
+  ipcMain.handle(
+    'ci:runActivity',
+    async (event: CiIpcEvent, payload: { repoRoot: string; branch?: string }) => {
+      const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      const branch = validateActivityBranch(payload.branch)
+      const result = await ciManager.runActivity(repoRoot, branch)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
 
   ipcMain.handle(
     'ci:run',
@@ -373,11 +388,15 @@ export function registerCiHandlers({
   )
 
   // Activity for build types selected in the repository's CI configuration.
-  ipcMain.handle('ci:activity', async (event: CiIpcEvent, payload: { repoRoot: string }) => {
-    const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
-    const result = await ciManager.activity(repoRoot)
-    return unwrapOrThrow(result, ciErrorMessage)
-  })
+  ipcMain.handle(
+    'ci:activity',
+    async (event: CiIpcEvent, payload: { repoRoot: string; branch?: string }) => {
+      const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      const branch = validateActivityBranch(payload.branch)
+      const result = await ciManager.activity(repoRoot, branch)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
 
   // Branch list of a configured build type — feeds the Run job dialog.
   ipcMain.handle(

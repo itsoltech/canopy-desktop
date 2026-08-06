@@ -468,8 +468,11 @@ export class CiManager {
     )
   }
 
-  /** Activity limited to build configurations selected in this repository's CI config. */
-  activity(repoRoot: string): ResultAsync<CiActivity, CiError> {
+  /**
+   * Activity limited to build configurations selected in this repository's CI config,
+   * and to `branch` when the history window's filter is set to one.
+   */
+  activity(repoRoot: string, branch?: string): ResultAsync<CiActivity, CiError> {
     return this.loadConfig(repoRoot).andThen((ci) =>
       ci.provider !== 'teamcity'
         ? errAsync<CiActivity, CiError>({
@@ -483,6 +486,7 @@ export class CiManager {
               ci.baseUrl,
               token,
               ci.buildTypes.map((bt) => bt.id),
+              branch,
             ).map((activity) => {
               const configured = new Set(ci.buildTypes.map((bt) => bt.id))
               const keepConfigured = (build: CiActivity['recent'][number]): boolean =>
@@ -695,7 +699,7 @@ export class CiManager {
     })
   }
 
-  runActivity(repoRoot: string): ResultAsync<CiRunActivity, CiError> {
+  runActivity(repoRoot: string, branch?: string): ResultAsync<CiRunActivity, CiError> {
     return this.adapter(repoRoot).andThen(({ ci, adapter, token }) =>
       this.observeCredentialResult(
         ci.provider,
@@ -703,7 +707,7 @@ export class CiManager {
           ? githubActionsCredentialBaseUrl(ci.repository)
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
-        adapter.activity(),
+        adapter.activity(branch),
         token,
       ),
     )

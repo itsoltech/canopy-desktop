@@ -201,12 +201,13 @@ export class TeamCityAdapter implements CiProviderAdapter {
     })
   }
 
-  activity(): ResultAsync<CiRunActivity, CiError> {
+  activity(branch?: string): ResultAsync<CiRunActivity, CiError> {
     return this.client
       .fetchActivity(
         this.config.baseUrl,
         this.token,
         this.config.buildTypes.map((buildType) => buildType.id),
+        branch,
       )
       .map((activity) => {
         const result: CiRunActivity = {

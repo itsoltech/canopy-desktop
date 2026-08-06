@@ -220,15 +220,31 @@ export function queuedActivityLocator(buildTypeIds: string[]): string {
   return `${activityBuildTypesLocator(buildTypeIds)},count:20`
 }
 
-/** Activity for the repository's configured build types only. */
+/**
+ * Activity for the repository's configured build types only.
+ *
+ * `branch` narrows the SERVER-side slice. That is the whole point of the history
+ * window's filter: `count:10` is applied by TeamCity before anything reaches us, so
+ * filtering the response instead would hand back an empty list for any branch whose
+ * builds are older than the ten newest in the repository.
+ */
 export function fetchActivity(
   baseUrl: string,
   token: string,
   buildTypeIds: string[],
+  branch?: string,
 ): ResultAsync<CiActivity, CiError> {
+  if (branch !== undefined && !isTeamCityLocatorSafeRef(branch)) {
+    return errAsync<CiActivity, CiError>({
+      _tag: 'CiApiError',
+      status: 0,
+      message: 'TeamCity branch contains locator-unsafe characters',
+    })
+  }
   const fields =
     'count,build(id,number,status,statusText,percentageComplete,webUrl,branchName,queuedDate,startDate,finishDate,buildType(id,name))'
   const scope = activityBuildTypesLocator(buildTypeIds)
+  const branchLocator = branch === undefined ? 'branch:(default:any)' : `branch:(name:(${branch}))`
   interface ActivityPart {
     response: RawActivityResponse
     error?: string
@@ -247,7 +263,7 @@ export function fetchActivity(
   return ResultAsync.combine([
     collect(
       'Running builds',
-      `/app/rest/builds?locator=${encodeURIComponent(`${scope},running:true,branch:(default:any),defaultFilter:false,count:20`)}&fields=${fields}`,
+      `/app/rest/builds?locator=${encodeURIComponent(`${scope},running:true,${branchLocator},defaultFilter:false,count:20`)}&fields=${fields}`,
     ),
     collect(
       'Queued builds',
@@ -255,7 +271,7 @@ export function fetchActivity(
     ),
     collect(
       'Recent builds',
-      `/app/rest/builds?locator=${encodeURIComponent(`${scope},state:finished,branch:(default:any),defaultFilter:false,count:10`)}&fields=${fields}`,
+      `/app/rest/builds?locator=${encodeURIComponent(`${scope},state:finished,${branchLocator},defaultFilter:false,count:10`)}&fields=${fields}`,
     ),
   ]).andThen(([running, queued, recent]) => {
     const partialErrors = [running.error, queued.error, recent.error].filter(
@@ -277,6 +293,13 @@ export function fetchActivity(
     const activity = parseActivity(running.response, queued.response, recent.response)
     const result: CiActivity = {
       ...activity,
+      // The queue is the one slice that cannot be narrowed server-side (see
+      // `queuedActivityLocator`), so it is filtered here instead. Safe in a way the
+      // other two are not: `count:20` covers the whole queue in practice, so nothing
+      // is hidden behind the cap the way a finished build would be.
+      ...(branch === undefined
+        ? {}
+        : { queued: activity.queued.filter((build) => build.branchName === branch) }),
       ...(partialErrors.length ? { partialErrors } : {}),
     }
     return okAsync<CiActivity, CiError>(

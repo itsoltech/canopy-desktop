@@ -1085,7 +1085,8 @@ interface CanopyAPI {
   ciJobRefs: (repoRoot: string, jobId: string) => Promise<CiRef[]>
   ciJobParameters: (repoRoot: string, jobId: string, ref: CiRef) => Promise<CiParameterSet>
   ciTriggerJob: (repoRoot: string, request: CiTriggerRequest) => Promise<CiTriggerJobResponse>
-  ciRunActivity: (repoRoot: string) => Promise<CiRunActivity>
+  /** `branch` scopes the provider's own query; omit it for the history window's "All branches". */
+  ciRunActivity: (repoRoot: string, branch?: string) => Promise<CiRunActivity>
   ciRun: (repoRoot: string, runId: string) => Promise<CiRun>
   ciStatus: (repoRoot: string, branch: string) => Promise<CiStatusResponse>
   ciTrigger: (
@@ -1097,7 +1098,8 @@ interface CanopyAPI {
   ciBuild: (repoRoot: string, buildId: number) => Promise<CiBuildStatus>
   ciTestNewConnection: (baseUrl: string, token: string) => Promise<void>
   ciBuildParameters: (repoRoot: string, buildTypeId: string) => Promise<CiParameter[]>
-  ciActivity: (repoRoot: string) => Promise<CiActivity>
+  /** `branch` scopes the TeamCity locator; omit it for the history window's "All branches". */
+  ciActivity: (repoRoot: string, branch?: string) => Promise<CiActivity>
   ciBranches: (repoRoot: string, buildTypeId: string) => Promise<string[]>
   ciListBuildTypes: (baseUrl: string) => Promise<CiServerBuildType[]>
   ciSaveConfig: (

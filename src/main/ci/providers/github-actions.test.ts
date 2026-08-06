@@ -204,8 +204,21 @@ describe('GitHubActionsAdapter', () => {
 
     expect(result.isOk()).toBe(true)
     expect(listWorkflowRunsPage).toHaveBeenCalledTimes(2)
-    expect(listWorkflowRunsPage).toHaveBeenNthCalledWith(1, 42)
-    expect(listWorkflowRunsPage).toHaveBeenNthCalledWith(2, 43)
+    expect(listWorkflowRunsPage).toHaveBeenNthCalledWith(1, 42, undefined)
+    expect(listWorkflowRunsPage).toHaveBeenNthCalledWith(2, 43, undefined)
+  })
+
+  it('narrows activity to a branch in the QUERY, not the response', async () => {
+    // `recent` is sliced to the ten newest across every configured workflow, so a
+    // response-side filter would hide a branch whose last run is older than that.
+    const listWorkflowRunsPage = vi.fn(() => okAsync({ runs: [], totalCount: 0 }))
+    const client = fakeClient({ listWorkflowRunsPage })
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const result = await adapter.activity('feat/x')
+
+    expect(result.isOk()).toBe(true)
+    expect(listWorkflowRunsPage).toHaveBeenCalledWith(expect.any(Number), 'feat/x')
   })
 
   it('treats a bounded history page as a complete successful activity read', async () => {

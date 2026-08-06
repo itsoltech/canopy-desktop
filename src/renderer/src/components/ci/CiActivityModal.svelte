@@ -5,13 +5,14 @@
   import { getCiActivityTick } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { formatDuration, formatWhen } from '../../lib/ci/format'
+  import { formatDateTime } from '../../lib/formatDate'
   import { ciChip, ciStatusTextClass } from '../../lib/ci/status'
   import type { CiActivity, CiActivityBuild } from '../../lib/ci/types'
 
   // Repository activity: running, queued and recent builds whose configurations
   // are selected in this repo's CI config. Refreshes while open.
 
-  let { repoRoot }: { repoRoot: string } = $props()
+  let { repoRoot, initialBranch }: { repoRoot: string; initialBranch?: string } = $props()
 
   let activity = $state<CiActivity | null>(null)
   let error = $state('')
@@ -21,13 +22,36 @@
   let dialogEl = $state<HTMLElement>()
   let seq = 0
 
+  /** undefined = every branch. Applied by TeamCity, not to the response — see `refresh`. */
+  let branchFilter = $state(initialBranch)
+  // Seeded from the opener because a filtered response only ever contains the branch
+  // it was filtered to: without the seed, a branch with no builds at all would have no
+  // option to select. Switching to "All branches" is what discovers the rest.
+  let knownBranches = $state<string[]>(initialBranch ? [initialBranch] : [])
+  let branchOptions = $derived(
+    branchFilter && !knownBranches.includes(branchFilter)
+      ? [...knownBranches, branchFilter].sort()
+      : knownBranches,
+  )
+
   async function refresh(): Promise<void> {
     const mySeq = ++seq
     refreshing = true
     try {
-      const result = await window.api.ciActivity(repoRoot)
+      // The branch goes into the QUERY: TeamCity applies `count:10` before the response
+      // exists, so filtering here instead would blank any branch whose builds are older
+      // than the ten newest in the repository.
+      const result = await window.api.ciActivity(repoRoot, branchFilter)
       if (mySeq !== seq) return
       activity = result
+      knownBranches = [
+        ...new Set([
+          ...knownBranches,
+          ...[...result.running, ...result.queued, ...result.recent].flatMap((build) =>
+            build.branchName ? [build.branchName] : [],
+          ),
+        ]),
+      ].sort()
       now = Date.now()
       error = ''
     } catch (e) {
@@ -48,10 +72,24 @@
   $effect(() => {
     // A trigger elsewhere in the app bumps the tick → refresh right away.
     void getCiActivityTick()
+    // Tracked so picking another branch re-queries instead of re-rendering rows that
+    // were fetched under the old filter, and restarts the poll on the new selection.
+    void branchFilter
     untrack(() => void refresh())
     const timer = setInterval(() => void refresh(), 10_000)
     return () => clearInterval(timer)
   })
+
+  /**
+   * The instant `buildMeta` renders as relative time. Kept next to it so the row's
+   * absolute-time tooltip cannot end up describing a different moment than the text
+   * it annotates — the two disagree for a build that was queued but never started.
+   */
+  function buildStamp(build: CiActivityBuild): number | undefined {
+    if (build.state === 'finished') return build.startedAt ?? build.finishedAt
+    if (build.state === 'running') return build.startedAt
+    return build.queuedAt
+  }
 
   function buildMeta(build: CiActivityBuild): string {
     if (build.state === 'finished') {
@@ -91,43 +129,73 @@
 {#snippet buildRow(build: CiActivityBuild)}
   {@const meta = buildMeta(build)}
   {@const chip = ciChip({ build })}
+  {@const stamp = buildStamp(build)}
+  <!-- Timestamp on the top line and chip on the second, both shrink-0 at the row's
+       right edge. They used to share one line, where the timestamp was only ml-auto
+       INSIDE the text column — so its position tracked the chip's variable width
+       ("Running 27%" vs "Success") and jittered on every poll as the percentage ticked. -->
   <button
     type="button"
-    class="group flex shrink-0 items-center gap-2.5 w-full min-h-8 px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit text-left rounded-md transition-colors duration-fast enabled:cursor-pointer enabled:hover:bg-hover disabled:cursor-default"
-    disabled={!build.webUrl}
+    class="group flex shrink-0 flex-col gap-0.5 w-full min-h-8 px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit text-left rounded-md transition-colors duration-fast cursor-pointer hover:bg-hover aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:opacity-60"
+    aria-disabled={!build.webUrl}
     onclick={() => openBuild(build.webUrl)}
-    title={build.webUrl ? 'Open in TeamCity' : undefined}
+    title={build.webUrl
+      ? `Open ${build.buildTypeName}${build.number ? ` #${build.number}` : ''} in TeamCity`
+      : `${build.buildTypeName} cannot be opened in TeamCity`}
   >
-    <span class="flex-1 min-w-0 flex flex-col items-start gap-0.5">
-      <span class="w-full flex items-baseline gap-2 min-w-0">
-        <span class="truncate">{build.buildTypeName}</span>
-        {#if build.number}
-          <span class="font-mono text-2xs text-text-faint flex-shrink-0">#{build.number}</span>
-        {/if}
-      </span>
-      {#if build.statusText}
-        <span class="w-full text-2xs truncate {ciStatusTextClass(build)}" title={build.statusText}
-          >{build.statusText}</span
+    <span class="flex items-center gap-2 w-full min-w-0">
+      <span class="flex-1 min-w-0 truncate">{build.buildTypeName}</span>
+      {#if build.number}
+        <span
+          class="shrink-0 font-mono text-2xs text-text-faint underline-offset-2 group-hover:text-accent-text group-focus-within:text-accent-text group-hover:underline group-focus-within:underline"
+          >#{build.number}</span
         >
       {/if}
-      <span class="w-full flex items-baseline gap-2 min-w-0">
-        {#if build.branchName}
-          <span class="font-mono text-2xs text-text-muted truncate" title={build.branchName}
-            >{build.branchName}</span
+      {#if meta}
+        <!-- Grid overlap keeps the top line stable: HOVER swaps the timestamp for the
+             link icon. Deliberately not focus — that is where a keyboard user already
+             is, and Chromium never renders `title` on :focus, so the time would be gone
+             with nothing to recover it. The build number carries their affordance. -->
+        <span class="grid shrink-0 items-center justify-items-end">
+          <span
+            class="col-start-1 row-start-1 text-2xs text-text-faint whitespace-nowrap transition-opacity duration-fast {build.webUrl
+              ? 'group-hover:opacity-0'
+              : ''}"
+            title={stamp != null ? formatDateTime(stamp) : undefined}>{meta}</span
           >
-        {/if}
-        {#if meta}
-          <span class="ml-auto text-2xs text-text-faint whitespace-nowrap flex-shrink-0"
-            >{meta}</span
-          >
-        {/if}
-      </span>
+          {#if build.webUrl}
+            <span
+              class="col-start-1 row-start-1 flex items-center justify-end text-text-muted opacity-0 pointer-events-none transition-opacity duration-fast group-hover:opacity-100"
+              aria-hidden="true"
+            >
+              <ExternalLink size={11} />
+            </span>
+          {/if}
+        </span>
+      {:else if build.webUrl}
+        <!-- Nothing to displace here, so focus keeps its reveal. -->
+        <span
+          class="shrink-0 flex items-center text-text-muted opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-within:opacity-100"
+          aria-hidden="true"
+        >
+          <ExternalLink size={11} />
+        </span>
+      {/if}
     </span>
-    <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}">{chip.label}</span>
-    <ExternalLink
-      size={11}
-      class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60 group-focus-within:opacity-60"
-    />
+    <span class="flex items-center gap-2 w-full min-w-0">
+      {#if build.branchName}
+        <span
+          class="flex-1 min-w-0 truncate font-mono text-2xs text-text-muted"
+          title={build.branchName}>{build.branchName}</span
+        >
+      {/if}
+      <span class="ml-auto shrink-0 px-1.5 py-px rounded-md text-2xs {chip.cls}">{chip.label}</span>
+    </span>
+    {#if build.statusText}
+      <span class="w-full truncate text-2xs {ciStatusTextClass(build)}" title={build.statusText}
+        >{build.statusText}</span
+      >
+    {/if}
   </button>
 {/snippet}
 
@@ -153,8 +221,21 @@
     <header
       class="px-5 pt-4 pb-3 border-b border-border-subtle shrink-0 flex items-center justify-between gap-3"
     >
-      <h2 class="text-base font-semibold text-text m-0 leading-tight">Jobs history</h2>
-      <div class="flex items-center gap-1">
+      <h2 class="text-base font-semibold text-text m-0 leading-tight shrink-0">Jobs history</h2>
+      <div class="flex items-center gap-1 min-w-0">
+        <label class="sr-only" for="ci-history-branch">Filter by branch</label>
+        <select
+          id="ci-history-branch"
+          class="min-w-0 max-w-[200px] px-2 py-1 rounded-md border border-border bg-bg-input text-xs text-text"
+          value={branchFilter ?? ''}
+          onchange={(event) => (branchFilter = event.currentTarget.value || undefined)}
+          title="Show only builds of one branch"
+        >
+          <option value="">All branches</option>
+          {#each branchOptions as name (name)}
+            <option value={name}>{name}</option>
+          {/each}
+        </select>
         <!-- aria-disabled, not disabled: `refreshing` flips on a 10 s TIMER, and a
              real disabled would blur a merely-focused user to <body>, past the
              focus trap on the descendant backdrop div. -->
@@ -224,7 +305,9 @@
           >Running & queued</span
         >
         {#if activity.running.length === 0 && activity.queued.length === 0}
-          <p class="px-3 py-1 m-0 text-sm text-text-faint">Nothing is running or queued.</p>
+          <p class="px-3 py-1 m-0 text-sm text-text-faint">
+            Nothing is running or queued{branchFilter ? ` on ${branchFilter}` : ''}.
+          </p>
         {:else}
           {#each [...activity.running, ...activity.queued] as build (build.state + build.id)}
             {@render buildRow(build)}
@@ -236,7 +319,9 @@
           >Recent</span
         >
         {#if activity.recent.length === 0}
-          <p class="px-3 py-1 m-0 text-sm text-text-faint">No finished builds yet.</p>
+          <p class="px-3 py-1 m-0 text-sm text-text-faint">
+            No finished builds{branchFilter ? ` on ${branchFilter}` : ''} yet.
+          </p>
         {:else}
           {#each activity.recent as build (build.id)}
             {@render buildRow(build)}
