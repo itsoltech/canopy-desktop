@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   anyBuildActive,
+  anyRunActive,
   ciChip,
   ciRunChip,
   ciLastRunTimestampInfo,
@@ -78,6 +79,49 @@ describe('anyBuildActive', () => {
   it('is false for finished or absent builds', () => {
     expect(anyBuildActive([row(null), row(build({ status: 'FAILURE' }))])).toBe(false)
     expect(anyBuildActive([])).toBe(false)
+  })
+})
+
+describe('anyRunActive', () => {
+  const run = (state: CiRun['state']): CiRun => ({
+    provider: 'github-actions',
+    runId: '1',
+    number: '1',
+    jobId: 'ci.yml',
+    jobLabel: 'CI',
+    state,
+    conclusion: 'unknown',
+    statusText: undefined,
+    webUrl: 'https://github.com/o/r/actions/runs/1',
+    ref: undefined,
+    queuedAt: undefined,
+    startedAt: undefined,
+    finishedAt: undefined,
+  })
+  const row = (r: CiRun | null): CiJobStatus => ({
+    jobId: 'ci.yml',
+    label: 'CI',
+    provider: 'github-actions',
+    run: r,
+  })
+
+  it('is true while any run is queued, running or waiting', () => {
+    expect(anyRunActive([row(null), row(run('queued'))])).toBe(true)
+    expect(anyRunActive([row(run('running'))])).toBe(true)
+    expect(anyRunActive([row(run('waiting'))])).toBe(true)
+  })
+
+  it('treats the unknown state as NOT active', () => {
+    // The reason this is an explicit list rather than `state !== 'finished'`: GitHub
+    // reports `unknown` for a state it could not map, which is not evidence a run is in
+    // flight. Counting it would pin the poll to the fast cadence and title the sidebar
+    // card "Running job" forever.
+    expect(anyRunActive([row(run('unknown'))])).toBe(false)
+  })
+
+  it('is false for finished or absent runs', () => {
+    expect(anyRunActive([row(null), row(run('finished'))])).toBe(false)
+    expect(anyRunActive([])).toBe(false)
   })
 })
 

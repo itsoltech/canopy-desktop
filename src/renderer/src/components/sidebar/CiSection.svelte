@@ -7,7 +7,7 @@
     KeyRound,
     LoaderCircle,
     Play,
-    Hammer,
+    History,
   } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
@@ -29,8 +29,8 @@
     getCiJobsState,
     refreshCiJobs,
   } from '../../lib/stores/ci.svelte'
-  import { anyBuildActive } from '../../lib/ci/status'
-  import type { CiActivity, CiRunActivity } from '../../lib/ci/types'
+  import { anyBuildActive, anyRunActive } from '../../lib/ci/status'
+  import type { CiActivity, CiCardIssue, CiRunActivity } from '../../lib/ci/types'
 
   // CI/CD section: per-repo TeamCity — configuration entry, running any job on any
   // branch, and the server's current activity. Mirrors the Project management
@@ -41,13 +41,6 @@
   let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let cfgState = $derived(getCiRepoConfig())
   let config = $derived(cfgState.config)
-  let serverHost = $derived.by(() => {
-    try {
-      return config ? new URL(config.baseUrl).host : ''
-    } catch {
-      return config?.baseUrl ?? ''
-    }
-  })
   let provider = $derived(config?.provider ?? 'teamcity')
   let providerUrl = $derived(
     config?.provider === 'github-actions'
@@ -62,8 +55,9 @@
     if (root) untrack(() => void loadCiRepoConfig(root))
   })
 
-  // --- Server activity: one summary row; details (running/queued/history) open in
-  // their own window (CiActivityModal) — the sidebar has no room for the list ---
+  // --- Server activity: polled here only for its FAILURE state. The running/queued
+  // list, and its counts, live in the window (CiActivityModal) — the sidebar has no
+  // room for them and now shows one element, not a summary row plus a card ---
 
   let activity = $state<CiActivity | CiRunActivity | null>(null)
   let activityError = $state('')
@@ -111,8 +105,8 @@
     if (!hasConfigAndToken) return
     const root = repoRoot
     if (!root) return
-    // Triggering a build bumps the tick → immediate re-fetch instead of the chip
-    // sitting on "Idle" until the next poll.
+    // Triggering a build bumps the tick → immediate re-fetch, so a stale failure
+    // suffix clears (and the cadence speeds up) without waiting for the next poll.
     void getCiActivityTick()
     // A transient missing slice can hide a running job. Retry the same partial result quickly a
     // few times, then decay to idle cadence so permanent config drift cannot poll fast forever.
@@ -147,19 +141,21 @@
     identicalPartialCount = 0
   })
 
-  let activitySummary = $derived.by(() => {
-    if (!activity) return ''
-    const parts: string[] = []
-    if (activity.running.length === 1) {
-      // A single running build shows its actual progress right in the chip.
-      const first = activity.running[0]
-      const pct = 'percentageComplete' in first ? first.percentageComplete : undefined
-      parts.push(pct != null ? `${pct}%` : 'running')
-    } else if (activity.running.length > 1) {
-      parts.push(`${activity.running.length} running`)
+  // Only FAILURE survives in the sidebar. The running/queued counts moved into the
+  // history window along with the row that carried them, so a healthy poll leaves the
+  // one CI element unadorned. Unlike the old chip this is not suppressed while a build
+  // is known to be active: with no counts left to prefer, hiding the failure would
+  // leave nothing at all.
+  let activityIssue = $derived.by((): CiCardIssue | undefined => {
+    if (activityError)
+      return { label: 'Error', detail: `CI activity unavailable: ${activityError}` }
+    if (activityPartialErrors.length > 0) {
+      return {
+        label: 'Incomplete',
+        detail: `CI activity is incomplete: ${activityPartialErrors.join(' · ')}`,
+      }
     }
-    if (activity.queued.length > 0) parts.push(`${activity.queued.length} queued`)
-    return parts.join(' · ') || 'Idle'
+    return undefined
   })
 
   // --- Last build of the CURRENT branch (highlighted card) — the newest build per
@@ -176,15 +172,27 @@
   )
   // Primitive deps for the poll effect (see the activity effect above).
   let branchBuildActive = $derived(
+    provider === 'github-actions' ? anyRunActive(jobRows) : anyBuildActive(branchRows),
+  )
+
+  let branchLoading = $derived(
     provider === 'github-actions'
-      ? jobRows.some((row) =>
-          row.run ? ['queued', 'running', 'waiting'].includes(row.run.state) : false,
-        )
-      : anyBuildActive(branchRows),
+      ? jobsState.loading && jobRows.length === 0
+      : branchState.loading && !branchState.response,
+  )
+  // The card stands in for the history entry only when it has something to render.
+  // While loading, after a ci:status failure, or on a branch with no configured jobs
+  // it renders nothing at all — and the history window has to stay reachable there.
+  let hasCardRows = $derived(
+    !branchLoading &&
+      !branchError &&
+      (provider === 'github-actions' ? jobRows.length > 0 : branchRows.length > 0),
   )
 
   // Coarse state for the live region — no percentage, so a running build announces
-  // once instead of on every 10 s poll. The chip keeps the fine-grained summary.
+  // once instead of on every 10 s poll. Deliberately still carries the running/queued
+  // counts even though nothing on screen shows them any more: the history window does,
+  // and dropping them would leave screen-reader users with less than sighted ones.
   let ciAnnouncement = $derived.by(() => {
     // An unreadable ci block has no other announcement path — polling never starts.
     if (!hasConfigAndToken) return cfgState.error ? 'CI configuration invalid' : ''
@@ -260,10 +268,18 @@
   function openActivity(): void {
     if (repoRoot) showCiActivity(repoRoot)
   }
+
+  // Separate from `openActivity` on purpose: the card is branch-scoped, so it
+  // preselects the window's filter and lands on the same builds it was describing —
+  // which a repository-wide list, capped at the newest few, may not even contain. The
+  // fallback entry stays unfiltered, matching what it says it shows.
+  function openBranchActivity(): void {
+    if (repoRoot) showCiActivity(repoRoot, workspaceState.branch || undefined)
+  }
 </script>
 
-<!-- The summary chip and the row label flip on a background poll — announce the
-     change instead of mutating silently under assistive tech. -->
+<!-- The card's heading and status flip on a background poll — announce the change
+     instead of mutating silently under assistive tech. -->
 <span class="sr-only" aria-live="polite">{ciAnnouncement}</span>
 <CollapsibleSection title="CI/CD" sectionKey="cicd" borderTop>
   {#snippet headerExtra()}
@@ -342,61 +358,65 @@
           aria-orientation="horizontal"
         ></div>
 
-        <!-- One summary row only — the sidebar has no room for the full list, so the
-             details (running / queued / recent history) open in their own window. -->
-        <button
-          class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-          onclick={openActivity}
-          title={activityError ||
-            (activityPartialErrors.length > 0
-              ? `CI activity is incomplete: ${activityPartialErrors.join(' · ')}`
-              : `Configured repository jobs running or queued on ${serverHost}, plus recent history — opens in a window`)}
-        >
-          <Hammer
-            size={13}
-            class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
-          />
-          <span class="flex-1">{activeCount > 0 ? 'Running job' : 'Jobs history'}</span>
-          {#if activityError}
-            <span
-              class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning-bg text-warning-text"
-              >Error</span
-            >
-          {:else if !activityLoaded}
-            <LoaderCircle
-              size={12}
-              class="text-text-faint animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        <!-- ONE CI element, never two: the branch card when it has rows, otherwise the
+             plain history entry. Both open the same window; the card also preselects
+             its branch there. The entry is not redundant with the card — it is the only
+             route to the window while the branch has no configured jobs, no branch is
+             checked out, or ci:status is still in flight, all states in which the card
+             renders nothing. Keeping them in one if/else makes showing both impossible. -->
+        {#if hasCardRows && workspaceState.branch}
+          {#if provider === 'github-actions'}
+            <CiLastRunCard
+              rows={jobRows}
+              branch={workspaceState.branch}
+              issue={activityIssue}
+              onActivate={openBranchActivity}
             />
-          {:else if activityPartialErrors.length > 0 && activeCount === 0}
-            <span
-              class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning-bg text-warning-text"
-              title={`CI activity is incomplete: ${activityPartialErrors.join(' · ')}`}
-              >Incomplete</span
-            >
           {:else}
-            <span
-              class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {activeCount > 0
-                ? 'bg-accent-bg text-accent-text'
-                : 'bg-active text-text-muted'}">{activitySummary}</span
-            >
+            <CiLastJobCard
+              rows={branchRows}
+              branch={workspaceState.branch}
+              issue={activityIssue}
+              onActivate={openBranchActivity}
+            />
           {/if}
-        </button>
+        {:else}
+          <button
+            class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+            onclick={openActivity}
+            aria-haspopup="dialog"
+            title={`Recent and running jobs for this repository — opens in a window${
+              activityIssue ? ` (${activityIssue.detail})` : ''
+            }`}
+          >
+            <History size={13} class="text-text-faint group-hover:text-text-secondary shrink-0" />
+            <span class="flex-1">Jobs history</span>
+            {#if activityIssue}
+              <span
+                class="px-1.5 py-px rounded-md text-2xs shrink-0 bg-warning-bg text-warning-text"
+                title={activityIssue.detail}>{activityIssue.label}</span
+              >
+            {:else if !activityLoaded}
+              <LoaderCircle
+                size={12}
+                class="text-text-faint animate-spin-slow shrink-0 motion-reduce:animate-none"
+              />
+            {/if}
+          </button>
 
-        {#if provider === 'github-actions' ? jobsState.loading && jobRows.length === 0 : branchState.loading && !branchState.response}
-          <!-- First branch-status fetch: without this the card area is just blank
-               until ci:status lands, indistinguishable from "nothing to show". -->
-          <div class="px-3 py-1 flex items-center gap-2 text-xs text-text-faint">
-            <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
-            Checking CI status…
-          </div>
-        {:else if branchError}
-          <div class="px-3 py-1 text-xs text-warning-text truncate" title={branchError}>
-            Last job unavailable — {branchError}
-          </div>
-        {:else if provider === 'github-actions' && jobRows.length > 0 && workspaceState.branch}
-          <CiLastRunCard rows={jobRows} branch={workspaceState.branch} />
-        {:else if branchRows.length > 0 && workspaceState.branch}
-          <CiLastJobCard rows={branchRows} branch={workspaceState.branch} />
+          <!-- Diagnostics stay a sub-line under the entry rather than folding into it:
+               they name a reason, and a reason with no visible route to act on it is
+               what this section was already pulled up on once. -->
+          {#if branchLoading}
+            <div class="px-3 py-1 flex items-center gap-2 text-xs text-text-faint">
+              <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
+              Checking CI status…
+            </div>
+          {:else if branchError}
+            <div class="px-3 py-1 text-xs text-warning-text truncate" title={branchError}>
+              Last job unavailable — {branchError}
+            </div>
+          {/if}
         {/if}
       {/if}
     </div>

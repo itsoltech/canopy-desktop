@@ -114,6 +114,18 @@ export interface CiRun {
   finishedAt: number | undefined
 }
 
+/**
+ * Failure suffix on the sidebar's single CI element. Set only when an activity slice
+ * failed — the running/queued counts it used to sit next to now live in the history
+ * window, so failure is the one activity signal the sidebar still carries.
+ */
+export interface CiCardIssue {
+  /** One word appended to the card heading: 'Error' or 'Incomplete'. */
+  label: string
+  /** Full reason, for the element's tooltip. */
+  detail: string
+}
+
 export interface CiJobStatus {
   jobId: string
   label: string

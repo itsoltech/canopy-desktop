@@ -1,5 +1,5 @@
 import { match, P } from 'ts-pattern'
-import type { CiBuildTypeStatus, CiRun } from './types'
+import type { CiBuildTypeStatus, CiJobStatus, CiRun } from './types'
 
 export interface CiChip {
   label: string
@@ -121,4 +121,15 @@ export function ciRunChip(row: { run: CiRun | null; error?: string }): CiChip {
 /** Drives the faster poll interval — a queued or running build changes state soon. */
 export function anyBuildActive(rows: CiBuildTypeStatus[]): boolean {
   return rows.some((r) => r.build != null && r.build.state !== 'finished')
+}
+
+// Deliberately an explicit list rather than `state !== 'finished'` like the TeamCity
+// sibling above: GitHub also has `unknown`, which reports a state we could not map, not
+// a run in flight. Counting it would pin the poll to the fast cadence and leave the
+// sidebar card titled "Running job" for good.
+const ACTIVE_RUN_STATES: ReadonlySet<CiRun['state']> = new Set(['queued', 'running', 'waiting'])
+
+/** GitHub Actions counterpart of `anyBuildActive`. */
+export function anyRunActive(rows: CiJobStatus[]): boolean {
+  return rows.some((r) => r.run != null && ACTIVE_RUN_STATES.has(r.run.state))
 }

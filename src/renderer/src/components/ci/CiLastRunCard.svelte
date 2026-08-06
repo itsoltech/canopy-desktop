@@ -1,9 +1,24 @@
 <script lang="ts">
-  import type { CiJobStatus } from '../../lib/ci/types'
-  import { ciLastRunTimestampInfo, ciRunChip, ciRunStatusTextClass } from '../../lib/ci/status'
+  import type { CiCardIssue, CiJobStatus } from '../../lib/ci/types'
+  import {
+    anyRunActive,
+    ciLastRunTimestampInfo,
+    ciRunChip,
+    ciRunStatusTextClass,
+  } from '../../lib/ci/status'
   import CiLastStatusCard from './CiLastStatusCard.svelte'
 
-  let { rows, branch }: { rows: CiJobStatus[]; branch: string } = $props()
+  let {
+    rows,
+    branch,
+    issue,
+    onActivate,
+  }: {
+    rows: CiJobStatus[]
+    branch: string
+    issue?: CiCardIssue
+    onActivate: () => void
+  } = $props()
   let statusRows = $derived(
     rows.map((row) => {
       const timestamp = row.run ? ciLastRunTimestampInfo(row.run) : undefined
@@ -11,7 +26,6 @@
         id: row.jobId,
         label: row.label,
         number: row.run?.number,
-        webUrl: row.run?.webUrl,
         timestamp: timestamp?.value,
         timestampLabel: timestamp?.label,
         statusText: row.run?.statusText,
@@ -23,10 +37,4 @@
   )
 </script>
 
-<CiLastStatusCard
-  rows={statusRows}
-  {branch}
-  providerLabel="GitHub Actions"
-  cardTitle="Last run"
-  runNoun="run"
-/>
+<CiLastStatusCard rows={statusRows} {branch} {issue} {onActivate} active={anyRunActive(rows)} />

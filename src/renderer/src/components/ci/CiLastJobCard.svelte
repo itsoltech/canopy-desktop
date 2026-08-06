@@ -1,9 +1,24 @@
 <script lang="ts">
-  import { ciChip, ciLastRunTimestampInfo, ciStatusTextClass } from '../../lib/ci/status'
-  import type { CiBuildTypeStatus } from '../../lib/ci/types'
+  import {
+    anyBuildActive,
+    ciChip,
+    ciLastRunTimestampInfo,
+    ciStatusTextClass,
+  } from '../../lib/ci/status'
+  import type { CiBuildTypeStatus, CiCardIssue } from '../../lib/ci/types'
   import CiLastStatusCard from './CiLastStatusCard.svelte'
 
-  let { rows, branch }: { rows: CiBuildTypeStatus[]; branch: string } = $props()
+  let {
+    rows,
+    branch,
+    issue,
+    onActivate,
+  }: {
+    rows: CiBuildTypeStatus[]
+    branch: string
+    issue?: CiCardIssue
+    onActivate: () => void
+  } = $props()
   let statusRows = $derived(
     rows.map((row) => {
       const timestamp = row.build ? ciLastRunTimestampInfo(row.build) : undefined
@@ -11,7 +26,6 @@
         id: row.buildTypeId,
         label: row.label,
         number: row.build?.number,
-        webUrl: row.build?.webUrl,
         timestamp: timestamp?.value,
         timestampLabel: timestamp?.label,
         statusText: row.build?.statusText,
@@ -23,10 +37,4 @@
   )
 </script>
 
-<CiLastStatusCard
-  rows={statusRows}
-  {branch}
-  providerLabel="TeamCity"
-  cardTitle="Last job"
-  runNoun="build"
-/>
+<CiLastStatusCard rows={statusRows} {branch} {issue} {onActivate} active={anyBuildActive(rows)} />

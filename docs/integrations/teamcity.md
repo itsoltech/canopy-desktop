@@ -29,25 +29,35 @@ The integration follows the Project management architecture:
 ### CI/CD sidebar section
 
 - **Not configured**: a "Configure TeamCity" entry opens the per-repo configurator.
-- **Configured**: the server row (click opens TeamCity), a highlighted **Last job** card
-  with the newest build of the active worktree's branch (build number, status chip and
-  TeamCity's build-specific `statusText` summary when present; clicking the card opens
-  that build in TeamCity). Its first line shows the Queued, Started or Finished time as
-  appropriate; hovering replaces the timestamp with the external-link icon when the build
-  has a URL, while keyboard focus keeps it readable and shows the affordance on the build
-  number instead. A row whose status fetch fails —
+- **Configured**: the server row (click opens TeamCity), a **Run job…** entry, and then
+  exactly **one** CI element — never two. Normally that is the highlighted card holding
+  the newest build of the active worktree's branch (build number, status chip and
+  TeamCity's build-specific `statusText` summary when present). Its heading reads
+  **Last job**, or **Running job** while one of the card's own builds is queued or
+  running — note that this tracks _the branch's_ builds, not repository-wide activity,
+  so it can read "Last job" while something runs on another branch. Its first line shows
+  the Queued, Started or Finished time as appropriate; hovering replaces the timestamp
+  with a history icon, while keyboard focus keeps it readable and relies on the card's
+  focus ring. Clicking the card opens the jobs-history window **with its branch filter
+  preselected to that branch** — it no longer opens the build in TeamCity, and there is
+  no other route to a specific build's page from the sidebar.
+  A row whose status fetch fails —
   e.g. its job was deleted or re-ided on the server — shows an `Unavailable` chip with
-  the reason, and only that row degrades, never the whole card. The chip vocabulary is
+  the reason, and only that row degrades, never the whole card. A branch with no builds
+  yet shows a `No builds` chip; the card stays clickable, because the window is always
+  openable. The chip vocabulary is
   shared with the activity window: `SUCCESS` → **Success**, `FAILURE` and TeamCity's
   `ERROR` → **Failed** (ERROR is an infra/agent failure — red in TeamCity's own UI, so
   it must not read as neutral), anything else — including cancelled builds, which carry
-  `UNKNOWN` — → **Unknown**. Then a **Run job…**
-  entry, and a summary
-  row labelled **Jobs history** — **Running job** while anything is active — whose chip
-  shows "2 running · 1 queued" or "Idle". Clicking the row opens the activity window
-  with the detailed list. If one activity slice fails while no run is known to be active, the row
-  shows **Incomplete** rather than the potentially false **Idle**; the tooltip names the failed
-  slices. A known active count remains visible even when another slice is incomplete.
+  `UNKNOWN` — → **Unknown**.
+  When the card has nothing to render — the first `ci:status` fetch is still in flight,
+  it failed, no branch is checked out — a plain **Jobs history** entry takes its place so
+  the window stays reachable in every state, with the loading or failure reason on a line
+  beneath it. Running and queued **counts are not shown in the sidebar at all**; they live
+  in the window. Only failure does: when one activity slice fails the heading gains a
+  warning-coloured `· Incomplete` suffix (`· Error` when every slice fails), and its
+  tooltip names the failed slices. Unlike the old summary chip this is never suppressed
+  by a known active count — with the counts gone there is nothing to prefer over it.
 - **Token missing**: a banner links to Settings → CI connections.
 
 ### Per-repo configurator (modal)
@@ -110,24 +120,36 @@ build itself is unaffected.
 
 ### Activity
 
-The sidebar carries only a one-row summary (running/queued counts, or "Idle");
-clicking it opens a dedicated activity window with the details. Canopy scopes its TeamCity
-queries to build configurations selected in this repository's `.canopy/config.json` and
-fetches up to 20 running builds, their queue and 10 recent matching builds. Job name, branch,
-TeamCity's build-specific `statusText`, outcome and progress are shown per row (start
-time + duration for finished builds — same-day times as HH:MM, older ones as
-YYYY-MM-DD HH:MM; elapsed time for running); click opens the
-build in TeamCity. The summary chip shows a single running build's percentage and the
-queued count, refreshes immediately after a trigger from Canopy, and polls every 30 s
-(10 s while anything is active) while the section is mounted; the window is resizable
-and refreshes every 10 s while open.
+The sidebar's single CI element opens a dedicated activity window with the details.
+Canopy scopes its TeamCity queries to build configurations selected in this repository's
+`.canopy/config.json` and fetches up to 20 running builds, their queue and 10 recent
+matching builds. Each row shows the job name and build number with the timestamp on its
+first line, the branch and the outcome/progress chip on its second, and TeamCity's
+build-specific `statusText` beneath (start time + duration for finished builds — same-day
+times as HH:MM, older ones as YYYY-MM-DD HH:MM; elapsed time for running). Both
+right-hand items sit at the row's edge, so the timestamp no longer shifts with the chip's
+width as a percentage ticks. Hovering a row replaces its timestamp with the external-link
+icon; keyboard focus keeps the timestamp and marks the build number instead. Clicking
+opens the build in TeamCity. Activity refreshes immediately after a trigger from Canopy
+and polls every 30 s (10 s while anything is active) while the section is mounted; the
+window is resizable and refreshes every 10 s while open.
+
+The window has a **branch filter**, preselected to the branch it was opened from and
+resettable to **All branches**. It narrows the TeamCity _query_, not the response: the
+`count:10` recent cap is applied by the server, so filtering the response instead would
+show nothing for any branch whose builds are older than the ten newest in the repository.
+The one exception is the queue, whose `BuildQueueLocator` has no `branch` dimension —
+that slice is filtered after parsing, which is safe because `count:20` covers the whole
+queue in practice. The dropdown lists branches seen in loaded results plus the branch it
+opened on; because a filtered response only ever contains one branch, switching to
+**All branches** is what discovers the rest.
 
 The running, queued and recent queries degrade independently. If one or two slices fail, the
-sidebar temporarily omits its activity summary (so incomplete data cannot claim **Idle**) and uses
-up to three faster recovery polls for a new or changed partial result before returning to idle
-cadence, without adding a competing **Partial** chip. The activity window keeps the
+sidebar's CI element gains a warning-coloured `· Incomplete` suffix naming the failed slices,
+and uses up to three faster recovery polls for a new or changed partial result before
+returning to idle cadence. The activity window keeps the
 available builds with a **Partial history** banner and the failure reasons. If all three queries
-fail, the row shows the **Error** state and its full reason.
+fail, the suffix reads `· Error` and carries the full reason.
 
 ## Configuration
 
@@ -184,14 +206,14 @@ re-initializing it (initialization is reserved for a genuinely absent file).
 The provider-shared `CiError` union also contains GitHub Actions dispatch, ref, schema and rate-limit
 variants. The TeamCity paths use these variants:
 
-| Variant                   | Meaning                                                                                                                                                                                                                                                                                                                                      | Surface                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CiNotConfigured`         | No `ci` block in the repo config                                                                                                                                                                                                                                                                                                             | Section shows its "configure" entry; `ci:status` answers `{ configured: false }` (a silent no-op)                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `CiConfigInvalid`         | A `ci` block exists but cannot be used. Two scopes, distinguished in the message: the whole `.canopy/config.json` cannot be used (bad JSON, unsupported version, a legacy tracker provider — the configurator disables **Save** and points at hand-editing) or only the block's shape is rejected by `parseCiConfig` (re-saving replaces it) | The CI/CD section shows the reason (front-loaded, with an "Open the configurator" button) instead of the "configure" entry, announced by the live region; `ci:config` answers `{ config: null, invalid: { scope, message } }` so the configurator offers the one recovery route the scope calls for; `ci:status` is never polled in this state                                                                                                                                                                            |
-| `CiConfigUnwritable`      | A local filesystem failure while updating `.canopy/config.json` (permissions, disk, a transient read error on an existing file)                                                                                                                                                                                                              | The configurator's footer live region — never with the `TeamCity:` prefix, because nothing in the save chain talks to the server                                                                                                                                                                                                                                                                                                                                                                                          |
-| `CiAuthMissing`           | No token stored for the configured server                                                                                                                                                                                                                                                                                                    | Credential banners linking to Settings → CI connections                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `CiCredentialUnavailable` | A credential exists but cannot be resolved because candidates are ambiguous, its binding is incompatible, or its encrypted secret is missing                                                                                                                                                                                                 | The section keeps the configuration visible and directs the user to re-enter the intended token for this connection                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `CiApiError`              | HTTP/network/API failure                                                                                                                                                                                                                                                                                                                     | When every activity query fails, **Jobs history** shows an `Error` chip (full message in its tooltip). One or two failed slices show **Incomplete** instead of **Idle** when no run is known to be active; if a run is known, its active count remains visible. The activity window lists the reasons. Affected **Last job** rows show an `Unavailable` chip carrying the failure (the muted `Last job unavailable` line only appears when `ci:status` fails as a whole, which the credential banner otherwise pre-empts) |
+| Variant                   | Meaning                                                                                                                                                                                                                                                                                                                                      | Surface                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CiNotConfigured`         | No `ci` block in the repo config                                                                                                                                                                                                                                                                                                             | Section shows its "configure" entry; `ci:status` answers `{ configured: false }` (a silent no-op)                                                                                                                                                                                                                                                                                                                                                                               |
+| `CiConfigInvalid`         | A `ci` block exists but cannot be used. Two scopes, distinguished in the message: the whole `.canopy/config.json` cannot be used (bad JSON, unsupported version, a legacy tracker provider — the configurator disables **Save** and points at hand-editing) or only the block's shape is rejected by `parseCiConfig` (re-saving replaces it) | The CI/CD section shows the reason (front-loaded, with an "Open the configurator" button) instead of the "configure" entry, announced by the live region; `ci:config` answers `{ config: null, invalid: { scope, message } }` so the configurator offers the one recovery route the scope calls for; `ci:status` is never polled in this state                                                                                                                                  |
+| `CiConfigUnwritable`      | A local filesystem failure while updating `.canopy/config.json` (permissions, disk, a transient read error on an existing file)                                                                                                                                                                                                              | The configurator's footer live region — never with the `TeamCity:` prefix, because nothing in the save chain talks to the server                                                                                                                                                                                                                                                                                                                                                |
+| `CiAuthMissing`           | No token stored for the configured server                                                                                                                                                                                                                                                                                                    | Credential banners linking to Settings → CI connections                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `CiCredentialUnavailable` | A credential exists but cannot be resolved because candidates are ambiguous, its binding is incompatible, or its encrypted secret is missing                                                                                                                                                                                                 | The section keeps the configuration visible and directs the user to re-enter the intended token for this connection                                                                                                                                                                                                                                                                                                                                                             |
+| `CiApiError`              | HTTP/network/API failure                                                                                                                                                                                                                                                                                                                     | When every activity query fails, the sidebar's CI element gains an `· Error` suffix (full message in its tooltip); one or two failed slices give it `· Incomplete` instead, never suppressed by a known active count. The activity window lists the reasons. Affected **Last job** rows show an `Unavailable` chip carrying the failure (the muted `Last job unavailable` line only appears when `ci:status` fails as a whole, which the credential banner otherwise pre-empts) |
 
 Additional surfaces that are not `CiError` variants:
 
@@ -264,7 +286,7 @@ Additional surfaces that are not `CiError` variants:
 | IPC                   | Shared channels `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:buildParameters`, `ci:branches`, `ci:activity`, `ci:listBuildTypes`, `ci:saveConfig`, `ci:testNewConnection`, `ci:jobsStatus`, `ci:jobRefs`, `ci:jobParameters`, `ci:triggerJob`, `ci:runActivity`, `ci:run`, `ci:githubSetup`, `ci:testGitHubConnection`, `ci:setGitHubCredential` in `src/main/ci/ipc.ts` (`registerCiHandlers`, + workspace-authorization tests), registered from `src/main/ipc/handlers.ts` |
 | Renderer store        | `src/renderer/src/lib/stores/ci.svelte.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Renderer helpers      | `src/renderer/src/lib/ci/status.ts` (+ tests), `src/renderer/src/lib/ci/runBuildForm.ts`, `src/renderer/src/lib/ci/format.ts` (+ tests), `src/renderer/src/lib/ci/types.ts`, `src/renderer/src/lib/a11y/focusTrap.ts` (shared dialog focus trap)                                                                                                                                                                                                                                        |
-| Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/ci/CiLastJobCard.svelte` (TeamCity adapter), `src/renderer/src/components/ci/CiLastStatusCard.svelte` (shared Last-job/Last-run card), `src/renderer/src/components/sidebar/ProjectTreeSection.svelte` (Run CI Job on Branch… context-menu entry)                                                                                                                                  |
+| Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/ci/CiLastJobCard.svelte` (TeamCity adapter), `src/renderer/src/components/ci/CiLastRunCard.svelte` (GitHub Actions adapter), `src/renderer/src/components/ci/CiLastStatusCard.svelte` (shared card), `src/renderer/src/components/sidebar/ProjectTreeSection.svelte` (Run CI Job on Branch… context-menu entry)                                                                    |
 | Dialogs               | `src/renderer/src/components/ci/CiRunJobModal.svelte`, `src/renderer/src/components/ci/RunBuildDialog.svelte`, `src/renderer/src/components/ci/CiActivityModal.svelte` (rendered from `MainLayout`)                                                                                                                                                                                                                                                                                     |
 | Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`, `src/renderer/src/components/ci/CiJobPicker.svelte` (job selection list)                                                                                                                                                                                                                                                                                                                                               |
 | Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections), `src/renderer/src/components/preferences/_partials/CiServerForm.svelte` (add/edit server form)                                                                                                                                                                                                                                                                                                    |

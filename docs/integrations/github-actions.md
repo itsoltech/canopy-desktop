@@ -61,27 +61,36 @@ same ref and workflow schema again after confirmation.
 
 The sidebar and activity window query only workflows selected in the repository configuration.
 History is merged across those workflows, preserving GitHub's display title and states such as
-queued, in progress, waiting, cancelled, neutral, failed, and successful. A run opens directly
-on GitHub.
+queued, in progress, waiting, cancelled, neutral, failed, and successful. Clicking a run **in the
+history window** opens it on GitHub; the sidebar card opens the window itself.
+
+The history window has a **branch filter**, preselected to the branch it was opened from and
+resettable to **All branches**. It is passed to the GitHub query as `?branch=`, not applied to the
+response: `recent` is sliced to the ten newest across every configured workflow before Canopy sees
+it, so filtering afterwards would show nothing for a branch whose last run is older than that.
+Because a filtered response only ever contains one branch, switching to **All branches** is what
+populates the rest of the dropdown.
 
 Queries and pagination are bounded. The history view deliberately shows only the newest page and
 does not treat older runs beyond that page as a fetch failure. If a configured workflow is missing
-or its page cannot be loaded, the sidebar shows **Incomplete** instead of a potentially false
-**Idle**, its tooltip names the failed workflow, and the activity window keeps available runs under
-a **Partial history** banner. A known active count remains visible while another workflow is
-unavailable. Environment approvals and run cancellation remain GitHub operations; Canopy only
-shows the waiting state and link.
+or its page cannot be loaded, the sidebar's CI element gains a warning-coloured `· Incomplete`
+suffix naming the failed workflow, and the activity window keeps available runs under
+a **Partial history** banner. Running and queued counts are not shown in the sidebar at all — they
+live in the window — so the suffix is never suppressed in favour of one. Environment approvals and
+run cancellation remain GitHub operations; Canopy only shows the waiting state and link.
 
-The open history window refreshes every 60 seconds. In the sidebar CI/CD section, the activity
-summary polls every 60 seconds while any configured workflow has a run in flight. A new or changed
+The open history window refreshes every 60 seconds. In the sidebar CI/CD section, activity
+polls every 60 seconds while any configured workflow has a run in flight. A new or changed
 incomplete result gets up to three fast recovery polls before decaying to the 300-second idle
 cadence, so permanent configuration drift does not consume the API budget indefinitely. The
-**Last run** card uses the same cadence, but keys
+card uses the same cadence, but keys
 it to runs for the active worktree's branch, so a run on another branch speeds up the activity
-summary but not the card. It shows the workflow label and number, branch, GitHub display title and
-status chip. Its first line uses the Queued, Started or Finished timestamp; hovering replaces that
-timestamp with the external-link icon when the run has a URL. Keyboard focus does not — it stays on
-the card, and the build number's accent and underline carry the affordance instead. A workflow lookup that
+poll but not the card. It shows the workflow label and number, branch, GitHub display title and
+status chip, under a heading that reads **Last job** — or **Running job** while one of the card's
+own runs is queued, running or waiting (GitHub's `unknown` state does not count: it means a state
+Canopy could not map, not a run in flight). Its first line uses the Queued, Started or Finished
+timestamp; hovering replaces that timestamp with a history icon. Keyboard focus does not — it stays
+on the card, which keeps its focus ring. A workflow lookup that
 fails shows **Unavailable** with its reason without hiding sibling workflow results. All three
 surfaces re-fetch immediately after Canopy dispatches a workflow.
 
