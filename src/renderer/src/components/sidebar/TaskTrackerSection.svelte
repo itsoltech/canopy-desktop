@@ -131,7 +131,10 @@
     </button>
   {/snippet}
   {#if loading && trackers.length === 0}
-    <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
+    <!-- Same 65px as the two settled states below: this is the one branch a cross-project
+         switch passes through (the incoming project has no trackers yet), so leaving it
+         row-height reintroduced the shift the others were matched to avoid. -->
+    <div class="flex items-center gap-2.5 min-h-[65px] px-3 text-text-faint">
       <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
       <span class="text-sm">Loading trackers…</span>
     </div>
@@ -328,9 +331,13 @@
       {/if}
     </div>
   {:else}
-    <div class="px-3 py-2">
+    <!-- Matched to the configured layout's 65px: one tracker row (h-7) + the separator
+         (h-px with my-1) + one action row (h-7). Without it this state was 18px shorter,
+         so moving between a project that has a tracker and one that does not shifted every
+         section below — the same jump the placeholder above exists to prevent. -->
+    <div class="flex min-h-[65px] px-3 py-2">
       <button
-        class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
+        class="flex flex-1 items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
         onclick={openProjectTracker}
       >
         <Plus size={14} />

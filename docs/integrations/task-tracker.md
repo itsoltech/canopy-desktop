@@ -53,9 +53,17 @@ like the real rows: the credentials banner is not row-shaped, and any structural
 drift from it as either side changes. A single measurement cannot.
 
 **Loading trackers…** still appears on a genuine first load, when there is no previous height or
-content to preserve. **Checking credentials…** appears only before a tracker has any credential
-verdict — re-verifying one that already has a verdict stays silent, since it fires on every switch
-and its row would otherwise appear and vanish in ~300 ms.
+content to preserve.
+
+All three settled states of the section — configured, first-loading, and the empty
+**Configure Tracker** tile — are matched to the same 65px: one tracker row (`h-7`) plus the
+separator (`h-px` with `my-1`) plus one action row (`h-7`). The empty tile used to be 18px
+shorter and the loading row shorter still, so moving between a project that has a tracker and
+one that does not shifted every section below it. Measured after: 122 → 122, no change.
+
+**Checking credentials…** appears only before a tracker has any credential verdict —
+re-verifying one that already has a verdict stays silent, since it fires on every switch and its
+row would otherwise appear and vanish in ~300 ms.
 
 ### Browsing tasks
 
