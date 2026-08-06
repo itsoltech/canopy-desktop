@@ -7,6 +7,7 @@
   import { formatDuration, formatWhen } from '../../lib/ci/format'
   import { formatDateTime } from '../../lib/formatDate'
   import { ciChip, ciStatusTextClass } from '../../lib/ci/status'
+  import { ipcErrorMessage, isCiAuthFailure } from '../../lib/ci/errors'
   import type { CiActivity, CiActivityBuild } from '../../lib/ci/types'
 
   // Repository activity: running, queued and recent builds whose configurations
@@ -61,7 +62,7 @@
       error = ''
     } catch (e) {
       if (mySeq !== seq) return
-      error = e instanceof Error ? e.message : 'Failed to load activity'
+      error = ipcErrorMessage(e, 'Failed to load activity')
     } finally {
       if (mySeq === seq) {
         loaded = true
@@ -300,7 +301,19 @@
           Loading activity…
         </div>
       {:else if error && !activity}
-        <p class="px-3 py-2 m-0 text-sm text-danger-text" title={error}>{error}</p>
+        <!-- A rejected token is not a transient fault, so it gets a sentence naming the
+             cause and the fix instead of the raw reason on its own. -->
+        <div class="px-3 py-2 flex flex-col gap-1" role="alert">
+          {#if isCiAuthFailure(error)}
+            <p class="m-0 text-sm text-danger-text">
+              TeamCity rejected the stored token, so no history could be loaded.
+            </p>
+            <p class="m-0 text-xs text-text-muted">
+              Update it in Settings → CI connections, then refresh.
+            </p>
+          {/if}
+          <p class="m-0 text-xs text-text-faint break-words" title={error}>{error}</p>
+        </div>
       {:else if activity}
         {#if error}<p class="px-3 py-2 m-0 text-sm text-warning-text" title={error}>
             Could not refresh; showing the last loaded history. {error}

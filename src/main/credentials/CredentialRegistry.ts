@@ -44,6 +44,13 @@ export interface CredentialDescriptor {
   createdAt: string
   updatedAt: string
   authenticationState: 'unknown' | 'valid' | 'invalid'
+  /**
+   * When `authenticationState` was last decided. Separate from `updatedAt`, which moves for
+   * unrelated writes, and from per-capability `checkedAt`: a 401 records authentication only,
+   * so a capability can still carry a days-old `verified` while the token is being rejected
+   * right now. This is the timestamp the UI can honestly quote as "rejected since".
+   */
+  authenticationCheckedAt?: string
   verification: Partial<Record<CredentialCapability, CapabilityVerification>>
 }
 
@@ -302,6 +309,7 @@ export class CredentialRegistry {
                 ...record,
                 updatedAt: now,
                 authenticationState: 'valid',
+                authenticationCheckedAt: now,
                 verification: {
                   ...record.verification,
                   [capability]: { state: 'verified', checkedAt: now },
@@ -320,7 +328,12 @@ export class CredentialRegistry {
       JSON.stringify(
         this.list().map((record) =>
           record.id === credentialId
-            ? { ...record, authenticationState: state, updatedAt: now }
+            ? {
+                ...record,
+                authenticationState: state,
+                authenticationCheckedAt: now,
+                updatedAt: now,
+              }
             : record,
         ),
       ),

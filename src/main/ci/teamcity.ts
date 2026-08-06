@@ -284,6 +284,15 @@ export function fetchActivity(
       const authFailure = causes.find(
         (cause) => cause._tag === 'CiApiError' && (cause.status === 401 || cause.status === 403),
       )
+      // One reason, not three. All three slices hit the same server with the same token, so
+      // a rejected token produced three identical sentences; joining them under a wrapper
+      // that states the status again put the same line in front of the user four times.
+      // Returning the shared cause itself keeps the type honest and says it once — the
+      // slice names only carry information when the slices failed differently.
+      const first = causes[0]
+      if (causes.length === 3 && first && new Set(causes.map(ciErrorMessage)).size === 1) {
+        return errAsync<CiActivity, CiError>(first)
+      }
       return errAsync<CiActivity, CiError>({
         _tag: 'CiApiError',
         status: authFailure?._tag === 'CiApiError' ? authFailure.status : 0,

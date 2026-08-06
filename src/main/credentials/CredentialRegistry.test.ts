@@ -207,6 +207,44 @@ describe('CredentialRegistry', () => {
     })
   })
 
+  it('timestamps the authentication verdict, so the UI can say WHEN a token stopped working', () => {
+    // A 401 records only the authentication state — per-capability verification keeps the
+    // last verdict it earned, which can be a "verified" from days ago. Without a timestamp
+    // of its own there is nothing to answer "since when is this token rejected".
+    const registry = new CredentialRegistry(fakePreferences())
+    const credential = registry.save({
+      service: 'teamcity',
+      authMethod: 'pat',
+      audience: { host: 'tc.example.com', baseUrl: 'https://tc.example.com' },
+      intendedUses: ['teamcity'],
+      capabilities: ['builds.read'],
+      secret: 'token',
+    })
+    registry.recordCapability(credential.id, 'builds.read', 'verified')
+
+    // Pinned clock: both writes would otherwise land in the same millisecond and the
+    // "moves forward" assertion below would pass or fail on timing alone.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-08-06T10:00:00.000Z'))
+      registry.recordAuthentication(credential.id, 'invalid')
+      const rejected = registry.list()[0]
+      expect(rejected?.authenticationState).toBe('invalid')
+      expect(rejected?.authenticationCheckedAt).toBe('2026-08-06T10:00:00.000Z')
+      // The stale positive this exists for: the capability still claims it was verified.
+      expect(rejected?.verification['builds.read']?.state).toBe('verified')
+
+      // A later success must move it forward, or a banner would quote a stale moment.
+      vi.setSystemTime(new Date('2026-08-06T11:30:00.000Z'))
+      registry.recordSuccess(credential.id, 'builds.read')
+      const recovered = registry.list()[0]
+      expect(recovered?.authenticationState).toBe('valid')
+      expect(recovered?.authenticationCheckedAt).toBe('2026-08-06T11:30:00.000Z')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does not delete a credential while bindings still depend on it', () => {
     const registry = new CredentialRegistry(fakePreferences())
     const credential = registry.save({

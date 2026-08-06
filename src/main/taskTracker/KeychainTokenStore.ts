@@ -30,6 +30,8 @@ export interface StoredTrackerCredential {
   capabilities: CredentialCapability[]
   verification: CredentialDescriptor['verification']
   authenticationState: CredentialDescriptor['authenticationState']
+  /** When that state was decided — the only honest answer to "rejected since when?". */
+  authenticationCheckedAt?: string
   bindings: string[]
 }
 
@@ -149,6 +151,9 @@ export class KeychainTokenStore {
       capabilities: descriptor.capabilities,
       verification: descriptor.verification,
       authenticationState: descriptor.authenticationState,
+      ...(descriptor.authenticationCheckedAt
+        ? { authenticationCheckedAt: descriptor.authenticationCheckedAt }
+        : {}),
       bindings: this.registry.bindingsFor(descriptor.id),
     }))
   }

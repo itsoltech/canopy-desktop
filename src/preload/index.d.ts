@@ -1072,6 +1072,8 @@ interface CanopyAPI {
       capabilities: string[]
       verification: Record<string, { state: string; checkedAt: string; reason?: string }>
       authenticationState: string
+      /** When `authenticationState` was decided — a 401 leaves `verification` untouched. */
+      authenticationCheckedAt?: string
       bindings: string[]
     }>
   >

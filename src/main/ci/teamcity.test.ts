@@ -10,6 +10,7 @@ import {
   queuedActivityLocator,
   testConnection,
 } from './teamcity'
+import { ciErrorMessage } from './errors'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -61,17 +62,42 @@ describe('fetchActivity', () => {
     ])
   })
 
-  it('returns an error when every activity query fails', async () => {
+  it('states one shared reason once when all three queries fail the same way', async () => {
+    // A rejected token fails every slice identically. Joining the three sentences under a
+    // wrapper that repeats the status put the same line in front of the user four times.
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('VPN unavailable')))
 
     const result = await fetchActivity('https://tc.example.com', 'token', ['Build'])
 
     expect(result.isErr()).toBe(true)
     if (result.isOk()) throw new Error('Expected total activity failure')
-    expect(result.error).toMatchObject({
-      _tag: 'CiApiError',
-      message: expect.stringContaining('Running builds: TeamCity: VPN unavailable'),
-    })
+    expect(result.error).toMatchObject({ message: 'VPN unavailable' })
+    expect(ciErrorMessage(result.error)).not.toMatch(/VPN unavailable[\s\S]*VPN unavailable/)
+  })
+
+  it('still names the slices when they failed for DIFFERENT reasons', async () => {
+    const body = (message: string, status: number): Response =>
+      new Response(JSON.stringify({ message }), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(body('nope', 401))
+        .mockResolvedValueOnce(body('gone', 404))
+        .mockResolvedValueOnce(body('boom', 500)),
+    )
+
+    const result = await fetchActivity('https://tc.example.com', 'token', ['Build'])
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected total activity failure')
+    const message = (result.error as { message: string }).message
+    expect(message).toContain('Running builds:')
+    expect(message).toContain('Queued builds:')
+    expect(message).toContain('Recent builds:')
   })
 
   it('narrows running and recent SERVER-side, and the unfilterable queue in the response', async () => {

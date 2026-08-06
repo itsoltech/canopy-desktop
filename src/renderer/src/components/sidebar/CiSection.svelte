@@ -30,6 +30,8 @@
     refreshCiJobs,
   } from '../../lib/stores/ci.svelte'
   import { anyBuildActive, anyRunActive } from '../../lib/ci/status'
+  import { ipcErrorMessage, isCiAuthFailure } from '../../lib/ci/errors'
+  import { formatDateTime } from '../../lib/formatDate'
   import type { CiActivity, CiCardIssue, CiRunActivity } from '../../lib/ci/types'
 
   // CI/CD section: per-repo TeamCity — configuration entry, running any job on any
@@ -42,6 +44,7 @@
   let cfgState = $derived(getCiRepoConfig())
   let config = $derived(cfgState.config)
   let provider = $derived(config?.provider ?? 'teamcity')
+  let providerLabel = $derived(provider === 'github-actions' ? 'GitHub' : 'TeamCity')
   let providerUrl = $derived(
     config?.provider === 'github-actions'
       ? `https://github.com/${config.repository}`
@@ -84,7 +87,7 @@
     } catch (e) {
       if (seq !== activitySeq) return
       activity = null
-      activityError = e instanceof Error ? e.message : 'Failed to load activity'
+      activityError = ipcErrorMessage(e, 'Failed to load activity')
     } finally {
       if (seq === activitySeq) activityLoaded = true
     }
@@ -146,7 +149,40 @@
   // one CI element unadorned. Unlike the old chip this is not suppressed while a build
   // is known to be active: with no counts left to prefer, hiding the failure would
   // leave nothing at all.
+  // A rejected token is the one CI failure with a concrete action attached, so it gets the
+  // credential banner below rather than a chip whose reason lives only in a tooltip.
+  let credentialsRejected = $derived(isCiAuthFailure(activityError) || isCiAuthFailure(branchError))
+
+  // WHEN it was rejected. The registry records this on the 401 itself; per-capability
+  // verification does not move for a 401, so it can still read "verified" from days ago —
+  // `authenticationCheckedAt` is the only field that answers "rejected since when".
+  let rejectedSince = $state<string | undefined>(undefined)
+  $effect(() => {
+    if (!credentialsRejected || !providerUrl) {
+      rejectedSince = undefined
+      return
+    }
+    const url = providerUrl
+    let cancelled = false
+    void (async () => {
+      try {
+        const stored = await window.api.keychainListCredentials()
+        const match = stored.find(
+          (entry) => entry.baseUrl === url && entry.authenticationState === 'invalid',
+        )
+        if (!cancelled) rejectedSince = match?.authenticationCheckedAt
+      } catch {
+        if (!cancelled) rejectedSince = undefined
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  })
+
   let activityIssue = $derived.by((): CiCardIssue | undefined => {
+    // The banner already states this one, with the action and the timestamp.
+    if (credentialsRejected) return undefined
     if (activityError)
       return { label: 'Error', detail: `CI activity unavailable: ${activityError}` }
     if (activityPartialErrors.length > 0) {
@@ -340,6 +376,35 @@
           </div>
         </div>
       {:else}
+        {#if credentialsRejected}
+          <!-- Additive, not a replacement: a rejected token leaves the last known build and
+               the history window worth reaching, so this explains the failure above them
+               instead of hiding them. Same shape as the missing-token banner and the task
+               tracker's expired-credentials one — the recovery is identical. -->
+          <div class="px-2 py-1">
+            <div
+              class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+              title={activityError || branchError}
+            >
+              <KeyRound size={13} class="shrink-0 text-warning-text" />
+              <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug">
+                {providerLabel} rejected the stored token.{rejectedSince
+                  ? ` Since ${formatDateTime(Date.parse(rejectedSince))}.`
+                  : ''}
+              </span>
+              <button
+                type="button"
+                class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
+                onclick={() =>
+                  provider === 'github-actions'
+                    ? showProjectCi()
+                    : showPreferences('CI connections')}
+              >
+                Update token
+              </button>
+            </div>
+          </div>
+        {/if}
         <button
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
           onclick={openRunJob}
