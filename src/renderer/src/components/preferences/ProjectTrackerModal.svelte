@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -22,12 +22,17 @@
   let repoCfg = $derived(getRepoConfig())
 
   let containerEl: HTMLElement | undefined = $state()
+  let previouslyFocused: HTMLElement | null = null
 
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     await loadGlobalConfig()
     if (repoRoot) await loadRepoConfig(repoRoot)
     containerEl?.focus()
   })
+
+  // Return focus to whatever opened the dialog (same pattern as PRDetailsModal).
+  onDestroy(() => previouslyFocused?.focus?.())
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {

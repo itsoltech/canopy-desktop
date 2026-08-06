@@ -426,13 +426,16 @@
               showOverflow = false
             }}
           ></div>
+          <!-- role=menu/menuitem matches the trigger's aria-haspopup="menu" promise. -->
           <div
             class="absolute top-full right-0 min-w-40 bg-bg-overlay backdrop-blur-md border border-border rounded-lg p-1 z-popover shadow-menu"
+            role="menu"
           >
             {#each overflowTabs as tab (tab.id)}
               <button
                 class="block w-full px-2.5 py-1.5 border-0 bg-transparent text-text text-sm font-inherit text-left cursor-pointer rounded-md hover:bg-active"
                 class:bg-hover={tab.id === currentActiveId}
+                role="menuitem"
                 onclick={async () => {
                   await switchTab(tab.id)
                   showOverflow = false

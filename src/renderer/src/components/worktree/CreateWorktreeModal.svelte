@@ -131,7 +131,10 @@
     return branches.remote.find((r) => r.slice(r.indexOf('/') + 1) === name) ?? ''
   }
 
+  let previouslyFocused: HTMLElement | null = null
+
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))
     try {
@@ -170,6 +173,8 @@
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
+    // Return focus to whatever opened the dialog (same pattern as PRDetailsModal).
+    previouslyFocused?.focus?.()
   })
 
   function initSetupTerminal(container: HTMLDivElement): void {

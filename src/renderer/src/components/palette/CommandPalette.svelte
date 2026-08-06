@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import {
     Search,
@@ -57,13 +57,19 @@
 
   let tmuxAvailable = $state(false)
 
+  let previouslyFocused: HTMLElement | null = null
+
   onMount(() => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     inputEl?.focus()
     window.api
       .tmuxIsAvailable()
       .then((v) => (tmuxAvailable = v))
       .catch(() => {})
   })
+
+  // Return focus to whatever opened the palette (same pattern as PRDetailsModal).
+  onDestroy(() => previouslyFocused?.focus?.())
 
   const isMac = navigator.userAgent.includes('Mac')
   const mod = isMac ? 'Cmd' : 'Ctrl'

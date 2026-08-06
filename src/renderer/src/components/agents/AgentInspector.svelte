@@ -214,7 +214,8 @@
             <span
               class="text-sm text-text-secondary overflow-hidden text-ellipsis whitespace-nowrap flex-1"
               class:line-through={task.status === 'completed'}
-              class:opacity-50={task.status === 'completed'}>{task.subject}</span
+              class:opacity-50={task.status === 'completed'}
+              title={task.subject}>{task.subject}</span
             >
           </div>
         {/each}
