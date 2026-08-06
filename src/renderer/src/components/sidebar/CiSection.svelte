@@ -63,16 +63,7 @@
   // section knows neither the config nor whether the token still works. Everything below
   // depends on both: Run job… would queue against a server we have not re-checked, and the
   // history entry would open a window for the previous worktree.
-  // Config loaded is NOT enough: the token's state is only known once the first activity
-  // response lands, and until then the section would render Run job… and the card as if
-  // everything worked — then swap them for the rejected-token banner a second later. Gated
-  // on hasConfigAndToken so a repo with no token at all shows its banner immediately
-  // instead of waiting for a poll that never runs.
-  let ciBusy = $derived(
-    !cfgState.loaded ||
-      cfgState.key !== (repoRoot ?? '').replace(/\\/g, '/') ||
-      (hasConfigAndToken && !activityLoaded),
-  )
+  let ciBusy = $derived(!cfgState.loaded || cfgState.key !== (repoRoot ?? '').replace(/\\/g, '/'))
   let ciBodyEl = $state<HTMLElement>()
   let ciFrozenHeight = $state(0)
 
