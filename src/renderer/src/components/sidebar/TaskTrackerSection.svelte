@@ -39,6 +39,13 @@
   let needsCredsList = $derived(getProjectTrackersNeedingCredentials())
   let loading = $derived(isTaskTrackerLoading())
   let verifying = $derived(isVerifyingCredentials())
+  // Both spinners below are gated on having nothing to keep. A worktree switch inside one
+  // project reloads the config and re-verifies tokens that are already on screen, and the
+  // store swaps `resolvedConfig` and `trackerCredentials` atomically — so the previous,
+  // still-correct rows survive the whole reload. Showing the placeholders anyway replaced
+  // them with a different-height row and put them back ~300 ms later, which is why the
+  // sidebar jumped three times before settling on every switch.
+  let credentialsUnknown = $derived(trackers.some((t) => trackerCreds[t.id] === undefined))
   let panelTasks = $derived(getPanelTasks())
   // Worktree switched but task resolution hasn't landed yet — the banner would otherwise keep
   // showing the previous worktree's task until the data silently swaps.
@@ -99,7 +106,7 @@
       <Settings size={12} />
     </button>
   {/snippet}
-  {#if loading}
+  {#if loading && trackers.length === 0}
     <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
       <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
       <span class="text-sm">Loading trackers…</span>
@@ -162,7 +169,7 @@
             </div>
           {/each}
         </div>
-      {:else if verifying}
+      {:else if verifying && credentialsUnknown}
         <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
           <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
           <span class="text-sm">Checking credentials…</span>

@@ -31,6 +31,26 @@ Each provider implements a common `TaskTrackerProviderClient` interface. Jira us
 5. On success, credentials are stored via `keychainSetCredentials(provider, baseUrl, token, username?)`. The tracker definition is saved to the personal (Settings) or repo config.
 6. On failure, the provider returns a `ProviderApiError` with the HTTP status and message. The UI shows the error inline.
 
+### Sidebar section during a worktree switch
+
+Selecting another worktree reloads that worktree's `.canopy/config.json` and re-verifies its
+tokens. The **Project management** section keeps whatever it is already showing while that runs:
+the store swaps `resolvedConfig` and `trackerCredentials` in one step, so the visible rows stay
+correct for the previous selection until the new ones land in their place. **Loading trackers…**
+therefore appears only when no tracker is on screen at all, and **Checking credentials…** only
+before a tracker has any credential verdict — a re-check of one it already has stays silent.
+
+The reason is layout, not cosmetics: both placeholders are a single `h-7` row, so rendering them
+over an existing list replaced it with a shorter block and restored it a few hundred milliseconds
+later. A switch used to move the section's height three or four times (measured: 122 → 85 → 150 →
+206 → 178 px) and everything below it with each step. It now changes once, when the resolved tasks
+arrive.
+
+The accepted cost: switching to a **different project** leaves the previous project's tracker row
+on screen for the duration of the load (~250 ms measured) instead of a spinner. Task rows are not
+affected — they are gated separately on the resolved worktree path, so they never show another
+worktree's task.
+
 ### Browsing tasks
 
 1. User opens the task list for a connected tracker.
