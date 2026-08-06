@@ -77,6 +77,11 @@ A centered modal (rendered from the app layer — sidebar-hosted dialogs would b
 pinned to the sidebar column by its backdrop-filter): pick a configured job and a
 branch through a searchable list (branches come from TeamCity itself —
 `/app/rest/buildTypes/id:X/branches`; typing filters the list and a branch must be picked).
+The branch list starts **collapsed** and opens only on a deliberate action — the chevron,
+focusing the input, typing, or ArrowDown. TeamCity branch lists run to dozens of entries,
+and expanding by default buried the dialog's own footer under them. The reason **Run** is
+disabled sits directly above the buttons, not below them, so it is read before the control
+it explains.
 The generic sidebar **Run job…** entry leaves the branch empty, so an active `develop`
 worktree is never armed implicitly. The worktree context menu (right-click a branch in
 PROJECTS → **Run CI Job on Branch…**) explicitly prefills that worktree's branch, and

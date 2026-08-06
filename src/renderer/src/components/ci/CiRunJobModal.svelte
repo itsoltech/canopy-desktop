@@ -172,7 +172,7 @@
             : !buildTypeId
               ? 'Disabled: pick a job first'
               : !selectedBranch
-                ? 'Disabled: pick a branch from the list (typing clears the selection)'
+                ? 'Disabled: pick a branch — open the list or type to search'
                 : '',
   )
 
@@ -185,7 +185,7 @@
       : !buildTypeId
         ? 'Pick a job before running.'
         : !selectedBranch
-          ? 'Pick a branch from the list. Typing clears the current selection.'
+          ? 'Pick a branch: open the list or type to search. Typing clears the current selection.'
           : '',
   )
 
@@ -294,6 +294,7 @@
               fillQueryOnPick={true}
               highlightPicked={true}
               collapseConfirmedSelection={true}
+              startCollapsed={true}
             />
           {/if}
         </div>
@@ -301,6 +302,16 @@
         <div class:sr-only={!error && !parametersError} aria-live="polite">
           {#if error || parametersError}
             <span class="text-xs text-danger-text">{error || parametersError}</span>
+          {/if}
+        </div>
+        <!-- Above the buttons, not after them: it explains why the primary button is
+             inert, so it has to be read before reaching it. Its own container rather
+             than the error slot above — that one is aria-live, and a hint that toggles
+             with every selection would announce on each keystroke. min-h-4 reserves the
+             line so appearing does not shift the footer. -->
+        <div class="min-h-4 break-words text-right text-xs text-text-secondary">
+          {#if runBlockedHint}
+            <span id="ci-run-blocked-hint">{runBlockedHint}</span>
           {/if}
         </div>
         <div class="flex gap-1.5 justify-end">
@@ -348,11 +359,6 @@
             {/if}
             {actionLabel}
           </button>
-        </div>
-        <div class="min-h-4 break-words text-right text-xs text-text-secondary">
-          {#if runBlockedHint}
-            <span id="ci-run-blocked-hint">{runBlockedHint}</span>
-          {/if}
         </div>
       {:else}
         <!-- Persistent region: the Loading… → error swap must arrive as a MUTATION

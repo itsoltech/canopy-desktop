@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ChevronDown } from '@lucide/svelte'
-  import { isRemoteOnly, shouldReopenBranchList } from './utils'
+  import { initialBranchListOpen, isRemoteOnly, shouldReopenBranchList } from './utils'
 
   let {
     branches,
@@ -14,6 +14,7 @@
     highlightPicked = false,
     fillQueryOnPick = false,
     collapseConfirmedSelection = false,
+    startCollapsed = false,
   }: {
     branches: { local: string[]; remote: string[] }
     label: string
@@ -28,6 +29,13 @@
     fillQueryOnPick?: boolean
     /** Start collapsed when the parent supplies an already confirmed selection. */
     collapseConfirmedSelection?: boolean
+    /**
+     * Start collapsed even with nothing selected, so the list only appears once the
+     * user asks for it (chevron, focusing the input, typing, or ArrowDown). Affects
+     * the FIRST render only — a later external reset still reopens, which is what
+     * `collapseConfirmedSelection` is for.
+     */
+    startCollapsed?: boolean
   } = $props()
 
   let selectedIdx = $state(0)
@@ -55,12 +63,23 @@
   })
 
   // Combobox mode: the list collapses after a pick and reopens when the user edits the input.
-  let listOpen = $state(!collapseConfirmedSelection || !selectedBranch || query !== selectedBranch)
+  let listOpen = $state(
+    initialBranchListOpen(startCollapsed, collapseConfirmedSelection, selectedBranch, query),
+  )
+  let reopenArmed = false
 
   $effect(() => {
     // Parents can reset the bound selection without remounting this component (for example when
     // CiRunJobModal switches jobs). Never leave an empty/edited picker collapsed after that reset.
-    if (shouldReopenBranchList(collapseConfirmedSelection, selectedBranch, query)) listOpen = true
+    const reopen = shouldReopenBranchList(collapseConfirmedSelection, selectedBranch, query)
+    if (!reopenArmed) {
+      // Skip the mount run only. `startCollapsed` is about how the picker APPEARS when
+      // its dialog opens; letting this effect fire immediately would reopen it on the
+      // same frame, since "nothing selected yet" is exactly the reopen condition.
+      reopenArmed = true
+      if (startCollapsed) return
+    }
+    if (reopen) listOpen = true
   })
 
   function pick(branch: string): void {

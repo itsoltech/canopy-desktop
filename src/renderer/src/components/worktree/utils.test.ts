@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { shouldReopenBranchList } from './utils'
+import { initialBranchListOpen, shouldReopenBranchList } from './utils'
+
+describe('initialBranchListOpen', () => {
+  it('keeps the list shut on the first frame when the parent asks for it', () => {
+    // The Run job dialog: nothing is selected yet, which is normally the strongest
+    // reason to open — so startCollapsed has to beat every other condition or the
+    // dialog opens with a full-height branch list covering itself.
+    expect(initialBranchListOpen(true, true, '', '')).toBe(false)
+    expect(initialBranchListOpen(true, true, 'feature/example', 'edited')).toBe(false)
+  })
+
+  it('otherwise mirrors the reopen rule', () => {
+    expect(initialBranchListOpen(false, true, '', '')).toBe(true)
+    expect(initialBranchListOpen(false, true, 'feature/example', 'edited')).toBe(true)
+    expect(initialBranchListOpen(false, true, 'feature/example', 'feature/example')).toBe(false)
+    // Not in combobox mode: the list is always visible.
+    expect(initialBranchListOpen(false, false, 'feature/example', 'feature/example')).toBe(true)
+  })
+})
 
 describe('shouldReopenBranchList', () => {
   it('does not reopen the regular picker after a branch is picked', () => {
