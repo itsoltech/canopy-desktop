@@ -31,9 +31,15 @@ The integration follows the Project management architecture:
 - **Not configured**: a "Configure TeamCity" entry opens the per-repo configurator.
 - **Configured**: the server row (click opens TeamCity), a **Run job…** entry, and then
   exactly **one** CI element — never two. Normally that is the highlighted card holding
-  the newest build of the active worktree's branch (build number, status chip and
-  TeamCity's build-specific `statusText` summary when present). Its heading reads
-  **Last job**, or **Running job** while one of the card's own builds is queued or
+  **the single newest build of the active worktree's branch** (build number, status chip
+  and TeamCity's build-specific `statusText` summary when present). With several build
+  types configured the card still shows one build, not one per configured job: the sidebar
+  answers "what happened last on this branch", which has a single answer, and the full
+  per-job picture is one click away in the history window. The winner is the most recent
+  timestamp; a job that has never run loses to any that has, and when none has run the
+  first configured job is named so the card still says which job it means
+  (`newestLastStatusIndex` in `src/renderer/src/lib/ci/status.ts`). Its heading reads
+  **Last job**, or **Running job** while _that build_ is queued or
   running — note that this tracks _the branch's_ builds, not repository-wide activity,
   so it can read "Last job" while something runs on another branch. Its first line shows
   the Queued, Started or Finished time as appropriate; hovering replaces the timestamp
@@ -41,9 +47,9 @@ The integration follows the Project management architecture:
   focus ring. Clicking the card opens the jobs-history window **with its branch filter
   preselected to that branch** — it no longer opens the build in TeamCity, and there is
   no other route to a specific build's page from the sidebar.
-  A row whose status fetch fails —
-  e.g. its job was deleted or re-ided on the server — shows an `Unavailable` chip with
-  the reason, and only that row degrades, never the whole card. A branch with no builds
+  A shown build whose status fetch failed —
+  e.g. its job was deleted or re-ided on the server — carries an `Unavailable` chip with
+  the reason. A branch with no builds
   yet shows a `No builds` chip; the card stays clickable, because the window is always
   openable. The chip vocabulary is
   shared with the activity window: `SUCCESS` → **Success**, `FAILURE` and TeamCity's

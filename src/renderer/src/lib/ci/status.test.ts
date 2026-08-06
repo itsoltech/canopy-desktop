@@ -3,6 +3,7 @@ import {
   anyBuildActive,
   anyRunActive,
   ciChip,
+  newestLastStatusIndex,
   ciRunChip,
   ciLastRunTimestampInfo,
   ciRunStatusTextClass,
@@ -122,6 +123,35 @@ describe('anyRunActive', () => {
   it('is false for finished or absent runs', () => {
     expect(anyRunActive([row(null), row(run('finished'))])).toBe(false)
     expect(anyRunActive([])).toBe(false)
+  })
+})
+
+describe('newestLastStatusIndex', () => {
+  const row = (id: string, timestamp?: number): { id: string; timestamp?: number } => ({
+    id,
+    ...(timestamp === undefined ? {} : { timestamp }),
+  })
+
+  it('picks the most recent run, not the first configured job', () => {
+    expect(newestLastStatusIndex([row('build', 100), row('tests', 300), row('lint', 200)])).toBe(1)
+  })
+
+  it('prefers any job that has run over one that never has', () => {
+    // A configured job with no builds carries no timestamp. Letting it win would show
+    // "No builds" while a real run of a sibling job sits one click away in the window.
+    expect(newestLastStatusIndex([row('never'), row('ran', 5)])).toBe(1)
+  })
+
+  it('falls back to the first row when nothing has run, so a job is still named', () => {
+    expect(newestLastStatusIndex([row('a'), row('b')])).toBe(0)
+  })
+
+  it('keeps the earlier job on a tie, so equal timestamps do not flip on a poll', () => {
+    expect(newestLastStatusIndex([row('a', 7), row('b', 7)])).toBe(0)
+  })
+
+  it('reports -1 for no rows at all', () => {
+    expect(newestLastStatusIndex([])).toBe(-1)
   })
 })
 

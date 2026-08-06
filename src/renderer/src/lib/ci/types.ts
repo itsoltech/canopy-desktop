@@ -114,6 +114,19 @@ export interface CiRun {
   finishedAt: number | undefined
 }
 
+/** Provider-neutral shape of the ONE run the sidebar card shows. */
+export interface CiLastStatusRow {
+  id: string
+  label: string
+  number?: string
+  timestamp?: number
+  timestampLabel?: 'Queued' | 'Started' | 'Finished'
+  statusText?: string
+  statusTextClass?: string
+  error?: string
+  chip: { label: string; cls: string }
+}
+
 /**
  * Failure suffix on the sidebar's single CI element. Set only when an activity slice
  * failed — the running/queued counts it used to sit next to now live in the history

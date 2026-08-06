@@ -1,10 +1,11 @@
 <script lang="ts">
-  import type { CiCardIssue, CiJobStatus } from '../../lib/ci/types'
+  import type { CiCardIssue, CiJobStatus, CiLastStatusRow } from '../../lib/ci/types'
   import {
     anyRunActive,
     ciLastRunTimestampInfo,
     ciRunChip,
     ciRunStatusTextClass,
+    newestLastStatusIndex,
   } from '../../lib/ci/status'
   import CiLastStatusCard from './CiLastStatusCard.svelte'
 
@@ -19,8 +20,9 @@
     issue?: CiCardIssue
     onActivate: () => void
   } = $props()
+
   let statusRows = $derived(
-    rows.map((row) => {
+    rows.map((row): CiLastStatusRow => {
       const timestamp = row.run ? ciLastRunTimestampInfo(row.run) : undefined
       return {
         id: row.jobId,
@@ -35,6 +37,17 @@
       }
     }),
   )
+  // Index rather than the row itself: it keeps the mapped row and its source aligned, so
+  // "is it running" is answered by the run actually on screen, not by any configured job.
+  let index = $derived(newestLastStatusIndex(statusRows))
+  let row = $derived(index === -1 ? undefined : statusRows[index])
+  let source = $derived(index === -1 ? undefined : rows[index])
 </script>
 
-<CiLastStatusCard rows={statusRows} {branch} {issue} {onActivate} active={anyRunActive(rows)} />
+<CiLastStatusCard
+  {row}
+  {branch}
+  {issue}
+  {onActivate}
+  active={anyRunActive(source ? [source] : [])}
+/>

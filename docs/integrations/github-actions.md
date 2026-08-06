@@ -85,13 +85,18 @@ incomplete result gets up to three fast recovery polls before decaying to the 30
 cadence, so permanent configuration drift does not consume the API budget indefinitely. The
 card uses the same cadence, but keys
 it to runs for the active worktree's branch, so a run on another branch speeds up the activity
-poll but not the card. It shows the workflow label and number, branch, GitHub display title and
-status chip, under a heading that reads **Last job** — or **Running job** while one of the card's
-own runs is queued, running or waiting (GitHub's `unknown` state does not count: it means a state
-Canopy could not map, not a run in flight). Its first line uses the Queued, Started or Finished
+poll but not the card. It shows **one** run — the single newest across every configured workflow,
+not one per workflow — with its label and number, branch, GitHub display title and
+status chip, under a heading that reads **Last job** — or **Running job** while _that run_ is
+queued, running or waiting (GitHub's `unknown` state does not count: it means a state
+Canopy could not map, not a run in flight). Selection is shared with TeamCity
+(`newestLastStatusIndex`): newest timestamp wins, a workflow that has never run loses to one that
+has, and with nothing run at all the first configured workflow is named.
+Its first line uses the Queued, Started or Finished
 timestamp; hovering replaces that timestamp with a history icon. Keyboard focus does not — it stays
-on the card, which keeps its focus ring. A workflow lookup that
-fails shows **Unavailable** with its reason without hiding sibling workflow results. All three
+on the card, which keeps its focus ring. A shown run whose workflow lookup
+failed carries **Unavailable** with its reason; the other workflows are still reachable in the
+history window. All three
 surfaces re-fetch immediately after Canopy dispatches a workflow.
 
 Run watching is in-memory. Restarting Canopy does not restore an active watcher, but the scoped

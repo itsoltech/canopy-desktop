@@ -133,3 +133,21 @@ const ACTIVE_RUN_STATES: ReadonlySet<CiRun['state']> = new Set(['queued', 'runni
 export function anyRunActive(rows: CiJobStatus[]): boolean {
   return rows.some((r) => r.run != null && ACTIVE_RUN_STATES.has(r.run.state))
 }
+
+/**
+ * Index of the one run the sidebar card shows: the LAST job for this branch, not a list
+ * of the last job of every configured job. A job that has never run carries no timestamp
+ * and loses to any that has; when none has run the first configured row wins so the card
+ * still names a job instead of rendering nothing. Ties keep the earlier row, so two runs
+ * sharing a timestamp cannot swap the card's contents on every poll.
+ */
+export function newestLastStatusIndex(rows: Array<{ timestamp?: number }>): number {
+  if (rows.length === 0) return -1
+  let best = -1
+  for (let i = 0; i < rows.length; i++) {
+    const ts = rows[i].timestamp
+    if (ts == null) continue
+    if (best === -1 || ts > (rows[best].timestamp as number)) best = i
+  }
+  return best === -1 ? 0 : best
+}

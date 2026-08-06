@@ -4,8 +4,9 @@
     ciChip,
     ciLastRunTimestampInfo,
     ciStatusTextClass,
+    newestLastStatusIndex,
   } from '../../lib/ci/status'
-  import type { CiBuildTypeStatus, CiCardIssue } from '../../lib/ci/types'
+  import type { CiBuildTypeStatus, CiCardIssue, CiLastStatusRow } from '../../lib/ci/types'
   import CiLastStatusCard from './CiLastStatusCard.svelte'
 
   let {
@@ -19,8 +20,9 @@
     issue?: CiCardIssue
     onActivate: () => void
   } = $props()
+
   let statusRows = $derived(
-    rows.map((row) => {
+    rows.map((row): CiLastStatusRow => {
       const timestamp = row.build ? ciLastRunTimestampInfo(row.build) : undefined
       return {
         id: row.buildTypeId,
@@ -35,6 +37,17 @@
       }
     }),
   )
+  // Index rather than the row itself: it keeps the mapped row and its source aligned, so
+  // "is it running" is answered by the build actually on screen, not by any configured job.
+  let index = $derived(newestLastStatusIndex(statusRows))
+  let row = $derived(index === -1 ? undefined : statusRows[index])
+  let source = $derived(index === -1 ? undefined : rows[index])
 </script>
 
-<CiLastStatusCard rows={statusRows} {branch} {issue} {onActivate} active={anyBuildActive(rows)} />
+<CiLastStatusCard
+  {row}
+  {branch}
+  {issue}
+  {onActivate}
+  active={anyBuildActive(source ? [source] : [])}
+/>
