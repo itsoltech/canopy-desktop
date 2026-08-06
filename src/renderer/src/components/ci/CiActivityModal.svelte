@@ -23,10 +23,15 @@
   let seq = 0
 
   /** undefined = every branch. Applied by TeamCity, not to the response — see `refresh`. */
+  // svelte-ignore state_referenced_locally
+  // Capturing the initial value is the point: the opener only SEEDS the filter, which
+  // the user then owns. MainLayout keys this dialog by identity, so reopening it
+  // remounts with a fresh seed rather than needing this to stay reactive.
   let branchFilter = $state(initialBranch)
   // Seeded from the opener because a filtered response only ever contains the branch
   // it was filtered to: without the seed, a branch with no builds at all would have no
   // option to select. Switching to "All branches" is what discovers the rest.
+  // svelte-ignore state_referenced_locally
   let knownBranches = $state<string[]>(initialBranch ? [initialBranch] : [])
   let branchOptions = $derived(
     branchFilter && !knownBranches.includes(branchFilter)
