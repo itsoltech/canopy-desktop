@@ -176,36 +176,47 @@
   // one CI element unadorned. Unlike the old chip this is not suppressed while a build
   // is known to be active: with no counts left to prefer, hiding the failure would
   // leave nothing at all.
-  // A rejected token is the one CI failure with a concrete action attached, so it gets the
-  // credential banner below rather than a chip whose reason lives only in a tooltip.
-  let credentialsRejected = $derived(isCiAuthFailure(activityError) || isCiAuthFailure(branchError))
-
-  // WHEN it was rejected. The registry records this on the 401 itself; per-capability
-  // verification does not move for a 401, so it can still read "verified" from days ago —
-  // `authenticationCheckedAt` is the only field that answers "rejected since when".
-  let rejectedSince = $state<string | undefined>(undefined)
+  // Token validity is answered LOCALLY, not by waiting for history. The registry persists
+  // `authenticationState` from the last 401, so this is one in-process IPC (milliseconds)
+  // rather than a network round-trip — which is why Run job… and the card can be withheld
+  // from the first frame instead of appearing and being taken away a second later.
+  let storedAuth = $state<{ state: string; checkedAt?: string } | undefined>(undefined)
   $effect(() => {
-    if (!credentialsRejected || !providerUrl) {
-      rejectedSince = undefined
+    const url = providerUrl
+    // Re-read after a failure lands too, so a fresh 401 updates the "since" stamp.
+    void activityError
+    void branchError
+    if (!url) {
+      storedAuth = undefined
       return
     }
-    const url = providerUrl
     let cancelled = false
     void (async () => {
       try {
         const stored = await window.api.keychainListCredentials()
-        const match = stored.find(
-          (entry) => entry.baseUrl === url && entry.authenticationState === 'invalid',
-        )
-        if (!cancelled) rejectedSince = match?.authenticationCheckedAt
+        const match = stored.find((entry) => entry.baseUrl === url)
+        if (!cancelled) {
+          storedAuth = match
+            ? { state: match.authenticationState, checkedAt: match.authenticationCheckedAt }
+            : undefined
+        }
       } catch {
-        if (!cancelled) rejectedSince = undefined
+        if (!cancelled) storedAuth = undefined
       }
     })()
     return () => {
       cancelled = true
     }
   })
+
+  // The stored verdict is what removes the flicker; the live errors keep it correct for a
+  // token that only just started being rejected. History loads independently of both.
+  let credentialsRejected = $derived(
+    storedAuth?.state === 'invalid' ||
+      isCiAuthFailure(activityError) ||
+      isCiAuthFailure(branchError),
+  )
+  let rejectedSince = $derived(storedAuth?.checkedAt)
 
   let activityIssue = $derived.by((): CiCardIssue | undefined => {
     // The banner already states this one, with the action and the timestamp.
