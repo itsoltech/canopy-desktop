@@ -131,10 +131,10 @@
     </button>
   {/snippet}
   {#if loading && trackers.length === 0}
-    <!-- Same 65px as the two settled states below: this is the one branch a cross-project
+    <!-- Same 56px as the two settled states below: this is the one branch a cross-project
          switch passes through (the incoming project has no trackers yet), so leaving it
          row-height reintroduced the shift the others were matched to avoid. -->
-    <div class="flex items-center gap-2.5 min-h-[65px] px-3 text-text-faint">
+    <div class="flex items-center gap-2.5 min-h-14 px-3 text-text-faint">
       <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
       <span class="text-sm">Loading trackers…</span>
     </div>
@@ -222,12 +222,6 @@
             <span class="text-sm">Checking credentials…</span>
           </div>
         {/if}
-
-        <div
-          class="h-px mx-3 my-1 bg-border-subtle"
-          role="separator"
-          aria-orientation="horizontal"
-        ></div>
 
         <!-- Tasks linked to the current worktree. -->
         {#if taskResolving}
@@ -331,13 +325,14 @@
       {/if}
     </div>
   {:else}
-    <!-- Matched to the configured layout's 65px: one tracker row (h-7) + the separator
-         (h-px with my-1) + one action row (h-7). Without it this state was 18px shorter,
-         so moving between a project that has a tracker and one that does not shifted every
-         section below — the same jump the placeholder above exists to prevent. -->
-    <div class="flex min-h-[65px] px-3 py-2">
+    <!-- Matched to the configured layout's 56px, which is its floor: two h-7 rows. The
+         dashed frame keeps its own natural size and the box centres it, so the height is
+         reserved by margin rather than by stretching a control that has nothing to fill.
+         Without this the state was shorter than the configured one, and moving between a
+         project that has a tracker and one that does not shifted every section below. -->
+    <div class="flex min-h-14 items-center px-3 py-1">
       <button
-        class="flex flex-1 items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
+        class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
         onclick={openProjectTracker}
       >
         <Plus size={14} />

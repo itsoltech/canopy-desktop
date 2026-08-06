@@ -56,10 +56,15 @@ drift from it as either side changes. A single measurement cannot.
 content to preserve.
 
 All three settled states of the section — configured, first-loading, and the empty
-**Configure Tracker** tile — are matched to the same 65px: one tracker row (`h-7`) plus the
-separator (`h-px` with `my-1`) plus one action row (`h-7`). The empty tile used to be 18px
-shorter and the loading row shorter still, so moving between a project that has a tracker and
-one that does not shifted every section below it. Measured after: 122 → 122, no change.
+**Configure Tracker** tile — are matched to the same **56px**, which is the configured
+layout's floor: two `h-7` rows. The separator that used to sit between them is gone, since its
+`my-1` margins cost 9px for a decorative line. The empty tile reserves that height by
+**centring its dashed frame with margin** rather than stretching it — the frame stays at its
+own 31px, so the box lines up without inflating a control that has nothing to fill.
+
+Before this, the three states settled at 65px, 47px and 28px, so moving between a project that
+has a tracker and one that does not shifted every section below. Measured after: no change at
+all across a cross-project switch.
 
 **Checking credentials…** appears only before a tracker has any credential verdict —
 re-verifying one that already has a verdict stays silent, since it fires on every switch and its
