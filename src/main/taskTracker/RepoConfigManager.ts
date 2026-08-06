@@ -19,12 +19,20 @@ function configPath(repoRoot: string): string {
 }
 
 export class RepoConfigManager {
+  /**
+   * Only a genuine ENOENT counts as "absent". A file that is there but cannot be
+   * reached (EACCES on the directory, a transient EMFILE) reports `true`, because
+   * both callers treat `false` as permission to act as if nothing were there —
+   * `performConfigWrite` initializes defaults over it, and binding-pruning drops
+   * it from the live set. Guessing "absent" from an unreadable path would destroy
+   * a config or unbind a credential the repository still uses.
+   */
   async exists(repoRoot: string): Promise<boolean> {
     try {
       await access(configPath(repoRoot))
       return true
-    } catch {
-      return false
+    } catch (error) {
+      return (error as NodeJS.ErrnoException)?.code !== 'ENOENT'
     }
   }
 

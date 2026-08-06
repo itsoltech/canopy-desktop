@@ -300,14 +300,21 @@ export class KeychainTokenStore {
     return this.getCredentials(provider, baseUrl, bindingKey) !== null
   }
 
+  /**
+   * `opts.usedSecret` is the token the failing request was actually built with.
+   * The registry redacts the reason against the secret it holds NOW, which is a
+   * different value once a rotation reuses the credential id mid-request — pass
+   * the captured one so the old token cannot survive into a stored reason.
+   */
   recordResult(
     provider: string,
     baseUrl: string,
     capability: CredentialCapability,
     status: number,
     reason?: string,
-    bindingKey = defaultBinding(provider, baseUrl),
+    opts?: { bindingKey?: string; usedSecret?: string },
   ): void {
+    const bindingKey = opts?.bindingKey ?? defaultBinding(provider, baseUrl)
     const credentialId = this.registry.listBindings()[bindingKey]
     if (!credentialId) return
     if (status === 401) {
@@ -315,7 +322,7 @@ export class KeychainTokenStore {
       return
     }
     if (status === 403) {
-      this.registry.recordCapability(credentialId, capability, 'denied', reason)
+      this.registry.recordCapability(credentialId, capability, 'denied', reason, opts?.usedSecret)
       return
     }
     if (status >= 200 && status < 400) {

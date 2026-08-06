@@ -123,14 +123,22 @@ export class CiManager {
       new GitHubActionsClient(owner, repository, token),
   ) {}
 
+  /**
+   * Records the credential outcome of `result`. `usedSecret` is the token the
+   * request was actually built with — redaction must key on THAT, not on whatever
+   * is in the store when the response lands: `setCredentials` reuses the credential
+   * id for a single-binding credential, so a rotation mid-request would otherwise
+   * redact against the new secret and persist the old one verbatim in the reason.
+   */
   private observeCredentialResult<T>(
     provider: 'teamcity' | 'github-actions',
     baseUrl: string,
     capability: CredentialCapability,
     result: ResultAsync<T, CiError>,
+    usedSecret?: string,
   ): ResultAsync<T, CiError> {
     const record = (status: number, reason?: string): void =>
-      this.tokenStore.recordResult(provider, baseUrl, capability, status, reason)
+      this.tokenStore.recordResult(provider, baseUrl, capability, status, reason, { usedSecret })
     return result
       .map((value) => {
         const degradedCauses = ciDegradedCauses(value)
@@ -249,7 +257,7 @@ export class CiManager {
   private githubClientForWorkspace(
     repoRoot: string,
     candidateToken?: string,
-  ): ResultAsync<{ repository: string; client: GitHubActionsClient }, CiError> {
+  ): ResultAsync<{ repository: string; client: GitHubActionsClient; token: string }, CiError> {
     return this.remoteUrlResolver(repoRoot)
       .mapErr((): CiError => ({
         _tag: 'CiApiError',
@@ -260,7 +268,10 @@ export class CiManager {
       .andThen((remoteUrl) => {
         const parsed = parseGitHubRemote(remoteUrl)
         if (parsed.isErr() || parsed.value.host.toLowerCase() !== 'github.com') {
-          return errAsync<{ repository: string; client: GitHubActionsClient }, CiError>({
+          return errAsync<
+            { repository: string; client: GitHubActionsClient; token: string },
+            CiError
+          >({
             _tag: 'CiRepositoryMismatch',
             expected: 'github.com workspace remote',
             actual: parsed.isOk() ? parsed.value.host : 'non-GitHub remote',
@@ -269,9 +280,10 @@ export class CiManager {
         const repository = `${parsed.value.owner}/${parsed.value.repo}`
         const makeClient = (
           token: string,
-        ): { repository: string; client: GitHubActionsClient } => ({
+        ): { repository: string; client: GitHubActionsClient; token: string } => ({
           repository,
           client: this.githubClientFactory(parsed.value.owner, parsed.value.repo, token),
+          token,
         })
         return candidateToken
           ? okAsync(makeClient(candidateToken))
@@ -282,11 +294,12 @@ export class CiManager {
   private adapterForConfig(
     repoRoot: string,
     ci: CiConfig,
-  ): ResultAsync<{ ci: CiConfig; adapter: CiProviderAdapter }, CiError> {
+  ): ResultAsync<{ ci: CiConfig; adapter: CiProviderAdapter; token: string }, CiError> {
     if (ci.provider === 'teamcity') {
       return this.tokenFor(ci).map((token) => ({
         ci,
         adapter: new TeamCityAdapter(ci, token),
+        token,
       }))
     }
 
@@ -300,7 +313,7 @@ export class CiManager {
       .andThen((remoteUrl) => {
         const parsed = parseGitHubRemote(remoteUrl)
         if (parsed.isErr()) {
-          return errAsync<{ ci: CiConfig; adapter: CiProviderAdapter }, CiError>({
+          return errAsync<{ ci: CiConfig; adapter: CiProviderAdapter; token: string }, CiError>({
             _tag: 'CiRepositoryMismatch',
             expected: ci.repository,
             actual: 'non-GitHub remote',
@@ -311,7 +324,7 @@ export class CiManager {
           parsed.value.host.toLowerCase() !== 'github.com' ||
           actual.toLowerCase() !== ci.repository.toLowerCase()
         ) {
-          return errAsync<{ ci: CiConfig; adapter: CiProviderAdapter }, CiError>({
+          return errAsync<{ ci: CiConfig; adapter: CiProviderAdapter; token: string }, CiError>({
             _tag: 'CiRepositoryMismatch',
             expected: ci.repository,
             actual: `${parsed.value.host}/${actual}`,
@@ -323,13 +336,14 @@ export class CiManager {
             ci,
             this.githubClientFactory(parsed.value.owner, parsed.value.repo, token),
           ),
+          token,
         }))
       })
   }
 
   private adapter(
     repoRoot: string,
-  ): ResultAsync<{ ci: CiConfig; adapter: CiProviderAdapter }, CiError> {
+  ): ResultAsync<{ ci: CiConfig; adapter: CiProviderAdapter; token: string }, CiError> {
     return this.loadConfig(repoRoot).andThen((ci) => this.adapterForConfig(repoRoot, ci))
   }
 
@@ -407,12 +421,12 @@ export class CiManager {
               })
             }),
         ),
-      ).map((rows) =>
-        causes.length > 0 && rows.length > 0 && rows.every((row) => row.error)
-          ? withCiDegradedCauses(rows, causes)
-          : rows,
-      )
-      return this.observeCredentialResult('teamcity', ci.baseUrl, 'builds.read', result)
+        // A PARTIAL failure counts: `observeCredentialResult` only records a
+        // failure for a 401/403 cause, so requiring every row to fail would let a
+        // mixed result (one scoped-away build type, the rest fine) re-stamp the
+        // credential "verified" on every poll. Same gate as TeamCityAdapter.status.
+      ).map((rows) => (causes.length > 0 ? withCiDegradedCauses(rows, causes) : rows))
+      return this.observeCredentialResult('teamcity', ci.baseUrl, 'builds.read', result, token)
     })
   }
 
@@ -441,6 +455,7 @@ export class CiManager {
           ci.baseUrl,
           'builds.trigger',
           triggerBuild(ci.baseUrl, token, buildTypeId, branch, properties),
+          token,
         ),
       )
     })
@@ -483,7 +498,13 @@ export class CiManager {
               const causes = ciDegradedCauses(activity)
               return causes === undefined ? filtered : withCiDegradedCauses(filtered, causes)
             })
-            return this.observeCredentialResult('teamcity', ci.baseUrl, 'builds.read', result)
+            return this.observeCredentialResult(
+              'teamcity',
+              ci.baseUrl,
+              'builds.read',
+              result,
+              token,
+            )
           }),
     )
   }
@@ -537,6 +558,7 @@ export class CiManager {
         baseUrl,
         'builds.read',
         fetchBuildTypes(baseUrl, token),
+        token,
       ),
     )
   }
@@ -621,7 +643,7 @@ export class CiManager {
   }
 
   jobsStatus(repoRoot: string, ref: CiRef): ResultAsync<CiJobStatus[], CiError> {
-    return this.adapter(repoRoot).andThen(({ ci, adapter }) =>
+    return this.adapter(repoRoot).andThen(({ ci, adapter, token }) =>
       this.observeCredentialResult(
         ci.provider,
         ci.provider === 'github-actions'
@@ -629,12 +651,13 @@ export class CiManager {
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.status(ref),
+        token,
       ),
     )
   }
 
   jobRefs(repoRoot: string, jobId: string): ResultAsync<CiRef[], CiError> {
-    return this.adapter(repoRoot).andThen(({ ci, adapter }) =>
+    return this.adapter(repoRoot).andThen(({ ci, adapter, token }) =>
       this.observeCredentialResult(
         ci.provider,
         ci.provider === 'github-actions'
@@ -642,6 +665,7 @@ export class CiManager {
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.refs(jobId),
+        token,
       ),
     )
   }
@@ -649,28 +673,30 @@ export class CiManager {
   jobParameters(repoRoot: string, jobId: string, ref: CiRef): ResultAsync<CiParameterSet, CiError> {
     return this.adapter(repoRoot).andThen(({ ci, adapter }) => {
       if (ci.provider === 'github-actions') {
-        return this.githubToken(ci.repository, 'contents.read').andThen(() =>
+        return this.githubToken(ci.repository, 'contents.read').andThen((contentsToken) =>
           this.observeCredentialResult(
             ci.provider,
             githubActionsCredentialBaseUrl(ci.repository),
             'contents.read',
             adapter.parameters(jobId, ref),
+            contentsToken,
           ),
         )
       }
-      return this.tokenFor(ci, 'builds.read').andThen(() =>
+      return this.tokenFor(ci, 'builds.read').andThen((readToken) =>
         this.observeCredentialResult(
           ci.provider,
           ci.baseUrl,
           'builds.read',
           adapter.parameters(jobId, ref),
+          readToken,
         ),
       )
     })
   }
 
   runActivity(repoRoot: string): ResultAsync<CiRunActivity, CiError> {
-    return this.adapter(repoRoot).andThen(({ ci, adapter }) =>
+    return this.adapter(repoRoot).andThen(({ ci, adapter, token }) =>
       this.observeCredentialResult(
         ci.provider,
         ci.provider === 'github-actions'
@@ -678,12 +704,13 @@ export class CiManager {
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.activity(),
+        token,
       ),
     )
   }
 
   runById(repoRoot: string, runId: string): ResultAsync<CiRun, CiError> {
-    return this.adapter(repoRoot).andThen(({ ci, adapter }) =>
+    return this.adapter(repoRoot).andThen(({ ci, adapter, token }) =>
       this.observeCredentialResult(
         ci.provider,
         ci.provider === 'github-actions'
@@ -691,12 +718,13 @@ export class CiManager {
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.run(runId),
+        token,
       ),
     )
   }
 
   githubSetup(repoRoot: string): ResultAsync<GitHubActionsSetupInfo, CiError> {
-    return this.githubClientForWorkspace(repoRoot).andThen(({ repository, client }) =>
+    return this.githubClientForWorkspace(repoRoot).andThen(({ repository, client, token }) =>
       client.getRepository().andThen((metadata) => {
         if (metadata.fullName.toLowerCase() !== repository.toLowerCase()) {
           return errAsync<GitHubActionsSetupInfo, CiError>({
@@ -710,6 +738,7 @@ export class CiManager {
           githubActionsCredentialBaseUrl(repository),
           'actions.read',
           discoverGitHubWorkflows(client, metadata.defaultBranch),
+          token,
         ).map((workflows) => ({
           repository: metadata.fullName.toLowerCase(),
           defaultBranch: metadata.defaultBranch,
@@ -836,6 +865,7 @@ export class CiManager {
       baseUrl,
       context.value.ci.provider === 'github-actions' ? 'actions.dispatch' : 'builds.trigger',
       context.value.adapter.trigger(request),
+      context.value.token,
     )
   }
 }

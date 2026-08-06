@@ -67,7 +67,7 @@ export class TaskTrackerManager {
         capability,
         status,
         reason,
-        trackerBindingKey(connection.id),
+        { bindingKey: trackerBindingKey(connection.id) },
       )
     return result
       .map((value) => {

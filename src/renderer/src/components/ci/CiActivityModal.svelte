@@ -192,14 +192,17 @@
     </header>
 
     <div class="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-1">
+      <!-- The coarse sentence is the ANNOUNCEMENT (role=status implies aria-atomic,
+           so the region is read whole — a visible copy would print it a second time
+           above the warning box that already says it). The wrapper's sr-only stays
+           conditional: an empty in-flow child would add a gap to this flex column. -->
       <div role="status" class:sr-only={!activity?.partialErrors?.length}>
-        {#if activity?.partialErrors?.length}<span
-            >Partial history — some jobs could not be loaded</span
-          >{/if}
         {#if activity?.partialErrors?.length}
+          <span class="sr-only">Partial history — some jobs could not be loaded</span>
           <p
             class="mx-3 mt-0 mb-2 px-2.5 py-2 rounded-md bg-warning-bg text-xs text-warning-text break-words"
             title={activity.partialErrors.join(' · ')}
+            aria-hidden="true"
           >
             Partial history: {activity.partialErrors.join(' · ')}
           </p>

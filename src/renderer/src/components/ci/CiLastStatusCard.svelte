@@ -32,11 +32,15 @@
 
 {#snippet dateAndLink(row: LastStatusRow)}
   {#if row.timestamp != null}
-    <!-- Grid overlap keeps the top line stable: hover/focus replaces the date with the link icon. -->
+    <!-- Grid overlap keeps the top line stable: HOVER replaces the date with the
+         link icon. Deliberately not focus — focus is where a keyboard user IS,
+         and blanking the date there loses it for good (Chromium renders `title`
+         on hover only, never on :focus). The focused card's affordance is the
+         `#number` accent + underline below, which does pair with focus-within. -->
     <span class="grid shrink-0 items-center justify-items-end">
       <time
         class="col-start-1 row-start-1 text-2xs text-text-faint text-right transition-opacity duration-fast {row.webUrl
-          ? 'group-hover/card:opacity-0 group-focus-within/card:opacity-0'
+          ? 'group-hover/card:opacity-0'
           : ''}"
         datetime={new Date(row.timestamp).toISOString()}
         title={`${row.timestampLabel ?? 'Updated'} ${formatDateTime(row.timestamp)}`}
@@ -46,7 +50,7 @@
       >
       {#if row.webUrl}
         <span
-          class="col-start-1 row-start-1 flex items-center justify-end text-text-muted opacity-0 pointer-events-none transition-opacity duration-fast group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+          class="col-start-1 row-start-1 flex items-center justify-end text-text-muted opacity-0 pointer-events-none transition-opacity duration-fast group-hover/card:opacity-100"
           aria-hidden="true"
         >
           <ExternalLink size={11} />
@@ -54,6 +58,9 @@
       {/if}
     </span>
   {:else if row.webUrl}
+    <!-- No timestamp to displace here, so focus keeps its reveal: the asymmetry
+         with the branch above is the point — that one would have to hide
+         information to show this icon, this one costs nothing. -->
     <span
       class="flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-fast group-hover/card:opacity-100 group-focus-within/card:opacity-100 shrink-0"
       aria-hidden="true"

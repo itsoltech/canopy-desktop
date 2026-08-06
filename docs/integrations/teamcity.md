@@ -33,8 +33,9 @@ The integration follows the Project management architecture:
   with the newest build of the active worktree's branch (build number, status chip and
   TeamCity's build-specific `statusText` summary when present; clicking the card opens
   that build in TeamCity). Its first line shows the Queued, Started or Finished time as
-  appropriate; hover or keyboard focus replaces the timestamp with the external-link icon when
-  the build has a URL. A row whose status fetch fails —
+  appropriate; hovering replaces the timestamp with the external-link icon when the build
+  has a URL, while keyboard focus keeps it readable and shows the affordance on the build
+  number instead. A row whose status fetch fails —
   e.g. its job was deleted or re-ided on the server — shows an `Unavailable` chip with
   the reason, and only that row degrades, never the whole card. The chip vocabulary is
   shared with the activity window: `SUCCESS` → **Success**, `FAILURE` and TeamCity's

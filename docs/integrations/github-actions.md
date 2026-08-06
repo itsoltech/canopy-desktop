@@ -79,8 +79,9 @@ cadence, so permanent configuration drift does not consume the API budget indefi
 **Last run** card uses the same cadence, but keys
 it to runs for the active worktree's branch, so a run on another branch speeds up the activity
 summary but not the card. It shows the workflow label and number, branch, GitHub display title and
-status chip. Its first line uses the Queued, Started or Finished timestamp; hover or keyboard focus
-replaces that timestamp with the external-link icon when the run has a URL. A workflow lookup that
+status chip. Its first line uses the Queued, Started or Finished timestamp; hovering replaces that
+timestamp with the external-link icon when the run has a URL. Keyboard focus does not — it stays on
+the card, and the build number's accent and underline carry the affordance instead. A workflow lookup that
 fails shows **Unavailable** with its reason without hiding sibling workflow results. All three
 surfaces re-fetch immediately after Canopy dispatches a workflow.
 

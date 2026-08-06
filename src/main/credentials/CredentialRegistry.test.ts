@@ -133,6 +133,46 @@ describe('CredentialRegistry', () => {
     )
   })
 
+  it('redacts the secret the REQUEST used, not just the one stored when it lands', () => {
+    // `setCredentials` reuses the credential id for a single-binding credential,
+    // so a rotation while a request is in flight leaves the store holding a
+    // different secret than the failing response echoed back.
+    const preferences = fakePreferences()
+    const registry = new CredentialRegistry(preferences)
+    const usedSecret = 'old-token-in-flight'
+    const credential = registry.save({
+      service: 'jira',
+      authMethod: 'api-token',
+      audience: { host: 'itsol.atlassian.net' },
+      intendedUses: ['tracker'],
+      capabilities: ['issues.read'],
+      secret: usedSecret,
+    })
+
+    // Rotation lands first: same id, new secret.
+    registry.save({
+      id: credential.id,
+      service: 'jira',
+      authMethod: 'api-token',
+      audience: { host: 'itsol.atlassian.net' },
+      intendedUses: ['tracker'],
+      capabilities: ['issues.read'],
+      secret: 'rotated-token',
+    })
+
+    registry.recordCapability(
+      credential.id,
+      'issues.read',
+      'denied',
+      `gateway echoed Authorization: Bearer ${usedSecret}`,
+      usedSecret,
+    )
+
+    const reason = registry.list()[0].verification['issues.read']?.reason
+    expect(reason).toBe('gateway echoed Authorization: Bearer [redacted]')
+    expect(reason).not.toContain(usedSecret)
+  })
+
   it('keeps a bound credential resolvable so stale 401 and 403 results can self-heal', () => {
     const registry = new CredentialRegistry(fakePreferences())
     const credential = registry.save({

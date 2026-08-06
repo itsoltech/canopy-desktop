@@ -16,7 +16,8 @@ import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import { TmuxManager as TmuxManagerStatics } from '../pty/TmuxManager'
-import type { WorkspaceStore } from '../db/WorkspaceStore'
+import { WorkspaceStore } from '../db/WorkspaceStore'
+import { liveTrackerBindingKeys } from '../credentials/liveTrackerBindings'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
 import type { OnboardingStore } from '../db/OnboardingStore'
@@ -111,7 +112,11 @@ import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTrack
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import { parseGitHubRemote } from '../github/remoteUrl'
-import { gitHubCliFailureReason, isMissingGitHubCli } from '../github/redactFailureReason'
+import {
+  gitHubCliFailureReason,
+  isMissingGitHubCli,
+  redactGitHubFailureReason,
+} from '../github/redactFailureReason'
 import { hasSupportedGitHubRemote } from '../github/supportedRemote'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
@@ -2265,7 +2270,10 @@ export function registerIpcHandlers(
             'GitHub CLI (gh) is not installed. Install it from cli.github.com or configure a GitHub connection in Preferences.',
           )
         }
-        throw err
+        // `gh pr create` prints the push remote on failure, and for a
+        // token-authenticated remote that is https://x-access-token:<token>@… —
+        // re-raising the execFile error verbatim would hand it to the renderer.
+        throw new Error(redactGitHubFailureReason(errorMessage(err)))
       }
     },
   )
@@ -3228,33 +3236,23 @@ export function registerIpcHandlers(
   }
 
   /** Tracker bindings are machine-global; prune only against persisted workspace configs too. */
-  async function liveTrackerBindingKeys(): Promise<Set<string> | undefined> {
-    const keys = new Set<string>()
-    const add = (trackers: RepoConfig['trackers']): void => {
-      for (const tracker of trackers) keys.add(trackerBindingKey(tracker.id))
-    }
-    add(globalConfigManager.load()?.trackers ?? [])
-    const paths = new Set(workspaceStore.list(100).map((workspace) => workspace.path))
-    for (const path of new Set(
-      windowManager
+  function currentLiveTrackerBindingKeys(): Promise<Set<string> | undefined> {
+    return liveTrackerBindingKeys<RepoConfig['trackers'][number]>({
+      globalTrackers: globalConfigManager.load()?.trackers ?? [],
+      workspacePaths: workspaceStore.list(WorkspaceStore.LIST_MAX).map((w) => w.path),
+      windowPaths: windowManager
         .getAllWindowConfigs()
         .flatMap((config) => [
           ...config.paths,
           ...(config.activeWorktreePath ? [config.activeWorktreePath] : []),
         ]),
-    ))
-      paths.add(path)
-    let unknownConfig = false
-    await Promise.all(
-      [...paths].map(async (repoRoot) => {
-        const result = await repoConfigManager.load(repoRoot)
-        if (result.isOk()) add(result.value.trackers)
-        else unknownConfig = true
-      }),
-    )
-    // A parse/read failure must fail open: pruning with an incomplete set could delete
-    // a credential still used by the unreadable repository.
-    return unknownConfig ? undefined : keys
+      workspaceCount: workspaceStore.count(),
+      listMax: WorkspaceStore.LIST_MAX,
+      configExists: (repoRoot) => repoConfigManager.exists(repoRoot),
+      // `ResultAsync` is PromiseLike but not a Promise — settle it explicitly.
+      loadTrackers: async (repoRoot) => await repoConfigManager.load(repoRoot),
+      bindingKeyFor: (tracker) => trackerBindingKey(tracker.id),
+    })
   }
 
   async function resolveTaskTrackerBranchName(
@@ -3317,7 +3315,7 @@ export function registerIpcHandlers(
       request.provider,
       request.baseUrl,
       request.bindingKey,
-      request.bindingKey ? await liveTrackerBindingKeys() : undefined,
+      request.bindingKey ? await currentLiveTrackerBindingKeys() : undefined,
     )
   })
 

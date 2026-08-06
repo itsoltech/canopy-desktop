@@ -92,9 +92,18 @@ function audienceMatches(stored: CredentialAudience, requested: CredentialAudien
   return true
 }
 
-function sanitizedReason(reason?: string, secret?: string): string | undefined {
+function sanitizedReason(
+  reason?: string,
+  ...secrets: Array<string | undefined>
+): string | undefined {
   if (!reason) return undefined
-  const redacted = secret ? reason.replaceAll(secret, '[redacted]') : reason
+  // Variadic because a rotation can leave two candidates in play (the secret the
+  // request used and the one now stored). The falsy guard matters: `replaceAll('')`
+  // would splice the marker between every character.
+  const redacted = secrets.reduce<string>(
+    (text, secret) => (secret ? text.replaceAll(secret, '[redacted]') : text),
+    reason,
+  )
   return redacted.replace(/[\r\n]+/g, ' ').slice(0, 240)
 }
 
@@ -234,18 +243,27 @@ export class CredentialRegistry {
     return this.bind(request.bindingKey, candidate.id).map(() => ({ ...candidate, secret }))
   }
 
+  /**
+   * `usedSecret` is the secret the request that produced `rawReason` was built
+   * with. It takes precedence over the stored one: `setCredentials` reuses the
+   * credential id when the credential has at most one binding, so a rotation
+   * while a request is in flight would leave the STORED secret different from the
+   * one an echoed error body may contain — redacting against the wrong value
+   * persists the old token verbatim in a reason the renderer can read.
+   */
   recordCapability(
     credentialId: string,
     capability: CredentialCapability,
     state: CapabilityVerificationState,
     rawReason?: string,
+    usedSecret?: string,
   ): void {
     const records = this.list()
     const now = new Date().toISOString()
-    const reason = sanitizedReason(
-      rawReason,
-      this.preferencesStore.get(SECRET_PREFIX + credentialId) ?? undefined,
-    )
+    const stored = this.preferencesStore.get(SECRET_PREFIX + credentialId) ?? undefined
+    // BOTH, when they differ: the reason can only carry one of them, and redacting
+    // against a secret that is not present is a no-op.
+    const reason = sanitizedReason(rawReason, usedSecret, stored)
     const next = records.map((record): CredentialDescriptor => {
       if (record.id !== credentialId) return record
       return {

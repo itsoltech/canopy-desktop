@@ -236,6 +236,7 @@ describe('the configured-build-type allowlist', () => {
       'builds.read',
       403,
       'Queue forbidden',
+      { usedSecret: 'tok' },
     )
   })
 })
@@ -426,6 +427,7 @@ describe('statusFor', () => {
       'builds.read',
       200,
       undefined,
+      { usedSecret: 'tok' },
     )
   })
 
@@ -456,6 +458,45 @@ describe('statusFor', () => {
       'builds.read',
       401,
       'Unauthorized',
+      { usedSecret: 'tok' },
+    )
+    expect(vi.mocked(tokenStore.recordResult).mock.calls.some((call) => call[3] === 200)).toBe(
+      false,
+    )
+  })
+
+  it('records a PARTIAL 401 as an authentication failure, never as a success', async () => {
+    // A token scoped away from ONE build type: requiring every row to fail would
+    // leave the causes unattached, and the poll would re-stamp the credential
+    // "verified" every 10–45 s while the sidebar shows Unavailable.
+    const ci = {
+      ...VALID_CI,
+      buildTypes: [
+        { id: 'Good_Job', label: 'Good' },
+        { id: 'Scoped_Away', label: 'Scoped' },
+      ],
+    }
+    const { manager, tokenStore } = fakes({ ci })
+    vi.mocked(fetchBuildForBranch).mockImplementation((_url, _tok, id) =>
+      id === 'Scoped_Away'
+        ? errAsync({ _tag: 'CiApiError' as const, status: 401, message: 'Unauthorized' })
+        : okAsync(null),
+    )
+
+    const config = (await manager.loadConfig('r'))._unsafeUnwrap()
+    const result = await manager.statusFor(config, 'next')
+
+    expect(result.isOk()).toBe(true)
+    const rows = result._unsafeUnwrap()
+    expect(rows[0].error).toBeUndefined()
+    expect(rows[1].error).toContain('401')
+    expect(tokenStore.recordResult).toHaveBeenCalledWith(
+      'teamcity',
+      'https://tc.example.com',
+      'builds.read',
+      401,
+      'Unauthorized',
+      { usedSecret: 'tok' },
     )
     expect(vi.mocked(tokenStore.recordResult).mock.calls.some((call) => call[3] === 200)).toBe(
       false,
@@ -484,7 +525,7 @@ describe('statusFor', () => {
         { id: 'Dead_Job', label: 'Dead' },
       ],
     }
-    const { manager } = fakes({ ci })
+    const { manager, tokenStore } = fakes({ ci })
     // The survivor must carry a REAL build — with okAsync(null) here, a regression
     // that nulls every sibling's build would produce the exact passing state.
     vi.mocked(fetchBuildForBranch).mockImplementation((_url, _tok, id) =>
@@ -513,6 +554,9 @@ describe('statusFor', () => {
     expect(rows[0].build?.number).toBe('42')
     expect(rows[1].error).toContain('404')
     expect(rows[1].build).toBeNull()
+    // A deleted build-type id says nothing about the TOKEN: the attached causes
+    // carry no 401/403, so neither a success nor a failure may be recorded.
+    expect(tokenStore.recordResult).not.toHaveBeenCalled()
   })
 
   it('uses the provided config without a second config read', async () => {
@@ -557,6 +601,7 @@ describe('credential verification for partial activity', () => {
       'builds.read',
       403,
       'Forbidden',
+      { usedSecret: 'tok' },
     )
     expect(vi.mocked(tokenStore.recordResult).mock.calls.some((call) => call[3] === 200)).toBe(
       false,
