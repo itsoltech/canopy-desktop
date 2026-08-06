@@ -113,8 +113,12 @@
     void getCiActivityTick()
     // A transient missing slice can hide a running job. Retry the same partial result quickly a
     // few times, then decay to idle cadence so permanent config drift cannot poll fast forever.
-    const interval =
-      provider === 'github-actions'
+    // A rejected token will keep being rejected until the user replaces it, and repeated
+    // 401s are how accounts get locked out. Slow to the idle ceiling: the poll is only
+    // still running so recovery is noticed without the user having to switch worktrees.
+    const interval = credentialsRejected
+      ? 300_000
+      : provider === 'github-actions'
         ? activeCount > 0 || fastPartialRecovery
           ? 60_000
           : 300_000
@@ -355,56 +359,37 @@
         />
       </button>
 
-      {#if !cfgState.hasToken}
+      <!-- A token that is missing and one the server rejects lead to the same dead ends:
+           Run job… cannot list branches or queue anything, and the history window has
+           nothing to load. So the banner REPLACES them rather than sitting above them —
+           the only thing left worth offering is fixing the credential. -->
+      {#if !cfgState.hasToken || credentialsRejected}
         <div class="px-2 py-1">
           <div
             class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
-            title={config.baseUrl}
+            title={credentialsRejected ? activityError || branchError : config.baseUrl}
           >
             <KeyRound size={13} class="shrink-0 text-warning-text" />
-            <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug"
-              >No token for this CI server.</span
-            >
+            <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug">
+              {#if credentialsRejected}
+                {providerLabel} rejected the stored token.{rejectedSince
+                  ? ` Since ${formatDateTime(Date.parse(rejectedSince))}.`
+                  : ''}
+              {:else}
+                No token for this CI server.
+              {/if}
+            </span>
             <button
               type="button"
               class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
               onclick={() =>
                 provider === 'github-actions' ? showProjectCi() : showPreferences('CI connections')}
             >
-              Add credentials
+              {credentialsRejected ? 'Update token' : 'Add credentials'}
             </button>
           </div>
         </div>
       {:else}
-        {#if credentialsRejected}
-          <!-- Additive, not a replacement: a rejected token leaves the last known build and
-               the history window worth reaching, so this explains the failure above them
-               instead of hiding them. Same shape as the missing-token banner and the task
-               tracker's expired-credentials one — the recovery is identical. -->
-          <div class="px-2 py-1">
-            <div
-              class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
-              title={activityError || branchError}
-            >
-              <KeyRound size={13} class="shrink-0 text-warning-text" />
-              <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug">
-                {providerLabel} rejected the stored token.{rejectedSince
-                  ? ` Since ${formatDateTime(Date.parse(rejectedSince))}.`
-                  : ''}
-              </span>
-              <button
-                type="button"
-                class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-                onclick={() =>
-                  provider === 'github-actions'
-                    ? showProjectCi()
-                    : showPreferences('CI connections')}
-              >
-                Update token
-              </button>
-            </div>
-          </div>
-        {/if}
         <button
           class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
           onclick={openRunJob}
