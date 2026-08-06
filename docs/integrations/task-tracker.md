@@ -34,22 +34,28 @@ Each provider implements a common `TaskTrackerProviderClient` interface. Jira us
 ### Sidebar section during a worktree switch
 
 Selecting another worktree reloads that worktree's `.canopy/config.json` and re-verifies its
-tokens. The **Project management** section keeps whatever it is already showing while that runs:
-the store swaps `resolvedConfig` and `trackerCredentials` in one step, so the visible rows stay
-correct for the previous selection until the new ones land in their place. **Loading trackers…**
-therefore appears only when no tracker is on screen at all, and **Checking credentials…** only
-before a tracker has any credential verdict — a re-check of one it already has stays silent.
+tokens. Everything the **Project management** section shows is worktree-scoped — the tracker comes
+from the worktree's own config file — so none of it may bleed into the next selection. The section
+therefore replaces its contents with valueless placeholder bars as soon as the switch starts
+(measured: 5–7 ms after the click), and **keeps the box at its measured height** until the new data
+lands.
 
-The reason is layout, not cosmetics: both placeholders are a single `h-7` row, so rendering them
-over an existing list replaced it with a shorter block and restored it a few hundred milliseconds
-later. A switch used to move the section's height three or four times (measured: 122 → 85 → 150 →
-206 → 178 px) and everything below it with each step. It now changes once, when the resolved tasks
-arrive.
+Both halves matter. Hiding the values stops a row describing the previous worktree from being read
+as belonging to the current one. Freezing the height stops the section — and everything below it in
+the sidebar — from moving while that happens: the placeholders that used to stand in here were a
+single `h-7` row each, so they collapsed the list and restored it a few hundred milliseconds later,
+moving the sidebar three or four times per switch (measured: 122 → 85 → 150 → 206 → 178 px). It now
+moves once, when the resolved content arrives (measured: 178 → placeholder at 178 → 122).
 
-The accepted cost: switching to a **different project** leaves the previous project's tracker row
-on screen for the duration of the load (~250 ms measured) instead of a spinner. Task rows are not
-affected — they are gated separately on the resolved worktree path, so they never show another
-worktree's task.
+The height comes from a `ResizeObserver` that runs only while the section is idle, so it always
+holds the last fully-loaded measurement. That is deliberate rather than rendering a skeleton shaped
+like the real rows: the credentials banner is not row-shaped, and any structural stand-in would
+drift from it as either side changes. A single measurement cannot.
+
+**Loading trackers…** still appears on a genuine first load, when there is no previous height or
+content to preserve. **Checking credentials…** appears only before a tracker has any credential
+verdict — re-verifying one that already has a verdict stays silent, since it fires on every switch
+and its row would otherwise appear and vanish in ~300 ms.
 
 ### Browsing tasks
 

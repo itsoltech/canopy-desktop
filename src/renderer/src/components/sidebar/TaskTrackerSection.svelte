@@ -39,19 +39,43 @@
   let needsCredsList = $derived(getProjectTrackersNeedingCredentials())
   let loading = $derived(isTaskTrackerLoading())
   let verifying = $derived(isVerifyingCredentials())
-  // Both spinners below are gated on having nothing to keep. A worktree switch inside one
-  // project reloads the config and re-verifies tokens that are already on screen, and the
-  // store swaps `resolvedConfig` and `trackerCredentials` atomically — so the previous,
-  // still-correct rows survive the whole reload. Showing the placeholders anyway replaced
-  // them with a different-height row and put them back ~300 ms later, which is why the
-  // sidebar jumped three times before settling on every switch.
+  // Re-verification must not announce itself: it fires on every worktree switch and its row
+  // would appear and vanish in ~300 ms. Only a tracker with no verdict at all gets the hint.
   let credentialsUnknown = $derived(trackers.some((t) => trackerCreds[t.id] === undefined))
+
   let panelTasks = $derived(getPanelTasks())
   // Worktree switched but task resolution hasn't landed yet — the banner would otherwise keep
   // showing the previous worktree's task until the data silently swaps.
   let taskResolving = $derived(
     getPanelTaskResolvedPath() !== (workspaceState.selectedWorktreePath ?? '').replace(/\\/g, '/'),
   )
+
+  // Everything in this section is worktree-scoped — the tracker comes from the worktree's own
+  // .canopy/config.json — so none of it may survive into the next worktree, not even for the
+  // ~800 ms the reload takes. But swapping it for a short placeholder collapsed the section and
+  // re-expanded it, moving every section below three or four times per switch.
+  //
+  // So: hide the values, keep the box. The height is FROZEN from the last loaded render rather
+  // than rebuilt from a skeleton that mirrors the rows, because the credential banner is not
+  // row-shaped and any structural stand-in would drift from it. One measurement cannot.
+  let busy = $derived(loading || taskResolving)
+  let bodyEl = $state<HTMLElement>()
+  let frozenHeight = $state(0)
+
+  $effect(() => {
+    if (busy || !bodyEl) return
+    const el = bodyEl
+    // Observed while idle only, so `frozenHeight` keeps the last loaded value for the whole
+    // busy window. Writing it here cannot loop — the style binding is inert unless `busy`.
+    const observer = new ResizeObserver(() => {
+      frozenHeight = el.offsetHeight
+    })
+    observer.observe(el)
+    frozenHeight = el.offsetHeight
+    return () => observer.disconnect()
+  })
+
+  let placeholderRows = $derived(Math.max(1, Math.round(frozenHeight / 28)))
 
   function openProjectTracker(): void {
     showProjectTracker()
@@ -112,174 +136,195 @@
       <span class="text-sm">Loading trackers…</span>
     </div>
   {:else if trackers.length > 0}
-    <div class="flex flex-col">
-      <!-- Configuration: tracker connections and credential warnings. -->
-      {#each trackers as tracker (tracker.id)}
-        <!-- The row opens the tracker itself — picking tasks has its own entries (task list,
-             link dialog, worktree modal), so a row click no longer pops the picker. -->
-        <div class="flex items-center">
-          <button
-            class="group flex items-center gap-2.5 flex-1 min-w-0 h-7 pl-3 pr-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-            onclick={() => window.api.openExternal(tracker.baseUrl)}
-            disabled={!tracker.baseUrl}
-            title={tracker.baseUrl
-              ? `Open ${providerLabel(tracker.provider)} in the browser`
-              : 'Not configured'}
-          >
-            <span
-              class="inline-flex items-center flex-shrink-0"
-              title={providerLabel(tracker.provider)}
-            >
-              <TrackerProviderIcon provider={tracker.provider} size={13} />
-            </span>
-            <span
-              class="overflow-hidden text-ellipsis whitespace-nowrap flex-1"
-              title={tracker.baseUrl || 'Not configured'}
-              >{tracker.baseUrl || 'Not configured'}</span
-            >
-            <ExternalLink
-              size={11}
-              class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"
-            />
-          </button>
-        </div>
-      {/each}
-
-      {#if needsCredsList.length > 0}
-        <div class="flex flex-col gap-1 px-2 py-1">
-          <!-- Same banner as the Task panel: icon + message + inline Add credentials button. -->
-          {#each needsCredsList as t (t.id)}
-            <div
-              class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
-              title={`${providerLabel(t.provider)} · ${t.baseUrl}`}
-            >
-              <KeyRound size={13} class="shrink-0 text-warning-text" />
-              <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug"
-                >{trackerCreds[t.id]?.hasToken
-                  ? 'Credentials expired for this tracker.'
-                  : 'No credentials found for this tracker.'}</span
-              >
-              <button
-                type="button"
-                class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-                onclick={openProjectTracker}
-              >
-                Add credentials
-              </button>
+    <div
+      bind:this={bodyEl}
+      class="flex flex-col {busy ? 'overflow-hidden' : ''}"
+      style:height={busy && frozenHeight > 0 ? `${frozenHeight}px` : undefined}
+    >
+      {#if busy}
+        <!-- Valueless stand-in for the OUTGOING worktree's rows: the box keeps its measured
+             height so nothing below moves, and the bars carry no data that could be read as
+             belonging to the worktree now selected. -->
+        <div class="flex flex-col" aria-hidden="true">
+          {#each { length: placeholderRows }, i (i)}
+            <div class="flex items-center h-7 px-3">
+              <span
+                class="h-2 rounded-sm bg-active animate-pulse motion-reduce:animate-none"
+                style:width={`${[62, 44, 74, 52][i % 4]}%`}
+              ></span>
             </div>
           {/each}
         </div>
-      {:else if verifying && credentialsUnknown}
-        <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
-          <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
-          <span class="text-sm">Checking credentials…</span>
-        </div>
-      {/if}
-
-      <div
-        class="h-px mx-3 my-1 bg-border-subtle"
-        role="separator"
-        aria-orientation="horizontal"
-      ></div>
-
-      <!-- Tasks linked to the current worktree. -->
-      {#if taskResolving}
-        <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
-          <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
-          <span class="text-sm">Resolving task…</span>
-        </div>
-      {:else if panelTasks.length > 0}
-        {#each panelTasks as t (t.taskKey)}
-          {@const fromBranch = branchKeys.includes(t.taskKey)}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div
-            class="group flex items-center gap-2.5 w-full h-7 px-3 bg-transparent text-sm cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
-            role="button"
-            tabindex="0"
-            onclick={() => openTaskPanel(t.taskKey)}
-            onkeydown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                openTaskPanel(t.taskKey)
-              }
-            }}
-            title={t.summary
-              ? `${t.taskKey} — ${t.summary}\nOpen the task panel (status, comments)`
-              : 'Open the task panel (status, comments)'}
-          >
-            {#if t.typeIcon}
-              <img
-                src={t.typeIcon}
-                alt={t.typeName ?? t.type ?? 'task type'}
-                title={t.typeName ?? t.type}
-                class="size-3.5 shrink-0 rounded-sm"
-              />
-            {/if}
-            <span
-              class="text-xs font-semibold flex-shrink-0 {t.missing
-                ? 'text-warning-text line-through'
-                : 'text-accent-text'}">{t.taskKey}</span
-            >
-            {#if t.missing}
-              <span
-                class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning/15 text-warning-text"
-                >not found</span
-              >
-            {/if}
-            <span
-              class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted"
-              >{t.summary ?? ''}</span
-            >
-            <!-- VS Code-style swap: the status chip sits flush right and yields its slot to the
-                 unlink action on hover/focus, so no empty gutter is reserved next to it. -->
-            {#if t.status}
-              <span
-                class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 group-hover:hidden group-focus-within:hidden {statusChipClass(
-                  t.statusCategory,
-                )}">{t.status}</span
-              >
-            {/if}
+        <span class="sr-only" role="status">Loading tracker details…</span>
+      {:else}
+        <!-- Configuration: tracker connections and credential warnings. -->
+        {#each trackers as tracker (tracker.id)}
+          <!-- The row opens the tracker itself — picking tasks has its own entries (task list,
+             link dialog, worktree modal), so a row click no longer pops the picker. -->
+          <div class="flex items-center">
             <button
-              class="hidden group-hover:flex group-focus-within:flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint p-0 shrink-0 enabled:cursor-pointer enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:cursor-not-allowed disabled:opacity-40"
-              onclick={(e) => {
-                e.stopPropagation()
-                void unlinkTask(t.taskKey)
-              }}
-              disabled={fromBranch}
-              aria-label="Unlink task"
-              title={fromBranch
-                ? 'This task key is part of the branch name — the link comes from the branch and cannot be removed'
-                : 'Unlink this task from the worktree'}
+              class="group flex items-center gap-2.5 flex-1 min-w-0 h-7 pl-3 pr-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
+              onclick={() => window.api.openExternal(tracker.baseUrl)}
+              disabled={!tracker.baseUrl}
+              title={tracker.baseUrl
+                ? `Open ${providerLabel(tracker.provider)} in the browser`
+                : 'Not configured'}
             >
-              <Unlink size={12} />
+              <span
+                class="inline-flex items-center flex-shrink-0"
+                title={providerLabel(tracker.provider)}
+              >
+                <TrackerProviderIcon provider={tracker.provider} size={13} />
+              </span>
+              <span
+                class="overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+                title={tracker.baseUrl || 'Not configured'}
+                >{tracker.baseUrl || 'Not configured'}</span
+              >
+              <ExternalLink
+                size={11}
+                class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"
+              />
             </button>
           </div>
         {/each}
-        {#if hasUsableTracker}
+
+        {#if needsCredsList.length > 0}
+          <div class="flex flex-col gap-1 px-2 py-1">
+            <!-- Same banner as the Task panel: icon + message + inline Add credentials button. -->
+            {#each needsCredsList as t (t.id)}
+              <div
+                class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+                title={`${providerLabel(t.provider)} · ${t.baseUrl}`}
+              >
+                <KeyRound size={13} class="shrink-0 text-warning-text" />
+                <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug"
+                  >{trackerCreds[t.id]?.hasToken
+                    ? 'Credentials expired for this tracker.'
+                    : 'No credentials found for this tracker.'}</span
+                >
+                <button
+                  type="button"
+                  class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
+                  onclick={openProjectTracker}
+                >
+                  Add credentials
+                </button>
+              </div>
+            {/each}
+          </div>
+        {:else if verifying && credentialsUnknown}
+          <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
+            <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
+            <span class="text-sm">Checking credentials…</span>
+          </div>
+        {/if}
+
+        <div
+          class="h-px mx-3 my-1 bg-border-subtle"
+          role="separator"
+          aria-orientation="horizontal"
+        ></div>
+
+        <!-- Tasks linked to the current worktree. -->
+        {#if taskResolving}
+          <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
+            <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
+            <span class="text-sm">Resolving task…</span>
+          </div>
+        {:else if panelTasks.length > 0}
+          {#each panelTasks as t (t.taskKey)}
+            {@const fromBranch = branchKeys.includes(t.taskKey)}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <div
+              class="group flex items-center gap-2.5 w-full h-7 px-3 bg-transparent text-sm cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+              role="button"
+              tabindex="0"
+              onclick={() => openTaskPanel(t.taskKey)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  openTaskPanel(t.taskKey)
+                }
+              }}
+              title={t.summary
+                ? `${t.taskKey} — ${t.summary}\nOpen the task panel (status, comments)`
+                : 'Open the task panel (status, comments)'}
+            >
+              {#if t.typeIcon}
+                <img
+                  src={t.typeIcon}
+                  alt={t.typeName ?? t.type ?? 'task type'}
+                  title={t.typeName ?? t.type}
+                  class="size-3.5 shrink-0 rounded-sm"
+                />
+              {/if}
+              <span
+                class="text-xs font-semibold flex-shrink-0 {t.missing
+                  ? 'text-warning-text line-through'
+                  : 'text-accent-text'}">{t.taskKey}</span
+              >
+              {#if t.missing}
+                <span
+                  class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning/15 text-warning-text"
+                  >not found</span
+                >
+              {/if}
+              <span
+                class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted"
+                >{t.summary ?? ''}</span
+              >
+              <!-- VS Code-style swap: the status chip sits flush right and yields its slot to the
+                 unlink action on hover/focus, so no empty gutter is reserved next to it. -->
+              {#if t.status}
+                <span
+                  class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 group-hover:hidden group-focus-within:hidden {statusChipClass(
+                    t.statusCategory,
+                  )}">{t.status}</span
+                >
+              {/if}
+              <button
+                class="hidden group-hover:flex group-focus-within:flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint p-0 shrink-0 enabled:cursor-pointer enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:cursor-not-allowed disabled:opacity-40"
+                onclick={(e) => {
+                  e.stopPropagation()
+                  void unlinkTask(t.taskKey)
+                }}
+                disabled={fromBranch}
+                aria-label="Unlink task"
+                title={fromBranch
+                  ? 'This task key is part of the branch name — the link comes from the branch and cannot be removed'
+                  : 'Unlink this task from the worktree'}
+              >
+                <Unlink size={12} />
+              </button>
+            </div>
+          {/each}
+          {#if hasUsableTracker}
+            <button
+              class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
+              onclick={linkTask}
+              title="Link another task to this worktree"
+            >
+              <Link2
+                size={13}
+                class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+              />
+              <span class="flex-1">Link another task</span>
+            </button>
+          {/if}
+        {:else if hasUsableTracker}
           <button
             class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
             onclick={linkTask}
-            title="Link another task to this worktree"
+            title="Link a task to this worktree"
           >
             <Link2
               size={13}
               class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
             />
-            <span class="flex-1">Link another task</span>
+            <span class="flex-1">Link task</span>
           </button>
         {/if}
-      {:else if hasUsableTracker}
-        <button
-          class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-          onclick={linkTask}
-          title="Link a task to this worktree"
-        >
-          <Link2
-            size={13}
-            class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
-          />
-          <span class="flex-1">Link task</span>
-        </button>
       {/if}
     </div>
   {:else}
