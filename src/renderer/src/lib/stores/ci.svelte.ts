@@ -370,7 +370,9 @@ export async function triggerCiJob(
   label: string,
 ): Promise<CiTriggerIssue | null> {
   try {
-    const response = await window.api.ciTriggerJob(repoRoot, request)
+    // Snapshot at the bridge: `ref` and `inputs` come from component $state, and a Proxy
+    // cannot be structured-cloned. Plain objects pass through unchanged.
+    const response = await window.api.ciTriggerJob(repoRoot, $state.snapshot(request))
     if (!response.ok) {
       if (response.error.code === 'CiDispatchCancelled') return { kind: 'cancelled' }
       return { kind: 'failure', ...response.error }

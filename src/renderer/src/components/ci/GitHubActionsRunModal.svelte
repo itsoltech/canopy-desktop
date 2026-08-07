@@ -143,7 +143,10 @@
     loading = true
     error = ''
     try {
-      const result = await window.api.ciJobParameters(repoRoot, jobId, selectedRef)
+      // $state.snapshot: `selectedRef` is an element of a reactive array, so it reaches the
+      // bridge as a Proxy — structured clone rejects those with "An object could not be
+      // cloned", which surfaced as an error under the ref picker.
+      const result = await window.api.ciJobParameters(repoRoot, jobId, $state.snapshot(selectedRef))
       if (sequence !== loadSequence) return
       parameters = result.parameters
       schemaRevision = result.schemaRevision
