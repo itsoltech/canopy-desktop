@@ -228,6 +228,16 @@
     </header>
 
     {#if config}
+      <!-- Above the fields, not under the button: it names what still has to be CHOSEN, so it
+           belongs where the choosing happens. Its own container rather than the aria-live
+           error slot — this toggles with every selection and would announce on each one.
+           min-h-4 reserves the line so appearing does not shift the form. -->
+      <div class="min-h-4 break-words text-xs text-text-secondary">
+        {#if runBlockedHint}
+          <span id="github-run-blocked-hint">{runBlockedHint}</span>
+        {/if}
+      </div>
+
       <div class="flex flex-col gap-1">
         <label for="github-run-workflow" class="text-xs font-semibold text-text-faint"
           >Workflow</label
@@ -270,7 +280,10 @@
         {/if}
       </div>
 
-      {#if parameters}
+      <!-- length, not just non-null: a workflow with no inputs (CI) would otherwise render the
+           warning plus an empty container, each taking a gap-4 slot — the dead space under the
+           ref picker. -->
+      {#if parameters && parameters.length > 0}
         <p class="m-0 text-xs text-warning-text">
           Workflow inputs are plain GitHub Actions inputs, not secrets. Do not paste credentials
           here.
@@ -374,10 +387,5 @@
         {running ? 'Starting…' : 'Run workflow'}
       </button>
     </footer>
-    <div class="min-h-4 break-words text-right text-xs text-text-secondary">
-      {#if runBlockedHint}
-        <span id="github-run-blocked-hint">{runBlockedHint}</span>
-      {/if}
-    </div>
   </div>
 </div>
