@@ -302,7 +302,8 @@
                 {#if hasChanges && !ignored}
                   <span
                     class="ml-auto size-1.5 rounded-full bg-accent-text/70 flex-shrink-0"
-                    aria-hidden="true"
+                    role="img"
+                    aria-label="Contains changes"
                     title="Contains changes"
                   ></span>
                 {/if}
