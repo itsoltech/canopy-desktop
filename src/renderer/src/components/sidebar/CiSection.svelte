@@ -191,21 +191,31 @@
       return
     }
     let cancelled = false
-    void (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const read = async (): Promise<void> => {
       try {
         const stored = await window.api.keychainListCredentials()
         const match = stored.find((entry) => entry.baseUrl === url)
-        if (!cancelled) {
-          storedAuth = match
-            ? { state: match.authenticationState, checkedAt: match.authenticationCheckedAt }
-            : undefined
-        }
+        if (cancelled) return
+        storedAuth = match
+          ? { state: match.authenticationState, checkedAt: match.authenticationCheckedAt }
+          : undefined
       } catch {
         if (!cancelled) storedAuth = undefined
       }
-    })()
+      // Saving a replacement token resets the credential to `unknown`, but nothing in this
+      // section observes that: the config does not reload, the tick does not fire, and the
+      // activity poll is deliberately at 300 s while a token is rejected. So while the verdict
+      // says `invalid`, re-read it directly — this is an in-process IPC, not a request to the
+      // server, so a short interval costs nothing and the banner clears on its own.
+      if (!cancelled && storedAuth?.state === 'invalid') {
+        timer = setTimeout(() => void read(), 5_000)
+      }
+    }
+    void read()
     return () => {
       cancelled = true
+      if (timer) clearTimeout(timer)
     }
   })
 
