@@ -1,10 +1,12 @@
 <script lang="ts">
   import { X, Play, LoaderCircle } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import CiRunConfirmation from './CiRunConfirmation.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import type { CiParameter } from '../../lib/ci/types'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import {
+    changedProperties,
     initialFormValues,
     isCheckboxChecked,
     toggleCheckbox,
@@ -61,9 +63,22 @@
     if (e.key === 'Tab' && dialogEl) cycleFocus(dialogEl, e)
   }
 
+  // Two-step submit: the confirmation is a step of THIS dialog rather than a native message
+  // box, so it carries the app's own styling. It states what is about to be sent — nothing is
+  // queued until it is accepted.
+  let pending = $state<Array<{ name: string; value: string }> | null>(null)
+  let pendingChanged = $derived(pending ? changedProperties(parameters, pending) : [])
+
   function submit(): void {
     if (missing.length > 0 || running) return
-    onRun(toProperties(parameters, values))
+    pending = toProperties(parameters, values)
+  }
+
+  function confirmRun(): void {
+    if (!pending || running) return
+    const properties = pending
+    pending = null
+    onRun(properties)
   }
 
   function setAll(param: CiParameter, on: boolean): void {
@@ -106,109 +121,120 @@
       </button>
     </header>
 
-    <p class="m-0 text-xs text-text-muted leading-snug">
-      This build configuration prompts for parameters. Values below are the configuration's current
-      defaults — except password parameters, which always start empty. Leave one blank to use the
-      value stored on the server.
-    </p>
+    {#if pending}
+      <!-- A screen of its own: it REPLACES the form rather than being appended to it, so the
+           dialog shows one thing at a time. -->
+      <CiRunConfirmation
+        title={label}
+        ref={branch}
+        changed={pendingChanged}
+        total={pending.length}
+      />
+    {:else}
+      <p class="m-0 text-xs text-text-muted leading-snug">
+        This build configuration prompts for parameters. Values below are the configuration's
+        current defaults — except password parameters, which always start empty. Leave one blank to
+        use the value stored on the server.
+      </p>
 
-    <div class="flex flex-col gap-3">
-      {#each parameters as param (param.name)}
-        <div class="flex flex-col gap-1">
-          {#if param.kind === 'checkbox'}
-            <label
-              class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none"
-            >
-              <CustomCheckbox
-                checked={isCheckboxChecked(param, values[param.name] ?? '')}
-                onchange={() =>
-                  (values[param.name] = toggleCheckbox(param, values[param.name] ?? ''))}
-              />
-              <span
-                >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
-                    >*</span
-                  >{/if}</span
+      <div class="flex flex-col gap-3">
+        {#each parameters as param (param.name)}
+          <div class="flex flex-col gap-1">
+            {#if param.kind === 'checkbox'}
+              <label
+                class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none"
               >
-            </label>
-          {:else if param.kind === 'select' && param.multiple}
-            <div class="flex items-center gap-2">
+                <CustomCheckbox
+                  checked={isCheckboxChecked(param, values[param.name] ?? '')}
+                  onchange={() =>
+                    (values[param.name] = toggleCheckbox(param, values[param.name] ?? ''))}
+                />
+                <span
+                  >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
+                      >*</span
+                    >{/if}</span
+                >
+              </label>
+            {:else if param.kind === 'select' && param.multiple}
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-text-faint"
+                  >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
+                      >*</span
+                    >{/if}</span
+                >
+                <button
+                  type="button"
+                  class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
+                  onclick={() => setAll(param, true)}>All</button
+                >
+                <button
+                  type="button"
+                  class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
+                  onclick={() => setAll(param, false)}>None</button
+                >
+              </div>
+              <div class="flex flex-col gap-1 pl-1">
+                {#each param.options ?? [] as option (option)}
+                  <label
+                    class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none"
+                  >
+                    <CustomCheckbox
+                      checked={multiValues(param, values[param.name] ?? '').includes(option)}
+                      onchange={() =>
+                        (values[param.name] = toggleMultiValue(
+                          param,
+                          values[param.name] ?? '',
+                          option,
+                        ))}
+                    />
+                    <span class="truncate">{option}</span>
+                  </label>
+                {/each}
+              </div>
+            {:else if param.kind === 'select'}
               <span class="text-xs font-semibold text-text-faint"
                 >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
                     >*</span
                   >{/if}</span
               >
-              <button
-                type="button"
-                class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-                onclick={() => setAll(param, true)}>All</button
-              >
-              <button
-                type="button"
-                class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-                onclick={() => setAll(param, false)}>None</button
-              >
-            </div>
-            <div class="flex flex-col gap-1 pl-1">
-              {#each param.options ?? [] as option (option)}
-                <label
-                  class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none"
-                >
-                  <CustomCheckbox
-                    checked={multiValues(param, values[param.name] ?? '').includes(option)}
-                    onchange={() =>
-                      (values[param.name] = toggleMultiValue(
-                        param,
-                        values[param.name] ?? '',
-                        option,
-                      ))}
-                  />
-                  <span class="truncate">{option}</span>
-                </label>
-              {/each}
-            </div>
-          {:else if param.kind === 'select'}
-            <span class="text-xs font-semibold text-text-faint"
-              >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
-                  >*</span
-                >{/if}</span
-            >
-            <CustomSelect
-              value={values[param.name] ?? ''}
-              options={(param.options ?? []).map((o) => ({ value: o, label: o }))}
-              onchange={(v) => (values[param.name] = v)}
-            />
-          {:else}
-            <span class="text-xs font-semibold text-text-faint"
-              >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
-                  >*</span
-                >{/if}</span
-            >
-            {#if param.kind === 'password'}
-              <!-- TeamCity's password parameters carry secrets — never render them
-                   in the clear (bind:value needs a static type attribute). -->
-              <input
-                class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-                type="password"
-                aria-label={param.label}
-                bind:value={values[param.name]}
-                autocomplete="off"
-                spellcheck="false"
+              <CustomSelect
+                value={values[param.name] ?? ''}
+                options={(param.options ?? []).map((o) => ({ value: o, label: o }))}
+                onchange={(v) => (values[param.name] = v)}
               />
             {:else}
-              <input
-                class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-                aria-label={param.label}
-                bind:value={values[param.name]}
-                spellcheck="false"
-              />
+              <span class="text-xs font-semibold text-text-faint"
+                >{param.label}{#if param.required}<span class="text-danger-text" title="Required"
+                    >*</span
+                  >{/if}</span
+              >
+              {#if param.kind === 'password'}
+                <!-- TeamCity's password parameters carry secrets — never render them
+                   in the clear (bind:value needs a static type attribute). -->
+                <input
+                  class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+                  type="password"
+                  aria-label={param.label}
+                  bind:value={values[param.name]}
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              {:else}
+                <input
+                  class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+                  aria-label={param.label}
+                  bind:value={values[param.name]}
+                  spellcheck="false"
+                />
+              {/if}
             {/if}
-          {/if}
-          {#if param.description}
-            <span class="text-xs text-text-faint leading-snug">{param.description}</span>
-          {/if}
-        </div>
-      {/each}
-    </div>
+            {#if param.description}
+              <span class="text-xs text-text-faint leading-snug">{param.description}</span>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
 
     <div class="flex items-center justify-end gap-1.5 pt-2 border-t border-border-subtle">
       <!-- Persistent region: a failed queue (and the required-parameters hint) swap
@@ -237,7 +263,7 @@
       <button
         type="button"
         class="flex items-center justify-center gap-1.5 min-w-28 px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border-0 bg-accent-bg text-accent-text hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
-        onclick={submit}
+        onclick={pending ? confirmRun : submit}
         aria-disabled={missing.length > 0 || running}
         aria-busy={running}
         aria-describedby={missing.length > 0 ? 'ci-run-blocked' : undefined}
@@ -252,7 +278,7 @@
         {:else}
           <Play size={13} />
         {/if}
-        {running ? 'Queueing…' : 'Run Build'}
+        {running ? 'Queueing…' : pending ? 'Start build' : 'Confirm'}
       </button>
     </div>
   </div>

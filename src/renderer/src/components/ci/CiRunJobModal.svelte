@@ -6,6 +6,8 @@
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import BranchPicker from '../worktree/BranchPicker.svelte'
+  import CiRunConfirmation from './CiRunConfirmation.svelte'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import RunBuildDialog from './RunBuildDialog.svelte'
   import type { CiParameter, TeamCityCiRepoConfigInfo } from '../../lib/ci/types'
 
@@ -48,6 +50,13 @@
   let parametersSeq = 0
 
   let label = $derived(config?.buildTypes.find((bt) => bt.id === buildTypeId)?.label ?? buildTypeId)
+
+  // A confirmation must never outlive the selection it described.
+  let pending = $state(false)
+  $effect(() => {
+    void selectedBranch
+    pending = false
+  })
 
   onMount(async () => {
     config = initialConfig
@@ -105,6 +114,7 @@
 
   function selectJob(id: string): void {
     buildTypeId = id
+    pending = false
     selectedBranch = initialBranch ?? ''
     branchQuery = initialBranch ?? ''
     params = null
@@ -130,6 +140,14 @@
       params = promptParameters
       return
     }
+    // A configuration with no prompt parameters queues straight from here, so the
+    // confirmation has to live on this path too — otherwise exactly the jobs that show no
+    // form would be the ones that run on a single click.
+    if (!pending) {
+      pending = true
+      return
+    }
+    pending = false
     starting = true
     error = ''
     try {
@@ -198,7 +216,9 @@
           ? 'Loading…'
           : promptParameters.length > 0
             ? 'Configure'
-            : 'Run',
+            : pending
+              ? 'Start build'
+              : 'Confirm',
   )
 
   /** Same rule as ProjectCiModal.requestClose: a trigger failure has NO surface
@@ -252,7 +272,16 @@
       onmousedown={(e) => e.stopPropagation()}
     >
       <header class="flex items-start justify-between gap-3">
-        <h3 class="text-base font-semibold text-text m-0 leading-tight">Run job</h3>
+        <div class="min-w-0">
+          <!-- Same header shape as the GitHub dialog: provider mark, then which server this
+               will run on. Two dialogs doing the same job should not look unrelated. -->
+          <h3 class="m-0 text-base font-semibold text-text leading-tight flex items-center gap-2">
+            <TrackerProviderIcon provider="teamcity" size={17} /> Run TeamCity build
+          </h3>
+          {#if config}
+            <p class="m-0 mt-1 text-xs text-text-muted truncate">{config.baseUrl}</p>
+          {/if}
+        </div>
         <button
           type="button"
           class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0 aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
@@ -265,7 +294,19 @@
         </button>
       </header>
 
-      {#if config}
+      {#if config && pending}
+        <!-- A screen of its own: it REPLACES the pickers rather than being appended to them,
+             so the dialog shows one thing at a time, like the parameters screen does. -->
+        <CiRunConfirmation title={label} ref={selectedBranch} changed={[]} total={0} />
+      {:else if config}
+        <!-- Above the fields, same as the GitHub dialog: it names what still has to be chosen,
+             so it belongs where the choosing happens. Rendered only when it says something. -->
+        {#if runBlockedHint}
+          <p class="m-0 break-words text-xs text-text-secondary" id="ci-run-blocked-hint">
+            {runBlockedHint}
+          </p>
+        {/if}
+
         <div class="flex flex-col gap-1">
           <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
             >Job</span
@@ -302,16 +343,6 @@
         <div class:sr-only={!error && !parametersError} aria-live="polite">
           {#if error || parametersError}
             <span class="text-xs text-danger-text">{error || parametersError}</span>
-          {/if}
-        </div>
-        <!-- Above the buttons, not after them: it explains why the primary button is
-             inert, so it has to be read before reaching it. Its own container rather
-             than the error slot above — that one is aria-live, and a hint that toggles
-             with every selection would announce on each keystroke. min-h-4 reserves the
-             line so appearing does not shift the footer. -->
-        <div class="min-h-4 break-words text-right text-xs text-text-secondary">
-          {#if runBlockedHint}
-            <span id="ci-run-blocked-hint">{runBlockedHint}</span>
           {/if}
         </div>
         <div class="flex gap-1.5 justify-end">

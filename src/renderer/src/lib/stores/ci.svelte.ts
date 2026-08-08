@@ -170,6 +170,14 @@ export function getCiActivityTick(): number {
 // --- Observation of builds triggered from Canopy → completion toast ---
 
 const OBSERVE_INTERVAL_MS = 10_000
+
+/**
+ * The refresh fired at trigger time lands before the server knows about the run, and the
+ * watcher's first tick is 10 s later — by then a GitHub queue (1-5 s typically) has already
+ * become "in progress", so the Queued state never reached the card. One short follow-up
+ * covers that window without adding a second poller.
+ */
+const QUEUED_CATCH_MS = 2_000
 // A hung queue shouldn't poll forever; 2h covers any realistic build.
 const OBSERVE_MAX_TICKS = 720
 // ~5 min of consecutive failures — a laptop suspend/resume or a VPN reconnect
@@ -235,6 +243,12 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       const build = await window.api.ciBuild(repoRoot, buildId)
       failures = 0
       lastNumber = build.number
+      // Keep the sidebar card in step with the build being watched. The refresh fired at
+      // trigger time lands BEFORE the server has the build, and the card then falls back to
+      // the idle cadence (45 s) because it does not yet know anything is active — so the
+      // history window showed the running build while the card still read the previous one.
+      // This watcher already polls every 10 s and knows the branch; reuse it.
+      if (build.branchName) void refreshCi(repoRoot, build.branchName)
       if (build.state === 'finished') {
         stopObserving(buildId)
         // .exhaustive() so the next widening of CiBuildResult fails to compile here
@@ -289,6 +303,7 @@ export async function triggerCiBuild(
   }
   // Show the queued build in the row right away instead of waiting for the next poll.
   void refreshCi(repoRoot, branch)
+  setTimeout(() => void refreshCi(repoRoot, branch), QUEUED_CATCH_MS)
   return null
 }
 
@@ -326,6 +341,8 @@ function observeRun(repoRoot: string, runId: string, label: string): void {
       const run = await window.api.ciRun(repoRoot, runId)
       if (!observedRuns.has(key)) return
       failures = 0
+      // Same reason as the TeamCity watcher above.
+      if (run.ref?.name) void refreshCiJobs(repoRoot, run.ref.name)
       if (run.provider !== 'github-actions') {
         stopObservingRun(key)
         reportGiveUp(label, undefined, 'CI provider changed — check GitHub Actions')
@@ -381,6 +398,11 @@ export async function triggerCiJob(
     addToast(`${label}: workflow queued on ${result.ref.name}`, 'success')
     observeRun(repoRoot, result.runId, label)
     activityTick += 1
+    // The tick only reaches the history window. The sidebar card is branch-scoped and fed by
+    // ci:jobs, so without this it kept showing the previous run until the next poll — up to
+    // 300 s away. The TeamCity path has always done the equivalent (`refreshCi`).
+    void refreshCiJobs(repoRoot, result.ref.name)
+    setTimeout(() => void refreshCiJobs(repoRoot, result.ref.name), QUEUED_CATCH_MS)
     return null
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to trigger workflow'

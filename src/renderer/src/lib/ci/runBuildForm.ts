@@ -77,3 +77,30 @@ export function toInputs(
   }
   return Object.fromEntries(entries)
 }
+
+/**
+ * What the user actually changed, for the confirmation step. `toProperties` submits EVERY
+ * prompt parameter, so a configuration with dozens of them would bury the one that matters.
+ *
+ * Deliberately carries no interpretation of what any parameter MEANS — names belong to each
+ * server's own build configurations, so anything keyed off a specific one (a `Deploy` flag,
+ * an `Environment` value) would read correctly for one installation and mislead for the next.
+ */
+export function changedProperties(
+  params: CiParameter[],
+  properties: Array<{ name: string; value: string }>,
+): Array<{ name: string; value: string }> {
+  const byName = new Map(params.map((p) => [p.name, p]))
+  return properties
+    .filter((property) => {
+      const param = byName.get(property.name)
+      // Nothing to compare against counts as changed: a confirmation must fail towards
+      // showing more, never towards hiding.
+      return param === undefined || param.defaultValue !== property.value
+    })
+    .map((property) => ({
+      name: property.name,
+      // Never echo a secret back, even one just typed.
+      value: byName.get(property.name)?.kind === 'password' ? '********' : property.value,
+    }))
+}

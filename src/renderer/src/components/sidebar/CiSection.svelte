@@ -343,10 +343,10 @@
 
   function openRunJob(): void {
     if (!repoRoot) return
-    // The generic sidebar entry stays unarmed: an active `develop` worktree must
-    // not silently become the run target. The branch context-menu entry is the
-    // explicit shortcut that preselects its worktree's branch.
-    showCiRunJob(repoRoot)
+    // Preselects the worktree's branch — it is the overwhelmingly common target, and
+    // nothing dispatches without the main-process confirmation that spells out the exact
+    // ref and commit, so the old "stay unarmed" stance only cost a lookup every time.
+    showCiRunJob(repoRoot, { branch: workspaceState.branch || undefined })
   }
 
   function openActivity(): void {

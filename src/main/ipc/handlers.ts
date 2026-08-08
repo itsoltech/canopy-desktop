@@ -3361,39 +3361,9 @@ export function registerIpcHandlers(
     ipcMain,
     ciManager,
     validatePathAccess,
-    confirmGitHubDispatch: async (event, details) => {
-      const sender = event.sender as WebContents
-      if (sender.isDestroyed()) return false
-      const invokeEvent = event as unknown as IpcMainInvokeEvent
-      if (invokeEvent.senderFrame && invokeEvent.senderFrame !== sender.mainFrame) return false
-      const parent = BrowserWindow.fromWebContents(sender)
-      if (!parent || parent.isDestroyed()) return false
-      const inputs = Object.entries(details.inputs)
-        .map(([name, value]) => `${name}: ${String(value).slice(0, 500)}`)
-        .join('\n')
-        .slice(0, 8_000)
-      const options = {
-        type: 'warning' as const,
-        title: 'Run GitHub Actions workflow?',
-        message: `Run ${details.workflowLabel}?`,
-        detail: [
-          `Repository: ${details.repository}`,
-          `Workflow: ${details.workflowPath}`,
-          `Ref: ${details.ref.kind} ${details.ref.name}`,
-          details.ref.commitSha ? `Current commit: ${details.ref.commitSha}` : '',
-          inputs ? `Inputs:\n${inputs}` : 'Inputs: none',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-        buttons: ['Cancel', 'Run workflow'],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true,
-      }
-      const result = await dialog.showMessageBox(parent, options)
-      if (sender.isDestroyed() || parent.isDestroyed()) return false
-      return result.response === 1
-    },
+    // No native confirmation: both run dialogs now ask in-app, with one shared component,
+    // so wiring this too would put the same question in front of the user twice. The hook
+    // stays available in the IPC layer if a trusted (renderer-proof) prompt is wanted again.
   })
 
   // --- Task Tracker ---

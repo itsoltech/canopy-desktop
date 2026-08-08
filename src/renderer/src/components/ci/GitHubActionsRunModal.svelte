@@ -1,11 +1,16 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { LoaderCircle, Play, X } from '@lucide/svelte'
-  import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import BranchPicker from '../worktree/BranchPicker.svelte'
+  import CiRunConfirmation from './CiRunConfirmation.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
+  import { onMount, untrack } from 'svelte'
+  import { KeyRound, LoaderCircle, Play, X } from '@lucide/svelte'
+  import { closeDialog, showProjectCi } from '../../lib/stores/dialogs.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { triggerCiJob } from '../../lib/stores/ci.svelte'
+  import { isCiAuthFailure } from '../../lib/ci/errors'
   import type { CiParameter, CiRef, GitHubActionsCiRepoConfigInfo } from '../../lib/ci/types'
   import {
+    changedProperties,
     initialFormValues,
     isCheckboxChecked,
     missingRequired,
@@ -13,7 +18,6 @@
     toggleCheckbox,
   } from '../../lib/ci/runBuildForm'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
-  import CustomSelect from '../shared/CustomSelect.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
 
   let {
@@ -29,16 +33,30 @@
   let config = $state<GitHubActionsCiRepoConfigInfo | null>(null)
   let jobId = $state('')
   let refs = $state<CiRef[]>([])
-  let selectedRefKey = $state('')
+  // BranchPicker deals in plain names; the kind is resolved back from `refs`, with branches
+  // and tags in separate buckets so a name shared by both is unambiguous.
+  let selectedRefName = $state('')
+  let refQuery = $state('')
   let parameters = $state<CiParameter[] | null>(null)
   let schemaRevision = $state('')
   let values = $state<Record<string, string>>({})
   let loading = $state(true)
   let running = $state(false)
   let error = $state('')
+  // A 403 here is not "wrong token" — reading workflows already worked to get this far. It is
+  // the one permission dispatch needs and read does not, so the message names it and offers the
+  // link that pre-selects it, instead of leaving the user with "Forbidden".
+  let dispatchDenied = $derived(isCiAuthFailure(error))
   let loadSequence = 0
 
-  let selectedRef = $derived(refs.find((ref) => `${ref.kind}:${ref.name}` === selectedRefKey))
+  let branchNames = $derived(refs.filter((r) => r.kind === 'branch').map((r) => r.name))
+  let tagNames = $derived(refs.filter((r) => r.kind === 'tag').map((r) => r.name))
+  let selectedRef = $derived(
+    selectedRefName
+      ? (refs.find((r) => r.kind === 'branch' && r.name === selectedRefName) ??
+          refs.find((r) => r.name === selectedRefName))
+      : undefined,
+  )
   let label = $derived(
     config?.workflows.find((workflow) => workflow.path === jobId)?.label ?? jobId,
   )
@@ -99,7 +117,8 @@
 
   async function selectJob(path: string): Promise<void> {
     jobId = path
-    selectedRefKey = ''
+    selectedRefName = ''
+    refQuery = ''
     refs = []
     parameters = null
     schemaRevision = ''
@@ -119,8 +138,8 @@
       const worktreeRef = initialBranch
         ? loadedRefs.find((ref) => ref.kind === 'branch' && ref.name === initialBranch)
         : undefined
-      selectedRefKey = worktreeRef ? `branch:${worktreeRef.name}` : ''
-      if (worktreeRef) await loadParameters()
+      selectedRefName = worktreeRef ? worktreeRef.name : ''
+      refQuery = selectedRefName
     } catch (cause) {
       if (sequence !== loadSequence) return
       error = cause instanceof Error ? cause.message : 'Could not load GitHub refs'
@@ -129,12 +148,23 @@
     }
   }
 
-  async function selectRef(key: string): Promise<void> {
-    selectedRefKey = key
+  // BranchPicker's row click calls pick() without onCommit, so the selection is OBSERVED —
+  // one path for mouse, Enter and the worktree preselect. Guarded so a re-render cannot
+  // reload the same ref.
+  let loadedForRef = ''
+  $effect(() => {
+    const name = selectedRefName
+    if (name === loadedForRef) return
+    loadedForRef = name
+    untrack(() => void refPicked())
+  })
+
+  /** Picking a ref invalidates the parameter schema, which is per-ref. */
+  async function refPicked(): Promise<void> {
     parameters = null
     schemaRevision = ''
     values = {}
-    if (key) await loadParameters()
+    if (selectedRefName) await loadParameters()
   }
 
   async function loadParameters(): Promise<void> {
@@ -159,8 +189,53 @@
     }
   }
 
+  // Two-step: the same confirmation the TeamCity dialog uses, in the app rather than a
+  // native message box, so both providers ask the same question the same way.
+  // Two screens, matching TeamCity: pick the workflow and ref, then configure inputs if the
+  // workflow declares any. Inputs are per-REF (the YAML can differ per branch), so the ref has
+  // to be chosen first — but the split itself is for consistency, not forced by that.
+  let stage = $state<'select' | 'configure'>('select')
+  let hasInputs = $derived((parameters?.length ?? 0) > 0)
+  $effect(() => {
+    void jobId
+    void selectedRefName
+    stage = 'select'
+    pending = false
+  })
+
+  let pending = $state(false)
+  let submitted = $derived(
+    parameters ? parameters.map((p) => ({ name: p.name, value: values[p.name] ?? '' })) : [],
+  )
+  let pendingChanged = $derived(parameters ? changedProperties(parameters, submitted) : [])
+
+  function primaryAction(): void {
+    if (!canRun) return
+    if (stage === 'select' && hasInputs) {
+      stage = 'configure'
+      return
+    }
+    if (!pending) {
+      pending = true
+      return
+    }
+    void runWorkflow()
+  }
+
+  /** Cancel steps back out of the inputs screen before it closes the dialog, like TeamCity. */
+  function cancelOrBack(): void {
+    if (running) return
+    if (stage === 'configure') {
+      stage = 'select'
+      pending = false
+      return
+    }
+    requestClose()
+  }
+
   async function runWorkflow(): Promise<void> {
     if (!canRun || !selectedRef || !parameters) return
+    pending = false
     running = true
     error = ''
     const issue = await triggerCiJob(
@@ -231,59 +306,60 @@
       <!-- Above the fields, not under the button: it names what still has to be CHOSEN, so it
            belongs where the choosing happens. Its own container rather than the aria-live
            error slot — this toggles with every selection and would announce on each one.
-           min-h-4 reserves the line so appearing does not shift the form. -->
-      <div class="min-h-4 break-words text-xs text-text-secondary">
-        {#if runBlockedHint}
-          <span id="github-run-blocked-hint">{runBlockedHint}</span>
-        {/if}
-      </div>
+           Rendered only when it says something: a reserved empty line left a permanent gap
+           under the header, which the TeamCity dialog does not have. -->
+      {#if runBlockedHint}
+        <p class="m-0 break-words text-xs text-text-secondary" id="github-run-blocked-hint">
+          {runBlockedHint}
+        </p>
+      {/if}
 
-      <div class="flex flex-col gap-1">
-        <label for="github-run-workflow" class="text-xs font-semibold text-text-faint"
-          >Workflow</label
-        >
-        <select
-          id="github-run-workflow"
-          class="px-2.5 py-1.5 rounded-md border border-border bg-bg-input text-sm text-text"
-          value={jobId}
-          onchange={(event) => void selectJob(event.currentTarget.value)}
-          disabled={running}
-        >
-          {#each config.workflows as workflow (workflow.path)}
-            <option value={workflow.path}>{workflow.label}</option>
-          {/each}
-        </select>
-      </div>
+      {#if stage === 'select'}
+        <div class="flex flex-col gap-1">
+          <span class="text-xs font-semibold text-text-faint">Workflow</span>
+          <!-- Same picker as the TeamCity job list: a native select renders in the OS theme,
+               which is what left a bright system highlight in the middle of the dialog. -->
+          <CustomSelect
+            value={jobId}
+            options={config.workflows.map((workflow) => ({
+              value: workflow.path,
+              label: workflow.label,
+            }))}
+            onchange={(value) => void selectJob(value)}
+          />
+        </div>
 
-      <div class="flex flex-col gap-1">
-        <label for="github-run-ref" class="text-xs font-semibold text-text-faint"
-          >Branch or tag</label
-        >
-        <select
-          id="github-run-ref"
-          class="px-2.5 py-1.5 rounded-md border border-border bg-bg-input text-sm text-text"
-          value={selectedRefKey}
-          onchange={(event) => void selectRef(event.currentTarget.value)}
-          disabled={loading || running}
-        >
-          <option value="">Select a remote branch or tag…</option>
-          {#each refs as ref (`${ref.kind}:${ref.name}`)}
-            <option value={`${ref.kind}:${ref.name}`}
-              >{ref.kind === 'tag' ? 'tag' : 'branch'} — {ref.name}</option
+        <div class="flex flex-col">
+          <!-- Same picker as the TeamCity dialog. A native select cannot be searched and renders
+             in the OS theme; this repository lists hundreds of refs (audit/*, dependabot/*). -->
+          <BranchPicker
+            branches={{ local: branchNames, remote: tagNames }}
+            label="Branch or tag"
+            bind:query={refQuery}
+            bind:selectedBranch={selectedRefName}
+            refreshing={loading}
+            onRefresh={loadRefs}
+            fillQueryOnPick={true}
+            highlightPicked={true}
+            collapseConfirmedSelection={true}
+            startCollapsed={true}
+          />
+          {#if initialBranch && !refs.some((ref) => ref.kind === 'branch' && ref.name === initialBranch)}
+            <span class="text-xs text-text-muted"
+              >The worktree branch is not present on GitHub; choose another ref.</span
             >
-          {/each}
-        </select>
-        {#if initialBranch && !refs.some((ref) => ref.kind === 'branch' && ref.name === initialBranch)}
-          <span class="text-xs text-text-muted"
-            >The worktree branch is not present on GitHub; choose another ref.</span
-          >
-        {/if}
-      </div>
+          {/if}
+        </div>
+      {/if}
 
-      <!-- length, not just non-null: a workflow with no inputs (CI) would otherwise render the
-           warning plus an empty container, each taking a gap-4 slot — the dead space under the
-           ref picker. -->
-      {#if parameters && parameters.length > 0}
+      <!-- Its own screen now, reached with Configure — the same shape as the TeamCity
+           parameters form, so both providers read alike. -->
+      {#if stage === 'configure' && parameters && parameters.length > 0}
+        <!-- What is being configured: without it the screen shows inputs with no idea which
+             workflow or ref they belong to. The TeamCity form states the same two facts. -->
+        <p class="m-0 text-xs text-text-muted">
+          {label} · <span class="font-mono">{selectedRefName}</span>
+        </p>
         <p class="m-0 text-xs text-warning-text">
           Workflow inputs are plain GitHub Actions inputs, not secrets. Do not paste credentials
           here.
@@ -358,15 +434,46 @@
         <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" /> Loading…
       </div>
     {/if}
-    <div class="min-h-4 text-xs text-danger-text" aria-live="polite">
-      {missing.length > 0 ? 'Fill the required workflow inputs.' : error}
-    </div>
+    {#if dispatchDenied}
+      <div
+        class="flex items-start gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+        role="alert"
+      >
+        <KeyRound size={13} class="mt-0.5 shrink-0 text-warning-text" />
+        <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug">
+          This token can read workflows but not start them. It needs <strong
+            class="font-semibold text-text">Actions: read and write</strong
+          >{config ? ` for ${config.repository}` : ''}. Update it in the CI/CD configurator, which
+          has the token field and a link that pre-selects that permission.
+          <span class="text-text-faint">({error})</span>
+        </span>
+        <button
+          type="button"
+          class="shrink-0 self-center px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
+          onclick={showProjectCi}
+        >
+          Update token
+        </button>
+      </div>
+    {:else}
+      <div class="min-h-4 text-xs text-danger-text" aria-live="polite">
+        {missing.length > 0 ? 'Fill the required workflow inputs.' : error}
+      </div>
+    {/if}
 
+    {#if pending && selectedRef}
+      <CiRunConfirmation
+        ref={`${selectedRef.kind} ${selectedRef.name}`}
+        changed={pendingChanged}
+        total={submitted.length}
+        noun="inputs"
+      />
+    {/if}
     <footer class="flex justify-end gap-2 border-t border-border-subtle pt-3">
       <button
         type="button"
         class="px-3 py-1 rounded-md border border-border bg-transparent text-sm text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
-        onclick={requestClose}
+        onclick={cancelOrBack}
         aria-disabled={running}
         title={running ? 'Disabled while the workflow request is in progress' : 'Cancel'}
         >Cancel</button
@@ -374,7 +481,7 @@
       <button
         type="button"
         class="px-3 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-sm cursor-pointer flex items-center gap-1.5 hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
-        onclick={runWorkflow}
+        onclick={primaryAction}
         aria-disabled={!canRun}
         aria-busy={running}
         aria-describedby={runBlockedHint ? 'github-run-blocked-hint' : undefined}
@@ -384,7 +491,13 @@
             size={13}
             class="animate-spin-slow motion-reduce:animate-none"
           />{:else}<Play size={13} />{/if}
-        {running ? 'Starting…' : 'Run workflow'}
+        {running
+          ? 'Starting…'
+          : pending
+            ? 'Start workflow'
+            : hasInputs && stage === 'select'
+              ? 'Configure'
+              : 'Confirm'}
       </button>
     </footer>
   </div>

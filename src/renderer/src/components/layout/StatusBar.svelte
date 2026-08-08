@@ -258,11 +258,12 @@
 
     <!-- RIGHT: three sub-groups separated by hairline dividers -->
     <div class="flex items-center min-w-0">
-      <!-- Sub-group A: git -->
-      <div class="flex items-center gap-2">
+      <!-- Sub-group A: git. min-w-0 so the branch chip below can actually shrink — without
+           it a flex item refuses to go under its content width and the ellipsis never fires. -->
+      <div class="flex items-center gap-2 min-w-0">
         {#if workspaceState.isGitRepo && workspaceState.branch}
           <span
-            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm text-text-faint"
+            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm text-text-faint min-w-0"
             role="img"
             aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
               ? ', uncommitted changes'
@@ -270,7 +271,11 @@
             title="Branch: {workspaceState.branch}"
           >
             <GitBranch size={12} class="flex-shrink-0" />
-            <span class="overflow-hidden text-ellipsis max-w-40 font-mono text-xs whitespace-nowrap"
+            <!-- No width cap: the name shows in full whenever the bar has room and only
+                 gives way when it runs out, ellipsis at the end. The old max-w-40 cut two
+                 thirds off a 68-character branch even on a wide window. -->
+            <span
+              class="min-w-0 flex-1 overflow-hidden text-ellipsis font-mono text-xs whitespace-nowrap"
               >{workspaceState.branch}</span
             >
             {#if workspaceState.isDirty}

@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
+  changedProperties,
   initialFormValues,
   isCheckboxChecked,
-  toggleCheckbox,
-  multiValues,
-  toggleMultiValue,
   missingRequired,
-  toProperties,
+  multiValues,
   toInputs,
+  toProperties,
+  toggleCheckbox,
+  toggleMultiValue,
 } from './runBuildForm'
 
 function param(overrides: Partial<CiParameter>): CiParameter {
@@ -160,5 +161,51 @@ describe('toInputs', () => {
       notes: 'safe',
       channel: 'next',
     })
+  })
+})
+
+describe('changedProperties', () => {
+  const param = (over: Partial<CiParameter> & { name: string }): CiParameter => ({
+    kind: 'text',
+    label: over.name,
+    description: undefined,
+    required: false,
+    defaultValue: '',
+    options: undefined,
+    multiple: false,
+    valueSeparator: ',',
+    checkedValue: undefined,
+    uncheckedValue: undefined,
+    ...over,
+  })
+
+  it('drops everything left at its default', () => {
+    const params = [param({ name: 'Deploy' }), param({ name: 'Env', defaultValue: 'Test' })]
+    expect(
+      changedProperties(params, [
+        { name: 'Deploy', value: '' },
+        { name: 'Env', value: 'Test' },
+      ]),
+    ).toEqual([])
+  })
+
+  it('keeps what differs, whatever the parameter is called', () => {
+    const params = [param({ name: 'TARGET_ENV', defaultValue: 'staging' })]
+    expect(changedProperties(params, [{ name: 'TARGET_ENV', value: 'prod' }])).toEqual([
+      { name: 'TARGET_ENV', value: 'prod' },
+    ])
+  })
+
+  it('treats an unknown parameter as changed', () => {
+    expect(changedProperties([], [{ name: 'Rogue', value: 'x' }])).toEqual([
+      { name: 'Rogue', value: 'x' },
+    ])
+  })
+
+  it('never echoes a password value', () => {
+    const params = [param({ name: 'DbPassword', kind: 'password' })]
+    expect(changedProperties(params, [{ name: 'DbPassword', value: 'hunter2' }])).toEqual([
+      { name: 'DbPassword', value: '********' },
+    ])
   })
 })
