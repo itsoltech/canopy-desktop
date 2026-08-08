@@ -10,6 +10,7 @@ import type {
   CiBuildStatus,
   CiBuildTypeStatus,
   CiConfig,
+  CiCredentialStatus,
   CiJobStatus,
   CiParameter,
   CiParameterSet,
@@ -194,6 +195,25 @@ export class CiManager {
               : 'unrecognized ci block shape',
         })
       })
+  }
+
+  /** Safe credential metadata for the exact provider binding selected by a validated CI config. */
+  credentialStatusForConfig(ci: CiConfig): CiCredentialStatus {
+    const provider = ci.provider === 'github-actions' ? 'github-actions' : 'teamcity'
+    const baseUrl =
+      ci.provider === 'github-actions' ? githubActionsCredentialBaseUrl(ci.repository) : ci.baseUrl
+    const credentials = this.tokenStore.getCredentials(provider, baseUrl)
+    if (!credentials) return { hasToken: false, authenticationState: 'unknown' }
+    const descriptor = this.tokenStore.registry
+      .list()
+      .find((candidate) => candidate.id === credentials.credentialId)
+    return {
+      hasToken: true,
+      authenticationState: descriptor?.authenticationState ?? 'unknown',
+      ...(descriptor?.authenticationCheckedAt
+        ? { authenticationCheckedAt: descriptor.authenticationCheckedAt }
+        : {}),
+    }
   }
 
   private tokenForUrl(

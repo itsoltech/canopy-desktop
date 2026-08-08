@@ -58,6 +58,10 @@ Git refs can move between opening the form and confirmation. Canopy resolves the
 again immediately before dispatch and rejects the request if the ref changes while the dispatch
 is being prepared.
 
+The sidebar reads the token verdict only for the exact GitHub Actions repository binding returned
+with `ci:config`. Replacing or removing that credential emits an in-process change tick, so the
+banner updates immediately without periodically listing the keychain.
+
 ## Status and history
 
 The sidebar and activity window query only workflows selected in the repository configuration.
@@ -187,6 +191,8 @@ failure.
   `ci:jobRefs`, `ci:jobParameters`, `ci:triggerJob`, `ci:runActivity`, `ci:run`,
   `ci:githubSetup`, `ci:testGitHubConnection`, and `ci:setGitHubCredential`
 - Renderer flow and state: `src/renderer/src/components/ci/CiRunDialog.svelte`,
+  `src/renderer/src/components/ci/CiRunDialogRouter.svelte`,
+  `src/renderer/src/components/ci/CiRunConfirmation.svelte`,
   `src/renderer/src/components/ci/CiRunParameterFields.svelte`,
   `src/renderer/src/lib/ci/runDialogState.svelte.ts`,
   `src/renderer/src/components/preferences/GitHubActionsCiConfigurator.svelte`

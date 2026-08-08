@@ -3,7 +3,7 @@ import { ok, err, okAsync, errAsync, ResultAsync, type Result } from 'neverthrow
 import { CiManager } from './CiManager'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
-import type { CiActivityBuild, GitHubActionsCiConfig } from './types'
+import type { CiActivityBuild, GitHubActionsCiConfig, TeamCityCiConfig } from './types'
 import type { GitHubActionsClient } from './github-actions/client'
 import { withCiDegradedCauses } from './degraded'
 
@@ -27,7 +27,7 @@ const VALID_CI = {
   provider: 'teamcity',
   baseUrl: 'https://tc.example.com',
   buildTypes: [{ id: 'Gakko_Build', label: 'Build' }],
-}
+} satisfies TeamCityCiConfig
 
 const GITHUB_CI = {
   provider: 'github-actions',
@@ -46,6 +46,8 @@ function fakes(opts?: {
   remoteUrl?: string
   remoteUrlResolver?: () => ResultAsync<string, unknown>
   githubClient?: GitHubActionsClient
+  authState?: 'valid' | 'invalid' | 'unknown'
+  authCheckedAt?: string
 }): {
   repoConfigManager: RepoConfigManager
   tokenStore: KeychainTokenStore
@@ -76,6 +78,20 @@ function fakes(opts?: {
     ),
     recordResult: vi.fn(),
     setCredentials: vi.fn(() => ok({})),
+    getCredentials: vi.fn(() =>
+      opts?.token === null
+        ? null
+        : { token: opts?.token ?? 'tok', username: undefined, credentialId: 'cred-1' },
+    ),
+    registry: {
+      list: vi.fn(() => [
+        {
+          id: 'cred-1',
+          authenticationState: opts?.authState ?? 'unknown',
+          authenticationCheckedAt: opts?.authCheckedAt,
+        },
+      ]),
+    },
   } as unknown as KeychainTokenStore
   return {
     repoConfigManager,
@@ -154,6 +170,36 @@ describe('loadConfig', () => {
     const { manager } = fakes({ ci: VALID_CI })
     const result = await manager.loadConfig('r')
     expect(result.isOk() && result.value.baseUrl).toBe('https://tc.example.com')
+  })
+})
+
+describe('credentialStatusForConfig', () => {
+  it('reads the exact configured binding without exposing its secret', () => {
+    const checkedAt = '2026-08-08T12:00:00.000Z'
+    const { manager, tokenStore } = fakes({
+      ci: GITHUB_CI,
+      authState: 'invalid',
+      authCheckedAt: checkedAt,
+    })
+
+    expect(manager.credentialStatusForConfig(GITHUB_CI)).toEqual({
+      hasToken: true,
+      authenticationState: 'invalid',
+      authenticationCheckedAt: checkedAt,
+    })
+    expect(tokenStore.getCredentials).toHaveBeenCalledWith(
+      'github-actions',
+      'https://github.com/itsoltech/canopy-desktop',
+    )
+  })
+
+  it('reports a missing configured credential without listing unrelated entries', () => {
+    const { manager } = fakes({ ci: VALID_CI, token: null })
+
+    expect(manager.credentialStatusForConfig(VALID_CI)).toEqual({
+      hasToken: false,
+      authenticationState: 'unknown',
+    })
   })
 })
 

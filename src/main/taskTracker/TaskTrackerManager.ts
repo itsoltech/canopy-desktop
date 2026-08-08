@@ -59,6 +59,7 @@ export class TaskTrackerManager {
     connection: TaskTrackerConnection,
     capability: Extract<CredentialCapability, 'issues.read' | 'issues.write'>,
     result: ResultAsync<T, TaskTrackerError>,
+    usedSecret: string,
   ): ResultAsync<T, TaskTrackerError> {
     const record = (status: number, reason?: string): void =>
       this.keychainTokenStore?.recordResult(
@@ -67,7 +68,7 @@ export class TaskTrackerManager {
         capability,
         status,
         reason,
-        { bindingKey: trackerBindingKey(connection.id) },
+        { bindingKey: trackerBindingKey(connection.id), usedSecret },
       )
     return result
       .map((value) => {
@@ -302,6 +303,7 @@ export class TaskTrackerManager {
           conn,
           'issues.read',
           client.getCurrentUserDisplayName(conn, token),
+          token,
         )
       },
     )
@@ -350,6 +352,7 @@ export class TaskTrackerManager {
           conn,
           'issues.write',
           client.applyTransition(conn, token, taskKey, transitionId, opts),
+          token,
         )
       },
     )
@@ -369,6 +372,7 @@ export class TaskTrackerManager {
           conn,
           'issues.write',
           client.addComment(conn, token, taskKey, body),
+          token,
         )
       },
     )
@@ -457,6 +461,7 @@ export class TaskTrackerManager {
           conn,
           'issues.write',
           client.createTask(conn, token, input),
+          token,
         )
       },
     )

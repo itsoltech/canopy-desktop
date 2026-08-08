@@ -7,7 +7,7 @@
   import { formatDuration, formatWhen } from '../../lib/ci/format'
   import { formatDateTime } from '../../lib/formatDate'
   import { ciRunChip, ciRunStatusTextClass } from '../../lib/ci/status'
-  import { ipcErrorMessage, isCiAuthFailure } from '../../lib/ci/errors'
+  import { ipcErrorMessage } from '../../lib/ci/errors'
   import type { CiRun, CiRunActivity } from '../../lib/ci/types'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
 
@@ -267,17 +267,7 @@
           <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" /> Loading history…
         </div>
       {:else if error && !activity}
-        <!-- A rejected token is not a transient fault, so it gets a sentence naming the
-             cause and the fix instead of the raw reason on its own. -->
-        <div class="p-3 flex flex-col gap-1" role="alert">
-          {#if isCiAuthFailure(error)}
-            <p class="m-0 text-sm text-danger-text">
-              GitHub rejected the stored token, so no history could be loaded.
-            </p>
-            <p class="m-0 text-xs text-text-muted">
-              Update it from the CI/CD section's configurator, then refresh.
-            </p>
-          {/if}
+        <div class="p-3" role="alert">
           <p class="m-0 text-xs text-text-faint break-words" title={error}>{error}</p>
         </div>
       {:else if activity}

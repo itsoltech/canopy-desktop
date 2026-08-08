@@ -2,7 +2,6 @@ import { untrack } from 'svelte'
 import { match } from 'ts-pattern'
 import { closeDialog } from '../stores/dialogs.svelte'
 import { triggerCiBuild, triggerCiJob } from '../stores/ci.svelte'
-import { isCiAuthFailure } from './errors'
 import {
   changedProperties,
   initialFormValues,
@@ -41,6 +40,13 @@ export function ambiguousCiRefNames(refs: CiRef[]): string[] {
     .sort()
 }
 
+export function isGitHubDispatchDenied(
+  provider: CiRepoConfigInfo['provider'],
+  status: number | undefined,
+): boolean {
+  return provider === 'github-actions' && status === 403
+}
+
 // Keep this factory inferred so the exported ReturnType stays aligned with its reactive getters.
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function createCiRunDialogState(
@@ -62,6 +68,7 @@ export function createCiRunDialogState(
   let refsError = $state('')
   let parametersError = $state('')
   let triggerError = $state('')
+  let triggerErrorStatus = $state<number | undefined>(undefined)
   let refsSequence = 0
   let parametersSequence = 0
 
@@ -115,9 +122,7 @@ export function createCiRunDialogState(
   const canContinue = $derived(
     selectionReady && (stage === 'select' || missing.length === 0) && !running,
   )
-  const dispatchDenied = $derived(
-    config.provider === 'github-actions' && isCiAuthFailure(triggerError),
-  )
+  const dispatchDenied = $derived(isGitHubDispatchDenied(config.provider, triggerErrorStatus))
   const worktreeBranchMissing = $derived(
     config.provider === 'github-actions' &&
       !!initialBranch &&
@@ -186,18 +191,6 @@ export function createCiRunDialogState(
       : refsError || parametersError || triggerError,
   )
 
-  // A confirmation must never outlive the selection it describes.
-  let previousSelection = ''
-  $effect(() => {
-    const selection = `${jobId}\u0000${selectedRefName}`
-    if (selection === previousSelection) return
-    previousSelection = selection
-    untrack(() => {
-      stage = 'select'
-      triggerError = ''
-    })
-  })
-
   // GitHub input schemas belong to a workflow AND ref. TeamCity prompt parameters belong only to
   // the build configuration, so that provider loads them alongside its branch list instead.
   let loadedGitHubParametersFor = ''
@@ -248,6 +241,7 @@ export function createCiRunDialogState(
 
   async function selectJob(value: string): Promise<void> {
     jobId = value
+    stage = 'select'
     refsSequence += 1
     parametersSequence += 1
     refs = []
@@ -257,6 +251,7 @@ export function createCiRunDialogState(
     refsError = ''
     parametersError = ''
     triggerError = ''
+    triggerErrorStatus = undefined
     refsLoading = false
     parametersLoading = false
     loadedGitHubParametersFor = ''
@@ -373,6 +368,7 @@ export function createCiRunDialogState(
     if (!canContinue || !selectedRef || !parameters) return
     running = true
     triggerError = ''
+    triggerErrorStatus = undefined
     try {
       if (config.provider === 'teamcity') {
         const properties = parameters.length > 0 ? toProperties(parameters, values) : undefined
@@ -400,6 +396,7 @@ export function createCiRunDialogState(
       )
       if (issue?.kind === 'cancelled') return
       if (issue?.kind === 'failure') {
+        triggerErrorStatus = issue.status
         if (issue.code === 'CiWorkflowSchemaChanged') {
           await loadParameters()
           stage = (parameters?.length ?? 0) > 0 ? 'configure' : 'select'
@@ -432,7 +429,12 @@ export function createCiRunDialogState(
       return selectedRefName
     },
     set selectedRefName(value: string) {
+      if (selectedRefName === value) return
       selectedRefName = value
+      // A confirmation must never outlive the ref it describes.
+      stage = 'select'
+      triggerError = ''
+      triggerErrorStatus = undefined
     },
     get refQuery() {
       return refQuery

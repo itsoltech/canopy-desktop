@@ -274,4 +274,28 @@ describe('triggerCiJob + observeRun', () => {
     expect(failure).toEqual({ kind: 'cancelled' })
     expect(toastState.visible).toBe(false)
   })
+
+  it('preserves a structured trigger status without parsing the message', async () => {
+    api.ciTriggerJob.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'CiApiError', status: 502, message: 'Upstream said Forbidden' },
+    })
+
+    const failure = await triggerCiJob(
+      'r',
+      {
+        jobId: '.github/workflows/release.yml',
+        ref: { name: 'next', kind: 'branch' },
+        inputs: {},
+      },
+      'Release',
+    )
+
+    expect(failure).toEqual({
+      kind: 'failure',
+      code: 'CiApiError',
+      status: 502,
+      message: 'Upstream said Forbidden',
+    })
+  })
 })

@@ -48,6 +48,12 @@ export interface CiRef {
 
 export type CiInputValue = string | boolean
 
+export interface CiCredentialStatus {
+  hasToken: boolean
+  authenticationState: 'valid' | 'invalid' | 'unknown'
+  authenticationCheckedAt?: string
+}
+
 export interface CiParameterSet {
   parameters: CiParameter[]
   /** Provider-owned immutable workflow/config revision used to reject stale forms. */

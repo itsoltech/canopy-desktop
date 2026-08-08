@@ -70,10 +70,11 @@ The integration follows the Project management architecture:
   window has nothing to load, so neither is offered. The rejected variant names the
   provider, says **since when** (from the credential's `authenticationCheckedAt`, which a
   401 writes; per-capability verification does not move for a 401 and can still read
-  "verified" from days earlier), carries the raw reason in its tooltip, and offers
-  **Update token**. Activity polling drops to the 300-second ceiling while a token is
-  rejected — it keeps running only so recovery is noticed, and repeated 401s are how
-  accounts get locked out.
+  "verified" from days earlier), carries a provider-specific recovery tooltip, and offers
+  **Update token**. The credential verdict is read for the exact TeamCity binding together with
+  the repository configuration. Saving or removing a token emits an in-process change tick, so
+  the section updates immediately without polling the keychain. A new API failure re-reads that
+  safe metadata after the main process records its structured result.
 
 ### Per-repo configurator (modal)
 
@@ -96,7 +97,8 @@ The branch list starts **collapsed** and opens only on a deliberate action — t
 focusing the input, typing, or ArrowDown. TeamCity branch lists run to dozens of entries,
 and expanding by default buried the dialog's own footer under them. When a required choice is
 missing, the reason **Run** is disabled appears above the fields so it is encountered before the
-controls it explains.
+controls it explains. That hint sits in a small reserved row so selecting a job or branch does not
+shift the rest of the form.
 The generic sidebar **Run job…** entry and the worktree context menu (right-click a branch in
 PROJECTS → **Run CI Job on Branch…**) prefill the active worktree branch. The prefilled branch
 stays selected even when TeamCity has not listed it yet; typing into the picker clears the
@@ -208,7 +210,8 @@ Written by the configurator (hand-editing works too) in `.canopy/config.json`:
   refuses to select more than 50 (Save is disabled with the count named); the
   `ci:saveConfig` IPC path rejects >50 outright.
 
-`ci:config` answers with a structured result: `{ config }` when the block is valid,
+`ci:config` answers with a structured result: `{ config, credential }` when the block is valid,
+where `credential` contains only safe status metadata for the exact provider binding,
 `{ config: null }` alone when the repo genuinely has no CI (every "Configure
 TeamCity" entry keys on this), and `{ config: null, invalid: { scope, message } }`
 when a block exists but cannot be used.
@@ -300,13 +303,13 @@ Additional surfaces that are not `CiError` variants:
 | Errors                | `src/main/ci/errors.ts` (typed `CiError` union + formatter)                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Config parsing        | `src/main/ci/config.ts` (+ tests)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Parameter specs       | `src/main/ci/parameters.ts` (+ tests) — "Run custom build" typed-spec parser                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Activity & branches   | `src/main/ci/activity.ts` (+ tests)                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Activity & branches   | `src/main/ci/activity.ts`, `src/main/ci/degraded.ts` (+ tests)                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | TeamCity client       | `src/main/ci/teamcity.ts` (+ tests)                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Config/keychain glue  | `src/main/ci/CiManager.ts` (+ tests — allowlist, token gate, config validation)                                                                                                                                                                                                                                                                                                                                                                                                         |
 | IPC                   | Shared channels `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:buildParameters`, `ci:branches`, `ci:activity`, `ci:listBuildTypes`, `ci:saveConfig`, `ci:testNewConnection`, `ci:jobsStatus`, `ci:jobRefs`, `ci:jobParameters`, `ci:triggerJob`, `ci:runActivity`, `ci:run`, `ci:githubSetup`, `ci:testGitHubConnection`, `ci:setGitHubCredential` in `src/main/ci/ipc.ts` (`registerCiHandlers`, + workspace-authorization tests), registered from `src/main/ipc/handlers.ts` |
 | Renderer store        | `src/renderer/src/lib/stores/ci.svelte.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Renderer helpers      | `src/renderer/src/lib/ci/status.ts` (+ tests), `src/renderer/src/lib/ci/runBuildForm.ts`, `src/renderer/src/lib/ci/runDialogState.svelte.ts`, `src/renderer/src/lib/ci/format.ts` (+ tests), `src/renderer/src/lib/ci/types.ts`, `src/renderer/src/lib/a11y/focusTrap.ts` (shared dialog focus trap)                                                                                                                                                                                    |
 | Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/ci/CiLastJobCard.svelte` (TeamCity adapter), `src/renderer/src/components/ci/CiLastRunCard.svelte` (GitHub Actions adapter), `src/renderer/src/components/ci/CiLastStatusCard.svelte` (shared card), `src/renderer/src/components/sidebar/ProjectTreeSection.svelte` (Run CI Job on Branch… context-menu entry)                                                                    |
-| Dialogs               | `src/renderer/src/components/ci/CiRunDialog.svelte` (shared TeamCity/GitHub Actions run flow), `src/renderer/src/components/ci/CiRunParameterFields.svelte`, `src/renderer/src/components/ci/CiActivityModal.svelte` (rendered from `MainLayout`)                                                                                                                                                                                                                                       |
+| Dialogs               | `src/renderer/src/components/ci/CiRunDialogRouter.svelte`, `src/renderer/src/components/ci/CiRunDialog.svelte` (shared TeamCity/GitHub Actions run flow), `src/renderer/src/components/ci/CiRunConfirmation.svelte`, `src/renderer/src/components/ci/CiRunParameterFields.svelte`, `src/renderer/src/components/ci/CiActivityModal.svelte` (rendered from `MainLayout`)                                                                                                                 |
 | Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`, `src/renderer/src/components/ci/CiJobPicker.svelte` (job selection list)                                                                                                                                                                                                                                                                                                                                               |
 | Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections), `src/renderer/src/components/preferences/_partials/CiServerForm.svelte` (add/edit server form)                                                                                                                                                                                                                                                                                                    |

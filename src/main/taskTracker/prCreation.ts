@@ -256,9 +256,13 @@ export function remoteBranchExists(
     return okAsync(false)
   }
   return fromExternalCall(
-    commandRunner(repoRoot, ['api', `repos/{owner}/{repo}/branches/${branch.trim()}`], {
-      maxBuffer: 1024 * 1024,
-    }),
+    commandRunner(
+      repoRoot,
+      ['api', `repos/{owner}/{repo}/branches/${encodeURIComponent(branch)}`],
+      {
+        maxBuffer: 1024 * 1024,
+      },
+    ),
     prCliFailure,
   )
     .map(() => true)
@@ -279,7 +283,7 @@ export function deleteRemoteBranch(
       'api',
       '-X',
       'DELETE',
-      `repos/{owner}/{repo}/git/refs/heads/${branch.trim()}`,
+      `repos/{owner}/{repo}/git/refs/heads/${encodeURIComponent(branch)}`,
     ]),
     prCliFailure,
   ).map(() => undefined)

@@ -96,11 +96,13 @@
         noun={runDialog.isTeamCity ? 'parameters' : 'inputs'}
       />
     {:else if runDialog.stage === 'select'}
-      {#if runDialog.runBlockedHint}
-        <p class="m-0 break-words text-xs text-text-secondary" id="ci-run-blocked-hint">
-          {runDialog.runBlockedHint}
-        </p>
-      {/if}
+      <div class="min-h-4">
+        {#if runDialog.runBlockedHint}
+          <p class="m-0 break-words text-xs text-text-secondary" id="ci-run-blocked-hint">
+            {runDialog.runBlockedHint}
+          </p>
+        {/if}
+      </div>
 
       <div class="flex flex-col gap-1">
         <label for="ci-run-job" class="text-xs font-semibold text-text-faint">

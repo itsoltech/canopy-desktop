@@ -143,7 +143,12 @@ export function registerCiHandlers({
   ipcMain.handle('ci:config', async (event: CiIpcEvent, payload: { repoRoot: string }) => {
     const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
     const result = await ciManager.loadConfig(repoRoot)
-    if (result.isOk()) return { config: result.value }
+    if (result.isOk()) {
+      return {
+        config: result.value,
+        credential: ciManager.credentialStatusForConfig(result.value),
+      }
+    }
     if (result.error._tag === 'CiConfigInvalid') {
       return {
         config: null,
@@ -281,7 +286,11 @@ export function registerCiHandlers({
         (value) => ({ ok: true as const, value }),
         (error) => ({
           ok: false as const,
-          error: { code: error._tag, message: ciErrorMessage(error) },
+          error: {
+            code: error._tag,
+            message: ciErrorMessage(error),
+            ...(error._tag === 'CiApiError' ? { status: error.status } : {}),
+          },
         }),
       )
     },

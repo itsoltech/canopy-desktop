@@ -1697,6 +1697,12 @@ type CiConfigInfo = TeamCityCiConfigInfo | GitHubActionsCiConfigInfo
 /** Structured `ci:config` answer — `invalid`'s scope gates the recovery routes. */
 interface CiConfigResult {
   config: CiConfigInfo | null
+  /** Status of the exact provider binding selected by `config`; never includes the secret. */
+  credential?: {
+    hasToken: boolean
+    authenticationState: 'valid' | 'invalid' | 'unknown'
+    authenticationCheckedAt?: string
+  }
   /** Present when a ci block EXISTS but cannot be used (config is null then). */
   invalid?: {
     scope: 'file' | 'block'
@@ -1825,7 +1831,7 @@ type CiErrorCode =
 
 type CiTriggerJobResponse =
   | { ok: true; value: CiRunTriggerResult }
-  | { ok: false; error: { code: CiErrorCode; message: string } }
+  | { ok: false; error: { code: CiErrorCode; message: string; status?: number } }
 
 interface CiBuildStatus {
   id: number

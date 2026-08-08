@@ -28,9 +28,10 @@
     refreshCi,
     getCiJobsState,
     refreshCiJobs,
+    getCiCredentialTick,
   } from '../../lib/stores/ci.svelte'
   import { anyBuildActive, anyRunActive } from '../../lib/ci/status'
-  import { ipcErrorMessage, isCiAuthFailure } from '../../lib/ci/errors'
+  import { ipcErrorMessage } from '../../lib/ci/errors'
   import { formatDateTime } from '../../lib/formatDate'
   import type { CiActivity, CiCardIssue, CiRunActivity } from '../../lib/ci/types'
 
@@ -53,6 +54,8 @@
 
   $effect(() => {
     const root = repoRoot
+    // Credential writers bump this after saving or removing the exact CI binding.
+    void getCiCredentialTick()
     // Untracked: the loader reads store state it also writes — tracking it here
     // would loop the effect (see the refreshCi note in the ci store).
     if (root) untrack(() => void loadCiRepoConfig(root))
@@ -176,57 +179,10 @@
   // one CI element unadorned. Unlike the old chip this is not suppressed while a build
   // is known to be active: with no counts left to prefer, hiding the failure would
   // leave nothing at all.
-  // Token validity is answered LOCALLY, not by waiting for history. The registry persists
-  // `authenticationState` from the last 401, so this is one in-process IPC (milliseconds)
-  // rather than a network round-trip — which is why Run job… and the card can be withheld
-  // from the first frame instead of appearing and being taken away a second later.
-  let storedAuth = $state<{ state: string; checkedAt?: string } | undefined>(undefined)
-  $effect(() => {
-    const url = providerUrl
-    // Re-read after a failure lands too, so a fresh 401 updates the "since" stamp.
-    void activityError
-    void branchError
-    if (!url) {
-      storedAuth = undefined
-      return
-    }
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const read = async (): Promise<void> => {
-      try {
-        const stored = await window.api.keychainListCredentials()
-        const match = stored.find((entry) => entry.baseUrl === url)
-        if (cancelled) return
-        storedAuth = match
-          ? { state: match.authenticationState, checkedAt: match.authenticationCheckedAt }
-          : undefined
-      } catch {
-        if (!cancelled) storedAuth = undefined
-      }
-      // Saving a replacement token resets the credential to `unknown`, but nothing in this
-      // section observes that: the config does not reload, the tick does not fire, and the
-      // activity poll is deliberately at 300 s while a token is rejected. So while the verdict
-      // says `invalid`, re-read it directly — this is an in-process IPC, not a request to the
-      // server, so a short interval costs nothing and the banner clears on its own.
-      if (!cancelled && storedAuth?.state === 'invalid') {
-        timer = setTimeout(() => void read(), 5_000)
-      }
-    }
-    void read()
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
-  })
-
-  // The stored verdict is what removes the flicker; the live errors keep it correct for a
-  // token that only just started being rejected. History loads independently of both.
-  let credentialsRejected = $derived(
-    storedAuth?.state === 'invalid' ||
-      isCiAuthFailure(activityError) ||
-      isCiAuthFailure(branchError),
-  )
-  let rejectedSince = $derived(storedAuth?.checkedAt)
+  // `ci:config` returns the verdict for its exact provider binding in the same response as the
+  // config, so the loading gate covers it and unrelated credentials can never hide this section.
+  let credentialsRejected = $derived(cfgState.authenticationState === 'invalid')
+  let rejectedSince = $derived(cfgState.authenticationCheckedAt)
 
   let activityIssue = $derived.by((): CiCardIssue | undefined => {
     // The banner already states this one, with the action and the timestamp.
@@ -254,6 +210,13 @@
   let branchError = $derived(
     provider === 'github-actions' ? jobsState.error : (branchState.response?.error ?? ''),
   )
+  // A 401 updates the main-process registry before the failing IPC reaches this component.
+  // Re-read the exact configured binding when a new failure lands; token writes use the tick.
+  $effect(() => {
+    const root = repoRoot
+    const failure = activityError || branchError
+    if (root && failure) untrack(() => void loadCiRepoConfig(root))
+  })
   // Primitive deps for the poll effect (see the activity effect above).
   let branchBuildActive = $derived(
     provider === 'github-actions' ? anyRunActive(jobRows) : anyBuildActive(branchRows),
@@ -278,6 +241,7 @@
   // counts even though nothing on screen shows them any more: the history window does,
   // and dropping them would leave screen-reader users with less than sighted ones.
   let ciAnnouncement = $derived.by(() => {
+    if (ciBusy) return 'Loading CI status'
     // An unreadable ci block has no other announcement path — polling never starts.
     if (!hasConfigAndToken) return cfgState.error ? 'CI configuration invalid' : ''
     // Both halves in one string: they are independent (a dead build-type id says
@@ -399,7 +363,6 @@
           </div>
         {/each}
       </div>
-      <span class="sr-only" role="status">Loading CI status…</span>
     {:else if repoRoot && cfgState.loaded && config}
       <div class="flex flex-col">
         <button
@@ -420,7 +383,7 @@
           >
           <ExternalLink
             size={11}
-            class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"
+            class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60 group-focus-within:opacity-60"
           />
         </button>
 
@@ -432,7 +395,9 @@
           <div class="px-2 py-1">
             <div
               class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
-              title={credentialsRejected ? activityError || branchError : config.baseUrl}
+              title={credentialsRejected
+                ? `${providerLabel} credentials need updating${rejectedSince ? ` since ${formatDateTime(Date.parse(rejectedSince))}` : ''}`
+                : providerUrl}
             >
               <KeyRound size={13} class="shrink-0 text-warning-text" />
               <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug">

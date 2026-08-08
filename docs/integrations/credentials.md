@@ -38,6 +38,11 @@ The last authentication and per-capability verification results are diagnostic m
 next request can succeed after the token or its server-side permissions are corrected and then
 replace the stale result.
 
+CI surfaces request only the safe verdict for the exact provider binding selected by the validated
+repository configuration. Credential writers publish an in-process change tick after a successful
+save or removal; mounted CI surfaces re-read that binding immediately instead of polling or listing
+all credentials in the renderer.
+
 ### Deletion
 
 Removing credentials first removes the selected integration binding. Before deciding whether the
@@ -96,7 +101,7 @@ token in that connection to create its explicit binding.
 ## Source files
 
 - Registry, descriptor model and typed errors: `src/main/credentials/CredentialRegistry.ts`,
-  `src/main/credentials/errors.ts`
+  `src/main/credentials/errors.ts`, `src/main/credentials/liveTrackerBindings.ts`
 - Provider/binding facade and migration: `src/main/taskTracker/KeychainTokenStore.ts`
 - Storage and renderer boundary policy: `src/main/db/PreferencesStore.ts`,
   `src/main/db/preferenceKeys.ts`, `src/main/ipc/keychainCredentials.ts`,
@@ -106,4 +111,5 @@ token in that connection to create its explicit binding.
 - Global Settings UI: `src/renderer/src/components/preferences/ConnectionsPrefs.svelte`,
   `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte`
 - Sidebar/project UI: `src/renderer/src/components/preferences/ProjectConnections.svelte`,
-  `src/renderer/src/components/preferences/_partials/TrackerEditForm.svelte`
+  `src/renderer/src/components/preferences/_partials/TrackerEditForm.svelte`,
+  `src/renderer/src/lib/credentials/removal.ts`

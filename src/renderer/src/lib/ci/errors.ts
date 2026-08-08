@@ -23,12 +23,3 @@ export function ipcErrorMessage(error: unknown, fallback = 'Request failed'): st
   }
   return message.trim() || fallback
 }
-
-// Same intent as the task tracker's AUTH_ERROR_RE: the status is lost crossing IPC as a
-// string, and a rejected token is the one CI failure with a concrete user action attached.
-const AUTH_FAILURE_RE = /\b(401|403)\b|unauthoriz|could not authenticate|invalid token|forbidden/i
-
-/** True when the reason is the server refusing our credentials rather than a transient fault. */
-export function isCiAuthFailure(message: string | undefined | null): boolean {
-  return !!message && AUTH_FAILURE_RE.test(message)
-}

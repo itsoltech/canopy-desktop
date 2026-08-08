@@ -144,4 +144,18 @@ describe('KeychainTokenStore capability facade', () => {
       ),
     ).toEqual({ removed: false, retainedBindings: ['tracker:other-repo'] })
   })
+
+  it('never prunes a CI binding while removing orphaned tracker bindings', () => {
+    const baseUrl = 'https://teamcity.example.com'
+    const store = new KeychainTokenStore(fakePreferences())
+    store.setCredentials('teamcity', baseUrl, 'token')
+    const credential = store.listCredentials()[0]
+    store.registry.bind('tracker:orphan', credential.id)
+
+    expect(store.deleteCredentials('teamcity', baseUrl, 'tracker:orphan', new Set())).toEqual({
+      removed: false,
+      retainedBindings: [`ci:teamcity:${baseUrl}`],
+    })
+    expect(store.getCredentials('teamcity', baseUrl)?.token).toBe('token')
+  })
 })

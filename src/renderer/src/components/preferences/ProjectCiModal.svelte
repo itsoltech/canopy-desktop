@@ -5,7 +5,7 @@
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
-  import { loadCiRepoConfig } from '../../lib/stores/ci.svelte'
+  import { bumpCiCredentialTick, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { CI_MAX_BUILD_TYPES } from '../../lib/ci/limits'
   import type { TeamCityCiRepoConfigInfo } from '../../lib/ci/types'
@@ -212,6 +212,7 @@
     if (!(await confirmDestination())) return false
     try {
       await window.api.keychainSetCredentials('teamcity', effectiveUrl, trimmedFormToken)
+      bumpCiCredentialTick()
     } catch (e) {
       // In-modal per the scrim rule — a toast would paint under this dialog. The
       // caller (Load available jobs) surfaces typesError right next to its button.

@@ -1,8 +1,7 @@
 /**
  * Provider-neutral safe Git ref contract for renderer/IPC input. Besides Git's ref-name rules,
- * URL path/query metacharacters are rejected because renderer-supplied branch names are inserted
- * into authenticated provider API paths, including `gh api` DELETE requests; validation is safer
- * than encoding while preserving legitimate `/` path segments.
+ * Provider-specific API sinks must still URL-encode the validated ref when inserting it into a
+ * request path. Characters such as `#` and `%` are valid in Git ref names.
  */
 export function isSafeGitRefName(value: unknown): value is string {
   if (typeof value !== 'string' || value === '' || value.length > 255 || value !== value.trim()) {
@@ -23,7 +22,7 @@ export function isSafeGitRefName(value: unknown): value is string {
   if (
     [...value].some((char) => {
       const code = char.charCodeAt(0)
-      return code <= 0x20 || code === 0x7f || '~^:?*[\\#%'.includes(char)
+      return code <= 0x20 || code === 0x7f || '~^:?*[\\'.includes(char)
     })
   ) {
     return false

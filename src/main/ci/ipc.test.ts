@@ -30,6 +30,10 @@ function harness(): {
     loadConfig: vi.fn(() =>
       okAsync({ provider: 'teamcity', baseUrl: 'https://tc', buildTypes: [] }),
     ),
+    credentialStatusForConfig: vi.fn(() => ({
+      hasToken: true,
+      authenticationState: 'valid',
+    })),
     statusFor: vi.fn(() => okAsync([])),
     trigger: vi.fn(() => okAsync({ buildId: 1, webUrl: 'https://tc/1', branchName: 'next' })),
     activity: vi.fn(() => okAsync({ running: [], queued: [], recent: [] })),
@@ -313,6 +317,34 @@ describe('CI IPC authorization', () => {
     })
   })
 
+  it('preserves an API status separately from provider-controlled error text', async () => {
+    const { invoke, ciManager } = harness()
+    vi.mocked(ciManager.triggerJob).mockReturnValue(
+      errAsync({
+        _tag: 'CiApiError',
+        status: 502,
+        message: 'Forbidden appeared in an upstream proxy response',
+      }),
+    )
+
+    await expect(
+      invoke('ci:triggerJob', {
+        repoRoot: '/ws/repo',
+        jobId: '.github/workflows/release.yml',
+        ref: { name: 'next', kind: 'branch' },
+        schemaRevision: 'sha',
+        inputs: {},
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        code: 'CiApiError',
+        status: 502,
+        message: expect.stringContaining('Forbidden'),
+      }),
+    })
+  })
+
   it('trims GitHub tokens before testing or storing them', async () => {
     const { invoke, ciManager } = harness()
 
@@ -347,7 +379,7 @@ describe('CI IPC authorization', () => {
     expect(ciManager.triggerJob).not.toHaveBeenCalled()
   })
 
-  it.each(['release+qa', 'hello-$USER'])(
+  it.each(['release+qa', 'hello-$USER', 'release#1', 'percent%done'])(
     'accepts a GitHub picker ref containing valid Git characters: %s',
     async (refName) => {
       const { invoke, ciManager } = harness()

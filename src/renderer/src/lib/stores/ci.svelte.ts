@@ -3,7 +3,6 @@ import { SvelteMap } from 'svelte/reactivity'
 import { match } from 'ts-pattern'
 import { addToast, isStickyToastVisible } from './toast.svelte'
 import type { CiJobStatus, CiRepoConfigInfo, CiRun } from '../ci/types'
-import { githubActionsCredentialBaseUrl } from '../../../../renderer-shared/credentialBindings'
 
 // CI (TeamCity) build status for the sidebar GIT section. State is scoped to one
 // (repoRoot, branch) pair at a time — the section only ever shows the active worktree.
@@ -100,6 +99,8 @@ interface CiRepoConfigState {
   loaded: boolean
   config: CiRepoConfigInfo | null
   hasToken: boolean
+  authenticationState: 'valid' | 'invalid' | 'unknown'
+  authenticationCheckedAt?: string
   /** Set when a ci block EXISTS but cannot be used (either scope) — null config
       then ≠ "no CI". */
   error?: string
@@ -110,6 +111,7 @@ let repoConfigState = $state<CiRepoConfigState>({
   loaded: false,
   config: null,
   hasToken: false,
+  authenticationState: 'unknown',
 })
 let configSeq = 0
 
@@ -122,18 +124,16 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
   const seq = ++configSeq
   // Untracked for the same reason as in refreshCi — callers are $effect bodies.
   if (untrack(() => repoConfigState.key) !== key) {
-    repoConfigState = { key, loaded: false, config: null, hasToken: false }
+    repoConfigState = {
+      key,
+      loaded: false,
+      config: null,
+      hasToken: false,
+      authenticationState: 'unknown',
+    }
   }
   try {
     const res = await window.api.ciConfig(repoRoot)
-    const hasToken = res.config
-      ? await window.api.keychainHasCredentials(
-          res.config.provider === 'github-actions' ? 'github-actions' : 'teamcity',
-          res.config.provider === 'github-actions'
-            ? githubActionsCredentialBaseUrl(res.config.repository)
-            : res.config.baseUrl,
-        )
-      : false
     if (seq !== configSeq) return
     // `invalid` is set exactly when a block EXISTS but cannot be used — dropping
     // the reason here would put the "Configure TeamCity" entry in front of someone
@@ -142,7 +142,9 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
       key,
       loaded: true,
       config: res.config,
-      hasToken,
+      hasToken: res.credential?.hasToken ?? false,
+      authenticationState: res.credential?.authenticationState ?? 'unknown',
+      authenticationCheckedAt: res.credential?.authenticationCheckedAt,
       error: res.invalid?.message,
     }
   } catch (e) {
@@ -152,6 +154,7 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
       loaded: true,
       config: null,
       hasToken: false,
+      authenticationState: 'unknown',
       error: e instanceof Error ? e.message : "Could not read this repository's CI configuration",
     }
   }
@@ -162,6 +165,17 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
 // Bumped after every successful trigger so the activity views (sidebar chip, window)
 // re-fetch immediately instead of sitting on "Idle" until their next poll tick.
 let activityTick = $state(0)
+
+let credentialTick = $state(0)
+
+export function getCiCredentialTick(): number {
+  return credentialTick
+}
+
+/** Notify mounted CI surfaces after a credential is stored or removed. */
+export function bumpCiCredentialTick(): void {
+  credentialTick += 1
+}
 
 export function getCiActivityTick(): number {
   return activityTick
@@ -373,7 +387,7 @@ function observeRun(repoRoot: string, runId: string, label: string): void {
 }
 
 export type CiTriggerIssue =
-  { kind: 'cancelled' } | { kind: 'failure'; code: string; message: string }
+  { kind: 'cancelled' } | { kind: 'failure'; code: string; message: string; status?: number }
 
 /** Returns `null` only when accepted; cancellation stays distinct so the form remains open. */
 export async function triggerCiJob(

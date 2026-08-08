@@ -5,7 +5,7 @@
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
-  import { loadCiRepoConfig } from '../../lib/stores/ci.svelte'
+  import { bumpCiCredentialTick, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { githubTokenCreationUrl } from '../../lib/ci/githubToken'
   import type { GitHubActionsCiRepoConfigInfo } from '../../lib/ci/types'
@@ -201,6 +201,7 @@
     try {
       await window.api.ciTestGitHubConnection(repoRoot, candidateToken)
       await window.api.ciSetGitHubCredential(repoRoot, candidateToken)
+      bumpCiCredentialTick()
       token = ''
       hasToken = true
       testResult = 'success'

@@ -235,11 +235,12 @@
             class:!text-accent-text={highlightPicked && selectedBranch === branch}
             id={`branch-picker-option-${i}`}
             role="option"
-            aria-selected={i === selectedIdx}
-            aria-current={selectedBranch === branch ? 'true' : undefined}
+            aria-selected={selectedBranch === branch}
             data-branch-selected={i === selectedIdx}
-            onclick={() => pick(branch)}
-            onpointerenter={() => (selectedIdx = i)}
+            onclick={() => {
+              selectedIdx = i
+              pick(branch)
+            }}
           >
             <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{branch}</span

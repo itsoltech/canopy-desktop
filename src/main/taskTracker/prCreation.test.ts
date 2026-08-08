@@ -35,12 +35,15 @@ function expectRedactedFailure(result: { _unsafeUnwrapErr(): unknown }): void {
 }
 
 describe('isSafeGitRefName', () => {
-  it.each(['feature/ISSUE-123-description', 'release/1.2.3', 'dependabot/npm_and_yarn/pkg-2.0.0'])(
-    'accepts safe branch ref %s',
-    (branch) => {
-      expect(isSafeGitRefName(branch)).toBe(true)
-    },
-  )
+  it.each([
+    'feature/ISSUE-123-description',
+    'release/1.2.3',
+    'dependabot/npm_and_yarn/pkg-2.0.0',
+    'release#1',
+    'percent%done',
+  ])('accepts safe branch ref %s', (branch) => {
+    expect(isSafeGitRefName(branch)).toBe(true)
+  })
 
   it.each([
     '',
@@ -135,5 +138,22 @@ describe('PR command failure paths', () => {
 
     expect(result._unsafeUnwrap()).toBe(true)
     expect(stderrRead).toBe(true)
+  })
+
+  it('URL-encodes valid ref metacharacters in GitHub API paths', async () => {
+    const calls: string[][] = []
+    const runner: PRCommandRunner = (_repoRoot, args) => {
+      calls.push(args)
+      return Promise.resolve({ stdout: '', stderr: '' })
+    }
+
+    expect(
+      (await remoteBranchExists('C:\\source\\repo', 'feature/release#100%', runner)).isOk(),
+    ).toBe(true)
+    expect(
+      (await deleteRemoteBranch('C:\\source\\repo', 'feature/release#100%', runner)).isOk(),
+    ).toBe(true)
+    expect(calls[0]).toContain('repos/{owner}/{repo}/branches/feature%2Frelease%23100%25')
+    expect(calls[1]).toContain('repos/{owner}/{repo}/git/refs/heads/feature%2Frelease%23100%25')
   })
 })

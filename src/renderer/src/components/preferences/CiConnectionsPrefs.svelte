@@ -3,6 +3,7 @@
   import { Plus, Trash2, Check, LoaderCircle, TriangleAlert } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { bumpCiCredentialTick } from '../../lib/stores/ci.svelte'
   import { credentialRemovalMessage } from '../../lib/credentials/removal'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
@@ -161,6 +162,7 @@
       savingBusy = true
       try {
         await window.api.keychainSetCredentials('teamcity', normalizedUrl, trimmedFormToken)
+        bumpCiCredentialTick()
       } catch (e) {
         addToast(e instanceof Error ? e.message : 'Failed to save credentials')
         return
@@ -196,6 +198,7 @@
       let result: Awaited<ReturnType<typeof window.api.keychainDeleteCredentials>>
       try {
         result = await window.api.keychainDeleteCredentials(server.provider, server.baseUrl)
+        bumpCiCredentialTick()
       } catch (e) {
         addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
         return
