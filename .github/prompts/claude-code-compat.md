@@ -42,15 +42,19 @@ Read the release notes provided below. For each version, identify:
 
 For deeper analysis, fetch diffs from the changelog repo yourself using the FROM_VERSION and TO_VERSION values from the prompt header:
 
+Keep each command free of shell pipes and `|` characters (including inside `--jq`
+expressions) — the permission layer splits on them and denies the trailing part.
+Use the `raw` media type instead of piping through `base64 -d`.
+
 ```bash
 # Compare two tags to see all file changes
-gh api repos/marckrenn/claude-code-changelog/compare/{FROM_VERSION}...{TO_VERSION} --jq '.files[] | "\(.filename) (\(.status))"'
+gh api repos/marckrenn/claude-code-changelog/compare/{FROM_VERSION}...{TO_VERSION} --jq '.files[].filename'
 
 # Read a specific file at a given tag
-gh api repos/marckrenn/claude-code-changelog/contents/meta/flags.md?ref={TO_VERSION} --jq '.content' | base64 -d
+gh api repos/marckrenn/claude-code-changelog/contents/meta/flags.md?ref={TO_VERSION} -H "Accept: application/vnd.github.raw"
 
 # Read metadata
-gh api repos/marckrenn/claude-code-changelog/contents/meta/metadata.md?ref={TO_VERSION} --jq '.content' | base64 -d
+gh api repos/marckrenn/claude-code-changelog/contents/meta/metadata.md?ref={TO_VERSION} -H "Accept: application/vnd.github.raw"
 ```
 
 Focus on files under `meta/` (flags, metadata, CLI surface) and notable system prompt changes.
@@ -64,6 +68,15 @@ npm view @anthropic-ai/claude-agent-sdk versions --json
 ```
 
 Cross-reference with what the changelog mentions. If a relevant update exists, bump the version in `package.json`.
+
+Bump it with `npm install` so `package-lock.json` is regenerated in the same commit — CI runs
+`npm ci`, which fails when `package.json` and the lockfile disagree:
+
+```bash
+npm install @anthropic-ai/claude-agent-sdk@{VERSION} --save-exact=false
+```
+
+Never hand-edit the dependency range on its own.
 
 ### 4. Scan the Canopy codebase
 
