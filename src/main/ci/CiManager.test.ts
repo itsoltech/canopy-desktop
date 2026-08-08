@@ -372,14 +372,14 @@ describe('GitHub dispatch confirmation', () => {
     inputs: { dry_run: true },
   }
 
-  it('cannot dispatch without a trusted main-process confirmation callback', async () => {
+  it('dispatches after the in-app confirmation when no native callback is configured', async () => {
     const dispatch = vi.fn(() => okAsync({ runId: '1', apiUrl: '', webUrl: 'run-url' }))
     const { manager } = fakes({ ci: GITHUB_CI, githubClient: githubClient(dispatch) })
 
     const result = await manager.triggerJob('r', request)
 
-    expect(result.isErr() && result.error._tag).toBe('CiDispatchCancelled')
-    expect(dispatch).not.toHaveBeenCalled()
+    expect(result.isOk() && result.value.runId).toBe('1')
+    expect(dispatch).toHaveBeenCalledOnce()
   })
 
   it('dispatches once only after the trusted confirmation accepts main-resolved details', async () => {
@@ -399,6 +399,31 @@ describe('GitHub dispatch confirmation', () => {
       }),
     )
     expect(dispatch).toHaveBeenCalledOnce()
+  })
+
+  it('does not dispatch when a configured native confirmation declines', async () => {
+    const dispatch = vi.fn(() => okAsync({ runId: '1', apiUrl: '', webUrl: 'run-url' }))
+    const confirm = vi.fn(async () => false)
+    const { manager } = fakes({ ci: GITHUB_CI, githubClient: githubClient(dispatch) })
+
+    const result = await manager.triggerJob('r', request, confirm)
+
+    expect(result.isErr() && result.error._tag).toBe('CiDispatchCancelled')
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when a configured native confirmation rejects', async () => {
+    const dispatch = vi.fn(() => okAsync({ runId: '1', apiUrl: '', webUrl: 'run-url' }))
+    const confirm = vi.fn(async () => {
+      throw new Error('window disappeared')
+    })
+    const { manager } = fakes({ ci: GITHUB_CI, githubClient: githubClient(dispatch) })
+
+    const result = await manager.triggerJob('r', request, confirm)
+
+    expect(result.isErr() && result.error._tag).toBe('CiApiError')
+    expect(dispatch).not.toHaveBeenCalled()
   })
 
   it('validates renderer inputs before showing the trusted confirmation', async () => {

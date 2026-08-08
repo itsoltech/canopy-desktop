@@ -9,6 +9,8 @@
     ariaLabel?: string
     ariaLabelledby?: string
     ariaDescribedby?: string
+    ariaRequired?: boolean
+    ariaInvalid?: boolean
   }
 
   let {
@@ -19,6 +21,8 @@
     ariaLabel,
     ariaLabelledby,
     ariaDescribedby,
+    ariaRequired,
+    ariaInvalid,
   }: Props = $props()
 
   function toggle(): void {
@@ -55,6 +59,8 @@
   aria-label={ariaLabel}
   aria-labelledby={ariaLabelledby}
   aria-describedby={ariaDescribedby}
+  aria-required={ariaRequired}
+  aria-invalid={ariaInvalid}
   {disabled}
   onclick={toggle}
   onkeydown={handleKeydown}

@@ -343,9 +343,8 @@
 
   function openRunJob(): void {
     if (!repoRoot) return
-    // Preselects the worktree's branch — it is the overwhelmingly common target, and
-    // nothing dispatches without the main-process confirmation that spells out the exact
-    // ref and commit, so the old "stay unarmed" stance only cost a lookup every time.
+    // Preselect the overwhelmingly common worktree branch. Dispatch still requires the shared
+    // confirmation step, and the main process independently validates the target and inputs.
     showCiRunJob(repoRoot, { branch: workspaceState.branch || undefined })
   }
 

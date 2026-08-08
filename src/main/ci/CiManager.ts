@@ -802,9 +802,10 @@ export class CiManager {
 
     const run = this.performTriggerJob(repoRoot, request, confirm)
     this.triggerChains.set(key, run)
-    void run.finally(() => {
+    const clear = (): void => {
       if (this.triggerChains.get(key) === run) this.triggerChains.delete(key)
-    })
+    }
+    void run.then(clear, clear)
     return new ResultAsync(run)
   }
 
@@ -846,15 +847,29 @@ export class CiManager {
       const workflow = context.value.ci.workflows.find((item) => item.path === request.jobId)
       if (!workflow)
         return err({ _tag: 'CiWorkflowSchemaInvalid', reason: 'workflow is not configured' })
-      if (!confirm) return err({ _tag: 'CiDispatchCancelled' })
-      const accepted = await confirm({
-        repository: context.value.ci.repository,
-        workflowPath: workflow.path,
-        workflowLabel: workflow.label,
-        ref: resolved,
-        inputs: request.inputs,
-      })
-      if (!accepted) return err({ _tag: 'CiDispatchCancelled' })
+      // The shared run dialog already provides the confirmation screen. Hosts may still supply
+      // a trusted native callback when they want an additional security boundary, but its absence
+      // must not turn the in-app confirmation into a silent cancellation.
+      if (confirm) {
+        let accepted: boolean
+        try {
+          accepted = await confirm({
+            repository: context.value.ci.repository,
+            workflowPath: workflow.path,
+            workflowLabel: workflow.label,
+            ref: resolved,
+            inputs: request.inputs,
+          })
+        } catch {
+          return err({
+            _tag: 'CiApiError',
+            status: 0,
+            message: 'Dispatch confirmation failed',
+            provider: 'github-actions',
+          })
+        }
+        if (!accepted) return err({ _tag: 'CiDispatchCancelled' })
+      }
       request = { ...request, ref: resolved }
     } else {
       const triggerCredential = await this.tokenFor(context.value.ci, 'builds.trigger')

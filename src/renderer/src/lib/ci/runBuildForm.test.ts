@@ -189,6 +189,29 @@ describe('changedProperties', () => {
     ).toEqual([])
   })
 
+  it('compares checkboxes against their normalized checked and unchecked defaults', () => {
+    const params = [
+      param({
+        name: 'Affected',
+        kind: 'checkbox',
+        defaultValue: '',
+        checkedValue: '-Affected',
+        uncheckedValue: '-Site %Sites%',
+      }),
+      param({ name: 'Deploy', kind: 'checkbox', defaultValue: '', checkedValue: '-Deploy' }),
+    ]
+
+    expect(
+      changedProperties(params, [
+        { name: 'Affected', value: '-Site %Sites%' },
+        { name: 'Deploy', value: '' },
+      ]),
+    ).toEqual([])
+    expect(changedProperties(params, [{ name: 'Deploy', value: '-Deploy' }])).toEqual([
+      { name: 'Deploy', value: '-Deploy' },
+    ])
+  })
+
   it('keeps what differs, whatever the parameter is called', () => {
     const params = [param({ name: 'TARGET_ENV', defaultValue: 'staging' })]
     expect(changedProperties(params, [{ name: 'TARGET_ENV', value: 'prod' }])).toEqual([

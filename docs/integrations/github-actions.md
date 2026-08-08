@@ -39,23 +39,24 @@ operations, but fine-grained tokens are preferred.
 
 ## Running a workflow
 
-- The generic **Run job…** action starts without a selected ref. The worktree action may prefill
-  its branch only when that exact remote branch exists.
+- The generic **Run job…** action and the worktree action prefill the active worktree branch only
+  when that exact remote branch exists.
 - Branches and tags are distinct choices. Canopy rejects an ambiguous name that exists as both.
 - Input controls are generated from the workflow file at the selected ref. Supported types are
   `string`, `boolean`, `choice`, and `environment`.
 - Workflow inputs are not treated as secrets. Do not paste tokens, passwords, or other secrets
   into them; use GitHub Actions secrets instead.
-- Before dispatch, the main process reloads the ref and workflow schema, validates the inputs,
-  and opens a native confirmation showing the exact repository, workflow, ref, current commit,
-  and non-secret inputs. Cancelling or closing the dialog sends no request.
+- Before dispatch, the shared run dialog shows the exact repository, workflow, ref, and
+  non-secret inputs for confirmation. Cancelling or closing the dialog sends no request. The main
+  process then reloads the ref and workflow schema and validates the inputs immediately before
+  dispatch.
 - A dispatch is sent once and is never retried automatically. The versioned GitHub API response
   must contain the exact run ID. If the outcome is network-ambiguous or no ID is returned,
   Canopy directs the user to GitHub Actions instead of guessing or dispatching again.
 
-Git refs can move between opening the form and confirmation. The commit shown by the native
-confirmation is the latest commit resolved immediately before dispatch; Canopy validates the
-same ref and workflow schema again after confirmation.
+Git refs can move between opening the form and confirmation. Canopy resolves the selected ref
+again immediately before dispatch and rejects the request if the ref changes while the dispatch
+is being prepared.
 
 ## Status and history
 
@@ -172,9 +173,11 @@ failure.
 - GitHub requests go only to `https://api.github.com`, reject redirects, have bounded response
   sizes and timeouts, and use the pinned `2026-03-10` API version. The dispatch endpoint returns
   the exact workflow-run ID; Canopy does not search heuristically or retry an ambiguous dispatch.
-- The native confirmation is the final trust boundary for dispatch. It shows the repository,
-  workflow, ref, resolved commit and all non-secret inputs. Workflow inputs are ordinary values;
-  secrets belong in GitHub Actions secrets.
+- The renderer confirmation is a user-safety step, not the authorization boundary. The main
+  process independently authorizes the workspace and repository, allowlists the workflow,
+  re-resolves the ref and schema, and validates all inputs before dispatch. Hosts may additionally
+  wire a native confirmation callback. Workflow inputs are ordinary values; secrets belong in
+  GitHub Actions secrets.
 
 ## Source files
 
@@ -183,7 +186,9 @@ failure.
 - IPC and preload boundary: `src/main/ci/ipc.ts`, `src/preload/index.ts` — `ci:jobsStatus`,
   `ci:jobRefs`, `ci:jobParameters`, `ci:triggerJob`, `ci:runActivity`, `ci:run`,
   `ci:githubSetup`, `ci:testGitHubConnection`, and `ci:setGitHubCredential`
-- Renderer flows: `src/renderer/src/components/ci/`,
+- Renderer flow and state: `src/renderer/src/components/ci/CiRunDialog.svelte`,
+  `src/renderer/src/components/ci/CiRunParameterFields.svelte`,
+  `src/renderer/src/lib/ci/runDialogState.svelte.ts`,
   `src/renderer/src/components/preferences/GitHubActionsCiConfigurator.svelte`
 - Shared credential registry: `src/main/credentials/`,
   `src/main/taskTracker/KeychainTokenStore.ts`

@@ -70,7 +70,7 @@
 
   $effect(() => {
     // Parents can reset the bound selection without remounting this component (for example when
-    // CiRunJobModal switches jobs). Never leave an empty/edited picker collapsed after that reset.
+    // CiRunDialog switches jobs). Never leave an empty/edited picker collapsed after that reset.
     const reopen = shouldReopenBranchList(collapseConfirmedSelection, selectedBranch, query)
     if (!reopenArmed) {
       // Skip the mount run only. `startCollapsed` is about how the picker APPEARS when

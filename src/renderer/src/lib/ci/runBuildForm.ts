@@ -96,7 +96,7 @@ export function changedProperties(
       const param = byName.get(property.name)
       // Nothing to compare against counts as changed: a confirmation must fail towards
       // showing more, never towards hiding.
-      return param === undefined || param.defaultValue !== property.value
+      return param === undefined || initialValue(param) !== property.value
     })
     .map((property) => ({
       name: property.name,

@@ -1,6 +1,11 @@
-# CI run dialogs — unification backlog
+# CI run dialogs — unification
 
-**Status:** not started · **Branch:** `feat/teamcity-ci-status` · **Last commit before this work:** `b59d4b4`
+**Status:** implemented · **Branch:** `feat/teamcity-ci-status` · **Last commit before this work:** `b59d4b4`
+
+The shared implementation lives in
+`src/renderer/src/components/ci/CiRunDialog.svelte`, backed by
+`src/renderer/src/lib/ci/runDialogState.svelte.ts`. The router still owns configuration loading;
+the dialog controller owns the provider-neutral `select → configure → confirm` state machine.
 
 ## Why
 
@@ -50,7 +55,8 @@ Verified live on both providers before `b59d4b4`; treat as the acceptance list.
 2. **The confirmation is a SCREEN**, replacing the dialog body — not a banner appended to it.
 3. **Parameters screen when there are any**, for both providers; straight to confirm when there
    are none.
-4. **Cancel steps back** from configure to select, and only closes from the first screen.
+4. **Back steps back** from configure/confirm, while the first screen says **Cancel** and closes.
+   The header **X always closes** the whole dialog, regardless of the current stage.
 5. **Branch preselects** to the worktree's branch. Nothing dispatches without the confirmation.
 6. **No native OS controls**: `BranchPicker` for refs, `CustomSelect` for the job list.
 7. **Blocked-run hint above the fields**, rendered only when it says something (no reserved gap).

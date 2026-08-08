@@ -94,16 +94,15 @@ branch through a searchable list (branches come from TeamCity itself —
 `/app/rest/buildTypes/id:X/branches`; typing filters the list and a branch must be picked).
 The branch list starts **collapsed** and opens only on a deliberate action — the chevron,
 focusing the input, typing, or ArrowDown. TeamCity branch lists run to dozens of entries,
-and expanding by default buried the dialog's own footer under them. The reason **Run** is
-disabled sits directly above the buttons, not below them, so it is read before the control
-it explains.
-The generic sidebar **Run job…** entry leaves the branch empty, so an active `develop`
-worktree is never armed implicitly. The worktree context menu (right-click a branch in
-PROJECTS → **Run CI Job on Branch…**) explicitly prefills that worktree's branch, and
-the prefilled branch stays selected even when TeamCity has not listed it yet. Otherwise
-the dialog never picks a branch on its own, and **Run** stays disabled until one is
-chosen. The GIT section deliberately carries no CI entries; it holds CI-independent git
-actions. Parameter metadata is loaded for the selected job before submission. If the job
+and expanding by default buried the dialog's own footer under them. When a required choice is
+missing, the reason **Run** is disabled appears above the fields so it is encountered before the
+controls it explains.
+The generic sidebar **Run job…** entry and the worktree context menu (right-click a branch in
+PROJECTS → **Run CI Job on Branch…**) prefill the active worktree branch. The prefilled branch
+stays selected even when TeamCity has not listed it yet; typing into the picker clears the
+selection until a branch is chosen. The GIT section deliberately carries no CI entries; it holds
+CI-independent git actions. Parameter metadata is loaded for the selected job before submission.
+If the job
 prompts for parameters (TeamCity's "Run custom build"), the primary action says
 **Configure** and Canopy shows an equivalent dynamic form:
 text inputs with descriptions, checkboxes honoring custom checked/unchecked values,
@@ -117,8 +116,9 @@ Fields are prefilled with the configuration's current values; checkboxes follow
 TeamCity's dialog semantics exactly — an unchecked checkbox submits its
 `uncheckedValue` (configs may carry whole CLI fragments there), never the raw stored
 value. Required parameters (`validationMode='not_empty'`) block submission. Chosen
-values are sent as build `properties`. Only jobs without prompt parameters expose
-**Run** and queue immediately. TeamCity's `[0xNNNN]` and legacy `|0xNNNN` escapes in
+values are sent as build `properties`. Jobs without prompt parameters skip configuration but
+still require the shared confirmation step before they are queued. TeamCity's `[0xNNNN]` and
+legacy `|0xNNNN` escapes in
 parameter labels, descriptions, and options are decoded to Unicode for display;
 malformed escapes remain literal. A build triggered from Canopy is then **observed to
 completion**: the app polls it every 10 s and shows a green or red toast with the outcome
@@ -305,8 +305,8 @@ Additional surfaces that are not `CiError` variants:
 | Config/keychain glue  | `src/main/ci/CiManager.ts` (+ tests — allowlist, token gate, config validation)                                                                                                                                                                                                                                                                                                                                                                                                         |
 | IPC                   | Shared channels `ci:config`, `ci:status`, `ci:trigger`, `ci:build`, `ci:buildParameters`, `ci:branches`, `ci:activity`, `ci:listBuildTypes`, `ci:saveConfig`, `ci:testNewConnection`, `ci:jobsStatus`, `ci:jobRefs`, `ci:jobParameters`, `ci:triggerJob`, `ci:runActivity`, `ci:run`, `ci:githubSetup`, `ci:testGitHubConnection`, `ci:setGitHubCredential` in `src/main/ci/ipc.ts` (`registerCiHandlers`, + workspace-authorization tests), registered from `src/main/ipc/handlers.ts` |
 | Renderer store        | `src/renderer/src/lib/stores/ci.svelte.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Renderer helpers      | `src/renderer/src/lib/ci/status.ts` (+ tests), `src/renderer/src/lib/ci/runBuildForm.ts`, `src/renderer/src/lib/ci/format.ts` (+ tests), `src/renderer/src/lib/ci/types.ts`, `src/renderer/src/lib/a11y/focusTrap.ts` (shared dialog focus trap)                                                                                                                                                                                                                                        |
+| Renderer helpers      | `src/renderer/src/lib/ci/status.ts` (+ tests), `src/renderer/src/lib/ci/runBuildForm.ts`, `src/renderer/src/lib/ci/runDialogState.svelte.ts`, `src/renderer/src/lib/ci/format.ts` (+ tests), `src/renderer/src/lib/ci/types.ts`, `src/renderer/src/lib/a11y/focusTrap.ts` (shared dialog focus trap)                                                                                                                                                                                    |
 | Sidebar               | `src/renderer/src/components/sidebar/CiSection.svelte` (CI/CD section), `src/renderer/src/components/ci/CiLastJobCard.svelte` (TeamCity adapter), `src/renderer/src/components/ci/CiLastRunCard.svelte` (GitHub Actions adapter), `src/renderer/src/components/ci/CiLastStatusCard.svelte` (shared card), `src/renderer/src/components/sidebar/ProjectTreeSection.svelte` (Run CI Job on Branch… context-menu entry)                                                                    |
-| Dialogs               | `src/renderer/src/components/ci/CiRunJobModal.svelte`, `src/renderer/src/components/ci/RunBuildDialog.svelte`, `src/renderer/src/components/ci/CiActivityModal.svelte` (rendered from `MainLayout`)                                                                                                                                                                                                                                                                                     |
+| Dialogs               | `src/renderer/src/components/ci/CiRunDialog.svelte` (shared TeamCity/GitHub Actions run flow), `src/renderer/src/components/ci/CiRunParameterFields.svelte`, `src/renderer/src/components/ci/CiActivityModal.svelte` (rendered from `MainLayout`)                                                                                                                                                                                                                                       |
 | Per-repo configurator | `src/renderer/src/components/preferences/ProjectCiModal.svelte`, `src/renderer/src/components/ci/CiJobPicker.svelte` (job selection list)                                                                                                                                                                                                                                                                                                                                               |
 | Settings              | `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte` (CI connections), `src/renderer/src/components/preferences/_partials/CiServerForm.svelte` (add/edit server form)                                                                                                                                                                                                                                                                                                    |

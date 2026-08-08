@@ -3,8 +3,7 @@
   import { LoaderCircle, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
-  import CiRunJobModal from './CiRunJobModal.svelte'
-  import GitHubActionsRunModal from './GitHubActionsRunModal.svelte'
+  import CiRunDialog from './CiRunDialog.svelte'
   import type { CiRepoConfigInfo } from '../../lib/ci/types'
 
   let { repoRoot, initialBranch }: { repoRoot: string; initialBranch?: string } = $props()
@@ -38,10 +37,8 @@
   }
 </script>
 
-{#if provider === 'teamcity' && config?.provider === 'teamcity'}
-  <CiRunJobModal {repoRoot} {initialBranch} initialConfig={config} />
-{:else if provider === 'github-actions' && config?.provider === 'github-actions'}
-  <GitHubActionsRunModal {repoRoot} {initialBranch} initialConfig={config} />
+{#if config && provider}
+  <CiRunDialog {repoRoot} {initialBranch} {config} />
 {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div

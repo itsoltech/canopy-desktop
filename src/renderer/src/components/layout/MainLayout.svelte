@@ -13,7 +13,7 @@
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import ProjectTrackerModal from '../preferences/ProjectTrackerModal.svelte'
   import ProjectCiModalRouter from '../preferences/ProjectCiModalRouter.svelte'
-  import CiRunJobModalRouter from '../ci/CiRunJobModalRouter.svelte'
+  import CiRunDialogRouter from '../ci/CiRunDialogRouter.svelte'
   import CiActivityModalRouter from '../ci/CiActivityModalRouter.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
@@ -608,7 +608,7 @@
 {:else if dialogState.current.type === 'projectCi'}
   <ProjectCiModalRouter />
 {:else if dialogState.current.type === 'ciRunJob'}
-  <CiRunJobModalRouter
+  <CiRunDialogRouter
     repoRoot={dialogState.current.repoRoot}
     initialBranch={dialogState.current.branch}
   />
