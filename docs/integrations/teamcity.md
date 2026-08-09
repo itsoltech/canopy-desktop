@@ -74,7 +74,10 @@ The integration follows the Project management architecture:
   **Update token**. The credential verdict is read for the exact TeamCity binding together with
   the repository configuration. Saving or removing a token emits an in-process change tick, so
   the section updates immediately without polling the keychain. A new API failure re-reads that
-  safe metadata after the main process records its structured result.
+  safe metadata after the main process records its structured result. Token recovery opens a
+  local-only form for that configured server; it neither loads jobs nor writes the team-shared
+  `.canopy/config.json`. The job editor opens only from an explicit CI/CD configuration action or
+  as part of first-time initialization.
 
 ### Per-repo configurator (modal)
 

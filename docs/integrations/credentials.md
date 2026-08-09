@@ -44,6 +44,12 @@ repository configuration. Credential writers publish an in-process change tick a
 save or removal; mounted CI surfaces re-read that binding immediately instead of polling or listing
 all credentials in the renderer.
 
+Credential recovery is deliberately separate from repository CI configuration. Replacing a
+GitHub Actions or TeamCity token tests and updates only the local binding; it does not discover
+jobs/workflows and cannot write the git-tracked `.canopy/config.json`. Shared job/workflow editing
+is entered explicitly, except during first-time CI initialization when selecting that list is part
+of creating the configuration.
+
 ### Deletion
 
 Removing credentials first removes the selected integration binding. Before deciding whether the

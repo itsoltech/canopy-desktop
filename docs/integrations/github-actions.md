@@ -65,10 +65,11 @@ banner updates immediately without periodically listing the keychain.
 Before each configured GitHub operation, Canopy calls GitHub's authenticated-user endpoint. A
 401 or 403 from that identity check stops before workflow reads or dispatch and marks the exact
 repository credential as rejected. The sidebar then replaces its run action and cached status
-card with the token recovery state. The repository configurator labels the stored token as
-rejected, disables **Load workflows**, and asks for replacement without exposing the raw IPC/API
-error. Public workflow and history responses alone are never treated as proof that GitHub accepted
-the stored credential.
+card with the token recovery state. **Update token** opens a machine-local credential form that
+tests and replaces only the repository-bound token; it neither loads workflows nor writes
+`.canopy/config.json`. The shared workflow editor opens only when the user explicitly enters CI/CD
+configuration (or initializes it for the first time). Public workflow and history responses alone
+are never treated as proof that GitHub accepted the stored credential.
 
 ## Status and history
 

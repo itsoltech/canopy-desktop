@@ -606,7 +606,7 @@
 {:else if dialogState.current.type === 'projectTracker'}
   <ProjectTrackerModal />
 {:else if dialogState.current.type === 'projectCi'}
-  <ProjectCiModalRouter />
+  <ProjectCiModalRouter mode={dialogState.current.mode} />
 {:else if dialogState.current.type === 'ciRunJob'}
   <CiRunDialogRouter
     repoRoot={dialogState.current.repoRoot}

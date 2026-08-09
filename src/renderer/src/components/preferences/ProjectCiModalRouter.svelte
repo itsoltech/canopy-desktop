@@ -6,8 +6,11 @@
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import ProjectCiModal from './ProjectCiModal.svelte'
   import GitHubActionsCiConfigurator from './GitHubActionsCiConfigurator.svelte'
+  import CiCredentialModal from './CiCredentialModal.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import type { CiRepoConfigInfo } from '../../lib/ci/types'
+
+  let { mode }: { mode: 'configuration' | 'credentials' } = $props()
 
   interface InvalidCiConfig {
     scope: 'file' | 'block'
@@ -52,7 +55,9 @@
   }
 </script>
 
-{#if provider === 'teamcity'}
+{#if mode === 'credentials' && config && repoRoot}
+  <CiCredentialModal {repoRoot} {config} />
+{:else if provider === 'teamcity'}
   <ProjectCiModal
     initialConfig={config?.provider === 'teamcity' ? config : null}
     initialInvalid={invalid}

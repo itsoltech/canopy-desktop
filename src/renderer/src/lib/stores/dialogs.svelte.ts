@@ -60,6 +60,7 @@ interface ProjectTrackerState {
 
 interface ProjectCiState {
   type: 'projectCi'
+  mode: 'configuration' | 'credentials'
 }
 
 interface CiActivityState {
@@ -230,9 +231,9 @@ export function showProjectTracker(): void {
   dialogState.current = { type: 'projectTracker' }
 }
 
-/** Per-repo CI/CD configuration (TeamCity server + build configurations). */
-export function showProjectCi(): void {
-  dialogState.current = { type: 'projectCi' }
+/** Open either the shared repository configuration or the machine-local credential editor. */
+export function showProjectCi(mode: ProjectCiState['mode'] = 'configuration'): void {
+  dialogState.current = { type: 'projectCi', mode }
 }
 
 /**
