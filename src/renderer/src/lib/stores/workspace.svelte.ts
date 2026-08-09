@@ -103,6 +103,7 @@ export const workspaceState: WorkspaceState = $state({ ...initial })
 export const projects: ProjectState[] = $state([])
 
 let selectWorktreeRequestId = 0
+let hydrateWorktreeRequestId = 0
 let pendingSelectedWorktreePath: string | null = null
 
 // --- Multi-project functions ---
@@ -336,24 +337,52 @@ export function initWorkspaceStateSubscription(): () => void {
   if (appStateCleanup) return () => {}
 
   let disposed = false
+  let appStateRevision = 0
+  let initialHydrationStarted = false
+  const initialSelectedWorktreePath = workspaceState.selectedWorktreePath
+  const initialSelectionRequestId = selectWorktreeRequestId
+
+  const hydrateInitialSelection = async (path: string | null): Promise<void> => {
+    if (!path || initialHydrationStarted || disposed) return
+    initialHydrationStarted = true
+    await hydrateSelectedWorktree(path, undefined, () => !disposed)
+  }
+
+  const initialAppStateRevision = appStateRevision
   void window.api
     .getAppState()
-    .then((snapshot) => {
-      if (disposed) return
+    .then(async (snapshot) => {
+      if (
+        disposed ||
+        appStateRevision !== initialAppStateRevision ||
+        selectWorktreeRequestId !== initialSelectionRequestId ||
+        workspaceState.selectedWorktreePath !== initialSelectedWorktreePath
+      ) {
+        return
+      }
       applyTabsSnapshot(snapshot.tabs, { replaceAll: true })
-      return applyWorkspaceSnapshot(snapshot.workspace)
+      await applyWorkspaceSnapshot(snapshot.workspace)
+      if (disposed) return
+
+      await hydrateInitialSelection(snapshot.workspace.workspaceState.selectedWorktreePath)
     })
     .catch((err) => {
       console.error('[workspace] getAppState failed:', err)
     })
 
   appStateCleanup = window.api.onAppStateChanged((snapshot) => {
+    const revision = ++appStateRevision
     applyTabsSnapshot(snapshot.tabs, { replaceAll: true })
     void applyWorkspaceSnapshot(snapshot.workspace, {
       preserveSelectedWorktreePath: pendingSelectedWorktreePath,
-    }).catch((err) => {
-      console.error('[workspace] apply app state failed:', err)
     })
+      .then(() => {
+        if (revision !== appStateRevision) return
+        return hydrateInitialSelection(workspaceState.selectedWorktreePath)
+      })
+      .catch((err) => {
+        console.error('[workspace] apply app state failed:', err)
+      })
   })
 
   return () => {
@@ -537,12 +566,20 @@ export async function selectWorktree(path: string): Promise<void> {
   }
 }
 
-async function hydrateSelectedWorktree(path: string, requestId?: number): Promise<void> {
+async function hydrateSelectedWorktree(
+  path: string,
+  requestId?: number,
+  externalShouldApply: () => boolean = () => true,
+): Promise<void> {
+  const hydrationId = ++hydrateWorktreeRequestId
   const shouldApply = (): boolean =>
-    requestId === undefined || requestId === selectWorktreeRequestId
+    externalShouldApply() &&
+    hydrationId === hydrateWorktreeRequestId &&
+    workspaceState.selectedWorktreePath === path &&
+    (requestId === undefined || requestId === selectWorktreeRequestId)
 
   await loadActiveTask(path, { shouldApply })
-  if (requestId !== undefined && requestId !== selectWorktreeRequestId) return
+  if (!shouldApply()) return
 
   // Start (or restart) the file tree watcher for the newly active worktree.
   // The main process disposes any previous watcher for this window before
@@ -552,7 +589,7 @@ async function hydrateSelectedWorktree(path: string, requestId?: number): Promis
   } catch (err) {
     console.error(`[workspace] watchFiles failed for "${path}":`, err)
   }
-  if (requestId !== undefined && requestId !== selectWorktreeRequestId) return
+  if (!shouldApply()) return
 
   const project = getProjectForWorktree(path)
 
@@ -568,7 +605,7 @@ async function hydrateSelectedWorktree(path: string, requestId?: number): Promis
   } catch (err) {
     console.error(`[workspace] loadRepoConfig failed for "${path}":`, err)
   }
-  if (requestId !== undefined && requestId !== selectWorktreeRequestId) return
+  if (!shouldApply()) return
 
   if (project?.isGitRepo) {
     const wt = project.worktrees.find((w) => w.path === path)
