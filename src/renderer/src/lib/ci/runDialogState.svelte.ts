@@ -47,6 +47,20 @@ export function isGitHubDispatchDenied(
   return provider === 'github-actions' && status === 403
 }
 
+export function ciRunNextStepHint(
+  provider: CiRepoConfigInfo['provider'],
+  selectionReady: boolean,
+  hasParameters: boolean,
+): string {
+  if (!selectionReady) {
+    return 'After selection, Canopy will check whether configuration is required.'
+  }
+  if (hasParameters) {
+    return `Next: configure ${provider === 'teamcity' ? 'parameters' : 'inputs'}.`
+  }
+  return `Next: review and confirm the ${provider === 'teamcity' ? 'build' : 'workflow'}.`
+}
+
 // Keep this factory inferred so the exported ReturnType stays aligned with its reactive getters.
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function createCiRunDialogState(
@@ -161,6 +175,12 @@ export function createCiRunDialogState(
             ? 'Pick a branch: open the list or type to search. Typing clears the current selection.'
             : 'Pick a remote branch or tag before running.'
           : '',
+  )
+  const selectionGuidance = $derived(
+    `${
+      runBlockedHint ||
+      (isTeamCity ? 'Choose a job and branch.' : 'Choose a workflow and branch or tag.')
+    } ${ciRunNextStepHint(config.provider, selectionReady, hasParameters)}`,
   )
   const primaryLabel = $derived(
     running
@@ -504,6 +524,9 @@ export function createCiRunDialogState(
     },
     get runBlockedHint() {
       return runBlockedHint
+    },
+    get selectionGuidance() {
+      return selectionGuidance
     },
     get primaryLabel() {
       return primaryLabel

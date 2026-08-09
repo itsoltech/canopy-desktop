@@ -6,6 +6,7 @@ import { flushSync } from 'svelte'
 import { describe, expect, it, vi } from 'vitest'
 import {
   ambiguousCiRefNames,
+  ciRunNextStepHint,
   createCiRunDialogState,
   isGitHubDispatchDenied,
   nextCiRunStage,
@@ -49,6 +50,18 @@ function withDialogState(
 }
 
 describe('CI run stage navigation', () => {
+  it('describes configuration or confirmation as the next provider-specific step', () => {
+    expect(ciRunNextStepHint('teamcity', true, true)).toBe('Next: configure parameters.')
+    expect(ciRunNextStepHint('teamcity', true, false)).toBe('Next: review and confirm the build.')
+    expect(ciRunNextStepHint('github-actions', true, true)).toBe('Next: configure inputs.')
+    expect(ciRunNextStepHint('github-actions', true, false)).toBe(
+      'Next: review and confirm the workflow.',
+    )
+    expect(ciRunNextStepHint('github-actions', false, false)).toBe(
+      'After selection, Canopy will check whether configuration is required.',
+    )
+  })
+
   it('always requires confirmation, including jobs without parameters', () => {
     expect(nextCiRunStage('select', false)).toBe('confirm')
     expect(nextCiRunStage('select', true)).toBe('configure')

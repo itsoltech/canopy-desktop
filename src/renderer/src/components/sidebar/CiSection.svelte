@@ -107,6 +107,12 @@
 
   async function refreshActivity(root: string): Promise<void> {
     const seq = ++activitySeq
+    // A retry after an authentication failure is a foreground recovery, not a
+    // background refresh. Drop the stale error while the replacement token is checked.
+    if (activityError) {
+      activityError = ''
+      activityLoaded = false
+    }
     try {
       const result =
         config?.provider === 'github-actions'
@@ -239,8 +245,8 @@
       : branchState.loading && !branchState.response,
   )
   // The card stands in for the history entry only when it has something to render.
-  // While loading, after a ci:status failure, or on a branch with no configured jobs
-  // it renders nothing at all — and the history window has to stay reachable there.
+  // Initial/recovery loading gets a non-interactive status row; after a ci:status
+  // failure or on a branch with no configured jobs, the history window stays reachable.
   let hasCardRows = $derived(
     !branchLoading &&
       !branchError &&
@@ -289,7 +295,9 @@
   })
 
   $effect(() => {
-    if (!hasConfigAndToken) return
+    // Keep a rejected credential dormant. Loading the exact binding after a token
+    // replacement flips this primitive to false and immediately restarts the poll.
+    if (!hasConfigAndToken || credentialsRejected) return
     const root = repoRoot
     const branch = workspaceState.branch
     if (!root || !branch) return
@@ -453,13 +461,24 @@
             aria-orientation="horizontal"
           ></div>
 
-          <!-- ONE CI element, never two: the branch card when it has rows, otherwise the
-             plain history entry. Both open the same window; the card also preselects
-             its branch there. The entry is not redundant with the card — it is the only
-             route to the window while the branch has no configured jobs, no branch is
-             checked out, or ci:status is still in flight, all states in which the card
-             renders nothing. Keeping them in one if/else makes showing both impossible. -->
-          {#if hasCardRows && workspaceState.branch}
+          <!-- ONE CI element, never two: a non-interactive loading row while the first
+             read is in flight, then the branch card when it has rows, otherwise the plain
+             history entry. The card also preselects its branch in the same window. The
+             fallback entry is the route when the branch has no configured jobs, no branch
+             is checked out, or the settled read failed. -->
+          {#if branchLoading || !activityLoaded}
+            <div
+              class="flex items-center gap-2.5 w-full h-7 px-3 text-sm text-text-faint"
+              role="status"
+              aria-live="polite"
+            >
+              <LoaderCircle
+                size={13}
+                class="animate-spin-slow shrink-0 motion-reduce:animate-none"
+              />
+              <span>Loading jobs history…</span>
+            </div>
+          {:else if hasCardRows && workspaceState.branch}
             {#if provider === 'github-actions'}
               <CiLastRunCard
                 rows={jobRows}
@@ -502,12 +521,7 @@
             <!-- Diagnostics stay a sub-line under the entry rather than folding into it:
                they name a reason, and a reason with no visible route to act on it is
                what this section was already pulled up on once. -->
-            {#if branchLoading}
-              <div class="px-3 py-1 flex items-center gap-2 text-xs text-text-faint">
-                <LoaderCircle size={12} class="animate-spin-slow motion-reduce:animate-none" />
-                Checking CI status…
-              </div>
-            {:else if branchError}
+            {#if branchError}
               <div class="px-3 py-1 text-xs text-warning-text truncate" title={branchError}>
                 Last job unavailable — {branchError}
               </div>
