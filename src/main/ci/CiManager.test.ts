@@ -293,6 +293,58 @@ describe('the configured-build-type allowlist', () => {
 })
 
 describe('the token gate', () => {
+  it('marks an authenticated-user rejection invalid before accepting public workflow data', async () => {
+    const githubClient = {
+      verifyAuthentication: vi.fn(() =>
+        errAsync({
+          _tag: 'CiApiError' as const,
+          status: 403,
+          message: 'Forbidden',
+          provider: 'github-actions' as const,
+          authenticationRejected: true,
+        }),
+      ),
+      listWorkflows: vi.fn(() => okAsync([])),
+    } as unknown as GitHubActionsClient
+    const { manager, tokenStore } = fakes({ ci: GITHUB_CI, githubClient })
+
+    const result = await manager.jobsStatus('r', { name: 'next', kind: 'branch' })
+
+    expect(result.isErr()).toBe(true)
+    expect(githubClient.listWorkflows).not.toHaveBeenCalled()
+    expect(tokenStore.recordResult).toHaveBeenCalledWith(
+      'github-actions',
+      'https://github.com/itsoltech/canopy-desktop',
+      'actions.read',
+      403,
+      'Forbidden',
+      { usedSecret: 'tok', authenticationRejected: true },
+    )
+  })
+
+  it('rejects a candidate token when GitHub does not authenticate its identity', async () => {
+    const githubClient = {
+      verifyAuthentication: vi.fn(() =>
+        errAsync({
+          _tag: 'CiApiError' as const,
+          status: 401,
+          message: 'Bad credentials',
+          provider: 'github-actions' as const,
+          authenticationRejected: true,
+        }),
+      ),
+      getRepository: vi.fn(() =>
+        okAsync({ fullName: 'itsoltech/canopy-desktop', defaultBranch: 'next' }),
+      ),
+    } as unknown as GitHubActionsClient
+    const { manager } = fakes({ githubClient })
+
+    const result = await manager.testGitHubConnection('r', 'candidate-token')
+
+    expect(result.isErr()).toBe(true)
+    expect(githubClient.getRepository).not.toHaveBeenCalled()
+  })
+
   it('rejects a GitHub repository mismatch before reading the host-wide token', async () => {
     const { manager, tokenStore } = fakes({
       ci: GITHUB_CI,
@@ -383,6 +435,7 @@ describe('GitHub dispatch confirmation', () => {
     dispatchWorkflow = vi.fn(() => okAsync({ runId: '1', apiUrl: '', webUrl: 'run-url' })),
   ): GitHubActionsClient {
     return {
+      verifyAuthentication: vi.fn(() => okAsync(undefined)),
       listWorkflows: vi.fn(() =>
         okAsync([
           {

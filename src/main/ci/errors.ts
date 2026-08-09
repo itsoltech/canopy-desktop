@@ -38,6 +38,8 @@ export type CiError =
       status: number
       message: string
       provider?: 'teamcity' | 'github-actions'
+      /** The authenticated-identity endpoint rejected the credential itself. */
+      authenticationRejected?: true
     }
 
 export function ciErrorMessage(error: CiError): string {

@@ -13,6 +13,37 @@ function fakePreferences(initial: Record<string, string> = {}): PreferencesStore
 }
 
 describe('KeychainTokenStore capability facade', () => {
+  it('treats a probe-specific 403 as rejected authentication, not denied Actions access', () => {
+    const baseUrl = 'https://github.com/itsoltech/canopy-desktop'
+    const store = new KeychainTokenStore(fakePreferences())
+    store.setCredentials('github-actions', baseUrl, 'token')
+
+    store.recordResult('github-actions', baseUrl, 'actions.read', 403, 'Forbidden', {
+      usedSecret: 'token',
+      authenticationRejected: true,
+    })
+
+    expect(store.registry.list()[0]).toMatchObject({
+      authenticationState: 'invalid',
+      verification: {},
+    })
+  })
+
+  it('keeps an ordinary 403 scoped to the denied capability', () => {
+    const baseUrl = 'https://github.com/itsoltech/canopy-desktop'
+    const store = new KeychainTokenStore(fakePreferences())
+    store.setCredentials('github-actions', baseUrl, 'token')
+
+    store.recordResult('github-actions', baseUrl, 'actions.read', 403, 'Forbidden', {
+      usedSecret: 'token',
+    })
+
+    expect(store.registry.list()[0]).toMatchObject({
+      authenticationState: 'unknown',
+      verification: { 'actions.read': { state: 'denied', reason: 'Forbidden' } },
+    })
+  })
+
   it('does not use a generic GitHub tracker token for GitHub Actions', () => {
     const preferences = fakePreferences({
       'taskTracker.token.github:https://github.com': JSON.stringify({ token: 'tracker-token' }),

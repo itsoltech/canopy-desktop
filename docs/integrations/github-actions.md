@@ -62,6 +62,14 @@ The sidebar reads the token verdict only for the exact GitHub Actions repository
 with `ci:config`. Replacing or removing that credential emits an in-process change tick, so the
 banner updates immediately without periodically listing the keychain.
 
+Before each configured GitHub operation, Canopy calls GitHub's authenticated-user endpoint. A
+401 or 403 from that identity check stops before workflow reads or dispatch and marks the exact
+repository credential as rejected. The sidebar then replaces its run action and cached status
+card with the token recovery state. The repository configurator labels the stored token as
+rejected, disables **Load workflows**, and asks for replacement without exposing the raw IPC/API
+error. Public workflow and history responses alone are never treated as proof that GitHub accepted
+the stored credential.
+
 ## Status and history
 
 The sidebar and activity window query only workflows selected in the repository configuration.
@@ -177,6 +185,10 @@ failure.
 - GitHub requests go only to `https://api.github.com`, reject redirects, have bounded response
   sizes and timeouts, and use the pinned `2026-03-10` API version. The dispatch endpoint returns
   the exact workflow-run ID; Canopy does not search heuristically or retry an ambiguous dispatch.
+- Configured operations first use `GET /user`, which requires an authenticated GitHub identity
+  without adding a repository permission requirement. Only a 401/403 from that identity endpoint
+  invalidates authentication; a 403 from a repository endpoint remains scoped to the capability
+  that GitHub denied. Rate-limit responses are kept distinct from both cases.
 - The renderer confirmation is a user-safety step, not the authorization boundary. The main
   process independently authorizes the workspace and repository, allowlists the workflow,
   re-resolves the ref and schema, and validates all inputs before dispatch. Hosts may additionally

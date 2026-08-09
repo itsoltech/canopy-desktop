@@ -138,8 +138,11 @@ export class CiManager {
     result: ResultAsync<T, CiError>,
     usedSecret?: string,
   ): ResultAsync<T, CiError> {
-    const record = (status: number, reason?: string): void =>
-      this.tokenStore.recordResult(provider, baseUrl, capability, status, reason, { usedSecret })
+    const record = (status: number, reason?: string, authenticationRejected?: true): void =>
+      this.tokenStore.recordResult(provider, baseUrl, capability, status, reason, {
+        usedSecret,
+        ...(authenticationRejected ? { authenticationRejected } : {}),
+      })
     return result
       .map((value) => {
         const degradedCauses = ciDegradedCauses(value)
@@ -151,13 +154,15 @@ export class CiManager {
               cause._tag === 'CiApiError' && (cause.status === 401 || cause.status === 403),
           )
           if (authFailure?._tag === 'CiApiError') {
-            record(authFailure.status, authFailure.message)
+            record(authFailure.status, authFailure.message, authFailure.authenticationRejected)
           }
         }
         return value
       })
       .mapErr((error) => {
-        if (error._tag === 'CiApiError') record(error.status, error.message)
+        if (error._tag === 'CiApiError') {
+          record(error.status, error.message, error.authenticationRejected)
+        }
         return error
       })
   }
@@ -748,40 +753,45 @@ export class CiManager {
   }
 
   githubSetup(repoRoot: string): ResultAsync<GitHubActionsSetupInfo, CiError> {
-    return this.githubClientForWorkspace(repoRoot).andThen(({ repository, client, token }) =>
-      client.getRepository().andThen((metadata) => {
-        if (metadata.fullName.toLowerCase() !== repository.toLowerCase()) {
-          return errAsync<GitHubActionsSetupInfo, CiError>({
-            _tag: 'CiRepositoryMismatch',
-            expected: repository,
-            actual: metadata.fullName,
-          })
-        }
-        return this.observeCredentialResult(
-          'github-actions',
-          githubActionsCredentialBaseUrl(repository),
-          'actions.read',
-          discoverGitHubWorkflows(client, metadata.defaultBranch),
-          token,
-        ).map((workflows) => ({
-          repository: metadata.fullName.toLowerCase(),
-          defaultBranch: metadata.defaultBranch,
-          workflows,
-        }))
-      }),
-    )
+    return this.githubClientForWorkspace(repoRoot).andThen(({ repository, client, token }) => {
+      const setup = client.verifyAuthentication().andThen(() =>
+        client.getRepository().andThen((metadata) => {
+          if (metadata.fullName.toLowerCase() !== repository.toLowerCase()) {
+            return errAsync<GitHubActionsSetupInfo, CiError>({
+              _tag: 'CiRepositoryMismatch',
+              expected: repository,
+              actual: metadata.fullName,
+            })
+          }
+          return discoverGitHubWorkflows(client, metadata.defaultBranch).map((workflows) => ({
+            repository: metadata.fullName.toLowerCase(),
+            defaultBranch: metadata.defaultBranch,
+            workflows,
+          }))
+        }),
+      )
+      return this.observeCredentialResult(
+        'github-actions',
+        githubActionsCredentialBaseUrl(repository),
+        'actions.read',
+        setup,
+        token,
+      )
+    })
   }
 
   testGitHubConnection(repoRoot: string, token: string): ResultAsync<void, CiError> {
     return this.githubClientForWorkspace(repoRoot, token).andThen(({ repository, client }) =>
-      client.getRepository().andThen((metadata) =>
-        metadata.fullName.toLowerCase() === repository.toLowerCase()
-          ? okAsync(undefined)
-          : errAsync<void, CiError>({
-              _tag: 'CiRepositoryMismatch',
-              expected: repository,
-              actual: metadata.fullName,
-            }),
+      client.verifyAuthentication().andThen(() =>
+        client.getRepository().andThen((metadata) =>
+          metadata.fullName.toLowerCase() === repository.toLowerCase()
+            ? okAsync(undefined)
+            : errAsync<void, CiError>({
+                _tag: 'CiRepositoryMismatch',
+                expected: repository,
+                actual: metadata.fullName,
+              }),
+        ),
       ),
     )
   }

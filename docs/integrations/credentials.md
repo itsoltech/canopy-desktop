@@ -33,10 +33,11 @@ If there is no binding, Canopy auto-binds only when exactly one compatible crede
 Replacing a credential used by several bindings creates a new record and moves only the edited
 binding, so changing one integration cannot silently rotate another integration's secret.
 
-The last authentication and per-capability verification results are diagnostic metadata. A 401 or
-403 remains visible in Settings, but does not permanently make the credential unresolvable: the
-next request can succeed after the token or its server-side permissions are corrected and then
-replace the stale result.
+The last authentication and per-capability verification results are diagnostic metadata. A 401,
+or a 403 from a provider's authenticated-identity probe, marks authentication as rejected. A 403
+from an integration operation remains scoped to that denied capability. Both remain visible in
+Settings but do not permanently make the credential unresolvable: the next request can succeed
+after the token or its server-side permissions are corrected and then replace the stale result.
 
 CI surfaces request only the safe verdict for the exact provider binding selected by the validated
 repository configuration. Credential writers publish an in-process change tick after a successful

@@ -317,12 +317,12 @@ export class KeychainTokenStore {
     capability: CredentialCapability,
     status: number,
     reason?: string,
-    opts?: { bindingKey?: string; usedSecret?: string },
+    opts?: { bindingKey?: string; usedSecret?: string; authenticationRejected?: true },
   ): void {
     const bindingKey = opts?.bindingKey ?? defaultBinding(provider, baseUrl)
     const credentialId = this.registry.listBindings()[bindingKey]
     if (!credentialId) return
-    if (status === 401) {
+    if (status === 401 || (status === 403 && opts?.authenticationRejected)) {
       this.registry.recordAuthentication(credentialId, 'invalid')
       return
     }

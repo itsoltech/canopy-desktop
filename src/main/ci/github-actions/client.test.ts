@@ -68,6 +68,38 @@ describe('GitHubActionsClient', () => {
     )
   })
 
+  it('proves authentication through the fixed authenticated-user endpoint', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ login: 'canopy-user' }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new GitHubActionsClient('itsoltech', 'canopy-desktop', 'secret-token')
+
+    const result = await client.verifyAuthentication()
+
+    expect(result.isOk()).toBe(true)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.github.com/user')
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: 'Bearer secret-token',
+      'X-GitHub-Api-Version': '2026-03-10',
+    })
+  })
+
+  it.each([401, 403])('marks an authenticated-user %s as an identity rejection', async (status) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => jsonResponse({ message: 'rejected' }, { status })),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'canopy-desktop', 'secret-token')
+
+    const result = await client.verifyAuthentication()
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      status,
+      authenticationRejected: true,
+    })
+  })
+
   it('paginates refs but stops at the bounded five-page limit', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(

@@ -1,4 +1,4 @@
-import { okAsync } from 'neverthrow'
+import { errAsync, okAsync } from 'neverthrow'
 import { describe, expect, it, vi } from 'vitest'
 import type { GitHubActionsCiConfig } from '../types'
 import type { GitHubActionsClient } from '../github-actions/client'
@@ -13,6 +13,7 @@ const CONFIG: GitHubActionsCiConfig = {
 
 function fakeClient(overrides: Partial<GitHubActionsClient> = {}): GitHubActionsClient {
   return {
+    verifyAuthentication: vi.fn(() => okAsync(undefined)),
     listWorkflows: vi.fn(() =>
       okAsync([
         {
@@ -46,6 +47,49 @@ function fakeClient(overrides: Partial<GitHubActionsClient> = {}): GitHubActions
 }
 
 describe('GitHubActionsAdapter', () => {
+  it('rejects public workflow data when GitHub rejects the stored identity', async () => {
+    const client = fakeClient()
+    vi.mocked(client.verifyAuthentication).mockReturnValue(
+      errAsync({
+        _tag: 'CiApiError',
+        status: 401,
+        message: 'Bad credentials',
+        provider: 'github-actions',
+        authenticationRejected: true,
+      }),
+    )
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const result = await adapter.status({ name: 'next', kind: 'branch' })
+
+    expect(result.isErr()).toBe(true)
+    expect(client.listWorkflows).not.toHaveBeenCalled()
+  })
+
+  it('never dispatches when the authenticated-user probe is rejected', async () => {
+    const client = fakeClient()
+    vi.mocked(client.verifyAuthentication).mockReturnValue(
+      errAsync({
+        _tag: 'CiApiError',
+        status: 403,
+        message: 'Forbidden',
+        provider: 'github-actions',
+        authenticationRejected: true,
+      }),
+    )
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const result = await adapter.trigger({
+      jobId: '.github/workflows/release.yml',
+      ref: { name: 'next', kind: 'branch' },
+      schemaRevision: 'blob-sha',
+      inputs: { dry_run: true },
+    })
+
+    expect(result.isErr()).toBe(true)
+    expect(client.dispatchWorkflow).not.toHaveBeenCalled()
+  })
+
   it('discovers dispatchable workflows from the repository default branch with per-file errors', async () => {
     const client = fakeClient({
       listWorkflows: vi.fn(() =>

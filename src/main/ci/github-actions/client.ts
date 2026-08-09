@@ -115,11 +115,15 @@ export class GitHubActionsClient {
   }
 
   private request<T>(path: string, init?: GitHubRequestOptions): ResultAsync<T, GitHubClientError> {
-    return new ResultAsync(this.performRequest<T>(path, init))
+    return new ResultAsync(this.performRequest<T>(`${this.repositoryPath}${path}`, init))
+  }
+
+  private apiRequest<T>(path: string): ResultAsync<T, GitHubClientError> {
+    return new ResultAsync(this.performRequest<T>(path))
   }
 
   private async performRequest<T>(
-    path: string,
+    requestPath: string,
     init?: GitHubRequestOptions,
   ): Promise<Result<T, GitHubClientError>> {
     const limitedUntil = rateLimitedUntil.get(this.repositoryPath)
@@ -132,7 +136,7 @@ export class GitHubActionsClient {
 
     let response: Response
     try {
-      response = await fetch(`${API_ORIGIN}${this.repositoryPath}${path}`, {
+      response = await fetch(`${API_ORIGIN}${requestPath}`, {
         method: init?.method ?? 'GET',
         headers: {
           Accept: 'application/vnd.github+json',
@@ -202,6 +206,20 @@ export class GitHubActionsClient {
       }
       return err(apiError(0, 'GitHub returned malformed JSON'))
     }
+  }
+
+  verifyAuthentication(): ResultAsync<void, CiError> {
+    return this.apiRequest<{ login?: string }>('/user')
+      .andThen((user) =>
+        user.login
+          ? ok(undefined)
+          : err(apiError(0, 'GitHub returned invalid authenticated-user metadata')),
+      )
+      .mapErr((error) =>
+        error._tag === 'CiApiError' && (error.status === 401 || error.status === 403)
+          ? { ...error, authenticationRejected: true as const }
+          : error,
+      )
   }
 
   listWorkflows(): ResultAsync<GitHubWorkflow[], CiError> {

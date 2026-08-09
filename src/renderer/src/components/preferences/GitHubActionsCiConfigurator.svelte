@@ -47,6 +47,7 @@
   let workflows = $state<DiscoveredWorkflow[]>([])
   let token = $state('')
   let hasToken = $state(false)
+  let credentialRejected = $state(false)
   let loading = $state(false)
   let testing = $state(false)
   let saving = $state(false)
@@ -87,6 +88,7 @@
       repositoryResolving ||
       !!repositoryResolutionIssue ||
       !repository ||
+      (hasToken && credentialRejected) ||
       (!hasToken && token.trim().length === 0),
   )
   let loadBlockedReason = $derived(
@@ -96,9 +98,11 @@
         ? repositoryResolutionIssue
         : !repository
           ? 'No github.com origin remote was found for this workspace.'
-          : !hasToken && token.trim().length === 0
-            ? 'Add a GitHub token before loading workflows.'
-            : '',
+          : hasToken && credentialRejected
+            ? 'Replace the rejected GitHub token before loading workflows.'
+            : !hasToken && token.trim().length === 0
+              ? 'Add a GitHub token before loading workflows.'
+              : '',
   )
   let repositoryLabel = $derived(repository || 'this workspace repository')
   let repositoryReady = $derived(!repositoryResolving && !repositoryResolutionIssue && !!repository)
@@ -144,14 +148,17 @@
         repositoryResolutionIssue = ''
       }
       try {
-        hasToken = credentialUrl
-          ? await window.api.keychainHasCredentials('github-actions', credentialUrl)
-          : false
+        const storedCredential = credentialUrl
+          ? await window.api.keychainGetCredentials('github-actions', credentialUrl)
+          : null
+        hasToken = storedCredential?.hasToken ?? false
+        credentialRejected = storedCredential?.authenticationState === 'invalid'
       } catch (cause) {
         hasToken = false
+        credentialRejected = false
         error = cause instanceof Error ? cause.message : 'Could not check the stored GitHub token'
       }
-      loadStoredConfiguration = hasToken
+      loadStoredConfiguration = hasToken && !credentialRejected
     } catch (cause) {
       repository = ''
       error = cause instanceof Error ? cause.message : 'Could not load GitHub Actions setup'
@@ -195,7 +202,7 @@
 
   async function ensureToken(): Promise<boolean> {
     if (!repositoryReady) return false
-    if (hasToken && token.trim().length === 0) return true
+    if (hasToken && token.trim().length === 0) return !credentialRejected
     const candidateToken = token.trim()
     if (!repoRoot || !candidateToken) return false
     try {
@@ -204,6 +211,7 @@
       bumpCiCredentialTick()
       token = ''
       hasToken = true
+      credentialRejected = false
       testResult = 'success'
       return true
     } catch (cause) {
@@ -220,6 +228,7 @@
   function replaceToken(): void {
     if (loading || saving) return
     hasToken = false
+    credentialRejected = false
     token = ''
     loaded = false
     workflows = []
@@ -244,8 +253,16 @@
       loaded = true
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'Could not load GitHub workflows'
-      error =
-        hasToken && token.trim().length === 0
+      const storedCredential =
+        hasToken && token.trim().length === 0 && credentialUrl
+          ? await window.api
+              .keychainGetCredentials('github-actions', credentialUrl)
+              .catch(() => null)
+          : null
+      credentialRejected = storedCredential?.authenticationState === 'invalid'
+      error = credentialRejected
+        ? ''
+        : hasToken && token.trim().length === 0
           ? `${message}. Replace the stored token if it cannot access ${repository}.`
           : message
       loaded = false
@@ -381,7 +398,15 @@
           class="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
         >
           <div class="min-w-0">
-            <div class="text-xs font-medium text-text">GitHub Actions token stored</div>
+            <div
+              class="text-xs font-medium"
+              class:text-danger-text={credentialRejected}
+              class:text-text={!credentialRejected}
+            >
+              {credentialRejected
+                ? 'GitHub rejected the stored token'
+                : 'GitHub Actions token stored'}
+            </div>
             <div class="truncate text-xs text-text-muted" title={credentialUrl}>{repository}</div>
           </div>
           <button
@@ -462,6 +487,7 @@
           type="button"
           class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary cursor-pointer hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
           onclick={loadWorkflows}
+          disabled={loadBlocked}
           aria-disabled={loadBlocked}
           aria-describedby={loadBlockedReason ? 'github-ci-load-blocked' : undefined}
           aria-busy={loading}>{loading ? 'Loading…' : 'Load workflows'}</button
