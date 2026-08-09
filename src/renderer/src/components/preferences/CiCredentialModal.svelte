@@ -13,7 +13,17 @@
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import { credentialStorageClause } from './_partials/credentialStorage'
 
-  let { repoRoot, config }: { repoRoot: string; config: CiRepoConfigInfo } = $props()
+  let {
+    repoRoot,
+    config,
+    onClose = closeDialog,
+    onUpdated,
+  }: {
+    repoRoot: string
+    config: CiRepoConfigInfo
+    onClose?: () => void
+    onUpdated?: () => void
+  } = $props()
 
   let containerEl: HTMLElement | undefined = $state()
   let tokenInputEl: HTMLInputElement | undefined = $state()
@@ -38,7 +48,7 @@
   })
 
   function requestClose(): void {
-    if (!saving) closeDialog()
+    if (!saving) onClose()
   }
 
   function handleKeydown(event: KeyboardEvent): void {
@@ -88,7 +98,8 @@
       await loadCiRepoConfig(repoRoot)
       token = ''
       addToast(`${providerName} token updated`, 'success')
-      closeDialog()
+      onUpdated?.()
+      onClose()
     } catch (cause) {
       error = ipcErrorMessage(cause, `${providerName} rejected the token`)
     } finally {

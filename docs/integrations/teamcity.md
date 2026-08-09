@@ -81,9 +81,15 @@ The integration follows the Project management architecture:
 
 ### Per-repo configurator (modal)
 
-Pick one of your CI servers (or add a new one: URL + token with a connection test via
-`GET /app/rest/server` and an explicit destination confirm before the token is stored),
-then **Load available jobs** and choose, from the server's full list grouped by
+The modal separates the shared TeamCity server and job list from **Personal credentials**.
+For an existing repository configuration, the credential section shows only the local token
+status and links to the dedicated token editor (or Settings → CI connections); it never exposes
+a token field while the shared job list is being edited. Stored connections can be selected as a
+new shared server. Add a completely new server in Settings first.
+
+During first-time initialization, pick one of your CI servers or add a new one (URL + token with a
+connection test via `GET /app/rest/server` and an explicit destination confirm before the token is
+stored), then **Load available jobs** and choose, from the server's full list grouped by
 TeamCity project, which jobs are available in this repository — analogous to the
 project/board selection in Project management. Sidebar labels are editable. Configured
 jobs the server no longer returns are named in a warning and dropped on the next Save

@@ -50,6 +50,11 @@ jobs/workflows and cannot write the git-tracked `.canopy/config.json`. Shared jo
 is entered explicitly, except during first-time CI initialization when selecting that list is part
 of creating the configuration.
 
+The existing-repository configurators mirror Project management's connection separation: a
+**Personal credentials** card reports the machine-local binding and routes edits to the credential
+editor, while **Shared workflows** or **Shared jobs** owns only the repository configuration. An
+existing token cannot be replaced from the shared list editor.
+
 ### Deletion
 
 Removing credentials first removes the selected integration binding. Before deciding whether the

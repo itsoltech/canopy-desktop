@@ -71,6 +71,12 @@ tests and replaces only the repository-bound token; it neither loads workflows n
 configuration (or initializes it for the first time). Public workflow and history responses alone
 are never treated as proof that GitHub accepted the stored credential.
 
+For an existing configuration, that editor renders **Personal credentials** as a read-only status
+card with a link to the dedicated token editor, separately from **Shared workflows**. It does not
+render a token input beside the team-shared workflow selection. The inline token field is limited
+to first-time initialization, where a credential is required to discover the initial workflow
+list.
+
 ## Status and history
 
 The sidebar and activity window query only workflows selected in the repository configuration.

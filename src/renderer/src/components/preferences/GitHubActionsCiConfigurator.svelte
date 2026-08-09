@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { Check, LoaderCircle, Trash2, X } from '@lucide/svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
@@ -12,6 +12,7 @@
   import CiJobPicker from '../ci/CiJobPicker.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
+  import CiCredentialModal from './CiCredentialModal.svelte'
   import { githubActionsCredentialBaseUrl } from '../../../../renderer-shared/credentialBindings'
 
   interface InvalidCiConfig {
@@ -54,6 +55,8 @@
   let testResult = $state<'success' | 'fail' | ''>('')
   let error = $state('')
   let loaded = $state(false)
+  let credentialEditorOpen = $state(false)
+  let credentialButtonEl: HTMLButtonElement | undefined = $state()
   const selected = new SvelteMap<string, string>()
 
   let availableWorkflows = $derived(
@@ -99,9 +102,11 @@
         : !repository
           ? 'No github.com origin remote was found for this workspace.'
           : hasToken && credentialRejected
-            ? 'Replace the rejected GitHub token before loading workflows.'
+            ? 'Update the rejected token in Personal credentials before loading workflows.'
             : !hasToken && token.trim().length === 0
-              ? 'Add a GitHub token before loading workflows.'
+              ? isInitialSetup
+                ? 'Add a GitHub token before loading workflows.'
+                : 'Add a token in Personal credentials before loading workflows.'
               : '',
   )
   let repositoryLabel = $derived(repository || 'this workspace repository')
@@ -112,6 +117,7 @@
       existingConfig.repository.toLowerCase() !== repository.toLowerCase(),
   )
   let credentialUrl = $derived(repository ? githubActionsCredentialBaseUrl(repository) : '')
+  let isInitialSetup = $derived(initialConfig === null)
 
   onMount(async () => {
     containerEl?.focus()
@@ -225,15 +231,21 @@
     void window.api.openExternal(githubTokenCreationUrl(repository))
   }
 
-  function replaceToken(): void {
-    if (loading || saving) return
-    hasToken = false
+  function manageCredentials(): void {
+    if (saving) return
+    credentialEditorOpen = true
+  }
+
+  function credentialUpdated(): void {
+    hasToken = true
     credentialRejected = false
-    token = ''
-    loaded = false
-    workflows = []
-    testResult = ''
     error = ''
+  }
+
+  async function closeCredentialEditor(): Promise<void> {
+    credentialEditorOpen = false
+    await tick()
+    credentialButtonEl?.focus()
   }
 
   async function loadWorkflows(): Promise<void> {
@@ -393,157 +405,181 @@
         </div>
       </div>
 
-      {#if repositoryReady && hasToken}
-        <div
-          class="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
-        >
-          <div class="min-w-0">
-            <div
-              class="text-xs font-medium"
-              class:text-danger-text={credentialRejected}
-              class:text-text={!credentialRejected}
-            >
-              {credentialRejected
-                ? 'GitHub rejected the stored token'
-                : 'GitHub Actions token stored'}
-            </div>
-            <div class="truncate text-xs text-text-muted" title={credentialUrl}>{repository}</div>
-          </div>
-          <button
-            type="button"
-            class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
-            onclick={replaceToken}
-            aria-disabled={loading || saving}>Replace token</button
-          >
+      <section class="rounded-lg border border-border-subtle p-4 flex flex-col gap-3">
+        <div>
+          <h3 class="m-0 text-sm font-semibold text-text">Personal credentials</h3>
+          <p class="m-0 mt-0.5 text-xs text-text-muted leading-snug">
+            Stored only on this machine and never written to
+            <code class="font-mono">.canopy/config.json</code>.
+          </p>
         </div>
-      {:else if repositoryReady}
-        <div class="flex flex-col gap-1">
-          <div class="flex items-center justify-between gap-2">
-            <label
-              for="github-ci-token"
-              class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+
+        {#if repositoryReady && !isInitialSetup}
+          <div
+            class="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
+          >
+            <div class="min-w-0">
+              <div
+                class="text-xs font-medium"
+                class:text-danger-text={credentialRejected || !hasToken}
+                class:text-text={hasToken && !credentialRejected}
+              >
+                {credentialRejected
+                  ? 'GitHub rejected the stored token'
+                  : hasToken
+                    ? 'GitHub Actions token stored'
+                    : 'No GitHub Actions token stored'}
+              </div>
+              <div class="truncate text-xs text-text-muted" title={credentialUrl}>{repository}</div>
+            </div>
+            <button
+              bind:this={credentialButtonEl}
+              type="button"
+              class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+              onclick={manageCredentials}
+              aria-disabled={saving}>{hasToken ? 'Update token' : 'Add credentials'}</button
             >
-              Personal access token
-            </label>
+          </div>
+        {:else if repositoryReady}
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center justify-between gap-2">
+              <label
+                for="github-ci-token"
+                class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+              >
+                Personal access token
+              </label>
+              <button
+                type="button"
+                class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
+                onclick={openTokenPage}
+              >
+                Generate token on GitHub →
+              </button>
+            </div>
+            <input
+              id="github-ci-token"
+              type="password"
+              class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm outline-none focus:border-focus-ring"
+              bind:value={token}
+              autocomplete="off"
+              placeholder="Fine-grained token"
+            />
+            <p class="m-0 text-xs text-text-muted">
+              Canopy asks GitHub to preselect <strong>Actions — Read and write</strong> and
+              <strong>Contents — Read-only</strong>. Confirm both permissions and the expiry before
+              generating. Under Repository access choose <strong>Only select repositories</strong>
+              and select <strong>{repositoryLabel}</strong>. Workflow inputs are not secret fields.
+            </p>
+            <CredentialStorageNote
+              provider="github-actions"
+              baseUrl={credentialUrl}
+              sharingNote={false}
+            />
+          </div>
+        {:else if repositoryResolving}
+          <p class="m-0 text-xs text-text-muted">
+            Resolving this workspace’s <code class="font-mono">origin</code> remote…
+          </p>
+        {:else}
+          <p class="m-0 text-xs text-text-muted">
+            Resolve a supported <code class="font-mono">github.com</code> origin before creating or storing
+            a GitHub Actions token.
+          </p>
+        {/if}
+
+        {#if repositoryReady}
+          <p class="m-0 text-xs text-text-muted">
+            Git code transport is separate: fetch and push use the workspace’s
+            <code class="font-mono">origin</code> through Git (SSH or its credential helper). This
+            API token is bound only to GitHub Actions for <strong>{repositoryLabel}</strong> and does
+            not grant Canopy Git push access.
+          </p>
+        {/if}
+      </section>
+
+      <section class="rounded-lg border border-border-subtle p-4 flex flex-col gap-3">
+        <div>
+          <h3 class="m-0 text-sm font-semibold text-text">Shared workflows</h3>
+          <p class="m-0 mt-0.5 text-xs text-text-muted leading-snug">
+            Select the workflows shown to everyone through this repository's
+            <code class="font-mono">.canopy/config.json</code>.
+          </p>
+        </div>
+
+        <div class="flex items-center gap-2">
+          {#if repositoryReady && token.trim()}
             <button
               type="button"
-              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-              onclick={openTokenPage}
+              class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary cursor-pointer hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
+              onclick={testConnection}
+              aria-disabled={testing || loading}
+              aria-busy={testing}>{testing ? 'Testing…' : 'Test connection'}</button
             >
-              Generate token on GitHub →
-            </button>
-          </div>
-          <input
-            id="github-ci-token"
-            type="password"
-            class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm outline-none focus:border-focus-ring"
-            bind:value={token}
-            autocomplete="off"
-            placeholder="Fine-grained token"
-          />
-          <p class="m-0 text-xs text-text-muted">
-            Canopy asks GitHub to preselect <strong>Actions — Read and write</strong> and
-            <strong>Contents — Read-only</strong>. Confirm both permissions and the expiry before
-            generating. Under Repository access choose <strong>Only select repositories</strong>
-            and select <strong>{repositoryLabel}</strong>. Workflow inputs are not secret fields.
-          </p>
-          <CredentialStorageNote
-            provider="github-actions"
-            baseUrl={credentialUrl}
-            sharingNote={false}
-          />
-        </div>
-      {:else if repositoryResolving}
-        <p class="m-0 text-xs text-text-muted">
-          Resolving this workspace’s <code class="font-mono">origin</code> remote…
-        </p>
-      {:else}
-        <p class="m-0 text-xs text-text-muted">
-          Resolve a supported <code class="font-mono">github.com</code> origin before creating or storing
-          a GitHub Actions token.
-        </p>
-      {/if}
-
-      {#if repositoryReady}
-        <p class="m-0 text-xs text-text-muted">
-          Git code transport is separate: fetch and push use the workspace’s
-          <code class="font-mono">origin</code> through Git (SSH or its credential helper). This API
-          token is bound only to GitHub Actions for <strong>{repositoryLabel}</strong> and does not grant
-          Canopy Git push access.
-        </p>
-      {/if}
-
-      <div class="flex items-center gap-2">
-        {#if repositoryReady && token.trim()}
+          {/if}
           <button
             type="button"
             class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary cursor-pointer hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
-            onclick={testConnection}
-            aria-disabled={testing || loading}
-            aria-busy={testing}>{testing ? 'Testing…' : 'Test connection'}</button
+            onclick={loadWorkflows}
+            disabled={loadBlocked}
+            aria-disabled={loadBlocked}
+            aria-describedby={loadBlockedReason ? 'github-ci-load-blocked' : undefined}
+            aria-busy={loading}>{loading ? 'Loading…' : 'Load workflows'}</button
           >
-        {/if}
-        <button
-          type="button"
-          class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary cursor-pointer hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
-          onclick={loadWorkflows}
-          disabled={loadBlocked}
-          aria-disabled={loadBlocked}
-          aria-describedby={loadBlockedReason ? 'github-ci-load-blocked' : undefined}
-          aria-busy={loading}>{loading ? 'Loading…' : 'Load workflows'}</button
-        >
-        <span class="text-xs" aria-live="polite">
-          {#if testResult === 'success'}
-            <span class="text-success flex items-center gap-1"><Check size={13} /> Connected</span>
-          {:else if testResult === 'fail'}
-            <span class="text-danger-text">Connection failed</span>
-          {/if}
-        </span>
-      </div>
-
-      <div id="github-ci-load-blocked" class="min-h-4 text-xs text-text-muted" aria-live="polite">
-        {loadBlockedReason}
-      </div>
-
-      <div class="min-h-5 text-xs text-danger-text break-words" role="status">{error}</div>
-
-      {#if loading && !loaded}
-        <div class="flex items-center gap-2 text-sm text-text-muted" role="status">
-          <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
-          Loading dispatchable workflows…
+          <span class="text-xs" aria-live="polite">
+            {#if testResult === 'success'}
+              <span class="text-success flex items-center gap-1"><Check size={13} /> Connected</span
+              >
+            {:else if testResult === 'fail'}
+              <span class="text-danger-text">Connection failed</span>
+            {/if}
+          </span>
         </div>
-      {:else if loaded}
-        {#if availableWorkflows.length > 0}
-          <CiJobPicker
-            serverTypes={availableWorkflows}
-            {selected}
-            onToggle={toggleWorkflow}
-            onLabelChange={setLabel}
-          />
-        {:else}
-          <p class="m-0 text-sm text-text-muted">
-            No active workflows with <code class="font-mono">workflow_dispatch</code> were found.
-          </p>
-        {/if}
-        {#if unavailableWorkflows.length > 0}
-          <div class="flex flex-col gap-1">
-            <span class="text-xs font-medium text-text-muted">Unavailable workflows</span>
-            {#each unavailableWorkflows as workflow (workflow.path)}
-              <div class="text-xs text-text-faint break-words">
-                {workflow.name} — {workflow.error || 'not dispatchable'}
-              </div>
-            {/each}
+
+        <div id="github-ci-load-blocked" class="min-h-4 text-xs text-text-muted" aria-live="polite">
+          {loadBlockedReason}
+        </div>
+
+        <div class="min-h-5 text-xs text-danger-text break-words" role="status">{error}</div>
+
+        {#if loading && !loaded}
+          <div class="flex items-center gap-2 text-sm text-text-muted" role="status">
+            <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
+            Loading dispatchable workflows…
           </div>
+        {:else if loaded}
+          {#if availableWorkflows.length > 0}
+            <CiJobPicker
+              serverTypes={availableWorkflows}
+              {selected}
+              onToggle={toggleWorkflow}
+              onLabelChange={setLabel}
+            />
+          {:else}
+            <p class="m-0 text-sm text-text-muted">
+              No active workflows with <code class="font-mono">workflow_dispatch</code> were found.
+            </p>
+          {/if}
+          {#if unavailableWorkflows.length > 0}
+            <div class="flex flex-col gap-1">
+              <span class="text-xs font-medium text-text-muted">Unavailable workflows</span>
+              {#each unavailableWorkflows as workflow (workflow.path)}
+                <div class="text-xs text-text-faint break-words">
+                  {workflow.name} — {workflow.error || 'not dispatchable'}
+                </div>
+              {/each}
+            </div>
+          {/if}
         {/if}
-      {/if}
-      <div role="status" class:sr-only={missingConfiguredWorkflows.length === 0}>
-        {#if missingConfiguredWorkflows.length > 0}
-          <div class="p-2 rounded-md bg-warning-bg text-xs text-warning-text break-words">
-            No longer returned by GitHub and removed on Save:
-            {missingConfiguredWorkflows.map((workflow) => workflow.label).join(', ')}
-          </div>
-        {/if}
-      </div>
+        <div role="status" class:sr-only={missingConfiguredWorkflows.length === 0}>
+          {#if missingConfiguredWorkflows.length > 0}
+            <div class="p-2 rounded-md bg-warning-bg text-xs text-warning-text break-words">
+              No longer returned by GitHub and removed on Save:
+              {missingConfiguredWorkflows.map((workflow) => workflow.label).join(', ')}
+            </div>
+          {/if}
+        </div>
+      </section>
     </div>
 
     <footer class="px-6 py-3 border-t border-border-subtle flex items-center justify-between gap-3">
@@ -579,3 +615,12 @@
     </footer>
   </div>
 </div>
+
+{#if credentialEditorOpen && existingConfig && repoRoot}
+  <CiCredentialModal
+    {repoRoot}
+    config={existingConfig}
+    onClose={closeCredentialEditor}
+    onUpdated={credentialUpdated}
+  />
+{/if}

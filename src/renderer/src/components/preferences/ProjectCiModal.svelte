@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { Check, LoaderCircle, Trash2, X } from '@lucide/svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
@@ -12,6 +12,7 @@
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CiJobPicker from '../ci/CiJobPicker.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
+  import CiCredentialModal from './CiCredentialModal.svelte'
   import { credentialStorageClause } from './_partials/credentialStorage'
 
   interface InvalidCiConfig {
@@ -69,6 +70,8 @@
   // a Save animate Remove's icon, announcing a removal that wasn't happening.
   // `saving` stays the pre-confirm re-entrancy guard shared by both actions.
   let busy = $state<'' | 'save' | 'remove'>('')
+  let credentialEditorOpen = $state(false)
+  let credentialButtonEl: HTMLButtonElement | undefined = $state()
 
   let serverTypes = $state<ServerBuildType[]>([])
   let typesLoading = $state(false)
@@ -81,6 +84,7 @@
   )
   let urlValid = $derived(/^https?:\/\/\S+$/i.test(effectiveUrl))
   let serverHasToken = $derived(servers.some((s) => s.baseUrl === selectedServer))
+  let isInitialSetup = $derived(initialConfig === null)
   let canLoadTypes = $derived(urlValid && (serverHasToken || trimmedFormToken.length > 0))
 
   let serverOptions = $derived.by(() => {
@@ -92,26 +96,48 @@
         label: `${existingConfig.baseUrl} (no token)`,
       })
     }
-    options.push({ value: NEW_SERVER, label: 'Add new server…' })
+    if (isInitialSetup) options.push({ value: NEW_SERVER, label: 'Add new server…' })
     return options
   })
 
+  function manageCredentials(): void {
+    if (busy !== '') return
+    credentialEditorOpen = true
+  }
+
+  function credentialUpdated(): void {
+    if (!servers.some((server) => server.baseUrl === effectiveUrl)) {
+      servers = [...servers, { baseUrl: effectiveUrl }]
+    }
+    typesError = ''
+  }
+
+  async function closeCredentialEditor(): Promise<void> {
+    credentialEditorOpen = false
+    await tick()
+    credentialButtonEl?.focus()
+  }
+
   onMount(async () => {
     containerEl?.focus()
+    existingConfig = initialConfig
+    if (existingConfig) {
+      selectedServer = existingConfig.baseUrl
+      for (const buildType of existingConfig.buildTypes) {
+        selected.set(buildType.id, buildType.label)
+      }
+    }
     try {
       const all = await window.api.keychainListCredentials()
       servers = all.filter((c) => c.provider === 'teamcity').map((c) => ({ baseUrl: c.baseUrl }))
     } catch {
       servers = []
     }
-    existingConfig = initialConfig
     if (initialInvalid) {
       configLoadError = initialInvalid.message
       configLoadScope = initialInvalid.scope
     }
     if (existingConfig) {
-      selectedServer = existingConfig.baseUrl
-      for (const bt of existingConfig.buildTypes) selected.set(bt.id, bt.label)
       // Editing with a stored token: show the picker right away.
       if (servers.some((s) => s.baseUrl === existingConfig!.baseUrl)) void loadBuildTypes()
     } else if (servers.length > 0) {
@@ -315,7 +341,9 @@
       : !urlValid
         ? URL_REQUIRED
         : !canLoadTypes
-          ? 'Disabled: enter an access token first (or pick a server with one stored)'
+          ? isInitialSetup
+            ? 'Disabled: enter an access token first (or pick a server with one stored)'
+            : 'Disabled: add a token in Personal credentials first'
           : '',
   )
   // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
@@ -346,6 +374,14 @@
     }
     if (!urlValid) {
       return { reason: URL_REQUIRED, severity: 'info' }
+    }
+    if (!canLoadTypes) {
+      return {
+        reason: isInitialSetup
+          ? 'Disabled: enter an access token first (or pick a server with one stored)'
+          : 'Disabled: add a token in Personal credentials first',
+        severity: 'info',
+      }
     }
     if (typesLoading) {
       return { reason: "Disabled: loading the server's jobs…", severity: 'info' }
@@ -517,219 +553,295 @@
             </p>
           {/if}
         </div>
-        <div class="flex flex-col gap-1">
-          <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-            >Server</span
-          >
-          <CustomSelect value={selectedServer} options={serverOptions} onchange={selectServer} />
-        </div>
-
-        {#if selectedServer === NEW_SERVER}
-          <div class="flex flex-col gap-1">
-            <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-              >Server URL</span
-            >
-            <input
-              class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-              name="ciModalUrl"
-              aria-label="TeamCity server URL"
-              bind:value={newUrl}
-              placeholder="https://teamcity.example.com"
-              spellcheck="false"
-            />
+        <section class="rounded-lg border border-border-subtle p-4 flex flex-col gap-3">
+          <div>
+            <h3 class="m-0 text-sm font-semibold text-text">Shared TeamCity server</h3>
+            <p class="m-0 mt-0.5 text-xs text-text-muted leading-snug">
+              The selected server is stored for everyone in this repository's
+              <code class="font-mono">.canopy/config.json</code>.
+            </p>
           </div>
-        {/if}
-
-        {#if !serverHasToken || selectedServer === NEW_SERVER}
           <div class="flex flex-col gap-1">
             <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
-              >Access token</span
+              >Server</span
             >
-            <input
-              class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
-              type="password"
-              name="ciModalToken"
-              aria-label="TeamCity access token"
-              bind:value={formToken}
-              placeholder="Enter token"
-              autocomplete="off"
-              title="Stored for this server-scoped CI integration on your machine — never written to your repository"
-            />
-            <div class="mt-1">
-              <CredentialStorageNote
-                provider="teamcity"
-                baseUrl={urlValid ? effectiveUrl : undefined}
-                sharingNote={false}
+            <CustomSelect value={selectedServer} options={serverOptions} onchange={selectServer} />
+          </div>
+
+          {#if selectedServer === NEW_SERVER}
+            <div class="flex flex-col gap-1">
+              <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+                >Server URL</span
+              >
+              <input
+                class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+                name="ciModalUrl"
+                aria-label="TeamCity server URL"
+                bind:value={newUrl}
+                placeholder="https://teamcity.example.com"
+                spellcheck="false"
               />
             </div>
-          </div>
-        {/if}
+          {/if}
+        </section>
 
-        <div class="flex items-center gap-1.5">
-          {#if trimmedFormToken}
+        <section class="rounded-lg border border-border-subtle p-4 flex flex-col gap-3">
+          <div>
+            <h3 class="m-0 text-sm font-semibold text-text">Personal credentials</h3>
+            <p class="m-0 mt-0.5 text-xs text-text-muted leading-snug">
+              Stored only on this machine and never written to
+              <code class="font-mono">.canopy/config.json</code>.
+            </p>
+          </div>
+
+          {#if !isInitialSetup}
+            <div
+              class="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
+            >
+              <div class="min-w-0">
+                <div
+                  class="text-xs font-medium"
+                  class:text-danger-text={!serverHasToken}
+                  class:text-text={serverHasToken}
+                >
+                  {serverHasToken ? 'TeamCity token stored' : 'No TeamCity token stored'}
+                </div>
+                <div class="truncate text-xs text-text-muted" title={effectiveUrl}>
+                  {effectiveUrl}
+                </div>
+              </div>
+              <button
+                bind:this={credentialButtonEl}
+                type="button"
+                class="shrink-0 px-2 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary cursor-pointer hover:bg-hover"
+                onclick={manageCredentials}
+                aria-disabled={busy !== ''}
+              >
+                {selectedServer === existingConfig?.baseUrl
+                  ? serverHasToken
+                    ? 'Update token'
+                    : 'Add credentials'
+                  : 'Manage credentials'}
+              </button>
+            </div>
+          {:else if !serverHasToken || selectedServer === NEW_SERVER}
+            <div class="flex flex-col gap-1">
+              <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+                >Access token</span
+              >
+              <input
+                class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
+                type="password"
+                name="ciModalToken"
+                aria-label="TeamCity access token"
+                bind:value={formToken}
+                placeholder="Enter token"
+                autocomplete="off"
+                title="Stored for this server-scoped CI integration on your machine — never written to your repository"
+              />
+              <div class="mt-1">
+                <CredentialStorageNote
+                  provider="teamcity"
+                  baseUrl={urlValid ? effectiveUrl : undefined}
+                  sharingNote={false}
+                />
+              </div>
+            </div>
+          {:else}
+            <div
+              class="flex items-center gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
+            >
+              <div class="min-w-0">
+                <div class="text-xs font-medium text-text">TeamCity token stored</div>
+                <div class="truncate text-xs text-text-muted" title={effectiveUrl}>
+                  {effectiveUrl}
+                </div>
+              </div>
+            </div>
+          {/if}
+        </section>
+
+        <section class="rounded-lg border border-border-subtle p-4 flex flex-col gap-3">
+          <div>
+            <h3 class="m-0 text-sm font-semibold text-text">Shared jobs</h3>
+            <p class="m-0 mt-0.5 text-xs text-text-muted leading-snug">
+              Select the jobs shown to everyone through this repository's
+              <code class="font-mono">.canopy/config.json</code>.
+            </p>
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            {#if trimmedFormToken}
+              <button
+                type="button"
+                class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"
+                onclick={testConnection}
+                aria-disabled={testing || !urlValid}
+                aria-busy={testing}
+                aria-describedby={serverBlockedReason ? 'ci-server-blocked' : undefined}
+                title={testBlockedTitle ||
+                  'Check the connection against the server — nothing is saved'}
+              >
+                {testing ? 'Testing…' : 'Test'}
+              </button>
+            {/if}
             <button
               type="button"
               class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"
-              onclick={testConnection}
-              aria-disabled={testing || !urlValid}
-              aria-busy={testing}
+              onclick={loadBuildTypes}
+              aria-disabled={typesLoading || !canLoadTypes}
+              aria-busy={typesLoading}
               aria-describedby={serverBlockedReason ? 'ci-server-blocked' : undefined}
-              title={testBlockedTitle ||
-                'Check the connection against the server — nothing is saved'}
+              title={loadBlockedTitle ||
+                'Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server'}
             >
-              {testing ? 'Testing…' : 'Test'}
+              {typesLoading ? 'Loading…' : 'Load available jobs'}
             </button>
-          {/if}
-          <button
-            type="button"
-            class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"
-            onclick={loadBuildTypes}
-            aria-disabled={typesLoading || !canLoadTypes}
-            aria-busy={typesLoading}
-            aria-describedby={serverBlockedReason ? 'ci-server-blocked' : undefined}
-            title={loadBlockedTitle ||
-              'Saves the token (when entered) and fetches the list of jobs (build configurations) from the TeamCity server'}
-          >
-            {typesLoading ? 'Loading…' : 'Load available jobs'}
-          </button>
-          <span class="min-w-4" aria-live="polite">
-            {#if testResult === 'success'}
-              <span class="flex items-center gap-1 text-xs text-success"
-                ><Check size={13} /> OK</span
-              >
-            {:else if testResult === 'fail'}
-              <span class="flex items-center gap-1 text-xs text-danger-text"
-                ><X size={13} /> Failed</span
-              >
-            {/if}
-          </span>
-        </div>
+            <span class="min-w-4" aria-live="polite">
+              {#if testResult === 'success'}
+                <span class="flex items-center gap-1 text-xs text-success"
+                  ><Check size={13} /> OK</span
+                >
+              {:else if testResult === 'fail'}
+                <span class="flex items-center gap-1 text-xs text-danger-text"
+                  ><X size={13} /> Failed</span
+                >
+              {/if}
+            </span>
+          </div>
 
-        <!-- NOT live: routine input changes do not need announcements;
+          <!-- NOT live: routine input changes do not need announcements;
              configLoadScope can also arrive asynchronously, but the config error
              is announced by the status region above. The empty persistent node is
              visually collapsed; both buttons reference it on focus when populated. -->
-        <div class:sr-only={!serverBlockedReason}>
-          {#if serverBlockedReason}
-            <span id="ci-server-blocked" class="text-xs text-text-secondary break-words"
-              >{serverBlockedReason}</span
-            >
-          {/if}
-        </div>
+          <div class:sr-only={!serverBlockedReason}>
+            {#if serverBlockedReason}
+              <span id="ci-server-blocked" class="text-xs text-text-secondary break-words"
+                >{serverBlockedReason}</span
+              >
+            {/if}
+          </div>
 
-        <!-- Persistent region: a load or keychain failure lands as a mutation —
+          <!-- Persistent region: a load or keychain failure lands as a mutation —
              a span mounted together with its content is never announced. -->
-        <div class:sr-only={!typesError} role="status">
-          {#if typesError}
-            <span class="text-xs text-danger-text">{typesError}</span>
-          {/if}
-        </div>
+          <div class:sr-only={!typesError} role="status">
+            {#if typesError}
+              <span class="text-xs text-danger-text">{typesError}</span>
+            {/if}
+          </div>
 
-        <!-- Persistent live region for the modal's LIFETIME: a wrapper mounted in the
+          <!-- Persistent live region for the modal's LIFETIME: a wrapper mounted in the
              same render pass as its content is skipped by screen readers, and every
              path that changes the message resets typesLoaded first — so the region
              must outlive the conditional chain below. -->
-        <div
-          role="status"
-          id="ci-save-warnings"
-          class:sr-only={!existingConfig?.droppedInvalid &&
-            !existingConfig?.droppedOverCap &&
-            !(typesLoaded && missingBuildTypes.length > 0)}
-        >
-          {#if existingConfig?.droppedInvalid}
-            <!-- Recovery is correcting the FILE: these are not TeamCity ids, so
+          <div
+            role="status"
+            id="ci-save-warnings"
+            class:sr-only={!existingConfig?.droppedInvalid &&
+              !existingConfig?.droppedOverCap &&
+              !(typesLoaded && missingBuildTypes.length > 0)}
+          >
+            {#if existingConfig?.droppedInvalid}
+              <!-- Recovery is correcting the FILE: these are not TeamCity ids, so
                  the picker below can never show them — "tick to keep" would be
                  impossible advice here. -->
-            {@const inv = existingConfig.droppedInvalid}
-            <p class="m-0 text-xs text-warning-text leading-snug break-words">
-              {inv.count} hand-edited
-              {inv.count === 1 ? 'entry has an invalid id' : 'entries have invalid ids'}
-              ({inv.ids.join(', ')}{inv.count > inv.ids.length
-                ? ` and ${inv.count - inv.ids.length} more`
-                : ''}) — not TeamCity ids, so they cannot appear below. Correct them in
-              <code class="font-mono">.canopy/config.json</code> to keep them; saving without doing so
-              drops them.
-            </p>
-          {/if}
-          {#if existingConfig?.droppedOverCap}
-            <!-- Recovery is re-ticking — but only for ids the SERVER still has:
+              {@const inv = existingConfig.droppedInvalid}
+              <p class="m-0 text-xs text-warning-text leading-snug break-words">
+                {inv.count} hand-edited
+                {inv.count === 1 ? 'entry has an invalid id' : 'entries have invalid ids'}
+                ({inv.ids.join(', ')}{inv.count > inv.ids.length
+                  ? ` and ${inv.count - inv.ids.length} more`
+                  : ''}) — not TeamCity ids, so they cannot appear below. Correct them in
+                <code class="font-mono">.canopy/config.json</code> to keep them; saving without doing
+                so drops them.
+              </p>
+            {/if}
+            {#if existingConfig?.droppedOverCap}
+              <!-- Recovery is re-ticking — but only for ids the SERVER still has:
                  parseCiConfig verified the charset, not existence, and an id
                  deleted on TeamCity is absent from the picker AND from the
                  stale-jobs warning (which only sees `selected`). Until the list
                  is loaded, existence is genuinely unknown. -->
-            {@const cap = existingConfig.droppedOverCap}
-            {@const capPresent = cap.ids.filter((id) => serverTypes.some((bt) => bt.id === id))}
-            {@const capGone = cap.ids.filter((id) => !serverTypes.some((bt) => bt.id === id))}
-            {@const shorten = (id: string): string => (id.length > 80 ? `${id.slice(0, 80)}…` : id)}
-            <p class="m-0 text-xs text-warning-text leading-snug break-words">
-              {cap.count} hand-edited
-              {cap.count === 1 ? 'entry is' : 'entries are'} past the
-              {CI_MAX_BUILD_TYPES}-job cap and not selected{cap.count > cap.ids.length
-                ? ` (showing ${cap.ids.length} of ${cap.count})`
-                : ''}.
-              {#if !typesLoaded}
-                <!-- Existence is genuinely unknown until the server list loads —
+              {@const cap = existingConfig.droppedOverCap}
+              {@const capPresent = cap.ids.filter((id) => serverTypes.some((bt) => bt.id === id))}
+              {@const capGone = cap.ids.filter((id) => !serverTypes.some((bt) => bt.id === id))}
+              {@const shorten = (id: string): string =>
+                id.length > 80 ? `${id.slice(0, 80)}…` : id}
+              <p class="m-0 text-xs text-warning-text leading-snug break-words">
+                {cap.count} hand-edited
+                {cap.count === 1 ? 'entry is' : 'entries are'} past the
+                {CI_MAX_BUILD_TYPES}-job cap and not selected{cap.count > cap.ids.length
+                  ? ` (showing ${cap.ids.length} of ${cap.count})`
+                  : ''}.
+                {#if !typesLoaded}
+                  <!-- Existence is genuinely unknown until the server list loads —
                      promising a re-tick here would be an optimistic default the
                      ids cannot back up yet. -->
-                Load the available jobs to see which of these can still be ticked:
-                {cap.ids.map(shorten).join(', ')}.
-              {:else}
-                {#if capPresent.length > 0}
-                  Untick another job below first, then tick these to keep them: {capPresent
-                    .map(shorten)
-                    .join(', ')}.
+                  Load the available jobs to see which of these can still be ticked:
+                  {cap.ids.map(shorten).join(', ')}.
+                {:else}
+                  {#if capPresent.length > 0}
+                    Untick another job below first, then tick these to keep them: {capPresent
+                      .map(shorten)
+                      .join(', ')}.
+                  {/if}
+                  {#if capGone.length > 0}
+                    No longer on this server — saving drops them and there is nothing to re-tick:
+                    {capGone.map(shorten).join(', ')}.
+                  {/if}
                 {/if}
-                {#if capGone.length > 0}
-                  No longer on this server — saving drops them and there is nothing to re-tick:
-                  {capGone.map(shorten).join(', ')}.
+                Or trim the hand-edited list; saving writes only the selection below.
+              </p>
+            {/if}
+            {#if typesLoaded && missingBuildTypes.length > 0}
+              {@const missingNames = missingBuildTypes
+                .map((id) => {
+                  const label = selected.get(id)
+                  return label && label !== id ? `${label} (${id})` : id
+                })
+                .join(', ')}
+              <p class="m-0 text-xs text-warning-text leading-snug break-words">
+                {#if allConfiguredStale && effectiveBuildTypes.length === 0}
+                  None of this repository's configured jobs exist on this server any more ({missingNames}).
+                  Save is disabled until you tick at least one job below — or use
+                  <strong>Remove CI configuration</strong> to drop the
+                  <code class="font-mono">ci</code> block entirely.
+                {:else if effectiveBuildTypes.length > 0}
+                  {missingBuildTypes.length} configured
+                  {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
+                  Saving drops
+                  {missingBuildTypes.length === 1 ? 'it' : 'them'} from
+                  <code class="font-mono">.canopy/config.json</code>.
+                {:else}
+                  {missingBuildTypes.length} configured
+                  {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
+                  Tick at least one job below to save — the missing
+                  {missingBuildTypes.length === 1 ? 'entry is' : 'entries are'} dropped from
+                  <code class="font-mono">.canopy/config.json</code> when you do.
                 {/if}
-              {/if}
-              Or trim the hand-edited list; saving writes only the selection below.
-            </p>
-          {/if}
-          {#if typesLoaded && missingBuildTypes.length > 0}
-            {@const missingNames = missingBuildTypes
-              .map((id) => {
-                const label = selected.get(id)
-                return label && label !== id ? `${label} (${id})` : id
-              })
-              .join(', ')}
-            <p class="m-0 text-xs text-warning-text leading-snug break-words">
-              {#if allConfiguredStale && effectiveBuildTypes.length === 0}
-                None of this repository's configured jobs exist on this server any more ({missingNames}).
-                Save is disabled until you tick at least one job below — or use
-                <strong>Remove CI configuration</strong> to drop the
-                <code class="font-mono">ci</code> block entirely.
-              {:else if effectiveBuildTypes.length > 0}
-                {missingBuildTypes.length} configured
-                {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
-                Saving drops
-                {missingBuildTypes.length === 1 ? 'it' : 'them'} from
-                <code class="font-mono">.canopy/config.json</code>.
-              {:else}
-                {missingBuildTypes.length} configured
-                {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
-                Tick at least one job below to save — the missing
-                {missingBuildTypes.length === 1 ? 'entry is' : 'entries are'} dropped from
-                <code class="font-mono">.canopy/config.json</code> when you do.
-              {/if}
-            </p>
-          {/if}
-        </div>
-
-        {#if typesLoading && !typesLoaded}
-          <div class="flex items-center gap-2 text-sm text-text-faint">
-            <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
-            Loading available jobs…
+              </p>
+            {/if}
           </div>
-        {:else if typesLoaded}
-          <!-- During a RELOAD the previous list stays on screen but visibly inert —
+
+          {#if typesLoading && !typesLoaded}
+            <div class="flex items-center gap-2 text-sm text-text-faint">
+              <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
+              Loading available jobs…
+            </div>
+          {:else if typesLoaded}
+            <!-- During a RELOAD the previous list stays on screen but visibly inert —
                Save is disabled above and the picker dims until the fresh list lands,
                so the user can't edit rows that are about to be replaced. -->
-          <div class={typesLoading ? 'opacity-50 pointer-events-none' : ''}>
-            <CiJobPicker {serverTypes} {selected} onToggle={toggleType} onLabelChange={setLabel} />
-          </div>
-        {/if}
+            <div class={typesLoading ? 'opacity-50 pointer-events-none' : ''}>
+              <CiJobPicker
+                {serverTypes}
+                {selected}
+                onToggle={toggleType}
+                onLabelChange={setLabel}
+              />
+            </div>
+          {/if}
+        </section>
       {/if}
     </div>
 
@@ -818,3 +930,12 @@
     </footer>
   </div>
 </div>
+
+{#if credentialEditorOpen && existingConfig && repoRoot && urlValid}
+  <CiCredentialModal
+    {repoRoot}
+    config={{ ...existingConfig, baseUrl: effectiveUrl }}
+    onClose={closeCredentialEditor}
+    onUpdated={credentialUpdated}
+  />
+{/if}
