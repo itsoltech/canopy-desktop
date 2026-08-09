@@ -46,6 +46,17 @@
   let config = $derived(cfgState.config)
   let provider = $derived(config?.provider ?? 'teamcity')
   let providerLabel = $derived(provider === 'github-actions' ? 'GitHub' : 'TeamCity')
+  let runActionLabel = $derived(provider === 'github-actions' ? 'Run workflow…' : 'Run job…')
+  let runActionTitle = $derived(
+    provider === 'github-actions'
+      ? 'Choose a configured workflow and branch to run'
+      : 'Choose a configured job and branch to queue',
+  )
+  let configureActionTitle = $derived(
+    provider === 'github-actions'
+      ? 'Configure CI/CD — GitHub repository and available workflows'
+      : 'Configure CI/CD — server and available build configurations',
+  )
   let providerUrl = $derived(
     config?.provider === 'github-actions'
       ? `https://github.com/${config.repository}`
@@ -336,7 +347,7 @@
       class="flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint cursor-pointer opacity-60 hover:opacity-100 hover:bg-hover hover:text-text-secondary"
       onclick={showProjectCi}
       aria-label="Configure CI/CD"
-      title="Configure CI/CD — server and available build configurations"
+      title={configureActionTitle}
     >
       <Settings size={12} />
     </button>
@@ -387,8 +398,8 @@
           />
         </button>
 
-        <!-- A token that is missing and one the server rejects lead to the same dead ends:
-           Run job… cannot list branches or queue anything, and the history window has
+        <!-- A token that is missing and one the provider rejects lead to the same dead ends:
+           The run action cannot list refs or start anything, and the history window has
            nothing to load. So the banner REPLACES them rather than sitting above them —
            the only thing left worth offering is fixing the credential. -->
         {#if !cfgState.hasToken || credentialsRejected}
@@ -406,7 +417,9 @@
                     ? ` Since ${formatDateTime(Date.parse(rejectedSince))}.`
                     : ''}
                 {:else}
-                  No token for this CI server.
+                  {provider === 'github-actions'
+                    ? 'No token for this GitHub repository.'
+                    : 'No token for this CI server.'}
                 {/if}
               </span>
               <button
@@ -425,13 +438,13 @@
           <button
             class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
             onclick={openRunJob}
-            title="Choose a configured job and branch to queue"
+            title={runActionTitle}
           >
             <Play
               size={13}
               class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
             />
-            <span class="flex-1">Run job…</span>
+            <span class="flex-1">{runActionLabel}</span>
           </button>
 
           <div

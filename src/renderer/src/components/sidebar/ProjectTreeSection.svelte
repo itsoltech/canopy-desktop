@@ -1,7 +1,7 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
   import { untrack } from 'svelte'
-  import { ChevronRight, Square, Trash2, X } from '@lucide/svelte'
+  import { ChevronRight, LoaderCircle, Square, Trash2, X } from '@lucide/svelte'
   import { fileManagerLabel } from '../../lib/platform'
   import {
     projects,
@@ -246,8 +246,14 @@
     y: number
     project: ProjectState
     wt: ProjectState['worktrees'][number]
-    /** null while this worktree's git-tracked CI config is being checked. */
-    ciConfigured: boolean | null
+    /** undefined while the worktree's git-tracked CI config and credential are being checked. */
+    ci:
+      | {
+          provider: 'teamcity' | 'github-actions'
+          hasUsableCredentials: boolean
+        }
+      | null
+      | undefined
   }
 
   let ctxMenu = $state<WorktreeCtx | null>(null)
@@ -265,17 +271,25 @@
     // id avoids object-identity comparisons across Svelte's deep state proxies and
     // prevents a slow result from updating a newer menu.
     const request = ++ctxMenuRequest
-    const menu: WorktreeCtx = { x: e.clientX, y: e.clientY, project, wt, ciConfigured: null }
+    const menu: WorktreeCtx = { x: e.clientX, y: e.clientY, project, wt, ci: undefined }
     ctxMenu = menu
     if (!ciMenuEnabled || wt.branch === '(detached)') return
-    let ciConfigured = false
+    let ci: WorktreeCtx['ci'] = null
     try {
-      ciConfigured = (await window.api.ciConfig(wt.path)).config != null
+      const result = await window.api.ciConfig(wt.path)
+      if (result.config) {
+        ci = {
+          provider: result.config.provider,
+          hasUsableCredentials:
+            result.credential?.hasToken === true &&
+            result.credential.authenticationState !== 'invalid',
+        }
+      }
     } catch {
-      ciConfigured = false
+      ci = null
     }
     if (ctxMenuRequest === request && ctxMenu?.wt.path === wt.path) {
-      ctxMenu = { ...menu, ciConfigured }
+      ctxMenu = { ...menu, ci }
     }
   }
 
@@ -329,7 +343,7 @@
   })
 
   function ctxRunCiJob(): void {
-    if (!ctxMenu || ctxMenu.ciConfigured !== true) return
+    if (!ctxMenu?.ci?.hasUsableCredentials) return
     const { wt } = ctxMenu
     closeCtxMenu()
     // The worktree's own checkout carries the repo config; its branch prefills the run.
@@ -427,20 +441,35 @@
             class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
             role="menuitem"
             onclick={ctxRunCiJob}
-            aria-disabled={ctxMenu.ciConfigured !== true}
-            aria-busy={ctxMenu.ciConfigured === null}
-            class:opacity-50={ctxMenu.ciConfigured !== true}
-            class:cursor-default={ctxMenu.ciConfigured !== true}
-            title={ctxMenu.ciConfigured === null
+            aria-disabled={!ctxMenu.ci?.hasUsableCredentials}
+            aria-busy={ctxMenu.ci === undefined}
+            class:opacity-50={!ctxMenu.ci?.hasUsableCredentials}
+            class:cursor-default={!ctxMenu.ci?.hasUsableCredentials}
+            title={ctxMenu.ci === undefined
               ? 'Checking this worktree for a CI configuration…'
-              : ctxMenu.ciConfigured
-                ? 'Queue a CI job on this branch — the branch must exist on the remote'
-                : 'CI/CD is not configured for this worktree'}
+              : ctxMenu.ci === null
+                ? 'CI/CD is not configured for this worktree'
+                : !ctxMenu.ci.hasUsableCredentials
+                  ? `${ctxMenu.ci.provider === 'github-actions' ? 'GitHub Actions' : 'TeamCity'} credentials are missing or need updating`
+                  : ctxMenu.ci.provider === 'github-actions'
+                    ? 'Run a GitHub Actions workflow on this branch — the branch must exist on the remote'
+                    : 'Queue a TeamCity job on this branch — the branch must exist on the remote'}
           >
             <span class="inline-flex items-center shrink-0">
-              <TrackerProviderIcon provider="teamcity" size={13} />
+              {#if ctxMenu.ci}
+                <TrackerProviderIcon
+                  provider={ctxMenu.ci.provider === 'github-actions' ? 'github' : 'teamcity'}
+                  size={13}
+                />
+              {:else if ctxMenu.ci === undefined}
+                <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
+              {/if}
             </span>
-            Run CI Job on Branch…
+            {ctxMenu.ci?.provider === 'github-actions'
+              ? 'Run CI Workflow on Branch…'
+              : ctxMenu.ci?.provider === 'teamcity'
+                ? 'Run CI Job on Branch…'
+                : 'Run CI on Branch…'}
           </button>
         {/if}
       {/if}
@@ -509,6 +538,7 @@
                   isMain: true,
                   isBare: false,
                 },
+                ci: null,
               }
             }
           }}

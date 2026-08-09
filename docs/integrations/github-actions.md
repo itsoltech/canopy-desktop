@@ -39,8 +39,8 @@ operations, but fine-grained tokens are preferred.
 
 ## Running a workflow
 
-- The generic **Run job…** action and the worktree action prefill the active worktree branch only
-  when that exact remote branch exists.
+- The generic **Run workflow…** action and the worktree **Run CI Workflow on Branch…** action
+  prefill the active worktree branch only when that exact remote branch exists.
 - Branches and tags are distinct choices. Canopy rejects an ambiguous name that exists as both.
 - Input controls are generated from the workflow file at the selected ref. Supported types are
   `string`, `boolean`, `choice`, and `environment`.

@@ -27,7 +27,7 @@
   // One wording for both providers. "Running run" is unusable, and "Running job" paired
   // with "Last run" would swap the NOUN every time a build ends. "Job" is this app's
   // cross-provider word already — the GitHub history window's own heading says
-  // "Jobs history", and the row above this card says "Run job…" for both.
+  // "Jobs history", while the row above this card uses the provider-specific run label.
   let cardTitle = $derived(active ? 'Running job' : 'Last job')
   let cardHint = $derived(
     `${cardTitle} for ${branch} — opens jobs history${issue ? ` (${issue.detail})` : ''}`,
