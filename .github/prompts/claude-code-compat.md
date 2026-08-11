@@ -88,13 +88,12 @@ Never hand-edit the dependency range on its own.
 - `src/main/changelog/` — changelog fetching module
 - `CLAUDE.md`, `AGENTS.md` — agent instruction files
 
-**Then discover more** — search broadly for additional references:
+**Then discover more** — search broadly for additional references using the `Grep` tool (not `grep`
+via Bash, which also walks `node_modules/` and buries real hits):
 
-```bash
-grep -r "claude" --include="*.ts" --include="*.yml" --include="*.md" --include="*.json" -l .
-grep -r "anthropic" --include="*.ts" --include="*.yml" --include="*.json" -l .
-grep -r "claude-code" -l .
-```
+- pattern `claude`, glob `**/*.{ts,yml,md,json}`
+- pattern `anthropic`, glob `**/*.{ts,yml,json}`
+- pattern `claude-code`
 
 ### 5. Apply changes
 
