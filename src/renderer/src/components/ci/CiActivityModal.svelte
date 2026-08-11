@@ -9,6 +9,7 @@
   import { ciChip, ciStatusTextClass } from '../../lib/ci/status'
   import { ipcErrorMessage } from '../../lib/ci/errors'
   import type { CiActivity, CiActivityBuild } from '../../lib/ci/types'
+  import CustomSelect from '../shared/CustomSelect.svelte'
 
   // Repository activity: running, queued and recent builds whose configurations
   // are selected in this repo's CI config. Refreshes while open.
@@ -39,6 +40,10 @@
       ? [...knownBranches, branchFilter].sort()
       : knownBranches,
   )
+  let branchPickerOptions = $derived([
+    { value: '', label: 'All branches' },
+    ...branchOptions.map((name) => ({ value: name, label: name })),
+  ])
 
   async function refresh(): Promise<void> {
     const mySeq = ++seq
@@ -230,18 +235,14 @@
       <h2 class="text-base font-semibold text-text m-0 leading-tight shrink-0">Jobs history</h2>
       <div class="flex items-center gap-1 min-w-0">
         <label class="sr-only" for="ci-history-branch">Filter by branch</label>
-        <select
-          id="ci-history-branch"
-          class="min-w-0 max-w-[200px] px-2 py-1 rounded-md border border-border bg-bg-input text-xs text-text"
-          value={branchFilter ?? ''}
-          onchange={(event) => (branchFilter = event.currentTarget.value || undefined)}
-          title="Show only builds of one branch"
-        >
-          <option value="">All branches</option>
-          {#each branchOptions as name (name)}
-            <option value={name}>{name}</option>
-          {/each}
-        </select>
+        <div class="w-[200px] min-w-0" title="Show only builds of one branch">
+          <CustomSelect
+            id="ci-history-branch"
+            value={branchFilter ?? ''}
+            options={branchPickerOptions}
+            onchange={(value) => (branchFilter = value || undefined)}
+          />
+        </div>
         <!-- aria-disabled, not disabled: `refreshing` flips on a 10 s TIMER, and a
              real disabled would blur a merely-focused user to <body>, past the
              focus trap on the descendant backdrop div. -->

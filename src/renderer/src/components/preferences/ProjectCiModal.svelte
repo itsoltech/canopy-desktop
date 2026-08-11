@@ -400,23 +400,17 @@
               : credentialGate.jobsReason
             : '',
   )
-  // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
-  // its colour cannot disagree (a flat severity disjunction paired a next-step
-  // sentence with the warning colour whenever an earlier cascade term won while
-  // over-cap was also true). Warning colour is only for the two terms that
-  // describe something WRONG (a file that cannot be written, a selection over
-  // the cap); the rest are next-step states, two of which render on mount, and
-  // painting those like the dropped-entry warnings above would devalue those.
-  let saveBlockedState = $derived.by((): { reason: string; severity: 'warn' | 'info' } => {
+  // One source for the Save tooltip and its assistive description keeps the two
+  // explanations from drifting apart.
+  let saveBlockedState = $derived.by((): { reason: string } => {
     if (configLoadScope === 'file') {
       return {
         reason:
           'Disabled: .canopy/config.json cannot be used, so the ci block cannot be written without overwriting the rest of the file',
-        severity: 'warn',
       }
     }
     if (busy === 'remove') {
-      return { reason: 'Disabled: the CI configuration is being removed', severity: 'info' }
+      return { reason: 'Disabled: the CI configuration is being removed' }
     }
     // `saving` without a `busy` action is the pre-confirm guard, and only
     // removeConfiguration awaits inside it (saveConfiguration sets both
@@ -424,45 +418,42 @@
     // rather than last: both describe the removal the user just started, and a
     // standing precondition about Save must not out-rank the modal on screen.
     if (saving && busy === '') {
-      return { reason: 'Disabled: confirm or dismiss the removal first', severity: 'info' }
+      return { reason: 'Disabled: confirm or dismiss the removal first' }
     }
     if (!urlValid) {
-      return { reason: URL_REQUIRED, severity: 'info' }
+      return { reason: URL_REQUIRED }
     }
     if (credentialRejected || (!isInitialSetup && !credentialGate.canLoadJobs)) {
-      return { reason: credentialGate.saveReason, severity: 'info' }
+      return { reason: credentialGate.saveReason }
     }
     if (!canLoadTypes) {
       return {
         reason: isInitialSetup
           ? 'Disabled: enter an access token first (or pick a server with one stored)'
           : 'Disabled: add a token in Personal credentials first',
-        severity: 'info',
       }
     }
     if (typesLoading) {
-      return { reason: "Disabled: loading the server's jobs…", severity: 'info' }
+      return { reason: "Disabled: loading the server's jobs…" }
     }
     if (!typesLoaded) {
       return {
         reason:
           'Disabled: click "Load available jobs" first - Canopy saves only jobs the server confirmed',
-        severity: 'info',
       }
     }
     if (effectiveBuildTypes.length > CI_MAX_BUILD_TYPES) {
       return {
         reason: `Disabled: at most ${CI_MAX_BUILD_TYPES} jobs can be configured - untick ${effectiveBuildTypes.length - CI_MAX_BUILD_TYPES}`,
-        severity: 'warn',
       }
     }
     if (effectiveBuildTypes.length === 0) {
-      return { reason: 'Disabled: tick at least one job below', severity: 'info' }
+      return { reason: 'Disabled: tick at least one job below' }
     }
     if (busy === 'save') {
-      return { reason: 'Disabled: an update is already in progress', severity: 'info' }
+      return { reason: 'Disabled: an update is already in progress' }
     }
-    return { reason: '', severity: 'info' }
+    return { reason: '' }
   })
 
   let serverBlockedReason = $derived(
@@ -773,11 +764,9 @@
             </span>
           </div>
 
-          <!-- NOT live: routine input changes do not need announcements;
-             configLoadScope can also arrive asynchronously, but the config error
-             is announced by the status region above. The empty persistent node is
-             visually collapsed; both buttons reference it on focus when populated. -->
-          <div class:sr-only={!serverBlockedReason}>
+          <!-- Keep the tooltip text available to assistive technology without
+             duplicating it as a visible label below the action. -->
+          <div class="sr-only">
             {#if serverBlockedReason}
               <span id="ci-server-blocked" class="text-xs text-text-secondary break-words"
                 >{serverBlockedReason}</span
@@ -947,20 +936,10 @@
         <div class="text-xs text-danger-text break-words" aria-live="polite">
           {saveError}
         </div>
-        <!-- Deliberately NOT live (the over-cap variant counts per tick — a live
-             region would announce every checkbox); the button's aria-describedby
-             reads it on focus, which is the modality that needs it. Renders
-             ALONGSIDE saveError (the reference must never dangle — AT ignores a
-             dangling describedby entirely), and in the same weight as the other
-             blocking explanations: this is the only visible reason the primary
-             button is dead, not a decorative hint. -->
+        <!-- Keep the tooltip text available to assistive technology without
+             duplicating it as a visible footer label. -->
         {#if saveBlockedState.reason}
-          <span
-            id="ci-save-blocked"
-            class="text-xs break-words {saveBlockedState.severity === 'warn'
-              ? 'text-warning-text'
-              : 'text-text-secondary'}">{saveBlockedState.reason}</span
-          >
+          <span id="ci-save-blocked" class="sr-only">{saveBlockedState.reason}</span>
         {/if}
       </div>
       <div class="flex items-center gap-1.5">

@@ -10,6 +10,7 @@
   import { ipcErrorMessage } from '../../lib/ci/errors'
   import type { CiRun, CiRunActivity } from '../../lib/ci/types'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
 
   let { repoRoot, initialBranch }: { repoRoot: string; initialBranch?: string } = $props()
   let activity = $state<CiRunActivity | null>(null)
@@ -36,6 +37,10 @@
       ? [...knownBranches, branchFilter].sort()
       : knownBranches,
   )
+  let branchPickerOptions = $derived([
+    { value: '', label: 'All branches' },
+    ...branchOptions.map((name) => ({ value: name, label: name })),
+  ])
 
   async function refresh(): Promise<void> {
     const current = ++sequence
@@ -209,18 +214,14 @@
       </h2>
       <div class="flex items-center gap-1 min-w-0">
         <label class="sr-only" for="github-history-branch">Filter by branch</label>
-        <select
-          id="github-history-branch"
-          class="min-w-0 max-w-[200px] px-2 py-1 rounded-md border border-border bg-bg-input text-xs text-text"
-          value={branchFilter ?? ''}
-          onchange={(event) => (branchFilter = event.currentTarget.value || undefined)}
-          title="Show only runs of one branch"
-        >
-          <option value="">All branches</option>
-          {#each branchOptions as name (name)}
-            <option value={name}>{name}</option>
-          {/each}
-        </select>
+        <div class="w-[200px] min-w-0" title="Show only runs of one branch">
+          <CustomSelect
+            id="github-history-branch"
+            value={branchFilter ?? ''}
+            options={branchPickerOptions}
+            onchange={(value) => (branchFilter = value || undefined)}
+          />
+        </div>
         <button
           type="button"
           class="flex size-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
