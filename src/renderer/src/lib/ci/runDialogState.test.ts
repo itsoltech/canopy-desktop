@@ -100,6 +100,25 @@ describe('GitHub dispatch permission errors', () => {
 })
 
 describe('CI run dialog controller', () => {
+  it('strips Electron IPC wrappers from ref-loading failures', async () => {
+    await withDialogState(
+      {
+        ciJobRefs: vi
+          .fn()
+          .mockRejectedValue(
+            new Error(
+              "Error invoking remote method 'ci:jobRefs': Error: GitHub token was rejected",
+            ),
+          ),
+        ciJobParameters: vi.fn(),
+      },
+      async (state) => {
+        state.initialize()
+        await vi.waitFor(() => expect(state.visibleError).toBe('GitHub token was rejected'))
+      },
+    )
+  })
+
   it('ignores a stale refs response after the selected workflow changes', async () => {
     const first = deferred<Array<{ name: string; kind: 'branch' }>>()
     const second = deferred<Array<{ name: string; kind: 'branch' }>>()

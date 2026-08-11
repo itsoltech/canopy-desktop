@@ -114,8 +114,14 @@ function defaultBinding(provider: string, baseUrl: string): string {
   if (provider === 'github-actions') {
     return `ci:github-actions:${audience.host}/${audience.repository ?? ''}`
   }
-  if (provider === 'teamcity') return `ci:teamcity:${normalizeUrl(baseUrl).toLowerCase()}`
+  // URL parsing already case-folds the host. Preserve the case-sensitive context path so
+  // two TeamCity installations cannot collapse onto the same credential binding.
+  if (provider === 'teamcity') return `ci:teamcity:${normalizeUrl(baseUrl)}`
   return `credential:shared:tracker:${provider}:${normalizeUrl(baseUrl).toLowerCase()}`
+}
+
+function legacyTeamCityBinding(baseUrl: string): string {
+  return `ci:teamcity:${normalizeUrl(baseUrl).toLowerCase()}`
 }
 
 function descriptorProvider(descriptor: CredentialDescriptor): string {
@@ -136,6 +142,38 @@ export class KeychainTokenStore {
   constructor(private preferencesStore: PreferencesStore) {
     this.registry = new CredentialRegistry(preferencesStore)
     this.migrateStableCredentials()
+  }
+
+  private migrateLegacyTeamCityBinding(
+    provider: string,
+    baseUrl: string,
+    bindingKey: string,
+  ): void {
+    if (provider !== 'teamcity' || bindingKey !== defaultBinding(provider, baseUrl)) return
+    const bindings = this.registry.listBindings()
+    const legacyBinding = legacyTeamCityBinding(baseUrl)
+    if (legacyBinding === bindingKey) return
+    const currentCredentialId = bindings[bindingKey]
+    if (currentCredentialId) {
+      // A failed second write during an earlier migration may leave both aliases behind.
+      // Clean only an alias that points to the same audience-checked credential.
+      if (bindings[legacyBinding] === currentCredentialId) this.registry.unbind(legacyBinding)
+      return
+    }
+    const credentialId = bindings[legacyBinding]
+    if (!credentialId) return
+    const audience = audienceFor(provider, baseUrl)
+    const credential = this.registry.list().find((entry) => entry.id === credentialId)
+    if (
+      !credential ||
+      credential.service !== 'teamcity' ||
+      credential.audience.host !== audience.host ||
+      credential.audience.baseUrl !== audience.baseUrl
+    ) {
+      return
+    }
+    this.registry.bind(bindingKey, credentialId)
+    this.registry.unbind(legacyBinding)
   }
 
   listCredentials(): StoredTrackerCredential[] {
@@ -188,6 +226,7 @@ export class KeychainTokenStore {
     if (!spec.capabilities.includes(capability)) {
       return err({ _tag: 'CredentialCapabilityUnsupported', provider, capability })
     }
+    this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
     const wasBound = this.registry.listBindings()[bindingKey]
     return this.registry
       .resolve({
@@ -235,6 +274,7 @@ export class KeychainTokenStore {
   ): Result<CredentialDescriptor, CredentialError> {
     const spec = providerSpec(provider)
     if (!spec) return err({ _tag: 'CredentialProviderUnsupported', provider })
+    this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
     const currentlyBoundId = this.registry.listBindings()[bindingKey]
     const currentlyBound = this.registry
       .list()
@@ -282,6 +322,7 @@ export class KeychainTokenStore {
     bindingKey = defaultBinding(provider, baseUrl),
     liveTrackerBindingKeys?: ReadonlySet<string>,
   ): { removed: boolean; retainedBindings: string[] } {
+    this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
     const credentialId = this.registry.listBindings()[bindingKey]
     if (!credentialId) return { removed: false, retainedBindings: [] }
     if (liveTrackerBindingKeys) {

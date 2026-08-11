@@ -189,4 +189,68 @@ describe('KeychainTokenStore capability facade', () => {
     })
     expect(store.getCredentials('teamcity', baseUrl)?.token).toBe('token')
   })
+
+  it('keeps TeamCity context-path casing distinct', () => {
+    const store = new KeychainTokenStore(fakePreferences())
+    store.setCredentials('teamcity', 'https://tc.example.com/teamcity', 'lower-token')
+    store.setCredentials('teamcity', 'https://tc.example.com/TeamCity', 'mixed-token')
+
+    expect(store.getCredentials('teamcity', 'https://tc.example.com/teamcity')?.token).toBe(
+      'lower-token',
+    )
+    expect(store.getCredentials('teamcity', 'https://tc.example.com/TeamCity')?.token).toBe(
+      'mixed-token',
+    )
+  })
+
+  it('migrates the legacy lower-cased TeamCity binding when its audience matches', () => {
+    const baseUrl = 'https://tc.example.com/TeamCity'
+    const store = new KeychainTokenStore(fakePreferences())
+    const credential = store.registry.save({
+      service: 'teamcity',
+      authMethod: 'pat',
+      audience: { host: 'tc.example.com', baseUrl },
+      intendedUses: ['teamcity'],
+      capabilities: ['builds.read', 'builds.trigger'],
+      secret: 'token',
+    })
+    store.registry.bind(`ci:teamcity:${baseUrl.toLowerCase()}`, credential.id)
+
+    expect(store.getCredentials('teamcity', baseUrl)?.token).toBe('token')
+    expect(store.listCredentials()[0].bindings).toEqual([`ci:teamcity:${baseUrl}`])
+  })
+
+  it('can delete a matching legacy TeamCity binding before it is otherwise resolved', () => {
+    const baseUrl = 'https://tc.example.com/TeamCity'
+    const store = new KeychainTokenStore(fakePreferences())
+    const credential = store.registry.save({
+      service: 'teamcity',
+      authMethod: 'pat',
+      audience: { host: 'tc.example.com', baseUrl },
+      intendedUses: ['teamcity'],
+      capabilities: ['builds.read', 'builds.trigger'],
+      secret: 'token',
+    })
+    store.registry.bind(`ci:teamcity:${baseUrl.toLowerCase()}`, credential.id)
+
+    expect(store.deleteCredentials('teamcity', baseUrl)).toEqual({
+      removed: true,
+      retainedBindings: [],
+    })
+    expect(store.listCredentials()).toEqual([])
+  })
+
+  it('cleans a duplicate legacy alias before deleting the current TeamCity binding', () => {
+    const baseUrl = 'https://tc.example.com/TeamCity'
+    const store = new KeychainTokenStore(fakePreferences())
+    store.setCredentials('teamcity', baseUrl, 'token')
+    const credential = store.listCredentials()[0]
+    store.registry.bind(`ci:teamcity:${baseUrl.toLowerCase()}`, credential.id)
+
+    expect(store.deleteCredentials('teamcity', baseUrl)).toEqual({
+      removed: true,
+      retainedBindings: [],
+    })
+    expect(store.listCredentials()).toEqual([])
+  })
 })

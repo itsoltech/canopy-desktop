@@ -8,6 +8,7 @@
   import { bumpCiCredentialTick, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { githubTokenCreationUrl } from '../../lib/ci/githubToken'
+  import { ipcErrorMessage } from '../../lib/ci/errors'
   import type { GitHubActionsCiRepoConfigInfo } from '../../lib/ci/types'
   import CiJobPicker from '../ci/CiJobPicker.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
@@ -162,12 +163,12 @@
       } catch (cause) {
         hasToken = false
         credentialRejected = false
-        error = cause instanceof Error ? cause.message : 'Could not check the stored GitHub token'
+        error = ipcErrorMessage(cause, 'Could not check the stored GitHub token')
       }
       loadStoredConfiguration = hasToken && !credentialRejected
     } catch (cause) {
       repository = ''
-      error = cause instanceof Error ? cause.message : 'Could not load GitHub Actions setup'
+      error = ipcErrorMessage(cause, 'Could not load GitHub Actions setup')
       repositoryResolutionIssue = 'Could not resolve this workspace’s GitHub origin remote.'
     } finally {
       repositoryResolving = false
@@ -200,7 +201,7 @@
       testResult = 'success'
     } catch (cause) {
       testResult = 'fail'
-      error = cause instanceof Error ? cause.message : 'GitHub connection failed'
+      error = ipcErrorMessage(cause, 'GitHub connection failed')
     } finally {
       testing = false
     }
@@ -221,7 +222,7 @@
       testResult = 'success'
       return true
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not store the GitHub token'
+      error = ipcErrorMessage(cause, 'Could not store the GitHub token')
       return false
     }
   }
@@ -264,7 +265,7 @@
       workflows = setup.workflows
       loaded = true
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Could not load GitHub workflows'
+      const message = ipcErrorMessage(cause, 'Could not load GitHub workflows')
       const storedCredential =
         hasToken && token.trim().length === 0 && credentialUrl
           ? await window.api
@@ -309,7 +310,7 @@
       addToast('GitHub Actions configuration saved — commit .canopy/config.json to share it')
       closeDialog()
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not save CI configuration'
+      error = ipcErrorMessage(cause, 'Could not save CI configuration')
     } finally {
       saving = false
     }
@@ -332,7 +333,7 @@
       addToast('CI configuration removed')
       closeDialog()
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not remove CI configuration'
+      error = ipcErrorMessage(cause, 'Could not remove CI configuration')
     } finally {
       saving = false
     }
@@ -521,7 +522,6 @@
             type="button"
             class="px-3 py-1 rounded-md text-sm border border-border bg-bg-input text-text-secondary cursor-pointer hover:bg-hover-strong aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input"
             onclick={loadWorkflows}
-            disabled={loadBlocked}
             aria-disabled={loadBlocked}
             aria-describedby={loadBlockedReason ? 'github-ci-load-blocked' : undefined}
             aria-busy={loading}>{loading ? 'Loading…' : 'Load workflows'}</button

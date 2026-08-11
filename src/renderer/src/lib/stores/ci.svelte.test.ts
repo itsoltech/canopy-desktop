@@ -190,7 +190,11 @@ describe('triggerCiJob + observeRun', () => {
   })
 
   it('does not retry a rejected dispatch', async () => {
-    api.ciTriggerJob.mockRejectedValueOnce(new Error('GitHub API error 422: rejected'))
+    api.ciTriggerJob.mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'ci:triggerJob': Error: GitHub API error 422: rejected",
+      ),
+    )
 
     const failure = await triggerCiJob(
       'r',

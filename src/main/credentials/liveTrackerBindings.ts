@@ -10,8 +10,11 @@ import type { Result } from 'neverthrow'
  * shared secret a repository on disk still uses.
  */
 export interface LiveTrackerBindingDeps<TrackerLike> {
-  /** Trackers from the machine-global config. */
-  globalTrackers: TrackerLike[]
+  /**
+   * Trackers from the machine-global config. `undefined` means the config exists but
+   * cannot be interpreted, so pruning must fail open instead of treating it as empty.
+   */
+  globalTrackers: TrackerLike[] | undefined
   /** Persisted workspace paths, already truncated by the store's listing bound. */
   workspacePaths: string[]
   /** Paths open in any window — included even if they fall outside the listing. */
@@ -35,6 +38,8 @@ export async function liveTrackerBindingKeys<TrackerLike>({
   loadTrackers,
   bindingKeyFor,
 }: LiveTrackerBindingDeps<TrackerLike>): Promise<Set<string> | undefined> {
+  if (!globalTrackers) return undefined
+
   // A truncated listing is an incomplete live set — a binding held by a workspace
   // past the bound would be unbound and its shared secret deleted.
   if (workspaceCount > listMax) return undefined

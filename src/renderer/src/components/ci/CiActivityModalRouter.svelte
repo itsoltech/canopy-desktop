@@ -3,6 +3,7 @@
   import { LoaderCircle, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
+  import { ipcErrorMessage } from '../../lib/ci/errors'
   import CiActivityModal from './CiActivityModal.svelte'
   import GitHubActionsActivityModal from './GitHubActionsActivityModal.svelte'
 
@@ -19,7 +20,7 @@
       provider = result.config?.provider ?? ''
       if (!provider) error = result.invalid?.message ?? 'No CI configured for this repository'
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not load CI configuration'
+      error = ipcErrorMessage(cause, 'Could not load CI configuration')
     } finally {
       loading = false
     }

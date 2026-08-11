@@ -78,6 +78,17 @@ export function toInputs(
   return Object.fromEntries(entries)
 }
 
+/** The exact GitHub dispatch payload represented as display-safe confirmation rows. */
+export function toSubmittedInputs(
+  params: CiParameter[],
+  values: Record<string, string>,
+): Array<{ name: string; value: string }> {
+  return Object.entries(toInputs(params, values)).map(([name, value]) => ({
+    name,
+    value: String(value),
+  }))
+}
+
 /**
  * What the user actually changed, for the confirmation step. `toProperties` submits EVERY
  * prompt parameter, so a configuration with dozens of them would bury the one that matters.

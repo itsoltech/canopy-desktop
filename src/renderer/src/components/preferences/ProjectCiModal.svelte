@@ -496,7 +496,7 @@
       addToast('CI configuration saved - commit .canopy/config.json to share it')
       closeDialog()
     } catch (e) {
-      saveError = e instanceof Error ? e.message : 'Failed to save CI configuration'
+      saveError = ipcErrorMessage(e, 'Failed to save CI configuration')
     } finally {
       saving = false
       busy = ''
@@ -532,7 +532,7 @@
       addToast('CI configuration removed')
       closeDialog()
     } catch (e) {
-      saveError = e instanceof Error ? e.message : 'Failed to remove CI configuration'
+      saveError = ipcErrorMessage(e, 'Failed to remove CI configuration')
     } finally {
       saving = false
       busy = ''

@@ -99,6 +99,12 @@ export class GlobalConfigManager {
     return this.load() !== null
   }
 
+  /** Whether a global config value is stored, including one `load()` rejects as invalid. */
+  hasStoredConfig(): boolean {
+    this.migrateIfNeeded()
+    return this.preferencesStore.get(GLOBAL_CONFIG_KEY) !== null
+  }
+
   getBranchTemplate(
     config: RepoConfig,
     boardId?: string,

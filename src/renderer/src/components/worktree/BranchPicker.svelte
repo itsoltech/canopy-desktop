@@ -148,10 +148,13 @@
       {label}
     </label>
     <button
-      class="flex items-center justify-center w-[22px] h-[22px] p-0 border-0 rounded-md bg-transparent text-text-muted cursor-pointer transition-colors duration-fast enabled:hover:bg-active enabled:hover:text-text-secondary disabled:opacity-50 disabled:cursor-default"
-      onclick={onRefresh}
-      disabled={refreshing}
-      title="Fetch from remote"
+      class="flex items-center justify-center w-[22px] h-[22px] p-0 border-0 rounded-md bg-transparent text-text-muted cursor-pointer transition-colors duration-fast hover:bg-active hover:text-text-secondary aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
+      onclick={() => {
+        if (!refreshing) void onRefresh()
+      }}
+      aria-disabled={refreshing}
+      aria-busy={refreshing}
+      title={refreshing ? 'Fetching branches from remote' : 'Fetch from remote'}
       aria-label="Fetch from remote"
       type="button"
     >

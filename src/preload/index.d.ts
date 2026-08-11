@@ -1820,6 +1820,7 @@ type CiErrorCode =
   | 'CiConfigInvalid'
   | 'CiConfigUnwritable'
   | 'CiAuthMissing'
+  | 'CiCredentialUnavailable'
   | 'CiRepositoryMismatch'
   | 'CiWorkflowSchemaInvalid'
   | 'CiWorkflowSchemaChanged'

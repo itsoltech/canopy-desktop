@@ -3237,8 +3237,10 @@ export function registerIpcHandlers(
 
   /** Tracker bindings are machine-global; prune only against persisted workspace configs too. */
   function currentLiveTrackerBindingKeys(): Promise<Set<string> | undefined> {
+    const globalConfig = globalConfigManager.load()
     return liveTrackerBindingKeys<RepoConfig['trackers'][number]>({
-      globalTrackers: globalConfigManager.load()?.trackers ?? [],
+      globalTrackers:
+        globalConfig?.trackers ?? (globalConfigManager.hasStoredConfig() ? undefined : []),
       workspacePaths: workspaceStore.list(WorkspaceStore.LIST_MAX).map((w) => w.path),
       windowPaths: windowManager
         .getAllWindowConfigs()

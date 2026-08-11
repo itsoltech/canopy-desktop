@@ -72,6 +72,21 @@ describe('liveTrackerBindingKeys', () => {
     expect(keys).toBeUndefined()
   })
 
+  it('fails open when the machine-global config exists but is invalid', async () => {
+    const loadTrackers = vi.fn(async () => ok({ trackers: [] }))
+    const keys = await liveTrackerBindingKeys(
+      deps({
+        globalTrackers: undefined,
+        workspacePaths: ['/configured'],
+        workspaceCount: 1,
+        loadTrackers,
+      }),
+    )
+
+    expect(keys).toBeUndefined()
+    expect(loadTrackers).not.toHaveBeenCalled()
+  })
+
   it('fails open when more workspaces are persisted than the listing returns', async () => {
     const loadTrackers = vi.fn(async () => ok({ trackers: [] }))
     const keys = await liveTrackerBindingKeys(

@@ -2,12 +2,14 @@ import { untrack } from 'svelte'
 import { match } from 'ts-pattern'
 import { closeDialog } from '../stores/dialogs.svelte'
 import { triggerCiBuild, triggerCiJob } from '../stores/ci.svelte'
+import { ipcErrorMessage } from './errors'
 import {
   changedProperties,
   initialFormValues,
   missingRequired,
   toInputs,
   toProperties,
+  toSubmittedInputs,
 } from './runBuildForm'
 import type { CiParameter, CiRef, CiRepoConfigInfo } from './types'
 
@@ -123,10 +125,7 @@ export function createCiRunDialogState(
   const submitted = $derived.by(() => {
     if (!parameters) return []
     if (config.provider === 'teamcity') return toProperties(parameters, values)
-    return parameters.map((parameter) => ({
-      name: parameter.name,
-      value: values[parameter.name] ?? '',
-    }))
+    return toSubmittedInputs(parameters, values)
   })
   const changed = $derived(parameters ? changedProperties(parameters, submitted) : [])
   const loading = $derived(refsLoading || parametersLoading)
@@ -318,12 +317,10 @@ export function createCiRunDialogState(
     } catch (cause) {
       if (sequence !== refsSequence || requestedJobId !== jobId) return
       refs = []
-      refsError =
-        cause instanceof Error
-          ? cause.message
-          : isTeamCity
-            ? 'Failed to load branches'
-            : 'Could not load GitHub refs'
+      refsError = ipcErrorMessage(
+        cause,
+        isTeamCity ? 'Failed to load branches' : 'Could not load GitHub refs',
+      )
     } finally {
       if (sequence === refsSequence) refsLoading = false
     }
@@ -366,12 +363,10 @@ export function createCiRunDialogState(
         requestedRefName !== selectedRefName
       )
         return
-      parametersError =
-        cause instanceof Error
-          ? cause.message
-          : isTeamCity
-            ? 'Failed to load build parameters'
-            : 'Could not load workflow inputs'
+      parametersError = ipcErrorMessage(
+        cause,
+        isTeamCity ? 'Failed to load build parameters' : 'Could not load workflow inputs',
+      )
     } finally {
       if (sequence === parametersSequence) parametersLoading = false
     }

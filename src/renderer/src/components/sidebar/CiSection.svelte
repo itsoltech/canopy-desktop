@@ -102,12 +102,6 @@
 
   async function refreshActivity(root: string): Promise<void> {
     const seq = ++activitySeq
-    // A retry after an authentication failure is a foreground recovery, not a
-    // background refresh. Drop the stale error while the replacement token is checked.
-    if (activityError) {
-      activityError = ''
-      activityLoaded = false
-    }
     try {
       const result =
         config?.provider === 'github-actions'

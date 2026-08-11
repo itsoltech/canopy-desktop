@@ -2,6 +2,7 @@ import { untrack } from 'svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import { match } from 'ts-pattern'
 import { addToast, isStickyToastVisible } from './toast.svelte'
+import { ipcErrorMessage } from '../ci/errors'
 import type { CiJobStatus, CiRepoConfigInfo, CiRun } from '../ci/types'
 
 // CI (TeamCity) build status for the sidebar GIT section. State is scoped to one
@@ -419,7 +420,7 @@ export async function triggerCiJob(
     setTimeout(() => void refreshCiJobs(repoRoot, result.ref.name), QUEUED_CATCH_MS)
     return null
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to trigger workflow'
+    const message = ipcErrorMessage(error, 'Failed to trigger workflow')
     return { kind: 'failure', code: 'CiIpcError', message }
   }
 }

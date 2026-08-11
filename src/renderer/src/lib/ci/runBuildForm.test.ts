@@ -7,6 +7,7 @@ import {
   multiValues,
   toInputs,
   toProperties,
+  toSubmittedInputs,
   toggleCheckbox,
   toggleMultiValue,
 } from './runBuildForm'
@@ -161,6 +162,28 @@ describe('toInputs', () => {
       notes: 'safe',
       channel: 'next',
     })
+  })
+
+  it('uses the exact dispatched input set for confirmation rows', () => {
+    const params = [
+      param({
+        name: 'dry_run',
+        kind: 'checkbox',
+        valueType: 'boolean',
+        checkedValue: 'true',
+        uncheckedValue: 'false',
+      }),
+      param({ name: 'environment', kind: 'select', hasDefault: true, defaultValue: 'staging' }),
+      param({ name: 'notes' }),
+    ]
+    const values = { dry_run: 'false', environment: '', notes: '' }
+
+    expect(toSubmittedInputs(params, values)).toEqual([{ name: 'dry_run', value: 'false' }])
+    expect(
+      Object.fromEntries(toSubmittedInputs(params, values).map((row) => [row.name, row.value])),
+    ).toEqual(
+      Object.fromEntries(Object.entries(toInputs(params, values)).map(([k, v]) => [k, String(v)])),
+    )
   })
 })
 

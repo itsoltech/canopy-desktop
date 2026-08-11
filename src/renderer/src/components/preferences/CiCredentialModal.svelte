@@ -31,6 +31,7 @@
   let token = $state('')
   let submitting = $state(false)
   let saving = $state(false)
+  let openingTokenPage = $state(false)
   let error = $state('')
 
   let isGitHub = $derived(config.provider === 'github-actions')
@@ -87,12 +88,32 @@
     })
   }
 
-  function openTokenPage(): void {
-    const url =
-      config.provider === 'github-actions'
-        ? githubTokenCreationUrl(config.repository)
-        : teamCityTokenCreationUrl(config.baseUrl)
-    void window.api.openExternal(url)
+  async function openTokenPage(): Promise<void> {
+    if (openingTokenPage) return
+    if (config.provider === 'github-actions') {
+      await window.api.openExternal(githubTokenCreationUrl(config.repository))
+      return
+    }
+    openingTokenPage = true
+    try {
+      const parentRect = containerEl?.getBoundingClientRect()
+      const accepted = await confirm({
+        title: 'Confirm TeamCity address',
+        message: `Open the token page at ${config.baseUrl}?`,
+        details:
+          'This address comes from the repository shared CI configuration. Only continue if you recognize it as your TeamCity server.',
+        confirmLabel: 'Open token page',
+        anchorCenter: parentRect
+          ? {
+              x: parentRect.left + parentRect.width / 2,
+              y: parentRect.top + parentRect.height / 2,
+            }
+          : undefined,
+      })
+      if (accepted) await window.api.openExternal(teamCityTokenCreationUrl(config.baseUrl))
+    } finally {
+      openingTokenPage = false
+    }
   }
 
   async function saveToken(): Promise<void> {
@@ -197,6 +218,7 @@
             type="button"
             class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
             onclick={openTokenPage}
+            aria-disabled={openingTokenPage}
           >
             Generate token {isGitHub ? 'on GitHub' : 'in TeamCity'} →
           </button>
@@ -234,8 +256,9 @@
         >
         <button
           type="submit"
-          class="flex items-center justify-center gap-1.5 min-w-28 px-3 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-sm cursor-pointer hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default disabled:hover:bg-accent-bg"
-          disabled={!canSave}
+          class="flex items-center justify-center gap-1.5 min-w-28 px-3 py-1 rounded-md border-0 bg-accent-bg text-accent-text text-sm cursor-pointer hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
+          aria-disabled={!canSave}
+          title={canSave ? 'Update token' : 'Enter a token or wait for the current request'}
           aria-busy={saving}
         >
           {#if saving}
