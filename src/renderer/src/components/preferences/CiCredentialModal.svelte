@@ -5,6 +5,7 @@
   import { replaceCiCredential } from '../../lib/ci/credentialUpdate'
   import { ipcErrorMessage } from '../../lib/ci/errors'
   import { githubTokenCreationUrl } from '../../lib/ci/githubToken'
+  import { teamCityTokenCreationUrl } from '../../lib/ci/teamCityToken'
   import type { CiRepoConfigInfo } from '../../lib/ci/types'
   import { bumpCiCredentialTick, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
@@ -79,10 +80,12 @@
     })
   }
 
-  function openGitHubTokenPage(): void {
-    if (config.provider === 'github-actions') {
-      void window.api.openExternal(githubTokenCreationUrl(config.repository))
-    }
+  function openTokenPage(): void {
+    const url =
+      config.provider === 'github-actions'
+        ? githubTokenCreationUrl(config.repository)
+        : teamCityTokenCreationUrl(config.baseUrl)
+    void window.api.openExternal(url)
   }
 
   async function saveToken(): Promise<void> {
@@ -183,15 +186,13 @@
           >
             New access token
           </label>
-          {#if isGitHub}
-            <button
-              type="button"
-              class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
-              onclick={openGitHubTokenPage}
-            >
-              Generate token on GitHub →
-            </button>
-          {/if}
+          <button
+            type="button"
+            class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
+            onclick={openTokenPage}
+          >
+            Generate token {isGitHub ? 'on GitHub' : 'in TeamCity'} →
+          </button>
         </div>
         <input
           bind:this={tokenInputEl}

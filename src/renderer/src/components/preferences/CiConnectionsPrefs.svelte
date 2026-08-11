@@ -5,6 +5,7 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import { bumpCiCredentialTick } from '../../lib/stores/ci.svelte'
   import { credentialRemovalMessage } from '../../lib/credentials/removal'
+  import { teamCityTokenCreationUrl } from '../../lib/ci/teamCityToken'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
@@ -110,7 +111,7 @@
   // jump straight to the server's token page.
   function openTokenPage(): void {
     if (!urlValid) return
-    window.api.openExternal(`${normalizedUrl}/profile.html?item=accessTokens`)
+    window.api.openExternal(teamCityTokenCreationUrl(normalizedUrl))
   }
 
   // Same destination gate as the per-repo configurator (once per URL): the token is
