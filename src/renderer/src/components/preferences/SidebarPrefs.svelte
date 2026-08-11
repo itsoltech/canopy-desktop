@@ -7,6 +7,7 @@
     SECTION_DEFS,
     getSidebarConfig,
     saveSidebarConfig,
+    setSidebarSectionVisibility,
     type SidebarSectionConfig,
   } from '../../lib/stores/sidebarSections.svelte'
   import { getPref } from '../../lib/stores/preferences.svelte'
@@ -17,7 +18,7 @@
   function toggleVisibility(index: number): void {
     const def = SECTION_DEFS.find((d) => d.id === config[index].id)
     if (def?.forced) return
-    config[index] = { ...config[index], visible: !config[index].visible }
+    config = setSidebarSectionVisibility(config, config[index].id, !config[index].visible)
     saveSidebarConfig(config)
   }
 

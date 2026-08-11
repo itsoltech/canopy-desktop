@@ -1,7 +1,15 @@
 import { setPref } from './preferences.svelte'
 
 export type SidebarSectionId =
-  'projects' | 'git' | 'files' | 'tools' | 'tasks' | 'cicd' | 'runConfigs' | 'remote'
+  | 'projects'
+  | 'git'
+  | 'pullRequests'
+  | 'files'
+  | 'tools'
+  | 'tasks'
+  | 'cicd'
+  | 'runConfigs'
+  | 'remote'
 
 export interface SidebarSectionDef {
   id: SidebarSectionId
@@ -11,7 +19,8 @@ export interface SidebarSectionDef {
 
 export const SECTION_DEFS: SidebarSectionDef[] = [
   { id: 'projects', label: 'Projects', forced: true },
-  { id: 'git', label: 'Git', forced: false },
+  { id: 'git', label: 'Git - full', forced: false },
+  { id: 'pullRequests', label: 'Git - only pull requests', forced: false },
   { id: 'files', label: 'Files', forced: false },
   { id: 'tools', label: 'Tools', forced: false },
   { id: 'tasks', label: 'Project management', forced: false },
@@ -30,6 +39,7 @@ const PREF_KEY = 'sidebar.sections'
 const DEFAULT_CONFIG: SidebarSectionConfig[] = [
   { id: 'projects', visible: true },
   { id: 'git', visible: true },
+  { id: 'pullRequests', visible: false },
   { id: 'files', visible: false },
   { id: 'tools', visible: true },
   { id: 'tasks', visible: false },
@@ -58,13 +68,39 @@ export function getSidebarConfig(raw: string): SidebarSectionConfig[] {
     for (const def of SECTION_DEFS) {
       if (!ids.includes(def.id)) {
         const defaultItem = DEFAULT_CONFIG.find((d) => d.id === def.id)
-        result.push({ id: def.id, visible: defaultItem?.visible ?? false })
+        const item = { id: def.id, visible: defaultItem?.visible ?? false }
+        if (def.id === 'pullRequests') {
+          const gitIndex = result.findIndex((section) => section.id === 'git')
+          result.splice(gitIndex < 0 ? result.length : gitIndex + 1, 0, item)
+        } else {
+          result.push(item)
+        }
       }
     }
+    const git = result.find((section) => section.id === 'git')
+    const pullRequests = result.find((section) => section.id === 'pullRequests')
+    if (git?.visible && pullRequests?.visible) pullRequests.visible = false
     return result
   } catch {
     return DEFAULT_CONFIG
   }
+}
+
+export function setSidebarSectionVisibility(
+  config: SidebarSectionConfig[],
+  id: SidebarSectionId,
+  visible: boolean,
+): SidebarSectionConfig[] {
+  return config.map((item) => {
+    if (item.id === id) return { ...item, visible }
+    if (
+      visible &&
+      ((id === 'git' && item.id === 'pullRequests') || (id === 'pullRequests' && item.id === 'git'))
+    ) {
+      return { ...item, visible: false }
+    }
+    return item
+  })
 }
 
 export function saveSidebarConfig(config: SidebarSectionConfig[]): void {

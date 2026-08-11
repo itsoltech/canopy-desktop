@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import ProjectTreeSection from './ProjectTreeSection.svelte'
   import GitSection from './GitSection.svelte'
+  import PullRequestSection from './PullRequestSection.svelte'
   import FileTreeSection from './FileTreeSection.svelte'
   import ToolSection from './ToolSection.svelte'
   import TaskTrackerSection from './TaskTrackerSection.svelte'
@@ -51,6 +52,10 @@
         {:else if section.id === 'git'}
           {#if workspaceState.isGitRepo && workspaceState.selectedWorktreePath}
             <GitSection />
+          {/if}
+        {:else if section.id === 'pullRequests'}
+          {#if workspaceState.isGitRepo && workspaceState.selectedWorktreePath}
+            <PullRequestSection />
           {/if}
         {:else if section.id === 'files'}
           <FileTreeSection />

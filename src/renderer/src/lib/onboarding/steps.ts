@@ -198,7 +198,7 @@ export const onboardingSteps: OnboardingStep[] = [
     id: 'task-tracker-panel',
     title: 'Work with tracker tasks and PRs in place',
     description:
-      'The sidebar Project Management section links tracker tasks to worktrees, and the GIT section shows the branch pull request with a native create/inspect flow. The right panel gains a Task tab: change status, read and add comments, preview attachments, and send the task or a comment — with your own notes or an image — to the active agent.',
+      'The sidebar Project Management section links tracker tasks to worktrees, and the Git or Pull requests section shows the branch pull request with a native create/inspect flow. The right panel gains a Task tab: change status, read and add comments, preview attachments, and send the task or a comment - with your own notes or an image - to the active agent.',
     introducedIn: '0.13.0',
     category: 'feature',
   },
