@@ -12,7 +12,12 @@ import {
   nextCiRunStage,
   previousCiRunStage,
 } from './runDialogState.svelte'
-import type { GitHubActionsCiRepoConfigInfo } from './types'
+import type {
+  CiParameter,
+  CiRepoConfigInfo,
+  GitHubActionsCiRepoConfigInfo,
+  TeamCityCiRepoConfigInfo,
+} from './types'
 
 const GITHUB_CONFIG: GitHubActionsCiRepoConfigInfo = {
   provider: 'github-actions',
@@ -22,6 +27,26 @@ const GITHUB_CONFIG: GitHubActionsCiRepoConfigInfo = {
     { path: '.github/workflows/a.yml', label: 'A' },
     { path: '.github/workflows/b.yml', label: 'B' },
   ],
+}
+
+const TEAMCITY_CONFIG: TeamCityCiRepoConfigInfo = {
+  provider: 'teamcity',
+  baseUrl: 'https://tc.example.test',
+  buildTypes: [{ id: 'Build_Deploy', label: 'Build & Deploy WIP' }],
+}
+
+const DEPLOY_PARAMETER: CiParameter = {
+  name: 'Deploy',
+  kind: 'checkbox',
+  label: 'Deploy',
+  description: undefined,
+  required: false,
+  defaultValue: '',
+  options: undefined,
+  multiple: false,
+  valueSeparator: ',',
+  checkedValue: '-Deploy',
+  uncheckedValue: undefined,
 }
 
 function deferred<T>(): {
@@ -36,11 +61,13 @@ function deferred<T>(): {
 function withDialogState(
   api: Record<string, ReturnType<typeof vi.fn>>,
   run: (state: ReturnType<typeof createCiRunDialogState>) => Promise<void>,
+  config: CiRepoConfigInfo = GITHUB_CONFIG,
+  initialBranch = 'main',
 ): Promise<void> {
   vi.stubGlobal('window', { api })
   let state!: ReturnType<typeof createCiRunDialogState>
   const dispose = effect_root(() => {
-    state = createCiRunDialogState('repo', 'main', GITHUB_CONFIG)
+    state = createCiRunDialogState('repo', initialBranch, config)
   })
   flushSync()
   return run(state).finally(() => {
@@ -100,6 +127,39 @@ describe('GitHub dispatch permission errors', () => {
 })
 
 describe('CI run dialog controller', () => {
+  it('loads and triggers a TeamCity build through the shared controller', async () => {
+    const ciBranches = vi.fn().mockResolvedValue(['develop', 'main'])
+    const ciBuildParameters = vi.fn().mockResolvedValue([DEPLOY_PARAMETER])
+    const ciTrigger = vi.fn().mockRejectedValue(new Error('stop after capturing the request'))
+
+    await withDialogState(
+      { ciBranches, ciBuildParameters, ciTrigger },
+      async (state) => {
+        state.initialize()
+        await vi.waitFor(() => expect(state.canContinue).toBe(true))
+
+        expect(ciBranches).toHaveBeenCalledWith('repo', 'Build_Deploy')
+        expect(ciBuildParameters).toHaveBeenCalledWith('repo', 'Build_Deploy')
+        expect(state.selectedRefName).toBe('develop')
+        expect(state.branchNames).toEqual(['develop', 'main'])
+
+        state.primaryAction()
+        expect(state.stage).toBe('configure')
+        state.primaryAction()
+        expect(state.stage).toBe('confirm')
+        state.primaryAction()
+
+        await vi.waitFor(() => expect(ciTrigger).toHaveBeenCalledTimes(1))
+        expect(ciTrigger).toHaveBeenCalledWith('repo', 'Build_Deploy', 'develop', [
+          { name: 'Deploy', value: '' },
+        ])
+        await vi.waitFor(() => expect(state.running).toBe(false))
+      },
+      TEAMCITY_CONFIG,
+      'develop',
+    )
+  })
+
   it('strips Electron IPC wrappers from ref-loading failures', async () => {
     await withDialogState(
       {
