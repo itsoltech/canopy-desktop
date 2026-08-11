@@ -7,6 +7,7 @@
     details,
     confirmLabel = 'Confirm',
     destructive = false,
+    anchorCenter,
     onConfirm,
     onCancel,
   }: {
@@ -15,6 +16,7 @@
     details?: string
     confirmLabel?: string
     destructive?: boolean
+    anchorCenter?: { x: number; y: number }
     onConfirm: () => void
     onCancel: () => void
   } = $props()
@@ -63,6 +65,9 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="w-105 bg-bg-overlay border border-border rounded-2xl shadow-modal p-5"
+    style={anchorCenter
+      ? `position: fixed; left: ${anchorCenter.x}px; top: ${anchorCenter.y}px; transform: translate(-50%, -50%);`
+      : undefined}
     role="dialog"
     aria-modal="true"
     aria-labelledby="confirm-dialog-title"

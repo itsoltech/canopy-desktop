@@ -6,6 +6,8 @@ export interface ConfirmOptions {
   details?: string
   confirmLabel?: string
   destructive?: boolean
+  /** Optional viewport point used to center a confirmation over its parent dialog. */
+  anchorCenter?: { x: number; y: number }
 }
 
 export interface PromptCheckbox {

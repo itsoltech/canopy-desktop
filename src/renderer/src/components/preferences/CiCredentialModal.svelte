@@ -63,6 +63,7 @@
 
   async function confirmTeamCityDestination(): Promise<boolean> {
     if (config.provider !== 'teamcity') return true
+    const parentRect = containerEl?.getBoundingClientRect()
     const encryptionAvailable = await window.api
       .isCredentialEncryptionAvailable()
       .catch(() => false)
@@ -77,6 +78,12 @@
           ? ' Warning: this is a plain http:// address - the token would travel unencrypted.'
           : ''),
       confirmLabel: 'Continue',
+      anchorCenter: parentRect
+        ? {
+            x: parentRect.left + parentRect.width / 2,
+            y: parentRect.top + parentRect.height / 2,
+          }
+        : undefined,
     })
   }
 
