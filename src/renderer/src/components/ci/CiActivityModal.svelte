@@ -8,6 +8,7 @@
   import { formatDateTime } from '../../lib/formatDate'
   import { ciChip, ciStatusTextClass } from '../../lib/ci/status'
   import { ipcErrorMessage } from '../../lib/ci/errors'
+  import { startSettledPoll } from '../../lib/ci/settledPoll'
   import type { CiActivity, CiActivityBuild } from '../../lib/ci/types'
   import CustomSelect from '../shared/CustomSelect.svelte'
 
@@ -86,9 +87,14 @@
     // Tracked so picking another branch re-queries instead of re-rendering rows that
     // were fetched under the old filter, and restarts the poll on the new selection.
     void branchFilter
-    untrack(() => void refresh())
-    const timer = setInterval(() => void refresh(), 10_000)
-    return () => clearInterval(timer)
+    let stop: () => void = () => undefined
+    untrack(() => {
+      stop = startSettledPoll(refresh, 10_000)
+    })
+    return () => {
+      seq += 1
+      stop()
+    }
   })
 
   /**

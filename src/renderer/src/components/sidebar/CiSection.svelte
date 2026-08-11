@@ -24,6 +24,7 @@
     getCiJobsState,
     refreshCiJobs,
     getCiCredentialTick,
+    ciKey,
   } from '../../lib/stores/ci.svelte'
   import { anyBuildActive, anyRunActive } from '../../lib/ci/status'
   import { ipcErrorMessage } from '../../lib/ci/errors'
@@ -207,8 +208,9 @@
   // --- Last build of the CURRENT branch (highlighted card) — the newest build per
   // configured job for the active worktree's branch, via ci:status ---
 
-  let branchState = $derived(getCiState())
-  let jobsState = $derived(getCiJobsState())
+  let currentCiKey = $derived(ciKey(repoRoot ?? '', workspaceState.branch ?? ''))
+  let branchState = $derived(getCiState(currentCiKey))
+  let jobsState = $derived(getCiJobsState(currentCiKey))
   let branchRows = $derived(branchState.response?.configured ? branchState.response.rows : [])
   let jobRows = $derived(jobsState.rows)
   // ci:status reports failures as a field (never throws) — surface them, or the

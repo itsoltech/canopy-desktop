@@ -10,6 +10,8 @@
     refreshing,
     onRefresh,
     onCommit,
+    onResolveExact,
+    resolvingExact = false,
     showRemoteOnlyTag = false,
     highlightPicked = false,
     fillQueryOnPick = false,
@@ -23,6 +25,9 @@
     refreshing: boolean
     onRefresh: () => void | Promise<void>
     onCommit?: () => void
+    /** Resolve a typed ref that is outside the bounded picker result set. */
+    onResolveExact?: (query: string) => Promise<boolean>
+    resolvingExact?: boolean
     showRemoteOnlyTag?: boolean
     highlightPicked?: boolean
     /** Combobox behavior: picking from the list writes the branch into the search input. */
@@ -108,6 +113,12 @@
     })
   }
 
+  async function resolveExact(): Promise<void> {
+    const value = query.trim()
+    if (!onResolveExact || !value || refreshing || resolvingExact) return
+    if (await onResolveExact(value)) onCommit?.()
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
     if (!(e.target instanceof HTMLInputElement)) return
     if (e.key === 'Escape' && fillQueryOnPick && listOpen) {
@@ -134,6 +145,9 @@
       const branch = filteredBranches[selectedIdx]
       pick(branch)
       onCommit?.()
+    } else if (e.key === 'Enter' && onResolveExact && query.trim()) {
+      e.preventDefault()
+      void resolveExact()
     }
   }
 </script>
@@ -227,7 +241,20 @@
       aria-label="Branches"
     >
       {#if filteredBranches.length === 0}
-        <div class="px-2.5 py-4 text-center text-md text-text-faint">No branches found</div>
+        <div class="px-2.5 py-4 text-center text-md text-text-faint">
+          <div>No branches found</div>
+          {#if onResolveExact && query.trim()}
+            <button
+              type="button"
+              class="mt-2 px-2.5 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default"
+              aria-disabled={refreshing || resolvingExact}
+              aria-busy={resolvingExact}
+              onclick={() => void resolveExact()}
+            >
+              {resolvingExact ? 'Checking exact ref...' : `Use exact ref "${query.trim()}"`}
+            </button>
+          {/if}
+        </div>
       {:else}
         {#each filteredBranches as branch, i (branch)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->

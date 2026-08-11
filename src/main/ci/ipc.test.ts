@@ -46,6 +46,7 @@ function harness(): {
     ),
     jobsStatus: vi.fn(() => okAsync([])),
     jobRefs: vi.fn(() => okAsync([{ name: 'next', kind: 'branch' }])),
+    exactJobRef: vi.fn(() => okAsync({ name: 'next', kind: 'branch' })),
     jobParameters: vi.fn(() => okAsync({ parameters: [], schemaRevision: 'sha' })),
     triggerJob: vi.fn(() =>
       okAsync({
@@ -134,7 +135,15 @@ const REPO_SCOPED: Array<{
       ci: { baseUrl: 'https://tc', buildTypes: [{ id: 'Gakko_Build', label: 'B' }] },
     }),
   },
-  { channel: 'ci:build', method: 'build', payload: (repoRoot) => ({ repoRoot, buildId: 1 }) },
+  {
+    channel: 'ci:build',
+    method: 'build',
+    payload: (repoRoot) => ({
+      repoRoot,
+      expectedBaseUrl: 'https://tc.example.com',
+      buildId: 1,
+    }),
+  },
   {
     channel: 'ci:jobsStatus',
     method: 'jobsStatus',
@@ -144,6 +153,15 @@ const REPO_SCOPED: Array<{
     channel: 'ci:jobRefs',
     method: 'jobRefs',
     payload: (repoRoot) => ({ repoRoot, jobId: '.github/workflows/release.yml' }),
+  },
+  {
+    channel: 'ci:exactJobRef',
+    method: 'exactJobRef',
+    payload: (repoRoot) => ({
+      repoRoot,
+      jobId: '.github/workflows/release.yml',
+      name: 'next',
+    }),
   },
   {
     channel: 'ci:jobParameters',

@@ -147,6 +147,19 @@ export class TeamCityAdapter implements CiProviderAdapter {
       .map((branches) => branches.map((name): CiRef => ({ name, kind: 'branch' })))
   }
 
+  exactRef(jobId: string, name: string): ResultAsync<CiRef, CiError> {
+    return this.refs(jobId).andThen((refs) => {
+      const ref = refs.find((candidate) => candidate.name === name)
+      return ref
+        ? okAsync(ref)
+        : errAsync<CiRef, CiError>({
+            _tag: 'CiApiError',
+            status: 0,
+            message: `Branch ${name} is not available in TeamCity`,
+          })
+    })
+  }
+
   parameters(jobId: string): ResultAsync<CiParameterSet, CiError> {
     if (!this.buildType(jobId))
       return errAsync({
@@ -195,10 +208,19 @@ export class TeamCityAdapter implements CiProviderAdapter {
   run(runId: string): ResultAsync<CiRun, CiError> {
     if (!/^\d+$/.test(runId))
       return errAsync({ _tag: 'CiApiError', status: 0, message: 'Invalid TeamCity build id' })
-    return this.client.fetchBuild(this.config.baseUrl, this.token, Number(runId)).map((build) => {
-      const configured = this.config.buildTypes[0]
-      return mapBuild(build, configured?.id ?? '', configured?.label ?? 'Build')
-    })
+    return this.client
+      .fetchBuild(this.config.baseUrl, this.token, Number(runId))
+      .andThen((build) => {
+        const configured = this.config.buildTypes.find((item) => item.id === build.buildTypeId)
+        return configured
+          ? okAsync(mapBuild(build, configured.id, configured.label))
+          : errAsync({
+              _tag: 'CiApiError' as const,
+              status: 403,
+              message: 'Build does not belong to a configured TeamCity job',
+              provider: 'teamcity' as const,
+            })
+      })
   }
 
   activity(branch?: string): ResultAsync<CiRunActivity, CiError> {

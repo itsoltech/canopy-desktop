@@ -1085,6 +1085,7 @@ interface CanopyAPI {
   ciSetGitHubCredential: (repoRoot: string, token: string) => Promise<void>
   ciJobsStatus: (repoRoot: string, ref: CiRef) => Promise<CiJobStatus[]>
   ciJobRefs: (repoRoot: string, jobId: string) => Promise<CiRef[]>
+  ciExactJobRef: (repoRoot: string, jobId: string, name: string) => Promise<CiRef>
   ciJobParameters: (repoRoot: string, jobId: string, ref: CiRef) => Promise<CiParameterSet>
   ciTriggerJob: (repoRoot: string, request: CiTriggerRequest) => Promise<CiTriggerJobResponse>
   /** `branch` scopes the provider's own query; omit it for the history window's "All branches". */
@@ -1097,7 +1098,7 @@ interface CanopyAPI {
     branch: string,
     properties?: Array<{ name: string; value: string }>,
   ) => Promise<CiTriggerResult>
-  ciBuild: (repoRoot: string, buildId: number) => Promise<CiBuildStatus>
+  ciBuild: (repoRoot: string, expectedBaseUrl: string, buildId: number) => Promise<CiBuildStatus>
   ciTestNewConnection: (baseUrl: string, token: string) => Promise<void>
   ciBuildParameters: (repoRoot: string, buildTypeId: string) => Promise<CiParameter[]>
   /** `branch` scopes the TeamCity locator; omit it for the history window's "All branches". */

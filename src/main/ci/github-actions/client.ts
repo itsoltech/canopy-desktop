@@ -370,6 +370,31 @@ export class GitHubActionsClient {
     }))
   }
 
+  listRepositoryRuns(
+    ref?: string,
+  ): ResultAsync<{ runs: GitHubWorkflowRun[]; totalCount: number }, CiError> {
+    return new ResultAsync(
+      (async (): Promise<Result<{ runs: GitHubWorkflowRun[]; totalCount: number }, CiError>> => {
+        const runs: GitHubWorkflowRun[] = []
+        let totalCount = 0
+        for (let page = 1; page <= MAX_PAGES; page += 1) {
+          const query = new URLSearchParams({ per_page: '100', page: String(page) })
+          if (ref) query.set('branch', ref)
+          const result = await this.request<{
+            total_count?: number
+            workflow_runs?: GitHubWorkflowRun[]
+          }>(`/actions/runs?${query.toString()}`)
+          if (result.isErr()) return err(result.error)
+          const entries = result.value.workflow_runs ?? []
+          totalCount = result.value.total_count ?? entries.length
+          runs.push(...entries)
+          if (entries.length < 100 || runs.length >= totalCount) break
+        }
+        return ok({ runs, totalCount })
+      })(),
+    )
+  }
+
   getRun(runId: string): ResultAsync<GitHubWorkflowRun, CiError> {
     return this.request<GitHubWorkflowRun>(`/actions/runs/${encodeURIComponent(runId)}`)
   }

@@ -5,6 +5,7 @@ import {
   CI_MAX_BUILD_TYPES,
   CI_MAX_LABEL_LEN,
   CI_MAX_WORKFLOWS,
+  normalizeTeamCityBaseUrl,
   parseCiConfig,
 } from './config'
 import type { CiConfig, CiInputValue, CiRef, CiStatusResponse, CiTriggerRequest } from './types'
@@ -218,6 +219,19 @@ export function registerCiHandlers({
         throw new Error('Invalid CI job id')
       }
       const result = await ciManager.jobRefs(repoRoot, payload.jobId)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
+
+  ipcMain.handle(
+    'ci:exactJobRef',
+    async (event: CiIpcEvent, payload: { repoRoot: string; jobId: string; name: string }) => {
+      const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      if (typeof payload.jobId !== 'string' || !CI_JOB_ID_RE.test(payload.jobId)) {
+        throw new Error('Invalid CI job id')
+      }
+      if (!isSafeGitRefName(payload.name)) throw new Error('Invalid CI ref name')
+      const result = await ciManager.exactJobRef(repoRoot, payload.jobId, payload.name)
       return unwrapOrThrow(result, ciErrorMessage)
     },
   )
@@ -446,11 +460,9 @@ export function registerCiHandlers({
     if (typeof payload.baseUrl !== 'string' || !payload.baseUrl) {
       throw new Error('baseUrl is required')
     }
-    const parsed = new URL(payload.baseUrl)
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      throw new Error('Base URL must use http:// or https://')
-    }
-    const result = await ciManager.listBuildTypes(payload.baseUrl.replace(/\/$/, ''))
+    const baseUrl = normalizeTeamCityBaseUrl(payload.baseUrl)
+    if (!baseUrl) throw new Error('Invalid TeamCity server URL')
+    const result = await ciManager.listBuildTypes(baseUrl)
     return unwrapOrThrow(result, ciErrorMessage)
   })
 
@@ -498,10 +510,8 @@ export function registerCiHandlers({
           ci = parsedGitHub.config
         } else {
           if (typeof payload.ci?.baseUrl !== 'string') throw new Error('Invalid base URL')
-          const parsed = new URL(payload.ci.baseUrl)
-          if (!['http:', 'https:'].includes(parsed.protocol)) {
-            throw new Error('Base URL must use http:// or https://')
-          }
+          const baseUrl = normalizeTeamCityBaseUrl(payload.ci.baseUrl)
+          if (!baseUrl) throw new Error('Invalid TeamCity server URL')
           if (!Array.isArray(payload.ci.buildTypes) || payload.ci.buildTypes.length === 0) {
             throw new Error('Select at least one build configuration')
           }
@@ -518,7 +528,7 @@ export function registerCiHandlers({
           })
           ci = {
             provider: 'teamcity',
-            baseUrl: payload.ci.baseUrl.replace(/\/$/, ''),
+            baseUrl,
             buildTypes,
           }
         }
@@ -530,12 +540,17 @@ export function registerCiHandlers({
 
   ipcMain.handle(
     'ci:build',
-    async (event: CiIpcEvent, payload: { repoRoot: string; buildId: number }) => {
+    async (
+      event: CiIpcEvent,
+      payload: { repoRoot: string; expectedBaseUrl: string; buildId: number },
+    ) => {
       const repoRoot = await authorizedRepoRoot(event, payload.repoRoot)
+      const expectedBaseUrl = normalizeTeamCityBaseUrl(payload.expectedBaseUrl)
+      if (!expectedBaseUrl) throw new Error('Invalid TeamCity server URL')
       if (typeof payload.buildId !== 'number' || !Number.isInteger(payload.buildId)) {
         throw new Error('Invalid build id')
       }
-      const result = await ciManager.build(repoRoot, payload.buildId)
+      const result = await ciManager.build(repoRoot, expectedBaseUrl, payload.buildId)
       return unwrapOrThrow(result, ciErrorMessage)
     },
   )
@@ -549,12 +564,10 @@ export function registerCiHandlers({
       if (typeof payload.baseUrl !== 'string' || !payload.baseUrl) {
         throw new Error('baseUrl is required')
       }
-      const parsed = new URL(payload.baseUrl)
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw new Error('Base URL must use http:// or https://')
-      }
+      const baseUrl = normalizeTeamCityBaseUrl(payload.baseUrl)
+      if (!baseUrl) throw new Error('Invalid TeamCity server URL')
       const token = normalizeTeamCityInputToken(payload.token)
-      const result = await ciTestConnection(payload.baseUrl.replace(/\/$/, ''), token)
+      const result = await ciTestConnection(baseUrl, token)
       return unwrapOrThrow(result, ciErrorMessage)
     },
   )

@@ -22,6 +22,7 @@ import { withCiDegradedCauses } from './degraded'
 const BUILD_FIELDS =
   'id,number,state,status,statusText,percentageComplete,webUrl,branchName,queuedDate,startDate,finishDate'
 const TEAMCITY_LOCATOR_STRUCTURAL_CHARS = /[(),:]/u
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 /** Refs are parenthesized in TeamCity locators; structural characters must not reach the sink. */
 export function isTeamCityLocatorSafeRef(ref: string): boolean {
@@ -40,6 +41,11 @@ interface RawBuild {
   queuedDate?: string
   startDate?: string
   finishDate?: string
+  buildType?: { id?: string }
+}
+
+export interface CiBuildWithType extends CiBuildStatus {
+  buildTypeId: string
 }
 
 /**
@@ -98,6 +104,34 @@ const apiError = (status: number, message: string, token?: string): CiError => (
   message: redactTeamCityToken(message, token),
 })
 
+async function readBoundedResponse(response: Response): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array()
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      length += value.byteLength
+      if (length > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined)
+        throw new Error('TeamCity response exceeds the size limit')
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
 function tcFetch<T>(
   baseUrl: string,
   token: string,
@@ -119,20 +153,30 @@ function tcFetch<T>(
     }),
     (e) => apiError(0, errorMessage(e), token),
   ).andThen((res) => {
-    if (!res.ok) {
-      return fromExternalCall(
-        res.text().catch(() => ''),
-        (e) => apiError(res.status, errorMessage(e), token),
-      ).andThen((body) =>
-        errAsync(
+    const contentLength = Number(res.headers.get('content-length'))
+    if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
+      return errAsync(apiError(res.ok ? 0 : res.status, 'TeamCity response exceeds the size limit'))
+    }
+
+    return fromExternalCall(readBoundedResponse(res), (e) =>
+      apiError(res.ok ? 0 : res.status, errorMessage(e), token),
+    ).andThen((bytes) => {
+      const body = Buffer.from(bytes).toString('utf8')
+      if (!res.ok) {
+        return errAsync(
           apiError(
             res.status,
             redactTeamCityToken(body.trim(), token).slice(0, 300) || res.statusText,
           ),
-        ),
-      )
-    }
-    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e), token))
+        )
+      }
+
+      try {
+        return okAsync((body ? JSON.parse(body) : undefined) as T)
+      } catch {
+        return errAsync(apiError(0, 'TeamCity returned malformed JSON'))
+      }
+    })
   })
 }
 
@@ -161,12 +205,16 @@ export function fetchBuild(
   baseUrl: string,
   token: string,
   buildId: number,
-): ResultAsync<CiBuildStatus, CiError> {
+): ResultAsync<CiBuildWithType, CiError> {
   return tcFetch<RawBuild>(
     baseUrl,
     token,
-    `/app/rest/builds/id:${buildId}?fields=${BUILD_FIELDS}`,
-  ).map(mapBuild)
+    `/app/rest/builds/id:${buildId}?fields=${BUILD_FIELDS},buildType(id)`,
+  ).andThen((raw) =>
+    raw.buildType?.id
+      ? okAsync({ ...mapBuild(raw), buildTypeId: raw.buildType.id })
+      : errAsync(apiError(0, 'TeamCity returned a build without its build configuration')),
+  )
 }
 
 /** Queue a build of the configuration on the given branch, optionally with custom parameters. */

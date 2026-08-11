@@ -24,7 +24,6 @@ import {
   type GitHubWorkflowSchema,
 } from '../github-actions/workflow'
 import type { CiProviderAdapter } from './types'
-import { withCiDegradedCauses } from '../degraded'
 
 export function discoverGitHubWorkflows(
   client: GitHubActionsClient,
@@ -107,6 +106,10 @@ function newestFirst(a: CiRun, b: CiRun): number {
   return (b.queuedAt ?? 0) - (a.queuedAt ?? 0)
 }
 
+function workflowPath(run: GitHubWorkflowRun): string | undefined {
+  return run.path?.split('@')[0]
+}
+
 export class GitHubActionsAdapter implements CiProviderAdapter {
   constructor(
     private readonly config: GitHubActionsCiConfig,
@@ -141,18 +144,26 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
     })
   }
 
-  private resolveRef(ref: CiRef): ResultAsync<CiRef, CiError> {
-    const otherKind = ref.kind === 'branch' ? 'tag' : 'branch'
+  private resolveRefName(name: string): ResultAsync<CiRef, CiError> {
     return ResultAsync.combine([
-      this.client.getExactRef(ref.kind, ref.name),
-      this.client.getExactRef(otherKind, ref.name),
-    ]).andThen(([resolved, collision]) => {
-      if (!resolved) return err(apiError(`${ref.kind} ${ref.name} no longer exists on GitHub`))
-      if (collision) {
-        return err(apiError(`Branch and tag both use the name ${ref.name}; dispatch is ambiguous`))
+      this.client.getExactRef('branch', name),
+      this.client.getExactRef('tag', name),
+    ]).andThen(([branch, tag]) => {
+      if (branch && tag) {
+        return err(apiError(`Branch and tag both use the name ${name}; dispatch is ambiguous`))
       }
-      return ok({ ...ref, commitSha: resolved.commitSha })
+      if (branch) return ok({ ...branch, kind: 'branch' as const })
+      if (tag) return ok({ ...tag, kind: 'tag' as const })
+      return err(apiError(`Ref ${name} no longer exists on GitHub`))
     })
+  }
+
+  private resolveRef(ref: CiRef): ResultAsync<CiRef, CiError> {
+    return this.resolveRefName(ref.name).andThen((resolved) =>
+      resolved.kind === ref.kind
+        ? ok(resolved)
+        : err(apiError(`${ref.kind} ${ref.name} no longer exists on GitHub`)),
+    )
   }
 
   refs(jobId: string): ResultAsync<CiRef[], CiError> {
@@ -166,6 +177,12 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
         ],
       ),
     )
+  }
+
+  exactRef(jobId: string, name: string): ResultAsync<CiRef, CiError> {
+    const configured = this.configuredWorkflow(jobId)
+    if (configured.isErr()) return errAsync(configured.error)
+    return this.authenticated(() => this.resolveRefName(name))
   }
 
   parameters(jobId: string, ref: CiRef): ResultAsync<CiParameterSet, CiError> {
@@ -251,45 +268,33 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
             const workflowsResult = await this.client.listWorkflows()
             if (workflowsResult.isErr()) return err(workflowsResult.error)
             const workflows = workflowsResult.value
-            const rows: CiJobStatus[] = []
-            const causes: CiError[] = []
-            for (const configured of this.config.workflows) {
+            const runsResult = await this.client.listRepositoryRuns(ref.name)
+            if (runsResult.isErr()) return err(runsResult.error)
+            const rows: CiJobStatus[] = this.config.workflows.map((configured) => {
               const workflow = workflows.find(
                 (candidate) => candidate.path.toLowerCase() === configured.path.toLowerCase(),
               )
               if (!workflow) {
-                rows.push({
+                return {
                   jobId: configured.path,
                   label: configured.label,
                   provider: 'github-actions',
                   run: null,
                   error: `Configured workflow ${configured.path} is missing`,
-                })
-                continue
+                }
               }
-              const runs = await this.client.listWorkflowRuns(workflow.id, ref.name)
-              if (runs.isErr() && runs.error._tag === 'CiRateLimited') return err(runs.error)
-              if (runs.isErr()) causes.push(runs.error)
-              rows.push(
-                runs.isOk()
-                  ? {
-                      jobId: configured.path,
-                      label: configured.label,
-                      provider: 'github-actions',
-                      run: runs.value[0]
-                        ? mapGitHubRun(runs.value[0], configured.path, configured.label)
-                        : null,
-                    }
-                  : {
-                      jobId: configured.path,
-                      label: configured.label,
-                      provider: 'github-actions',
-                      run: null,
-                      error: ciErrorMessage(runs.error),
-                    },
+              const run = runsResult.value.runs.find(
+                (candidate) =>
+                  workflowPath(candidate)?.toLowerCase() === configured.path.toLowerCase(),
               )
-            }
-            return ok(causes.length > 0 ? withCiDegradedCauses(rows, causes) : rows)
+              return {
+                jobId: configured.path,
+                label: configured.label,
+                provider: 'github-actions',
+                run: run ? mapGitHubRun(run, configured.path, configured.label) : null,
+              }
+            })
+            return ok(rows)
           })(),
         ),
     )
@@ -303,33 +308,27 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
             const workflowsResult = await this.client.listWorkflows()
             if (workflowsResult.isErr()) return err(workflowsResult.error)
             const workflows = workflowsResult.value
-            const runs: CiRun[] = []
             const partialErrors: string[] = []
-            const causes: CiError[] = []
             for (const configured of this.config.workflows) {
               const workflow = workflows.find(
                 (candidate) => candidate.path.toLowerCase() === configured.path.toLowerCase(),
               )
               if (!workflow) {
                 partialErrors.push(`Configured workflow ${configured.path} is missing`)
-                continue
               }
-              // `branch` narrows the query itself, not the response: `recent` is sliced to
-              // the ten newest across every configured workflow, so a response-side filter
-              // would drop a branch whose last run is older than that.
-              const result = await this.client.listWorkflowRunsPage(workflow.id, branch)
-              if (result.isErr()) {
-                if (result.error._tag === 'CiRateLimited') return err(result.error)
-                causes.push(result.error)
-                partialErrors.push(`${configured.label}: ${ciErrorMessage(result.error)}`)
-                continue
-              }
-              runs.push(
-                ...result.value.runs.map((run) =>
-                  mapGitHubRun(run, configured.path, configured.label),
-                ),
-              )
             }
+            // The branch is part of the repository query. Filtering only after a global
+            // response would hide a branch whose newest run is older than another branch's.
+            const result = await this.client.listRepositoryRuns(branch)
+            if (result.isErr()) return err(result.error)
+            const configuredByPath = new Map(
+              this.config.workflows.map((workflow) => [workflow.path.toLowerCase(), workflow]),
+            )
+            const runs: CiRun[] = result.value.runs.flatMap((run) => {
+              const path = workflowPath(run)
+              const configured = path ? configuredByPath.get(path.toLowerCase()) : undefined
+              return configured ? [mapGitHubRun(run, configured.path, configured.label)] : []
+            })
             runs.sort(newestFirst)
             const activity: CiRunActivity = {
               running: runs.filter((run) => run.state === 'running' || run.state === 'waiting'),
@@ -337,7 +336,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
               recent: runs.filter((run) => run.state === 'finished').slice(0, 10),
               ...(partialErrors.length ? { partialErrors } : {}),
             }
-            return ok(causes.length > 0 ? withCiDegradedCauses(activity, causes) : activity)
+            return ok(activity)
           })(),
         ),
     )
@@ -345,14 +344,12 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
 
   run(runId: string): ResultAsync<CiRun, CiError> {
     return this.authenticated(() =>
-      this.client.getRun(runId).map((raw: GitHubWorkflowRun) => {
+      this.client.getRun(runId).andThen((raw: GitHubWorkflowRun) => {
         const path = raw.path?.split('@')[0]
         const configured = this.config.workflows.find((workflow) => workflow.path === path)
-        return mapGitHubRun(
-          raw,
-          configured?.path ?? path ?? '',
-          configured?.label ?? raw.name ?? 'Run',
-        )
+        return configured
+          ? ok(mapGitHubRun(raw, configured.path, configured.label))
+          : err(apiError(`Run ${runId} does not belong to a configured workflow`))
       }),
     )
   }

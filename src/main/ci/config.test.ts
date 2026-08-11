@@ -190,6 +190,33 @@ describe('parseCiConfig', () => {
     })
   })
 
+  it('rejects TeamCity URLs that could commit credentials or request-only data', () => {
+    for (const baseUrl of [
+      'https://alice:secret@tc.example.com',
+      'https://tc.example.com/TeamCity?token=secret',
+      'https://tc.example.com/TeamCity#fragment',
+    ]) {
+      expect(
+        parseCiConfig({
+          provider: 'teamcity',
+          baseUrl,
+          buildTypes: [{ id: 'Gakko_Build' }],
+        }).config,
+      ).toBeUndefined()
+    }
+  })
+
+  it('preserves a case-sensitive TeamCity context path while normalizing the origin', () => {
+    const parsed = teamcity(
+      parseCiConfig({
+        provider: 'teamcity',
+        baseUrl: 'HTTPS://TC.Example.COM/TeamCity/',
+        buildTypes: [{ id: 'Gakko_Build' }],
+      }).config,
+    )
+    expect(parsed.baseUrl).toBe('https://tc.example.com/TeamCity')
+  })
+
   it('yields no config for missing or non-object values', () => {
     expect(parseCiConfig(undefined).config).toBeUndefined()
     expect(parseCiConfig(null).config).toBeUndefined()

@@ -10,6 +10,32 @@ const CONFIG: TeamCityCiConfig = {
 }
 
 describe('TeamCityAdapter', () => {
+  it('rejects a run owned by a build type outside the repository configuration', async () => {
+    const client = {
+      fetchBuild: vi.fn(() =>
+        okAsync({
+          id: 123,
+          number: '123',
+          state: 'finished' as const,
+          status: 'SUCCESS' as const,
+          statusText: undefined,
+          percentageComplete: undefined,
+          webUrl: 'build-url',
+          branchName: 'main',
+          queuedAt: undefined,
+          startedAt: undefined,
+          finishedAt: undefined,
+          buildTypeId: 'Other_Project',
+        }),
+      ),
+    }
+    const adapter = new TeamCityAdapter(CONFIG, 'token', client)
+
+    const result = await adapter.run('123')
+
+    expect(result.isErr()).toBe(true)
+  })
+
   it('normalizes the existing TeamCity status without changing client semantics', async () => {
     const client = {
       fetchBuildForBranch: vi.fn(() =>

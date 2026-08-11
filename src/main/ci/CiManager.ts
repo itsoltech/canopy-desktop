@@ -658,10 +658,32 @@ export class CiManager {
       })
   }
 
-  build(repoRoot: string, buildId: number): ResultAsync<CiBuildStatus, CiError> {
+  build(
+    repoRoot: string,
+    expectedBaseUrl: string,
+    buildId: number,
+  ): ResultAsync<CiBuildStatus, CiError> {
     return this.loadConfig(repoRoot).andThen((ci) =>
       ci.provider === 'teamcity'
-        ? this.tokenFor(ci).andThen((token) => fetchBuild(ci.baseUrl, token, buildId))
+        ? ci.baseUrl !== expectedBaseUrl
+          ? errAsync<CiBuildStatus, CiError>({
+              _tag: 'CiApiError',
+              status: 409,
+              message: 'TeamCity server configuration changed while watching the build',
+              provider: 'teamcity',
+            })
+          : this.tokenFor(ci).andThen((token) =>
+              fetchBuild(ci.baseUrl, token, buildId).andThen((build) =>
+                ci.buildTypes.some((configured) => configured.id === build.buildTypeId)
+                  ? okAsync(build)
+                  : errAsync({
+                      _tag: 'CiApiError' as const,
+                      status: 403,
+                      message: 'Build does not belong to a configured TeamCity job',
+                      provider: 'teamcity' as const,
+                    }),
+              ),
+            )
         : errAsync<CiBuildStatus, CiError>({
             _tag: 'CiApiError',
             status: 0,
@@ -694,6 +716,20 @@ export class CiManager {
           : ci.baseUrl,
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.refs(jobId),
+        token,
+      ),
+    )
+  }
+
+  exactJobRef(repoRoot: string, jobId: string, name: string): ResultAsync<CiRef, CiError> {
+    return this.adapter(repoRoot).andThen(({ ci, adapter, token }) =>
+      this.observeCredentialResult(
+        ci.provider,
+        ci.provider === 'github-actions'
+          ? githubActionsCredentialBaseUrl(ci.repository)
+          : ci.baseUrl,
+        ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
+        adapter.exactRef(jobId, name),
         token,
       ),
     )
@@ -852,15 +888,14 @@ export class CiManager {
         'actions.dispatch',
       )
       if (dispatchCredential.isErr()) return err(dispatchCredential.error)
-      const refs = await context.value.adapter.refs(request.jobId)
-      if (refs.isErr()) return err(refs.error)
-      const sameName = refs.value.filter((ref) => ref.name === request.ref.name)
-      const resolved = sameName.find((ref) => ref.kind === request.ref.kind)
-      if (!resolved || sameName.length !== 1) {
+      const exactRef = await context.value.adapter.exactRef(request.jobId, request.ref.name)
+      if (exactRef.isErr()) return err(exactRef.error)
+      const resolved = exactRef.value
+      if (resolved.kind !== request.ref.kind) {
         return err({
           _tag: 'CiApiError',
           status: 0,
-          message: `GitHub ref ${request.ref.name} is missing or ambiguous`,
+          message: `GitHub ${request.ref.kind} ${request.ref.name} is missing`,
           provider: 'github-actions',
         })
       }

@@ -8,12 +8,71 @@ const api = {
   ciTrigger: vi.fn(),
   ciBuild: vi.fn(),
   ciStatus: vi.fn(async () => ({ configured: false, rows: [] })),
+  ciJobsStatus: vi.fn(),
   ciTriggerJob: vi.fn(),
   ciRun: vi.fn(),
 }
 vi.stubGlobal('window', { api })
 
-import { triggerCiBuild, triggerCiJob } from './ci.svelte'
+import {
+  ciKey,
+  getCiJobsState,
+  getCiState,
+  refreshCi,
+  refreshCiJobs,
+  triggerCiBuild,
+  triggerCiJob,
+} from './ci.svelte'
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => (resolve = done))
+  return { promise, resolve }
+}
+
+describe('repository-scoped CI status', () => {
+  it('keeps concurrent repository and branch responses in their own state slots', async () => {
+    const teamCityA = deferred<CiStatusResponse>()
+    const teamCityB = deferred<CiStatusResponse>()
+    const githubA = deferred<Awaited<ReturnType<typeof api.ciJobsStatus>>>()
+    const githubB = deferred<Awaited<ReturnType<typeof api.ciJobsStatus>>>()
+    api.ciStatus.mockImplementation((_repo, branch) =>
+      branch === 'a' ? teamCityA.promise : teamCityB.promise,
+    )
+    api.ciJobsStatus.mockImplementation((_repo, ref) =>
+      ref.name === 'a' ? githubA.promise : githubB.promise,
+    )
+
+    const teamCityARequest = refreshCi('repo-a', 'a')
+    const teamCityBRequest = refreshCi('repo-b', 'b')
+    const githubARequest = refreshCiJobs('repo-a', 'a')
+    const githubBRequest = refreshCiJobs('repo-b', 'b')
+    teamCityB.resolve({ configured: true, rows: [], error: 'B' })
+    githubB.resolve([{ jobId: 'b', label: 'B', provider: 'github-actions', run: null }])
+    await Promise.all([teamCityBRequest, githubBRequest])
+    teamCityA.resolve({ configured: true, rows: [], error: 'A' })
+    githubA.resolve([{ jobId: 'a', label: 'A', provider: 'github-actions', run: null }])
+    await Promise.all([teamCityARequest, githubARequest])
+
+    expect(getCiState(ciKey('repo-a', 'a')).response?.error).toBe('A')
+    expect(getCiState(ciKey('repo-b', 'b')).response?.error).toBe('B')
+    expect(getCiJobsState(ciKey('repo-a', 'a')).rows[0]?.jobId).toBe('a')
+    expect(getCiJobsState(ciKey('repo-b', 'b')).rows[0]?.jobId).toBe('b')
+  })
+
+  it('bounds repository and branch status state retained in memory', async () => {
+    api.ciStatus.mockResolvedValue({ configured: false, rows: [] })
+
+    for (let index = 0; index <= 100; index += 1) {
+      await refreshCi(`cache-repo-${index}`, `branch-${index}`)
+    }
+
+    expect(getCiState(ciKey('cache-repo-0', 'branch-0')).response).toBeNull()
+    expect(getCiState(ciKey('cache-repo-100', 'branch-100')).response).toMatchObject({
+      configured: false,
+    })
+  })
+})
 
 function queuedTrigger(buildId: number): void {
   api.ciTrigger.mockResolvedValueOnce({
@@ -56,7 +115,7 @@ describe('triggerCiBuild + observeBuild', () => {
 
   it('reports the queue with the branch TeamCity actually accepted', async () => {
     queuedTrigger(1)
-    const failure = await triggerCiBuild('r', 'Bt', 'next', 'Deploy')
+    const failure = await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
     expect(failure).toBeNull()
     expect(toastState.message).toBe('Deploy: build queued on release/1')
     expect(toastState.kind).toBe('success')
@@ -64,14 +123,14 @@ describe('triggerCiBuild + observeBuild', () => {
 
   it('returns the failure message instead of toasting (the dialog owns the surface)', async () => {
     api.ciTrigger.mockRejectedValueOnce(new Error('TeamCity API error 403: forbidden'))
-    const failure = await triggerCiBuild('r', 'Bt', 'next', 'Deploy')
+    const failure = await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
     expect(failure).toBe('TeamCity API error 403: forbidden')
     expect(toastState.visible).toBe(false)
   })
 
   it('toasts the outcome when the observed build finishes', async () => {
     queuedTrigger(2)
-    await triggerCiBuild('r', 'Bt', 'next', 'Deploy')
+    await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
     api.ciBuild.mockResolvedValue({ id: 2, number: '42', state: 'finished', status: 'SUCCESS' })
     await vi.advanceTimersByTimeAsync(10_000)
     expect(toastState.message).toBe('Deploy #42: build succeeded')
@@ -84,7 +143,7 @@ describe('triggerCiBuild + observeBuild', () => {
 
   it("renders TeamCity's ERROR outcome as a failure, not unknown", async () => {
     queuedTrigger(3)
-    await triggerCiBuild('r', 'Bt', 'next', 'Deploy')
+    await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
     api.ciBuild.mockResolvedValue({ id: 3, number: '43', state: 'finished', status: 'ERROR' })
     await vi.advanceTimersByTimeAsync(10_000)
     expect(toastState.message).toBe('Deploy #43: build failed')
@@ -93,7 +152,7 @@ describe('triggerCiBuild + observeBuild', () => {
 
   it('gives up audibly after ~5 minutes of consecutive failures', async () => {
     queuedTrigger(4)
-    await triggerCiBuild('r', 'Bt', 'next', 'Deploy')
+    await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
     api.ciBuild.mockRejectedValue(new Error('offline'))
     await vi.advanceTimersByTimeAsync(300_000) // 30 ticks
     expect(toastState.message).toBe('Stopped watching Deploy — lost contact with TeamCity')
@@ -105,15 +164,33 @@ describe('triggerCiBuild + observeBuild', () => {
 
   it('aggregates simultaneous give-ups into one toast that still names the jobs', async () => {
     queuedTrigger(5)
-    await triggerCiBuild('r', 'Bt', 'next', 'Deploy A')
+    await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy A')
     queuedTrigger(6)
-    await triggerCiBuild('r', 'Bt2', 'next', 'Deploy B')
+    await triggerCiBuild('r', 'https://tc.example.test', 'Bt2', 'next', 'Deploy B')
     api.ciBuild.mockRejectedValue(new Error('offline'))
     await vi.advanceTimersByTimeAsync(300_000)
     expect(toastState.message).toBe(
       'Stopped watching 2 builds — check TeamCity: Deploy A, Deploy B',
     )
     dismissToast()
+  })
+
+  it('observes equal numeric build ids independently across repositories and servers', async () => {
+    queuedTrigger(77)
+    await triggerCiBuild('repo-a', 'https://tc-a.example.test', 'Bt', 'next', 'Build A')
+    queuedTrigger(77)
+    await triggerCiBuild('repo-b', 'https://tc-b.example.test', 'Bt', 'next', 'Build B')
+    api.ciBuild.mockResolvedValue({
+      id: 77,
+      number: '77',
+      state: 'running',
+      status: 'UNKNOWN',
+    })
+
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(api.ciBuild).toHaveBeenCalledWith('repo-a', 'https://tc-a.example.test', 77)
+    expect(api.ciBuild).toHaveBeenCalledWith('repo-b', 'https://tc-b.example.test', 77)
   })
 })
 

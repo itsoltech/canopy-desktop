@@ -124,6 +124,8 @@
             bind:selectedBranch={runDialog.selectedRefName}
             refreshing={runDialog.refsLoading}
             onRefresh={runDialog.loadRefs}
+            onResolveExact={runDialog.isTeamCity ? undefined : runDialog.resolveExactRef}
+            resolvingExact={runDialog.exactRefLoading}
             fillQueryOnPick={true}
             highlightPicked={true}
             collapseConfirmedSelection={true}
@@ -131,7 +133,8 @@
           />
           {#if runDialog.worktreeBranchMissing}
             <span class="text-xs text-text-muted">
-              The worktree branch is unavailable on GitHub; choose another branch or tag.
+              The worktree branch is not in the loaded GitHub list. Use exact ref to check it, or
+              choose another branch or tag.
             </span>
           {/if}
           {#if runDialog.ambiguousRefNames.length > 0}

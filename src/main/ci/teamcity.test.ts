@@ -156,6 +156,64 @@ describe('fetchActivity', () => {
 })
 
 describe('testConnection', () => {
+  it('rejects a response whose declared size exceeds the shared API limit', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('{"version":"1"}', {
+          headers: { 'Content-Length': String(2 * 1024 * 1024 + 1) },
+        }),
+      ),
+    )
+
+    const result = await testConnection('https://tc.example.com', 'token')
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected an oversized response to fail')
+    expect(result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'TeamCity response exceeds the size limit',
+    })
+  })
+
+  it('rejects an oversized response when Content-Length is absent', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ padding: 'x'.repeat(2 * 1024 * 1024) }))),
+    )
+
+    const result = await testConnection('https://tc.example.com', 'token')
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected an oversized response to fail')
+    expect(result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'TeamCity response exceeds the size limit',
+    })
+  })
+
+  it('preserves an authentication status when its response body is oversized', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('unauthorized', {
+          status: 401,
+          headers: { 'Content-Length': String(2 * 1024 * 1024 + 1) },
+        }),
+      ),
+    )
+
+    const result = await testConnection('https://tc.example.com', 'token')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      status: 401,
+      message: 'TeamCity response exceeds the size limit',
+    })
+  })
+
   it('redacts a token echoed by a TeamCity error response', async () => {
     const token = 'secret-token-value'
     vi.stubGlobal(

@@ -14,6 +14,7 @@ import type {
 export interface CiProviderAdapter {
   status(ref: CiRef): ResultAsync<CiJobStatus[], CiError>
   refs(jobId: string): ResultAsync<CiRef[], CiError>
+  exactRef(jobId: string, name: string): ResultAsync<CiRef, CiError>
   parameters(jobId: string, ref: CiRef): ResultAsync<CiParameterSet, CiError>
   trigger(request: CiTriggerRequest): ResultAsync<CiRunTriggerResult, CiError>
   run(runId: string): ResultAsync<CiRun, CiError>

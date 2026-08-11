@@ -44,6 +44,35 @@ describe('KeychainTokenStore capability facade', () => {
     })
   })
 
+  it('ignores a rejected result produced by the token that was replaced in flight', () => {
+    const baseUrl = 'https://github.com/itsoltech/canopy-desktop'
+    const store = new KeychainTokenStore(fakePreferences())
+    store.setCredentials('github-actions', baseUrl, 'old-token')
+    store.setCredentials('github-actions', baseUrl, 'new-token')
+
+    store.recordResult('github-actions', baseUrl, 'actions.read', 401, 'Bad credentials', {
+      usedSecret: 'old-token',
+    })
+
+    expect(store.registry.list()[0]?.authenticationState).toBe('unknown')
+  })
+
+  it('ignores a successful result produced by the token that was replaced in flight', () => {
+    const baseUrl = 'https://github.com/itsoltech/canopy-desktop'
+    const store = new KeychainTokenStore(fakePreferences())
+    store.setCredentials('github-actions', baseUrl, 'old-token')
+    store.setCredentials('github-actions', baseUrl, 'new-token')
+
+    store.recordResult('github-actions', baseUrl, 'actions.read', 200, undefined, {
+      usedSecret: 'old-token',
+    })
+
+    expect(store.registry.list()[0]).toMatchObject({
+      authenticationState: 'unknown',
+      verification: {},
+    })
+  })
+
   it('does not use a generic GitHub tracker token for GitHub Actions', () => {
     const preferences = fakePreferences({
       'taskTracker.token.github:https://github.com': JSON.stringify({ token: 'tracker-token' }),

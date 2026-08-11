@@ -15,6 +15,7 @@
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import CiCredentialModal from './CiCredentialModal.svelte'
   import { githubActionsCredentialBaseUrl } from '../../../../renderer-shared/credentialBindings'
+  import { CI_MAX_WORKFLOWS, ciWorkflowSelectionOverflow } from '../../lib/ci/limits'
 
   interface InvalidCiConfig {
     scope: 'file' | 'block'
@@ -84,8 +85,29 @@
         label: selected.get(workflow.id) || workflow.name,
       })),
   )
+  let workflowSelectionOverflow = $derived(ciWorkflowSelectionOverflow(selectedWorkflows.length))
   let saveBlocked = $derived(
-    saving || loading || !loaded || !repository || selectedWorkflows.length === 0,
+    saving ||
+      loading ||
+      !loaded ||
+      !repository ||
+      selectedWorkflows.length === 0 ||
+      workflowSelectionOverflow > 0,
+  )
+  let saveBlockedReason = $derived(
+    saving
+      ? 'An update is already in progress'
+      : loading
+        ? 'Workflows are still loading'
+        : !loaded
+          ? 'Load workflows before saving'
+          : workflowSelectionOverflow > 0
+            ? `At most ${CI_MAX_WORKFLOWS} workflows can be configured - untick ${workflowSelectionOverflow}`
+            : selectedWorkflows.length === 0
+              ? 'Select at least one dispatchable workflow'
+              : !repository
+                ? 'The GitHub repository is unavailable'
+                : '',
   )
   let loadBlocked = $derived(
     loading ||
@@ -542,6 +564,44 @@
 
         <div class="min-h-5 text-xs text-danger-text break-words" role="status">{error}</div>
 
+        {#if existingConfig?.droppedInvalid}
+          {@const invalid = existingConfig.droppedInvalid}
+          <p class="m-0 text-xs text-warning-text leading-snug break-words" role="status">
+            {invalid.count} hand-edited
+            {invalid.count === 1 ? 'workflow entry has' : 'workflow entries have'} an invalid path ({invalid.ids.join(
+              ', ',
+            )}{invalid.count > invalid.ids.length
+              ? ` and ${invalid.count - invalid.ids.length} more`
+              : ''}). Correct them in <code class="font-mono">.canopy/config.json</code> to keep them;
+            saving drops them.
+          </p>
+        {/if}
+
+        {#if existingConfig?.droppedOverCap}
+          {@const overCap = existingConfig.droppedOverCap}
+          {@const availableOverCap = overCap.ids.filter((path) =>
+            workflows.some(
+              (workflow) =>
+                workflow.available && workflow.path.toLowerCase() === path.toLowerCase(),
+            ),
+          )}
+          <p class="m-0 text-xs text-warning-text leading-snug break-words" role="status">
+            {overCap.count} hand-edited
+            {overCap.count === 1 ? 'workflow is' : 'workflows are'} past the
+            {CI_MAX_WORKFLOWS}-workflow cap and not selected{overCap.count > overCap.ids.length
+              ? ` (showing ${overCap.ids.length} of ${overCap.count})`
+              : ''}.
+            {#if loaded && availableOverCap.length > 0}
+              Untick another workflow first, then tick these to keep them:
+              {availableOverCap.join(', ')}.
+            {:else if !loaded}
+              Load workflows to see which can still be selected: {overCap.ids.join(', ')}.
+            {:else}
+              The sampled workflows are no longer dispatchable; saving drops them.
+            {/if}
+          </p>
+        {/if}
+
         {#if loading && !loaded}
           <div class="flex items-center gap-2 text-sm text-text-muted" role="status">
             <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
@@ -607,10 +667,11 @@
           class="px-3 py-1 rounded-md text-sm border-0 bg-accent-bg text-accent-text cursor-pointer hover:bg-accent-bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-accent-bg"
           onclick={saveConfiguration}
           aria-disabled={saveBlocked}
-          title={saveBlocked
-            ? 'Load and select at least one dispatchable workflow'
-            : 'Save configuration'}>{saving ? 'Saving…' : 'Save configuration'}</button
+          aria-describedby={saveBlockedReason ? 'github-ci-save-blocked' : undefined}
+          title={saveBlockedReason || 'Save configuration'}
+          >{saving ? 'Saving…' : 'Save configuration'}</button
         >
+        <span id="github-ci-save-blocked" class="sr-only">{saveBlockedReason}</span>
       </div>
     </footer>
   </div>

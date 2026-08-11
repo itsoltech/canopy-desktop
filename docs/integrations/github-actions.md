@@ -42,6 +42,9 @@ operations, but fine-grained tokens are preferred.
 - The generic **Run workflow…** action and the worktree **Run CI Workflow on Branch…** action
   prefill the active worktree branch only when that exact remote branch exists.
 - Branches and tags are distinct choices. Canopy rejects an ambiguous name that exists as both.
+- The picker loads at most five 100-item pages of branches and tags. If a ref is outside that
+  bounded list, type its full name and use **Use exact ref**; the main process resolves that exact
+  branch or tag through GitHub before loading inputs and again before dispatch.
 - Input controls are generated from the workflow file at the selected ref. Supported types are
   `string`, `boolean`, `choice`, and `environment`.
 - Workflow inputs are not treated as secrets. Do not paste tokens, passwords, or other secrets
@@ -79,8 +82,10 @@ list.
 
 ## Status and history
 
-The sidebar and activity window query only workflows selected in the repository configuration.
-History is merged across those workflows, preserving GitHub's display title and states such as
+The sidebar and activity window show only workflows selected in the repository configuration.
+Canopy loads the workflow catalog plus a bounded repository-wide run snapshot, then applies the
+configured workflow allowlist. This keeps the request count independent of whether the repository
+has one configured workflow or the maximum of 50. History preserves GitHub's display title and states such as
 queued, in progress, waiting, cancelled, neutral, failed, and successful. Clicking a run **in the
 history window** opens it on GitHub; the sidebar card opens the window itself.
 
@@ -91,12 +96,12 @@ it, so filtering afterwards would show nothing for a branch whose last run is ol
 Because a filtered response only ever contains one branch, switching to **All branches** is what
 populates the rest of the dropdown.
 
-Queries and pagination are bounded. The history view deliberately shows only the newest page and
-does not treat older runs beyond that page as a fetch failure. If a configured workflow is missing
-or its page cannot be loaded, the sidebar's CI element gains a warning-coloured `· Incomplete`
-suffix naming the failed workflow, and the activity window keeps available runs under
-a **Partial history** banner. Running and queued counts are not shown in the sidebar at all — they
-live in the window — so the suffix is never suppressed in favour of one. Environment approvals and
+Queries and pagination are bounded to five 100-run repository pages and older runs beyond that
+snapshot are not treated as a fetch failure. If a configured workflow is missing, the sidebar's CI
+element gains a warning-coloured `· Incomplete` suffix naming it, and the activity window keeps
+available runs under a **Partial history** banner. A repository run-query failure fails the whole
+refresh instead of being repeated once per configured workflow. Running and queued counts are not shown in the sidebar at all - they
+live in the window - so the suffix is never suppressed in favour of one. Environment approvals and
 run cancellation remain GitHub operations; Canopy only shows the waiting state and link.
 
 The open history window refreshes every 60 seconds. In the sidebar CI/CD section, activity
@@ -206,8 +211,8 @@ failure.
 
 - Main provider and parser: `src/main/ci/github-actions/`
 - Provider adapters and orchestration: `src/main/ci/providers/`, `src/main/ci/CiManager.ts`
-- IPC and preload boundary: `src/main/ci/ipc.ts`, `src/preload/index.ts` — `ci:jobsStatus`,
-  `ci:jobRefs`, `ci:jobParameters`, `ci:triggerJob`, `ci:runActivity`, `ci:run`,
+- IPC and preload boundary: `src/main/ci/ipc.ts`, `src/preload/index.ts` - `ci:jobsStatus`,
+  `ci:jobRefs`, `ci:exactJobRef`, `ci:jobParameters`, `ci:triggerJob`, `ci:runActivity`, `ci:run`,
   `ci:githubSetup`, `ci:testGitHubConnection`, and `ci:setGitHubCredential`
 - Renderer flow and state: `src/renderer/src/components/ci/CiRunDialog.svelte`,
   `src/renderer/src/components/ci/CiRunDialogRouter.svelte`,

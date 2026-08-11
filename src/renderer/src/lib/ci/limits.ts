@@ -3,3 +3,8 @@
 // selection cap (Save gating) and names the number in copy, so the value must
 // live in exactly one renderer place. Keep in sync with CI_MAX_BUILD_TYPES.
 export const CI_MAX_BUILD_TYPES = 50
+export const CI_MAX_WORKFLOWS = 50
+
+export function ciWorkflowSelectionOverflow(count: number): number {
+  return Math.max(0, count - CI_MAX_WORKFLOWS)
+}

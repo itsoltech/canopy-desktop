@@ -21,6 +21,27 @@ export const GITHUB_WORKFLOW_PATH_PATTERN =
 // Exported: the block-scope reason in CiManager uses the same sample bound.
 export const DROPPED_ID_SAMPLE = 10
 
+export function normalizeTeamCityBaseUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.trim() !== raw || raw.length === 0) return null
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    !url.hostname ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    return null
+  }
+  return url.toString().replace(/\/$/, '')
+}
+
 export interface CiConfigParseResult {
   /** Absent when the block cannot be used at all. */
   config?: CiConfig
@@ -43,7 +64,8 @@ export function parseCiConfig(raw: unknown): CiConfigParseResult {
   const o = raw as Record<string, unknown>
   if (o.provider === 'github-actions') return parseGitHubActionsConfig(o)
   if (o.provider !== 'teamcity') return { invalidIds: [] }
-  if (typeof o.baseUrl !== 'string' || !/^https?:\/\//i.test(o.baseUrl)) return { invalidIds: [] }
+  const baseUrl = normalizeTeamCityBaseUrl(o.baseUrl)
+  if (!baseUrl) return { invalidIds: [] }
 
   // The git-shared file is untrusted input like the IPC payload: every entry
   // becomes an authenticated status fetch on every poll, so the same LIMITS
@@ -85,7 +107,7 @@ export function parseCiConfig(raw: unknown): CiConfigParseResult {
     invalidIds,
     config: {
       provider: 'teamcity',
-      baseUrl: o.baseUrl.replace(/\/$/, ''),
+      baseUrl,
       buildTypes: accepted,
       ...(invalidIds.length > 0
         ? {

@@ -21,7 +21,13 @@ vi.mock('./teamcity', () => ({
   triggerBuild: vi.fn(() => okAsync({ buildId: 1, webUrl: 'https://tc/1', branchName: 'next' })),
 }))
 
-import { triggerBuild, fetchActivity, fetchBuildForBranch, fetchBuildTypes } from './teamcity'
+import {
+  triggerBuild,
+  fetchActivity,
+  fetchBuild,
+  fetchBuildForBranch,
+  fetchBuildTypes,
+} from './teamcity'
 
 const VALID_CI = {
   provider: 'teamcity',
@@ -222,6 +228,44 @@ describe('the configured-build-type allowlist', () => {
     ]) {
       expect(result.isErr()).toBe(true)
     }
+  })
+
+  it('rejects a build id whose owning build type is outside this repository config', async () => {
+    vi.mocked(fetchBuild).mockReturnValueOnce(
+      okAsync({
+        id: 123,
+        number: '123',
+        state: 'running',
+        status: 'UNKNOWN',
+        statusText: undefined,
+        percentageComplete: undefined,
+        webUrl: 'https://tc/build/123',
+        branchName: 'develop',
+        queuedAt: undefined,
+        startedAt: undefined,
+        finishedAt: undefined,
+        buildTypeId: 'Other_Project',
+      }),
+    )
+    const { manager } = fakes({ ci: VALID_CI })
+
+    const result = await manager.build('r', VALID_CI.baseUrl, 123)
+
+    expect(result.isErr()).toBe(true)
+    expect(result.isErr() && result.error._tag).toBe('CiApiError')
+  })
+
+  it('does not poll a build after the repository switches TeamCity servers', async () => {
+    const { manager } = fakes({ ci: VALID_CI })
+
+    const result = await manager.build('r', 'https://other-tc.example.com', 123)
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      status: 409,
+      message: 'TeamCity server configuration changed while watching the build',
+    })
+    expect(fetchBuild).not.toHaveBeenCalled()
   })
 
   it('passes a configured job through with the stored token and properties', async () => {

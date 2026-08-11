@@ -15,37 +15,51 @@ interface CiState {
   response: CiStatusResponse | null
 }
 
-let ciState = $state<CiState>({ key: '', loading: false, response: null })
+const ciStates = new SvelteMap<string, CiState>()
+const fetchSeqByKey = new SvelteMap<string, number>()
+const CI_STATE_CACHE_MAX = 100
 
-// Monotonic token: a slow response for the previous worktree must not overwrite the
-// state of the one the user already switched to (same pattern as the task pickers).
-let fetchSeq = 0
+function prepareStateKey<T>(
+  states: SvelteMap<string, T>,
+  sequences: SvelteMap<string, number>,
+  key: string,
+): void {
+  if (states.has(key)) return
+  while (states.size >= CI_STATE_CACHE_MAX) {
+    const oldest = states.keys().next().value
+    if (oldest === undefined) break
+    states.delete(oldest)
+    sequences.delete(oldest)
+  }
+}
 
 export function ciKey(repoRoot: string, branch: string): string {
   return `${repoRoot.replace(/\\/g, '/')}::${branch}`
 }
 
-export function getCiState(): CiState {
-  return ciState
+export function getCiState(key: string): CiState {
+  return ciStates.get(key) ?? { key, loading: false, response: null }
 }
 
 export async function refreshCi(repoRoot: string, branch: string): Promise<void> {
   const key = ciKey(repoRoot, branch)
-  const seq = ++fetchSeq
+  prepareStateKey(ciStates, fetchSeqByKey, key)
+  const seq = (fetchSeqByKey.get(key) ?? 0) + 1
+  fetchSeqByKey.set(key, seq)
   // Keep stale rows visible while re-fetching the SAME key (no flicker on poll);
   // switching to another worktree starts from a clean slate. The read is untracked:
   // this function runs from $effect bodies, and a tracked synchronous read of the
   // very state written below would loop the calling effect to death
   // (effect_update_depth_exceeded — froze the whole app).
-  const previous = untrack(() => (ciState.key === key ? ciState.response : null))
-  ciState = { key, loading: true, response: previous }
+  const previous = untrack(() => ciStates.get(key)?.response ?? null)
+  ciStates.set(key, { key, loading: true, response: previous })
   try {
     const response = await window.api.ciStatus(repoRoot, branch)
-    if (seq !== fetchSeq) return
-    ciState = { key, loading: false, response }
+    if (seq !== fetchSeqByKey.get(key)) return
+    ciStates.set(key, { key, loading: false, response })
   } catch (e) {
-    if (seq !== fetchSeq) return
-    ciState = {
+    if (seq !== fetchSeqByKey.get(key)) return
+    ciStates.set(key, {
       key,
       loading: false,
       response: {
@@ -53,7 +67,7 @@ export async function refreshCi(repoRoot: string, branch: string): Promise<void>
         rows: [],
         error: e instanceof Error ? e.message : 'Failed to load CI status',
       },
-    }
+    })
   }
 }
 
@@ -64,30 +78,32 @@ interface CiJobsState {
   error: string
 }
 
-let jobsState = $state<CiJobsState>({ key: '', loading: false, rows: [], error: '' })
-let jobsFetchSeq = 0
+const jobsStates = new SvelteMap<string, CiJobsState>()
+const jobsFetchSeqByKey = new SvelteMap<string, number>()
 
-export function getCiJobsState(): CiJobsState {
-  return jobsState
+export function getCiJobsState(key: string): CiJobsState {
+  return jobsStates.get(key) ?? { key, loading: false, rows: [], error: '' }
 }
 
 export async function refreshCiJobs(repoRoot: string, branch: string): Promise<void> {
   const key = ciKey(repoRoot, branch)
-  const sequence = ++jobsFetchSeq
-  const previous = untrack(() => (jobsState.key === key ? jobsState.rows : []))
-  jobsState = { key, loading: true, rows: previous, error: '' }
+  prepareStateKey(jobsStates, jobsFetchSeqByKey, key)
+  const sequence = (jobsFetchSeqByKey.get(key) ?? 0) + 1
+  jobsFetchSeqByKey.set(key, sequence)
+  const previous = untrack(() => jobsStates.get(key)?.rows ?? [])
+  jobsStates.set(key, { key, loading: true, rows: previous, error: '' })
   try {
     const rows = await window.api.ciJobsStatus(repoRoot, { name: branch, kind: 'branch' })
-    if (sequence !== jobsFetchSeq) return
-    jobsState = { key, loading: false, rows, error: '' }
+    if (sequence !== jobsFetchSeqByKey.get(key)) return
+    jobsStates.set(key, { key, loading: false, rows, error: '' })
   } catch (error) {
-    if (sequence !== jobsFetchSeq) return
-    jobsState = {
+    if (sequence !== jobsFetchSeqByKey.get(key)) return
+    jobsStates.set(key, {
       key,
       loading: false,
       rows: [],
       error: error instanceof Error ? error.message : 'Failed to load CI status',
-    }
+    })
   }
 }
 
@@ -198,7 +214,7 @@ const OBSERVE_MAX_TICKS = 720
 // ~5 min of consecutive failures — a laptop suspend/resume or a VPN reconnect
 // during a long build must not kill the observation (5 ticks = 50 s would).
 const OBSERVE_MAX_FAILURES = 30
-const observedBuilds = new SvelteMap<number, ReturnType<typeof setInterval>>()
+const observedBuilds = new SvelteMap<string, ReturnType<typeof setInterval>>()
 // Give-ups cluster: the causes (VPN drop, suspend, TeamCity restart) hit every
 // observed build at once, and the toast has ONE slot — so a second give-up would
 // silently erase the first. Aggregate instead, keeping the job names and numbers
@@ -229,14 +245,15 @@ function reportGiveUp(label: string, number: string | undefined, reason: string)
   )
 }
 
-function stopObserving(buildId: number): void {
-  const timer = observedBuilds.get(buildId)
+function stopObserving(key: string): void {
+  const timer = observedBuilds.get(key)
   if (timer) clearInterval(timer)
-  observedBuilds.delete(buildId)
+  observedBuilds.delete(key)
 }
 
-function observeBuild(repoRoot: string, buildId: number, label: string): void {
-  if (observedBuilds.has(buildId)) return
+function observeBuild(repoRoot: string, baseUrl: string, buildId: number, label: string): void {
+  const key = `${repoRoot.replace(/\\/g, '/')}::${baseUrl}::${buildId}`
+  if (observedBuilds.has(key)) return
   let ticks = 0
   let failures = 0
   // TeamCity's UI shows the per-configuration build NUMBER — the raw id from the
@@ -245,7 +262,7 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
   const timer = setInterval(async () => {
     ticks += 1
     if (ticks > OBSERVE_MAX_TICKS) {
-      stopObserving(buildId)
+      stopObserving(key)
       // Giving up must be audible: this observation IS the signal the user walked
       // away expecting, and silence is indistinguishable from "still building".
       // Front-loaded verb + sticky: the toast truncates at 300 px (~40 chars) and
@@ -255,7 +272,7 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       return
     }
     try {
-      const build = await window.api.ciBuild(repoRoot, buildId)
+      const build = await window.api.ciBuild(repoRoot, baseUrl, buildId)
       failures = 0
       lastNumber = build.number
       // Keep the sidebar card in step with the build being watched. The refresh fired at
@@ -265,7 +282,7 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       // This watcher already polls every 10 s and knows the branch; reuse it.
       if (build.branchName) void refreshCi(repoRoot, build.branchName)
       if (build.state === 'finished') {
-        stopObserving(buildId)
+        stopObserving(key)
         // .exhaustive() so the next widening of CiBuildResult fails to compile here
         // instead of silently degrading to the neutral toast — this is the one
         // surface that reaches a user who walked away after triggering.
@@ -287,17 +304,18 @@ function observeBuild(repoRoot: string, buildId: number, label: string): void {
       // only when no poll ever succeeded; the label still names the job then.
       failures += 1
       if (failures >= OBSERVE_MAX_FAILURES) {
-        stopObserving(buildId)
+        stopObserving(key)
         reportGiveUp(label, lastNumber, 'lost contact with TeamCity')
       }
     }
   }, OBSERVE_INTERVAL_MS)
-  observedBuilds.set(buildId, timer)
+  observedBuilds.set(key, timer)
 }
 
 /** Returns the failure message, or `null` when the build was queued. */
 export async function triggerCiBuild(
   repoRoot: string,
+  baseUrl: string,
   buildTypeId: string,
   branch: string,
   label: string,
@@ -308,7 +326,7 @@ export async function triggerCiBuild(
     // TeamCity's own answer is the ground truth — if it queued on a different branch
     // than requested (e.g. fell back to the default), the toast makes that visible.
     addToast(`${label}: build queued on ${result.branchName ?? branch}`, 'success')
-    observeBuild(repoRoot, result.buildId, label)
+    observeBuild(repoRoot, baseUrl, result.buildId, label)
     activityTick += 1
   } catch (e) {
     // No failure toast: the only callers are the run dialogs, whose scrim

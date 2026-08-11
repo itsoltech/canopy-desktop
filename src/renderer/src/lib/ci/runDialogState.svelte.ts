@@ -79,6 +79,7 @@ export function createCiRunDialogState(
   let values = $state<Record<string, string>>({})
   let stage = $state<CiRunStage>('select')
   let refsLoading = $state(false)
+  let exactRefLoading = $state(false)
   let parametersLoading = $state(false)
   let running = $state(false)
   let refsError = $state('')
@@ -128,7 +129,7 @@ export function createCiRunDialogState(
     return toSubmittedInputs(parameters, values)
   })
   const changed = $derived(parameters ? changedProperties(parameters, submitted) : [])
-  const loading = $derived(refsLoading || parametersLoading)
+  const loading = $derived(refsLoading || exactRefLoading || parametersLoading)
   const selectionReady = $derived(
     !!jobId && !!selectedRef && parameters !== null && !loading && !refsError && !parametersError,
   )
@@ -272,6 +273,7 @@ export function createCiRunDialogState(
     triggerError = ''
     triggerErrorStatus = undefined
     refsLoading = false
+    exactRefLoading = false
     parametersLoading = false
     loadedGitHubParametersFor = ''
 
@@ -292,6 +294,7 @@ export function createCiRunDialogState(
     const sequence = ++refsSequence
     const requestedJobId = jobId
     refsLoading = true
+    exactRefLoading = false
     refsError = ''
     try {
       if (config.provider === 'teamcity') {
@@ -312,7 +315,7 @@ export function createCiRunDialogState(
           ? availableRefs.find((ref) => ref.kind === 'branch' && ref.name === initialBranch)
           : undefined
         selectedRefName = existing?.name ?? worktreeRef?.name ?? ''
-        refQuery = selectedRefName
+        refQuery = selectedRefName || initialBranch || ''
       }
     } catch (cause) {
       if (sequence !== refsSequence || requestedJobId !== jobId) return
@@ -323,6 +326,31 @@ export function createCiRunDialogState(
       )
     } finally {
       if (sequence === refsSequence) refsLoading = false
+    }
+  }
+
+  async function resolveExactRef(name: string): Promise<boolean> {
+    if (config.provider !== 'github-actions' || !jobId || exactRefLoading) return false
+    const sequence = ++refsSequence
+    const requestedJobId = jobId
+    exactRefLoading = true
+    refsLoading = false
+    refsError = ''
+    try {
+      const resolved = await window.api.ciExactJobRef(repoRoot, requestedJobId, name)
+      if (sequence !== refsSequence || requestedJobId !== jobId) return false
+      refs = [...refs.filter((ref) => ref.name !== resolved.name), resolved]
+      selectedRefName = resolved.name
+      refQuery = resolved.name
+      loadedGitHubParametersFor = `${requestedJobId}\u0000${resolved.name}`
+      await loadParameters()
+      return true
+    } catch (cause) {
+      if (sequence !== refsSequence || requestedJobId !== jobId) return false
+      refsError = ipcErrorMessage(cause, 'Could not resolve the GitHub ref')
+      return false
+    } finally {
+      if (sequence === refsSequence) exactRefLoading = false
     }
   }
 
@@ -389,6 +417,7 @@ export function createCiRunDialogState(
         const properties = parameters.length > 0 ? toProperties(parameters, values) : undefined
         const failure = await triggerCiBuild(
           repoRoot,
+          config.baseUrl,
           jobId,
           selectedRef.name,
           jobLabel,
@@ -472,6 +501,9 @@ export function createCiRunDialogState(
     get refsLoading() {
       return refsLoading
     },
+    get exactRefLoading() {
+      return exactRefLoading
+    },
     get running() {
       return running
     },
@@ -537,6 +569,7 @@ export function createCiRunDialogState(
     cancelOrBack,
     selectJob,
     loadRefs,
+    resolveExactRef,
     loadParameters,
     primaryAction,
   }

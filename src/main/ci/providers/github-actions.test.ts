@@ -40,6 +40,7 @@ function fakeClient(overrides: Partial<GitHubActionsClient> = {}): GitHubActions
     listEnvironments: vi.fn(() => okAsync([])),
     listWorkflowRuns: vi.fn(() => okAsync([])),
     listWorkflowRunsPage: vi.fn(() => okAsync({ runs: [], totalCount: 0 })),
+    listRepositoryRuns: vi.fn(() => okAsync({ runs: [], totalCount: 0 })),
     getRun: vi.fn(() => okAsync({ id: 1, status: 'queued' })),
     dispatchWorkflow: vi.fn(() => okAsync({ runId: '123', apiUrl: 'api-run', webUrl: 'web-run' })),
     ...overrides,
@@ -47,6 +48,24 @@ function fakeClient(overrides: Partial<GitHubActionsClient> = {}): GitHubActions
 }
 
 describe('GitHubActionsAdapter', () => {
+  it('rejects a run owned by a workflow outside the repository configuration', async () => {
+    const client = fakeClient({
+      getRun: vi.fn(() =>
+        okAsync({
+          id: 99,
+          status: 'completed',
+          conclusion: 'success',
+          path: '.github/workflows/foreign.yml@refs/heads/main',
+        }),
+      ),
+    })
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const result = await adapter.run('99')
+
+    expect(result.isErr()).toBe(true)
+  })
+
   it('rejects public workflow data when GitHub rejects the stored identity', async () => {
     const client = fakeClient()
     vi.mocked(client.verifyAuthentication).mockReturnValue(
@@ -158,6 +177,21 @@ describe('GitHubActionsAdapter', () => {
     expect(client.getWorkflowFile).toHaveBeenCalledWith('.github/workflows/release.yml', 'next')
   })
 
+  it('resolves an exact configured ref without relying on the bounded picker list', async () => {
+    const client = fakeClient()
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const result = await adapter.exactRef('.github/workflows/release.yml', 'beyond-page-five')
+
+    expect(result.isOk() && result.value).toEqual({
+      name: 'beyond-page-five',
+      kind: 'branch',
+      commitSha: 'commit-sha',
+    })
+    expect(client.listBranches).not.toHaveBeenCalled()
+    expect(client.listTags).not.toHaveBeenCalled()
+  })
+
   it('rejects a branch/tag name collision before loading or dispatching', async () => {
     const client = fakeClient({
       getExactRef: vi.fn((_kind: 'branch' | 'tag', name: string) =>
@@ -215,12 +249,12 @@ describe('GitHubActionsAdapter', () => {
     expect(client.dispatchWorkflow).not.toHaveBeenCalled()
   })
 
-  it('queries activity per configured workflow instead of repository-wide history', async () => {
+  it('queries activity once for the repository instead of once per configured workflow', async () => {
     const config: GitHubActionsCiConfig = {
       ...CONFIG,
       workflows: [...CONFIG.workflows, { path: '.github/workflows/tests.yml', label: 'Tests' }],
     }
-    const listWorkflowRunsPage = vi.fn(() => okAsync({ runs: [], totalCount: 0 }))
+    const listRepositoryRuns = vi.fn(() => okAsync({ runs: [], totalCount: 0 }))
     const client = fakeClient({
       listWorkflows: vi.fn(() =>
         okAsync([
@@ -240,34 +274,33 @@ describe('GitHubActionsAdapter', () => {
           },
         ]),
       ),
-      listWorkflowRunsPage,
+      listRepositoryRuns,
     })
     const adapter = new GitHubActionsAdapter(config, client)
 
     const result = await adapter.activity()
 
     expect(result.isOk()).toBe(true)
-    expect(listWorkflowRunsPage).toHaveBeenCalledTimes(2)
-    expect(listWorkflowRunsPage).toHaveBeenNthCalledWith(1, 42, undefined)
-    expect(listWorkflowRunsPage).toHaveBeenNthCalledWith(2, 43, undefined)
+    expect(listRepositoryRuns).toHaveBeenCalledTimes(1)
+    expect(listRepositoryRuns).toHaveBeenCalledWith(undefined)
   })
 
   it('narrows activity to a branch in the QUERY, not the response', async () => {
     // `recent` is sliced to the ten newest across every configured workflow, so a
     // response-side filter would hide a branch whose last run is older than that.
-    const listWorkflowRunsPage = vi.fn(() => okAsync({ runs: [], totalCount: 0 }))
-    const client = fakeClient({ listWorkflowRunsPage })
+    const listRepositoryRuns = vi.fn(() => okAsync({ runs: [], totalCount: 0 }))
+    const client = fakeClient({ listRepositoryRuns })
     const adapter = new GitHubActionsAdapter(CONFIG, client)
 
     const result = await adapter.activity('feat/x')
 
     expect(result.isOk()).toBe(true)
-    expect(listWorkflowRunsPage).toHaveBeenCalledWith(expect.any(Number), 'feat/x')
+    expect(listRepositoryRuns).toHaveBeenCalledWith('feat/x')
   })
 
   it('treats a bounded history page as a complete successful activity read', async () => {
     const client = fakeClient({
-      listWorkflowRunsPage: vi.fn(() => okAsync({ runs: [], totalCount: 101 })),
+      listRepositoryRuns: vi.fn(() => okAsync({ runs: [], totalCount: 101 })),
     })
     const adapter = new GitHubActionsAdapter(CONFIG, client)
 
@@ -276,5 +309,72 @@ describe('GitHubActionsAdapter', () => {
     expect(result.isOk()).toBe(true)
     if (result.isErr()) throw result.error
     expect(result.value.partialErrors).toBeUndefined()
+  })
+
+  it('keeps status polling request count constant at the configured workflow cap', async () => {
+    const workflows = Array.from({ length: 50 }, (_, index) => ({
+      path: `.github/workflows/workflow-${index}.yml`,
+      label: `Workflow ${index}`,
+    }))
+    const client = fakeClient({
+      listWorkflows: vi.fn(() =>
+        okAsync(
+          workflows.map((workflow, index) => ({
+            id: index + 1,
+            name: workflow.label,
+            path: workflow.path,
+            state: 'active',
+            htmlUrl: '',
+          })),
+        ),
+      ),
+    })
+    const adapter = new GitHubActionsAdapter({ ...CONFIG, workflows }, client)
+
+    const result = await adapter.status({ name: 'next', kind: 'branch' })
+
+    expect(result.isOk()).toBe(true)
+    expect(client.listRepositoryRuns).toHaveBeenCalledTimes(1)
+    expect(client.listWorkflowRuns).not.toHaveBeenCalled()
+  })
+
+  it('preserves configured workflow labels and excludes foreign runs from status and activity', async () => {
+    const releaseRun = {
+      id: 10,
+      run_number: 7,
+      status: 'completed',
+      conclusion: 'success',
+      path: '.github/workflows/release.yml@refs/heads/next',
+      head_branch: 'next',
+    }
+    const client = fakeClient({
+      listRepositoryRuns: vi.fn(() =>
+        okAsync({
+          runs: [
+            releaseRun,
+            {
+              ...releaseRun,
+              id: 11,
+              path: '.github/workflows/foreign.yml@refs/heads/next',
+            },
+          ],
+          totalCount: 2,
+        }),
+      ),
+    })
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const status = await adapter.status({ name: 'next', kind: 'branch' })
+    const activity = await adapter.activity('next')
+
+    expect(status.isOk() && status.value[0]?.run).toMatchObject({
+      runId: '10',
+      jobLabel: 'Release',
+    })
+    expect(activity.isOk() && activity.value.recent).toHaveLength(1)
+    expect(activity.isOk() && activity.value.recent[0]).toMatchObject({
+      runId: '10',
+      jobLabel: 'Release',
+    })
   })
 })

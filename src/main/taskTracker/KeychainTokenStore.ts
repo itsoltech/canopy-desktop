@@ -361,7 +361,11 @@ export class KeychainTokenStore {
     opts?: { bindingKey?: string; usedSecret?: string; authenticationRejected?: true },
   ): void {
     const bindingKey = opts?.bindingKey ?? defaultBinding(provider, baseUrl)
-    const credentialId = this.registry.listBindings()[bindingKey]
+    const current = opts?.usedSecret ? this.getCredentials(provider, baseUrl, bindingKey) : null
+    // A singly-bound credential keeps its descriptor id when its secret is replaced. Correlate
+    // against the actual secret version so a late result cannot validate or reject its successor.
+    if (opts?.usedSecret && current?.token !== opts.usedSecret) return
+    const credentialId = current?.credentialId ?? this.registry.listBindings()[bindingKey]
     if (!credentialId) return
     if (status === 401 || (status === 403 && opts?.authenticationRejected)) {
       this.registry.recordAuthentication(credentialId, 'invalid')

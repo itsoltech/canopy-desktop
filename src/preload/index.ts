@@ -1435,6 +1435,8 @@ const api = {
     ipcRenderer.invoke('ci:jobsStatus', { repoRoot, ref }),
   ciJobRefs: (repoRoot: string, jobId: string) =>
     ipcRenderer.invoke('ci:jobRefs', { repoRoot, jobId }),
+  ciExactJobRef: (repoRoot: string, jobId: string, name: string) =>
+    ipcRenderer.invoke('ci:exactJobRef', { repoRoot, jobId, name }),
   ciJobParameters: (
     repoRoot: string,
     jobId: string,
@@ -1460,8 +1462,8 @@ const api = {
     branch: string,
     properties?: Array<{ name: string; value: string }>,
   ) => ipcRenderer.invoke('ci:trigger', { repoRoot, buildTypeId, branch, properties }),
-  ciBuild: (repoRoot: string, buildId: number) =>
-    ipcRenderer.invoke('ci:build', { repoRoot, buildId }),
+  ciBuild: (repoRoot: string, expectedBaseUrl: string, buildId: number) =>
+    ipcRenderer.invoke('ci:build', { repoRoot, expectedBaseUrl, buildId }),
   ciTestNewConnection: (baseUrl: string, token: string) =>
     ipcRenderer.invoke('ci:testNewConnection', { baseUrl, token }),
   ciBuildParameters: (repoRoot: string, buildTypeId: string) =>

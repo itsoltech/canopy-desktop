@@ -206,6 +206,51 @@ describe('CI run dialog controller', () => {
     )
   })
 
+  it('resolves a typed GitHub ref outside the bounded picker pages', async () => {
+    const ciExactJobRef = vi.fn().mockResolvedValue({
+      name: 'feature/beyond-page-five',
+      kind: 'branch',
+      commitSha: 'exact-sha',
+    })
+    const ciJobParameters = vi.fn().mockResolvedValue({ parameters: [], schemaRevision: 'sha' })
+
+    await withDialogState(
+      {
+        ciJobRefs: vi.fn().mockResolvedValue([{ name: 'main', kind: 'branch' }]),
+        ciExactJobRef,
+        ciJobParameters,
+      },
+      async (state) => {
+        state.initialize()
+        await vi.waitFor(() => expect(state.refsLoading).toBe(false))
+        expect(state.refQuery).toBe('feature/beyond-page-five')
+
+        const resolved = await state.resolveExactRef('feature/beyond-page-five')
+
+        expect(resolved).toBe(true)
+        expect(ciExactJobRef).toHaveBeenCalledWith(
+          'repo',
+          '.github/workflows/a.yml',
+          'feature/beyond-page-five',
+        )
+        expect(state.selectedRefName).toBe('feature/beyond-page-five')
+        expect(state.selectedRef).toMatchObject({
+          name: 'feature/beyond-page-five',
+          kind: 'branch',
+          commitSha: 'exact-sha',
+        })
+        await vi.waitFor(() => expect(ciJobParameters).toHaveBeenCalled())
+        expect(ciJobParameters).toHaveBeenCalledWith(
+          'repo',
+          '.github/workflows/a.yml',
+          expect.objectContaining({ name: 'feature/beyond-page-five', kind: 'branch' }),
+        )
+      },
+      GITHUB_CONFIG,
+      'feature/beyond-page-five',
+    )
+  })
+
   it('resets confirmation when the selected ref changes', async () => {
     await withDialogState(
       {
