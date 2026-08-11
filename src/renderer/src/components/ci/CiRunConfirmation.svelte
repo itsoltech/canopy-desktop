@@ -1,4 +1,6 @@
 <script lang="ts">
+  import CiRunTargetSummary from './CiRunTargetSummary.svelte'
+
   // The confirmation SCREEN shared by both run dialogs — it replaces the dialog's body the
   // way the parameters screen does, rather than being appended to it. One component because
   // the decision is the same one for both providers: "this is what is about to be sent".
@@ -9,15 +11,19 @@
   // every other.
   let {
     title,
+    targetLabel,
     ref,
+    refLabel,
     changed,
     total,
     noun = 'parameters',
   }: {
     /** What will run — the build configuration or workflow label. */
     title: string
+    targetLabel: 'Build' | 'Workflow'
     /** The branch or tag it will run on. */
     ref: string
+    refLabel: 'Branch' | 'Tag'
     changed: Array<{ name: string; value: string }>
     /** How many were submitted in total, so the count reads as a proportion. */
     total: number
@@ -26,13 +32,7 @@
 </script>
 
 <div class="flex flex-col gap-3">
-  <div class="flex flex-col gap-1">
-    <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">
-      About to run
-    </span>
-    <span class="text-sm text-text break-words">{title}</span>
-    <span class="font-mono text-xs text-text-muted break-all">{ref}</span>
-  </div>
+  <CiRunTargetSummary {targetLabel} target={title} {refLabel} {ref} />
 
   <div class="flex flex-col gap-1">
     <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint">

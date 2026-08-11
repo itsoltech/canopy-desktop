@@ -10,6 +10,7 @@
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import CiRunConfirmation from './CiRunConfirmation.svelte'
   import CiRunParameterFields from './CiRunParameterFields.svelte'
+  import CiRunTargetSummary from './CiRunTargetSummary.svelte'
 
   let {
     repoRoot,
@@ -50,7 +51,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={dialogEl}
-    class="outline-none w-[500px] max-w-[92vw] max-h-[85vh] overflow-y-auto rounded-xl border border-border bg-bg-overlay p-5 shadow-modal flex flex-col gap-4"
+    class="outline-none w-[500px] max-w-[92vw] max-h-[85vh] overflow-hidden rounded-xl border border-border bg-bg-overlay p-5 shadow-modal flex flex-col gap-4"
     role="dialog"
     aria-modal="true"
     aria-labelledby="ci-run-title"
@@ -85,110 +86,119 @@
       </button>
     </header>
 
-    {#if runDialog.stage === 'confirm' && runDialog.selectedRef}
-      <CiRunConfirmation
-        title={runDialog.jobLabel}
-        ref={runDialog.isTeamCity
-          ? runDialog.selectedRef.name
-          : `${runDialog.selectedRef.kind} ${runDialog.selectedRef.name}`}
-        changed={runDialog.changed}
-        total={runDialog.submitted.length}
-        noun={runDialog.isTeamCity ? 'parameters' : 'inputs'}
-      />
-    {:else if runDialog.stage === 'select'}
-      <p class="m-0 break-words text-xs text-text-secondary" id="ci-run-blocked-hint">
-        {runDialog.selectionGuidance}
-      </p>
-
-      <div class="flex flex-col gap-1">
-        <label for="ci-run-job" class="text-xs font-semibold text-text-faint">
-          {runDialog.isTeamCity ? 'Job' : 'Workflow'}
-        </label>
-        <CustomSelect
-          id="ci-run-job"
-          value={runDialog.jobId}
-          options={runDialog.jobs}
-          onchange={(value) => void runDialog.selectJob(value)}
+    <div class="min-h-0 flex-1 overflow-y-auto flex flex-col gap-4 pr-1">
+      {#if runDialog.stage === 'confirm' && runDialog.selectedRef}
+        <CiRunConfirmation
+          title={runDialog.jobLabel}
+          targetLabel={runDialog.isTeamCity ? 'Build' : 'Workflow'}
+          ref={runDialog.selectedRef.name}
+          refLabel={runDialog.isTeamCity || runDialog.selectedRef.kind === 'branch'
+            ? 'Branch'
+            : 'Tag'}
+          changed={runDialog.changed}
+          total={runDialog.submitted.length}
+          noun={runDialog.isTeamCity ? 'parameters' : 'inputs'}
         />
-      </div>
+      {:else if runDialog.stage === 'select'}
+        <p class="m-0 break-words text-xs text-text-secondary" id="ci-run-blocked-hint">
+          {runDialog.selectionGuidance}
+        </p>
 
-      <div class="flex flex-col min-h-0 flex-1">
-        <BranchPicker
-          branches={{ local: runDialog.branchNames, remote: runDialog.tagNames }}
-          label={runDialog.refLabel}
-          bind:query={runDialog.refQuery}
-          bind:selectedBranch={runDialog.selectedRefName}
-          refreshing={runDialog.refsLoading}
-          onRefresh={runDialog.loadRefs}
-          fillQueryOnPick={true}
-          highlightPicked={true}
-          collapseConfirmedSelection={true}
-          startCollapsed={true}
+        <div class="flex flex-col gap-1">
+          <label for="ci-run-job" class="text-xs font-semibold text-text-faint">
+            {runDialog.isTeamCity ? 'Job' : 'Workflow'}
+          </label>
+          <CustomSelect
+            id="ci-run-job"
+            value={runDialog.jobId}
+            options={runDialog.jobs}
+            onchange={(value) => void runDialog.selectJob(value)}
+          />
+        </div>
+
+        <div class="flex flex-col min-h-0 flex-1">
+          <BranchPicker
+            branches={{ local: runDialog.branchNames, remote: runDialog.tagNames }}
+            label={runDialog.refLabel}
+            bind:query={runDialog.refQuery}
+            bind:selectedBranch={runDialog.selectedRefName}
+            refreshing={runDialog.refsLoading}
+            onRefresh={runDialog.loadRefs}
+            fillQueryOnPick={true}
+            highlightPicked={true}
+            collapseConfirmedSelection={true}
+            startCollapsed={true}
+          />
+          {#if runDialog.worktreeBranchMissing}
+            <span class="text-xs text-text-muted">
+              The worktree branch is unavailable on GitHub; choose another branch or tag.
+            </span>
+          {/if}
+          {#if runDialog.ambiguousRefNames.length > 0}
+            <span class="text-xs text-text-muted">
+              Branch/tag name collisions are unavailable:
+              {runDialog.ambiguousRefNames.join(', ')}.
+            </span>
+          {/if}
+        </div>
+      {:else if runDialog.parameters}
+        <CiRunTargetSummary
+          targetLabel={runDialog.isTeamCity ? 'Build' : 'Workflow'}
+          target={runDialog.jobLabel}
+          refLabel={runDialog.isTeamCity || runDialog.selectedRef?.kind === 'branch'
+            ? 'Branch'
+            : 'Tag'}
+          ref={runDialog.selectedRefName}
         />
-        {#if runDialog.worktreeBranchMissing}
-          <span class="text-xs text-text-muted">
-            The worktree branch is unavailable on GitHub; choose another branch or tag.
-          </span>
-        {/if}
-        {#if runDialog.ambiguousRefNames.length > 0}
-          <span class="text-xs text-text-muted">
-            Branch/tag name collisions are unavailable:
-            {runDialog.ambiguousRefNames.join(', ')}.
-          </span>
-        {/if}
-      </div>
-    {:else if runDialog.parameters}
-      <p class="m-0 text-xs text-text-muted">
-        {runDialog.jobLabel} · <span class="font-mono">{runDialog.selectedRefName}</span>
-      </p>
-      <CiRunParameterFields
-        provider={config.provider}
-        parameters={runDialog.parameters}
-        bind:values={runDialog.values}
-        validationErrorId="ci-run-validation-error"
-      />
-    {/if}
+        <CiRunParameterFields
+          provider={config.provider}
+          parameters={runDialog.parameters}
+          bind:values={runDialog.values}
+          validationErrorId="ci-run-validation-error"
+        />
+      {/if}
 
-    {#if runDialog.loading}
-      <div class="flex items-center gap-2 text-xs text-text-muted" role="status">
-        <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" /> Loading…
-      </div>
-    {/if}
+      {#if runDialog.loading}
+        <div class="flex items-center gap-2 text-xs text-text-muted" role="status">
+          <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" /> Loading…
+        </div>
+      {/if}
 
-    {#if runDialog.dispatchDenied}
-      <div
-        class="flex items-start gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
-        role="alert"
-      >
-        <KeyRound size={13} class="mt-0.5 shrink-0 text-warning-text" />
-        <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug">
-          This token can read workflows but not start them. It needs <strong
-            class="font-semibold text-text">Actions: read and write</strong
-          >{config.provider === 'github-actions' ? ` for ${config.repository}` : ''}. Update it in
-          the CI/CD configurator, which has the token field and a link that pre-selects that
-          permission.
-          <span class="text-text-faint">({runDialog.triggerError})</span>
-        </span>
-        <button
-          type="button"
-          class="shrink-0 self-center px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-          onclick={() => showProjectCi('credentials')}
+      {#if runDialog.dispatchDenied}
+        <div
+          class="flex items-start gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+          role="alert"
         >
-          Update token
-        </button>
-      </div>
-    {:else}
-      <div
-        id="ci-run-validation-error"
-        class:sr-only={!runDialog.visibleError}
-        class="text-xs text-danger-text"
-        aria-live="polite"
-      >
-        {runDialog.visibleError}
-      </div>
-    {/if}
+          <KeyRound size={13} class="mt-0.5 shrink-0 text-warning-text" />
+          <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug">
+            This token can read workflows but not start them. It needs <strong
+              class="font-semibold text-text">Actions: read and write</strong
+            >{config.provider === 'github-actions' ? ` for ${config.repository}` : ''}. Update it in
+            the CI/CD configurator, which has the token field and a link that pre-selects that
+            permission.
+            <span class="text-text-faint">({runDialog.triggerError})</span>
+          </span>
+          <button
+            type="button"
+            class="shrink-0 self-center px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
+            onclick={() => showProjectCi('credentials')}
+          >
+            Update token
+          </button>
+        </div>
+      {:else}
+        <div
+          id="ci-run-validation-error"
+          class:sr-only={!runDialog.visibleError}
+          class="text-xs text-danger-text"
+          aria-live="polite"
+        >
+          {runDialog.visibleError}
+        </div>
+      {/if}
+    </div>
 
-    <footer class="flex justify-end gap-2 border-t border-border-subtle pt-3">
+    <footer class="shrink-0 flex justify-end gap-2 border-t border-border-subtle pt-3">
       {#if runDialog.parametersError}
         <button
           type="button"
