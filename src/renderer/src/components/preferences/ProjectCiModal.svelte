@@ -7,8 +7,10 @@
   import { addToast } from '../../lib/stores/toast.svelte'
   import { bumpCiCredentialTick, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
+  import { canUseTeamCityCredential, teamCityCredentialGate } from '../../lib/ci/credentialGate'
+  import { ipcErrorMessage } from '../../lib/ci/errors'
   import { CI_MAX_BUILD_TYPES } from '../../lib/ci/limits'
-  import type { TeamCityCiRepoConfigInfo } from '../../lib/ci/types'
+  import type { CiCredentialStatus, TeamCityCiRepoConfigInfo } from '../../lib/ci/types'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import CiJobPicker from '../ci/CiJobPicker.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
@@ -23,9 +25,11 @@
 
   let {
     initialConfig,
+    initialCredential,
     initialInvalid,
   }: {
     initialConfig: TeamCityCiRepoConfigInfo | null
+    initialCredential?: CiCredentialStatus
     initialInvalid?: InvalidCiConfig
   } = $props()
 
@@ -56,7 +60,13 @@
   /** Save/remove failure — surfaced in the footer: a toast would render UNDER
       this modal's scrim (z-banner 9999 < z-overlay 10000) and be unclickable. */
   let saveError = $state('')
-  let servers = $state<Array<{ baseUrl: string }>>([])
+  let servers = $state<
+    Array<{
+      baseUrl: string
+      authenticationState: CiCredentialStatus['authenticationState']
+    }>
+  >([])
+  let configuredCredentialOverride = $state<CiCredentialStatus | null>(null)
   let selectedServer = $state<string>(NEW_SERVER)
   let newUrl = $state('')
   let formToken = $state('')
@@ -83,9 +93,28 @@
     selectedServer === NEW_SERVER ? newUrl.trim().replace(/\/$/, '') : selectedServer,
   )
   let urlValid = $derived(/^https?:\/\/\S+$/i.test(effectiveUrl))
-  let serverHasToken = $derived(servers.some((s) => s.baseUrl === selectedServer))
+  let selectedCredential = $derived.by((): CiCredentialStatus => {
+    if (existingConfig && selectedServer === existingConfig.baseUrl) {
+      return (
+        configuredCredentialOverride ??
+        initialCredential ?? { hasToken: false, authenticationState: 'unknown' }
+      )
+    }
+    const stored = servers.find((server) => server.baseUrl === selectedServer)
+    return {
+      hasToken: !!stored,
+      authenticationState: stored?.authenticationState ?? 'unknown',
+    }
+  })
+  let credentialGate = $derived(teamCityCredentialGate(selectedCredential))
+  let serverHasToken = $derived(selectedCredential.hasToken)
+  let credentialRejected = $derived(
+    selectedCredential.hasToken && selectedCredential.authenticationState === 'invalid',
+  )
   let isInitialSetup = $derived(initialConfig === null)
-  let canLoadTypes = $derived(urlValid && (serverHasToken || trimmedFormToken.length > 0))
+  let canLoadTypes = $derived(
+    urlValid && canUseTeamCityCredential(selectedCredential, trimmedFormToken.length > 0),
+  )
 
   let serverOptions = $derived.by(() => {
     const options = servers.map((s) => ({ value: s.baseUrl, label: s.baseUrl }))
@@ -106,9 +135,11 @@
   }
 
   function credentialUpdated(): void {
-    if (!servers.some((server) => server.baseUrl === effectiveUrl)) {
-      servers = [...servers, { baseUrl: effectiveUrl }]
+    if (existingConfig && selectedServer === existingConfig.baseUrl) {
+      configuredCredentialOverride = { hasToken: true, authenticationState: 'valid' }
     }
+    const remaining = servers.filter((server) => server.baseUrl !== effectiveUrl)
+    servers = [...remaining, { baseUrl: effectiveUrl, authenticationState: 'valid' }]
     typesError = ''
   }
 
@@ -129,7 +160,16 @@
     }
     try {
       const all = await window.api.keychainListCredentials()
-      servers = all.filter((c) => c.provider === 'teamcity').map((c) => ({ baseUrl: c.baseUrl }))
+      servers = all
+        .filter((credential) => credential.provider === 'teamcity')
+        .map((credential) => ({
+          baseUrl: credential.baseUrl,
+          authenticationState:
+            credential.authenticationState === 'valid' ||
+            credential.authenticationState === 'invalid'
+              ? credential.authenticationState
+              : 'unknown',
+        }))
     } catch {
       servers = []
     }
@@ -139,7 +179,7 @@
     }
     if (existingConfig) {
       // Editing with a stored token: show the picker right away.
-      if (servers.some((s) => s.baseUrl === existingConfig!.baseUrl)) void loadBuildTypes()
+      if (canLoadTypes) void loadBuildTypes()
     } else if (servers.length > 0) {
       selectedServer = servers[0].baseUrl
     }
@@ -207,7 +247,7 @@
       details:
         `The token will be sent only to this address and, when saved, stored ${storage} for this server-scoped TeamCity integration. Only continue if you recognize it as your TeamCity server.` +
         (insecure
-          ? ' Warning: this is a plain http:// address — the token would travel unencrypted.'
+          ? ' Warning: this is a plain http:// address - the token would travel unencrypted.'
           : ''),
       confirmLabel: 'Continue',
     })
@@ -242,12 +282,13 @@
     } catch (e) {
       // In-modal per the scrim rule — a toast would paint under this dialog. The
       // caller (Load available jobs) surfaces typesError right next to its button.
-      typesError = e instanceof Error ? e.message : 'Failed to save credentials'
+      typesError = ipcErrorMessage(e, 'Failed to save credentials')
       return false
     }
-    if (!servers.some((s) => s.baseUrl === effectiveUrl)) {
-      servers = [...servers, { baseUrl: effectiveUrl }]
-    }
+    servers = [
+      ...servers.filter((server) => server.baseUrl !== effectiveUrl),
+      { baseUrl: effectiveUrl, authenticationState: 'valid' },
+    ]
     if (selectedServer === NEW_SERVER) selectedServer = effectiveUrl
     formToken = ''
     return true
@@ -265,7 +306,18 @@
       serverTypes = await window.api.ciListBuildTypes(effectiveUrl)
       typesLoaded = true
     } catch (e) {
-      typesError = e instanceof Error ? e.message : 'Failed to load build configurations'
+      const message = ipcErrorMessage(e, 'Could not load TeamCity jobs')
+      let rejected = credentialRejected
+      if (repoRoot && existingConfig && selectedServer === existingConfig.baseUrl) {
+        try {
+          const refreshed = await window.api.ciConfig(repoRoot)
+          if (refreshed.credential) configuredCredentialOverride = refreshed.credential
+          rejected = refreshed.credential?.authenticationState === 'invalid'
+        } catch {
+          // Keep the sanitized request error when the credential verdict cannot be refreshed.
+        }
+      }
+      typesError = rejected ? '' : message
       serverTypes = []
       // A failed request says nothing about what exists on the server — keep the
       // picker, the stale-job warning and Save out of the "we know" state.
@@ -340,11 +392,13 @@
       ? "Loading the server's jobs…"
       : !urlValid
         ? URL_REQUIRED
-        : !canLoadTypes
-          ? isInitialSetup
-            ? 'Disabled: enter an access token first (or pick a server with one stored)'
-            : 'Disabled: add a token in Personal credentials first'
-          : '',
+        : credentialRejected && trimmedFormToken.length === 0
+          ? credentialGate.jobsReason
+          : !canLoadTypes
+            ? isInitialSetup
+              ? 'Disabled: enter an access token first (or pick a server with one stored)'
+              : credentialGate.jobsReason
+            : '',
   )
   // Why Save cannot run, and how loud to say it — ONE pass, so the sentence and
   // its colour cannot disagree (a flat severity disjunction paired a next-step
@@ -375,6 +429,9 @@
     if (!urlValid) {
       return { reason: URL_REQUIRED, severity: 'info' }
     }
+    if (credentialRejected || (!isInitialSetup && !credentialGate.canLoadJobs)) {
+      return { reason: credentialGate.saveReason, severity: 'info' }
+    }
     if (!canLoadTypes) {
       return {
         reason: isInitialSetup
@@ -389,13 +446,13 @@
     if (!typesLoaded) {
       return {
         reason:
-          'Disabled: click "Load available jobs" first — Canopy saves only jobs the server confirmed',
+          'Disabled: click "Load available jobs" first - Canopy saves only jobs the server confirmed',
         severity: 'info',
       }
     }
     if (effectiveBuildTypes.length > CI_MAX_BUILD_TYPES) {
       return {
-        reason: `Disabled: at most ${CI_MAX_BUILD_TYPES} jobs can be configured — untick ${effectiveBuildTypes.length - CI_MAX_BUILD_TYPES}`,
+        reason: `Disabled: at most ${CI_MAX_BUILD_TYPES} jobs can be configured - untick ${effectiveBuildTypes.length - CI_MAX_BUILD_TYPES}`,
         severity: 'warn',
       }
     }
@@ -445,7 +502,7 @@
         buildTypes: effectiveBuildTypes,
       })
       await loadCiRepoConfig(repoRoot)
-      addToast('CI configuration saved — commit .canopy/config.json to share it')
+      addToast('CI configuration saved - commit .canopy/config.json to share it')
       closeDialog()
     } catch (e) {
       saveError = e instanceof Error ? e.message : 'Failed to save CI configuration'
@@ -473,7 +530,7 @@
         title: 'Remove CI configuration',
         message: `Remove the TeamCity configuration (${existingConfig.baseUrl}) from this repository?`,
         details:
-          'Removes the ci block from the git-tracked .canopy/config.json — after committing, the whole team loses the CI rows. Your stored token stays (Settings → CI connections).',
+          'Removes the ci block from the git-tracked .canopy/config.json - after committing, the whole team loses the CI rows. Your stored token stays (Settings > CI connections).',
         confirmLabel: 'Remove configuration',
         destructive: true,
       })
@@ -512,7 +569,7 @@
       class="px-6 pt-5 pb-3 border-b border-border-subtle shrink-0 flex items-start justify-between gap-3"
     >
       <div class="flex flex-col gap-0.5 min-w-0">
-        <h2 class="text-lg font-semibold text-text m-0 leading-tight">CI/CD — TeamCity</h2>
+        <h2 class="text-lg font-semibold text-text m-0 leading-tight">CI/CD - TeamCity</h2>
         <p class="text-xs text-text-muted m-0 leading-snug">
           The server and the available build configurations are shared with your team via
           <code class="font-mono">.canopy/config.json</code> in this repository. Tokens stay on this machine.
@@ -543,12 +600,12 @@
                    path renders just the message, not a dangling em dash. -->
               {configLoadError}
               {#if configLoadScope === 'file'}
-                — fix <code class="font-mono">.canopy/config.json</code> by hand; Save is disabled here
+                - fix <code class="font-mono">.canopy/config.json</code> by hand; Save is disabled here
                 because writing would require reading the file first (nothing is ever re-initialized over
                 it).
               {:else if configLoadScope === 'block'}
-                — pick the server and jobs below and Save to replace the invalid
-                <code class="font-mono">ci</code> block — the rest of the file is untouched.
+                - pick the server and jobs below and Save to replace the invalid
+                <code class="font-mono">ci</code> block - the rest of the file is untouched.
               {/if}
             </p>
           {/if}
@@ -601,10 +658,10 @@
               <div class="min-w-0">
                 <div
                   class="text-xs font-medium"
-                  class:text-danger-text={!serverHasToken}
-                  class:text-text={serverHasToken}
+                  class:text-danger-text={!serverHasToken || credentialRejected}
+                  class:text-text={serverHasToken && !credentialRejected}
                 >
-                  {serverHasToken ? 'TeamCity token stored' : 'No TeamCity token stored'}
+                  {credentialGate.credentialLabel}
                 </div>
                 <div class="truncate text-xs text-text-muted" title={effectiveUrl}>
                   {effectiveUrl}
@@ -624,7 +681,7 @@
                   : 'Manage credentials'}
               </button>
             </div>
-          {:else if !serverHasToken || selectedServer === NEW_SERVER}
+          {:else if !serverHasToken || credentialRejected || selectedServer === NEW_SERVER}
             <div class="flex flex-col gap-1">
               <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
                 >Access token</span
@@ -637,7 +694,7 @@
                 bind:value={formToken}
                 placeholder="Enter token"
                 autocomplete="off"
-                title="Stored for this server-scoped CI integration on your machine — never written to your repository"
+                title="Stored for this server-scoped CI integration on your machine - never written to your repository"
               />
               <div class="mt-1">
                 <CredentialStorageNote
@@ -652,7 +709,13 @@
               class="flex items-center gap-3 rounded-md border border-border bg-bg-input px-2.5 py-2"
             >
               <div class="min-w-0">
-                <div class="text-xs font-medium text-text">TeamCity token stored</div>
+                <div
+                  class="text-xs font-medium"
+                  class:text-danger-text={credentialRejected}
+                  class:text-text={!credentialRejected}
+                >
+                  {credentialGate.credentialLabel}
+                </div>
                 <div class="truncate text-xs text-text-muted" title={effectiveUrl}>
                   {effectiveUrl}
                 </div>
@@ -680,7 +743,7 @@
                 aria-busy={testing}
                 aria-describedby={serverBlockedReason ? 'ci-server-blocked' : undefined}
                 title={testBlockedTitle ||
-                  'Check the connection against the server — nothing is saved'}
+                  'Check the connection against the server - nothing is saved'}
               >
                 {testing ? 'Testing…' : 'Test'}
               </button>
@@ -751,7 +814,7 @@
                 {inv.count === 1 ? 'entry has an invalid id' : 'entries have invalid ids'}
                 ({inv.ids.join(', ')}{inv.count > inv.ids.length
                   ? ` and ${inv.count - inv.ids.length} more`
-                  : ''}) — not TeamCity ids, so they cannot appear below. Correct them in
+                  : ''}) - not TeamCity ids, so they cannot appear below. Correct them in
                 <code class="font-mono">.canopy/config.json</code> to keep them; saving without doing
                 so drops them.
               </p>
@@ -786,7 +849,7 @@
                       .join(', ')}.
                   {/if}
                   {#if capGone.length > 0}
-                    No longer on this server — saving drops them and there is nothing to re-tick:
+                    No longer on this server - saving drops them and there is nothing to re-tick:
                     {capGone.map(shorten).join(', ')}.
                   {/if}
                 {/if}
@@ -803,7 +866,7 @@
               <p class="m-0 text-xs text-warning-text leading-snug break-words">
                 {#if allConfiguredStale && effectiveBuildTypes.length === 0}
                   None of this repository's configured jobs exist on this server any more ({missingNames}).
-                  Save is disabled until you tick at least one job below — or use
+                  Save is disabled until you tick at least one job below - or use
                   <strong>Remove CI configuration</strong> to drop the
                   <code class="font-mono">ci</code> block entirely.
                 {:else if effectiveBuildTypes.length > 0}
@@ -815,7 +878,7 @@
                 {:else}
                   {missingBuildTypes.length} configured
                   {missingBuildTypes.length === 1 ? 'job is' : 'jobs are'} no longer on this server ({missingNames}).
-                  Tick at least one job below to save — the missing
+                  Tick at least one job below to save - the missing
                   {missingBuildTypes.length === 1 ? 'entry is' : 'entries are'} dropped from
                   <code class="font-mono">.canopy/config.json</code> when you do.
                 {/if}
@@ -923,7 +986,7 @@
               ? 'ci-save-warnings'
               : undefined}
           title={saveBlockedState.reason ||
-            'Writes the ci block to .canopy/config.json — commit it to share with the team'}
+            'Writes the ci block to .canopy/config.json - commit it to share with the team'}
           >{busy === 'save' ? 'Saving…' : 'Save configuration'}</button
         >
       </div>

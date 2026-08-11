@@ -8,7 +8,7 @@
   import GitHubActionsCiConfigurator from './GitHubActionsCiConfigurator.svelte'
   import CiCredentialModal from './CiCredentialModal.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
-  import type { CiRepoConfigInfo } from '../../lib/ci/types'
+  import type { CiCredentialStatus, CiRepoConfigInfo } from '../../lib/ci/types'
 
   let { mode }: { mode: 'configuration' | 'credentials' } = $props()
 
@@ -21,6 +21,7 @@
   let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let provider = $state<'teamcity' | 'github-actions' | ''>('')
   let config = $state<CiRepoConfigInfo | null>(null)
+  let credential = $state<CiCredentialStatus | undefined>()
   let invalid = $state<InvalidCiConfig | undefined>()
   let loading = $state(true)
   let loadError = $state('')
@@ -35,6 +36,7 @@
     try {
       const result = await window.api.ciConfig(repoRoot)
       config = result.config
+      credential = result.credential
       invalid = result.invalid
       provider = result.config?.provider ?? result.invalid?.provider ?? ''
       if (result.invalid && !result.invalid.provider) loadError = result.invalid.message
@@ -60,6 +62,7 @@
 {:else if provider === 'teamcity'}
   <ProjectCiModal
     initialConfig={config?.provider === 'teamcity' ? config : null}
+    initialCredential={credential}
     initialInvalid={invalid}
   />
 {:else if provider === 'github-actions'}

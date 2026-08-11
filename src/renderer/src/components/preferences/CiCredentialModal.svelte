@@ -73,7 +73,7 @@
       details:
         `The token will be tested only against this address and stored ${storage} for this server-scoped TeamCity integration. The repository's shared CI configuration will not be changed.` +
         (insecure
-          ? ' Warning: this is a plain http:// address — the token would travel unencrypted.'
+          ? ' Warning: this is a plain http:// address - the token would travel unencrypted.'
           : ''),
       confirmLabel: 'Continue',
     })

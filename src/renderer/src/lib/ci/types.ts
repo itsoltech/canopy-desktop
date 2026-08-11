@@ -71,6 +71,12 @@ export interface GitHubActionsCiRepoConfigInfo {
 
 export type CiRepoConfigInfo = TeamCityCiRepoConfigInfo | GitHubActionsCiRepoConfigInfo
 
+export interface CiCredentialStatus {
+  hasToken: boolean
+  authenticationState: 'valid' | 'invalid' | 'unknown'
+  authenticationCheckedAt?: string
+}
+
 export interface CiParameter {
   name: string
   kind: 'text' | 'password' | 'checkbox' | 'select'

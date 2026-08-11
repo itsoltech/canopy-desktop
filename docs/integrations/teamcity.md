@@ -87,6 +87,11 @@ status and links to the dedicated token editor (or Settings → CI connections);
 a token field while the shared job list is being edited. Stored connections can be selected as a
 new shared server. Add a completely new server in Settings first.
 
+When TeamCity has rejected the stored token, the configurator does not load jobs automatically.
+It disables job discovery and saving, hides the provider's technical authentication response, and
+points to **Update token** under Personal credentials. Updating the token re-enables job discovery
+without changing the repository's shared server or job configuration.
+
 During first-time initialization, pick one of your CI servers or add a new one (URL + token with a
 connection test via `GET /app/rest/server` and an explicit destination confirm before the token is
 stored), then **Load available jobs** and choose, from the server's full list grouped by
