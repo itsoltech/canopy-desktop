@@ -1,20 +1,31 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { focusModalAndReturnToOpener } from './focusTrap'
+import { captureFocusReturn } from './focusTrap'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('focusModalAndReturnToOpener', () => {
-  it('focuses the modal and restores the connected opener on cleanup', () => {
+describe('captureFocusReturn', () => {
+  it('restores the connected opener on cleanup', () => {
     const opener = { isConnected: true, focus: vi.fn() }
-    const modal = { focus: vi.fn() }
     vi.stubGlobal('document', { activeElement: opener })
 
-    const restoreFocus = focusModalAndReturnToOpener(modal as unknown as HTMLElement)
+    const restoreFocus = captureFocusReturn()
 
-    expect(modal.focus).toHaveBeenCalledOnce()
     restoreFocus()
+    expect(opener.focus).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the original opener across intermediate modal focus changes', () => {
+    const opener = { isConnected: true, focus: vi.fn() }
+    const documentStub = { activeElement: opener as unknown }
+    vi.stubGlobal('document', documentStub)
+
+    const restoreFocus = captureFocusReturn()
+    documentStub.activeElement = { isConnected: false, focus: vi.fn() }
+    documentStub.activeElement = { isConnected: true, focus: vi.fn() }
+    restoreFocus()
+
     expect(opener.focus).toHaveBeenCalledOnce()
   })
 
@@ -22,7 +33,7 @@ describe('focusModalAndReturnToOpener', () => {
     const opener = { isConnected: false, focus: vi.fn() }
     vi.stubGlobal('document', { activeElement: opener })
 
-    const restoreFocus = focusModalAndReturnToOpener(undefined)
+    const restoreFocus = captureFocusReturn()
     restoreFocus()
 
     expect(opener.focus).not.toHaveBeenCalled()

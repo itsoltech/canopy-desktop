@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { AlertTriangle, GitPullRequest, LoaderCircle } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { showCreateTaskPR, showPRDetails } from '../../lib/stores/dialogs.svelte'
@@ -26,6 +27,9 @@
   let fallbackPR = $state<{ number: number; state: string; isDraft: boolean } | null>(null)
   let loading = $state(false)
   let lookupError = $state('')
+  let createPRButtonEl: HTMLButtonElement | undefined = $state()
+  let viewPRButtonEl: HTMLButtonElement | undefined = $state()
+  let retryButtonEl: HTMLButtonElement | undefined = $state()
 
   $effect(() => {
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
@@ -66,6 +70,20 @@
   })
   let showCreatePR = $derived(!lookupError && (!existingPR || existingPR.state !== 'OPEN'))
 
+  $effect.pre(() => {
+    // Keep keyboard position when the lookup changes the available action. Create remains
+    // mounted while loading; final View/Create/Retry replacements transfer focus after Svelte
+    // updates the DOM instead of dropping it onto document.body.
+    const active = document.activeElement
+    if (!showCreatePR && active === createPRButtonEl) {
+      void tick().then(() => (viewPRButtonEl ?? retryButtonEl)?.focus())
+    } else if (!existingPR && active === viewPRButtonEl) {
+      void tick().then(() => (createPRButtonEl ?? retryButtonEl)?.focus())
+    } else if ((!lookupError || loading || existingPR) && active === retryButtonEl) {
+      void tick().then(() => (createPRButtonEl ?? viewPRButtonEl)?.focus())
+    }
+  })
+
   function retryLookup(): void {
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     const branch = workspaceState.branch
@@ -77,7 +95,7 @@
   }
 
   function createPR(): void {
-    if (!workspaceState.branch) return
+    if (!workspaceState.branch || loading) return
     const resolvedFor = getPanelTaskResolvedPath()
     const task = resolvedFor === worktreePath().replace(/\\/g, '/') ? getPanelTask() : null
     showCreateTaskPR(
@@ -101,18 +119,12 @@
   <div class="h-px mx-3 my-1 bg-border-subtle" role="separator" aria-orientation="horizontal"></div>
 {/if}
 
-{#if loading && !existingPR}
-  <div class="flex items-center gap-2.5 w-full h-7 px-3 text-sm text-text-faint">
-    <LoaderCircle size={13} class="animate-spin-slow flex-shrink-0 motion-reduce:animate-none" />
-    <span class="flex-1">Checking pull requests...</span>
-  </div>
-{/if}
-
 {#if lookupError && !loading && !existingPR}
   <div class="flex items-center gap-2 w-full min-h-7 px-3 text-xs text-warning-text">
     <AlertTriangle size={13} class="flex-shrink-0" />
     <span class="flex-1 min-w-0 break-words">{lookupError}</span>
     <button
+      bind:this={retryButtonEl}
       type="button"
       class="flex-shrink-0 border-0 rounded-sm bg-transparent px-1 py-0.5 text-xs text-text-secondary cursor-pointer hover:bg-hover hover:text-text"
       onclick={retryLookup}
@@ -124,16 +136,14 @@
 {#if existingPR}
   {@const chip = prStateChip(existingPR.state, existingPR.isDraft)}
   <button
-    class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
+    bind:this={viewPRButtonEl}
+    class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
     onclick={openExistingPR}
     title={branchPR
       ? `View PR #${branchPR.number} - ${branchPR.title}`
       : 'View the latest pull request for this branch'}
   >
-    <GitPullRequest
-      size={13}
-      class="text-text-faint group-enabled:group-hover:text-accent-text flex-shrink-0"
-    />
+    <GitPullRequest size={13} class="text-text-faint group-hover:text-accent-text flex-shrink-0" />
     <span class="flex-1">View PR #{existingPR.number}</span>
     {#if chip.label}
       <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}">{chip.label}</span>
@@ -141,19 +151,28 @@
   </button>
 {/if}
 
-{#if showCreatePR && !loading}
+{#if showCreatePR}
   <button
+    bind:this={createPRButtonEl}
     class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover aria-disabled:text-text-faint aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
-    aria-disabled={!workspaceState.branch}
+    aria-disabled={!workspaceState.branch || loading}
+    aria-busy={loading}
     onclick={createPR}
-    title={workspaceState.branch
-      ? 'Create a pull request from this branch - edit the title and description before it is created'
-      : 'No branch checked out'}
+    title={loading
+      ? 'Checking pull requests...'
+      : workspaceState.branch
+        ? 'Create a pull request from this branch - edit the title and description before it is created'
+        : 'No branch checked out'}
   >
-    <GitPullRequest
-      size={13}
-      class={`text-text-faint flex-shrink-0 ${workspaceState.branch ? 'group-hover:text-accent-text' : ''}`}
-    />
-    <span class="flex-1">Create PR</span>
+    {#if loading}
+      <LoaderCircle size={13} class="animate-spin-slow flex-shrink-0 motion-reduce:animate-none" />
+      <span class="flex-1">Checking pull requests...</span>
+    {:else}
+      <GitPullRequest
+        size={13}
+        class="text-text-faint group-hover:text-accent-text group-aria-disabled:group-hover:text-text-faint flex-shrink-0"
+      />
+      <span class="flex-1">Create PR</span>
+    {/if}
   </button>
 {/if}

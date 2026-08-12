@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { LoaderCircle, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
-  import { cycleFocus, focusModalAndReturnToOpener } from '../../lib/a11y/focusTrap'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import { ipcErrorMessage } from '../../lib/ci/errors'
   import CiActivityModal from './CiActivityModal.svelte'
   import GitHubActionsActivityModal from './GitHubActionsActivityModal.svelte'
@@ -26,9 +26,8 @@
   }
 
   onMount(() => {
-    const restoreFocus = focusModalAndReturnToOpener(dialogEl)
+    dialogEl?.focus()
     void loadConfig()
-    return restoreFocus
   })
 
   function handleKeydown(event: KeyboardEvent): void {

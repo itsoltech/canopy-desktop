@@ -15,6 +15,7 @@
   import ProjectCiModalRouter from '../preferences/ProjectCiModalRouter.svelte'
   import CiRunDialogRouter from '../ci/CiRunDialogRouter.svelte'
   import CiActivityModalRouter from '../ci/CiActivityModalRouter.svelte'
+  import CiDialogFocusBoundary from '../ci/CiDialogFocusBoundary.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
@@ -572,6 +573,10 @@
 
 {#if confirmState.current}
   <ConfirmDialog {...confirmState.current} />
+{/if}
+
+{#if dialogState.current.type === 'projectCi' || dialogState.current.type === 'ciRunJob' || dialogState.current.type === 'ciActivity'}
+  <CiDialogFocusBoundary />
 {/if}
 
 {#if dialogState.current.type === 'input'}
