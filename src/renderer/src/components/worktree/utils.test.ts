@@ -38,15 +38,16 @@ describe('shouldReopenBranchList', () => {
 })
 
 describe('shouldOfferExactRef', () => {
-  it('keeps exact lookup available when fuzzy matches do not contain the literal ref', () => {
-    expect(shouldOfferExactRef('release/1.0', ['release/archive/1.0', 'release/10'], 2)).toBe(true)
-    expect(shouldOfferExactRef('v1.2.3', ['main'], 0)).toBe(true)
+  it('keeps exact lookup available for safe branches and tags outside the bounded list', () => {
+    expect(shouldOfferExactRef('release/1.0', ['release/archive/1.0', 'release/10'])).toBe(true)
+    expect(shouldOfferExactRef('v1.2.3', ['version-1.2.3'])).toBe(true)
   })
 
-  it('does not offer exact lookup for a fuzzy search fragment or a loaded literal ref', () => {
-    expect(shouldOfferExactRef('dep', ['feat/deploy-hook'], 1)).toBe(false)
-    expect(shouldOfferExactRef('release/1.0', ['release/1.0'], 1)).toBe(false)
-    expect(shouldOfferExactRef('   ', ['main'], 0)).toBe(false)
+  it('does not offer exact lookup for loaded or boundary-invalid refs', () => {
+    expect(shouldOfferExactRef('release/1.0', ['release/1.0'])).toBe(false)
+    expect(shouldOfferExactRef('feature/', ['main'])).toBe(false)
+    expect(shouldOfferExactRef('a/../b', ['main'])).toBe(false)
+    expect(shouldOfferExactRef('   ', ['main'])).toBe(false)
   })
 })
 

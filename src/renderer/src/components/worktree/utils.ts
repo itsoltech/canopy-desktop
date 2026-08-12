@@ -1,3 +1,5 @@
+import { isSafeGitRefName } from '../../../../renderer-shared/gitRef'
+
 /**
  * Returns true when `branch` is a remote-tracking ref (e.g. "origin/feature-x")
  * and no local branch with the same short name exists. Used to surface
@@ -38,15 +40,10 @@ export function shouldReopenBranchList(
   return collapseConfirmedSelection && (!selectedBranch || query !== selectedBranch)
 }
 
-/** Offer a bounded-list escape hatch without treating every search fragment as an exact ref. */
-export function shouldOfferExactRef(
-  query: string,
-  loadedRefs: string[],
-  visibleMatchCount: number,
-): boolean {
+/** A bounded list must not hide any safe, exact ref that is not already loaded. */
+export function shouldOfferExactRef(query: string, loadedRefs: string[]): boolean {
   const exactName = query.trim()
-  if (!exactName || loadedRefs.includes(exactName)) return false
-  return visibleMatchCount === 0 || exactName.includes('/')
+  return isSafeGitRefName(exactName) && !loadedRefs.includes(exactName)
 }
 
 /** Enter activates the option exposed through the listbox's aria-activedescendant. */

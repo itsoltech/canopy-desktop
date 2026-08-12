@@ -159,6 +159,48 @@ describe('GitHubActionsClient', () => {
     expect(fetchMock.mock.calls[4]?.[0]).toContain('page=5')
   })
 
+  it('honours a lower repository-run page budget for activity polling', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        total_count: 501,
+        workflow_runs: Array.from({ length: 100 }, (_, index) => ({ id: index + 1 })),
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new GitHubActionsClient('itsoltech', 'canopy-desktop', 'token')
+
+    const result = await client.listRepositoryRuns(undefined, { maxPages: 1 })
+
+    expect(result.isOk() && result.value.runs).toHaveLength(100)
+    expect(result.isOk() && result.value.totalCount).toBe(501)
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('stops repository-run pagination when the caller has all required workflows', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        total_count: 501,
+        workflow_runs: Array.from({ length: 100 }, (_, index) => ({
+          id: index + 1,
+          path:
+            index === 0
+              ? '.github/workflows/release.yml@refs/heads/next'
+              : '.github/workflows/foreign.yml@refs/heads/next',
+        })),
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new GitHubActionsClient('itsoltech', 'canopy-desktop', 'token')
+
+    const result = await client.listRepositoryRuns('next', {
+      stopWhen: (runs) =>
+        runs.some((run) => run.path?.startsWith('.github/workflows/release.yml@')),
+    })
+
+    expect(result.isOk() && result.value.runs).toHaveLength(100)
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
   it('resolves an exact typed ref without relying on bounded picker pages', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse({ ref: 'refs/heads/feature/x', object: { sha: 'exact-sha' } }),

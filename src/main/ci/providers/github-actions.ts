@@ -268,7 +268,19 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
             const workflowsResult = await this.client.listWorkflows()
             if (workflowsResult.isErr()) return err(workflowsResult.error)
             const workflows = workflowsResult.value
-            const runsResult = await this.client.listRepositoryRuns(ref.name)
+            const configuredPaths = this.config.workflows.flatMap((configured) =>
+              workflows.some(
+                (workflow) => workflow.path.toLowerCase() === configured.path.toLowerCase(),
+              )
+                ? [configured.path.toLowerCase()]
+                : [],
+            )
+            const runsResult = await this.client.listRepositoryRuns(ref.name, {
+              stopWhen: (runs) =>
+                configuredPaths.every((path) =>
+                  runs.some((run) => workflowPath(run)?.toLowerCase() === path),
+                ),
+            })
             if (runsResult.isErr()) return err(runsResult.error)
             const snapshotTruncated = runsResult.value.totalCount > runsResult.value.runs.length
             const rows: CiJobStatus[] = this.config.workflows.map((configured) => {
@@ -323,7 +335,10 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
             }
             // The branch is part of the repository query. Filtering only after a global
             // response would hide a branch whose newest run is older than another branch's.
-            const result = await this.client.listRepositoryRuns(branch)
+            // Activity is a live overview, not an archive export. One newest-first page keeps
+            // polling bounded; totalCount marks the result partial when older active/recent runs
+            // may be outside that page.
+            const result = await this.client.listRepositoryRuns(branch, { maxPages: 1 })
             if (result.isErr()) return err(result.error)
             const configuredByPath = new Map(
               this.config.workflows.map((workflow) => [workflow.path.toLowerCase(), workflow]),
@@ -334,11 +349,10 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
               return configured ? [mapGitHubRun(run, configured.path, configured.label)] : []
             })
             runs.sort(newestFirst)
-            const finished = runs.filter((run) => run.state === 'finished')
-            const recent = finished.slice(0, 10)
-            if (result.value.totalCount > result.value.runs.length && recent.length < 10) {
+            const recent = runs.filter((run) => run.state === 'finished').slice(0, 10)
+            if (result.value.totalCount > result.value.runs.length) {
               partialErrors.push(
-                'Older configured workflow runs may be outside the bounded history',
+                'Older active, queued or finished workflow runs may be outside the bounded history',
               )
             }
             const activity: CiRunActivity = {

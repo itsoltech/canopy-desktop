@@ -60,6 +60,11 @@ export interface GitHubWorkflowRun {
   actor?: { login?: string }
 }
 
+export interface GitHubRepositoryRunsOptions {
+  maxPages?: number
+  stopWhen?: (runs: GitHubWorkflowRun[]) => boolean
+}
+
 interface RawWorkflow {
   id?: number
   name?: string
@@ -372,12 +377,17 @@ export class GitHubActionsClient {
 
   listRepositoryRuns(
     ref?: string,
+    options?: GitHubRepositoryRunsOptions,
   ): ResultAsync<{ runs: GitHubWorkflowRun[]; totalCount: number }, CiError> {
     return new ResultAsync(
       (async (): Promise<Result<{ runs: GitHubWorkflowRun[]; totalCount: number }, CiError>> => {
         const runs: GitHubWorkflowRun[] = []
         let totalCount = 0
-        for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const requestedMaxPages = options?.maxPages ?? MAX_PAGES
+        const maxPages = Number.isFinite(requestedMaxPages)
+          ? Math.min(MAX_PAGES, Math.max(1, Math.floor(requestedMaxPages)))
+          : MAX_PAGES
+        for (let page = 1; page <= maxPages; page += 1) {
           const query = new URLSearchParams({ per_page: '100', page: String(page) })
           if (ref) query.set('branch', ref)
           const result = await this.request<{
@@ -388,7 +398,7 @@ export class GitHubActionsClient {
           const entries = result.value.workflow_runs ?? []
           totalCount = result.value.total_count ?? entries.length
           runs.push(...entries)
-          if (entries.length < 100 || runs.length >= totalCount) break
+          if (entries.length < 100 || runs.length >= totalCount || options?.stopWhen?.(runs)) break
         }
         return ok({ runs, totalCount })
       })(),

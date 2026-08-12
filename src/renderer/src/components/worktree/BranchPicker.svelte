@@ -67,9 +67,7 @@
     query ? allBranches.filter((b) => fuzzyMatch(b, query.toLowerCase())) : allBranches,
   )
   let enterBranch = $derived(branchPickerEnterTarget(filteredBranches, selectedIdx))
-  let offerExactRef = $derived(
-    !!onResolveExact && shouldOfferExactRef(query, allBranches, filteredBranches.length),
-  )
+  let offerExactRef = $derived(!!onResolveExact && shouldOfferExactRef(query, allBranches))
 
   $effect(() => {
     if (selectedIdx >= filteredBranches.length) {
@@ -125,7 +123,7 @@
 
   async function resolveExact(): Promise<void> {
     const value = query.trim()
-    if (!onResolveExact || !value || refreshing || resolvingExact) return
+    if (!onResolveExact || !offerExactRef || refreshing || resolvingExact) return
     if (await onResolveExact(value)) onCommit?.()
   }
 
@@ -154,7 +152,7 @@
       e.preventDefault()
       pick(enterBranch)
       onCommit?.()
-    } else if (e.key === 'Enter' && onResolveExact && query.trim()) {
+    } else if (e.key === 'Enter' && onResolveExact && offerExactRef) {
       e.preventDefault()
       void resolveExact()
     }

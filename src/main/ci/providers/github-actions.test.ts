@@ -1,7 +1,11 @@
 import { errAsync, okAsync } from 'neverthrow'
 import { describe, expect, it, vi } from 'vitest'
 import type { GitHubActionsCiConfig } from '../types'
-import type { GitHubActionsClient } from '../github-actions/client'
+import type {
+  GitHubActionsClient,
+  GitHubRepositoryRunsOptions,
+  GitHubWorkflowRun,
+} from '../github-actions/client'
 import { discoverGitHubWorkflows, GitHubActionsAdapter } from './github-actions'
 
 const CONFIG: GitHubActionsCiConfig = {
@@ -282,7 +286,7 @@ describe('GitHubActionsAdapter', () => {
 
     expect(result.isOk()).toBe(true)
     expect(listRepositoryRuns).toHaveBeenCalledTimes(1)
-    expect(listRepositoryRuns).toHaveBeenCalledWith(undefined)
+    expect(listRepositoryRuns).toHaveBeenCalledWith(undefined, { maxPages: 1 })
   })
 
   it('narrows activity to a branch in the QUERY, not the response', async () => {
@@ -295,7 +299,7 @@ describe('GitHubActionsAdapter', () => {
     const result = await adapter.activity('feat/x')
 
     expect(result.isOk()).toBe(true)
-    expect(listRepositoryRuns).toHaveBeenCalledWith('feat/x')
+    expect(listRepositoryRuns).toHaveBeenCalledWith('feat/x', { maxPages: 1 })
   })
 
   it('marks activity as partial when configured workflow runs may be outside the snapshot', async () => {
@@ -309,7 +313,7 @@ describe('GitHubActionsAdapter', () => {
     expect(result.isOk()).toBe(true)
     if (result.isErr()) throw result.error
     expect(result.value.partialErrors).toEqual([
-      'Older configured workflow runs may be outside the bounded history',
+      'Older active, queued or finished workflow runs may be outside the bounded history',
     ])
   })
 
@@ -340,11 +344,11 @@ describe('GitHubActionsAdapter', () => {
     expect(result.value.running).toHaveLength(1)
     expect(result.value.recent).toHaveLength(0)
     expect(result.value.partialErrors).toEqual([
-      'Older configured workflow runs may be outside the bounded history',
+      'Older active, queued or finished workflow runs may be outside the bounded history',
     ])
   })
 
-  it('does not mark truncated activity partial when the ten recent entries are complete', async () => {
+  it('keeps truncated activity partial even when ten finished entries are present', async () => {
     const client = fakeClient({
       listRepositoryRuns: vi.fn(() =>
         okAsync({
@@ -368,7 +372,9 @@ describe('GitHubActionsAdapter', () => {
     expect(result.isOk()).toBe(true)
     if (result.isErr()) throw result.error
     expect(result.value.recent).toHaveLength(10)
-    expect(result.value.partialErrors).toBeUndefined()
+    expect(result.value.partialErrors).toEqual([
+      'Older active, queued or finished workflow runs may be outside the bounded history',
+    ])
   })
 
   it('does not report no run when a configured workflow may be outside the snapshot', async () => {
@@ -415,6 +421,48 @@ describe('GitHubActionsAdapter', () => {
     expect(result.isOk()).toBe(true)
     expect(client.listRepositoryRuns).toHaveBeenCalledTimes(1)
     expect(client.listWorkflowRuns).not.toHaveBeenCalled()
+  })
+
+  it('keeps status pagination open until every configured workflow has a run', async () => {
+    const testsPath = '.github/workflows/tests.yml'
+    const config: GitHubActionsCiConfig = {
+      ...CONFIG,
+      workflows: [...CONFIG.workflows, { path: testsPath, label: 'Tests' }],
+    }
+    const releaseRun: GitHubWorkflowRun = {
+      id: 10,
+      path: '.github/workflows/release.yml@refs/heads/next',
+    }
+    const testsRun: GitHubWorkflowRun = {
+      id: 11,
+      path: `${testsPath}@refs/heads/next`,
+    }
+    const listRepositoryRuns = vi.fn((_ref?: string, options?: GitHubRepositoryRunsOptions) => {
+      expect(options?.stopWhen?.([releaseRun])).toBe(false)
+      expect(options?.stopWhen?.([releaseRun, testsRun])).toBe(true)
+      return okAsync({ runs: [releaseRun, testsRun], totalCount: 2 })
+    })
+    const client = fakeClient({
+      listWorkflows: vi.fn(() =>
+        okAsync([
+          {
+            id: 42,
+            name: 'Release',
+            path: '.github/workflows/release.yml',
+            state: 'active',
+            htmlUrl: '',
+          },
+          { id: 43, name: 'Tests', path: testsPath, state: 'active', htmlUrl: '' },
+        ]),
+      ),
+      listRepositoryRuns,
+    })
+    const adapter = new GitHubActionsAdapter(config, client)
+
+    const result = await adapter.status({ name: 'next', kind: 'branch' })
+
+    expect(result.isOk()).toBe(true)
+    expect(listRepositoryRuns).toHaveBeenCalledOnce()
   })
 
   it('preserves configured workflow labels and excludes foreign runs from status and activity', async () => {
