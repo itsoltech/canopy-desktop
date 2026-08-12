@@ -97,11 +97,12 @@ Because a filtered response only ever contains one branch, switching to **All br
 populates the rest of the dropdown.
 
 Queries and pagination are bounded to five 100-run repository pages. A truncated activity snapshot
-is reported as **Partial history**, because older finished runs may be outside it even when a newer
-run of the same workflow is present. When a configured workflow has no run in that snapshot, the
-sidebar reports its older history as unavailable instead of claiming that the workflow has never
-run. The same partial state names a configured workflow that is missing from the repository. A
-repository run-query failure fails the whole refresh instead of being repeated
+is reported as **Partial history** only when it contains fewer than the ten finished configured
+workflow runs needed for the complete recent list. A newer active run does not hide that warning
+when older finished runs may still be outside the snapshot. When a configured workflow has no run
+in that snapshot, the sidebar reports its older history as unavailable instead of claiming that the
+workflow has never run. The same partial state names a configured workflow that is missing from the
+repository. A repository run-query failure fails the whole refresh instead of being repeated
 once per configured workflow. Running and queued counts are not shown in the sidebar at all - they
 live in the window - so the suffix is never suppressed in favour of one. Environment approvals and
 run cancellation remain GitHub operations; Canopy only shows the waiting state and link.

@@ -309,7 +309,7 @@ describe('GitHubActionsAdapter', () => {
     expect(result.isOk()).toBe(true)
     if (result.isErr()) throw result.error
     expect(result.value.partialErrors).toEqual([
-      'Older workflow runs are outside the bounded history',
+      'Older configured workflow runs may be outside the bounded history',
     ])
   })
 
@@ -340,8 +340,35 @@ describe('GitHubActionsAdapter', () => {
     expect(result.value.running).toHaveLength(1)
     expect(result.value.recent).toHaveLength(0)
     expect(result.value.partialErrors).toEqual([
-      'Older workflow runs are outside the bounded history',
+      'Older configured workflow runs may be outside the bounded history',
     ])
+  })
+
+  it('does not mark truncated activity partial when the ten recent entries are complete', async () => {
+    const client = fakeClient({
+      listRepositoryRuns: vi.fn(() =>
+        okAsync({
+          runs: Array.from({ length: 10 }, (_value, index) => ({
+            id: index + 1,
+            run_number: index + 1,
+            status: 'completed',
+            conclusion: 'success',
+            path: '.github/workflows/release.yml@refs/heads/next',
+            head_branch: 'next',
+            created_at: new Date(2026, 0, 10 - index).toISOString(),
+          })),
+          totalCount: 501,
+        }),
+      ),
+    })
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const result = await adapter.activity('next')
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value.recent).toHaveLength(10)
+    expect(result.value.partialErrors).toBeUndefined()
   })
 
   it('does not report no run when a configured workflow may be outside the snapshot', async () => {

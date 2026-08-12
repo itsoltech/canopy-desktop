@@ -113,6 +113,32 @@ describe('GitHub PR fallback refresh', () => {
     })
   })
 
+  it('bounds forced probes and metadata even when invalidations are never loaded', () => {
+    for (let index = 0; index < PR_FALLBACK_CACHE_MAX + 20; index += 1) {
+      invalidatePRFallback('C:/repo', `feature/${index}`)
+    }
+
+    expect(getPRFallbackCacheSizes()).toEqual({
+      requests: 0,
+      generations: PR_FALLBACK_CACHE_MAX,
+      forcedProbes: PR_FALLBACK_CACHE_MAX,
+    })
+  })
+
+  it('keeps settled live entries reachable while trimming unrelated metadata', async () => {
+    api.taskTrackerPRSummary.mockResolvedValue(null)
+    invalidatePRFallback('C:/repo', 'feature/cached')
+    const cached = loadPRFallbackSummary('C:/repo', 'feature/cached')
+    await cached
+
+    for (let index = 0; index < PR_FALLBACK_CACHE_MAX + 20; index += 1) {
+      invalidatePRFallback('C:/other', `feature/${index}`)
+    }
+
+    expect(loadPRFallbackSummary('C:/repo', 'feature/cached')).toBe(cached)
+    expect(api.taskTrackerPRSummary).toHaveBeenCalledOnce()
+  })
+
   it('keeps pending requests coalesced while trimming settled cache entries', async () => {
     const pending = Array.from({ length: PR_FALLBACK_CACHE_MAX + 1 }, () =>
       Promise.withResolvers<null>(),

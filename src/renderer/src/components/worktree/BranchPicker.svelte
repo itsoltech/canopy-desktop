@@ -67,7 +67,9 @@
     query ? allBranches.filter((b) => fuzzyMatch(b, query.toLowerCase())) : allBranches,
   )
   let enterBranch = $derived(branchPickerEnterTarget(filteredBranches, selectedIdx))
-  let offerExactRef = $derived(!!onResolveExact && shouldOfferExactRef(query, allBranches))
+  let offerExactRef = $derived(
+    !!onResolveExact && shouldOfferExactRef(query, allBranches, filteredBranches.length),
+  )
 
   $effect(() => {
     if (selectedIdx >= filteredBranches.length) {

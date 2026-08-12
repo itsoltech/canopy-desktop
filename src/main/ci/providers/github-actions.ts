@@ -333,14 +333,18 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
               const configured = path ? configuredByPath.get(path.toLowerCase()) : undefined
               return configured ? [mapGitHubRun(run, configured.path, configured.label)] : []
             })
-            if (result.value.totalCount > result.value.runs.length) {
-              partialErrors.push('Older workflow runs are outside the bounded history')
-            }
             runs.sort(newestFirst)
+            const finished = runs.filter((run) => run.state === 'finished')
+            const recent = finished.slice(0, 10)
+            if (result.value.totalCount > result.value.runs.length && recent.length < 10) {
+              partialErrors.push(
+                'Older configured workflow runs may be outside the bounded history',
+              )
+            }
             const activity: CiRunActivity = {
               running: runs.filter((run) => run.state === 'running' || run.state === 'waiting'),
               queued: runs.filter((run) => run.state === 'queued'),
-              recent: runs.filter((run) => run.state === 'finished').slice(0, 10),
+              recent,
               ...(partialErrors.length ? { partialErrors } : {}),
             }
             return ok(activity)

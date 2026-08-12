@@ -29,19 +29,26 @@ function baseKeyFromRequestKey(requestKey: string): string {
   return requestKey.slice(0, requestKey.lastIndexOf('::'))
 }
 
+function hasFallbackRequest(baseKey: string): boolean {
+  return [...fallbackSummaryRequests.keys()].some(
+    (requestKey) => baseKeyFromRequestKey(requestKey) === baseKey,
+  )
+}
+
 function trimFallbackMetadata(protectedKey?: string): void {
   for (const key of Object.keys(fallbackGenerationByKey)) {
     if (Object.keys(fallbackGenerationByKey).length <= PR_FALLBACK_CACHE_MAX) break
-    if (
-      key === protectedKey ||
-      forceRemoteProbeKeys.has(key) ||
-      [...fallbackSummaryRequests.entries()].some(
-        ([requestKey, entry]) => baseKeyFromRequestKey(requestKey) === key && !entry.settled,
-      )
-    ) {
-      continue
-    }
+    if (key === protectedKey || hasFallbackRequest(key)) continue
     delete fallbackGenerationByKey[key]
+  }
+}
+
+function trimForcedProbeKeys(protectedKey: string): void {
+  while (forceRemoteProbeKeys.size > PR_FALLBACK_CACHE_MAX) {
+    const oldest = [...forceRemoteProbeKeys].find((key) => key !== protectedKey)
+    if (!oldest) break
+    forceRemoteProbeKeys.delete(oldest)
+    if (!hasFallbackRequest(oldest)) delete fallbackGenerationByKey[oldest]
   }
 }
 
@@ -110,6 +117,7 @@ export function invalidatePRFallback(repoRoot: string, branch: string): void {
   }
   fallbackGenerationByKey[key] = (fallbackGenerationByKey[key] ?? 0) + 1
   forceRemoteProbeKeys.add(key)
+  trimForcedProbeKeys(key)
   trimFallbackMetadata(key)
 }
 

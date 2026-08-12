@@ -38,10 +38,15 @@ export function shouldReopenBranchList(
   return collapseConfirmedSelection && (!selectedBranch || query !== selectedBranch)
 }
 
-/** A bounded ref list must not hide the explicit lookup for an exact typed name. */
-export function shouldOfferExactRef(query: string, loadedRefs: string[]): boolean {
+/** Offer a bounded-list escape hatch without treating every search fragment as an exact ref. */
+export function shouldOfferExactRef(
+  query: string,
+  loadedRefs: string[],
+  visibleMatchCount: number,
+): boolean {
   const exactName = query.trim()
-  return exactName.length > 0 && !loadedRefs.includes(exactName)
+  if (!exactName || loadedRefs.includes(exactName)) return false
+  return visibleMatchCount === 0 || exactName.includes('/')
 }
 
 /** Enter activates the option exposed through the listbox's aria-activedescendant. */
