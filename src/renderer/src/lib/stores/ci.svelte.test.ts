@@ -20,6 +20,7 @@ import {
   getCiState,
   refreshCi,
   refreshCiJobs,
+  resetCiObserversForTests,
   triggerCiBuild,
   triggerCiJob,
 } from './ci.svelte'
@@ -91,25 +92,8 @@ describe('triggerCiBuild + observeBuild', () => {
     if (toastState.visible) dismissToast() // a restored stash needs a second dismiss
   })
 
-  afterEach(async () => {
-    // Stop any observation still polling so it cannot leak into the next test.
-    api.ciBuild.mockResolvedValue({ id: 0, number: '0', state: 'finished', status: 'UNKNOWN' })
-    api.ciRun.mockResolvedValue({
-      provider: 'github-actions',
-      runId: '0',
-      number: '0',
-      jobId: 'workflow.yml',
-      jobLabel: 'Workflow',
-      state: 'finished',
-      conclusion: 'unknown',
-      statusText: undefined,
-      webUrl: 'https://github.com/run/0',
-      ref: undefined,
-      queuedAt: undefined,
-      startedAt: undefined,
-      finishedAt: undefined,
-    })
-    await vi.advanceTimersByTimeAsync(10_000)
+  afterEach(() => {
+    resetCiObserversForTests()
     vi.useRealTimers()
   })
 
@@ -141,6 +125,24 @@ describe('triggerCiBuild + observeBuild', () => {
     expect(api.ciBuild.mock.calls.length).toBe(calls)
   })
 
+  it('waits for a slow TeamCity request to settle before polling again', async () => {
+    queuedTrigger(21)
+    await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
+    const slow = deferred<{ id: number; number: string; state: 'finished'; status: 'SUCCESS' }>()
+    api.ciBuild.mockReturnValueOnce(slow.promise)
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(api.ciBuild).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(api.ciBuild).toHaveBeenCalledTimes(1)
+
+    slow.resolve({ id: 21, number: '21', state: 'finished', status: 'SUCCESS' })
+    await Promise.resolve()
+    expect(toastState.message).toBe('Deploy #21: build succeeded')
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(api.ciBuild).toHaveBeenCalledTimes(1)
+  })
+
   it("renders TeamCity's ERROR outcome as a failure, not unknown", async () => {
     queuedTrigger(3)
     await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
@@ -154,11 +156,28 @@ describe('triggerCiBuild + observeBuild', () => {
     queuedTrigger(4)
     await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
     api.ciBuild.mockRejectedValue(new Error('offline'))
-    await vi.advanceTimersByTimeAsync(300_000) // 30 ticks
-    expect(toastState.message).toBe('Stopped watching Deploy — lost contact with TeamCity')
+    await vi.advanceTimersByTimeAsync(300_000)
+    expect(toastState.message).toBe('Stopped watching Deploy - lost contact with TeamCity')
     // Sticky: no timer may take it down.
     await vi.advanceTimersByTimeAsync(60_000)
     expect(toastState.visible).toBe(true)
+    dismissToast()
+  })
+
+  it('uses a wall-clock failure window when TeamCity requests are slow', async () => {
+    queuedTrigger(41)
+    await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
+    api.ciBuild.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          setTimeout(() => reject(new Error('timeout')), 15_000)
+        }),
+    )
+
+    await vi.advanceTimersByTimeAsync(300_000)
+
+    expect(toastState.message).toBe('Stopped watching Deploy - lost contact with TeamCity')
+    expect(api.ciBuild.mock.calls.length).toBeLessThan(30)
     dismissToast()
   })
 
@@ -170,7 +189,7 @@ describe('triggerCiBuild + observeBuild', () => {
     api.ciBuild.mockRejectedValue(new Error('offline'))
     await vi.advanceTimersByTimeAsync(300_000)
     expect(toastState.message).toBe(
-      'Stopped watching 2 builds — check TeamCity: Deploy A, Deploy B',
+      'Stopped watching 2 builds - check TeamCity: Deploy A, Deploy B',
     )
     dismissToast()
   })
@@ -202,23 +221,8 @@ describe('triggerCiJob + observeRun', () => {
     if (toastState.visible) dismissToast()
   })
 
-  afterEach(async () => {
-    api.ciRun.mockResolvedValue({
-      provider: 'github-actions',
-      runId: '0',
-      number: '0',
-      jobId: 'workflow.yml',
-      jobLabel: 'Workflow',
-      state: 'finished',
-      conclusion: 'unknown',
-      statusText: undefined,
-      webUrl: 'https://github.com/run/0',
-      ref: undefined,
-      queuedAt: undefined,
-      startedAt: undefined,
-      finishedAt: undefined,
-    })
-    await vi.advanceTimersByTimeAsync(10_000)
+  afterEach(() => {
+    resetCiObserversForTests()
     vi.useRealTimers()
   })
 
@@ -293,6 +297,41 @@ describe('triggerCiJob + observeRun', () => {
     expect(toastState.visible).toBe(false)
   })
 
+  it('uses GitHub Actions wording when multiple workflow observations give up', async () => {
+    api.ciTriggerJob
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          runId: '101',
+          webUrl: 'https://github.com/run/101',
+          ref: { name: 'next', kind: 'branch' },
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          runId: '102',
+          webUrl: 'https://github.com/run/102',
+          ref: { name: 'next', kind: 'branch' },
+        },
+      })
+    const request = {
+      jobId: '.github/workflows/release.yml',
+      ref: { name: 'next', kind: 'branch' as const },
+      inputs: {},
+    }
+    await triggerCiJob('r', request, 'Release')
+    await triggerCiJob('r', { ...request, jobId: '.github/workflows/ci.yml' }, 'CI')
+    api.ciRun.mockRejectedValue(new Error('offline'))
+
+    await vi.advanceTimersByTimeAsync(300_000)
+
+    expect(toastState.message).toBe(
+      'Stopped watching 2 workflows - check GitHub Actions: Release, CI',
+    )
+    dismissToast()
+  })
+
   it('stops safely when the repository CI provider changes during observation', async () => {
     api.ciTriggerJob.mockResolvedValueOnce({
       ok: true,
@@ -331,7 +370,7 @@ describe('triggerCiJob + observeRun', () => {
     await vi.advanceTimersByTimeAsync(10_000)
 
     expect(toastState.message).toBe(
-      'Stopped watching Release — CI provider changed — check GitHub Actions',
+      'Stopped watching Release - CI provider changed - check GitHub Actions',
     )
     expect(toastState.kind).toBe('default')
   })

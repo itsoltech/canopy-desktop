@@ -270,6 +270,7 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
             const workflows = workflowsResult.value
             const runsResult = await this.client.listRepositoryRuns(ref.name)
             if (runsResult.isErr()) return err(runsResult.error)
+            const snapshotTruncated = runsResult.value.totalCount > runsResult.value.runs.length
             const rows: CiJobStatus[] = this.config.workflows.map((configured) => {
               const workflow = workflows.find(
                 (candidate) => candidate.path.toLowerCase() === configured.path.toLowerCase(),
@@ -292,6 +293,9 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
                 label: configured.label,
                 provider: 'github-actions',
                 run: run ? mapGitHubRun(run, configured.path, configured.label) : null,
+                ...(!run && snapshotTruncated
+                  ? { error: `Older runs for ${configured.label} are outside the bounded history` }
+                  : {}),
               }
             })
             return ok(rows)
@@ -329,6 +333,9 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
               const configured = path ? configuredByPath.get(path.toLowerCase()) : undefined
               return configured ? [mapGitHubRun(run, configured.path, configured.label)] : []
             })
+            if (result.value.totalCount > result.value.runs.length) {
+              partialErrors.push('Older workflow runs are outside the bounded history')
+            }
             runs.sort(newestFirst)
             const activity: CiRunActivity = {
               running: runs.filter((run) => run.state === 'running' || run.state === 'waiting'),

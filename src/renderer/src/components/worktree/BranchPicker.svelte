@@ -1,6 +1,12 @@
 <script lang="ts">
   import { ChevronDown } from '@lucide/svelte'
-  import { initialBranchListOpen, isRemoteOnly, shouldReopenBranchList } from './utils'
+  import {
+    branchPickerEnterTarget,
+    initialBranchListOpen,
+    isRemoteOnly,
+    shouldOfferExactRef,
+    shouldReopenBranchList,
+  } from './utils'
 
   let {
     branches,
@@ -60,6 +66,10 @@
   let filteredBranches = $derived(
     query ? allBranches.filter((b) => fuzzyMatch(b, query.toLowerCase())) : allBranches,
   )
+  let enterBranch = $derived(
+    branchPickerEnterTarget(query, allBranches, filteredBranches, selectedIdx),
+  )
+  let offerExactRef = $derived(!!onResolveExact && shouldOfferExactRef(query, allBranches))
 
   $effect(() => {
     if (selectedIdx >= filteredBranches.length) {
@@ -140,10 +150,9 @@
       selectedIdx =
         (selectedIdx - 1 + filteredBranches.length) % Math.max(1, filteredBranches.length)
       scrollIntoView()
-    } else if (e.key === 'Enter' && filteredBranches.length > 0) {
+    } else if (e.key === 'Enter' && enterBranch) {
       e.preventDefault()
-      const branch = filteredBranches[selectedIdx]
-      pick(branch)
+      pick(enterBranch)
       onCommit?.()
     } else if (e.key === 'Enter' && onResolveExact && query.trim()) {
       e.preventDefault()
@@ -243,17 +252,6 @@
       {#if filteredBranches.length === 0}
         <div class="px-2.5 py-4 text-center text-md text-text-faint">
           <div>No branches found</div>
-          {#if onResolveExact && query.trim()}
-            <button
-              type="button"
-              class="mt-2 px-2.5 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default"
-              aria-disabled={refreshing || resolvingExact}
-              aria-busy={resolvingExact}
-              onclick={() => void resolveExact()}
-            >
-              {resolvingExact ? 'Checking exact ref...' : `Use exact ref "${query.trim()}"`}
-            </button>
-          {/if}
         </div>
       {:else}
         {#each filteredBranches as branch, i (branch)}
@@ -282,5 +280,16 @@
         {/each}
       {/if}
     </div>
+    {#if offerExactRef}
+      <button
+        type="button"
+        class="mt-2 self-start px-2.5 py-1 rounded-md border border-border bg-transparent text-xs text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default"
+        aria-disabled={refreshing || resolvingExact}
+        aria-busy={resolvingExact}
+        onclick={() => void resolveExact()}
+      >
+        {resolvingExact ? 'Checking exact ref...' : `Use exact ref "${query.trim()}"`}
+      </button>
+    {/if}
   {/if}
 </div>

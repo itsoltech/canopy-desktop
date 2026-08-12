@@ -171,8 +171,12 @@ function tcFetch<T>(
         )
       }
 
+      if (!body.trim()) {
+        return errAsync(apiError(0, 'TeamCity returned malformed JSON'))
+      }
+
       try {
-        return okAsync((body ? JSON.parse(body) : undefined) as T)
+        return okAsync(JSON.parse(body) as T)
       } catch {
         return errAsync(apiError(0, 'TeamCity returned malformed JSON'))
       }

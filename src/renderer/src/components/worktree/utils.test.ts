@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { initialBranchListOpen, shouldReopenBranchList } from './utils'
+import {
+  branchPickerEnterTarget,
+  initialBranchListOpen,
+  shouldOfferExactRef,
+  shouldReopenBranchList,
+} from './utils'
 
 describe('initialBranchListOpen', () => {
   it('keeps the list shut on the first frame when the parent asks for it', () => {
@@ -29,5 +34,32 @@ describe('shouldReopenBranchList', () => {
     expect(shouldReopenBranchList(true, '', '')).toBe(true)
     expect(shouldReopenBranchList(true, 'feature/example', 'feature/edited')).toBe(true)
     expect(shouldReopenBranchList(true, 'feature/example', 'feature/example')).toBe(false)
+  })
+})
+
+describe('shouldOfferExactRef', () => {
+  it('keeps exact lookup available when fuzzy matches do not contain the literal ref', () => {
+    expect(shouldOfferExactRef('release/1.0', ['release/archive/1.0', 'release/10'])).toBe(true)
+    expect(shouldOfferExactRef('release/1.0', ['release/1.0', 'release/archive/1.0'])).toBe(false)
+    expect(shouldOfferExactRef('   ', ['main'])).toBe(false)
+  })
+})
+
+describe('branchPickerEnterTarget', () => {
+  it('keeps Enter on the highlighted fuzzy option while exact lookup remains a separate action', () => {
+    expect(
+      branchPickerEnterTarget('release/1.0', ['release/archive/1.0'], ['release/archive/1.0'], 0),
+    ).toBe('release/archive/1.0')
+  })
+
+  it('selects a literal loaded ref before another active fuzzy option', () => {
+    expect(
+      branchPickerEnterTarget(
+        'release/1.0',
+        ['release/archive/1.0', 'release/1.0'],
+        ['release/archive/1.0', 'release/1.0'],
+        0,
+      ),
+    ).toBe('release/1.0')
   })
 })

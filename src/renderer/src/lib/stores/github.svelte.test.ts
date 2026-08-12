@@ -8,7 +8,9 @@ const api = {
 vi.stubGlobal('window', { api })
 
 import {
+  PR_FALLBACK_CACHE_MAX,
   PR_FALLBACK_TTL_MS,
+  getPRFallbackCacheSizes,
   getPRFallbackGeneration,
   invalidatePRFallback,
   loadBranchPRs,
@@ -94,5 +96,54 @@ describe('GitHub PR fallback refresh', () => {
     expect(refreshed).not.toBe(first)
     await expect(refreshed).resolves.toBeNull()
     expect(api.taskTrackerPRSummary).toHaveBeenCalledTimes(2)
+  })
+
+  it('bounds cached requests and invalidation metadata across many branches', async () => {
+    api.taskTrackerPRSummary.mockResolvedValue(null)
+
+    for (let index = 0; index < PR_FALLBACK_CACHE_MAX + 20; index += 1) {
+      invalidatePRFallback('C:/repo', `feature/${index}`)
+      await loadPRFallbackSummary('C:/repo', `feature/${index}`)
+    }
+
+    expect(getPRFallbackCacheSizes()).toEqual({
+      requests: PR_FALLBACK_CACHE_MAX,
+      generations: PR_FALLBACK_CACHE_MAX,
+      forcedProbes: 0,
+    })
+  })
+
+  it('keeps pending requests coalesced while trimming settled cache entries', async () => {
+    const pending = Array.from({ length: PR_FALLBACK_CACHE_MAX + 1 }, () =>
+      Promise.withResolvers<null>(),
+    )
+    api.taskTrackerPRSummary.mockImplementation(
+      (_repo: string, branch: string) => pending[Number(branch.split('/')[1])].promise,
+    )
+
+    for (let index = 0; index < pending.length; index += 1) {
+      loadPRFallbackSummary('C:/repo', `feature/${index}`)
+    }
+    const again = loadPRFallbackSummary('C:/repo', 'feature/0')
+
+    expect(again).toBe(pending[0].promise)
+    expect(api.taskTrackerPRSummary).toHaveBeenCalledTimes(pending.length)
+
+    for (const request of pending) request.resolve(null)
+    await Promise.all(pending.map((request) => request.promise))
+    expect(getPRFallbackCacheSizes().requests).toBeLessThanOrEqual(PR_FALLBACK_CACHE_MAX)
+  })
+
+  it('does not discard an older queued forced probe while trimming metadata', async () => {
+    api.taskTrackerPRSummary.mockResolvedValue(null)
+    invalidatePRFallback('C:/repo', 'feature/a')
+    for (let index = 0; index < PR_FALLBACK_CACHE_MAX + 5; index += 1) {
+      invalidatePRFallback('C:/repo', `feature/${index}`)
+      await loadPRFallbackSummary('C:/repo', `feature/${index}`)
+    }
+
+    await loadPRFallbackSummary('C:/repo', 'feature/a')
+
+    expect(api.taskTrackerPRSummary).toHaveBeenLastCalledWith('C:/repo', 'feature/a', true)
   })
 })

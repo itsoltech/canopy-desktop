@@ -298,7 +298,7 @@ describe('GitHubActionsAdapter', () => {
     expect(listRepositoryRuns).toHaveBeenCalledWith('feat/x')
   })
 
-  it('treats a bounded history page as a complete successful activity read', async () => {
+  it('marks activity as partial when configured workflow runs may be outside the snapshot', async () => {
     const client = fakeClient({
       listRepositoryRuns: vi.fn(() => okAsync({ runs: [], totalCount: 101 })),
     })
@@ -308,7 +308,59 @@ describe('GitHubActionsAdapter', () => {
 
     expect(result.isOk()).toBe(true)
     if (result.isErr()) throw result.error
-    expect(result.value.partialErrors).toBeUndefined()
+    expect(result.value.partialErrors).toEqual([
+      'Older workflow runs are outside the bounded history',
+    ])
+  })
+
+  it('marks truncated activity partial even when a configured workflow is present', async () => {
+    const client = fakeClient({
+      listRepositoryRuns: vi.fn(() =>
+        okAsync({
+          runs: [
+            {
+              id: 10,
+              run_number: 7,
+              status: 'in_progress',
+              conclusion: null,
+              path: '.github/workflows/release.yml@refs/heads/next',
+              head_branch: 'next',
+            },
+          ],
+          totalCount: 501,
+        }),
+      ),
+    })
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const result = await adapter.activity('next')
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value.running).toHaveLength(1)
+    expect(result.value.recent).toHaveLength(0)
+    expect(result.value.partialErrors).toEqual([
+      'Older workflow runs are outside the bounded history',
+    ])
+  })
+
+  it('does not report no run when a configured workflow may be outside the snapshot', async () => {
+    const client = fakeClient({
+      listRepositoryRuns: vi.fn(() => okAsync({ runs: [], totalCount: 501 })),
+    })
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const result = await adapter.status({ name: 'next', kind: 'branch' })
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value[0]).toMatchObject({
+      jobId: '.github/workflows/release.yml',
+      run: null,
+      error: 'Older runs for Release are outside the bounded history',
+    })
+    expect(client.listRepositoryRuns).toHaveBeenCalledTimes(1)
+    expect(client.listWorkflowRuns).not.toHaveBeenCalled()
   })
 
   it('keeps status polling request count constant at the configured workflow cap', async () => {

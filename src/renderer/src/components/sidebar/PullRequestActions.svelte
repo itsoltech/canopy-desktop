@@ -11,6 +11,7 @@
   } from '../../lib/stores/github.svelte'
   import { getPanelTask, getPanelTaskResolvedPath } from '../../lib/stores/taskTracker.svelte'
   import { prStateChip } from '../../lib/github/prState'
+  import { pendingPRLookup, settledPRLookup } from '../../lib/github/prLookupState'
   import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
 
   let { separator = false }: { separator?: boolean } = $props()
@@ -25,8 +26,7 @@
       : undefined,
   )
   let fallbackPR = $state<{ number: number; state: string; isDraft: boolean } | null>(null)
-  let loading = $state(false)
-  let lookupError = $state('')
+  let lookup = $state({ loading: false, error: '' })
   let createPRButtonEl: HTMLButtonElement | undefined = $state()
   let viewPRButtonEl: HTMLButtonElement | undefined = $state()
   let retryButtonEl: HTMLButtonElement | undefined = $state()
@@ -36,25 +36,24 @@
     const branch = workspaceState.branch
     void getPRFallbackGeneration(path, branch)
     fallbackPR = null
-    lookupError = ''
+    lookup = settledPRLookup()
     if (!path || !branch || branchPR) {
-      loading = false
       return
     }
 
     let cancelled = false
-    loading = true
+    lookup = pendingPRLookup()
     loadPRFallbackSummary(path, branch)
       .then((pr) => {
         if (!cancelled && pr) {
           fallbackPR = { number: pr.number, state: pr.state, isDraft: pr.isDraft }
         }
+        if (!cancelled) lookup = settledPRLookup()
       })
       .catch((error) => {
-        if (!cancelled) lookupError = ipcErrorMessage(error, 'Failed to check pull requests')
-      })
-      .finally(() => {
-        if (!cancelled) loading = false
+        if (!cancelled) {
+          lookup = settledPRLookup(ipcErrorMessage(error, 'Failed to check pull requests'))
+        }
       })
 
     return () => {
@@ -68,7 +67,7 @@
     }
     return fallbackPR
   })
-  let showCreatePR = $derived(!lookupError && (!existingPR || existingPR.state !== 'OPEN'))
+  let showCreatePR = $derived(!lookup.error && (!existingPR || existingPR.state !== 'OPEN'))
 
   $effect.pre(() => {
     // Keep keyboard position when the lookup changes the available action. Create remains
@@ -79,7 +78,7 @@
       void tick().then(() => (viewPRButtonEl ?? retryButtonEl)?.focus())
     } else if (!existingPR && active === viewPRButtonEl) {
       void tick().then(() => (createPRButtonEl ?? retryButtonEl)?.focus())
-    } else if ((!lookupError || loading || existingPR) && active === retryButtonEl) {
+    } else if ((!lookup.error || lookup.loading || existingPR) && active === retryButtonEl) {
       void tick().then(() => (createPRButtonEl ?? viewPRButtonEl)?.focus())
     }
   })
@@ -95,7 +94,7 @@
   }
 
   function createPR(): void {
-    if (!workspaceState.branch || loading) return
+    if (!workspaceState.branch || lookup.loading) return
     const resolvedFor = getPanelTaskResolvedPath()
     const task = resolvedFor === worktreePath().replace(/\\/g, '/') ? getPanelTask() : null
     showCreateTaskPR(
@@ -112,17 +111,18 @@
   }
 </script>
 
-<span class="sr-only" aria-live="polite">{loading ? 'Checking pull requests...' : lookupError}</span
+<span class="sr-only" aria-live="polite"
+  >{lookup.loading ? 'Checking pull requests...' : lookup.error}</span
 >
 
 {#if separator}
   <div class="h-px mx-3 my-1 bg-border-subtle" role="separator" aria-orientation="horizontal"></div>
 {/if}
 
-{#if lookupError && !loading && !existingPR}
+{#if lookup.error && !lookup.loading && !existingPR}
   <div class="flex items-center gap-2 w-full min-h-7 px-3 text-xs text-warning-text">
     <AlertTriangle size={13} class="flex-shrink-0" />
-    <span class="flex-1 min-w-0 break-words">{lookupError}</span>
+    <span class="flex-1 min-w-0 break-words">{lookup.error}</span>
     <button
       bind:this={retryButtonEl}
       type="button"
@@ -155,16 +155,16 @@
   <button
     bind:this={createPRButtonEl}
     class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover aria-disabled:text-text-faint aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
-    aria-disabled={!workspaceState.branch || loading}
-    aria-busy={loading}
+    aria-disabled={!workspaceState.branch || lookup.loading}
+    aria-busy={lookup.loading}
     onclick={createPR}
-    title={loading
+    title={lookup.loading
       ? 'Checking pull requests...'
       : workspaceState.branch
         ? 'Create a pull request from this branch - edit the title and description before it is created'
         : 'No branch checked out'}
   >
-    {#if loading}
+    {#if lookup.loading}
       <LoaderCircle size={13} class="animate-spin-slow flex-shrink-0 motion-reduce:animate-none" />
       <span class="flex-1">Checking pull requests...</span>
     {:else}

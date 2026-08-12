@@ -4,6 +4,7 @@ import {
   buildBranchLocator,
   fetchActivity,
   fetchBuildForBranch,
+  fetchBuildTypes,
   isTeamCityLocatorSafeRef,
   mapBuild,
   parseBuildsResponse,
@@ -156,6 +157,28 @@ describe('fetchActivity', () => {
 })
 
 describe('testConnection', () => {
+  it('rejects an empty successful response instead of treating it as a connection success', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })))
+
+    const result = await testConnection('https://tc.example.com', 'token')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'TeamCity returned malformed JSON',
+    })
+  })
+
+  it('returns a structured error when the build-type endpoint has an empty success body', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })))
+
+    const result = await fetchBuildTypes('https://tc.example.com', 'token')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'TeamCity returned malformed JSON',
+    })
+  })
+
   it('rejects a response whose declared size exceeds the shared API limit', async () => {
     vi.stubGlobal(
       'fetch',

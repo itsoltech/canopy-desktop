@@ -611,6 +611,7 @@
           {#if availableWorkflows.length > 0}
             <CiJobPicker
               serverTypes={availableWorkflows}
+              provider="github-actions"
               {selected}
               onToggle={toggleWorkflow}
               onLabelChange={setLabel}

@@ -141,6 +141,24 @@ describe('GitHubActionsClient', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toContain('branch=feat%2Fx')
   })
 
+  it('stops repository run pagination at five full pages', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        total_count: 501,
+        workflow_runs: Array.from({ length: 100 }, (_, index) => ({ id: index + 1 })),
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new GitHubActionsClient('itsoltech', 'canopy-desktop', 'token')
+
+    const result = await client.listRepositoryRuns('feat/x')
+
+    expect(result.isOk() && result.value.runs).toHaveLength(500)
+    expect(result.isOk() && result.value.totalCount).toBe(501)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock.mock.calls[4]?.[0]).toContain('page=5')
+  })
+
   it('resolves an exact typed ref without relying on bounded picker pages', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse({ ref: 'refs/heads/feature/x', object: { sha: 'exact-sha' } }),

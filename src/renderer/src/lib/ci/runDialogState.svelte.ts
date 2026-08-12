@@ -333,12 +333,19 @@ export function createCiRunDialogState(
     if (config.provider !== 'github-actions' || !jobId || exactRefLoading) return false
     const sequence = ++refsSequence
     const requestedJobId = jobId
+    const requestedQuery = name.trim()
     exactRefLoading = true
     refsLoading = false
     refsError = ''
     try {
-      const resolved = await window.api.ciExactJobRef(repoRoot, requestedJobId, name)
-      if (sequence !== refsSequence || requestedJobId !== jobId) return false
+      const resolved = await window.api.ciExactJobRef(repoRoot, requestedJobId, requestedQuery)
+      if (
+        sequence !== refsSequence ||
+        requestedJobId !== jobId ||
+        refQuery.trim() !== requestedQuery
+      ) {
+        return false
+      }
       refs = [...refs.filter((ref) => ref.name !== resolved.name), resolved]
       selectedRefName = resolved.name
       refQuery = resolved.name
@@ -346,7 +353,13 @@ export function createCiRunDialogState(
       await loadParameters()
       return true
     } catch (cause) {
-      if (sequence !== refsSequence || requestedJobId !== jobId) return false
+      if (
+        sequence !== refsSequence ||
+        requestedJobId !== jobId ||
+        refQuery.trim() !== requestedQuery
+      ) {
+        return false
+      }
       refsError = ipcErrorMessage(cause, 'Could not resolve the GitHub ref')
       return false
     } finally {

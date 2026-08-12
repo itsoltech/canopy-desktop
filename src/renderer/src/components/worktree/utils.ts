@@ -37,3 +37,19 @@ export function shouldReopenBranchList(
 ): boolean {
   return collapseConfirmedSelection && (!selectedBranch || query !== selectedBranch)
 }
+
+/** A bounded ref list must not hide the explicit lookup for an exact typed name. */
+export function shouldOfferExactRef(query: string, loadedRefs: string[]): boolean {
+  const exactName = query.trim()
+  return exactName.length > 0 && !loadedRefs.includes(exactName)
+}
+
+/** Enter preserves listbox navigation; a literal loaded ref wins over the active fuzzy row. */
+export function branchPickerEnterTarget(
+  query: string,
+  loadedRefs: string[],
+  filteredRefs: string[],
+  selectedIndex: number,
+): string | null {
+  return loadedRefs.find((ref) => ref === query.trim()) ?? filteredRefs[selectedIndex] ?? null
+}

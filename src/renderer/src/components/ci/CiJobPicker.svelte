@@ -1,5 +1,6 @@
 <script lang="ts">
   import { SvelteMap } from 'svelte/reactivity'
+  import { ciJobPickerCopy, type CiJobPickerProvider } from '../../lib/ci/jobPickerCopy'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
   // The per-repo job selection list of the CI configurator: every job the server
@@ -15,15 +16,19 @@
 
   let {
     serverTypes,
+    provider = 'teamcity',
     selected,
     onToggle,
     onLabelChange,
   }: {
     serverTypes: ServerBuildType[]
+    provider?: CiJobPickerProvider
     selected: SvelteMap<string, string>
     onToggle: (bt: ServerBuildType) => void
     onLabelChange: (id: string, label: string) => void
   } = $props()
+
+  let copy = $derived(ciJobPickerCopy(provider))
 
   let groupedTypes = $derived.by(() => {
     const groups = new SvelteMap<string, ServerBuildType[]>()
@@ -38,13 +43,11 @@
 </script>
 
 {#if serverTypes.length === 0}
-  <span class="text-xs text-text-faint">The server exposes no jobs.</span>
+  <span class="text-xs text-text-faint">{copy.empty}</span>
 {:else}
   <div class="flex flex-col gap-2">
     <p class="m-0 text-xs text-text-muted leading-snug">
-      These are all the jobs (build configurations) the TeamCity server exposes. Check the ones that
-      belong to THIS repository — only those appear in Canopy (the CI/CD section, Run job and the
-      branch context menu). The selection is written to the git-tracked
+      {copy.description} The selection is written to the git-tracked
       <code class="font-mono">.canopy/config.json</code>, so after you commit it the whole team gets
       the same jobs. Labels are editable and shown in the sidebar.
     </p>

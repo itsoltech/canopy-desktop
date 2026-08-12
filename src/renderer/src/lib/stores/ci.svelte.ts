@@ -209,12 +209,15 @@ const OBSERVE_INTERVAL_MS = 10_000
  * covers that window without adding a second poller.
  */
 const QUEUED_CATCH_MS = 2_000
-// A hung queue shouldn't poll forever; 2h covers any realistic build.
-const OBSERVE_MAX_TICKS = 720
-// ~5 min of consecutive failures — a laptop suspend/resume or a VPN reconnect
-// during a long build must not kill the observation (5 ticks = 50 s would).
-const OBSERVE_MAX_FAILURES = 30
-const observedBuilds = new SvelteMap<string, ReturnType<typeof setInterval>>()
+// Wall-clock deadlines keep their product meaning even when a request uses its full 15 s timeout.
+const OBSERVE_MAX_DURATION_MS = 2 * 60 * 60 * 1_000
+const OBSERVE_FAILURE_WINDOW_MS = 5 * 60 * 1_000
+type CiProvider = 'teamcity' | 'github-actions'
+interface BuildObservation {
+  timer: ReturnType<typeof setTimeout>
+  token: symbol
+}
+const observedBuilds = new SvelteMap<string, BuildObservation>()
 // Give-ups cluster: the causes (VPN drop, suspend, TeamCity restart) hit every
 // observed build at once, and the toast has ONE slot — so a second give-up would
 // silently erase the first. Aggregate instead, keeping the job names and numbers
@@ -223,57 +226,80 @@ const observedBuilds = new SvelteMap<string, ReturnType<typeof setInterval>>()
 // toast still showing — a wall-clock window would re-count dismissed builds or
 // let a late give-up erase a still-displayed one.
 interface GiveUp {
+  provider: CiProvider
   label: string
   number: string | undefined
   reason: string
 }
 let giveUps: GiveUp[] = []
 
-function reportGiveUp(label: string, number: string | undefined, reason: string): void {
+function reportGiveUp(
+  provider: CiProvider,
+  label: string,
+  number: string | undefined,
+  reason: string,
+): void {
   if (!isStickyToastVisible()) giveUps = []
-  giveUps.push({ label, number, reason })
+  giveUps.push({ provider, label, number, reason })
   const named = giveUps.map((g) => `${g.label}${g.number ? ` #${g.number}` : ''}`).join(', ')
+  const providers = new Set(giveUps.map((giveUp) => giveUp.provider))
+  const onlyProvider = providers.size === 1 ? giveUps[0]?.provider : undefined
+  const itemNoun =
+    onlyProvider === 'teamcity'
+      ? 'builds'
+      : onlyProvider === 'github-actions'
+        ? 'workflows'
+        : 'jobs'
+  const providerName =
+    onlyProvider === 'teamcity'
+      ? 'TeamCity'
+      : onlyProvider === 'github-actions'
+        ? 'GitHub Actions'
+        : 'the CI providers'
   // 'default' is deliberate: a lost watcher is a status hand-off, not a build
   // outcome — danger chrome here would misread as "the build failed". When a real
   // outcome toast folds in later, the fold path escalates the chrome itself.
   addToast(
     giveUps.length > 1
-      ? `Stopped watching ${giveUps.length} builds — check TeamCity: ${named}`
-      : `Stopped watching ${named} — ${reason}`,
+      ? `Stopped watching ${giveUps.length} ${itemNoun} - check ${providerName}: ${named}`
+      : `Stopped watching ${named} - ${reason}`,
     'default',
     { sticky: true },
   )
 }
 
-function stopObserving(key: string): void {
-  const timer = observedBuilds.get(key)
-  if (timer) clearInterval(timer)
+function stopObserving(key: string, token?: symbol): void {
+  const observation = observedBuilds.get(key)
+  if (!observation || (token && observation.token !== token)) return
+  clearTimeout(observation.timer)
   observedBuilds.delete(key)
 }
 
 function observeBuild(repoRoot: string, baseUrl: string, buildId: number, label: string): void {
   const key = `${repoRoot.replace(/\\/g, '/')}::${baseUrl}::${buildId}`
   if (observedBuilds.has(key)) return
-  let ticks = 0
-  let failures = 0
+  const token = Symbol(key)
+  const startedAt = Date.now()
+  let lastSuccessAt = startedAt
   // TeamCity's UI shows the per-configuration build NUMBER — the raw id from the
   // trigger response appears only in URLs, so it is useless for "check TeamCity".
   let lastNumber: string | undefined
-  const timer = setInterval(async () => {
-    ticks += 1
-    if (ticks > OBSERVE_MAX_TICKS) {
-      stopObserving(key)
+  const isCurrent = (): boolean => observedBuilds.get(key)?.token === token
+  const poll = async (): Promise<void> => {
+    if (Date.now() - startedAt >= OBSERVE_MAX_DURATION_MS) {
+      stopObserving(key, token)
       // Giving up must be audible: this observation IS the signal the user walked
       // away expecting, and silence is indistinguishable from "still building".
       // Front-loaded verb + sticky: the toast truncates at 300 px (~40 chars) and
       // normally self-dismisses in 4 s — neither may eat the hand-off, and this
       // state has no other surface in the app.
-      reportGiveUp(label, lastNumber, 'still not finished after 2 h')
+      reportGiveUp('teamcity', label, lastNumber, 'still not finished after 2 h')
       return
     }
     try {
       const build = await window.api.ciBuild(repoRoot, baseUrl, buildId)
-      failures = 0
+      if (!isCurrent()) return
+      lastSuccessAt = Date.now()
       lastNumber = build.number
       // Keep the sidebar card in step with the build being watched. The refresh fired at
       // trigger time lands BEFORE the server has the build, and the card then falls back to
@@ -282,7 +308,7 @@ function observeBuild(repoRoot: string, baseUrl: string, buildId: number, label:
       // This watcher already polls every 10 s and knows the branch; reuse it.
       if (build.branchName) void refreshCi(repoRoot, build.branchName)
       if (build.state === 'finished') {
-        stopObserving(key)
+        stopObserving(key, token)
         // .exhaustive() so the next widening of CiBuildResult fails to compile here
         // instead of silently degrading to the neutral toast — this is the one
         // surface that reaches a user who walked away after triggering.
@@ -299,17 +325,27 @@ function observeBuild(repoRoot: string, baseUrl: string, buildId: number, label:
           .exhaustive()
       }
     } catch {
-      // Transient API errors are tolerated — but the give-up says so (see the tick
-      // cap above for why it is front-loaded and sticky). The number is missing
+      if (!isCurrent()) return
+      // Transient API errors are tolerated, but the wall-clock deadline still hands
+      // control back to the user. The number is missing
       // only when no poll ever succeeded; the label still names the job then.
-      failures += 1
-      if (failures >= OBSERVE_MAX_FAILURES) {
-        stopObserving(key)
-        reportGiveUp(label, lastNumber, 'lost contact with TeamCity')
+      if (Date.now() - lastSuccessAt >= OBSERVE_FAILURE_WINDOW_MS) {
+        stopObserving(key, token)
+        reportGiveUp('teamcity', label, lastNumber, 'lost contact with TeamCity')
+        return
       }
     }
-  }, OBSERVE_INTERVAL_MS)
-  observedBuilds.set(key, timer)
+    if (isCurrent()) {
+      observedBuilds.set(key, {
+        token,
+        timer: setTimeout(() => void poll(), OBSERVE_INTERVAL_MS),
+      })
+    }
+  }
+  observedBuilds.set(key, {
+    token,
+    timer: setTimeout(() => void poll(), OBSERVE_INTERVAL_MS),
+  })
 }
 
 /** Returns the failure message, or `null` when the build was queued. */
@@ -361,24 +397,33 @@ function reportRunConclusion(run: CiRun): void {
 function observeRun(repoRoot: string, runId: string, label: string): void {
   const key = `${repoRoot.replace(/\\/g, '/')}::${runId}`
   if (observedRuns.has(key)) return
-  let ticks = 0
-  let failures = 0
+  const startedAt = Date.now()
+  let lastSuccessAt = startedAt
   const poll = async (): Promise<void> => {
-    ticks += 1
-    if (ticks > OBSERVE_MAX_TICKS) {
+    if (Date.now() - startedAt >= OBSERVE_MAX_DURATION_MS) {
       stopObservingRun(key)
-      reportGiveUp(label, undefined, 'still not finished after 2 h — check GitHub Actions')
+      reportGiveUp(
+        'github-actions',
+        label,
+        undefined,
+        'still not finished after 2 h - check GitHub Actions',
+      )
       return
     }
     try {
       const run = await window.api.ciRun(repoRoot, runId)
       if (!observedRuns.has(key)) return
-      failures = 0
+      lastSuccessAt = Date.now()
       // Same reason as the TeamCity watcher above.
       if (run.ref?.name) void refreshCiJobs(repoRoot, run.ref.name)
       if (run.provider !== 'github-actions') {
         stopObservingRun(key)
-        reportGiveUp(label, undefined, 'CI provider changed — check GitHub Actions')
+        reportGiveUp(
+          'github-actions',
+          label,
+          undefined,
+          'CI provider changed - check GitHub Actions',
+        )
         return
       }
       if (run.state === 'finished') {
@@ -387,10 +432,9 @@ function observeRun(repoRoot: string, runId: string, label: string): void {
       }
     } catch {
       if (!observedRuns.has(key)) return
-      failures += 1
-      if (failures >= OBSERVE_MAX_FAILURES) {
+      if (Date.now() - lastSuccessAt >= OBSERVE_FAILURE_WINDOW_MS) {
         stopObservingRun(key)
-        reportGiveUp(label, undefined, 'lost contact with GitHub Actions')
+        reportGiveUp('github-actions', label, undefined, 'lost contact with GitHub Actions')
         return
       }
     }
@@ -403,6 +447,13 @@ function observeRun(repoRoot: string, runId: string, label: string): void {
   }
   const timer = setTimeout(() => void poll(), OBSERVE_INTERVAL_MS)
   observedRuns.set(key, timer)
+}
+
+/** Deterministic cleanup for fake-timer tests; production observations stop themselves. */
+export function resetCiObserversForTests(): void {
+  for (const [key] of observedBuilds) stopObserving(key)
+  for (const [key] of observedRuns) stopObservingRun(key)
+  giveUps = []
 }
 
 export type CiTriggerIssue =

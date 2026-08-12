@@ -251,6 +251,38 @@ describe('CI run dialog controller', () => {
     )
   })
 
+  it('ignores an exact-ref response after the user edits the query', async () => {
+    const exact = deferred<{ name: string; kind: 'branch'; commitSha: string }>()
+    const ciJobParameters = vi.fn().mockResolvedValue({ parameters: [], schemaRevision: 'sha' })
+
+    await withDialogState(
+      {
+        ciJobRefs: vi.fn().mockResolvedValue([{ name: 'main', kind: 'branch' }]),
+        ciExactJobRef: vi.fn().mockReturnValue(exact.promise),
+        ciJobParameters,
+      },
+      async (state) => {
+        state.initialize()
+        await vi.waitFor(() => expect(state.refsLoading).toBe(false))
+
+        const resolving = state.resolveExactRef('feature/a')
+        state.refQuery = 'feature/b'
+        exact.resolve({ name: 'feature/a', kind: 'branch', commitSha: 'stale-sha' })
+
+        await expect(resolving).resolves.toBe(false)
+        expect(state.refQuery).toBe('feature/b')
+        expect(state.selectedRefName).not.toBe('feature/a')
+        expect(ciJobParameters).not.toHaveBeenCalledWith(
+          'repo',
+          '.github/workflows/a.yml',
+          expect.objectContaining({ name: 'feature/a' }),
+        )
+      },
+      GITHUB_CONFIG,
+      'feature/a',
+    )
+  })
+
   it('resets confirmation when the selected ref changes', async () => {
     await withDialogState(
       {

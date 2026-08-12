@@ -12,6 +12,7 @@ type PRFallbackSummary = { number: number; state: string; isDraft: boolean } | n
 interface PRFallbackCacheEntry {
   request: Promise<PRFallbackSummary>
   expiresAt: number
+  settled: boolean
 }
 // eslint-disable-next-line svelte/prefer-svelte-reactivity
 const fallbackSummaryRequests = new Map<string, PRFallbackCacheEntry>()
@@ -22,6 +23,57 @@ const forceRemoteProbeKeys = new Set<string>()
 
 const DEBOUNCE_MS = 30_000
 export const PR_FALLBACK_TTL_MS = 30_000
+export const PR_FALLBACK_CACHE_MAX = 100
+
+function baseKeyFromRequestKey(requestKey: string): string {
+  return requestKey.slice(0, requestKey.lastIndexOf('::'))
+}
+
+function trimFallbackMetadata(protectedKey?: string): void {
+  for (const key of Object.keys(fallbackGenerationByKey)) {
+    if (Object.keys(fallbackGenerationByKey).length <= PR_FALLBACK_CACHE_MAX) break
+    if (
+      key === protectedKey ||
+      forceRemoteProbeKeys.has(key) ||
+      [...fallbackSummaryRequests.entries()].some(
+        ([requestKey, entry]) => baseKeyFromRequestKey(requestKey) === key && !entry.settled,
+      )
+    ) {
+      continue
+    }
+    delete fallbackGenerationByKey[key]
+  }
+}
+
+function trimFallbackRequests(now: number): void {
+  for (const [key, entry] of fallbackSummaryRequests) {
+    if (entry.expiresAt <= now) fallbackSummaryRequests.delete(key)
+  }
+  while (fallbackSummaryRequests.size > PR_FALLBACK_CACHE_MAX) {
+    const oldest = [...fallbackSummaryRequests.entries()].find(([, entry]) => entry.settled)?.[0]
+    if (!oldest) break
+    fallbackSummaryRequests.delete(oldest)
+    const baseKey = baseKeyFromRequestKey(oldest)
+    if (
+      ![...fallbackSummaryRequests.keys()].some((key) => baseKeyFromRequestKey(key) === baseKey)
+    ) {
+      delete fallbackGenerationByKey[baseKey]
+      forceRemoteProbeKeys.delete(baseKey)
+    }
+  }
+}
+
+export function getPRFallbackCacheSizes(): {
+  requests: number
+  generations: number
+  forcedProbes: number
+} {
+  return {
+    requests: fallbackSummaryRequests.size,
+    generations: Object.keys(fallbackGenerationByKey).length,
+    forcedProbes: forceRemoteProbeKeys.size,
+  }
+}
 
 export function getBranchPRMap(): GitHubBranchPRMap {
   return branchPRs
@@ -58,6 +110,7 @@ export function invalidatePRFallback(repoRoot: string, branch: string): void {
   }
   fallbackGenerationByKey[key] = (fallbackGenerationByKey[key] ?? 0) + 1
   forceRemoteProbeKeys.add(key)
+  trimFallbackMetadata(key)
 }
 
 export function loadPRFallbackSummary(
@@ -69,15 +122,24 @@ export function loadPRFallbackSummary(
   const existing = fallbackSummaryRequests.get(requestKey)
   if (existing && existing.expiresAt > Date.now()) return existing.request
   if (existing) fallbackSummaryRequests.delete(requestKey)
+  trimFallbackRequests(Date.now())
 
   const forceRemoteProbe = forceRemoteProbeKeys.delete(prKey(repoRoot, branch))
   const request = window.api.taskTrackerPRSummary(repoRoot, branch, forceRemoteProbe)
-  const entry: PRFallbackCacheEntry = { request, expiresAt: Number.POSITIVE_INFINITY }
+  const entry: PRFallbackCacheEntry = {
+    request,
+    expiresAt: Number.POSITIVE_INFINITY,
+    settled: false,
+  }
   fallbackSummaryRequests.set(requestKey, entry)
+  trimFallbackMetadata(prKey(repoRoot, branch))
   void request.then(
     () => {
       if (fallbackSummaryRequests.get(requestKey) === entry) {
+        entry.settled = true
         entry.expiresAt = Date.now() + PR_FALLBACK_TTL_MS
+        trimFallbackRequests(Date.now())
+        trimFallbackMetadata()
       }
     },
     () => {
