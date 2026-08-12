@@ -25,25 +25,39 @@ function gitCall<T>(command: string, promise: Promise<T>): ResultAsync<T, GitErr
 // it. Above this, return an empty hunk list rather than block on a huge read.
 const UNTRACKED_MAX_BYTES = 5 * 1024 * 1024
 
-// Sync read instead of fs.promises.readFile: this function is called in a
-// hot loop (ChangesPanel/DiffPane refresh on every files:changed event,
-// debounced 200 ms), once per untracked file in parallel. The async
-// FileHandle code path was the trigger for the FileHandle::CloseReq::Resolve
-// crash in #150. Untracked files in a working copy are typically small and
-// few, so a synchronous read is cheap and removes the crash surface.
+// Cap how many untracked files get their contents read. UNTRACKED_MAX_BYTES
+// bounds a single read, but nothing bounded the file count: a working copy
+// holding a build output or a dependency directory that .gitignore doesn't
+// cover yet reports tens of thousands of untracked paths, and reading them all
+// synchronously blocks the main process — and so every PTY write, IPC reply,
+// and window repaint — on each refresh. Past this point files are still listed,
+// just without a diff body.
+const UNTRACKED_MAX_FILES = 500
+
+/** Untracked entry listed without reading its contents (too large, or past the file cap). */
+function untrackedFileWithoutContent(filePath: string): DiffFile {
+  return {
+    path: filePath,
+    status: 'added' as const,
+    hunks: [],
+    additions: 0,
+    deletions: 0,
+  }
+}
+
+// Sync read instead of fs.promises.readFile: this function is called in a hot
+// loop (ChangesPanel/DiffPane refresh on every files:changed event, debounced
+// 200 ms), once per untracked file. The async FileHandle code path was the
+// trigger for the FileHandle::CloseReq::Resolve crash in #150, so the reads stay
+// synchronous and are bounded instead by UNTRACKED_MAX_BYTES per file and
+// UNTRACKED_MAX_FILES per refresh.
 function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<DiffFile, GitError> {
   const absPath = join(repoRoot, filePath)
   let content: string
   try {
     const sz = statSync(absPath).size
     if (sz > UNTRACKED_MAX_BYTES) {
-      return ok({
-        path: filePath,
-        status: 'added' as const,
-        hunks: [],
-        additions: 0,
-        deletions: 0,
-      })
+      return ok(untrackedFileWithoutContent(filePath))
     }
     content = readFileSync(absPath, 'utf-8')
   } catch (e) {
@@ -526,7 +540,11 @@ export class GitRepository {
         if (files.length === 0) return okAsync<ParsedDiff, GitError>(parsed)
 
         const untrackedDiffFiles = files
-          .map((file) => buildUntrackedDiffFile(repoRoot, file).unwrapOr(null))
+          .map((file, i) =>
+            i < UNTRACKED_MAX_FILES
+              ? buildUntrackedDiffFile(repoRoot, file).unwrapOr(null)
+              : untrackedFileWithoutContent(file),
+          )
           .filter((f): f is DiffFile => f !== null)
 
         return okAsync<ParsedDiff, GitError>({
