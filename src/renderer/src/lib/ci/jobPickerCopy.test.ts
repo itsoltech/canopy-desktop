@@ -9,5 +9,6 @@ describe('ciJobPickerCopy', () => {
     expect(copy.description).toContain('Run workflow')
     expect(copy.description).not.toContain('TeamCity')
     expect(copy.description).not.toContain('build configurations')
+    expect(copy.sharedSelection).toBe('the same selection')
   })
 })

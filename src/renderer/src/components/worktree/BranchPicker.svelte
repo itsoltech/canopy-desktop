@@ -66,9 +66,7 @@
   let filteredBranches = $derived(
     query ? allBranches.filter((b) => fuzzyMatch(b, query.toLowerCase())) : allBranches,
   )
-  let enterBranch = $derived(
-    branchPickerEnterTarget(query, allBranches, filteredBranches, selectedIdx),
-  )
+  let enterBranch = $derived(branchPickerEnterTarget(filteredBranches, selectedIdx))
   let offerExactRef = $derived(!!onResolveExact && shouldOfferExactRef(query, allBranches))
 
   $effect(() => {
@@ -112,7 +110,7 @@
   function handleInput(): void {
     if (!fillQueryOnPick) return
     listOpen = true
-    // A hand-edited query no longer matches the picked branch — require a fresh pick.
+    // A hand-edited query no longer matches the picked branch - require a fresh pick.
     if (query !== selectedBranch) selectedBranch = ''
   }
 

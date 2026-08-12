@@ -134,6 +134,29 @@ describe('GitHub PR fallback refresh', () => {
     expect(getPRFallbackCacheSizes().requests).toBeLessThanOrEqual(PR_FALLBACK_CACHE_MAX)
   })
 
+  it('trims invalidation metadata after many pending requests reject', async () => {
+    const pending = Array.from({ length: PR_FALLBACK_CACHE_MAX + 20 }, () =>
+      Promise.withResolvers<null>(),
+    )
+    api.taskTrackerPRSummary.mockImplementation(
+      (_repo: string, branch: string) => pending[Number(branch.split('/')[1])].promise,
+    )
+
+    const requests = pending.map((_request, index) => {
+      invalidatePRFallback('C:/repo', `feature/${index}`)
+      return loadPRFallbackSummary('C:/repo', `feature/${index}`)
+    })
+    const settled = Promise.allSettled(requests)
+    for (const request of pending) request.reject(new Error('lookup failed'))
+    await settled
+
+    expect(getPRFallbackCacheSizes()).toEqual({
+      requests: 0,
+      generations: PR_FALLBACK_CACHE_MAX,
+      forcedProbes: 0,
+    })
+  })
+
   it('does not discard an older queued forced probe while trimming metadata', async () => {
     api.taskTrackerPRSummary.mockResolvedValue(null)
     invalidatePRFallback('C:/repo', 'feature/a')

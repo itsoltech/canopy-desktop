@@ -47,19 +47,12 @@ describe('shouldOfferExactRef', () => {
 
 describe('branchPickerEnterTarget', () => {
   it('keeps Enter on the highlighted fuzzy option while exact lookup remains a separate action', () => {
-    expect(
-      branchPickerEnterTarget('release/1.0', ['release/archive/1.0'], ['release/archive/1.0'], 0),
-    ).toBe('release/archive/1.0')
+    expect(branchPickerEnterTarget(['release/archive/1.0'], 0)).toBe('release/archive/1.0')
   })
 
-  it('selects a literal loaded ref before another active fuzzy option', () => {
-    expect(
-      branchPickerEnterTarget(
-        'release/1.0',
-        ['release/archive/1.0', 'release/1.0'],
-        ['release/archive/1.0', 'release/1.0'],
-        0,
-      ),
-    ).toBe('release/1.0')
+  it('selects the active option even when another fuzzy result is a literal query match', () => {
+    expect(branchPickerEnterTarget(['release/archive/1.0', 'release/1.0'], 0)).toBe(
+      'release/archive/1.0',
+    )
   })
 })

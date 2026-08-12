@@ -145,6 +145,8 @@ export function loadPRFallbackSummary(
     () => {
       if (fallbackSummaryRequests.get(requestKey) === entry) {
         fallbackSummaryRequests.delete(requestKey)
+        trimFallbackRequests(Date.now())
+        trimFallbackMetadata()
       }
     },
   )

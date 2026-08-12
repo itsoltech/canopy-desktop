@@ -367,6 +367,12 @@ export function createCiRunDialogState(
     }
   }
 
+  function cancelExactRefLookup(): void {
+    if (!exactRefLoading) return
+    refsSequence += 1
+    exactRefLoading = false
+  }
+
   async function loadParameters(): Promise<void> {
     if (!jobId || (config.provider === 'github-actions' && !selectedRef)) return
     const sequence = ++parametersSequence
@@ -485,6 +491,7 @@ export function createCiRunDialogState(
     },
     set selectedRefName(value: string) {
       if (selectedRefName === value) return
+      cancelExactRefLookup()
       selectedRefName = value
       // A confirmation must never outlive the ref it describes.
       stage = 'select'
@@ -495,6 +502,8 @@ export function createCiRunDialogState(
       return refQuery
     },
     set refQuery(value: string) {
+      if (refQuery === value) return
+      cancelExactRefLookup()
       refQuery = value
     },
     get parameters() {

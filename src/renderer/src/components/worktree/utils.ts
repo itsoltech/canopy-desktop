@@ -44,12 +44,10 @@ export function shouldOfferExactRef(query: string, loadedRefs: string[]): boolea
   return exactName.length > 0 && !loadedRefs.includes(exactName)
 }
 
-/** Enter preserves listbox navigation; a literal loaded ref wins over the active fuzzy row. */
+/** Enter activates the option exposed through the listbox's aria-activedescendant. */
 export function branchPickerEnterTarget(
-  query: string,
-  loadedRefs: string[],
   filteredRefs: string[],
   selectedIndex: number,
 ): string | null {
-  return loadedRefs.find((ref) => ref === query.trim()) ?? filteredRefs[selectedIndex] ?? null
+  return filteredRefs[selectedIndex] ?? null
 }

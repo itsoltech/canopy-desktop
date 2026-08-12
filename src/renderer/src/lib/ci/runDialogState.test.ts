@@ -253,12 +253,16 @@ describe('CI run dialog controller', () => {
 
   it('ignores an exact-ref response after the user edits the query', async () => {
     const exact = deferred<{ name: string; kind: 'branch'; commitSha: string }>()
+    const ciExactJobRef = vi
+      .fn()
+      .mockReturnValueOnce(exact.promise)
+      .mockResolvedValueOnce({ name: 'feature/b', kind: 'branch', commitSha: 'current-sha' })
     const ciJobParameters = vi.fn().mockResolvedValue({ parameters: [], schemaRevision: 'sha' })
 
     await withDialogState(
       {
         ciJobRefs: vi.fn().mockResolvedValue([{ name: 'main', kind: 'branch' }]),
-        ciExactJobRef: vi.fn().mockReturnValue(exact.promise),
+        ciExactJobRef,
         ciJobParameters,
       },
       async (state) => {
@@ -266,7 +270,13 @@ describe('CI run dialog controller', () => {
         await vi.waitFor(() => expect(state.refsLoading).toBe(false))
 
         const resolving = state.resolveExactRef('feature/a')
+        expect(state.exactRefLoading).toBe(true)
         state.refQuery = 'feature/b'
+
+        expect(state.exactRefLoading).toBe(false)
+        expect(state.loading).toBe(false)
+        await expect(state.resolveExactRef('feature/b')).resolves.toBe(true)
+        expect(state.selectedRefName).toBe('feature/b')
         exact.resolve({ name: 'feature/a', kind: 'branch', commitSha: 'stale-sha' })
 
         await expect(resolving).resolves.toBe(false)
@@ -277,6 +287,34 @@ describe('CI run dialog controller', () => {
           '.github/workflows/a.yml',
           expect.objectContaining({ name: 'feature/a' }),
         )
+      },
+      GITHUB_CONFIG,
+      'feature/a',
+    )
+  })
+
+  it('cancels an exact-ref lookup immediately when a visible ref is selected', async () => {
+    const exact = deferred<{ name: string; kind: 'branch'; commitSha: string }>()
+
+    await withDialogState(
+      {
+        ciJobRefs: vi.fn().mockResolvedValue([{ name: 'main', kind: 'branch' }]),
+        ciExactJobRef: vi.fn().mockReturnValue(exact.promise),
+        ciJobParameters: vi.fn().mockResolvedValue({ parameters: [], schemaRevision: 'sha' }),
+      },
+      async (state) => {
+        state.initialize()
+        await vi.waitFor(() => expect(state.refsLoading).toBe(false))
+
+        const resolving = state.resolveExactRef('feature/a')
+        expect(state.exactRefLoading).toBe(true)
+        state.selectedRefName = 'main'
+
+        expect(state.exactRefLoading).toBe(false)
+        expect(state.loading).toBe(false)
+        exact.resolve({ name: 'feature/a', kind: 'branch', commitSha: 'stale-sha' })
+        await expect(resolving).resolves.toBe(false)
+        expect(state.selectedRefName).toBe('main')
       },
       GITHUB_CONFIG,
       'feature/a',

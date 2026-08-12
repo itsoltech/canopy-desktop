@@ -49,7 +49,7 @@
     <p class="m-0 text-xs text-text-muted leading-snug">
       {copy.description} The selection is written to the git-tracked
       <code class="font-mono">.canopy/config.json</code>, so after you commit it the whole team gets
-      the same jobs. Labels are editable and shown in the sidebar.
+      {copy.sharedSelection}. Labels are editable and shown in the sidebar.
     </p>
     {#each groupedTypes as [project, types] (project)}
       <div class="flex flex-col gap-1">
