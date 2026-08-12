@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { LoaderCircle, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
-  import { cycleFocus } from '../../lib/a11y/focusTrap'
+  import { cycleFocus, focusModalAndReturnToOpener } from '../../lib/a11y/focusTrap'
   import { ipcErrorMessage } from '../../lib/ci/errors'
   import CiActivityModal from './CiActivityModal.svelte'
   import GitHubActionsActivityModal from './GitHubActionsActivityModal.svelte'
@@ -13,8 +13,7 @@
   let loading = $state(true)
   let dialogEl: HTMLElement | undefined = $state()
 
-  onMount(async () => {
-    dialogEl?.focus()
+  async function loadConfig(): Promise<void> {
     try {
       const result = await window.api.ciConfig(repoRoot)
       provider = result.config?.provider ?? ''
@@ -24,6 +23,12 @@
     } finally {
       loading = false
     }
+  }
+
+  onMount(() => {
+    const restoreFocus = focusModalAndReturnToOpener(dialogEl)
+    void loadConfig()
+    return restoreFocus
   })
 
   function handleKeydown(event: KeyboardEvent): void {

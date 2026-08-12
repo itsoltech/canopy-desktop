@@ -143,14 +143,16 @@
 
 {#if showCreatePR && !loading}
   <button
-    class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-    disabled={!workspaceState.branch}
+    class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover aria-disabled:text-text-faint aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+    aria-disabled={!workspaceState.branch}
     onclick={createPR}
-    title="Create a pull request from this branch - edit the title and description before it is created"
+    title={workspaceState.branch
+      ? 'Create a pull request from this branch - edit the title and description before it is created'
+      : 'No branch checked out'}
   >
     <GitPullRequest
       size={13}
-      class="text-text-faint group-enabled:group-hover:text-accent-text flex-shrink-0"
+      class={`text-text-faint flex-shrink-0 ${workspaceState.branch ? 'group-hover:text-accent-text' : ''}`}
     />
     <span class="flex-1">Create PR</span>
   </button>

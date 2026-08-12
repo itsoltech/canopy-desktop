@@ -457,8 +457,6 @@ export function createCiRunDialogState(
   }
 
   return {
-    config,
-    initialBranch,
     isTeamCity,
     jobs,
     providerName,

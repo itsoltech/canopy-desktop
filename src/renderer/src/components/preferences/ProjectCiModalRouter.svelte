@@ -3,7 +3,7 @@
   import { LoaderCircle, Server, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { cycleFocus } from '../../lib/a11y/focusTrap'
+  import { cycleFocus, focusModalAndReturnToOpener } from '../../lib/a11y/focusTrap'
   import ProjectCiModal from './ProjectCiModal.svelte'
   import GitHubActionsCiConfigurator from './GitHubActionsCiConfigurator.svelte'
   import CiCredentialModal from './CiCredentialModal.svelte'
@@ -27,8 +27,7 @@
   let loadError = $state('')
   let containerEl: HTMLElement | undefined = $state()
 
-  onMount(async () => {
-    containerEl?.focus()
+  async function loadConfig(): Promise<void> {
     if (!repoRoot) {
       loading = false
       return
@@ -45,6 +44,12 @@
     } finally {
       loading = false
     }
+  }
+
+  onMount(() => {
+    const restoreFocus = focusModalAndReturnToOpener(containerEl)
+    void loadConfig()
+    return restoreFocus
   })
 
   function handleKeydown(event: KeyboardEvent): void {

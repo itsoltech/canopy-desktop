@@ -20,3 +20,16 @@ export function cycleFocus(container: HTMLElement, e: KeyboardEvent): void {
     first.focus()
   }
 }
+
+/**
+ * Move focus into a modal boundary and return it to the opener when that boundary is destroyed.
+ * The owner should span loading and loaded modal states so provider swaps cannot replace the
+ * element remembered as the opener.
+ */
+export function focusModalAndReturnToOpener(container: HTMLElement | undefined): () => void {
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  container?.focus()
+  return () => {
+    if (previouslyFocused?.isConnected) previouslyFocused.focus()
+  }
+}
