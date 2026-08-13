@@ -42,9 +42,22 @@ Read the release notes provided below. For each version, identify:
 
 For deeper analysis, fetch diffs from the changelog repo yourself using the FROM_VERSION and TO_VERSION values from the prompt header:
 
-Keep each command free of shell pipes and `|` characters (including inside `--jq`
-expressions) — the permission layer splits on them and denies the trailing part.
-Use the `raw` media type instead of piping through `base64 -d`.
+> **Known blocker — these commands are currently denied.** The workflow allowlists
+> `Bash(gh api repos/marckrenn/claude-code-changelog/:*)`. That prefix ends mid-token, so no real
+> command matches it and every `gh api` call against the changelog repo is denied — `compare/`,
+> `contents/` and `releases/` alike, with or without `--jq`, quoted or bare. Removing shell pipes
+> does **not** help; that was an earlier misdiagnosis. `Bash(npm view:*)` and `Bash(gh pr view:*)`
+> are allowed in the same session because their prefixes end on a token boundary.
+>
+> Probe once with the `compare` call below. If it is denied, **stop probing** and analyze from the
+> release notes plus a codebase scan, then record the resulting coverage gap in the PR body —
+> notably any "… +N more CLI changelog entries" truncation, which cannot be recovered without
+> these diffs. Do not represent release-notes-only analysis as a full diff review.
+>
+> The fix is one token in `.github/workflows/claude-code-compat.yml`
+> (`Bash(gh api repos/marckrenn/claude-code-changelog/:*)` → `Bash(gh api:*)`), but this job cannot
+> apply it: `RELEASE_TOKEN` has no `workflow` scope, so pushing a `.github/workflows/` change is
+> rejected. It needs a maintainer.
 
 ```bash
 # Compare two tags to see all file changes
@@ -69,14 +82,31 @@ npm view @anthropic-ai/claude-agent-sdk versions --json
 
 Cross-reference with what the changelog mentions. If a relevant update exists, bump the version in `package.json`.
 
-Bump it with `npm install` so `package-lock.json` is regenerated in the same commit — CI runs
-`npm ci`, which fails when `package.json` and the lockfile disagree:
+`package.json` and `package-lock.json` must move in the same commit — CI runs `npm ci`, which
+fails when the two disagree. Never edit the dependency range on its own.
+
+Prefer `npm install`, which regenerates the lockfile properly:
 
 ```bash
 npm install @anthropic-ai/claude-agent-sdk@{VERSION} --save-exact=false
 ```
 
-Never hand-edit the dependency range on its own.
+> **Currently denied.** `Bash(npm install:*)` is not in this workflow's allowed tools (only
+> `Bash(npm view:*)` is), so the command above fails. Until a maintainer adds it, hand-edit both
+> files together:
+>
+> 1. Confirm the release has the same dependency shape as the one being replaced, so no lockfile
+>    node needs adding or removing:
+>    `npm view @anthropic-ai/claude-agent-sdk@{VERSION} engines peerDependencies optionalDependencies`
+> 2. Update `version`, `resolved` and `integrity` for the main package and each optional platform
+>    package in `package-lock.json`, plus both dependency ranges (`package.json` and the lockfile's
+>    root `packages[""]` entry).
+> 3. Read every `integrity` value from the registry with
+>    `npm view <package>@{VERSION} dist.integrity`. Never derive, compute or guess a hash.
+> 4. Verify the result parses (`jq '.packages' package-lock.json`) and that the diff touches only
+>    `version`, `resolved` and `integrity`.
+>
+> State in the PR body that the lockfile was hand-edited and that CI's `npm ci` is the real check.
 
 ### 4. Scan the Canopy codebase
 
