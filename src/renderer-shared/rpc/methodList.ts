@@ -195,13 +195,20 @@ export const DESTRUCTIVE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethod
  * the same method until the peer disconnects. `HostRpcServer.dispose`
  * calls `resetSessionGrants` so a reconnecting peer is re-prompted.
  *
- * Still the highest-risk surface in the whitelist — both methods ultimately
- * flow peer-controlled text into a PTY where pressing Enter runs a shell
- * command. The session-grant dialog copy must make the session-wide scope
- * explicit. When adding a new method here, also add a description case in
- * `describeSessionGrant` (actionGuard.ts).
+ * Still the highest-risk surface in the whitelist — `pty.write` and
+ * `agent.sendInput` flow peer-controlled text into a PTY where pressing Enter
+ * runs a shell command, and `pty.subscribe` streams that PTY's output back.
+ * Reading a terminal is at least as sensitive as writing to one: the stream
+ * carries whatever the host user is doing — tokens echoed by CLIs, `env`
+ * dumps, agent conversations, source. Left ungated it fell through
+ * `checkAction` to an unconfirmed allow, so a paired peer could enumerate
+ * every session via `state.getSnapshot` and silently mirror all of them while
+ * never being granted terminal input. The session-grant dialog copy must make
+ * the session-wide scope explicit. When adding a new method here, also add a
+ * description case in `describeSessionGrant` (actionGuard.ts).
  */
 export const SESSION_GRANTABLE_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
   'pty.write',
   'agent.sendInput',
+  'pty.subscribe',
 ])

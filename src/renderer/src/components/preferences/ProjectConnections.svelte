@@ -390,6 +390,7 @@
                   <CustomCheckbox
                     checked={selectedProjects.has(p.key)}
                     onchange={() => toggleProject(p.key)}
+                    ariaLabel="Include project {p.key}"
                   />
                   <span class="font-mono text-xs text-accent-text">{p.key}</span>
                   {#if p.name && p.name !== p.key}

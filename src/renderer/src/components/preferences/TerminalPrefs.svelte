@@ -85,6 +85,7 @@
       <CustomCheckbox
         checked={tmuxEnabled}
         onchange={toggleTmux}
+        ariaLabel="Enable session persistence"
         disabled={tmuxAvailable === false}
       />
     </PrefsRow>
@@ -101,7 +102,7 @@
         help="Enable mouse clicks and scrolling inside tmux panes"
         search="tmux mouse click scroll"
       >
-        <CustomCheckbox checked={tmuxMouse} onchange={toggleMouse} />
+        <CustomCheckbox checked={tmuxMouse} onchange={toggleMouse} ariaLabel="Mouse support" />
       </PrefsRow>
 
       <PrefsRow

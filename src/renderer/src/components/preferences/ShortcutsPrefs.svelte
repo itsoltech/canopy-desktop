@@ -19,12 +19,18 @@
       title: 'App',
       items: [
         { keys: isMac ? ['⌘', 'K'] : ['Ctrl', 'K'], action: 'Command palette' },
+        { keys: isMac ? ['⌘', 'P'] : ['Ctrl', 'P'], action: 'Quick open file' },
         { keys: isMac ? ['⌘', ','] : ['Ctrl', ','], action: 'Preferences' },
         { keys: isMac ? ['⌘', 'O'] : ['Ctrl', 'O'], action: 'Open workspace' },
+        { keys: isMac ? ['⌘', '⇧', 'N'] : ['Ctrl', 'Shift', 'N'], action: 'New window' },
         { keys: isMac ? ['⌘', 'B'] : ['Ctrl', 'B'], action: 'Toggle sidebar' },
         {
           keys: isMac ? ['⌘', '⇧', 'I'] : ['Ctrl', 'Shift', 'I'],
           action: 'Toggle Claude Inspector',
+        },
+        {
+          keys: isMac ? ['⌘', 'L'] : ['Ctrl', 'L'],
+          action: 'Focus address bar (browser tab)',
         },
       ],
     },

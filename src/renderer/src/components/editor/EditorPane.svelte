@@ -534,10 +534,13 @@
         >
           {#if file.dirty}<span class="sub-tab-dirty" aria-label="Unsaved changes">●</span>{/if}
           <span class="sub-tab-name">{name}</span>
+          <!-- tabindex="0" so the close control is reachable by keyboard; at -1 the
+               keydown handler below was dead code and the only way to close a file
+               tab was the mouse (or middle-click on the parent). -->
           <span
             class="sub-tab-close"
             role="button"
-            tabindex="-1"
+            tabindex="0"
             aria-label="Close file"
             title="Close"
             onclick={(e) => handleSubTabClose(e, file.filePath)}

@@ -31,7 +31,11 @@
       help="A toolbar in the title bar for quick-launching run configurations"
       search="run configuration toolbar titlebar launch"
     >
-      <CustomCheckbox checked={runToolbarEnabled} onchange={toggleRunToolbar} />
+      <CustomCheckbox
+        checked={runToolbarEnabled}
+        onchange={toggleRunToolbar}
+        ariaLabel="Show Run Configurations toolbar"
+      />
     </PrefsRow>
   </PrefsSection>
 
@@ -44,7 +48,7 @@
       help="Tracks printable keystrokes in a 10-second sliding window. Control keys, arrows, and escape sequences are excluded. Shows current WPM, peak speed, and total characters."
       search="wpm typing speed words per minute keystrokes"
     >
-      <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} />
+      <CustomCheckbox checked={wpmEnabled} onchange={toggleWpm} ariaLabel="Typing speed (WPM)" />
     </PrefsRow>
 
     <PrefsRow
@@ -52,7 +56,11 @@
       help="Pressed keys and shortcuts shown as a floating overlay in the bottom-left corner. Keys fade out after 2 seconds."
       search="keystroke visualizer overlay screencast presentation"
     >
-      <CustomCheckbox checked={keystrokeVisualizerEnabled} onchange={toggleKeystrokeVisualizer} />
+      <CustomCheckbox
+        checked={keystrokeVisualizerEnabled}
+        onchange={toggleKeystrokeVisualizer}
+        ariaLabel="Keystroke overlay"
+      />
     </PrefsRow>
   </PrefsSection>
 </div>

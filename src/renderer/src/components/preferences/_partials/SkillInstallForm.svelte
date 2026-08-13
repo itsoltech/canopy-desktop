@@ -95,7 +95,11 @@
     <div class="flex gap-3 flex-wrap">
       {#each Object.entries(agentLabels) as [key, label] (key)}
         <label class="flex items-center gap-1.5 text-md text-text cursor-pointer">
-          <CustomCheckbox checked={agents.includes(key)} onchange={() => toggleAgent(key)} />
+          <CustomCheckbox
+            checked={agents.includes(key)}
+            onchange={() => toggleAgent(key)}
+            ariaLabel="Install for {label}"
+          />
           <span>{label}</span>
         </label>
       {/each}

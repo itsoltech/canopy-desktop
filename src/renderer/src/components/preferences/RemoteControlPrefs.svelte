@@ -3,6 +3,8 @@
   import { Pencil, ShieldAlert, Trash2 } from '@lucide/svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomRadio from '../shared/CustomRadio.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -35,6 +37,10 @@
 
   let trustedDevices = $state<TrustedDevice[]>([])
   let loading = $state(false)
+  /** Set when the trusted-device fetch fails, so the list renders an error
+   *  instead of falling through to "No trusted devices yet." — on a security
+   *  screen, a failed load must never look like an empty allowlist. */
+  let loadError = $state('')
   let interfaces = $state<NetworkInterface[]>([])
 
   const listenerGroups = $derived(buildRemoteListenerGroups(interfaces, listenerInterface))
@@ -50,13 +56,19 @@
   function setListeningOn(value: string): void {
     void applyRemoteListenerPref(value, setPref).catch((e) => {
       console.warn('[remote] setListeningOn failed:', e)
+      addToast(`Could not change the listening interface: ${ipcErrorMessage(e)}`)
     })
   }
 
   async function loadTrustedDevices(): Promise<void> {
     loading = true
+    loadError = ''
     try {
       trustedDevices = await window.api.remote.listTrustedDevices()
+    } catch (e) {
+      console.warn('[remote] listTrustedDevices failed:', e)
+      trustedDevices = []
+      loadError = ipcErrorMessage(e, 'Could not load trusted devices')
     } finally {
       loading = false
     }
@@ -79,6 +91,7 @@
       await loadTrustedDevices()
     } catch (e) {
       console.warn('[remote] removeTrustedDevice failed:', e)
+      addToast(`Could not remove "${name}": ${ipcErrorMessage(e)}`)
     }
   }
 
@@ -98,6 +111,7 @@
       await loadTrustedDevices()
     } catch (e) {
       console.warn('[remote] renameTrustedDevice failed:', e)
+      addToast(`Could not rename "${name}": ${ipcErrorMessage(e)}`)
     }
   }
 
@@ -148,7 +162,11 @@
       search="remote control enable signaling pair phone tablet"
       badge={{ text: 'Beta', tone: 'warning' }}
     >
-      <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
+      <CustomCheckbox
+        checked={enabled}
+        onchange={toggleEnabled}
+        ariaLabel="Enable remote control"
+      />
     </PrefsRow>
     <PrefsRow
       label="Listen on"
@@ -216,6 +234,17 @@
       >
         Loading…
       </p>
+    {:else if loadError}
+      <div
+        role="alert"
+        class="flex items-center justify-between gap-3 text-sm text-danger-text px-3 py-3 bg-danger-bg rounded-md border border-border-subtle"
+      >
+        <span class="min-w-0">Could not load trusted devices: {loadError}</span>
+        <button
+          class="shrink-0 px-2 py-1 border border-border rounded-sm bg-transparent text-text-secondary text-xs font-inherit cursor-pointer hover:text-text hover:bg-hover"
+          onclick={() => void loadTrustedDevices()}>Retry</button
+        >
+      </div>
     {:else if trustedDevices.length === 0}
       <p
         class="text-sm text-text-muted px-3 py-3 bg-bg-input rounded-md border border-border-subtle"

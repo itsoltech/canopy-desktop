@@ -11,6 +11,8 @@
     executeRunConfig,
   } from '../../lib/stores/runConfig.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { openRunConfigTab } from '../../lib/stores/tabs.svelte'
 
@@ -90,7 +92,16 @@
       destructive: true,
     })
     if (confirmed) {
-      await deleteRunConfig(configDir, name)
+      // A silent throw here left the entry visible in the list with no
+      // indication the delete had failed. Toast rather than `formError`:
+      // deletes are triggered from the list, where no form (and therefore no
+      // error slot) is necessarily rendered.
+      try {
+        await deleteRunConfig(configDir, name)
+      } catch (e) {
+        addToast(`Could not delete "${name}": ${ipcErrorMessage(e)}`)
+        return
+      }
       if (selectedKey?.configDir === configDir && selectedKey?.name === name) {
         selectedKey = null
         isNew = false

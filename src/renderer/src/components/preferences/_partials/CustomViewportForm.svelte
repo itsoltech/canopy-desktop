@@ -99,7 +99,7 @@
     />
   </div>
   <label class="flex items-center gap-2 text-md text-text cursor-pointer">
-    <CustomCheckbox checked={mobile} onchange={(v) => (mobile = v)} />
+    <CustomCheckbox checked={mobile} onchange={(v) => (mobile = v)} ariaLabel="Mobile device" />
     <span>Mobile device</span>
   </label>
   {#if error}
