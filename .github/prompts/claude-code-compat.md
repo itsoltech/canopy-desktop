@@ -54,6 +54,9 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > notably any "… +N more CLI changelog entries" truncation, which cannot be recovered without
 > these diffs. Do not represent release-notes-only analysis as a full diff review.
 >
+> **There is no fallback route.** `WebFetch` is not in the allowed tools either, so reading the
+> same files over `raw.githubusercontent.com` is denied too (verified). Do not spend a turn on it.
+>
 > The fix is one token in `.github/workflows/claude-code-compat.yml`
 > (`Bash(gh api repos/marckrenn/claude-code-changelog/:*)` → `Bash(gh api:*)`), but this job cannot
 > apply it: `RELEASE_TOKEN` has no `workflow` scope, so pushing a `.github/workflows/` change is
