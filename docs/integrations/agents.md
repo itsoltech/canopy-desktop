@@ -177,6 +177,11 @@ The fields below describe the keys stored inside each profile's `prefs_json` (no
 
 Custom env vars are filtered against a blocklist (`BLOCKED_ENV_VARS` from `security/envBlocklist`) and internal vars (`CANOPY_HOOK_PORT`, `CANOPY_HOOK_TOKEN`, `ELECTRON_RUN_AS_NODE`).
 
+Two opt-in Claude Code variables are worth setting through `customEnv` when running many agent sessions at once (both pass the blocklist unchanged; neither has a Canopy default):
+
+- `CLAUDE_CODE_TOOL_MEMORY_LIMIT` — caps Bash tool commands with a memory cgroup on Linux (Claude Code 2.1.233+). Canopy hosts several agent PTYs per workspace, so a runaway build in one session competes with every other pane; this bounds it instead of letting it stall the session.
+- `CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS` — WebFetch session URL cache TTL, default 15 minutes (Claude Code 2.1.233+).
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
