@@ -118,9 +118,15 @@ export async function updateRunConfig(
   await discoverConfigs()
 }
 
-export async function deleteRunConfig(configDir: string, name: string): Promise<void> {
-  await window.api.runConfigDeleteConfig(configDir, name)
-  await discoverConfigs()
+export async function deleteRunConfig(configDir: string, name: string): Promise<boolean> {
+  try {
+    await window.api.runConfigDeleteConfig(configDir, name)
+    await discoverConfigs()
+    return true
+  } catch (e) {
+    addToast(`Failed to delete "${name}": ${e instanceof Error ? e.message : String(e)}`)
+    return false
+  }
 }
 
 function hydrateRunningProcesses(snapshots: RunningProcess[]): void {

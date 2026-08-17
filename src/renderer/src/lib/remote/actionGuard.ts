@@ -137,7 +137,7 @@ async function confirmSessionGrant(method: RpcMethodName): Promise<boolean> {
 }
 
 function describeSessionGrant(method: RpcMethodName): string {
-  return match(method as string)
+  return match(method)
     .with('pty.write', () => 'type into any terminal')
     .with('agent.sendInput', () => 'send prompts to any agent')
     .otherwise(() => `execute ${method}`)
@@ -168,7 +168,7 @@ async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promi
 
 function describeAction(method: RpcMethodName, params: unknown): string {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>
-  return match(method as string)
+  return match(method)
     .with('tools.spawn', () => `spawn tool "${p.toolId}" in ${p.worktreePath}`)
     .with('tabs.close', () => `close tab ${p.tabId}`)
     .with('tabs.activate', () => `activate tab ${p.tabId}`)

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -40,6 +41,17 @@
   let linkTab = $state<'existing' | 'newTask'>('existing')
 
   let dialogEl: HTMLDivElement | undefined = $state()
+
+  // Move focus into the dialog on open and hand it back on close, matching the
+  // other modals — the Tab trap below only helps once focus is already inside.
+  let previouslyFocused: HTMLElement | null = null
+
+  onMount(() => {
+    previouslyFocused = document.activeElement as HTMLElement | null
+    dialogEl?.focus()
+  })
+  onDestroy(() => previouslyFocused?.focus?.())
+
   let sendingTaskKey = $state('')
   let sendStatus = $state('')
   let sendError = $state('')
@@ -265,12 +277,13 @@
 >
   <div
     bind:this={dialogEl}
-    class="resize w-[600px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
+    class="resize outline-none w-[600px] min-w-[480px] max-w-[94vw] min-h-[200px] max-h-[500px] flex flex-col bg-bg-overlay border border-border rounded-[10px] shadow-[0_16px_48px_var(--color-scrim)] overflow-hidden"
     use:unlockSizeOnResize
     onmousedown={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
     aria-label="Task Picker"
+    tabindex="-1"
   >
     {#if selectedTask}
       <BranchCreateForm

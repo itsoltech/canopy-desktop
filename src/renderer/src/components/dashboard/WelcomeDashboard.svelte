@@ -140,7 +140,12 @@
       destructive: true,
     })
     if (!ok) return
-    await window.api.removeWorkspace(ws.id)
+    try {
+      await window.api.removeWorkspace(ws.id)
+    } catch (err) {
+      addToast(`Failed to remove workspace: ${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
     workspaces = workspaces.filter((w) => w.id !== ws.id)
   }
 
