@@ -182,6 +182,8 @@ Two opt-in Claude Code variables are worth setting through `customEnv` when runn
 - `CLAUDE_CODE_TOOL_MEMORY_LIMIT` — caps Bash tool commands with a memory cgroup on Linux (Claude Code 2.1.233+). Canopy hosts several agent PTYs per workspace, so a runaway build in one session competes with every other pane; this bounds it instead of letting it stall the session.
 - `CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS` — WebFetch session URL cache TTL, default 15 minutes (Claude Code 2.1.233+).
 
+One further variable passes the blocklist but should be left unset: `CLAUDE_CODE_PROJECT_DIR_NAME` (Claude Code 2.1.234+) names the per-project transcript directory inside the Claude config directory. It exists for hosts that give each session its own config directory — Canopy does not. Claude Code sessions share the user's `~/.claude`; only `--settings` is per-session (unlike Gemini and OpenCode, which do get isolated directories). A profile holds one fixed value, so setting it would point every worktree that runs the profile at the same transcript directory instead of one per worktree.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
