@@ -5,6 +5,7 @@ import { join } from 'path'
 import type { GitError } from './errors'
 import type { ParsedDiff, DiffFile } from './types'
 import { parseDiff } from './diffParser'
+import { splitUntrackedForDiff } from './untrackedDiff'
 import { fromExternalCall, errorMessage } from '../errors'
 
 function validateRef(name: string): Result<string, GitError> {
@@ -25,6 +26,18 @@ function gitCall<T>(command: string, promise: Promise<T>): ResultAsync<T, GitErr
 // it. Above this, return an empty hunk list rather than block on a huge read.
 const UNTRACKED_MAX_BYTES = 5 * 1024 * 1024
 
+// An untracked file we deliberately didn't read: still listed so it shows up in
+// the changes panel, but with no inline diff body.
+function untrackedDiffFilePlaceholder(filePath: string): DiffFile {
+  return {
+    path: filePath,
+    status: 'added' as const,
+    hunks: [],
+    additions: 0,
+    deletions: 0,
+  }
+}
+
 // Sync read instead of fs.promises.readFile: this function is called in a
 // hot loop (ChangesPanel/DiffPane refresh on every files:changed event,
 // debounced 200 ms), once per untracked file in parallel. The async
@@ -37,13 +50,7 @@ function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<Diff
   try {
     const sz = statSync(absPath).size
     if (sz > UNTRACKED_MAX_BYTES) {
-      return ok({
-        path: filePath,
-        status: 'added' as const,
-        hunks: [],
-        additions: 0,
-        deletions: 0,
-      })
+      return ok(untrackedDiffFilePlaceholder(filePath))
     }
     content = readFileSync(absPath, 'utf-8')
   } catch (e) {
@@ -525,9 +532,18 @@ export class GitRepository {
       untrackedFiles.andThen((files) => {
         if (files.length === 0) return okAsync<ParsedDiff, GitError>(parsed)
 
-        const untrackedDiffFiles = files
-          .map((file) => buildUntrackedDiffFile(repoRoot, file).unwrapOr(null))
-          .filter((f): f is DiffFile => f !== null)
+        // Bound the synchronous reads: the file count is unbounded (a fresh
+        // scaffold or a pre-.gitignore install can leave thousands untracked)
+        // and this runs on every debounced changes refresh, so reading them all
+        // inline would stall the main process. Everything past the cap is still
+        // listed, just without a diff body.
+        const { read, listOnly } = splitUntrackedForDiff(files)
+        const untrackedDiffFiles = [
+          ...read
+            .map((file) => buildUntrackedDiffFile(repoRoot, file).unwrapOr(null))
+            .filter((f): f is DiffFile => f !== null),
+          ...listOnly.map(untrackedDiffFilePlaceholder),
+        ]
 
         return okAsync<ParsedDiff, GitError>({
           files: [...parsed.files, ...untrackedDiffFiles],

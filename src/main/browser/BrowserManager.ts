@@ -123,6 +123,12 @@ export class BrowserManager {
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
 
+    // A genuinely new guest replacing an old one: tear the old entry down first.
+    // Overwriting the map slot on its own would strand the previous entry's
+    // devToolsView — still attached to win.contentView, its webContents never
+    // closed — because teardown() can only reach an entry that's still mapped.
+    if (existing) this.teardown(browserId)
+
     const entry: WebviewEntry = {
       webContentsId: wcId,
       win,
