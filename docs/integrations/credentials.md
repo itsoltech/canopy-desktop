@@ -99,9 +99,12 @@ token in that connection to create its explicit binding.
 - Secrets are stored under `credential.secret.v2.<id>` and encrypted with Electron `safeStorage`
   when the OS provides it (DPAPI / Keychain / keyring). Canopy warns when it must fall back to
   plaintext in the local database.
-- Descriptors and bindings use `credential.registry.v2` and `credential.bindings.v2`. They contain
-  no secret text, but remain main-process-only because they define which secret may satisfy which
-  operation.
+- Descriptors use `credential.registry.v2` and are encrypted with the same `safeStorage` policy as
+  secrets because capability-verification reasons can contain sanitized upstream response text.
+  Exact copies of the active and just-used secrets are redacted before persistence, but arbitrary
+  third-party response text is not treated as inherently secret-free.
+- Bindings use `credential.bindings.v2`. They contain no secret text, but remain main-process-only
+  because they define which secret may satisfy which operation.
 - Secrets, descriptors and bindings are excluded from settings export and from renderer preference
   IPC. Integration-specific IPC exposes only the safe descriptor fields required by Settings.
 - Legacy `taskTracker.token.<provider>:<baseUrl>` entries are migrated into stable credential IDs

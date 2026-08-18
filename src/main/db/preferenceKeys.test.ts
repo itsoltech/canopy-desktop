@@ -15,8 +15,8 @@ describe('preference key policy', () => {
     expect(isMainProcessOnlyPreferenceKey(key)).toBe(true)
   })
 
-  it('keeps registry metadata non-exportable without treating it as encrypted secret text', () => {
-    expect(isEncryptedPreferenceKey('credential.registry.v2')).toBe(false)
+  it('encrypts registry metadata and keeps it non-exportable', () => {
+    expect(isEncryptedPreferenceKey('credential.registry.v2')).toBe(true)
     expect(isExportablePreferenceKey('credential.registry.v2')).toBe(false)
     expect(isMainProcessOnlyPreferenceKey('credential.registry.v2')).toBe(true)
   })

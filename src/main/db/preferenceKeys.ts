@@ -9,7 +9,13 @@ const ENCRYPTED_KEYS = new Set([
   'remote.trustedDevices',
 ])
 
-const ENCRYPTED_KEY_PREFIXES = ['taskTracker.token.', 'credential.secret.v2.']
+const ENCRYPTED_KEY_PREFIXES = [
+  'taskTracker.token.',
+  'credential.secret.v2.',
+  // Verification reasons originate in upstream API responses. Known tokens are redacted before
+  // persistence, but the remaining third-party text is still credential-class metadata.
+  'credential.registry.',
+]
 
 /** Machine-bound state must not be restored elsewhere, where it would corrupt local state. */
 const NON_EXPORTABLE_KEYS = new Set([

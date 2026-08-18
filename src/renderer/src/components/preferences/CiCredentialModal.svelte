@@ -90,12 +90,12 @@
 
   async function openTokenPage(): Promise<void> {
     if (openingTokenPage) return
-    if (config.provider === 'github-actions') {
-      await window.api.openExternal(githubTokenCreationUrl(config.repository))
-      return
-    }
     openingTokenPage = true
     try {
+      if (config.provider === 'github-actions') {
+        await window.api.openExternal(githubTokenCreationUrl(config.repository))
+        return
+      }
       const parentRect = containerEl?.getBoundingClientRect()
       const accepted = await confirm({
         title: 'Confirm TeamCity address',
@@ -216,7 +216,7 @@
           </label>
           <button
             type="button"
-            class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent"
+            class="text-2xs text-accent-text bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2 hover:text-accent aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:text-accent-text"
             onclick={openTokenPage}
             aria-disabled={openingTokenPage}
           >

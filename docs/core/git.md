@@ -26,6 +26,21 @@ The workspace store on the renderer side holds the current `GitInfo` state (bran
 6. Each sub-query uses `orElse` so that failures in one (e.g., no upstream configured) do not prevent the others from succeeding.
 7. The renderer receives a `GitInfo` object and updates `workspaceState`.
 
+### Sidebar display modes
+
+Settings > Sidebar offers two mutually exclusive Git sections:
+
+- **Git - full** is visible by default and exposes the complete repository controls.
+- **Git - only pull requests** is opt-in and shows the current branch plus only its pull-request
+  actions. Enabling either mode disables the other; if a manually edited preference enables both,
+  the full Git section wins.
+
+Existing sidebar preferences are back-filled with the hidden pull-request-only entry immediately
+after the full Git entry, preserving the rest of the user's saved order. The compact section checks
+the current branch for a pull request and then shows **View PR** with its state, or **Create PR** when
+no open pull request exists. While lookup is in progress the action reports that state; a failed
+lookup renders the error with a **Retry** action.
+
 ### File system watching
 
 1. After detection, the renderer calls `window.api.gitWatch(repoRoot, snapshot)`.

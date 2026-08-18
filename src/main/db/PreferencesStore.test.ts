@@ -1,16 +1,24 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Database } from './Database'
 import { PreferencesStore } from './PreferencesStore'
 
+const safeStorageMock = vi.hoisted(() => ({
+  isEncryptionAvailable: vi.fn(() => false),
+  encryptString: vi.fn(),
+  decryptString: vi.fn(),
+}))
+
 vi.mock('electron', () => ({
-  safeStorage: {
-    isEncryptionAvailable: () => false,
-    encryptString: vi.fn(),
-    decryptString: vi.fn(),
-  },
+  safeStorage: safeStorageMock,
 }))
 
 describe('PreferencesStore renderer-facing reads', () => {
+  beforeEach(() => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
+    safeStorageMock.encryptString.mockReset()
+    safeStorageMock.decryptString.mockReset()
+  })
+
   it('filters both credential secrets and authorization metadata from getAll', () => {
     const rows = [
       { key: 'sidebar.sections', value: '["git"]' },
@@ -27,5 +35,24 @@ describe('PreferencesStore renderer-facing reads', () => {
     expect(new PreferencesStore(database).getAll()).toEqual({
       'sidebar.sections': '["git"]',
     })
+  })
+
+  it('encrypts credential registry metadata before storing it', () => {
+    const run = vi.fn()
+    const database = {
+      db: {
+        prepare: vi.fn(() => ({ run })),
+      },
+    } as unknown as Database
+    const registry =
+      '[{"id":"credential-id","verification":{"actions.read":{"reason":"upstream"}}}]'
+    const encrypted = Buffer.from('encrypted-registry')
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(true)
+    safeStorageMock.encryptString.mockReturnValue(encrypted)
+
+    new PreferencesStore(database).set('credential.registry.v2', registry)
+
+    expect(safeStorageMock.encryptString).toHaveBeenCalledWith(registry)
+    expect(run).toHaveBeenCalledWith('credential.registry.v2', encrypted.toString('base64'))
   })
 })
