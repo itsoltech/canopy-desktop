@@ -611,7 +611,12 @@
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
+  onmousedown={() => {
+    // During setup, a stray backdrop click must not abort a run in progress
+    // (skipSetup aborts the setup process). Escape and the Skip button remain
+    // the two deliberate ways out.
+    if (step !== 'setup') onClose()
+  }}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
