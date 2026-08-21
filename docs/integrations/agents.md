@@ -186,6 +186,15 @@ One further variable passes the blocklist but should be left unset: `CLAUDE_CODE
 
 **Making `/model` picks survive a resume.** Canopy appends `--model` from the profile's Model field on every spawn _and_ every resume — `getResumeArgs` runs first, `getCliArgs` immediately after (`commands/tabCommands.ts`) — so an explicit flag re-asserts the profile's model each time the session restarts, overriding whatever `/model` the user picked inside the pane. To let a `/model` pick stick instead, leave the Model field blank and set `ANTHROPIC_DEFAULT_MODEL` in `customEnv` (Claude Code 2.1.236+): it sets the model new sessions start on, and a `/model` override persists across restarts. `ANTHROPIC_MODEL` is not a substitute — it forces the model and `/model` cannot override it.
 
+**`keybindingFlavor: "readline"` only takes effect on macOS.** Claude Code 2.1.238+ accepts a
+`keybindingFlavor` setting; `"readline"` makes Ctrl+W in its prompt delete back to the previous
+whitespace, as in Bash (the default `"classic"` is unchanged). It reaches the CLI through the
+profile's Settings JSON field, which is merged into the per-session `settings.json`. On Windows and
+Linux the modifier for Canopy's own shortcuts is Ctrl, so Ctrl+W matches the global "close pane (or
+tab if last)" binding in `MainLayout.svelte` and the pane closes instead of a word being deleted —
+Canopy's shortcuts are fixed, so there is no remap to work around it. On macOS the modifier is ⌘,
+Canopy ignores Ctrl+W, and the readline binding works as documented.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
