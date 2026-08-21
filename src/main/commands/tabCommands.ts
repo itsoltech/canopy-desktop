@@ -147,34 +147,55 @@ export class ToolSessionService {
     }
 
     let tmuxSessionName: string | undefined
-    const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
-    if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
-      tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
-      const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
-      await this.deps.tmuxManager.newSession({
-        name: tmuxSessionName,
+    let tmuxCreated = false
+    let session: ReturnType<PtyManager['spawn']>
+    try {
+      const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
+      if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
+        tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
+        const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
+        await this.deps.tmuxManager.newSession({
+          name: tmuxSessionName,
+          cwd: payload.worktreePath,
+          shell: command,
+          shellArgs: args,
+          cols: payload.cols,
+          rows: payload.rows,
+          mouse: tmuxMouse,
+          env,
+        })
+        tmuxCreated = true
+        const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
+        command = attach.command
+        args = attach.args
+      }
+
+      session = this.deps.ptyManager.spawn({
+        command,
+        args,
         cwd: payload.worktreePath,
-        shell: command,
-        shellArgs: args,
         cols: payload.cols,
         rows: payload.rows,
-        mouse: tmuxMouse,
         env,
+        tmuxSessionName,
       })
-      const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
-      command = attach.command
-      args = attach.args
+    } catch (error) {
+      // The agent session is registered before the PTY exists, so by this point
+      // it already holds a hook-server slot (which keeps the shared HTTP server
+      // alive) and an on-disk settings file, both keyed by the temp id. A tmux
+      // failure or a spawn failure — a missing agent CLI throws ENOENT right
+      // here — would otherwise strand both: the catch below and the onExit
+      // handler are keyed by the real session id, and neither runs for a PTY
+      // that was never created.
+      if (agentTempId) this.deps.agentSessionManager.destroySession(agentTempId)
+      // Likewise for tmux: `sessionName()` mints a fresh random name per call,
+      // so a session created here is unreachable once we bail — nothing would
+      // ever attach to or kill it.
+      if (tmuxCreated && tmuxSessionName) {
+        await this.deps.tmuxManager.killSession(tmuxSessionName).catch(() => {})
+      }
+      throw error
     }
-
-    const session = this.deps.ptyManager.spawn({
-      command,
-      args,
-      cwd: payload.worktreePath,
-      cols: payload.cols,
-      rows: payload.rows,
-      env,
-      tmuxSessionName,
-    })
 
     if (isAgent && agentTempId) {
       this.deps.agentSessionManager.rekey(agentTempId, session.id)

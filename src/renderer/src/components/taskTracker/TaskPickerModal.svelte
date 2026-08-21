@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -58,6 +59,11 @@
   )
 
   let showsTaskList = $derived(mode === 'browse' || (linkTab === 'existing' && !selectedLinkTask))
+
+  // Captured at init, before the dialog takes focus, so it can be handed back
+  // when the dialog closes (same contract as InputDialog).
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  onDestroy(() => previouslyFocused?.focus?.())
 
   function handleKeydown(e: KeyboardEvent): void {
     // When the branch-create sub-view is open, this window-level handler must not interfere.

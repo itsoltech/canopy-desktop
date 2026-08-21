@@ -509,6 +509,8 @@
             placeholder="What needs to be done?"
             spellcheck="false"
             autocomplete="off"
+            aria-invalid={!!titleError}
+            aria-describedby={titleError ? 'new-task-title-error' : undefined}
             onkeydown={(e) => {
               if (e.key === 'Enter' && !titleError && title.trim()) {
                 e.preventDefault()
@@ -517,7 +519,9 @@
             }}
           />
           {#if titleError}
-            <p class="m-0 text-sm text-danger-text">{titleError}</p>
+            <p id="new-task-title-error" role="alert" class="m-0 text-sm text-danger-text">
+              {titleError}
+            </p>
           {/if}
         </div>
         <div class="flex flex-col gap-1">

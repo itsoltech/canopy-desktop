@@ -12,9 +12,12 @@ import selfsigned from 'selfsigned'
  * browsers show a hostname-mismatch warning on top of the self-signed
  * warning).
  *
- * Phase 13 creates the infrastructure. The `SignalingServer` still listens
- * on plain HTTP by default — HTTPS is only used when the preference toggle
- * is on.
+ * Phase 13 created this infrastructure, but it is NOT wired up: nothing
+ * constructs a `CertificateProvider`, no `remote.useHttps` preference exists,
+ * and `SignalingServer` unconditionally calls `http.createServer`. The
+ * signaling channel — including the one-shot pairing token and the
+ * trusted-device id — is therefore always plaintext on the LAN. That is the
+ * current threat model until this is either wired in or deleted.
  */
 export class CertificateProvider {
   private certDir: string

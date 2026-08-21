@@ -32,8 +32,11 @@
   }
 
   onMount(() => {
+    // Restore focus to the element that opened the picker when it closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     inputEl?.focus()
     void forceReload(worktreePath)
+    return () => previouslyFocused?.focus?.()
   })
 
   const matchedResults: Result[] = $derived.by(() => {

@@ -5106,9 +5106,10 @@ export function registerIpcHandlers(
       payload: { id: string; agent: string; enabled: boolean; workspacePath?: string },
     ) => {
       if (payload.workspacePath) await validatePathAccess(event.sender.id, payload.workspacePath)
+      const existing = skillRegistry.get(payload.id)
       const skill = unwrapOrThrow(
-        skillRegistry.get(payload.id)
-          ? ok(skillRegistry.get(payload.id)!)
+        existing
+          ? ok(existing)
           : err({ _tag: 'SkillNotFound' as const, skillId: payload.id } as SkillError),
         skillErrorMessage,
       )

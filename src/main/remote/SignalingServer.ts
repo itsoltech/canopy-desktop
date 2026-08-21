@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { isIP } from 'node:net'
 import { timingSafeEqual } from 'node:crypto'
 import { WebSocketServer } from 'ws'
 import type { WebSocket as WsWebSocket } from 'ws'
@@ -345,6 +346,11 @@ export class SignalingServer {
   }
 
   private handleWsConnection(ws: WsWebSocket, req: http.IncomingMessage): void {
+    if (!isAllowedWsOrigin(req.headers.origin, this.port)) {
+      ws.close(1008, 'origin not allowed')
+      return
+    }
+
     let paired = false
 
     // Boot sockets that never complete the pair handshake — otherwise a LAN
@@ -450,6 +456,43 @@ function isPairMessage(value: unknown): value is PairMessage {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return v.type === 'pair' && typeof v.token === 'string' && v.token.length > 0
+}
+
+/**
+ * Guard for the WebSocket upgrade at `/signaling`.
+ *
+ * WebSocket connections are exempt from the same-origin policy, so once remote
+ * control is listening on a LAN address, any page the user happens to have open
+ * in a browser can dial this port. The one-shot token still gates the session,
+ * but rejecting foreign origins stops the attempt before the pair handshake.
+ *
+ * Rules:
+ *   - No `Origin` header, or the opaque `null` origin → allow. Non-browser
+ *     peers (the Expo mobile client opens a bare `WebSocket`) send no Origin,
+ *     and a browser can never omit it. `null` is allowed as a deliberate
+ *     trade-off: a sandboxed iframe can forge it, but so can any non-browser
+ *     client we don't control, and breaking remote pairing is worse than the
+ *     narrow bypass — the one-shot token still gates the session either way.
+ *   - Any other Origin → it must look like the URL we actually advertise,
+ *     `http(s)://<ip-literal>:<our-port>`. `RemoteSessionService` only ever
+ *     hands out `http://<lanIp>:<port>/remote/`, so a genuine browser peer
+ *     always matches. Requiring an IP literal also rejects DNS-rebinding
+ *     origins, where an attacker-controlled hostname resolves to this machine.
+ */
+export function isAllowedWsOrigin(origin: string | undefined, port: number): boolean {
+  if (!origin || origin === 'null') return true
+  let parsed: URL
+  try {
+    parsed = new URL(origin)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+  const originPort =
+    parsed.port === '' ? (parsed.protocol === 'https:' ? 443 : 80) : Number(parsed.port)
+  if (originPort !== port) return false
+  // `URL.hostname` keeps the brackets on an IPv6 literal; `isIP` wants them off.
+  return isIP(parsed.hostname.replace(/^\[|\]$/g, '')) !== 0
 }
 
 function normalizeSocketAddress(address: string | undefined): string | null {

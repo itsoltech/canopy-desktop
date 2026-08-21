@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -22,6 +22,12 @@
   let repoCfg = $derived(getRepoConfig())
 
   let containerEl: HTMLElement | undefined = $state()
+
+  // Captured at init, before the dialog takes focus, so it can be handed back
+  // when the dialog closes. This can't be an `onMount` cleanup return because
+  // the mount callback below is async — Svelte ignores a returned promise.
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  onDestroy(() => previouslyFocused?.focus?.())
 
   onMount(async () => {
     await loadGlobalConfig()
