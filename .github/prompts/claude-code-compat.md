@@ -180,6 +180,16 @@ Body:
 3. Push: `git push origin chore/claude-code-compat`
 4. Update the PR title and description to cover the expanded version range using `gh pr edit`
 
+> **Write the description to a `.txt` file and pass it with `gh pr edit --body-file`.** GitHub caps
+> the body at 65,536 characters and each run must re-emit it in full, so the description is held
+> flat by condensing the oldest per-release section on every increment. Do **not** stage it as
+> `.md`: the repository's `PostToolUse` hook runs `npx prettier --write --ignore-unknown` on every
+> file written, and prettier pads markdown table cells out to the column width — with impact cells
+> this long that added ~18 kB of pure whitespace in one increment and pushed the body to 90% of the
+> cap. `--ignore-unknown` skips `.txt`, so the tables stay compact. The scratch file cannot be
+> deleted afterwards — `rm` and `sed -i` are both blocked — so leave it untracked and never `git add`
+> it; stage only the files you actually changed.
+
 ### 7. If no changes needed
 
 If after analysis you determine no code changes are required:
