@@ -7,6 +7,7 @@ const API_VERSION = '2026-03-10'
 const REQUEST_TIMEOUT_MS = 15_000
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 const MAX_PAGES = 5
+const MAX_RATE_LIMIT_BACKOFF_MS = 60 * 60 * 1_000
 const rateLimitedUntil = new Map<string, number>()
 
 function pruneExpiredRateLimits(now: number): void {
@@ -103,14 +104,22 @@ function safeStatusMessage(response: Response): string {
 }
 
 function rateLimitResetAt(response: Response): number | undefined {
+  // This value suppresses every request for the same repository + credential until it expires.
+  // GitHub's primary window is one hour and secondary limits are shorter, so clamp malformed or
+  // proxy-rewritten headers rather than letting one response disable CI for the process lifetime.
+  const ceiling = Date.now() + MAX_RATE_LIMIT_BACKOFF_MS
   const resetSeconds = Number(response.headers.get('x-ratelimit-reset'))
-  if (Number.isFinite(resetSeconds) && resetSeconds > 0) return resetSeconds * 1000
+  if (Number.isFinite(resetSeconds) && resetSeconds > 0) {
+    return Math.min(resetSeconds * 1000, ceiling)
+  }
   const retryAfter = response.headers.get('retry-after')
   if (retryAfter) {
     const seconds = Number(retryAfter)
-    if (Number.isFinite(seconds) && seconds >= 0) return Date.now() + seconds * 1000
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(Date.now() + seconds * 1000, ceiling)
+    }
     const date = Date.parse(retryAfter)
-    if (!Number.isNaN(date)) return date
+    if (!Number.isNaN(date)) return Math.min(date, ceiling)
   }
   return undefined
 }

@@ -262,6 +262,19 @@ Each provider exposes sprint/milestone information differently:
 | Personal store    | Preferences key `taskTracker.globalConfig` | `PreferencesStore` (SQLite) |
 | Repo config       | `{repoRoot}/.canopy/config.json`           | Filesystem                  |
 
+Repo-config saves first write a unique sibling `.config.json.<uuid>.tmp` file with exclusive
+creation, then publish it with a same-directory rename. Readers therefore see the previous complete
+JSON or the next complete JSON, never a partially written document. On transient Windows
+`EPERM`/`EACCES`/`EBUSY` destination locks, Canopy retries four times over approximately 375 ms
+before reporting `ConfigWriteError`. This is an atomic-publication guarantee, not an `fsync`
+durability guarantee across power loss.
+
+A hard process kill can leave the hidden temporary sibling behind. A later save in that repository
+removes matching files older than 24 hours; they contain only the same non-secret repository config
+that was being saved and can also be deleted manually once no Canopy instance is writing the repo.
+Repositories that want these rare crash artifacts hidden from Git status may ignore
+`.canopy/.config.json.*.tmp` locally or in their shared `.gitignore`.
+
 ### Config schema (`RepoConfig`)
 
 ```json
@@ -365,7 +378,7 @@ and `Attachment not found on this task`.
 | `AttachmentDownloadFailed` | "Failed to download {filename}: {reason}"        | Download timeout, file too large (>50 MB), URL mismatch, or network error |
 | `ConfigNotFound`           | "Config not found at {root}/.canopy/config.json" | Repo config file does not exist                                           |
 | `ConfigParseError`         | "Invalid config in {root}: {reason}"             | JSON parse error or unsupported config version                            |
-| `ConfigWriteError`         | "Failed to write config in {root}: {reason}"     | Filesystem permission error or disk full                                  |
+| `ConfigWriteError`         | "Failed to write config in {root}: {reason}"     | Temp write/rename failure, permissions, disk full, or persistent lock     |
 | `PRCreationFailed`         | "PR creation failed: {reason}"                   | `gh` CLI not installed, Git push failure, or `gh pr create` error         |
 | `PRLookupFailed`           | "PR lookup failed: {reason}"                     | `gh` auth, network, timeout, or malformed summary/details response        |
 | `NoActiveAgent`            | "No running agent is available..."               | Quick send was triggered after the active agent target disappeared        |

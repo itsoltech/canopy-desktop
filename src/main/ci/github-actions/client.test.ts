@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ciErrorMessage } from '../errors'
 import { GitHubActionsClient } from './client'
 
 const jsonResponse = (body: unknown, init: ResponseInit = {}): Response =>
@@ -8,7 +9,10 @@ const jsonResponse = (body: unknown, init: ResponseInit = {}): Response =>
   })
 
 describe('GitHubActionsClient', () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
 
   it('pins the API version, confines the repository and refuses redirects', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ workflows: [] }))
@@ -323,6 +327,7 @@ describe('GitHubActionsClient', () => {
   })
 
   it('maps rate limits without exposing response bodies or tokens', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_799_999_000_000)
     const fetchMock = vi.fn(
       async () =>
         new Response('secret-token should never be reflected', {
@@ -349,5 +354,28 @@ describe('GitHubActionsClient', () => {
       resetAt: 1_800_000_000_000,
     })
     expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ['x-ratelimit-reset', { 'x-ratelimit-reset': '99999999999' }],
+    ['numeric retry-after', { 'retry-after': '99999999999' }],
+    ['HTTP-date retry-after', { 'retry-after': 'Fri, 31 Dec 9999 23:59:59 GMT' }],
+  ])('clamps an absurd %s header to one hour', async (label, headers) => {
+    const now = 1_800_000_000_000
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 429, headers })),
+    )
+    const client = new GitHubActionsClient('itsoltech', `clamped-${label}`, 'token')
+
+    const result = await client.listWorkflows()
+
+    expect(result.isErr() && result.error).toEqual({
+      _tag: 'CiRateLimited',
+      resetAt: now + 60 * 60 * 1_000,
+    })
+    if (result.isOk()) throw new Error('Expected a rate-limit error')
+    expect(ciErrorMessage(result.error)).toContain(new Date(now + 60 * 60 * 1_000).toLocaleString())
   })
 })

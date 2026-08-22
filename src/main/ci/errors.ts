@@ -100,7 +100,7 @@ export function ciErrorMessage(error: CiError): string {
       )
       .with({ _tag: 'CiRateLimited' }, (e) =>
         e.resetAt
-          ? `GitHub API rate limit reached until ${new Date(e.resetAt).toLocaleTimeString()}`
+          ? `GitHub API rate limit reached until ${new Date(e.resetAt).toLocaleString()}`
           : 'GitHub API rate limit reached',
       )
       .with({ _tag: 'CiApiError' }, (e) => {

@@ -73,6 +73,38 @@ describe('repository-scoped CI status', () => {
       configured: false,
     })
   })
+
+  it('keeps an empty GitHub jobs result settled during later polls', async () => {
+    const first = deferred<Awaited<ReturnType<typeof api.ciJobsStatus>>>()
+    const second = deferred<Awaited<ReturnType<typeof api.ciJobsStatus>>>()
+    api.ciJobsStatus.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const key = ciKey('settled-empty-repo', 'next')
+
+    const firstRequest = refreshCiJobs('settled-empty-repo', 'next')
+    expect(getCiJobsState(key)).toMatchObject({ loading: true, settled: false, rows: [] })
+    first.resolve([])
+    await firstRequest
+    expect(getCiJobsState(key)).toMatchObject({ loading: false, settled: true, rows: [] })
+
+    const secondRequest = refreshCiJobs('settled-empty-repo', 'next')
+    expect(getCiJobsState(key)).toMatchObject({ loading: true, settled: true, rows: [] })
+    second.resolve([])
+    await secondRequest
+  })
+
+  it('marks a failed GitHub jobs request as settled', async () => {
+    api.ciJobsStatus.mockRejectedValueOnce(new Error('offline'))
+    const key = ciKey('settled-error-repo', 'next')
+
+    await refreshCiJobs('settled-error-repo', 'next')
+
+    expect(getCiJobsState(key)).toMatchObject({
+      loading: false,
+      settled: true,
+      rows: [],
+      error: 'offline',
+    })
+  })
 })
 
 function queuedTrigger(buildId: number): void {

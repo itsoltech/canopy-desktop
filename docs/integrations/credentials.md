@@ -105,6 +105,10 @@ token in that connection to create its explicit binding.
   third-party response text is not treated as inherently secret-free.
 - Bindings use `credential.bindings.v2`. They contain no secret text, but remain main-process-only
   because they define which secret may satisfy which operation.
+- Credential saves and deletions through `KeychainTokenStore` commit the secret, descriptor and
+  primary integration binding in one SQLite transaction. If a later preference write fails, the
+  complete operation rolls back, so a reported failure cannot leave an orphaned secret, a
+  descriptor without its binding, or a removed binding with a retained secret.
 - Secrets, descriptors and bindings are excluded from settings export and from renderer preference
   IPC. Integration-specific IPC exposes only the safe descriptor fields required by Settings.
 - Legacy `taskTracker.token.<provider>:<baseUrl>` entries are migrated into stable credential IDs

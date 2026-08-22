@@ -232,7 +232,9 @@
 
   let branchLoading = $derived(
     provider === 'github-actions'
-      ? jobsState.loading && jobRows.length === 0
+      ? // Row count cannot distinguish an initial load from a settled empty result or failure.
+        // Keep subsequent polls silent while retaining the previous rows/error on screen.
+        jobsState.loading && !jobsState.settled
       : branchState.loading && !branchState.response,
   )
   // The card stands in for the history entry only when it has something to render.

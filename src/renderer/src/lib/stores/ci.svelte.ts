@@ -74,6 +74,7 @@ export async function refreshCi(repoRoot: string, branch: string): Promise<void>
 interface CiJobsState {
   key: string
   loading: boolean
+  settled: boolean
   rows: CiJobStatus[]
   error: string
 }
@@ -82,7 +83,7 @@ const jobsStates = new SvelteMap<string, CiJobsState>()
 const jobsFetchSeqByKey = new SvelteMap<string, number>()
 
 export function getCiJobsState(key: string): CiJobsState {
-  return jobsStates.get(key) ?? { key, loading: false, rows: [], error: '' }
+  return jobsStates.get(key) ?? { key, loading: false, settled: false, rows: [], error: '' }
 }
 
 export async function refreshCiJobs(repoRoot: string, branch: string): Promise<void> {
@@ -90,17 +91,24 @@ export async function refreshCiJobs(repoRoot: string, branch: string): Promise<v
   prepareStateKey(jobsStates, jobsFetchSeqByKey, key)
   const sequence = (jobsFetchSeqByKey.get(key) ?? 0) + 1
   jobsFetchSeqByKey.set(key, sequence)
-  const previous = untrack(() => jobsStates.get(key)?.rows ?? [])
-  jobsStates.set(key, { key, loading: true, rows: previous, error: '' })
+  const previous = untrack(() => jobsStates.get(key))
+  jobsStates.set(key, {
+    key,
+    loading: true,
+    settled: previous?.settled ?? false,
+    rows: previous?.rows ?? [],
+    error: '',
+  })
   try {
     const rows = await window.api.ciJobsStatus(repoRoot, { name: branch, kind: 'branch' })
     if (sequence !== jobsFetchSeqByKey.get(key)) return
-    jobsStates.set(key, { key, loading: false, rows, error: '' })
+    jobsStates.set(key, { key, loading: false, settled: true, rows, error: '' })
   } catch (error) {
     if (sequence !== jobsFetchSeqByKey.get(key)) return
     jobsStates.set(key, {
       key,
       loading: false,
+      settled: true,
       rows: [],
       error: error instanceof Error ? error.message : 'Failed to load CI status',
     })
