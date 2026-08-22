@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { tooltipPosition, type TooltipRect } from './tooltipPosition'
 
   let {
     text,
@@ -11,18 +12,21 @@
     class?: string
   } = $props()
 
-  let x = $state(0)
-  let y = $state(0)
+  let triggerRect: TooltipRect | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
   let portalEl: HTMLDivElement | null = null
 
   const tooltipClasses =
-    'fixed max-w-[calc(100vw-8px)] px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-normal break-words pointer-events-none z-banner shadow-tooltip'
+    'fixed max-w-[min(24rem,calc(100vw-8px))] px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-normal break-words pointer-events-none z-banner shadow-tooltip'
 
   function handleEnter(event: MouseEvent | FocusEvent): void {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    x = rect.left + rect.width / 2
-    y = rect.bottom + 4
+    triggerRect = {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    }
     timer = setTimeout(() => showPortal(), 400)
   }
 
@@ -34,6 +38,7 @@
 
   function showPortal(): void {
     timer = null
+    if (!triggerRect) return
     hidePortal()
     portalEl = document.createElement('div')
     portalEl.className = tooltipClasses
@@ -43,11 +48,13 @@
     document.body.appendChild(portalEl)
 
     const rect = portalEl.getBoundingClientRect()
-    let left = x - rect.width / 2
-    if (left + rect.width > window.innerWidth - 4) left = window.innerWidth - rect.width - 4
-    if (left < 4) left = 4
-    portalEl.style.left = `${left}px`
-    portalEl.style.top = `${y}px`
+    const position = tooltipPosition(
+      triggerRect,
+      { width: rect.width, height: rect.height },
+      { width: window.innerWidth, height: window.innerHeight },
+    )
+    portalEl.style.left = `${position.left}px`
+    portalEl.style.top = `${position.top}px`
     portalEl.style.visibility = 'visible'
   }
 
@@ -66,6 +73,8 @@
     }
     // A pending tooltip is not visible yet, so Escape must keep bubbling to the modal.
     if (!portalEl) return
+    // Keyboard events target the focused descendant, never a merely hovered sibling. A tooltip
+    // opened only by hover therefore cannot intercept Escape intended for another open control.
     event.preventDefault()
     event.stopPropagation()
     dismiss()
