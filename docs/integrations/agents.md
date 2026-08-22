@@ -195,6 +195,17 @@ tab if last)" binding in `MainLayout.svelte` and the pane closes instead of a wo
 Canopy's shortcuts are fixed, so there is no remap to work around it. On macOS the modifier is ⌘,
 Canopy ignores Ctrl+W, and the readline binding works as documented.
 
+**Bedrock, Vertex and Foundry profiles now get the fullscreen renderer.** Claude Code 2.1.239
+extends its one-time fullscreen renderer offer to those providers, which were previously excluded,
+and fresh installs on them start in fullscreen. Canopy sets `CLAUDE_CODE_USE_BEDROCK`,
+`CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_FOUNDRY` from the profile's Provider field, so any
+pane running such a profile is affected. Fullscreen is the alt-screen renderer with its own
+virtualized scrollback, so the transcript stops accumulating in the pane's xterm scrollback
+(`scrollback: 5000` in `TerminalInstance.svelte`) and `scrollPreservingWrite` has nothing to
+preserve — scrolling that session means scrolling inside Claude Code, not the pane. To keep the
+previous main-screen rendering, put `{ "tui": "default" }` in the profile's Settings JSON field; it
+is merged into the per-session `settings.json` like any other override.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
