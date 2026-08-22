@@ -170,7 +170,7 @@ workflows.
 | `CiNotConfigured`         | Offer CI setup instead of making an API call.                                                                                  |
 | `CiConfigInvalid`         | Keep the invalid file/block reason visible so it can be corrected.                                                             |
 | `CiConfigUnwritable`      | Preserve the configuration and report the local update failure.                                                                |
-| `CiAuthMissing`           | Open the repository CI/CD configurator; no authenticated API call is made.                                                     |
+| `CiAuthMissing`           | Open the machine-local credential editor without loading or changing the shared `ci` block; no authenticated API call is made. |
 | `CiCredentialUnavailable` | Explain that a stored credential is ambiguous, incompatible, or missing its secret and must be re-entered for this connection. |
 | `CiRepositoryMismatch`    | Reject before token access or network use.                                                                                     |
 | `CiWorkflowSchemaInvalid` | Block discovery or dispatch and show the schema reason.                                                                        |
@@ -206,9 +206,11 @@ failure.
   that GitHub denied. Rate-limit responses are kept distinct from both cases.
 - The renderer confirmation is a user-safety step, not the authorization boundary. The main
   process independently authorizes the workspace and repository, allowlists the workflow,
-  re-resolves the ref and schema, and validates all inputs before dispatch. Hosts may additionally
-  wire a native confirmation callback. Workflow inputs are ordinary values; secrets belong in
-  GitHub Actions secrets.
+  re-resolves the ref and schema, and validates all inputs before dispatch. Canopy deliberately
+  does not wire the optional native confirmation callback: the shared run dialog provides one
+  confirmation instead of showing the same question twice. Embedders may opt into the trusted
+  native callback when they require that additional boundary. Workflow inputs are ordinary
+  values; secrets belong in GitHub Actions secrets.
 
 ## Source files
 

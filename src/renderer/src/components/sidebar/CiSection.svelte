@@ -252,6 +252,7 @@
     if (ciBusy) return 'Loading CI status'
     // An unreadable ci block has no other announcement path — polling never starts.
     if (!hasConfigAndToken) return cfgState.error ? 'CI configuration invalid' : ''
+    if (branchLoading || !activityLoaded) return 'Loading jobs history'
     // Both halves in one string: they are independent (a dead build-type id says
     // nothing about the server's queue), so a persistent per-row failure must not
     // shadow activity transitions for the rest of the session. Still coarse — no
@@ -438,7 +439,7 @@
           >
             <Play
               size={13}
-              class="text-text-faint group-enabled:group-hover:text-text-secondary flex-shrink-0"
+              class="text-text-faint group-enabled:group-hover:text-text-secondary group-focus-within:text-text-secondary flex-shrink-0"
             />
             <span class="flex-1">{runActionLabel}</span>
           </button>
@@ -455,11 +456,7 @@
              fallback entry is the route when the branch has no configured jobs, no branch
              is checked out, or the settled read failed. -->
           {#if branchLoading || !activityLoaded}
-            <div
-              class="flex items-center gap-2.5 w-full h-7 px-3 text-sm text-text-faint"
-              role="status"
-              aria-live="polite"
-            >
+            <div class="flex items-center gap-2.5 w-full h-7 px-3 text-sm text-text-faint">
               <LoaderCircle
                 size={13}
                 class="animate-spin-slow shrink-0 motion-reduce:animate-none"
@@ -491,7 +488,10 @@
                 activityIssue ? ` (${activityIssue.detail})` : ''
               }`}
             >
-              <History size={13} class="text-text-faint group-hover:text-text-secondary shrink-0" />
+              <History
+                size={13}
+                class="text-text-faint group-hover:text-text-secondary group-focus-within:text-text-secondary shrink-0"
+              />
               <span class="flex-1">Jobs history</span>
               {#if activityIssue}
                 <span

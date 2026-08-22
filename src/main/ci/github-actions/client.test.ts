@@ -280,7 +280,7 @@ describe('GitHubActionsClient', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 
-  it('honors secondary rate-limit Retry-After responses across client instances', async () => {
+  it('honors secondary rate-limit Retry-After responses for the same credential', async () => {
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 429, headers: { 'retry-after': '60' } }),
     )
@@ -291,12 +291,35 @@ describe('GitHubActionsClient', () => {
     const suppressed = await new GitHubActionsClient(
       'itsoltech',
       'secondary-limit',
-      'other-token',
+      'token',
     ).listWorkflows()
 
     expect(result.isErr() && result.error._tag).toBe('CiRateLimited')
     expect(suppressed.isErr() && suppressed.error._tag).toBe('CiRateLimited')
     expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('lets a replacement credential attempt a request during the previous token backoff', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 429, headers: { 'retry-after': '60' } }))
+      .mockResolvedValueOnce(jsonResponse({ workflows: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const limited = await new GitHubActionsClient(
+      'itsoltech',
+      'rotated-credential',
+      'old-token',
+    ).listWorkflows()
+    const replacement = await new GitHubActionsClient(
+      'itsoltech',
+      'rotated-credential',
+      'new-token',
+    ).listWorkflows()
+
+    expect(limited.isErr() && limited.error._tag).toBe('CiRateLimited')
+    expect(replacement.isOk()).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('maps rate limits without exposing response bodies or tokens', async () => {
@@ -314,7 +337,7 @@ describe('GitHubActionsClient', () => {
     const suppressed = await new GitHubActionsClient(
       'itsoltech',
       'canopy-desktop',
-      'another-token',
+      'secret-token',
     ).listWorkflows()
 
     expect(result.isErr() && result.error).toEqual({

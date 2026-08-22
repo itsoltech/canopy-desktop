@@ -13,6 +13,7 @@
   import { prStateChip } from '../../lib/github/prState'
   import { pendingPRLookup, settledPRLookup } from '../../lib/github/prLookupState'
   import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
+  import Tooltip from '../shared/Tooltip.svelte'
 
   let { separator = false }: { separator?: boolean } = $props()
 
@@ -68,6 +69,17 @@
     return fallbackPR
   })
   let showCreatePR = $derived(!lookup.error && (!existingPR || existingPR.state !== 'OPEN'))
+  let createPRBlockedReason = $derived(
+    lookup.loading
+      ? 'Checking pull requests...'
+      : workspaceState.branch
+        ? ''
+        : 'No branch checked out',
+  )
+  let createPRTitle = $derived(
+    createPRBlockedReason ||
+      'Create a pull request from this branch - edit the title and description before it is created',
+  )
 
   $effect.pre(() => {
     // Keep keyboard position when the lookup changes the available action. Create remains
@@ -143,7 +155,10 @@
       ? `View PR #${branchPR.number} - ${branchPR.title}`
       : 'View the latest pull request for this branch'}
   >
-    <GitPullRequest size={13} class="text-text-faint group-hover:text-accent-text flex-shrink-0" />
+    <GitPullRequest
+      size={13}
+      class="text-text-faint group-hover:text-accent-text group-focus-within:text-accent-text flex-shrink-0"
+    />
     <span class="flex-1">View PR #{existingPR.number}</span>
     {#if chip.label}
       <span class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 {chip.cls}">{chip.label}</span>
@@ -152,27 +167,34 @@
 {/if}
 
 {#if showCreatePR}
-  <button
-    bind:this={createPRButtonEl}
-    class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover aria-disabled:text-text-faint aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
-    aria-disabled={!workspaceState.branch || lookup.loading}
-    aria-busy={lookup.loading}
-    onclick={createPR}
-    title={lookup.loading
-      ? 'Checking pull requests...'
-      : workspaceState.branch
-        ? 'Create a pull request from this branch - edit the title and description before it is created'
-        : 'No branch checked out'}
-  >
-    {#if lookup.loading}
-      <LoaderCircle size={13} class="animate-spin-slow flex-shrink-0 motion-reduce:animate-none" />
-      <span class="flex-1">Checking pull requests...</span>
-    {:else}
-      <GitPullRequest
-        size={13}
-        class="text-text-faint group-hover:text-accent-text group-aria-disabled:group-hover:text-text-faint flex-shrink-0"
-      />
-      <span class="flex-1">Create PR</span>
-    {/if}
-  </button>
+  <Tooltip text={createPRTitle} class="w-full">
+    <button
+      bind:this={createPRButtonEl}
+      class="{createPRBlockedReason
+        ? ''
+        : 'group '}flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+      aria-disabled={!!createPRBlockedReason}
+      aria-busy={lookup.loading}
+      aria-describedby={createPRBlockedReason ? 'create-pr-blocked-reason' : undefined}
+      onclick={createPR}
+      title={createPRTitle}
+    >
+      {#if lookup.loading}
+        <LoaderCircle
+          size={13}
+          class="animate-spin-slow flex-shrink-0 motion-reduce:animate-none"
+        />
+        <span class="flex-1">Checking pull requests...</span>
+      {:else}
+        <GitPullRequest
+          size={13}
+          class="text-text-faint group-hover:text-accent-text group-focus-within:text-accent-text flex-shrink-0"
+        />
+        <span class="flex-1">Create PR</span>
+      {/if}
+    </button>
+  </Tooltip>
+  {#if createPRBlockedReason}
+    <span id="create-pr-blocked-reason" class="sr-only">{createPRBlockedReason}</span>
+  {/if}
 {/if}

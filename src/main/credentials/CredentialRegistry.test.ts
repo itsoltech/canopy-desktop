@@ -9,6 +9,16 @@ function fakePreferences(): PreferencesStore {
     set: (key: string, value: string) => values.set(key, value),
     delete: (key: string) => values.delete(key),
     keysWithPrefix: (prefix: string) => [...values.keys()].filter((key) => key.startsWith(prefix)),
+    runInTransaction: <T>(operation: () => T): T => {
+      const snapshot = new Map(values)
+      try {
+        return operation()
+      } catch (error) {
+        values.clear()
+        for (const [key, value] of snapshot) values.set(key, value)
+        throw error
+      }
+    },
   } as unknown as PreferencesStore
 }
 
@@ -262,6 +272,50 @@ describe('CredentialRegistry', () => {
       bindings: ['tracker:gakko:jira-default'],
     })
     expect(registry.list()).toHaveLength(1)
+  })
+
+  it('rolls back a new secret when persisting its descriptor fails', () => {
+    const preferences = fakePreferences()
+    const originalSet = preferences.set.bind(preferences)
+    vi.spyOn(preferences, 'set').mockImplementation((key, value) => {
+      if (key === 'credential.registry.v2') throw new Error('registry write failed')
+      originalSet(key, value)
+    })
+    const registry = new CredentialRegistry(preferences)
+
+    expect(() =>
+      registry.save({
+        service: 'github',
+        authMethod: 'pat',
+        audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
+        intendedUses: ['github-actions'],
+        capabilities: ['actions.read'],
+        secret: 'orphan-candidate',
+      }),
+    ).toThrow('registry write failed')
+    expect(preferences.keysWithPrefix('credential.secret.v2.')).toEqual([])
+  })
+
+  it('rolls back a secret deletion when removing its descriptor fails', () => {
+    const preferences = fakePreferences()
+    const registry = new CredentialRegistry(preferences)
+    const credential = registry.save({
+      service: 'github',
+      authMethod: 'pat',
+      audience: { host: 'github.com', repository: 'itsoltech/canopy-desktop' },
+      intendedUses: ['github-actions'],
+      capabilities: ['actions.read'],
+      secret: 'still-present',
+    })
+    const originalSet = preferences.set.bind(preferences)
+    vi.spyOn(preferences, 'set').mockImplementation((key, value) => {
+      if (key === 'credential.registry.v2') throw new Error('registry write failed')
+      originalSet(key, value)
+    })
+
+    expect(() => registry.remove(credential.id)).toThrow('registry write failed')
+    expect(registry.list()).toHaveLength(1)
+    expect(preferences.keysWithPrefix('credential.secret.v2.')).toHaveLength(1)
   })
 
   it('distinguishes missing and ambiguous compatible credentials', () => {

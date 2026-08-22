@@ -654,6 +654,12 @@
           >
         {/if}
       </div>
+      <div
+        id="github-ci-save-blocked"
+        class="flex-1 min-w-0 min-h-4 text-xs text-text-secondary break-words"
+      >
+        {saveBlockedReason}
+      </div>
       <div class="flex items-center gap-2">
         <button
           type="button"
@@ -672,7 +678,6 @@
           title={saveBlockedReason || 'Save configuration'}
           >{saving ? 'Saving…' : 'Save configuration'}</button
         >
-        <span id="github-ci-save-blocked" class="sr-only">{saveBlockedReason}</span>
       </div>
     </footer>
   </div>

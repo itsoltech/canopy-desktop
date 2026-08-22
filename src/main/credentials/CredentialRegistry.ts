@@ -192,8 +192,10 @@ export class CredentialRegistry {
     const next = existing
       ? records.map((record) => (record.id === descriptor.id ? descriptor : record))
       : [...records, descriptor]
-    this.preferencesStore.set(SECRET_PREFIX + descriptor.id, input.secret)
-    this.preferencesStore.set(REGISTRY_KEY, JSON.stringify(next))
+    this.preferencesStore.runInTransaction(() => {
+      this.preferencesStore.set(SECRET_PREFIX + descriptor.id, input.secret)
+      this.preferencesStore.set(REGISTRY_KEY, JSON.stringify(next))
+    })
     return descriptor
   }
 
@@ -347,11 +349,13 @@ export class CredentialRegistry {
     if (!records.some((record) => record.id === credentialId)) {
       return { removed: false, bindings: [] }
     }
-    this.preferencesStore.delete(SECRET_PREFIX + credentialId)
-    this.preferencesStore.set(
-      REGISTRY_KEY,
-      JSON.stringify(records.filter((record) => record.id !== credentialId)),
-    )
+    this.preferencesStore.runInTransaction(() => {
+      this.preferencesStore.delete(SECRET_PREFIX + credentialId)
+      this.preferencesStore.set(
+        REGISTRY_KEY,
+        JSON.stringify(records.filter((record) => record.id !== credentialId)),
+      )
+    })
     return { removed: true, bindings: [] }
   }
 }

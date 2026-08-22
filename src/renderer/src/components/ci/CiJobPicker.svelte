@@ -2,6 +2,7 @@
   import { SvelteMap } from 'svelte/reactivity'
   import { ciJobPickerCopy, type CiJobPickerProvider } from '../../lib/ci/jobPickerCopy'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
+  import Tooltip from '../shared/Tooltip.svelte'
 
   // The per-repo job selection list of the CI configurator: every job the server
   // exposes, grouped by TeamCity project, with editable sidebar labels for the
@@ -58,24 +59,28 @@
         >
         {#each types as bt (bt.id)}
           <div class="flex items-center gap-2">
-            <label
-              class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none min-w-0"
-            >
-              <CustomCheckbox checked={selected.has(bt.id)} onchange={() => onToggle(bt)} />
-              <!-- The id rides along visibly: the configurator's warnings name IDS
+            <!-- Focus enters through the checkbox, so the full name is available to sighted
+                 keyboard users without adding another tab stop. -->
+            <Tooltip text={bt.name}>
+              <label
+                class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none min-w-0"
+              >
+                <CustomCheckbox checked={selected.has(bt.id)} onchange={() => onToggle(bt)} />
+                <!-- The id rides along visibly: the configurator's warnings name IDS
                    (they are what the git-shared file stores), and there is no
                    search field — a hover-only title can't be scanned for. The id
                    gets its own non-shrinking cell so only the NAME truncates:
                    appended inside one truncate span, the id was the first thing
                    the ellipsis removed. -->
-              <span class="truncate">{bt.name}</span>
-              {#if bt.id !== bt.name}
-                <span
-                  class="font-mono text-2xs text-text-faint shrink-0 max-w-40 truncate"
-                  title={bt.id}>· {bt.id}</span
-                >
-              {/if}
-            </label>
+                <span class="truncate">{bt.name}</span>
+                {#if bt.id !== bt.name}
+                  <span
+                    class="font-mono text-2xs text-text-faint shrink-0 max-w-40 truncate"
+                    title={bt.id}>· {bt.id}</span
+                  >
+                {/if}
+              </label>
+            </Tooltip>
             {#if selected.has(bt.id)}
               <input
                 class="flex-1 min-w-24 max-w-48 px-2 py-0.5 border border-border rounded-md bg-bg-input text-text text-xs font-inherit outline-none focus:border-focus-ring"

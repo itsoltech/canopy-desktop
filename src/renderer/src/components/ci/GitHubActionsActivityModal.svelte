@@ -272,11 +272,15 @@
           <p class="m-0 text-xs text-text-faint break-words" title={error}>{error}</p>
         </div>
       {:else if activity}
-        {#if error}
-          <div class="p-2 rounded-md bg-warning-bg text-xs text-warning-text" role="status">
-            Could not refresh; showing the last loaded history. {error}
-          </div>
-        {/if}
+        <!-- Persistent while activity is displayed: a background refresh failure changes the
+             contents of an existing live region instead of mounting the region with its text. -->
+        <div role="status" class:sr-only={!error}>
+          {#if error}
+            <div class="p-2 rounded-md bg-warning-bg text-xs text-warning-text">
+              Could not refresh; showing the last loaded history. {error}
+            </div>
+          {/if}
+        </div>
         {#if activity.running.length}
           <section>
             <h3 class="m-0 px-3 py-1 text-2xs uppercase tracking-caps-tight text-text-faint">

@@ -764,14 +764,9 @@
             </span>
           </div>
 
-          <!-- Keep the tooltip text available to assistive technology without
-             duplicating it as a visible label below the action. -->
-          <div class="sr-only">
-            {#if serverBlockedReason}
-              <span id="ci-server-blocked" class="text-xs text-text-secondary break-words"
-                >{serverBlockedReason}</span
-              >
-            {/if}
+          <!-- Visible as well as described: title does not open on keyboard focus. -->
+          <div id="ci-server-blocked" class="min-h-4 text-xs text-text-secondary break-words">
+            {serverBlockedReason}
           </div>
 
           <!-- Persistent region: a load or keychain failure lands as a mutation —
@@ -936,11 +931,14 @@
         <div class="text-xs text-danger-text break-words" aria-live="polite">
           {saveError}
         </div>
-        <!-- Keep the tooltip text available to assistive technology without
-             duplicating it as a visible footer label. -->
-        {#if saveBlockedState.reason}
-          <span id="ci-save-blocked" class="sr-only">{saveBlockedState.reason}</span>
-        {/if}
+        <div
+          id="ci-save-blocked"
+          class="min-h-4 text-xs break-words {saveBlockedState.severity === 'warn'
+            ? 'text-warning-text'
+            : 'text-text-secondary'}"
+        >
+          {saveBlockedState.reason}
+        </div>
       </div>
       <div class="flex items-center gap-1.5">
         <button

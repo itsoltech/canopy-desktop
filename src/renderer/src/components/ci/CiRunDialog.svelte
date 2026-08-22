@@ -23,6 +23,7 @@
   } = $props()
 
   let dialogEl = $state<HTMLElement>()
+  let cancelButtonEl = $state<HTMLButtonElement>()
   // A dialog instance is scoped to one repository/config. The router remounts it for another
   // request, so the controller deliberately captures this instance's initial props.
   const runDialog = untrack(() => createCiRunDialogState(repoRoot, initialBranch, config))
@@ -39,6 +40,13 @@
     } else if (event.key === 'Tab' && dialogEl) {
       cycleFocus(dialogEl, event)
     }
+  }
+
+  function retryParameters(): void {
+    // A successful retry unmounts its button. Move focus first to a control that survives so
+    // focus cannot fall to <body> and escape the dialog's keyboard trap.
+    cancelButtonEl?.focus()
+    void runDialog.loadParameters()
   }
 </script>
 
@@ -206,10 +214,11 @@
         <button
           type="button"
           class="mr-auto px-3 py-1 rounded-md border border-border bg-transparent text-sm text-text-secondary cursor-pointer hover:bg-hover"
-          onclick={runDialog.loadParameters}>Retry {runDialog.parameterNoun}</button
+          onclick={retryParameters}>Retry {runDialog.parameterNoun}</button
         >
       {/if}
       <button
+        bind:this={cancelButtonEl}
         type="button"
         class="px-3 py-1 rounded-md border border-border bg-transparent text-sm text-text-secondary cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
         onclick={runDialog.cancelOrBack}

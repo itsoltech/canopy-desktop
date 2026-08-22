@@ -35,7 +35,7 @@ export interface CiHandlerDeps {
   ciManager: CiManager
   /** Resolves the path and throws unless it belongs to the sender's workspaces. */
   validatePathAccess: (wcId: number, targetPath: string) => Promise<string>
-  /** Trusted native confirmation, parented to the invoking window. */
+  /** Optional trusted native confirmation extension point, parented to the invoking window. */
   confirmGitHubDispatch?: (event: CiIpcEvent, details: CiDispatchConfirmation) => Promise<boolean>
 }
 

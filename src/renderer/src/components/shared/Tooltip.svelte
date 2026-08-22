@@ -4,9 +4,11 @@
   let {
     text,
     children,
+    class: className = '',
   }: {
     text: string
     children: Snippet
+    class?: string
   } = $props()
 
   let x = $state(0)
@@ -15,7 +17,7 @@
   let portalEl: HTMLDivElement | null = null
 
   const tooltipClasses =
-    'fixed px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-nowrap pointer-events-none z-banner shadow-tooltip'
+    'fixed max-w-[calc(100vw-8px)] px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-normal break-words pointer-events-none z-banner shadow-tooltip'
 
   function handleEnter(event: MouseEvent | FocusEvent): void {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
@@ -31,6 +33,7 @@
   }
 
   function showPortal(): void {
+    timer = null
     hidePortal()
     portalEl = document.createElement('div')
     portalEl.className = tooltipClasses
@@ -55,6 +58,13 @@
     }
   }
 
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape' || (!timer && !portalEl)) return
+    event.preventDefault()
+    event.stopPropagation()
+    dismiss()
+  }
+
   $effect(() => {
     return () => {
       if (timer) clearTimeout(timer)
@@ -66,12 +76,13 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span
-  class="inline-flex"
+  class="inline-flex min-w-0 {className}"
   onmouseenter={handleEnter}
   onmouseleave={dismiss}
   onmousedown={dismiss}
   onfocusin={handleEnter}
   onfocusout={dismiss}
+  onkeydown={handleKeydown}
 >
   {@render children()}
 </span>

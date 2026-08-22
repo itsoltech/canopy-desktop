@@ -274,45 +274,47 @@ export class KeychainTokenStore {
   ): Result<CredentialDescriptor, CredentialError> {
     const spec = providerSpec(provider)
     if (!spec) return err({ _tag: 'CredentialProviderUnsupported', provider })
-    this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
-    const currentlyBoundId = this.registry.listBindings()[bindingKey]
-    const currentlyBound = this.registry
-      .list()
-      .find((credential) => credential.id === currentlyBoundId)
-    const audience = audienceFor(provider, baseUrl)
-    const compatibleExisting =
-      currentlyBound?.service === spec.service &&
-      currentlyBound.intendedUses.includes(spec.intendedUse) &&
-      currentlyBound.audience.host === audience.host &&
-      currentlyBound.audience.repository === audience.repository &&
-      currentlyBound.audience.baseUrl === audience.baseUrl
-    // Replacing one integration must not silently rotate a secret that another integration uses.
-    // Shared credentials fork into a new record and only this binding moves to the replacement.
-    const boundId =
-      currentlyBoundId &&
-      compatibleExisting &&
-      this.registry.bindingsFor(currentlyBoundId).length <= 1
-        ? currentlyBoundId
-        : undefined
-    const descriptor = this.registry.save({
-      ...(boundId ? { id: boundId } : {}),
-      service: spec.service,
-      authMethod: spec.authMethod,
-      audience,
-      intendedUses: [spec.intendedUse],
-      capabilities: spec.capabilities,
-      secret: token,
-      account: username,
-    })
-    return this.registry.bind(bindingKey, descriptor.id).map(() => {
-      if (
+    return this.preferencesStore.runInTransaction(() => {
+      this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
+      const currentlyBoundId = this.registry.listBindings()[bindingKey]
+      const currentlyBound = this.registry
+        .list()
+        .find((credential) => credential.id === currentlyBoundId)
+      const audience = audienceFor(provider, baseUrl)
+      const compatibleExisting =
+        currentlyBound?.service === spec.service &&
+        currentlyBound.intendedUses.includes(spec.intendedUse) &&
+        currentlyBound.audience.host === audience.host &&
+        currentlyBound.audience.repository === audience.repository &&
+        currentlyBound.audience.baseUrl === audience.baseUrl
+      // Replacing one integration must not silently rotate a secret that another integration uses.
+      // Shared credentials fork into a new record and only this binding moves to the replacement.
+      const boundId =
         currentlyBoundId &&
-        currentlyBoundId !== descriptor.id &&
-        this.registry.bindingsFor(currentlyBoundId).length === 0
-      ) {
-        this.registry.remove(currentlyBoundId)
-      }
-      return descriptor
+        compatibleExisting &&
+        this.registry.bindingsFor(currentlyBoundId).length <= 1
+          ? currentlyBoundId
+          : undefined
+      const descriptor = this.registry.save({
+        ...(boundId ? { id: boundId } : {}),
+        service: spec.service,
+        authMethod: spec.authMethod,
+        audience,
+        intendedUses: [spec.intendedUse],
+        capabilities: spec.capabilities,
+        secret: token,
+        account: username,
+      })
+      return this.registry.bind(bindingKey, descriptor.id).map(() => {
+        if (
+          currentlyBoundId &&
+          currentlyBoundId !== descriptor.id &&
+          this.registry.bindingsFor(currentlyBoundId).length === 0
+        ) {
+          this.registry.remove(currentlyBoundId)
+        }
+        return descriptor
+      })
     })
   }
 
@@ -322,20 +324,22 @@ export class KeychainTokenStore {
     bindingKey = defaultBinding(provider, baseUrl),
     liveTrackerBindingKeys?: ReadonlySet<string>,
   ): { removed: boolean; retainedBindings: string[] } {
-    this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
-    const credentialId = this.registry.listBindings()[bindingKey]
-    if (!credentialId) return { removed: false, retainedBindings: [] }
-    if (liveTrackerBindingKeys) {
-      for (const key of this.registry.bindingsFor(credentialId)) {
-        if (parseTrackerBindingKey(key) && !liveTrackerBindingKeys.has(key)) {
-          this.registry.unbind(key)
+    return this.preferencesStore.runInTransaction(() => {
+      this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
+      const credentialId = this.registry.listBindings()[bindingKey]
+      if (!credentialId) return { removed: false, retainedBindings: [] }
+      if (liveTrackerBindingKeys) {
+        for (const key of this.registry.bindingsFor(credentialId)) {
+          if (parseTrackerBindingKey(key) && !liveTrackerBindingKeys.has(key)) {
+            this.registry.unbind(key)
+          }
         }
       }
-    }
-    this.registry.unbind(bindingKey)
-    const retainedBindings = this.registry.bindingsFor(credentialId)
-    if (retainedBindings.length > 0) return { removed: false, retainedBindings }
-    return { removed: this.registry.remove(credentialId).removed, retainedBindings: [] }
+      this.registry.unbind(bindingKey)
+      const retainedBindings = this.registry.bindingsFor(credentialId)
+      if (retainedBindings.length > 0) return { removed: false, retainedBindings }
+      return { removed: this.registry.remove(credentialId).removed, retainedBindings: [] }
+    })
   }
 
   hasCredentials(

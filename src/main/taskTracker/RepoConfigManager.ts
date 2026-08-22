@@ -1,4 +1,5 @@
-import { readFile, writeFile, mkdir, access } from 'fs/promises'
+import { randomUUID } from 'crypto'
+import { access, mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { ok, err, type ResultAsync } from 'neverthrow'
 import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types'
@@ -112,7 +113,21 @@ export class RepoConfigManager {
       (async () => {
         const dir = configDir(repoRoot)
         await mkdir(dir, { recursive: true })
-        await writeFile(configPath(repoRoot), JSON.stringify(config, null, 2) + '\n', 'utf-8')
+        const destination = configPath(repoRoot)
+        const temporary = join(dir, `.${CONFIG_FILE}.${randomUUID()}.tmp`)
+        let published = false
+        try {
+          // Same-directory rename is atomic: readers see either the previous complete JSON or
+          // the new complete JSON, never the partially-written bytes of an in-place write.
+          await writeFile(temporary, JSON.stringify(config, null, 2) + '\n', {
+            encoding: 'utf-8',
+            flag: 'wx',
+          })
+          await rename(temporary, destination)
+          published = true
+        } finally {
+          if (!published) await unlink(temporary).catch(() => undefined)
+        }
       })(),
       (e) => ({
         _tag: 'ConfigWriteError' as const,

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { ResultAsync, err, ok, type Result } from 'neverthrow'
 import type { CiError, CiError as GitHubClientError } from '../errors'
 
@@ -7,6 +8,12 @@ const REQUEST_TIMEOUT_MS = 15_000
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 const MAX_PAGES = 5
 const rateLimitedUntil = new Map<string, number>()
+
+function pruneExpiredRateLimits(now: number): void {
+  for (const [key, resetAt] of rateLimitedUntil) {
+    if (resetAt <= now) rateLimitedUntil.delete(key)
+  }
+}
 
 export interface GitHubWorkflow {
   id: number
@@ -110,6 +117,7 @@ function rateLimitResetAt(response: Response): number | undefined {
 
 export class GitHubActionsClient {
   private readonly repositoryPath: string
+  private readonly rateLimitKey: string
 
   constructor(
     owner: string,
@@ -117,6 +125,11 @@ export class GitHubActionsClient {
     private readonly token: string,
   ) {
     this.repositoryPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`
+    // A replacement credential must get one real request of its own. It may still share a
+    // user-level GitHub budget and be limited again, but a backoff earned by a different token
+    // must not suppress the request locally. Hashing avoids retaining another plaintext copy.
+    const credentialFingerprint = createHash('sha256').update(token).digest('base64url')
+    this.rateLimitKey = `${this.repositoryPath}:${credentialFingerprint}`
   }
 
   private request<T>(path: string, init?: GitHubRequestOptions): ResultAsync<T, GitHubClientError> {
@@ -131,12 +144,11 @@ export class GitHubActionsClient {
     requestPath: string,
     init?: GitHubRequestOptions,
   ): Promise<Result<T, GitHubClientError>> {
-    const limitedUntil = rateLimitedUntil.get(this.repositoryPath)
-    if (limitedUntil !== undefined) {
-      if (limitedUntil > Date.now()) {
-        return err({ _tag: 'CiRateLimited', resetAt: limitedUntil })
-      }
-      rateLimitedUntil.delete(this.repositoryPath)
+    const now = Date.now()
+    pruneExpiredRateLimits(now)
+    const limitedUntil = rateLimitedUntil.get(this.rateLimitKey)
+    if (limitedUntil !== undefined && limitedUntil > now) {
+      return err({ _tag: 'CiRateLimited', resetAt: limitedUntil })
     }
 
     let response: Response
@@ -170,7 +182,7 @@ export class GitHubActionsClient {
     if (isRateLimited) {
       const resetAt = rateLimitResetAt(response) ?? Date.now() + 60_000
       if (resetAt > Date.now()) {
-        rateLimitedUntil.set(this.repositoryPath, resetAt)
+        rateLimitedUntil.set(this.rateLimitKey, resetAt)
       }
       return err({
         _tag: 'CiRateLimited',

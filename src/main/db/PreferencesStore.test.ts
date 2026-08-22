@@ -55,4 +55,25 @@ describe('PreferencesStore renderer-facing reads', () => {
     expect(safeStorageMock.encryptString).toHaveBeenCalledWith(registry)
     expect(run).toHaveBeenCalledWith('credential.registry.v2', encrypted.toString('base64'))
   })
+
+  it('runs grouped preference mutations through one SQLite transaction', () => {
+    const operation = vi.fn(() => 'done')
+    const execute = vi.fn((callback: () => string) => callback())
+    const transaction = vi.fn((callback: () => string) => () => execute(callback))
+    const database = { db: { transaction } } as unknown as Database
+
+    expect(new PreferencesStore(database).runInTransaction(operation)).toBe('done')
+    expect(transaction).toHaveBeenCalledWith(operation)
+    expect(execute).toHaveBeenCalledOnce()
+  })
+
+  it('joins an existing SQLite transaction instead of opening a nested one', () => {
+    const operation = vi.fn(() => 'done')
+    const transaction = vi.fn()
+    const database = { db: { inTransaction: true, transaction } } as unknown as Database
+
+    expect(new PreferencesStore(database).runInTransaction(operation)).toBe('done')
+    expect(operation).toHaveBeenCalledOnce()
+    expect(transaction).not.toHaveBeenCalled()
+  })
 })

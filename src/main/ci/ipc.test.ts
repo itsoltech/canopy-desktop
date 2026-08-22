@@ -14,7 +14,7 @@ vi.mock('./teamcity', () => ({
   testConnection: vi.fn(() => okAsync(undefined)),
 }))
 
-function harness(): {
+function harness({ nativeConfirmation = true }: { nativeConfirmation?: boolean } = {}): {
   invoke: (channel: string, payload: unknown) => Promise<unknown>
   ciManager: CiManager
   validatePathAccess: ReturnType<typeof vi.fn>
@@ -85,7 +85,12 @@ function harness(): {
     return `/resolved${target}`
   })
   const confirmGitHubDispatch = vi.fn(async () => true)
-  registerCiHandlers({ ipcMain, ciManager, validatePathAccess, confirmGitHubDispatch })
+  registerCiHandlers({
+    ipcMain,
+    ciManager,
+    validatePathAccess,
+    ...(nativeConfirmation ? { confirmGitHubDispatch } : {}),
+  })
   return {
     invoke: (channel, payload) => {
       const listener = handlers.get(channel)
@@ -284,6 +289,7 @@ describe('CI IPC authorization', () => {
       inputs: { dry_run: true },
     })
 
+    expect(ciManager.triggerJob).toHaveBeenCalledOnce()
     const confirm = vi.mocked(ciManager.triggerJob).mock.calls[0]?.[2]
     expect(confirm).toBeTypeOf('function')
     const details = {
@@ -298,6 +304,22 @@ describe('CI IPC authorization', () => {
       expect.objectContaining({ sender: { id: 7 } }),
       details,
     )
+  })
+
+  it('pins the shipped path without an optional native confirmation callback', async () => {
+    const { invoke, ciManager, confirmGitHubDispatch } = harness({ nativeConfirmation: false })
+    await invoke('ci:triggerJob', {
+      repoRoot: '/ws/repo',
+      jobId: '.github/workflows/release.yml',
+      ref: { name: 'next', kind: 'branch' },
+      schemaRevision: 'sha',
+      inputs: { dry_run: true },
+    })
+
+    expect(ciManager.triggerJob).toHaveBeenCalledOnce()
+    const confirm = vi.mocked(ciManager.triggerJob).mock.calls[0]?.[2]
+    expect(confirm).toBeUndefined()
+    expect(confirmGitHubDispatch).not.toHaveBeenCalled()
   })
 
   it('returns a structured success from the trigger channel', async () => {

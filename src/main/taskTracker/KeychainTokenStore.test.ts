@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import { KeychainTokenStore } from './KeychainTokenStore'
 
@@ -9,6 +9,16 @@ function fakePreferences(initial: Record<string, string> = {}): PreferencesStore
     set: (key: string, value: string) => values.set(key, value),
     delete: (key: string) => values.delete(key),
     keysWithPrefix: (prefix: string) => [...values.keys()].filter((key) => key.startsWith(prefix)),
+    runInTransaction: <T>(operation: () => T): T => {
+      const snapshot = new Map(values)
+      try {
+        return operation()
+      } catch (error) {
+        values.clear()
+        for (const [key, value] of snapshot) values.set(key, value)
+        throw error
+      }
+    },
   } as unknown as PreferencesStore
 }
 
@@ -137,6 +147,48 @@ describe('KeychainTokenStore capability facade', () => {
 
     expect(store.listCredentials()).toHaveLength(1)
     expect(store.listCredentials()[0].baseUrl).toBe('https://new.atlassian.net')
+  })
+
+  it('rolls back the secret and descriptor when persisting its binding fails', () => {
+    const preferences = fakePreferences()
+    const persist = preferences.set.bind(preferences)
+    vi.spyOn(preferences, 'set').mockImplementation((key, value) => {
+      if (key === 'credential.bindings.v2') throw new Error('binding write failed')
+      persist(key, value)
+    })
+    const store = new KeychainTokenStore(preferences)
+
+    expect(() =>
+      store.setCredentials(
+        'github-actions',
+        'https://github.com/itsoltech/canopy-desktop',
+        'token',
+      ),
+    ).toThrow('binding write failed')
+
+    expect(preferences.get('credential.registry.v2')).toBeNull()
+    expect(preferences.keysWithPrefix('credential.secret.v2.')).toEqual([])
+  })
+
+  it('restores the binding and secret when deleting the descriptor fails', () => {
+    const preferences = fakePreferences()
+    const store = new KeychainTokenStore(preferences)
+    const baseUrl = 'https://github.com/itsoltech/canopy-desktop'
+    store.setCredentials('github-actions', baseUrl, 'token')
+    const persist = preferences.set.bind(preferences)
+    vi.spyOn(preferences, 'set').mockImplementation((key, value) => {
+      if (key === 'credential.registry.v2') throw new Error('registry write failed')
+      persist(key, value)
+    })
+
+    expect(() => store.deleteCredentials('github-actions', baseUrl)).toThrow(
+      'registry write failed',
+    )
+
+    expect(store.getCredentials('github-actions', baseUrl)?.token).toBe('token')
+    expect(store.listCredentials()[0]?.bindings).toEqual([
+      'ci:github-actions:github.com/itsoltech/canopy-desktop',
+    ])
   })
 
   it('migrates a stable tracker token to the configured tracker binding and deletes it', () => {

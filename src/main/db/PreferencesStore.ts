@@ -69,6 +69,16 @@ export class PreferencesStore {
       .run(key, stored)
   }
 
+  /**
+   * Runs synchronous preference mutations as one SQLite transaction. Callers keep using
+   * `set`/`delete`, so encrypted-key handling stays centralized in this store while a failure in
+   * any later mutation rolls the earlier ones back.
+   */
+  runInTransaction<T>(operation: () => T): T {
+    if (this.db.inTransaction) return operation()
+    return this.db.transaction(operation)()
+  }
+
   getAll(): Record<string, string> {
     const rows = this.db.prepare('SELECT key, value FROM preferences').all() as {
       key: string
