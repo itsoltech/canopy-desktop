@@ -61,7 +61,7 @@
           <div class="flex items-center gap-2">
             <!-- Focus enters through the checkbox, so the full name is available to sighted
                  keyboard users without adding another tab stop. -->
-            <Tooltip text={bt.name}>
+            <Tooltip text={bt.id === bt.name ? bt.name : `${bt.name} · ${bt.id}`}>
               <label
                 class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none min-w-0"
               >
@@ -74,9 +74,8 @@
                    the ellipsis removed. -->
                 <span class="truncate">{bt.name}</span>
                 {#if bt.id !== bt.name}
-                  <span
-                    class="font-mono text-2xs text-text-faint shrink-0 max-w-40 truncate"
-                    title={bt.id}>· {bt.id}</span
+                  <span class="font-mono text-2xs text-text-faint shrink-0 max-w-40 truncate"
+                    >· {bt.id}</span
                   >
                 {/if}
               </label>

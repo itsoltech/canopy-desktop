@@ -305,6 +305,9 @@ export class KeychainTokenStore {
         secret: token,
         account: username,
       })
+      // `bind` can currently fail only with CredentialUnknown. `save` inserted this descriptor in
+      // the same transaction, so an Err is unreachable; if bind gains another error path, it must
+      // throw here (or be checked before mutation) so SQLite does not commit an Err return value.
       return this.registry.bind(bindingKey, descriptor.id).map(() => {
         if (
           currentlyBoundId &&

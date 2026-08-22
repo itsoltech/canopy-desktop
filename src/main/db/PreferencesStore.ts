@@ -72,7 +72,8 @@ export class PreferencesStore {
   /**
    * Runs synchronous preference mutations as one SQLite transaction. Callers keep using
    * `set`/`delete`, so encrypted-key handling stays centralized in this store while a failure in
-   * any later mutation rolls the earlier ones back.
+   * any later mutation rolls the earlier ones back. SQLite rolls back on a thrown failure, not on
+   * an `Err` returned as a value, so a callback must not return an error result after mutating.
    */
   runInTransaction<T>(operation: () => T): T {
     if (this.db.inTransaction) return operation()

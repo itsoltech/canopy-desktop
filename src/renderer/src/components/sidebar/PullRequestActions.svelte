@@ -177,7 +177,6 @@
       aria-busy={lookup.loading}
       aria-describedby={createPRBlockedReason ? 'create-pr-blocked-reason' : undefined}
       onclick={createPR}
-      title={createPRTitle}
     >
       {#if lookup.loading}
         <LoaderCircle

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
-import { access, mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
+import { access, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { setTimeout as delay } from 'timers/promises'
 import { ok, err, type ResultAsync } from 'neverthrow'
 import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types'
 import type { TaskTrackerError } from './errors'
@@ -10,6 +11,10 @@ import { defaultConfig, getBranchTemplate, getPRTemplate } from './configDefault
 const CONFIG_DIR = '.canopy'
 const CONFIG_FILE = 'config.json'
 const CURRENT_VERSION = 1
+const CONFIG_TEMP_PREFIX = `.${CONFIG_FILE}.`
+const CONFIG_TEMP_SUFFIX = '.tmp'
+const STALE_CONFIG_TEMP_AGE_MS = 24 * 60 * 60 * 1_000
+const RENAME_RETRY_DELAYS_MS = [25, 50, 100, 200] as const
 
 function configDir(repoRoot: string): string {
   return join(repoRoot, CONFIG_DIR)
@@ -17,6 +22,42 @@ function configDir(repoRoot: string): string {
 
 function configPath(repoRoot: string): string {
   return join(repoRoot, CONFIG_DIR, CONFIG_FILE)
+}
+
+function isTransientRenameError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code
+  return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
+}
+
+function renameWithRetry(source: string, destination: string, attempt = 0): Promise<void> {
+  return rename(source, destination).catch((error: unknown) => {
+    const retryDelay = RENAME_RETRY_DELAYS_MS[attempt]
+    if (!isTransientRenameError(error) || retryDelay === undefined) {
+      return Promise.reject(error)
+    }
+    return delay(retryDelay).then(() => renameWithRetry(source, destination, attempt + 1))
+  })
+}
+
+async function cleanupStaleConfigTemps(dir: string): Promise<void> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+  const staleBefore = Date.now() - STALE_CONFIG_TEMP_AGE_MS
+  await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          entry.name.startsWith(CONFIG_TEMP_PREFIX) &&
+          entry.name.endsWith(CONFIG_TEMP_SUFFIX),
+      )
+      .map(async (entry) => {
+        const candidate = join(dir, entry.name)
+        const metadata = await stat(candidate).catch(() => null)
+        if (metadata && metadata.mtimeMs <= staleBefore) {
+          await unlink(candidate).catch(() => undefined)
+        }
+      }),
+  )
 }
 
 export class RepoConfigManager {
@@ -113,17 +154,24 @@ export class RepoConfigManager {
       (async () => {
         const dir = configDir(repoRoot)
         await mkdir(dir, { recursive: true })
+        // A hard kill cannot run `finally`; remove old orphaned publications on a later save.
+        // The age threshold avoids racing another live Canopy process writing the same repo.
+        await cleanupStaleConfigTemps(dir)
         const destination = configPath(repoRoot)
         const temporary = join(dir, `.${CONFIG_FILE}.${randomUUID()}.tmp`)
         let published = false
         try {
-          // Same-directory rename is atomic: readers see either the previous complete JSON or
-          // the new complete JSON, never the partially-written bytes of an in-place write.
+          // Same-directory rename makes publication atomic for readers: they see either the
+          // previous complete JSON or the new one. This does not claim fsync-level durability
+          // across power loss; the goal here is to prevent consumers from parsing partial bytes.
           await writeFile(temporary, JSON.stringify(config, null, 2) + '\n', {
             encoding: 'utf-8',
             flag: 'wx',
           })
-          await rename(temporary, destination)
+          // Windows may transiently reject replacement while an editor, AV or sync client holds
+          // the destination. Bounded retries preserve atomic publication without falling back to
+          // a partial in-place write.
+          await renameWithRetry(temporary, destination)
           published = true
         } finally {
           if (!published) await unlink(temporary).catch(() => undefined)

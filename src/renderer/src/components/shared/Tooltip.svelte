@@ -59,7 +59,13 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Escape' || (!timer && !portalEl)) return
+    if (event.key !== 'Escape') return
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+    // A pending tooltip is not visible yet, so Escape must keep bubbling to the modal.
+    if (!portalEl) return
     event.preventDefault()
     event.stopPropagation()
     dismiss()
