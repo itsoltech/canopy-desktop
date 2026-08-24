@@ -11,7 +11,7 @@ import type {
 } from '../types'
 import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
-import { deepMerge, summarizeToolInput } from '../utils'
+import { asRecord, asString, deepMerge, summarizeToolInput } from '../utils'
 
 const CODEX_HOOK_EVENTS = [
   'SessionStart',
@@ -166,7 +166,7 @@ export const codexAdapter: AgentAdapter = {
   },
 
   normalizeEvent(raw: Record<string, unknown>): NormalizedHookEvent {
-    const rawName = (raw.hook_event_name as string) ?? ''
+    const rawName = asString(raw.hook_event_name) ?? ''
 
     // Collect Codex-specific extra fields for the inspector
     const extra: Record<string, unknown> = {}
@@ -181,21 +181,21 @@ export const codexAdapter: AgentAdapter = {
 
     return {
       agentType: 'codex',
-      sessionId: (raw.session_id as string) ?? '',
+      sessionId: asString(raw.session_id) ?? '',
       event: EVENT_MAP[rawName] ?? 'Unknown',
       rawEventName: rawName,
-      toolName: raw.tool_name as string | undefined,
-      toolInput: raw.tool_input as Record<string, unknown> | undefined,
-      toolResponse: raw.tool_response as string | undefined,
-      error: raw.error as string | undefined,
-      errorDetails: raw.error_details as string | undefined,
-      message: raw.message as string | undefined,
-      title: raw.title as string | undefined,
-      agentId: raw.agent_id as string | undefined,
-      agentSubtype: raw.agent_type as string | undefined,
-      model: raw.model as string | undefined,
-      permissionMode: raw.permission_mode as string | undefined,
-      prompt: raw.prompt as string | undefined,
+      toolName: asString(raw.tool_name),
+      toolInput: asRecord(raw.tool_input),
+      toolResponse: asString(raw.tool_response),
+      error: asString(raw.error),
+      errorDetails: asString(raw.error_details),
+      message: asString(raw.message),
+      title: asString(raw.title),
+      agentId: asString(raw.agent_id),
+      agentSubtype: asString(raw.agent_type),
+      model: asString(raw.model),
+      permissionMode: asString(raw.permission_mode),
+      prompt: asString(raw.prompt),
       extra: Object.keys(extra).length > 0 ? extra : undefined,
     }
   },

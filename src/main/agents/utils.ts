@@ -1,3 +1,27 @@
+/**
+ * Runtime narrowing helpers for hook/status payloads.
+ *
+ * Adapter `normalizeEvent`/`normalizeStatus` receive `JSON.parse`d bodies from
+ * the local agent hook server, so every field is genuinely `unknown` — an agent
+ * CLI that sends `{"model": 123}` used to reach `lookupContextLimit(model)` and
+ * throw `model.startsWith is not a function`, which `AgentHookServer` swallows,
+ * silently dropping the event. These coerce a mistyped field to `undefined`
+ * instead of asserting it into the wrong type.
+ */
+export function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
+export function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+export function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
 export function deepMerge(
   target: Record<string, unknown>,
   source: Record<string, unknown>,

@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { showPreferences, showAbout } from '../lib/stores/dialogs.svelte'
 
   let open = $state(false)
   let buttonEl: HTMLButtonElement | undefined = $state()
+  let menuEl: HTMLDivElement | undefined = $state()
   let dropdownTop = $state(0)
   let dropdownLeft = $state(0)
 
@@ -17,11 +19,43 @@
 
   function close(): void {
     open = false
+    // Return focus to the trigger. `handleAction` closes before invoking, so an action that
+    // opens a dialog still wins the focus afterwards.
+    buttonEl?.focus()
   }
 
   function handleAction(action: () => void): void {
     close()
     action()
+  }
+
+  // The dropdown is portalled to the end of <body>, so it is not in the trigger's tab order.
+  // Focus the first item on open and return focus to the trigger on close, so the menu is
+  // reachable by keyboard at all.
+  $effect(() => {
+    if (!open) return
+    tick().then(() => menuItems()[0]?.focus())
+  })
+
+  function menuItems(): HTMLButtonElement[] {
+    return menuEl ? Array.from(menuEl.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')) : []
+  }
+
+  /** ArrowUp/ArrowDown/Home/End roving focus — the behaviour `role="menu"` announces. */
+  function handleMenuKeydown(e: KeyboardEvent): void {
+    const items = menuItems()
+    if (items.length === 0) return
+    const last = items.length - 1
+    // -1 when focus sits outside the menu: Down enters at the top, Up enters at the bottom.
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    const focusAt = (i: number): void => {
+      e.preventDefault()
+      items[(i + items.length) % items.length].focus()
+    }
+    if (e.key === 'ArrowDown') focusAt(current + 1)
+    else if (e.key === 'ArrowUp') focusAt(current === -1 ? last : current - 1)
+    else if (e.key === 'Home') focusAt(0)
+    else if (e.key === 'End') focusAt(last)
   }
 
   function handleWindowKeydown(e: KeyboardEvent): void {
@@ -65,7 +99,9 @@
     <div
       class="fixed min-w-55 p-1 bg-bg-overlay border border-border rounded-lg shadow-popover z-popover"
       style="top: {dropdownTop}px; left: {dropdownLeft}px;"
+      bind:this={menuEl}
       onclick={(e) => e.stopPropagation()}
+      onkeydown={handleMenuKeydown}
       role="menu"
       aria-label="Application menu"
     >

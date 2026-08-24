@@ -12,7 +12,7 @@ import type {
 } from '../types'
 import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
-import { summarizeToolInput } from '../utils'
+import { asRecord, asString, summarizeToolInput } from '../utils'
 
 const EVENT_MAP: Record<string, NormalizedEventName> = {
   SessionCreated: 'SessionStart',
@@ -73,9 +73,9 @@ export const opencodeAdapter: AgentAdapter = {
   },
 
   normalizeEvent(raw: Record<string, unknown>): NormalizedHookEvent {
-    const rawName = (raw.hook_event_name as string) ?? ''
+    const rawName = asString(raw.hook_event_name) ?? ''
     let event = EVENT_MAP[rawName] ?? 'Unknown'
-    const toolName = raw.tool_name as string | undefined
+    const toolName = asString(raw.tool_name)
 
     // OpenCode's "question" tool = user input needed → treat like permission request
     if (rawName === 'ToolExecuteBefore' && toolName === 'question') {
@@ -90,30 +90,30 @@ export const opencodeAdapter: AgentAdapter = {
 
     return {
       agentType: 'opencode',
-      sessionId: (raw.session_id as string) ?? '',
+      sessionId: asString(raw.session_id) ?? '',
       event,
       rawEventName: rawName,
       toolName,
-      toolInput: raw.tool_input as Record<string, unknown> | undefined,
-      toolResponse: raw.tool_response as string | undefined,
-      error: raw.error as string | undefined,
-      errorDetails: raw.error_details as string | undefined,
-      message: raw.message as string | undefined,
-      title: raw.title as string | undefined,
-      notificationType: raw.notification_type as string | undefined,
-      agentId: raw.agent_id as string | undefined,
-      agentSubtype: raw.agent_type as string | undefined,
-      reason: raw.reason as string | undefined,
-      model: raw.model as string | undefined,
-      permissionMode: raw.permission_mode as string | undefined,
-      compactSummary: raw.compact_summary as string | undefined,
-      prompt: raw.prompt as string | undefined,
-      taskId: raw.task_id as string | undefined,
-      taskSubject: raw.task_subject as string | undefined,
-      taskDescription: raw.task_description as string | undefined,
-      teammateName: raw.teammate_name as string | undefined,
+      toolInput: asRecord(raw.tool_input),
+      toolResponse: asString(raw.tool_response),
+      error: asString(raw.error),
+      errorDetails: asString(raw.error_details),
+      message: asString(raw.message),
+      title: asString(raw.title),
+      notificationType: asString(raw.notification_type),
+      agentId: asString(raw.agent_id),
+      agentSubtype: asString(raw.agent_type),
+      reason: asString(raw.reason),
+      model: asString(raw.model),
+      permissionMode: asString(raw.permission_mode),
+      compactSummary: asString(raw.compact_summary),
+      prompt: asString(raw.prompt),
+      taskId: asString(raw.task_id),
+      taskSubject: asString(raw.task_subject),
+      taskDescription: asString(raw.task_description),
+      teammateName: asString(raw.teammate_name),
       extra,
-      teamName: raw.team_name as string | undefined,
+      teamName: asString(raw.team_name),
     }
   },
 

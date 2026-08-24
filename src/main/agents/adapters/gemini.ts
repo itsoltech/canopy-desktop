@@ -22,7 +22,7 @@ import type {
 } from '../types'
 import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
-import { deepMerge, summarizeToolInput } from '../utils'
+import { asNumber, asRecord, asString, deepMerge, summarizeToolInput } from '../utils'
 
 /** Model ID -> context window size in tokens (lazy-loaded) */
 let geminiModelLimits: Record<string, number> | null = null
@@ -155,41 +155,41 @@ export const geminiAdapter: AgentAdapter = {
   },
 
   normalizeEvent(raw: Record<string, unknown>): NormalizedHookEvent {
-    const rawName = (raw.hook_event_name as string) ?? ''
+    const rawName = asString(raw.hook_event_name) ?? ''
 
     let event = EVENT_MAP[rawName] ?? 'Unknown'
-    let toolName = raw.tool_name as string | undefined
+    let toolName = asString(raw.tool_name)
     let model: string | undefined
 
     // Gemini Notification with ToolPermission = permission request
     // details: { type: "ask_user", title: "Ask User" }
     if (rawName === 'Notification' && raw.notification_type === 'ToolPermission') {
       event = 'PermissionRequest'
-      const details = raw.details as Record<string, unknown> | undefined
+      const details = asRecord(raw.details)
       if (details) {
-        toolName = (details.type as string) ?? (details.title as string) ?? toolName
+        toolName = asString(details.type) ?? asString(details.title) ?? toolName
       }
     }
 
-    // Extract model name from BeforeModel/BeforeToolSelection llm_request
+    // Extract model name from BeforeModel/BeforeToolSelection llm_request.
+    // Empty string stays `undefined`: `lookupContextLimit('')` would match the first
+    // entry via `id.startsWith('')` and report a bogus context limit.
     if (rawName === 'BeforeModel' || rawName === 'BeforeToolSelection') {
-      const llmReq = raw.llm_request as Record<string, unknown> | undefined
-      if (llmReq?.model) model = llmReq.model as string
+      model = asString(asRecord(raw.llm_request)?.model) || undefined
     }
 
     // Extract token usage from AfterModel llm_response.usageMetadata
     let extra: Record<string, unknown> | undefined
     if (rawName === 'AfterModel') {
-      const llmResp = raw.llm_response as Record<string, unknown> | undefined
-      const usage = llmResp?.usageMetadata as Record<string, unknown> | undefined
-      const totalTokens = usage?.totalTokenCount
-      if (typeof totalTokens === 'number') {
+      const usage = asRecord(asRecord(raw.llm_response)?.usageMetadata)
+      const totalTokens = asNumber(usage?.totalTokenCount)
+      if (totalTokens !== undefined) {
         extra = { totalTokenCount: totalTokens }
         // Also extract model from the request if available
-        const llmReq = raw.llm_request as Record<string, unknown> | undefined
-        if (llmReq?.model) {
-          model = llmReq.model as string
-          const contextLimit = lookupContextLimit(model)
+        const reqModel = asString(asRecord(raw.llm_request)?.model)
+        if (reqModel) {
+          model = reqModel
+          const contextLimit = lookupContextLimit(reqModel)
           if (contextLimit) {
             extra.contextPercent = (totalTokens / contextLimit) * 100
             extra.contextSize = contextLimit
@@ -200,29 +200,29 @@ export const geminiAdapter: AgentAdapter = {
 
     return {
       agentType: 'gemini',
-      sessionId: (raw.session_id as string) ?? '',
+      sessionId: asString(raw.session_id) ?? '',
       event,
       rawEventName: rawName,
       toolName,
-      toolInput: raw.tool_input as Record<string, unknown> | undefined,
-      toolResponse: raw.tool_response as string | undefined,
-      error: raw.error as string | undefined,
-      errorDetails: raw.error_details as string | undefined,
-      message: raw.message as string | undefined,
-      title: raw.title as string | undefined,
-      notificationType: raw.notification_type as string | undefined,
-      agentId: raw.agent_id as string | undefined,
-      agentSubtype: raw.agent_type as string | undefined,
-      reason: raw.reason as string | undefined,
+      toolInput: asRecord(raw.tool_input),
+      toolResponse: asString(raw.tool_response),
+      error: asString(raw.error),
+      errorDetails: asString(raw.error_details),
+      message: asString(raw.message),
+      title: asString(raw.title),
+      notificationType: asString(raw.notification_type),
+      agentId: asString(raw.agent_id),
+      agentSubtype: asString(raw.agent_type),
+      reason: asString(raw.reason),
       model,
-      permissionMode: raw.permission_mode as string | undefined,
-      compactSummary: raw.compact_summary as string | undefined,
-      prompt: raw.prompt as string | undefined,
-      taskId: raw.task_id as string | undefined,
-      taskSubject: raw.task_subject as string | undefined,
-      taskDescription: raw.task_description as string | undefined,
-      teammateName: raw.teammate_name as string | undefined,
-      teamName: raw.team_name as string | undefined,
+      permissionMode: asString(raw.permission_mode),
+      compactSummary: asString(raw.compact_summary),
+      prompt: asString(raw.prompt),
+      taskId: asString(raw.task_id),
+      taskSubject: asString(raw.task_subject),
+      taskDescription: asString(raw.task_description),
+      teammateName: asString(raw.teammate_name),
+      teamName: asString(raw.team_name),
       extra,
     }
   },

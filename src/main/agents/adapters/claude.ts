@@ -10,7 +10,7 @@ import type {
 } from '../types'
 import type { SessionStatusType } from '../../notch/types'
 import { BLOCKED_ENV_VARS } from '../../security/envBlocklist'
-import { summarizeToolInput } from '../utils'
+import { asNumber, asRecord, asString, summarizeToolInput } from '../utils'
 
 const CLAUDE_HOOK_EVENTS = [
   'SessionStart',
@@ -103,65 +103,65 @@ export const claudeAdapter: AgentAdapter = {
   },
 
   normalizeEvent(raw: Record<string, unknown>): NormalizedHookEvent {
-    const rawName = (raw.hook_event_name as string) ?? ''
+    const rawName = asString(raw.hook_event_name) ?? ''
     return {
       agentType: 'claude',
-      sessionId: (raw.session_id as string) ?? '',
+      sessionId: asString(raw.session_id) ?? '',
       event: EVENT_MAP[rawName] ?? 'Unknown',
       rawEventName: rawName,
-      toolName: raw.tool_name as string | undefined,
-      toolInput: raw.tool_input as Record<string, unknown> | undefined,
-      toolResponse: raw.tool_response as string | undefined,
-      error: raw.error as string | undefined,
-      errorDetails: raw.error_details as string | undefined,
-      message: raw.message as string | undefined,
-      title: raw.title as string | undefined,
-      notificationType: raw.notification_type as string | undefined,
-      agentId: raw.agent_id as string | undefined,
-      agentSubtype: raw.agent_type as string | undefined,
-      reason: raw.reason as string | undefined,
-      model: raw.model as string | undefined,
-      permissionMode: raw.permission_mode as string | undefined,
-      compactSummary: raw.compact_summary as string | undefined,
-      prompt: raw.prompt as string | undefined,
-      taskId: raw.task_id as string | undefined,
-      taskSubject: raw.task_subject as string | undefined,
-      taskDescription: raw.task_description as string | undefined,
-      teammateName: raw.teammate_name as string | undefined,
-      teamName: raw.team_name as string | undefined,
+      toolName: asString(raw.tool_name),
+      toolInput: asRecord(raw.tool_input),
+      toolResponse: asString(raw.tool_response),
+      error: asString(raw.error),
+      errorDetails: asString(raw.error_details),
+      message: asString(raw.message),
+      title: asString(raw.title),
+      notificationType: asString(raw.notification_type),
+      agentId: asString(raw.agent_id),
+      agentSubtype: asString(raw.agent_type),
+      reason: asString(raw.reason),
+      model: asString(raw.model),
+      permissionMode: asString(raw.permission_mode),
+      compactSummary: asString(raw.compact_summary),
+      prompt: asString(raw.prompt),
+      taskId: asString(raw.task_id),
+      taskSubject: asString(raw.task_subject),
+      taskDescription: asString(raw.task_description),
+      teammateName: asString(raw.teammate_name),
+      teamName: asString(raw.team_name),
     }
   },
 
   normalizeStatus(raw: Record<string, unknown>): NormalizedStatusData {
-    const model = raw.model as Record<string, unknown> | undefined
-    const ctx = raw.context_window as Record<string, unknown> | undefined
-    const cost = raw.cost as Record<string, unknown> | undefined
-    const rateLimits = raw.rate_limits as Record<string, unknown> | undefined
+    const model = asRecord(raw.model)
+    const ctx = asRecord(raw.context_window)
+    const cost = asRecord(raw.cost)
+    const rateLimits = asRecord(raw.rate_limits)
 
     const result: NormalizedStatusData = {
-      version: raw.version as string | undefined,
+      version: asString(raw.version),
     }
 
     if (model) {
       result.model = {
-        id: model.id as string | undefined,
-        displayName: model.display_name as string | undefined,
+        id: asString(model.id),
+        displayName: asString(model.display_name),
       }
     }
 
     if (ctx) {
       result.contextWindow = {
-        usedPercent: ctx.used_percentage as number | undefined,
-        size: ctx.context_window_size as number | undefined,
+        usedPercent: asNumber(ctx.used_percentage),
+        size: asNumber(ctx.context_window_size),
       }
     }
 
     if (cost) {
       result.cost = {
-        totalCostUsd: cost.total_cost_usd as number | undefined,
-        durationMs: cost.total_duration_ms as number | undefined,
-        linesAdded: cost.total_lines_added as number | undefined,
-        linesRemoved: cost.total_lines_removed as number | undefined,
+        totalCostUsd: asNumber(cost.total_cost_usd),
+        durationMs: asNumber(cost.total_duration_ms),
+        linesAdded: asNumber(cost.total_lines_added),
+        linesRemoved: asNumber(cost.total_lines_removed),
       }
     }
 
