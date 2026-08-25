@@ -23,6 +23,9 @@
   const modKey = isMac ? '⌘' : 'Ctrl'
 
   let workspaces = $state<WorkspaceRow[]>([])
+  // `workspaces` starts empty, so without this the "no recents yet" empty state
+  // renders on every launch and is then replaced once the query resolves.
+  let loadingWorkspaces = $state(true)
   let filter = $state('')
   let selectedIndex = $state(0)
   let contextMenu = $state<{ x: number; y: number; workspace: WorkspaceRow } | null>(null)
@@ -57,6 +60,8 @@
       addToast(
         `Failed to load recent workspaces: ${err instanceof Error ? err.message : String(err)}`,
       )
+    } finally {
+      loadingWorkspaces = false
     }
 
     await tick()
@@ -268,7 +273,10 @@
 
 <div class="flex items-start justify-center h-full overflow-y-auto py-12 px-5">
   <div class="w-full max-w-160 flex flex-col gap-6">
-    {#if workspaces.length === 0}
+    {#if loadingWorkspaces}
+      <!-- Nothing until the recents query settles: the branch below is chosen by
+           list length, and guessing wrong flashes the empty state. -->
+    {:else if workspaces.length === 0}
       <WelcomeEmpty
         {modKey}
         onOpenFolder={handleOpenFolder}

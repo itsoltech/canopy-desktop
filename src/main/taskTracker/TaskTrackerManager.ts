@@ -680,12 +680,28 @@ export class TaskTrackerManager {
     connectionId: string,
     updates: Partial<Omit<TaskTrackerConnection, 'id' | 'authPrefKey'>>,
     newToken?: string,
-  ): TaskTrackerConnection | null {
+  ): Result<TaskTrackerConnection, TaskTrackerError> {
     const connections = this.getConnections()
     const idx = connections.findIndex((c) => c.id === connectionId)
-    if (idx < 0) return null
+    if (idx < 0) return err({ _tag: 'ConnectionNotFound', connectionId })
 
     const conn = connections[idx]
+
+    // The stored token belongs to the origin it was issued for. Repointing
+    // `baseUrl` while that token stays in place would ship the credential to
+    // the new host on the next request — the leak the `isSameOriginAs` guards
+    // on attachment/image fetches exist to prevent, except here the trust
+    // anchor those guards compare against is what moves. Fail closed so a
+    // redirected connection can never reuse the previous token.
+    if (
+      updates.baseUrl !== undefined &&
+      updates.baseUrl !== conn.baseUrl &&
+      !isSameOriginAs(updates.baseUrl, conn.baseUrl) &&
+      !newToken
+    ) {
+      return err({ _tag: 'BaseUrlChangeRequiresToken', connectionName: conn.name })
+    }
+
     connections[idx] = { ...conn, ...updates }
 
     if (newToken) {
@@ -693,7 +709,7 @@ export class TaskTrackerManager {
     }
 
     this.saveConnections(connections)
-    return connections[idx]
+    return ok(connections[idx])
   }
 
   removeConnection(connectionId: string): void {

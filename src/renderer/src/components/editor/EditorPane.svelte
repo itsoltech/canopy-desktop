@@ -513,10 +513,16 @@
         {@const showIndicatorAfter =
           dragActive && dropIndex === idx + 1 && idx === editorFiles.length - 1}
         {#if showIndicatorBefore}<span class="sub-tab-drop-indicator"></span>{/if}
-        <button
+        <!-- A div, not a button: the close control below is itself interactive,
+             and nesting one button inside another is invalid and confuses
+             assistive tech. `role="tab"` matches the strip's `role="tablist"`. -->
+        <div
           class="sub-tab"
           class:active={isActive}
           class:dragging={draggingPath === file.filePath}
+          role="tab"
+          aria-selected={isActive}
+          tabindex="0"
           draggable="true"
           ondragstart={(e) => handleSubTabDragStart(e, file.filePath)}
           ondragover={(e) => handleSubTabDragOver(e, idx)}
@@ -529,15 +535,24 @@
             }
           }}
           onclick={() => handleSubTabClick(file.filePath)}
+          onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleSubTabClick(file.filePath)
+            }
+          }}
           oncontextmenu={(e) => handleSubTabDetach(e, file.filePath)}
           title={file.filePath + '\nMiddle-click: close · Drag to reorder · Drag out to new tab'}
         >
           {#if file.dirty}<span class="sub-tab-dirty" aria-label="Unsaved changes">●</span>{/if}
           <span class="sub-tab-name">{name}</span>
+          <!-- tabindex 0, not -1: closing a file was previously mouse-only.
+               `handleSubTabClose` already stops propagation, so activating it
+               does not also switch to the tab. -->
           <span
             class="sub-tab-close"
             role="button"
-            tabindex="-1"
+            tabindex="0"
             aria-label="Close file"
             title="Close"
             onclick={(e) => handleSubTabClose(e, file.filePath)}
@@ -550,7 +565,7 @@
           >
             <X size={11} />
           </span>
-        </button>
+        </div>
         {#if showIndicatorAfter}<span class="sub-tab-drop-indicator"></span>{/if}
       {/each}
     </div>

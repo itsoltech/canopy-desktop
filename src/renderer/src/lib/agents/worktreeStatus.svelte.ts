@@ -1,5 +1,5 @@
 import { match, P } from 'ts-pattern'
-import { agentSessions } from './agentState.svelte'
+import { agentSessions, type AgentStatus } from './agentState.svelte'
 import { getTabsForWorktree } from '../stores/tabs.svelte'
 import { allPanes } from '../stores/splitTree'
 
@@ -13,13 +13,17 @@ const statusPriority: Record<AggregateAgentStatus, number> = {
   waitingPermission: 4,
 }
 
-function statusTypeToAggregate(t: string): AggregateAgentStatus {
+// Takes the caller's own union rather than `string` so `.exhaustive()` applies:
+// a new `AgentStatus` variant then fails the build here instead of silently
+// aggregating to 'none' and hiding a live agent from the worktree indicator.
+function statusTypeToAggregate(t: AgentStatus['type']): AggregateAgentStatus {
   return match(t)
     .with('waitingPermission', () => 'waitingPermission' as const)
     .with('error', () => 'error' as const)
     .with(P.union('thinking', 'toolCalling', 'compacting'), () => 'working' as const)
     .with('idle', () => 'idle' as const)
-    .otherwise(() => 'none' as const)
+    .with(P.union('inactive', 'starting', 'ended'), () => 'none' as const)
+    .exhaustive()
 }
 
 export function getWorktreeAgentStatus(worktreePath: string): AggregateAgentStatus {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match, P } from 'ts-pattern'
   import { X } from '@lucide/svelte'
 
   // Searchable GitHub-login picker: chips for picked users + a filter input with suggestions.
@@ -77,24 +78,34 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      if (!open) open = true
-      else focusedIndex = Math.min(focusedIndex + 1, suggestions.length - 1)
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      focusedIndex = Math.max(focusedIndex - 1, 0)
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      if (open && suggestions[focusedIndex]) add(suggestions[focusedIndex])
-      else if (query.trim()) add(query)
-    } else if (e.key === 'Escape' && open) {
+    match(e.key)
+      .with('ArrowDown', () => {
+        e.preventDefault()
+        if (!open) open = true
+        else focusedIndex = Math.min(focusedIndex + 1, suggestions.length - 1)
+      })
+      .with('ArrowUp', () => {
+        e.preventDefault()
+        focusedIndex = Math.max(focusedIndex - 1, 0)
+      })
+      .with('Enter', () => {
+        e.preventDefault()
+        if (open && suggestions[focusedIndex]) add(suggestions[focusedIndex])
+        else if (query.trim()) add(query)
+      })
       // Only swallow Escape while the dropdown is open — otherwise it closes the dialog.
-      e.stopPropagation()
-      open = false
-    } else if (e.key === 'Backspace' && query === '' && selected.length > 0) {
-      remove(selected[selected.length - 1])
-    }
+      .with(
+        P.when((key) => key === 'Escape' && open),
+        () => {
+          e.stopPropagation()
+          open = false
+        },
+      )
+      .with(
+        P.when((key) => key === 'Backspace' && query === '' && selected.length > 0),
+        () => remove(selected[selected.length - 1]),
+      )
+      .otherwise(() => {})
   }
 </script>
 

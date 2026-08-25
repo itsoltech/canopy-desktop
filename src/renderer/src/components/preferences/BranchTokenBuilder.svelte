@@ -248,6 +248,9 @@
           autocomplete="off"
           title={separatorTitle}
         />
+        <!-- role="group", not "button": the chip only responds to ←/→ (and holds
+             its own Remove button), so announcing it as a button would promise an
+             Enter/Space action that does nothing. -->
         <span
           class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-xs font-mono cursor-grab select-none bg-accent-bg text-accent-text border active:cursor-grabbing hover:border-focus-ring {dragOverIdx ===
           i
@@ -277,7 +280,7 @@
               void moveFieldByKeyboard(i, 1)
             }
           }}
-          role="button"
+          role="group"
           tabindex="0"
           data-chip-field={field}
           aria-label={`{${field}} — arrow keys reorder`}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
+  import { match } from 'ts-pattern'
   import { X, ExternalLink, Copy, GitPullRequest, LoaderCircle, RefreshCw } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -29,7 +30,7 @@
     error = ''
     remoteBranchAlive = null
     // A refresh replaces `pr` — any armed destructive action would confirm against stale state.
-    armed = null
+    disarm()
     try {
       pr = await window.api.taskTrackerPRDetails(repoRoot, branch)
       if (!pr) error = `No pull request found for ${branch}`
@@ -66,18 +67,21 @@
 
   let stateChip = $derived(prStateChip(pr?.state, pr?.isDraft))
 
-  let reviewChip = $derived.by(() => {
-    switch (pr?.reviewDecision) {
-      case 'APPROVED':
-        return { label: 'Approved', cls: 'bg-success-bg text-success-text' }
-      case 'CHANGES_REQUESTED':
-        return { label: 'Changes requested', cls: 'bg-danger-bg text-danger-text' }
-      case 'REVIEW_REQUIRED':
-        return { label: 'Review required', cls: 'bg-warning-bg text-warning-text' }
-      default:
-        return null
-    }
-  })
+  // `reviewDecision` is typed `string | null` (gh CLI passthrough), so this
+  // stays on `.otherwise()` rather than `.exhaustive()`.
+  let reviewChip = $derived(
+    match(pr?.reviewDecision)
+      .with('APPROVED', () => ({ label: 'Approved', cls: 'bg-success-bg text-success-text' }))
+      .with('CHANGES_REQUESTED', () => ({
+        label: 'Changes requested',
+        cls: 'bg-danger-bg text-danger-text',
+      }))
+      .with('REVIEW_REQUIRED', () => ({
+        label: 'Review required',
+        cls: 'bg-warning-bg text-warning-text',
+      }))
+      .otherwise(() => null),
+  )
 
   // statusCheckRollup entries mix check-runs (status/conclusion) and statuses (state).
   let checksChip = $derived.by(() => {
@@ -114,16 +118,14 @@
   })
 
   function reviewerChip(state: string): { label: string; cls: string } {
-    switch (state) {
-      case 'APPROVED':
-        return { label: 'approved', cls: 'bg-success-bg text-success-text' }
-      case 'CHANGES_REQUESTED':
-        return { label: 'changes requested', cls: 'bg-danger-bg text-danger-text' }
-      case 'PENDING':
-        return { label: 'pending', cls: 'bg-warning-bg text-warning-text' }
-      default:
-        return { label: 'commented', cls: 'bg-active text-text-muted' }
-    }
+    return match(state)
+      .with('APPROVED', () => ({ label: 'approved', cls: 'bg-success-bg text-success-text' }))
+      .with('CHANGES_REQUESTED', () => ({
+        label: 'changes requested',
+        cls: 'bg-danger-bg text-danger-text',
+      }))
+      .with('PENDING', () => ({ label: 'pending', cls: 'bg-warning-bg text-warning-text' }))
+      .otherwise(() => ({ label: 'commented', cls: 'bg-active text-text-muted' }))
   }
 
   let assigneeNames = $derived(
@@ -149,6 +151,22 @@
   // --- Mutating actions: gated by state + reviews; every action needs a second confirming click.
   let acting = $state<'merge' | 'close' | 'delete' | null>(null)
   let armed = $state<'merge' | 'close' | 'delete' | null>(null)
+  // Merge/close/delete-branch arm on the first click and fire on the second.
+  // Without an expiry the armed state persists indefinitely, so a click at the
+  // same spot minutes later — after the user's attention moved elsewhere —
+  // executes an irreversible GitHub action with no confirmation on screen.
+  const ARM_TIMEOUT_MS = 5000
+  let armTimer: ReturnType<typeof setTimeout> | null = null
+
+  function disarm(): void {
+    if (armTimer) {
+      clearTimeout(armTimer)
+      armTimer = null
+    }
+    armed = null
+  }
+
+  onDestroy(disarm)
   let mergeStrategy = $state<'merge' | 'squash' | 'rebase'>('merge')
   let deleteBranchAfter = $state(false)
 
@@ -166,10 +184,12 @@
     // cleanly (a failed refresh clears `pr`, but keep the error gate as defense in depth).
     if (!pr || acting || loading || error) return
     if (armed !== kind) {
+      disarm()
       armed = kind
+      armTimer = setTimeout(disarm, ARM_TIMEOUT_MS)
       return
     }
-    armed = null
+    disarm()
     acting = kind
     try {
       if (kind === 'merge') {

@@ -137,7 +137,10 @@ async function confirmSessionGrant(method: RpcMethodName): Promise<boolean> {
 }
 
 function describeSessionGrant(method: RpcMethodName): string {
-  return match(method as string)
+  // Not widened to `string`: matching on the literal union makes the compiler
+  // flag a renamed method here, rather than silently degrading this
+  // confirmation prompt to the generic `execute <method>` wording.
+  return match(method)
     .with('pty.write', () => 'type into any terminal')
     .with('agent.sendInput', () => 'send prompts to any agent')
     .otherwise(() => `execute ${method}`)
@@ -168,7 +171,9 @@ async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promi
 
 function describeAction(method: RpcMethodName, params: unknown): string {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>
-  return match(method as string)
+  // See `describeSessionGrant` — the literal union is what keeps these
+  // descriptions in step with the RPC method list.
+  return match(method)
     .with('tools.spawn', () => `spawn tool "${p.toolId}" in ${p.worktreePath}`)
     .with('tabs.close', () => `close tab ${p.tabId}`)
     .with('tabs.activate', () => `activate tab ${p.tabId}`)

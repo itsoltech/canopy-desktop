@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
+
   interface Props {
     value: string | number
     min?: number
@@ -61,21 +63,26 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      increment()
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      decrement()
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      commit(editValue)
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      cancelNextBlur = true
-      editing = false
-      ;(e.currentTarget as HTMLInputElement).blur()
-    }
+    match(e.key)
+      .with('ArrowUp', () => {
+        e.preventDefault()
+        increment()
+      })
+      .with('ArrowDown', () => {
+        e.preventDefault()
+        decrement()
+      })
+      .with('Enter', () => {
+        e.preventDefault()
+        commit(editValue)
+      })
+      .with('Escape', () => {
+        e.preventDefault()
+        cancelNextBlur = true
+        editing = false
+        ;(e.currentTarget as HTMLInputElement).blur()
+      })
+      .otherwise(() => {})
   }
 
   function handleBlur(): void {

@@ -54,6 +54,9 @@
   let homedir = $state('')
   let refreshing = $state(false)
   let containerEl: HTMLDivElement | undefined = $state()
+  // Restore focus to the opener on close. Captured/released via onDestroy rather
+  // than an onMount teardown because this onMount is async.
+  let previouslyFocused: HTMLElement | null = null
 
   // "From task" mode: the picked task + the branch name generated from it (the task list
   // itself — projects, filters, search — lives in the shared TaskListPicker).
@@ -132,6 +135,7 @@
   }
 
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))
     try {
@@ -170,6 +174,7 @@
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
+    previouslyFocused?.focus?.()
   })
 
   function initSetupTerminal(container: HTMLDivElement): void {

@@ -1,6 +1,5 @@
 import { app } from 'electron'
 import { ok, err, errAsync, okAsync, type Result, type ResultAsync } from 'neverthrow'
-import { match, P } from 'ts-pattern'
 import type { Database } from '../db/Database'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { CredentialStore } from '../db/CredentialStore'
@@ -183,17 +182,17 @@ export class SettingsExportService {
           reason: `profiles[${i}].prefs must be an object`,
         })
       }
-      const apiKey = match(entry.apiKey)
-        .with(P.string, (s) => s)
-        .with(null, () => null)
-        .with(undefined, () => null)
-        .otherwise(() => null)
+      // Two outcomes, not four — the convention reserves `match` for real
+      // multi-branch unions.
+      const apiKey = typeof entry.apiKey === 'string' ? entry.apiKey : null
 
       out.push({
         agentType: entry.agentType as AgentType,
         name: entry.name,
         isDefault: entry.isDefault === true,
         sortIndex: typeof entry.sortIndex === 'number' ? entry.sortIndex : 0,
+        // Opaque per-agent override bag; only its object-ness is checked above
+        // (each agent adapter validates the subset of keys it reads).
         prefs: entry.prefs as ProfilePrefs,
         apiKey,
       })
