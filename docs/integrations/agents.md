@@ -186,6 +186,15 @@ One further variable passes the blocklist but should be left unset: `CLAUDE_CODE
 
 **Making `/model` picks survive a resume.** Canopy appends `--model` from the profile's Model field on every spawn _and_ every resume — `getResumeArgs` runs first, `getCliArgs` immediately after (`commands/tabCommands.ts`) — so an explicit flag re-asserts the profile's model each time the session restarts, overriding whatever `/model` the user picked inside the pane. To let a `/model` pick stick instead, leave the Model field blank and set `ANTHROPIC_DEFAULT_MODEL` in `customEnv` (Claude Code 2.1.236+): it sets the model new sessions start on, and a `/model` override persists across restarts. `ANTHROPIC_MODEL` is not a substitute — it forces the model and `/model` cannot override it.
 
+**Curating the `/model` list with `modelPicker`.** Once the Model field is blank, `/model` inside the
+pane is what chooses the model — and Claude Code 2.1.243+ accepts a `modelPicker` setting that
+replaces or extends the built-in lineup with an ordered, labeled list. It reaches the CLI through the
+profile's Settings JSON field like any other override. This matters more on Canopy than on a bare
+terminal because the Model field's own hint suggests short names (`sonnet`, `opus`, `haiku`) while
+Bedrock, Vertex and Foundry profiles need those providers' own id spellings — `modelPicker` accepts
+any spelling, so a provider profile can offer the ids that actually work on it instead of leaving the
+user to type one.
+
 **`keybindingFlavor: "readline"` only takes effect on macOS.** Claude Code 2.1.238+ accepts a
 `keybindingFlavor` setting; `"readline"` makes Ctrl+W in its prompt delete back to the previous
 whitespace, as in Bash (the default `"classic"` is unchanged). It reaches the CLI through the
@@ -205,6 +214,22 @@ virtualized scrollback, so the transcript stops accumulating in the pane's xterm
 preserve — scrolling that session means scrolling inside Claude Code, not the pane. To keep the
 previous main-screen rendering, put `{ "tui": "default" }` in the profile's Settings JSON field; it
 is merged into the per-session `settings.json` like any other override.
+
+**`promptCacheTtl` is worth raising for panes you leave parked.** Claude Code 2.1.243+ accepts
+`promptCacheTtl` and `subagentPromptCacheTtl`, which extend the prompt cache from the default 5
+minutes to 1 hour. Both reach the CLI through the profile's Settings JSON field. They were added for
+API-key and cloud-provider users, which is every Canopy pane — Canopy authenticates Claude Code with
+`ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` or the Bedrock/Vertex/Foundry flags, never an interactive
+subscription login. The usage pattern fits too: agent panes sit parked across worktrees and tabs and
+get returned to well after five minutes, so under the default TTL the cache has expired and each
+return re-writes the whole prefix.
+
+It is a cost tradeoff, not a free win. Cache reads bill at roughly 0.1x base input either way, but a
+cache _write_ costs 1.25x at the 5-minute TTL and 2x at 1 hour — so break-even moves from two reads
+to three. Raising it pays off on panes returned to repeatedly with a large accumulated context, and
+costs more on panes used once and closed. Raise `promptCacheTtl` alone and leave
+`subagentPromptCacheTtl` at the default: that split is what the setting pair is for, since subagents
+are short-lived and usually never re-read their prefix at all.
 
 ## Error states
 
