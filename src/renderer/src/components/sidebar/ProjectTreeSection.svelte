@@ -345,6 +345,14 @@
       }[status] ?? 'bg-text-faint'
     )
   }
+
+  // The badge dot is aria-hidden and differs only by colour, so "needs your
+  // permission" and "has new output" are indistinguishable without this suffix.
+  function badgeSuffix(badge: string): string {
+    if (badge === 'permission') return ' — waiting for permission'
+    if (badge === 'unread') return ' — new output'
+    return ''
+  }
 </script>
 
 <svelte:window onkeydown={handleCtxKeydown} />
@@ -515,8 +523,12 @@
                   class:inline-flex={agentStatus !== 'none'}
                   class:items-center={agentStatus !== 'none'}
                   class:justify-center={agentStatus !== 'none'}
-                  title={agentStatus !== 'none' ? `Agent: ${agentStatus}` : undefined}
-                  aria-label={agentStatus !== 'none' ? `Agent status: ${agentStatus}` : undefined}
+                  title={agentStatus !== 'none'
+                    ? `Agent: ${agentStatus}${badgeSuffix(wtBadge)}`
+                    : undefined}
+                  aria-label={agentStatus !== 'none'
+                    ? `Agent status: ${agentStatus}${badgeSuffix(wtBadge)}`
+                    : undefined}
                 >
                   {#if agentStatus !== 'none'}
                     <span

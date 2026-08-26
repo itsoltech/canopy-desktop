@@ -598,7 +598,7 @@
   </div>
 
   {#if externalChangeDetected}
-    <div class="conflict-banner">
+    <div class="conflict-banner" role="alert">
       <span>File modified on disk</span>
       <div class="conflict-actions">
         <button class="conflict-btn" onclick={reloadAndDiscard}>Reload (discard changes)</button>
@@ -608,7 +608,7 @@
   {/if}
 
   {#if saveError}
-    <div class="error-banner">
+    <div class="error-banner" role="alert">
       <span>{saveError}</span>
       <button
         class="dismiss-btn"
@@ -622,7 +622,7 @@
   {/if}
 
   {#if fileDeleted}
-    <div class="deleted-banner">
+    <div class="deleted-banner" role="alert">
       <FileX size={14} />
       <span>File deleted from disk</span>
       <button

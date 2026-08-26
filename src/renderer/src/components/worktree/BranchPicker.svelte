@@ -43,9 +43,16 @@
     query ? allBranches.filter((b) => fuzzyMatch(b, query.toLowerCase())) : allBranches,
   )
 
+  // Big repos carry thousands of local+remote refs, and an unfiltered open would
+  // mount every one as a real row. Cap the rendered set the same way TaskListPicker
+  // does and tell the user when there is more behind the filter.
+  const DISPLAY_LIMIT = 200
+  let displayedBranches = $derived(filteredBranches.slice(0, DISPLAY_LIMIT))
+  let hiddenCount = $derived(filteredBranches.length - displayedBranches.length)
+
   $effect(() => {
-    if (selectedIdx >= filteredBranches.length) {
-      selectedIdx = Math.max(0, filteredBranches.length - 1)
+    if (selectedIdx >= displayedBranches.length) {
+      selectedIdx = Math.max(0, displayedBranches.length - 1)
     }
   })
 
@@ -78,17 +85,17 @@
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       listOpen = true
-      selectedIdx = (selectedIdx + 1) % Math.max(1, filteredBranches.length)
+      selectedIdx = (selectedIdx + 1) % Math.max(1, displayedBranches.length)
       scrollIntoView()
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       listOpen = true
       selectedIdx =
-        (selectedIdx - 1 + filteredBranches.length) % Math.max(1, filteredBranches.length)
+        (selectedIdx - 1 + displayedBranches.length) % Math.max(1, displayedBranches.length)
       scrollIntoView()
-    } else if (e.key === 'Enter' && filteredBranches.length > 0) {
+    } else if (e.key === 'Enter' && displayedBranches.length > 0) {
       e.preventDefault()
-      const branch = filteredBranches[selectedIdx]
+      const branch = displayedBranches[selectedIdx]
       pick(branch)
       onCommit?.()
     }
@@ -144,7 +151,7 @@
       {#if filteredBranches.length === 0}
         <div class="px-2.5 py-4 text-center text-md text-text-faint">No branches found</div>
       {:else}
-        {#each filteredBranches as branch, i (branch)}
+        {#each displayedBranches as branch, i (branch)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div
             class="flex items-baseline px-2.5 py-1.5 text-md text-text cursor-pointer transition-colors duration-fast hover:bg-active"
@@ -157,14 +164,20 @@
             onclick={() => pick(branch)}
             onpointerenter={() => (selectedIdx = i)}
           >
-            <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
-              >{branch}</span
+            <span
+              class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+              title={branch}>{branch}</span
             >
             {#if showRemoteOnlyTag && isRemoteOnly(branch, branches)}
               <span class="ml-2 text-xs text-text-faint flex-shrink-0">(remote only)</span>
             {/if}
           </div>
         {/each}
+        {#if hiddenCount > 0}
+          <div class="px-2.5 py-1.5 text-center text-xs text-text-faint">
+            {hiddenCount} more — keep typing to narrow the list
+          </div>
+        {/if}
       {/if}
     </div>
   {/if}

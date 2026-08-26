@@ -1,4 +1,4 @@
-import { match } from 'ts-pattern'
+import { match, P } from 'ts-pattern'
 import type { TrackerProviderKind } from './types'
 
 export interface NewTaskFieldVisibility {
@@ -12,21 +12,26 @@ export interface NewTaskFieldVisibility {
 /** Which create-form fields a provider supports (GitHub issues have no project/type/board;
  *  its milestones stand in for sprints). */
 export function visibleFields(provider: TrackerProviderKind): NewTaskFieldVisibility {
-  return match(provider)
-    .with('github', () => ({
-      project: false,
-      type: false,
-      board: false,
-      sprint: true,
-      sprintLabel: 'Milestone',
-    }))
-    .otherwise(() => ({
-      project: true,
-      type: true,
-      board: true,
-      sprint: true,
-      sprintLabel: 'Sprint',
-    }))
+  return (
+    match(provider)
+      .with('github', () => ({
+        project: false,
+        type: false,
+        board: false,
+        sprint: true,
+        sprintLabel: 'Milestone',
+      }))
+      // Exhaustive rather than `.otherwise()`: a new provider should fail to compile
+      // here instead of silently inheriting the Jira field set.
+      .with(P.union('jira', 'youtrack'), () => ({
+        project: true,
+        type: true,
+        board: true,
+        sprint: true,
+        sprintLabel: 'Sprint',
+      }))
+      .exhaustive()
+  )
 }
 
 export interface BoardLike {

@@ -154,7 +154,7 @@ export class GlobalConfigManager {
 
     try {
       const connections = JSON.parse(connectionsRaw) as TaskTrackerConnection[]
-      if (connections.length === 0) {
+      if (!Array.isArray(connections) || connections.length === 0) {
         this.preferencesStore.set(MIGRATION_FLAG_KEY, '1')
         return
       }
@@ -218,10 +218,15 @@ export class GlobalConfigManager {
 
       this.save(config)
 
-      // Migrate ALL tokens: old key (taskTracker.token.{uuid}) → new key (provider:baseUrl)
+      // Migrate ALL tokens: old key (taskTracker.token.{uuid}) → new key (provider:baseUrl).
+      // Isolate each connection: the migration flag is set unconditionally below, so a
+      // throw that escaped this loop would permanently skip every connection after the
+      // failing one. The plaintext key is deleted only once its replacement is stored,
+      // so a failed connection keeps a recoverable token rather than losing it.
       for (const conn of connections) {
-        const oldToken = this.preferencesStore.get(conn.authPrefKey)
-        if (oldToken && conn.baseUrl) {
+        try {
+          const oldToken = this.preferencesStore.get(conn.authPrefKey)
+          if (!oldToken || !conn.baseUrl) continue
           const existingCreds = this.keychainTokenStore.getCredentials(conn.provider, conn.baseUrl)
           if (!existingCreds) {
             this.keychainTokenStore.setCredentials(
@@ -233,6 +238,11 @@ export class GlobalConfigManager {
           }
           // Delete old plaintext token from preferences
           this.preferencesStore.delete(conn.authPrefKey)
+        } catch (e) {
+          console.error(
+            `[GlobalConfigManager] Token migration failed for ${conn.provider} (${conn.baseUrl}):`,
+            e,
+          )
         }
       }
     } catch (e) {
