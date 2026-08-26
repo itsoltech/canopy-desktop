@@ -215,6 +215,17 @@ preserve — scrolling that session means scrolling inside Claude Code, not the 
 previous main-screen rendering, put `{ "tui": "default" }` in the profile's Settings JSON field; it
 is merged into the per-session `settings.json` like any other override.
 
+Claude Code 2.1.246 fixes the two fullscreen defects that hit Canopy hardest: a blank transcript
+after the terminal is resized, which recovered only on the next keypress, and erratic scrolling when
+the view sat at an earlier message, including jump-to-bottom sticking mid-transcript. Both are
+easier to reach in a Canopy pane than in a standalone terminal, because Canopy drives the resize
+path from three places a plain terminal does not — a debounced `ResizeObserver` on each pane
+container, a `resizePty` re-assert on focus and click, and another on reattach, all in
+`TerminalInstance.svelte` — so splitting a pane, resizing the window and switching tabs each trigger
+it. If a Bedrock, Vertex or Foundry profile was switched to `{ "tui": "default" }` to escape blank or
+jumpy output rather than out of a preference for main-screen rendering, that reason no longer
+applies once the user's `claude` binary is on 2.1.246 or later.
+
 **`promptCacheTtl` is worth raising for panes you leave parked.** Claude Code 2.1.243+ accepts
 `promptCacheTtl` and `subagentPromptCacheTtl`, which extend the prompt cache from the default 5
 minutes to 1 hour. Both reach the CLI through the profile's Settings JSON field. They were added for
