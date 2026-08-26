@@ -57,9 +57,18 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > apply it: `RELEASE_TOKEN` has no `workflow` scope, so pushing a `.github/workflows/` change is
 > rejected. It needs a maintainer.
 
-> **Use `WebFetch` — it works, despite not being listed in `--allowedTools`.** An earlier note here
-> claimed the raw-content fallback was denied too. That was wrong, and it cost twelve runs a
-> recoverable coverage gap. Verified working on the v2.1.241 → v2.1.245 run:
+> **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
+> It is not listed in `--allowedTools`, and it has gone both ways: the v2.1.241 → v2.1.245 run used
+> it successfully, and the v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied
+> ("Claude requested permissions to use WebFetch, but you haven't granted it yet") on every attempt,
+> across two different URLs. Do not assume either answer from this file. Issue one fetch, record
+> which way it went in the PR body, and proceed on that basis.
+>
+> **If it is denied**, the release notes pasted into this prompt are your only source. Truncated
+> "… +N more CLI changelog entries" lines are then genuinely unrecoverable for that run — say so
+> plainly rather than presenting release-notes-only analysis as a full diff review.
+>
+> **If it works**, these routes return usable content:
 >
 > - `https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md` — the **official**
 >   changelog. This is the important one: it recovers the entries the release notes drop behind
