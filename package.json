@@ -34,7 +34,7 @@
     "_perf:note": "perf:* scripts use Unix env var syntax (macOS/Linux only)"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.245",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.246",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/language": "^6.12.4",
