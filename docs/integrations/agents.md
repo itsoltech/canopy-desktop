@@ -242,6 +242,22 @@ costs more on panes used once and closed. Raise `promptCacheTtl` alone and leave
 `subagentPromptCacheTtl` at the default: that split is what the setting pair is for, since subagents
 are short-lived and usually never re-read their prefix at all.
 
+**`feedbackDrafts` is worth turning off on profiles that run against private repositories.** Claude
+Code 2.1.247 adds a `SendFeedback` tool: when something goes wrong in a session, Claude can draft a
+feedback report for the user to review and send from `/feedback`. The `feedbackDrafts` setting
+disables it, and reaches the CLI through the profile's Settings JSON field like any other override.
+Nothing leaves the machine until the user opens `/feedback` and sends it, so this is about what gets
+drafted, not about silent egress — but what gets drafted in a Canopy pane is drawn from a session
+working in a real worktree, so it can quote repository content, file paths and command output from
+whatever the agent was doing when it failed. Because the setting is per-profile, a profile used for
+client or private work can carry `{ "feedbackDrafts": false }` while a general-purpose profile leaves
+drafting on.
+
+Canopy surfaces the tool no differently from any other. `SendFeedback` arrives as an ordinary
+`PreToolUse` event, so the notch shows `toolCalling` with the detail built by `summarizeToolInput`
+like every other tool; `formatNotification` fires only on `PermissionRequest`, so there is no
+separate notification. The draft itself stays inside the pane.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
