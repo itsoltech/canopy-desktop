@@ -249,6 +249,7 @@
           class:pl-2={isVisibleFile}
           class:pr-2.5={true}
           class:pl-2.5={!isVisibleFile}
+          title={file.path}
           role="button"
           tabindex="0"
           onclick={() => handleClick(file)}

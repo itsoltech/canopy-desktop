@@ -208,7 +208,12 @@ export class CrashReporter {
   }
 
   private writeCrashReport(report: CrashReport): void {
-    writeFileSync(this.reportPath, JSON.stringify(this.toPublicCrashReport(report), null, 2))
+    // 0o600 like the browser capture files: the payload is sanitized, but
+    // redaction is pattern-based and an unanticipated secret format could
+    // survive it, so don't leave the report world-readable.
+    writeFileSync(this.reportPath, JSON.stringify(this.toPublicCrashReport(report), null, 2), {
+      mode: 0o600,
+    })
   }
 }
 

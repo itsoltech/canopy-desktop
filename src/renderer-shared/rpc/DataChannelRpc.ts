@@ -50,6 +50,14 @@ function randomRpcId(): string {
  * `dispose()` is invoked.
  */
 
+/**
+ * Upper bound on a single inbound RPC frame, mirroring `MAX_MESSAGE_BYTES` in
+ * `SignalingServer`. Generous relative to real traffic (PTY chunks, state
+ * snapshots) but small enough that a hostile peer cannot force a huge
+ * allocation in `JSON.parse`.
+ */
+const MAX_FRAME_CHARS = 1024 * 1024
+
 type PendingRequest = {
   resolve: (v: unknown) => void
   reject: (e: Error) => void
@@ -172,6 +180,15 @@ export class DataChannelRpc {
       text = ev.data
     } else {
       console.warn(`[${this.label}] dropped non-text frame`)
+      return
+    }
+    // Bound the frame before parsing. The signaling WebSocket gets this for
+    // free from `ws`'s maxPayload, but a data channel has no equivalent, so a
+    // peer running a non-browser WebRTC stack could otherwise force an
+    // unbounded string allocation here. Terminal chunks and state snapshots
+    // are far below this ceiling.
+    if (text.length > MAX_FRAME_CHARS) {
+      console.warn(`[${this.label}] dropped oversized frame (${text.length} chars)`)
       return
     }
     let parsed: RpcMessage
