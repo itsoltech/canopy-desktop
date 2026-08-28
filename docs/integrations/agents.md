@@ -28,7 +28,7 @@ Session state is tracked in the renderer via `agentSessions`, a reactive record 
 
 ### Agent-specific setup
 
-**Claude Code:** Writes a temporary `settings.json` at `{userData}/canopy/agent-hooks/session-{uuid}.json` with hooks for 16 event types and an optional `statusLine` command. Passes `--settings {path}` to the CLI. Supports `--model`, `--permission-mode`, `--effort`, `--append-system-prompt` from preferences. Env vars: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, provider flags (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`), and arbitrary custom env vars (with blocklist filtering).
+**Claude Code:** Writes a temporary `settings.json` at `{userData}/canopy/agent-hooks/session-{uuid}.json` with hooks for 18 event types and an optional `statusLine` command. Passes `--settings {path}` to the CLI. Supports `--model`, `--permission-mode`, `--effort`, `--append-system-prompt` from preferences. Env vars: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, provider flags (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`), and arbitrary custom env vars (with blocklist filtering).
 
 **Codex:** Writes hooks to `.codex/hooks.json` inside the worktree directory. Adds `.codex/` to `.gitignore` if not already present. Uses refcounting for concurrent sessions sharing the same worktree. On cleanup, restores the original `hooks.json` content (or removes the file/directory if Canopy created it). Passes `--enable hooks` plus `--model`, `--ask-for-approval`, `--sandbox`, `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`, `--profile` from preferences. Observes prompt, tool, compact, subagent-stop, and idle lifecycle hooks without returning hook decisions. Env vars: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, custom env.
 
@@ -59,7 +59,11 @@ Each agent emits events in its own protocol. Adapters map these to a common set 
 | `TaskCompleted`       | `TaskCompleted`      | -                  | -                              | -                   |
 | `TeammateIdle`        | `TeammateIdle`       | -                  | -                              | -                   |
 
-Events that do not map to a known name are normalized as `Unknown`.
+Events that do not map to a known name are normalized as `Unknown`. Some events are subscribed to
+deliberately without a normalized name, because only their payload is wanted: Claude Code's
+`PreModelSwitch`/`PostModelSwitch` (2.1.251+) and Gemini's `BeforeModel`/`AfterModel` all resolve to
+`Unknown`. `handleHookEvent` assigns `session.model` from any event that carries `model` before it
+branches on the event name, so a model switch updates the Agent Inspector without needing one.
 
 ### Session state tracking
 
@@ -298,6 +302,37 @@ escape hatch for the split recommended above: a worktree can give a single long-
 one-hour cache while `subagentPromptCacheTtl` stays unset profile-wide, instead of the all-or-nothing
 choice the settings pair forces. It lives in the agent file in the repository rather than in the
 profile, so it is scoped per worktree, not per profile.
+
+**Canopy observes model switches but does not police them.** Claude Code 2.1.251 adds
+`PreModelSwitch` and `PostModelSwitch` hooks, and `PreModelSwitch` can block or require confirmation
+for a switch. Canopy subscribes to both, but only to read the model out of the payload — the hook
+script always exits 0 and the hook server answers `{}` for every event except `SessionStart`, so no
+Canopy pane can refuse a switch. That is deliberate. A profile's Model field already re-asserts
+`--model` on every spawn and resume (see the `ANTHROPIC_DEFAULT_MODEL` note above), which is the
+supported way to pin a model; using the hook to reject `/model` outright would make the pane fight
+the user mid-session instead. A user who does want a hard block has to put the hook in their own
+`~/.claude/settings.json`, which Claude Code merges as a separate source; the profile's Settings JSON
+field will not work for it, because `setupSettings` spreads the profile's overrides and then writes
+its own `hooks` key last, replacing any `hooks` the profile supplied. That applies to every hook
+event, not just this one.
+
+**Resumed sessions now report what the resume will cost.** 2.1.251 extends the `SessionStart` payload
+on a resume with the session's staleness and an estimated re-cache cost. Canopy already answers
+`SessionStart` — that is where `buildSessionContext` injects the workspace and worktree — and it
+resumes on every layout restore, so this fires on each restored pane. `normalizeEvent` does not read
+the new fields yet and nothing displays them. They are the missing input to the `promptCacheTtl`
+tradeoff above: the decision to pay a 2x cache write turns on whether a parked pane will still be
+warm when it is returned to, which is exactly what staleness reports.
+
+**Two new status-line fields, neither displayed yet.** 2.1.251 adds `rate_limits.spend_limit`, for
+accounts behind a Claude apps gateway with spend limits, and a top-level `prompt_cache` object (hit
+ratio, misses, tokens re-cached, warm/cold). They reach Canopy differently. `normalizeStatus` passes
+`rate_limits` through whole, so `spend_limit` arrives in the renderer intact, but
+`handleStatusUpdate` flattens only `five_hour` and `seven_day` into the keys `ClaudeExtras` reads, so
+it is carried and ignored. `prompt_cache` is dropped earlier: `normalizeStatus` reads five named keys
+(`version`, `model`, `context_window`, `cost`, `rate_limits`) and discards the rest. Wiring either
+into the Agent Inspector needs the field shapes confirmed against a real 2.1.251 status line first —
+the release notes name the quantities but not the JSON keys.
 
 ## Error states
 
