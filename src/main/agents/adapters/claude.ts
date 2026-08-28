@@ -28,6 +28,8 @@ const CLAUDE_HOOK_EVENTS = [
   'TeammateIdle',
   'PreCompact',
   'PostCompact',
+  'PreModelSwitch',
+  'PostModelSwitch',
   'SessionEnd',
 ]
 
@@ -48,6 +50,12 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
   TaskCompleted: 'TaskCompleted',
   TeammateIdle: 'TeammateIdle',
   SessionEnd: 'SessionEnd',
+  // Model switches carry `model` but no session-status meaning, so they stay
+  // unnamed and are consumed only for that payload — same as Gemini's
+  // BeforeModel/AfterModel. `toNotchStatus` returns null for 'Unknown', which
+  // keeps a switch from overwriting the pane's thinking/toolCalling status.
+  PreModelSwitch: 'Unknown',
+  PostModelSwitch: 'Unknown',
 }
 
 const INTERNAL_BLOCKED = new Set([
