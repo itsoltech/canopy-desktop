@@ -105,6 +105,16 @@
   }
 </script>
 
+<!-- Both dropdowns are otherwise dismissable only by clicking the backdrop,
+     which leaves keyboard users with no way out. Same pattern as RunConfigToolbar. -->
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key !== 'Escape') return
+    if (captureDropdownOpen) closeDropdown()
+    if (deviceDropdownOpen) deviceDropdownOpen = false
+  }}
+/>
+
 <div class="flex items-center gap-1 h-9 px-1.5 bg-bg-input border-b border-active flex-shrink-0">
   <div class="flex items-center gap-0.5 flex-shrink-0">
     <button

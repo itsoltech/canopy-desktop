@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BrowserManager, BROWSER_PARTITION } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -704,6 +704,17 @@ app.whenReady().then(async () => {
       webPreferences.nodeIntegration = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+
+      // Pin the guest to the shared browser partition. Only that session gets
+      // the deny-all permission/device handlers from BrowserManager; an ad-hoc
+      // partition would create a fresh session with no handler at all, so
+      // untrusted content could reach camera, mic, geolocation or device APIs
+      // and escape the storage isolation that keeps browsing data away from
+      // the app session.
+      if (params.partition !== BROWSER_PARTITION) {
+        event.preventDefault()
+        return
+      }
 
       // Only allow http(s) or about:blank as source
       const src = params.src

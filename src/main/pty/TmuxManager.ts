@@ -5,6 +5,7 @@ import os from 'os'
 import { randomUUID } from 'crypto'
 import { is } from '@electron-toolkit/utils'
 import { getLoginEnv } from '../shell/loginEnv'
+import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 
 export interface TmuxSessionInfo {
   name: string
@@ -103,7 +104,13 @@ export class TmuxManager {
     await this.exec(['set-option', '-g', 'mouse', opts.mouse ? 'on' : 'off']).catch(() => {})
     await this.exec(['set-option', '-g', 'set-titles-string', '#T']).catch(() => {})
     await this.exec(['set-option', '-g', 'set-titles', 'on']).catch(() => {})
-    const envArgs = Object.entries(opts.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+    // Defense-in-depth: mirror PtyManager.spawn and drop protected variables
+    // (PATH, LD_PRELOAD, GIT_SSH_COMMAND, …) at the spawn boundary, even
+    // though callers are expected to pre-filter. Keys are normalized to
+    // uppercase to match how BLOCKED_ENV_VARS is declared.
+    const envArgs = Object.entries(opts.env ?? {})
+      .filter(([k]) => !BLOCKED_ENV_VARS.has(k.toUpperCase()))
+      .flatMap(([k, v]) => ['-e', `${k}=${v}`])
     const args = [
       '-f',
       this.configPath,

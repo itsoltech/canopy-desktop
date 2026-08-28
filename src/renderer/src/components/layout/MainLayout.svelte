@@ -209,6 +209,38 @@
     }
   }
 
+  // Dragging was the only way to size these panels, which left keyboard and
+  // switch-access users stuck with whatever width was last set by a pointer.
+  const RESIZE_STEP = 16
+
+  function handleSidebarKeydown(e: KeyboardEvent): void {
+    const next = match(e.key)
+      .with('ArrowLeft', () => sidebarWidth - RESIZE_STEP)
+      .with('ArrowRight', () => sidebarWidth + RESIZE_STEP)
+      .with('Home', () => SIDEBAR_MIN)
+      .with('End', () => SIDEBAR_MAX)
+      .otherwise(() => null)
+    if (next === null) return
+    e.preventDefault()
+    sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, next))
+    setPref('sidebar.width', String(sidebarWidth))
+  }
+
+  function handleRpKeydown(e: KeyboardEvent): void {
+    // Inverted like handleRpPointerMove: the panel sits on the right, so
+    // moving the divider left widens it.
+    const next = match(e.key)
+      .with('ArrowLeft', () => rightPanelWidth + RESIZE_STEP)
+      .with('ArrowRight', () => rightPanelWidth - RESIZE_STEP)
+      .with('Home', () => RPANEL_MIN)
+      .with('End', () => RPANEL_MAX)
+      .otherwise(() => null)
+    if (next === null) return
+    e.preventDefault()
+    rightPanelWidth = Math.min(RPANEL_MAX, Math.max(RPANEL_MIN, next))
+    setPref('rightPanel.width', String(rightPanelWidth))
+  }
+
   let allTabs = $derived(getAllTabs())
   let currentActiveTabId = $derived(
     workspaceState.selectedWorktreePath
@@ -671,10 +703,17 @@
   {:else}
     {#if workspaceState.sidebarOpen && projects.length > 0}
       <Sidebar onLaunchTool={handleLaunchTool} width={sidebarWidth} />
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="w-1 cursor-col-resize bg-transparent flex-shrink-0 transition-colors duration-base hover:bg-accent-muted"
+        class="w-1 cursor-col-resize bg-transparent flex-shrink-0 transition-colors duration-base hover:bg-accent-muted focus-visible:outline-2 focus-visible:outline-focus-ring"
         class:bg-accent-muted={sidebarDragging}
+        role="slider"
+        aria-orientation="horizontal"
+        aria-label="Resize sidebar"
+        aria-valuenow={sidebarWidth}
+        aria-valuemin={SIDEBAR_MIN}
+        aria-valuemax={SIDEBAR_MAX}
+        tabindex="0"
+        onkeydown={handleSidebarKeydown}
         onpointerdown={handleSidebarPointerDown}
         onpointermove={handleSidebarPointerMove}
         onpointerup={handleSidebarPointerUp}
@@ -721,10 +760,17 @@
         </div>
 
         {#if workspaceState.rightPanelOpen && workspaceState.selectedWorktreePath}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="w-px cursor-col-resize bg-transparent flex-shrink-0 relative after:content-empty after:absolute after:inset-y-0 after:-inset-x-1 after:cursor-col-resize hover:bg-accent-muted"
+            class="w-px cursor-col-resize bg-transparent flex-shrink-0 relative after:content-empty after:absolute after:inset-y-0 after:-inset-x-1 after:cursor-col-resize hover:bg-accent-muted focus-visible:outline-2 focus-visible:outline-focus-ring"
             class:bg-accent-muted={rpDragging}
+            role="slider"
+            aria-orientation="horizontal"
+            aria-label="Resize right panel"
+            aria-valuenow={rightPanelWidth}
+            aria-valuemin={RPANEL_MIN}
+            aria-valuemax={RPANEL_MAX}
+            tabindex="0"
+            onkeydown={handleRpKeydown}
             onpointerdown={handleRpPointerDown}
             onpointermove={handleRpPointerMove}
             onpointerup={handleRpPointerUp}
