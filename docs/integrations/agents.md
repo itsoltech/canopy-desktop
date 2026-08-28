@@ -258,6 +258,47 @@ Canopy surfaces the tool no differently from any other. `SendFeedback` arrives a
 like every other tool; `formatNotification` fires only on `PermissionRequest`, so there is no
 separate notification. The draft itself stays inside the pane.
 
+**`CLAUDE_CODE_RESTRICTED` passes the blocklist but should not be set on a Canopy profile.** Claude
+Code 2.1.248 adds `--restricted` and its `CLAUDE_CODE_RESTRICTED=1` equivalent, which removes the
+built-in tools that run commands or code plus WebFetch, keeps file tools inside the working
+directory, refuses `bypassPermissions`, and ignores user, project and local settings files. Nothing
+in it escalates privilege — it only subtracts capability — so `BLOCKED_ENV_VARS` correctly leaves it
+alone, but three of those clauses land badly here. Removing the command and code tools removes most
+of what an agent pane in a terminal workstation is for. Refusing `bypassPermissions` collides with
+the profile's Permission Mode field, which feeds `--permission-mode` and accepts exactly that value,
+so a profile setting both will not start. And the settings clause names user, project and local
+files specifically; Canopy's hooks and status line ride the explicit `--settings {path}` flag, a
+separate channel that should survive, but that is read off the release note rather than tested here.
+If it did not survive, the notch status, tab badges, permission notifications and the
+`agentSessionId` that `--resume` depends on would go dark together, because every one of them is fed
+by the hook script written into that file.
+
+**Bedrock, Vertex and Foundry panes can now message each other.** `SendMessage` and `ListAgents`
+were previously unavailable on those providers and when telemetry is disabled; 2.1.248 enables both
+for sessions on the same machine. Canopy is that case by construction — a workspace runs several
+agent PTYs at once, each its own session — so a machine running these profiles now lists sibling
+panes across the workspace's worktrees and tabs, not just agents spawned inside one pane. The
+adapter needs no change: the resulting traffic arrives as the `SubagentStart`, `SubagentStop` and
+`TeammateIdle` events `EVENT_MAP` already normalizes.
+
+**Two prompt-cache fixes in 2.1.248, only one of which reaches Canopy.** The headline one — a cache
+miss roughly once an hour, caused by tool definitions being re-rendered after an OAuth token refresh
+— does not apply to Canopy panes, which authenticate with `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`
+or the Bedrock/Vertex/Foundry flags and never hold an OAuth token to refresh. The second one does:
+on an account that had entered usage overage, the `ScheduleWakeup` tool definition differed between
+a session and its `--resume`, costing a full cache miss on the resumed session's first turn.
+`getResumeArgs` issues `--resume {agentSessionId}` on every layout restore, so that miss was paid
+once per restored pane. It also changes the arithmetic in the `promptCacheTtl` note above: paying 2x
+to write a one-hour cache only earns out if the session that returns can read it, and a restored
+pane on an overage account could not.
+
+**`experimental.cacheTtl` gives one agent definition its own TTL.** 2.1.248 accepts `cacheTtl`
+(`"5m"` or `"1h"`) in agent frontmatter, used when no subagent TTL setting is configured. That is the
+escape hatch for the split recommended above: a worktree can give a single long-lived subagent a
+one-hour cache while `subagentPromptCacheTtl` stays unset profile-wide, instead of the all-or-nothing
+choice the settings pair forces. It lives in the agent file in the repository rather than in the
+profile, so it is scoped per worktree, not per profile.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
