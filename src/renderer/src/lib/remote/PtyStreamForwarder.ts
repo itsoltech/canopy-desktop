@@ -134,6 +134,11 @@ export class PtyStreamForwarder {
     this.scheduleOffsetEviction(sessionId)
   }
 
+  /** Session ids the peer currently has an active PTY subscription for. */
+  get activeSessionIds(): string[] {
+    return [...this.subscriptions.keys()]
+  }
+
   dispose(): void {
     this.cleanupTerminalStreamState?.()
     this.cleanupTerminalStreamState = null

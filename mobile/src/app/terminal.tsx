@@ -1,10 +1,8 @@
 import * as Clipboard from 'expo-clipboard'
 import { useKeepAwake } from 'expo-keep-awake'
-import { useLocalSearchParams, useRouter } from 'expo-router'
-import { SymbolView } from 'expo-symbols'
+import { Stack, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Pressable, StyleSheet, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { Alert, StyleSheet, View } from 'react-native'
 
 import { TerminalTabBar } from '@/components/terminal/tab-bar'
 import TerminalView, { type TerminalViewHandle } from '@/components/terminal/terminal-view'
@@ -24,7 +22,6 @@ import {
   useTools,
 } from '@/hooks/use-remote-state'
 import { useSavedInstance } from '@/hooks/use-saved-instances'
-import { useTheme } from '@/hooks/use-theme'
 import { wrapAsBracketedPaste } from '@/lib/pty/paste'
 
 export default function TerminalScreen(): React.ReactElement {
@@ -34,8 +31,6 @@ export default function TerminalScreen(): React.ReactElement {
     instanceId: string
     worktreePath: string
   }>()
-  const router = useRouter()
-  const theme = useTheme()
   const colorScheme = useTerminalColorScheme()
   const { instance } = useSavedInstance(instanceId)
   const { state: sessionState } = useRemoteSession()
@@ -326,31 +321,17 @@ export default function TerminalScreen(): React.ReactElement {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.safeArea}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
-            accessibilityLabel="Back"
-          >
-            <SymbolView
-              name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
-              size={20}
-              weight="semibold"
-              tintColor={theme.text}
-            />
-          </Pressable>
-          <View style={styles.titleWrap}>
-            <ThemedText type="smallBold" numberOfLines={1}>
-              {title}
-            </ThemedText>
-            {instance ? (
-              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                {instance.nickname}
-              </ThemedText>
-            ) : null}
-          </View>
-        </View>
+      <Stack.Screen
+        options={{
+          headerLargeTitle: false,
+          headerTitle: () => <TerminalTitle title={title} subtitle={instance?.nickname} />,
+        }}
+      />
+      {/* Wrap the tab bar (a horizontal ScrollView) so it sizes to its content
+          height instead of greedily splitting the column with the terminal slot.
+          It used to be constrained by the SafeAreaView removed in the native-header
+          migration. */}
+      <View style={styles.topBar}>
         <TerminalTabBar
           tabs={tabs}
           activeId={activeTabId}
@@ -365,7 +346,7 @@ export default function TerminalScreen(): React.ReactElement {
             </ThemedText>
           </View>
         ) : null}
-      </SafeAreaView>
+      </View>
 
       <View style={[styles.terminalSlot, { backgroundColor: slotBackground }]}>
         {/*
@@ -399,6 +380,11 @@ export default function TerminalScreen(): React.ReactElement {
             keyboardDisplayRequiresUserAction: false,
             hideKeyboardAccessoryView: true,
             automaticallyAdjustContentInsets: false,
+            // The WebView already fills its slot below the native header; without
+            // this it auto-insets for the header/safe area and pushes the terminal
+            // content down, leaving a large gap (regression from the native-header
+            // migration).
+            contentInsetAdjustmentBehavior: 'never',
             scrollEnabled: false,
           }}
         />
@@ -446,6 +432,27 @@ export default function TerminalScreen(): React.ReactElement {
   )
 }
 
+function TerminalTitle({
+  title,
+  subtitle,
+}: {
+  title: string
+  subtitle?: string
+}): React.ReactElement {
+  return (
+    <View style={styles.headerTitle}>
+      <ThemedText type="smallBold" numberOfLines={1}>
+        {title}
+      </ThemedText>
+      {subtitle ? (
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+          {subtitle}
+        </ThemedText>
+      ) : null}
+    </View>
+  )
+}
+
 function deriveWorktreeLabel(path: string): string {
   if (!path) return 'Worktree'
   const trimmed = path.replace(/\/+$/, '')
@@ -457,29 +464,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  safeArea: {
-    width: '100%',
+  topBar: {
+    flexShrink: 0,
   },
-  header: {
-    flexDirection: 'row',
+  headerTitle: {
     alignItems: 'center',
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.two,
-  },
-  iconBack: {
-    width: Spacing.five,
-    height: Spacing.five,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titleWrap: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  pressed: {
-    opacity: 0.6,
   },
   banner: {
     paddingHorizontal: Spacing.four,

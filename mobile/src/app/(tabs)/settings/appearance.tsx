@@ -1,7 +1,5 @@
-import { useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
-import { Pressable, StyleSheet, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
@@ -25,7 +23,6 @@ const TERMINAL_MODE_OPTIONS: ReadonlyArray<{ id: AppThemeMode; label: string }> 
 ]
 
 export default function AppearanceScreen(): React.ReactElement {
-  const router = useRouter()
   const theme = useTheme()
   const { appTheme, terminalThemeMode, terminalThemeId } = useAppPreferences()
 
@@ -49,27 +46,11 @@ export default function AppearanceScreen(): React.ReactElement {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
-            accessibilityLabel="Back"
-          >
-            <SymbolView
-              name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
-              size={20}
-              weight="semibold"
-              tintColor={theme.text}
-            />
-          </Pressable>
-          <View style={styles.titleWrap}>
-            <ThemedText type="subtitle" numberOfLines={1}>
-              Appearance
-            </ThemedText>
-          </View>
-        </View>
-
+      <ScrollView
+        style={styles.scroll}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.section}>
           <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionLabel}>
             APP THEME
@@ -162,7 +143,7 @@ export default function AppearanceScreen(): React.ReactElement {
             ))}
           </ThemedView>
         </View>
-      </SafeAreaView>
+      </ScrollView>
     </ThemedView>
   )
 }
@@ -171,25 +152,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  safeArea: {
+  scroll: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.three,
-  },
-  iconBack: {
-    width: Spacing.five,
-    height: Spacing.five,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titleWrap: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: Spacing.six,
   },
   section: {
     paddingHorizontal: Spacing.four,

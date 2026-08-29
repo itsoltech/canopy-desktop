@@ -75,6 +75,12 @@ Listen mode keeps the signaling server bound in the background for the lifetime 
 3. If the peer reconnects within the window, the same-device-refresh check allows the pair attempt through, and the trust/accept flow runs again (auto-accept for trusted devices, manual accept otherwise).
 4. If 30 seconds pass without reconnection, the reaper fires. When listen mode is eligible (feature enabled, ≥1 trusted device, server still bound, `currentPairing` populated with host/port), the session drops back to `listening` instead of fully stopping — the port stays bound so the trusted device can wake the session back up later without any UI on the desktop. Otherwise the reaper calls `stop()` and returns to `idle`.
 
+### Shared terminal sizing (smallest client wins)
+
+A PTY session is shared between the desktop and a connected peer. Both view the same terminal, so it has a single size. The host sizes the PTY to the **smallest** attached client's viewport (tmux/zellij style), so terminal output — which the shell/agent lays out for the PTY's column count — is never wider than any viewer's grid. If the PTY were wider than the peer's phone screen, the peer would rewrap every line and cursor-positioning escape sequences (used by TUIs like Claude/Codex for progressive redraws) would land in the wrong cells, duplicating and losing text when scrolling.
+
+The peer's size contribution is **sticky**: it is retained when the peer disconnects (mobile apps are suspended after a short time in the background, while agent tasks run longer, so peers disconnect and reconnect frequently). Keeping the cap avoids flapping the PTY size — and forcing the agent to redraw — every time the phone backgrounds. The PTY grows back to the desktop size only when the desktop user **explicitly returns** to the terminal (focus, keydown, or pointerdown) while the peer is disconnected; a still-connected peer is never overridden. This is implemented by a size arbiter in `PtyManager` and the `pty:resize` / `pty:peerResize` / `pty:peerDetached` / `pty:reclaim` IPC channels; the desktop xterm itself is never resized by this mechanism (it renders the narrower content in its existing grid).
+
 ### Rejecting a device
 
 1. User clicks Reject on the accept prompt.
@@ -92,6 +98,10 @@ While paired, an idle timer of 15 minutes runs. Each signaling message (SDP, ICE
 ### Mobile terminal text selection
 
 The native mobile app (`mobile/src/components/terminal/terminal-view.tsx`) enables xterm's `screenReaderMode`, which creates a DOM-based accessibility tree with selectable text overlaying the canvas. The overlay has `pointer-events: auto` so touch events reach it. The gesture detector distinguishes three interactions: short tap (< 500 ms) focuses the terminal and opens the soft keyboard, swipe scrolls the terminal buffer, and long-press (> 400 ms stationary) yields to the browser's native text selection flow. Selection-edge auto-scroll keeps extending the selection when the drag handle reaches the top or bottom of the terminal viewport.
+
+### Mobile terminal scrolling
+
+A vertical swipe scrolls the terminal. On the **normal** buffer the swipe drives xterm's scrollback (`term.scrollLines()`), letting the user review earlier output. Full-screen TUIs (lazygit, htop, the Claude/Codex agent UIs) render on the **alternate** screen buffer, which has no scrollback — there `scrollLines()` is a dead no-op, so the swipe is instead translated into the input the app itself expects and forwarded to the PTY (`emitAltScrollInput` in `mobile/src/components/terminal/terminal-view.tsx`). When the app tracks the mouse (`term.modes.mouseTrackingMode !== 'none'`, e.g. lazygit) the swipe becomes SGR mouse-wheel reports (`CSI < 64/65 ; col ; row M`) targeted at the cell under the finger so the correct pane scrolls; otherwise it becomes cursor-key presses (`↑`/`↓`, honoring application-cursor-key mode). Direction matches the normal-buffer convention — swiping down reveals older content (wheel-up / arrow-up). Each accumulated terminal row emits one report/keypress, batched into a single PTY write per move event and capped per event so a fast flick cannot flood the data channel.
 
 ### Mobile terminal keyboard toolbar
 
@@ -147,6 +157,7 @@ The trusted device store currently uses device ID matching only. Cryptographic c
 
 - Service: `src/main/remote/RemoteSessionService.ts`
 - Signaling server: `src/main/remote/SignalingServer.ts`
+- Shared PTY size arbiter (smallest-client-wins, sticky peer cap, reclaim): `src/main/pty/PtyManager.ts`
 - Remote client host: `src/main/remote/RemoteClientHost.ts`
 - Network discovery: `src/main/remote/discovery.ts`
 - Certificate provider: `src/main/remote/CertificateProvider.ts`

@@ -1,9 +1,10 @@
 import { CameraView, useCameraPermissions } from 'expo-camera'
-import { useRouter } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { useRef, useState } from 'react'
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
+import { HeaderButton } from '@/components/header-button'
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { Spacing } from '@/constants/theme'
@@ -113,13 +114,18 @@ export default function ScanScreen(): React.ReactElement {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen
+        options={{
+          headerLeft: () => <HeaderButton label="Cancel" onPress={() => router.back()} />,
+        }}
+      />
       <CameraView
         style={StyleSheet.absoluteFill}
         facing="back"
         barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
         onBarcodeScanned={({ data }) => handleScan(data)}
       />
-      <SafeAreaView style={styles.overlay} edges={['top', 'bottom']}>
+      <SafeAreaView style={styles.overlay} edges={['bottom']}>
         <View style={styles.instructions}>
           <ThemedView type="backgroundElement" style={styles.instructionsPill}>
             <ThemedText type="small">Point your camera at the QR on your Canopy desktop</ThemedText>
@@ -131,17 +137,6 @@ export default function ScanScreen(): React.ReactElement {
           <View style={[styles.corner, styles.topRight]} />
           <View style={[styles.corner, styles.bottomLeft]} />
           <View style={[styles.corner, styles.bottomRight]} />
-        </View>
-
-        <View style={styles.footer}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
-          >
-            <ThemedView type="backgroundElement" style={styles.cancelInner}>
-              <ThemedText type="smallBold">Cancel</ThemedText>
-            </ThemedView>
-          </Pressable>
         </View>
       </SafeAreaView>
     </View>
@@ -160,8 +155,9 @@ const styles = StyleSheet.create({
   },
   overlay: {
     flex: 1,
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
+    gap: Spacing.five,
   },
   instructions: {
     paddingTop: Spacing.four,
@@ -209,15 +205,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: CORNER_THICK,
     borderRightWidth: CORNER_THICK,
     borderBottomRightRadius: Spacing.two,
-  },
-  footer: {
-    paddingBottom: Spacing.four,
-  },
-  cancelButton: {},
-  cancelInner: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.five,
-    borderRadius: Spacing.five,
   },
   centered: {
     flex: 1,

@@ -8,6 +8,7 @@ import { WorktreeRow } from '@/components/worktrees/worktree-row'
 import { Spacing } from '@/constants/theme'
 import { useTheme } from '@/hooks/use-theme'
 import type { ProjectSnapshot, WorktreeSnapshot } from '@/lib/mock/snapshot-types'
+import { AppRoutes } from '@/lib/navigation/routes'
 
 type ProjectSectionProps = {
   project: ProjectSnapshot
@@ -24,12 +25,7 @@ export function ProjectSection({
 
   const openCreate = (): void => {
     if (!canCreate || !project.repoRoot) return
-    router.push({
-      // Typed routes aren't regenerated until the next `expo start`, so
-      // the cast is needed when the target route file was just created.
-      pathname: '/worktree/new' as never,
-      params: { projectId: project.id },
-    })
+    router.push(AppRoutes.worktreeNew(project.id))
   }
 
   return (

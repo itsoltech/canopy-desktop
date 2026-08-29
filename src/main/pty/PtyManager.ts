@@ -14,6 +14,32 @@ interface PtySession {
   tmuxSessionName?: string
 }
 
+interface ClientSize {
+  cols: number
+  rows: number
+}
+
+/**
+ * Per-session record of each attached client's desired terminal size. A PTY
+ * session is shared between the desktop window(s) and (at most one) remote
+ * peer. The effective PTY size is the MINIMUM across attached clients
+ * (tmux/zellij "smallest client wins"), so the width the shell/agent renders
+ * at is never larger than any viewer's grid — otherwise the narrower viewer
+ * rewraps and cursor-positioning escapes land in the wrong cells (duplicated
+ * / lost text on scroll).
+ *
+ * The peer entry is STICKY: it survives WebSocket disconnects (iOS suspends
+ * the app after ~30s of backgrounding while agent tasks run longer, so peers
+ * disconnect/reconnect constantly). Dropping the cap on every disconnect would
+ * flap the PTY size and force the agent to redraw repeatedly. The cap is only
+ * released by an explicit desktop reclaim (focus/click) while the peer is
+ * disconnected, or when the session is destroyed.
+ */
+interface SizeArbiterEntry {
+  desktop: ClientSize | null
+  peer: (ClientSize & { connected: boolean }) | null
+}
+
 interface KillOptions {
   killProcessTree?: boolean
 }
@@ -38,6 +64,7 @@ export function resolveShell(): { command: string; args: string[] } {
 
 export class PtyManager {
   private sessions = new Map<string, PtySession>()
+  private sizeArbiter = new Map<string, SizeArbiterEntry>()
 
   spawn(options?: SpawnOptions): PtySession {
     const id = randomUUID()
@@ -97,6 +124,7 @@ export class PtyManager {
     // life of the process. delete() is idempotent, so this is safe alongside kill().
     p.onExit(() => {
       this.sessions.delete(id)
+      this.sizeArbiter.delete(id)
     })
 
     return session
@@ -144,6 +172,106 @@ export class PtyManager {
   }
 
   /**
+   * Record a client's desired terminal size and resize the shared PTY to the
+   * MINIMUM across all attached clients ("smallest client wins"). Returns the
+   * effective dims actually applied so the caller can broadcast them to every
+   * viewer, or null if the session is gone. See {@link SizeArbiterEntry}.
+   */
+  requestResize(
+    id: string,
+    cols: number,
+    rows: number,
+    source: 'desktop' | 'peer',
+  ): ClientSize | null {
+    // Guard before getArbiterEntry: a resize can arrive after the PTY exited
+    // (onExit already pruned sessions + sizeArbiter). Without this, the late
+    // call would recreate an orphaned arbiter entry that nothing prunes.
+    if (!this.sessions.has(id)) return null
+    const size = this.clampSize(cols, rows)
+    const entry = this.getArbiterEntry(id)
+    if (source === 'desktop') {
+      entry.desktop = size
+    } else {
+      entry.peer = { ...size, connected: true }
+    }
+    return this.applyEffectiveSize(id)
+  }
+
+  /**
+   * Mark the remote peer as disconnected from a session WITHOUT releasing its
+   * size contribution. The cap stays sticky so a returning peer (the common
+   * iOS background→foreground case) keeps the same dimensions and the PTY does
+   * not flap. The PTY size is intentionally left unchanged here.
+   */
+  setPeerDisconnected(id: string): void {
+    const entry = this.sizeArbiter.get(id)
+    if (entry?.peer) {
+      entry.peer.connected = false
+    }
+  }
+
+  /**
+   * Explicit desktop reclaim: the user returned to the desktop (terminal
+   * focus / keydown / pointerdown). If a peer's size cap is still sticky from a
+   * previous disconnect, release it so the PTY grows back to the desktop size.
+   * A currently-connected peer is left untouched — a live phone still wins.
+   * Returns the new effective dims if they changed (to broadcast), else null.
+   */
+  reclaim(id: string): ClientSize | null {
+    const entry = this.sizeArbiter.get(id)
+    if (!entry?.peer || entry.peer.connected) return null
+    entry.peer = null
+    return this.applyEffectiveSize(id)
+  }
+
+  private clampSize(cols: number, rows: number): ClientSize {
+    // Canonical clamp shared by every client so min() compares like-for-like
+    // (matches the remote RPC bounds). Never below xterm's 10×3 floor.
+    return {
+      cols: Math.max(10, Math.min(Math.round(cols), 500)),
+      rows: Math.max(3, Math.min(Math.round(rows), 200)),
+    }
+  }
+
+  private getArbiterEntry(id: string): SizeArbiterEntry {
+    let entry = this.sizeArbiter.get(id)
+    if (!entry) {
+      entry = { desktop: null, peer: null }
+      this.sizeArbiter.set(id, entry)
+    }
+    return entry
+  }
+
+  private computeEffectiveSize(entry: SizeArbiterEntry): ClientSize | null {
+    const candidates: ClientSize[] = []
+    if (entry.desktop) candidates.push(entry.desktop)
+    if (entry.peer) candidates.push({ cols: entry.peer.cols, rows: entry.peer.rows })
+    if (candidates.length === 0) return null
+    return {
+      cols: Math.max(10, Math.min(...candidates.map((c) => c.cols))),
+      rows: Math.max(3, Math.min(...candidates.map((c) => c.rows))),
+    }
+  }
+
+  private applyEffectiveSize(id: string): ClientSize | null {
+    const entry = this.sizeArbiter.get(id)
+    const session = this.sessions.get(id)
+    if (!entry || !session) return null
+    const eff = this.computeEffectiveSize(entry)
+    if (!eff) return null
+    // Idempotent: only touch node-pty when the size actually changes, so
+    // desktop focus/resize spam doesn't fire redundant SIGWINCH redraws.
+    if (session.pty.cols !== eff.cols || session.pty.rows !== eff.rows) {
+      try {
+        session.pty.resize(eff.cols, eff.rows)
+      } catch {
+        // PTY already closed (EBADF) — ignore
+      }
+    }
+    return eff
+  }
+
+  /**
    * Report the current cols/rows the PTY is running at. Used by the remote
    * peer so its xterm renders at the same dimensions as the host terminal —
    * otherwise shell/agent output (which is laid out for the host's cols)
@@ -179,6 +307,7 @@ export class PtyManager {
         // PTY already exited — ignore
       }
       this.sessions.delete(id)
+      this.sizeArbiter.delete(id)
     }
   }
 
@@ -273,6 +402,7 @@ export class PtyManager {
       }
       this.sessions.delete(id)
     }
+    this.sizeArbiter.clear()
   }
 
   private terminateProcessTree(pid: number): void {

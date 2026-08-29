@@ -4,7 +4,6 @@ import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable'
 import { Alert, FlatList, Pressable, StyleSheet, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { AddInstanceFab } from '@/components/instances/add-instance-fab'
 import { InstancesEmptyState } from '@/components/instances/empty-state'
@@ -14,26 +13,19 @@ import { ThemedView } from '@/components/themed-view'
 import { BottomTabInset, Spacing } from '@/constants/theme'
 import { useSavedInstances } from '@/hooks/use-saved-instances'
 import { makeMockInstance } from '@/lib/mock/projects'
+import { AppRoutes } from '@/lib/navigation/routes'
 import { SavedInstancesStorage } from '@/lib/storage/saved-instances'
 import type { SavedInstance } from '@/lib/storage/saved-instances-types'
-
-function LargeTitle(): React.ReactElement {
-  return (
-    <View style={styles.largeTitle}>
-      <ThemedText style={styles.largeTitleText}>Instances</ThemedText>
-    </View>
-  )
-}
 
 export default function InstancesScreen(): React.ReactElement {
   const router = useRouter()
   const { instances, loading, error } = useSavedInstances()
 
   const goToScan = (): void => {
-    router.push('/scan')
+    router.push(AppRoutes.scan())
   }
   const goToDetail = (id: string): void => {
-    router.push(`/instance/${id}`)
+    router.push(AppRoutes.instance(id))
   }
 
   const addMock = async (): Promise<void> => {
@@ -72,30 +64,28 @@ export default function InstancesScreen(): React.ReactElement {
       )}
 
       {showEmpty ? (
-        <SafeAreaView edges={['top']} style={styles.emptyContainer}>
-          <LargeTitle />
+        <View style={styles.emptyContainer}>
           <InstancesEmptyState
             onScanPress={goToScan}
             onAddMockPress={__DEV__ ? addMock : undefined}
           />
-        </SafeAreaView>
+        </View>
       ) : (
-        <SafeAreaView edges={['top']} style={styles.container}>
-          <FlatList
-            data={instances ?? []}
-            keyExtractor={(i) => i.id}
-            ListHeaderComponent={<LargeTitle />}
-            contentContainerStyle={styles.listContent}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-            renderItem={({ item }) => (
-              <SwipeableInstanceCard
-                instance={item}
-                onPress={() => goToDetail(item.id)}
-                onRemove={() => removeInstance(item.id)}
-              />
-            )}
-          />
-        </SafeAreaView>
+        <FlatList
+          data={instances ?? []}
+          keyExtractor={(i) => i.id}
+          style={styles.container}
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          renderItem={({ item }) => (
+            <SwipeableInstanceCard
+              instance={item}
+              onPress={() => goToDetail(item.id)}
+              onRemove={() => removeInstance(item.id)}
+            />
+          )}
+        />
       )}
 
       {!showEmpty && <AddInstanceFab onPress={goToScan} />}
@@ -162,15 +152,6 @@ function DeleteAction({ onDelete }: { onDelete: () => void }): React.ReactElemen
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  largeTitle: {
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.three,
-  },
-  largeTitleText: {
-    fontSize: 34,
-    fontWeight: '600',
-    letterSpacing: 0.37,
   },
   emptyContainer: {
     flex: 1,

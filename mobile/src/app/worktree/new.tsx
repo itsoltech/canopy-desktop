@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -13,6 +13,9 @@ import {
 } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 
+import { ConnectionFallback } from '@/components/connection-fallback'
+import { HeaderButton } from '@/components/header-button'
+import { ScreenHeader } from '@/components/screen-header'
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { DangerColor, Spacing } from '@/constants/theme'
@@ -140,200 +143,140 @@ export default function NewWorktreeScreen(): React.ReactElement {
   }
 
   if (!api) {
-    return (
-      <ThemedView style={styles.centered}>
-        <ThemedText type="subtitle">Not connected</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
-          Open the instance first to establish a session.
-        </ThemedText>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
-        >
-          <ThemedText type="linkPrimary">Go back</ThemedText>
-        </Pressable>
-      </ThemedView>
-    )
+    return <ConnectionFallback hint="Open the instance first to establish a session." />
   }
 
   const filteredBranches = buildFilteredList(branches, branchQuery)
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
-            accessibilityLabel="Cancel"
-          >
-            <SymbolView
-              name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
-              size={20}
-              weight="semibold"
-              tintColor={theme.text}
-            />
-          </Pressable>
-          <View style={styles.headerTitle}>
-            <ThemedText type="subtitle">New worktree</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-              {project.name}
-            </ThemedText>
-          </View>
-        </View>
-
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          <SegmentedControl
-            value={mode}
-            onChange={setMode}
-            options={[
-              { value: 'new', label: 'New branch' },
-              { value: 'existing', label: 'Existing branch' },
-            ]}
-          />
-
-          {branches === null && loadError === null && (
-            <View style={styles.loadingRow}>
-              <ActivityIndicator />
-              <ThemedText type="small" themeColor="textSecondary">
-                Loading branches…
-              </ThemedText>
-            </View>
-          )}
-          {loadError && (
-            <ThemedView type="backgroundElement" style={styles.errorBox}>
-              <ThemedText type="small" style={styles.errorText}>
-                {loadError}
-              </ThemedText>
-            </ThemedView>
-          )}
-
-          {branches && (
-            <>
-              <FieldLabel>{mode === 'new' ? 'Base branch' : 'Branch to check out'}</FieldLabel>
-              <Pressable
-                onPress={submitting ? undefined : () => setPickerOpen(true)}
-                style={({ pressed }) => [pressed && !submitting && styles.pressed]}
-              >
-                <ThemedView
-                  type="backgroundElement"
-                  style={[styles.pickerField, submitting && styles.disabled]}
-                >
-                  <ThemedText type="small" numberOfLines={1} style={styles.pickerText}>
-                    {selectedBase || 'Select a branch'}
-                  </ThemedText>
-                  <SymbolView
-                    name={{ ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }}
-                    size={14}
-                    weight="medium"
-                    tintColor={theme.textSecondary}
-                  />
-                </ThemedView>
-              </Pressable>
-
-              {mode === 'new' && (
-                <>
-                  <FieldLabel>New branch name</FieldLabel>
-                  <ThemedView
-                    type="backgroundElement"
-                    style={[styles.inputWrap, submitting && styles.disabled]}
-                  >
-                    <TextInput
-                      value={newBranchName}
-                      onChangeText={setNewBranchName}
-                      placeholder="feature/my-branch"
-                      placeholderTextColor={theme.textSecondary}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      editable={!submitting}
-                      style={[styles.input, { color: theme.text }]}
-                    />
-                  </ThemedView>
-                </>
-              )}
-
-              <FieldLabel>Path</FieldLabel>
-              <ThemedView
-                type="backgroundElement"
-                style={[styles.inputWrap, submitting && styles.disabled]}
-              >
-                <TextInput
-                  value={customPath}
-                  onChangeText={setCustomPath}
-                  placeholder={defaultPath || 'worktree path'}
-                  placeholderTextColor={theme.textSecondary}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!submitting}
-                  style={[styles.input, styles.inputMono, { color: theme.text }]}
-                />
-              </ThemedView>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.hintSmall}>
-                Leave empty to use the default location.
-              </ThemedText>
-            </>
-          )}
-
-          {submitError && (
-            <ThemedView type="backgroundElement" style={styles.errorBox}>
-              <ThemedText type="small" style={styles.errorText}>
-                {submitError}
-              </ThemedText>
-            </ThemedView>
-          )}
-
-          <View style={styles.actions}>
-            <Pressable
-              onPress={() => router.back()}
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-            >
-              <ThemedView type="backgroundElement" style={styles.actionInner}>
-                <ThemedText type="smallBold">Cancel</ThemedText>
-              </ThemedView>
-            </Pressable>
-            <Pressable
+      <Stack.Screen
+        options={{
+          title: 'New worktree',
+          headerLeft: () => <HeaderButton label="Cancel" onPress={() => router.back()} />,
+          headerRight: () => (
+            <HeaderButton
+              label="Create"
               onPress={submit}
               disabled={!canSubmit}
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
+              loading={submitting}
+              bold
+            />
+          ),
+        }}
+      />
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <SegmentedControl
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'new', label: 'New branch' },
+            { value: 'existing', label: 'Existing branch' },
+          ]}
+        />
+
+        {branches === null && loadError === null && (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator />
+            <ThemedText type="small" themeColor="textSecondary">
+              Loading branches…
+            </ThemedText>
+          </View>
+        )}
+        {loadError && (
+          <ThemedView type="backgroundElement" style={styles.errorBox}>
+            <ThemedText type="small" style={styles.errorText}>
+              {loadError}
+            </ThemedText>
+          </ThemedView>
+        )}
+
+        {branches && (
+          <>
+            <FieldLabel>{mode === 'new' ? 'Base branch' : 'Branch to check out'}</FieldLabel>
+            <Pressable
+              onPress={submitting ? undefined : () => setPickerOpen(true)}
+              style={({ pressed }) => [pressed && !submitting && styles.pressed]}
             >
               <ThemedView
-                type="backgroundSelected"
-                style={[styles.actionInner, !canSubmit && styles.disabled]}
+                type="backgroundElement"
+                style={[styles.pickerField, submitting && styles.disabled]}
               >
-                {submitting ? (
-                  <ActivityIndicator />
-                ) : (
-                  <ThemedText type="smallBold">Create</ThemedText>
-                )}
+                <ThemedText type="small" numberOfLines={1} style={styles.pickerText}>
+                  {selectedBase || 'Select a branch'}
+                </ThemedText>
+                <SymbolView
+                  name={{ ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }}
+                  size={14}
+                  weight="medium"
+                  tintColor={theme.textSecondary}
+                />
               </ThemedView>
             </Pressable>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+
+            {mode === 'new' && (
+              <>
+                <FieldLabel>New branch name</FieldLabel>
+                <ThemedView
+                  type="backgroundElement"
+                  style={[styles.inputWrap, submitting && styles.disabled]}
+                >
+                  <TextInput
+                    value={newBranchName}
+                    onChangeText={setNewBranchName}
+                    placeholder="feature/my-branch"
+                    placeholderTextColor={theme.textSecondary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!submitting}
+                    style={[styles.input, { color: theme.text }]}
+                  />
+                </ThemedView>
+              </>
+            )}
+
+            <FieldLabel>Path</FieldLabel>
+            <ThemedView
+              type="backgroundElement"
+              style={[styles.inputWrap, submitting && styles.disabled]}
+            >
+              <TextInput
+                value={customPath}
+                onChangeText={setCustomPath}
+                placeholder={defaultPath || 'worktree path'}
+                placeholderTextColor={theme.textSecondary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!submitting}
+                style={[styles.input, styles.inputMono, { color: theme.text }]}
+              />
+            </ThemedView>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.hintSmall}>
+              Leave empty to use the default location.
+            </ThemedText>
+          </>
+        )}
+
+        {submitError && (
+          <ThemedView type="backgroundElement" style={styles.errorBox}>
+            <ThemedText type="small" style={styles.errorText}>
+              {submitError}
+            </ThemedText>
+          </ThemedView>
+        )}
+      </ScrollView>
 
       <Modal visible={pickerOpen} animationType="slide" onRequestClose={() => setPickerOpen(false)}>
         <SafeAreaProvider>
           <ThemedView style={styles.modalContainer}>
             <SafeAreaView style={styles.safeArea} edges={['top']}>
-              <View style={styles.header}>
-                <Pressable
-                  onPress={() => setPickerOpen(false)}
-                  style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
-                >
-                  <SymbolView
-                    name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
-                    size={20}
-                    weight="semibold"
-                    tintColor={theme.text}
-                  />
-                </Pressable>
-                <View style={styles.headerTitle}>
-                  <ThemedText type="subtitle">Pick branch</ThemedText>
-                </View>
-              </View>
+              <ScreenHeader onBack={() => setPickerOpen(false)}>
+                <ThemedText type="subtitle">Pick branch</ThemedText>
+              </ScreenHeader>
               <ThemedView type="backgroundElement" style={styles.searchWrap}>
                 <TextInput
                   value={branchQuery}
@@ -475,29 +418,9 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     padding: Spacing.four,
   },
-  hint: {
-    textAlign: 'center',
-  },
   linkButton: {
     marginTop: Spacing.three,
     padding: Spacing.two,
-  },
-  header: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    gap: Spacing.three,
-  },
-  iconBack: {
-    width: Spacing.five,
-    height: Spacing.five,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing.one,
-  },
-  headerTitle: {
-    flex: 1,
-    gap: Spacing.half,
   },
   scrollContent: {
     padding: Spacing.four,
@@ -566,19 +489,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: DangerColor,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: Spacing.three,
-    marginTop: Spacing.four,
-  },
-  actionBtn: {
-    flex: 1,
-  },
-  actionInner: {
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.three,
-    alignItems: 'center',
   },
   disabled: {
     opacity: 0.5,
