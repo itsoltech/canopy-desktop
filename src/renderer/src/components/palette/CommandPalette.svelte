@@ -430,6 +430,18 @@
                 destructive: true,
               })
               if (!force) return
+            } else {
+              // A merged branch still needs explicit consent — the branch name
+              // came from a free-text prompt, so a typo would otherwise delete
+              // an unintended branch with no review step. Matches the merged-
+              // branch confirmation in the worktree removal flow below.
+              const ok = await confirm({
+                title: 'Delete Branch',
+                message: `Delete local branch "${result.value}"? It has been fully merged.`,
+                confirmLabel: 'Delete Branch',
+                destructive: true,
+              })
+              if (!ok) return
             }
             await window.api.gitBranchDeleteWithPreflight({
               repoRoot: root,

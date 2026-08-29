@@ -123,6 +123,13 @@ export class BrowserManager {
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
 
+    // A genuinely new guest for an existing browserId (webview crash/recreate,
+    // renderer re-mount) replaces the entry below. Tear the old one down first:
+    // teardown() is the only path that detaches and closes an embedded DevTools
+    // WebContentsView, so overwriting the entry without it would orphan that
+    // view as a permanent child of the window with a live webContents.
+    if (existing) this.teardown(browserId)
+
     const entry: WebviewEntry = {
       webContentsId: wcId,
       win,

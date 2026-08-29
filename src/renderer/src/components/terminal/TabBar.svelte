@@ -98,6 +98,19 @@
   let currentActiveId = $derived(activeTabId[worktreePath])
 
   let showOverflow = $state(false)
+  let overflowTriggerEl = $state<HTMLButtonElement | null>(null)
+
+  /**
+   * Escape closes the overflow menu and returns focus to its trigger. Without
+   * this the menu is a keyboard dead end: it can only be dismissed by clicking
+   * the backdrop, and focus is lost to the document body when an item is
+   * removed from the DOM.
+   */
+  function closeOverflow(): void {
+    showOverflow = false
+    overflowTriggerEl?.focus()
+  }
+
   let visibleCount = $state(0)
   let containerEl: HTMLDivElement | undefined = $state()
 
@@ -301,6 +314,12 @@
   })
 </script>
 
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === 'Escape' && showOverflow) closeOverflow()
+  }}
+/>
+
 {#if tabs.length > 0}
   <div
     class="h-tab-bar flex-shrink-0 flex items-stretch bg-bg-glass-light border-b border-border-subtle"
@@ -407,6 +426,7 @@
     {#if overflowTabs.length > 0}
       <div class="relative flex-shrink-0">
         <button
+          bind:this={overflowTriggerEl}
           class="flex items-center justify-center w-8 h-full border-0 bg-transparent text-text-secondary text-lg cursor-pointer hover:bg-hover hover:text-text"
           aria-label="Show more tabs"
           aria-haspopup="menu"
