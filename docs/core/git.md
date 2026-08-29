@@ -69,7 +69,7 @@ The workspace store on the renderer side holds the current `GitInfo` state (bran
 
 ### Diff viewing
 
-1. **Full diff**: `GitRepository.getDiffParsed()` runs `git diff HEAD` (falling back to `git diff` if HEAD fails, e.g., in an empty repo). It then finds untracked files via `git ls-files --others --exclude-standard` and reads their content to build synthetic "added" diffs.
+1. **Full diff**: `GitRepository.getDiffParsed()` runs `git diff HEAD` (falling back to `git diff` if HEAD fails, e.g., in an empty repo). It then finds untracked files via `git ls-files --others --exclude-standard` and reads their content to build synthetic "added" diffs. Those reads are synchronous and bounded so a working copy full of untracked paths cannot stall the main process: files over 5 MB, and any file past the first 500, are still listed but carry no diff body.
 2. **Single file diff**: `GitRepository.getFileDiff()` runs `git diff HEAD -- <path>`. If there is no tracked diff (file is untracked), it reads the file content directly.
 3. The diff parser (`diffParser.ts`) converts raw unified diff output into structured `ParsedDiff` objects with file-level metadata (status: added/modified/deleted/renamed, additions, deletions) and hunk-level change arrays.
 

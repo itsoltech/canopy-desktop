@@ -69,6 +69,19 @@ function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string):
   if (result.isErr()) throw new Error(toMessage(result.error))
   return result.value
 }
+
+/** Narrows one entry of the renderer-writable `worktreeSetup` preference. */
+function isWorktreeSetupAction(value: unknown): value is WorktreeSetupAction {
+  if (typeof value !== 'object' || value === null) return false
+  const action = value as Record<string, unknown>
+  if (action.label !== undefined && typeof action.label !== 'string') return false
+  if (action.type === 'command') return typeof action.command === 'string'
+  if (action.type === 'copy') {
+    if (action.dest !== undefined && typeof action.dest !== 'string') return false
+    return typeof action.source === 'string'
+  }
+  return false
+}
 import {
   buildVariables,
   renderBranchName,
@@ -2368,27 +2381,35 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('browser:teardown', (_event, payload: { browserId: string }) => {
+  // Every handler below takes a renderer-supplied `browserId` and drives a
+  // privileged operation on the matching <webview>. `browserManager.entries` is
+  // process-wide, so each one must confirm the calling renderer actually owns
+  // that browserId before acting — otherwise one window can target another's.
+  ipcMain.handle('browser:teardown', (event, payload: { browserId: string }) => {
+    if (!browserManager.isOwnedBy(payload.browserId, event.sender)) return
     browserManager.teardown(payload.browserId)
   })
 
-  ipcMain.handle('browser:openDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:openDevTools', (event, payload: { browserId: string }) => {
+    if (!browserManager.isOwnedBy(payload.browserId, event.sender)) return
     browserManager.openDevTools(payload.browserId)
   })
 
-  ipcMain.handle('browser:closeDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:closeDevTools', (event, payload: { browserId: string }) => {
+    if (!browserManager.isOwnedBy(payload.browserId, event.sender)) return
     browserManager.closeDevTools(payload.browserId)
   })
 
   ipcMain.handle(
     'browser:setDevToolsBounds',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         bounds: { x: number; y: number; width: number; height: number }
       },
     ) => {
+      if (!browserManager.isOwnedBy(payload.browserId, event.sender)) return
       browserManager.setDevToolsBounds(payload.browserId, payload.bounds)
     },
   )
@@ -2396,12 +2417,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setDeviceEmulation',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null
       },
     ) => {
+      if (!browserManager.isOwnedBy(payload.browserId, event.sender)) return
       browserManager.setDeviceEmulation(payload.browserId, payload.device)
     },
   )
@@ -2409,12 +2431,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setBackgroundThrottling',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         allowed: boolean
       },
     ) => {
+      if (!browserManager.isOwnedBy(payload.browserId, event.sender)) return
       browserManager.setBackgroundThrottling(payload.browserId, payload.allowed)
     },
   )
@@ -2461,7 +2484,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'browser:fillCredential',
-    (_event, payload: { browserId: string; username: string; password: string }) => {
+    (event, payload: { browserId: string; username: string; password: string }) => {
+      // Most sensitive of the browser:* channels — it injects caller-supplied
+      // strings into a live page. Refuse unless the calling renderer owns the tab.
+      if (!browserManager.isOwnedBy(payload.browserId, event.sender)) return
       browserManager.fillCredential(payload.browserId, payload.username, payload.password)
     },
   )
@@ -4745,12 +4771,21 @@ export function registerIpcHandlers(
       const configJson = preferencesStore.get(`workspace:${payload.workspaceId}:worktreeSetup`)
       if (!configJson) return { success: true, errors: [] }
 
-      let actions: WorktreeSetupAction[]
+      let parsed: unknown
       try {
-        actions = JSON.parse(configJson) as WorktreeSetupAction[]
+        parsed = JSON.parse(configJson)
       } catch {
         return { success: false, errors: ['Invalid worktree setup config'] }
       }
+
+      // The paths are confined above, but the action list itself came from the
+      // same renderer-writable preference — validate its shape rather than
+      // asserting it, so a malformed pref returns the documented failure result
+      // instead of throwing partway through execution.
+      if (!Array.isArray(parsed) || !parsed.every(isWorktreeSetupAction)) {
+        return { success: false, errors: ['Invalid worktree setup config'] }
+      }
+      const actions: WorktreeSetupAction[] = parsed
 
       if (actions.length === 0) return { success: true, errors: [] }
 

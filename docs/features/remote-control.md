@@ -137,7 +137,7 @@ Pairing tokens are 32 random bytes (hex-encoded, 64 characters). Token compariso
 
 WebSocket messages are capped at 256 KB per frame. Oversized frames cause immediate disconnection (close code 1009).
 
-The remote-client SPA is served with a Content-Security-Policy header (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:`) and `X-Frame-Options: DENY`.
+The remote-client SPA is served with a Content-Security-Policy header (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:; base-uri 'none'; object-src 'none'`) and `X-Frame-Options: DENY`. `base-uri` and `object-src` are stated explicitly because neither falls back to `default-src`.
 
 Self-signed TLS certificates are generated with `selfsigned`, scoped to the current LAN IP as a subject-alt-name, cached at `<userData>/remote/cert.pem` and `key.pem` with restricted file permissions (0o600 for the private key, 0o700 for the directory). Certificates are regenerated when the LAN IP changes. HTTPS support via these certificates is not yet enabled; the signaling server currently operates over plain HTTP on the local network.
 

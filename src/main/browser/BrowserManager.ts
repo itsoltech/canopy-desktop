@@ -123,6 +123,11 @@ export class BrowserManager {
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
 
+    // A different renderer must not be able to re-point an existing entry at
+    // itself: that would transfer ownership of the browserId and defeat the
+    // isOwnedBy() checks guarding teardown, DevTools, and credential injection.
+    if (existing && existing.sender !== sender) return
+
     const entry: WebviewEntry = {
       webContentsId: wcId,
       win,
@@ -306,6 +311,18 @@ export class BrowserManager {
       ])
       menu.popup()
     })
+  }
+
+  /**
+   * `browserId` arrives from the untrusted renderer and `entries` is
+   * process-wide, so without an ownership check one window could name another
+   * window's browser tab and drive privileged operations against it — DevTools,
+   * debugger attach, or `fillCredential` injecting arbitrary strings into a page
+   * it doesn't own. Confine every post-setup operation to the renderer that
+   * registered the entry.
+   */
+  isOwnedBy(browserId: string, sender: WebContents): boolean {
+    return this.entries.get(browserId)?.sender === sender
   }
 
   teardown(browserId: string): void {
