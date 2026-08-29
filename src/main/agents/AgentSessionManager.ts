@@ -89,6 +89,49 @@ export class AgentSessionManager extends EventEmitter {
     const tempId = `_agent_${hookSessionId}`
     const sessionRef = { ptySessionId: tempId }
 
+    // Everything that can throw runs BEFORE router.addSession. A throw after
+    // registration would leave an orphaned router session — destroySession() is
+    // the only caller of router.removeSession(), and it can't reach a session
+    // that was never added to `this.sessions`. That orphan pins the shared hook
+    // HTTP server open (closeServerIfIdle only fires at sessions.size === 0)
+    // and retains the event closures below.
+    //
+    // Codex and Gemini CLIs execute hooks via the system shell on Windows; use .cmd wrappers.
+    // Claude Code handles .sh via its own bash layer on Windows, so it always uses .sh.
+    // OpenCode uses a TS bridge plugin and does not consume hookScriptPath at all.
+    const useCmd =
+      process.platform === 'win32' &&
+      (adapter.agentType === 'codex' || adapter.agentType === 'gemini')
+    const hookScriptPath = this.getResourceScript(
+      useCmd ? 'canopy-agent-hook.cmd' : 'canopy-agent-hook.sh',
+    )
+    const statusLineScriptPath = this.getResourceScript(
+      useCmd ? 'canopy-agent-statusline.cmd' : 'canopy-agent-statusline.sh',
+    )
+
+    // Ensure scripts are executable
+    if (process.platform !== 'win32') {
+      try {
+        chmodSync(hookScriptPath, 0o755)
+      } catch {
+        // May not have permission in packaged app
+      }
+      try {
+        chmodSync(statusLineScriptPath, 0o755)
+      } catch {
+        // May not have permission in packaged app
+      }
+    }
+
+    const settingsPath = join(this.hooksDir, `session-${hookSessionId}.json`)
+    const settingsSetup = adapter.setupSettings(
+      settingsPath,
+      worktreePath,
+      hookScriptPath,
+      statusLineScriptPath,
+      settingsOverrides,
+    )
+
     const {
       port: hookPort,
       path: hookPath,
@@ -152,42 +195,6 @@ export class AgentSessionManager extends EventEmitter {
           status: normalized,
         })
       },
-    )
-
-    // Codex and Gemini CLIs execute hooks via the system shell on Windows; use .cmd wrappers.
-    // Claude Code handles .sh via its own bash layer on Windows, so it always uses .sh.
-    // OpenCode uses a TS bridge plugin and does not consume hookScriptPath at all.
-    const useCmd =
-      process.platform === 'win32' &&
-      (adapter.agentType === 'codex' || adapter.agentType === 'gemini')
-    const hookScriptPath = this.getResourceScript(
-      useCmd ? 'canopy-agent-hook.cmd' : 'canopy-agent-hook.sh',
-    )
-    const statusLineScriptPath = this.getResourceScript(
-      useCmd ? 'canopy-agent-statusline.cmd' : 'canopy-agent-statusline.sh',
-    )
-
-    // Ensure scripts are executable
-    if (process.platform !== 'win32') {
-      try {
-        chmodSync(hookScriptPath, 0o755)
-      } catch {
-        // May not have permission in packaged app
-      }
-      try {
-        chmodSync(statusLineScriptPath, 0o755)
-      } catch {
-        // May not have permission in packaged app
-      }
-    }
-
-    const settingsPath = join(this.hooksDir, `session-${hookSessionId}.json`)
-    const settingsSetup = adapter.setupSettings(
-      settingsPath,
-      worktreePath,
-      hookScriptPath,
-      statusLineScriptPath,
-      settingsOverrides,
     )
 
     const session: AgentSession = {
