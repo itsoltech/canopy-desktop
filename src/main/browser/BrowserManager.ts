@@ -308,6 +308,21 @@ export class BrowserManager {
     })
   }
 
+  /**
+   * True only when `sender` is the exact renderer that registered `browserId`
+   * via setup(). The `entries` map is process-wide (shared across every window)
+   * and keyed solely by a renderer-supplied browserId, so each privileged,
+   * renderer-driven operation (teardown, DevTools, debugger attach, credential
+   * injection) must re-verify ownership at its IPC entry point — otherwise one
+   * window's renderer could drive another window's <webview>. This enforces the
+   * invariant setup() documents ("never another window's contents") beyond
+   * setup itself. Internal main-process callers (context menu, window teardown)
+   * are trusted and intentionally bypass this by invoking the methods directly.
+   */
+  ownsBrowser(browserId: string, sender: WebContents): boolean {
+    return this.entries.get(browserId)?.sender === sender
+  }
+
   teardown(browserId: string): void {
     const entry = this.entries.get(browserId)
     if (entry) {
