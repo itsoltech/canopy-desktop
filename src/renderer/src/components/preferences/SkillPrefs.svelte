@@ -206,6 +206,7 @@
                       checked={skill.enabledAgents.includes(agent)}
                       onchange={() =>
                         toggleAgent(skill.id, agent, !skill.enabledAgents.includes(agent))}
+                      ariaLabel="Enable for {agentLabels[agent] ?? agent}"
                     />
                     <span>{agentLabels[agent] ?? agent}</span>
                   </label>

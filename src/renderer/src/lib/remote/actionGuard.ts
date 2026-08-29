@@ -140,6 +140,7 @@ function describeSessionGrant(method: RpcMethodName): string {
   return match(method as string)
     .with('pty.write', () => 'type into any terminal')
     .with('agent.sendInput', () => 'send prompts to any agent')
+    .with('pty.subscribe', () => 'watch live output from any terminal')
     .otherwise(() => `execute ${method}`)
 }
 

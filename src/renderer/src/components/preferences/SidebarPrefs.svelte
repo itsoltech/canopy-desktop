@@ -66,6 +66,7 @@
               checked={item.visible}
               disabled={def?.forced}
               onchange={() => toggleVisibility(i)}
+              ariaLabel="Show {def?.label ?? item.id} section"
             />
             <span class="truncate" class:text-text-secondary={def?.forced}
               >{def?.label ?? item.id}</span

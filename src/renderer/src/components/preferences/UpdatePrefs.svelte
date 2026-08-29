@@ -79,7 +79,11 @@
       help="Updates are fetched in the background and applied on the next restart"
       search="auto download install background"
     >
-      <CustomCheckbox checked={autoUpdate} onchange={toggleAutoUpdate} />
+      <CustomCheckbox
+        checked={autoUpdate}
+        onchange={toggleAutoUpdate}
+        ariaLabel="Download and install updates automatically"
+      />
     </PrefsRow>
 
     <PrefsRow

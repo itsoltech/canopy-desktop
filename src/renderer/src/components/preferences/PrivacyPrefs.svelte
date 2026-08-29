@@ -18,7 +18,11 @@
       help="One daily ping helps us count active users. The payload contains only screen resolution, locale, app version, OS, and architecture. No stable identifier is stored or transmitted."
       search="telemetry diagnostics ping analytics privacy"
     >
-      <CustomCheckbox checked={telemetryEnabled} onchange={toggleTelemetry} />
+      <CustomCheckbox
+        checked={telemetryEnabled}
+        onchange={toggleTelemetry}
+        ariaLabel="Send minimal telemetry"
+      />
     </PrefsRow>
     <a
       class="text-xs text-accent-text no-underline hover:underline mt-1 w-fit"
