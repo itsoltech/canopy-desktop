@@ -57,8 +57,17 @@ function disposeEphemeralPaneState(pane: PaneSession): void {
 
 // --- Active process detection ---
 
-const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
-export const isAiToolId = (id: string): boolean => AI_TOOL_IDS.has(id)
+// Keyed by AgentType so adding a new agent fails to compile here rather than
+// silently falling through as a plain shell. The type predicate lets callers use
+// the narrowed id directly instead of asserting `as AgentType`.
+const AI_TOOL_IDS: Record<AgentType, true> = {
+  claude: true,
+  codex: true,
+  opencode: true,
+  gemini: true,
+}
+export const isAiToolId = (id: string): id is AgentType =>
+  Object.prototype.hasOwnProperty.call(AI_TOOL_IDS, id)
 
 type SerializedSplitNode =
   | {
@@ -113,7 +122,7 @@ function paneFromSnapshot(snapshot: PaneSnapshot, previous?: PaneSession): PaneS
     isAiToolId(snapshot.toolId) &&
     snapshot.isRunning
   ) {
-    rekeyAgentSession(previous.sessionId, snapshot.sessionId, snapshot.toolId as AgentType)
+    rekeyAgentSession(previous.sessionId, snapshot.sessionId, snapshot.toolId)
   }
 
   return {
@@ -213,7 +222,7 @@ export function applyTabsSnapshot(
 
 function initPaneRuntimeState(pane: PaneSession): void {
   if (isAiToolId(pane.toolId) && pane.isRunning) {
-    initAgentSession(pane.sessionId, pane.toolId as AgentType)
+    initAgentSession(pane.sessionId, pane.toolId)
   }
 }
 
@@ -887,7 +896,7 @@ export async function restartPane(
   })
   if (!result.restartedPane) return
 
-  if (AI_TOOL_IDS.has(pane.toolId) && pane.sessionId !== result.restartedPane.sessionId) {
+  if (isAiToolId(pane.toolId) && pane.sessionId !== result.restartedPane.sessionId) {
     removeAgentSession(pane.sessionId)
   }
   if (pane.paneType === 'browser' && pane.sessionId !== result.restartedPane.sessionId) {
@@ -1058,7 +1067,7 @@ export function getAiSessions(worktreePath: string): AiSessionInfo[] {
   for (const tab of tabs) {
     const panes = allPanes(tab.rootSplit)
     for (const p of panes) {
-      if (AI_TOOL_IDS.has(p.toolId) && p.isRunning) {
+      if (isAiToolId(p.toolId) && p.isRunning) {
         const cs = agentSessions[p.sessionId] ?? null
         result.push({
           sessionId: p.sessionId,
@@ -1100,7 +1109,7 @@ export function toggleFocusedInspector(): void {
   const tab = tabsByWorktree[path]?.find((t) => t.id === tabId)
   if (!tab) return
   const pane = findLeaf(tab.rootSplit, tab.focusedPaneId)
-  if (pane && AI_TOOL_IDS.has(pane.toolId)) {
+  if (pane && isAiToolId(pane.toolId)) {
     void toggleFocusedInspectorInMain(path, tab.id).catch((err) => {
       console.error(`[tabs] tabToggleFocusedInspector failed for tab "${tab.id}":`, err)
     })

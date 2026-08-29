@@ -492,6 +492,19 @@
  * vestibular issues).
  */
 @media (prefers-reduced-motion: reduce) {
+  /* Infinite utility-driven animations (Tailwind's `animate-spin` plus the
+   * `--animate-*` spinners/badges in tokens.css). Individual call sites can add
+   * `motion-reduce:animate-none`, but that has to be remembered on every new
+   * spinner — this block is unlayered, so it wins over Tailwind's `utilities`
+   * layer and covers the ones that get missed.
+   */
+  .animate-spin,
+  .animate-spin-slow,
+  .animate-badge-pulse,
+  .animate-badge-pulse-fast {
+    animation: none;
+  }
+
   [data-status='active'] .status-dot,
   [data-status='permission'] .status-dot {
     animation: none;

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { Eye, EyeOff, Trash2 } from '@lucide/svelte'
   import { confirm } from '../../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../../lib/stores/toast.svelte'
   import PrefsSection from './PrefsSection.svelte'
   import { prefsSearch, matches } from './prefsSearch.svelte'
 
@@ -31,8 +32,13 @@
       destructive: true,
     })
     if (!ok) return
-    await window.api.deleteCredential(id)
-    await loadCredentials()
+    try {
+      await window.api.deleteCredential(id)
+      await loadCredentials()
+    } catch (e) {
+      // Without this the row simply stays put and the user has no idea why.
+      addToast(e instanceof Error ? e.message : 'Failed to delete saved password')
+    }
   }
 
   async function revealPassword(id: string, domain: string): Promise<void> {

@@ -4,6 +4,11 @@
   import { workspaceState, projects, toggleRightPanel } from '../../lib/stores/workspace.svelte'
   import { agentSessions, type AgentSessionState } from '../../lib/agents/agentState.svelte'
   import {
+    statusPriority,
+    statusTypeToAggregate,
+    type AggregateAgentStatus,
+  } from '../../lib/agents/worktreeStatus.svelte'
+  import {
     getAllTabs,
     activeTabId,
     focusSessionByPtyId,
@@ -42,17 +47,17 @@
   let allAgentEntries = $derived(Object.entries(agentSessions))
   let agentCount = $derived(allAgentEntries.length)
 
-  type WorstStatus = 'none' | 'idle' | 'working' | 'waitingPermission' | 'error'
+  // Same aggregation the sidebar does per worktree — reuse it rather than keeping a
+  // second hand-rolled precedence chain that has to be updated whenever a new
+  // AgentStatus type is added.
+  type WorstStatus = AggregateAgentStatus
 
   let globalWorstStatus: WorstStatus = $derived.by(() => {
     let worst: WorstStatus = 'none'
     for (const [, s] of allAgentEntries) {
-      const t = s.status.type
-      if (t === 'waitingPermission') return 'waitingPermission'
-      if (t === 'error' && worst !== 'waitingPermission') worst = 'error'
-      else if ((t === 'thinking' || t === 'toolCalling' || t === 'compacting') && worst !== 'error')
-        worst = 'working'
-      else if (t === 'idle' && worst === 'none') worst = 'idle'
+      const agg = statusTypeToAggregate(s.status.type)
+      if (statusPriority[agg] > statusPriority[worst]) worst = agg
+      if (worst === 'waitingPermission') return worst
     }
     return worst
   })
@@ -69,13 +74,14 @@
   type PaneKind = 'agent' | 'shell' | 'browser' | 'editor' | 'notes' | 'drawing' | 'none'
 
   let focusedPaneKind: PaneKind = $derived.by(() => {
-    if (!focusedPane) return 'none'
-    if (focusedPane.paneType === 'browser') return 'browser'
-    if (focusedPane.paneType === 'editor') return 'editor'
-    if (focusedPane.paneType === 'notes') return 'notes'
-    if (focusedPane.paneType === 'drawing') return 'drawing'
-    if (isAiToolId(focusedPane.toolId)) return 'agent'
-    return 'shell'
+    const pane = focusedPane
+    if (!pane) return 'none'
+    return match(pane.paneType)
+      .with('browser', () => 'browser' as const)
+      .with('editor', () => 'editor' as const)
+      .with('notes', () => 'notes' as const)
+      .with('drawing', () => 'drawing' as const)
+      .otherwise(() => (isAiToolId(pane.toolId) ? 'agent' : 'shell'))
   })
 
   // --- Derived: worktree display ---

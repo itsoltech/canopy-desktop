@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
+  import { match } from 'ts-pattern'
   import { X, ExternalLink, Copy, GitPullRequest, LoaderCircle, RefreshCw } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -66,18 +67,19 @@
 
   let stateChip = $derived(prStateChip(pr?.state, pr?.isDraft))
 
-  let reviewChip = $derived.by(() => {
-    switch (pr?.reviewDecision) {
-      case 'APPROVED':
-        return { label: 'Approved', cls: 'bg-success-bg text-success-text' }
-      case 'CHANGES_REQUESTED':
-        return { label: 'Changes requested', cls: 'bg-danger-bg text-danger-text' }
-      case 'REVIEW_REQUIRED':
-        return { label: 'Review required', cls: 'bg-warning-bg text-warning-text' }
-      default:
-        return null
-    }
-  })
+  let reviewChip = $derived.by(() =>
+    match(pr?.reviewDecision)
+      .with('APPROVED', () => ({ label: 'Approved', cls: 'bg-success-bg text-success-text' }))
+      .with('CHANGES_REQUESTED', () => ({
+        label: 'Changes requested',
+        cls: 'bg-danger-bg text-danger-text',
+      }))
+      .with('REVIEW_REQUIRED', () => ({
+        label: 'Review required',
+        cls: 'bg-warning-bg text-warning-text',
+      }))
+      .otherwise(() => null),
+  )
 
   // statusCheckRollup entries mix check-runs (status/conclusion) and statuses (state).
   let checksChip = $derived.by(() => {
@@ -114,16 +116,14 @@
   })
 
   function reviewerChip(state: string): { label: string; cls: string } {
-    switch (state) {
-      case 'APPROVED':
-        return { label: 'approved', cls: 'bg-success-bg text-success-text' }
-      case 'CHANGES_REQUESTED':
-        return { label: 'changes requested', cls: 'bg-danger-bg text-danger-text' }
-      case 'PENDING':
-        return { label: 'pending', cls: 'bg-warning-bg text-warning-text' }
-      default:
-        return { label: 'commented', cls: 'bg-active text-text-muted' }
-    }
+    return match(state)
+      .with('APPROVED', () => ({ label: 'approved', cls: 'bg-success-bg text-success-text' }))
+      .with('CHANGES_REQUESTED', () => ({
+        label: 'changes requested',
+        cls: 'bg-danger-bg text-danger-text',
+      }))
+      .with('PENDING', () => ({ label: 'pending', cls: 'bg-warning-bg text-warning-text' }))
+      .otherwise(() => ({ label: 'commented', cls: 'bg-active text-text-muted' }))
   }
 
   let assigneeNames = $derived(
@@ -278,7 +278,9 @@
             >
           </p>
           {#if pr.author?.login}
-            <p class="m-0 text-xs text-text-muted truncate">Created by {pr.author.login}</p>
+            <p class="m-0 text-xs text-text-muted truncate" title={pr.author.login}>
+              Created by {pr.author.login}
+            </p>
           {/if}
         {:else}
           <h3 class="m-0 text-md font-semibold text-text">Pull request</h3>
@@ -382,7 +384,7 @@
               {#each history as row (row.label)}
                 <span class="text-xs text-text-muted">{row.label}</span>
                 <span class="text-xs font-mono text-text-secondary">{row.date}</span>
-                <span class="text-xs text-text-faint truncate"
+                <span class="text-xs text-text-faint truncate" title={row.detail ?? ''}
                   >{row.detail ? `by ${row.detail}` : ''}</span
                 >
               {/each}

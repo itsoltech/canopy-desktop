@@ -907,6 +907,7 @@
         </div>
       {:else if loadError}
         <div
+          role="alert"
           class="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-xs text-danger-text leading-snug"
         >
           {loadError}
@@ -994,6 +995,7 @@
 
             {#if applyError}
               <div
+                role="alert"
                 class="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-xs text-danger-text leading-snug whitespace-pre-wrap"
               >
                 {applyError}

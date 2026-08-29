@@ -5,7 +5,7 @@ import { allPanes } from '../stores/splitTree'
 
 export type AggregateAgentStatus = 'none' | 'idle' | 'working' | 'waitingPermission' | 'error'
 
-const statusPriority: Record<AggregateAgentStatus, number> = {
+export const statusPriority: Record<AggregateAgentStatus, number> = {
   none: 0,
   idle: 1,
   working: 2,
@@ -13,7 +13,7 @@ const statusPriority: Record<AggregateAgentStatus, number> = {
   waitingPermission: 4,
 }
 
-function statusTypeToAggregate(t: string): AggregateAgentStatus {
+export function statusTypeToAggregate(t: string): AggregateAgentStatus {
   return match(t)
     .with('waitingPermission', () => 'waitingPermission' as const)
     .with('error', () => 'error' as const)

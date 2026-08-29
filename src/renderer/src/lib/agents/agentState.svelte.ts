@@ -16,6 +16,24 @@ export interface TaskRecord {
   owner: string | null
 }
 
+const TASK_STATUSES: ReadonlySet<string> = new Set([
+  'pending',
+  'in_progress',
+  'completed',
+  'deleted',
+])
+
+/**
+ * Hook payloads come from the agent CLI, not from us, so a status we do not
+ * recognize must not reach `TaskRecord`. An unknown value would slip past the
+ * `status === 'completed'` eviction filter and render as an unlabelled chip.
+ */
+function asTaskStatus(value: unknown): TaskRecord['status'] | null {
+  return typeof value === 'string' && TASK_STATUSES.has(value)
+    ? (value as TaskRecord['status'])
+    : null
+}
+
 export interface NotificationRecord {
   title: string
   message: string
@@ -287,8 +305,11 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
         },
       ]
       // OpenCode: sync todo list → task list
-      const todos = extra?.opencodeTodos as
-        Array<{ id: string; content: string; status: string }> | undefined
+      // Truthiness alone is not enough: a non-array payload reaches `.map` and throws.
+      const rawTodos = extra?.opencodeTodos
+      const todos = Array.isArray(rawTodos)
+        ? (rawTodos as Array<{ id: string; content: string; status: string }>)
+        : null
       if (todos) {
         session.tasks = todos.slice(0, MAX_TASKS).map((t) => ({
           id: t.id,
@@ -360,7 +381,8 @@ function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEven
       const taskId = String(input.taskId ?? '')
       const existing = session.tasks.find((t) => t.id === taskId)
       if (existing) {
-        if (input.status) existing.status = input.status as TaskRecord['status']
+        const nextStatus = asTaskStatus(input.status)
+        if (nextStatus) existing.status = nextStatus
         if (input.subject) existing.subject = input.subject as string
         if (input.owner !== undefined) existing.owner = (input.owner as string) ?? null
         if (input.activeForm !== undefined)
