@@ -7,7 +7,7 @@ import { getLoginEnv } from '../shell/loginEnv'
 import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 import { comparableWorkspacePath } from '../db/workspacePaths'
 
-interface PtySession {
+export interface PtySession {
   id: string
   pty: IPty
   cwd: string

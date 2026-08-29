@@ -1,6 +1,6 @@
 import { BrowserWindow, type WebContents } from 'electron'
 import { randomUUID } from 'crypto'
-import { resolveShell, type PtyManager } from '../pty/PtyManager'
+import { resolveShell, type PtyManager, type PtySession } from '../pty/PtyManager'
 import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
@@ -147,37 +147,49 @@ export class ToolSessionService {
     }
 
     let tmuxSessionName: string | undefined
-    const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
-    if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
-      tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
-      const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
-      await this.deps.tmuxManager.newSession({
-        name: tmuxSessionName,
+    let session: PtySession
+    // createSession() above already registered a hook-router route and wrote a
+    // settings file keyed by the temp id. That id is local to this call, so if
+    // tmux or PTY startup throws before the rekey below, nothing downstream can
+    // ever clean it up — the route, its BrowserWindow-capturing closures, and
+    // the settings file would leak (and the hook server would stay open,
+    // because closeServerIfIdle() only fires when the session count hits zero).
+    try {
+      const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
+      if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
+        tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
+        const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
+        await this.deps.tmuxManager.newSession({
+          name: tmuxSessionName,
+          cwd: payload.worktreePath,
+          shell: command,
+          shellArgs: args,
+          cols: payload.cols,
+          rows: payload.rows,
+          mouse: tmuxMouse,
+          env,
+        })
+        const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
+        command = attach.command
+        args = attach.args
+      }
+
+      session = this.deps.ptyManager.spawn({
+        command,
+        args,
         cwd: payload.worktreePath,
-        shell: command,
-        shellArgs: args,
         cols: payload.cols,
         rows: payload.rows,
-        mouse: tmuxMouse,
         env,
+        tmuxSessionName,
       })
-      const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
-      command = attach.command
-      args = attach.args
-    }
 
-    const session = this.deps.ptyManager.spawn({
-      command,
-      args,
-      cwd: payload.worktreePath,
-      cols: payload.cols,
-      rows: payload.rows,
-      env,
-      tmuxSessionName,
-    })
-
-    if (isAgent && agentTempId) {
-      this.deps.agentSessionManager.rekey(agentTempId, session.id)
+      if (isAgent && agentTempId) {
+        this.deps.agentSessionManager.rekey(agentTempId, session.id)
+      }
+    } catch (error) {
+      if (agentTempId) this.deps.agentSessionManager.destroySession(agentTempId)
+      throw error
     }
 
     try {

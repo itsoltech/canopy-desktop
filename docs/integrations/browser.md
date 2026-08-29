@@ -157,6 +157,7 @@ When a browser tab is closed, the renderer calls `teardownBrowserWebview(browser
 - Navigation is restricted to `http:` and `https:` protocols.
 - Credential autofill runs in isolated JavaScript world 999 to prevent page scripts from observing the injected values.
 - The Chrome Debugger Protocol is attached only when device emulation is active and detached when emulation is cleared.
+- Every `browser:*` handler that takes a `browserId` verifies the calling window owns that webview before acting (`BrowserManager.isOwnedBy`), since entries for all windows share one map and the id is renderer-supplied. A call naming another window's `browserId` is rejected. `browser:setup` is exempt because it establishes the ownership record.
 
 ## Source files
 

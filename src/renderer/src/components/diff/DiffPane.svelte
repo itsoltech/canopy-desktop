@@ -213,12 +213,17 @@
     return content.toLowerCase().includes(searchLower)
   }
 
+  // Compiled once per settled query rather than once per rendered line — on a
+  // large diff with a search term this ran for every matching line on every
+  // re-render.
+  let searchRegex = $derived(
+    searchLower ? new RegExp(`(${escapeRegex(escapeHtml(searchLower))})`, 'gi') : null,
+  )
+
   function highlightMatch(text: string): string {
-    if (!searchLower) return escapeHtml(text)
     const escaped = escapeHtml(text)
-    const queryEscaped = escapeHtml(searchLower)
-    const regex = new RegExp(`(${escapeRegex(queryEscaped)})`, 'gi')
-    return escaped.replace(regex, '<mark class="search-highlight">$1</mark>')
+    if (!searchRegex) return escaped
+    return escaped.replace(searchRegex, '<mark class="search-highlight">$1</mark>')
   }
 
   function escapeHtml(str: string): string {

@@ -1,5 +1,6 @@
 import * as pty from 'node-pty'
 import { copyFile, lstat, mkdir, realpath } from 'fs/promises'
+import type { Stats } from 'fs'
 import { join, dirname, resolve, relative, isAbsolute } from 'path'
 import type { WorktreeSetupAction, WorktreeSetupProgress } from '../db/types'
 import { getLoginEnv } from '../shell/loginEnv'
@@ -28,29 +29,29 @@ async function assertDestinationWithinRoot(root: string, target: string): Promis
   let current = rootResolved
   for (const segment of rel.split(/[\\/]+/).filter(Boolean)) {
     current = join(current, segment)
-    try {
-      const stat = await lstat(current)
-      if (stat.isSymbolicLink()) {
-        throw new Error('Copy action destination path crosses a symlink')
-      }
-    } catch (err) {
-      if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
-        break
-      }
-      throw err
+    // Only the lstat belongs in the error path: keeping the symlink rejection
+    // inside a try meant this guard's own throw was caught by the handler
+    // meant for fs errors, and survived only because a plain Error carries no
+    // `.code`. A future error that did would silently skip the check.
+    const stat = await lstatOrNull(current)
+    if (!stat) break
+    if (stat.isSymbolicLink()) {
+      throw new Error('Copy action destination path crosses a symlink')
     }
   }
 
-  try {
-    const stat = await lstat(targetResolved)
-    if (stat.isSymbolicLink()) {
-      throw new Error('Copy action destination path is a symlink')
-    }
-  } catch (err) {
-    if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) {
-      throw err
-    }
+  const targetStat = await lstatOrNull(targetResolved)
+  if (targetStat?.isSymbolicLink()) {
+    throw new Error('Copy action destination path is a symlink')
   }
+}
+
+/** lstat, mapping "does not exist" to null and re-throwing every other error. */
+async function lstatOrNull(target: string): Promise<Stats | null> {
+  return lstat(target).catch((err: unknown) => {
+    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null
+    throw err
+  })
 }
 
 export interface SetupContext {
