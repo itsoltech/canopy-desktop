@@ -30,6 +30,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
   import { showUrlToast } from '../../lib/stores/toast.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
@@ -226,10 +227,17 @@
     }
   }
 
-  function handleStarRemoveAll(): void {
+  async function handleStarRemoveAll(): Promise<void> {
     const url = session?.url
-    if (url) removeFavoritesByHost(url)
     starDropdownOpen = false
+    if (!url) return
+    const ok = await confirm({
+      title: 'Remove all favorites',
+      message: 'Remove all saved favorites for this site?',
+      confirmLabel: 'Remove all',
+      destructive: true,
+    })
+    if (ok) removeFavoritesByHost(url)
   }
 
   function handleStarAddNew(): void {
@@ -284,10 +292,17 @@
     favCtxMenu = null
   }
 
-  function handleFavDelete(index: number): void {
+  async function handleFavDelete(index: number): Promise<void> {
     const fav = getFavorites()[index]
-    if (fav) removeFavorite(fav.url)
     favCtxMenu = null
+    if (!fav) return
+    const ok = await confirm({
+      title: 'Delete favorite',
+      message: `Delete "${fav.name}" from favorites?`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (ok) removeFavorite(fav.url)
   }
 
   function handleFavDragStart(e: DragEvent, index: number): void {

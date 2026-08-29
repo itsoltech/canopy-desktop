@@ -102,6 +102,19 @@ export class BrowserManager {
   }
 
   /**
+   * True when `sender` is the exact renderer that registered `browserId` via
+   * `setup()`. The privileged `browser:*` IPC handlers gate on this so a
+   * renderer can only drive DevTools, device emulation, teardown, or
+   * credential autofill on a webview it owns. `browserId` is an ordinary value
+   * threaded through renderer pane state, not a capability, so without this
+   * check any window's renderer could target another window's browser pane
+   * (confused deputy). Mirrors the `event.sender` check in NotchOverlayManager.
+   */
+  isOwnedBy(browserId: string, sender: WebContents): boolean {
+    return this.entries.get(browserId)?.sender === sender
+  }
+
+  /**
    * Register a renderer-created <webview> for keyboard interception,
    * popup handling, navigation filtering, and favicon forwarding.
    */
