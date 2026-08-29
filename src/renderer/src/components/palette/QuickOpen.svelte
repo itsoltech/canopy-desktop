@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, onDestroy, tick } from 'svelte'
   import fuzzysort from 'fuzzysort'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { openFile } from '../../lib/stores/tabs.svelte'
@@ -31,10 +31,16 @@
     fromMru: boolean
   }
 
+  let previouslyFocused: HTMLElement | null = null
+
   onMount(() => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     inputEl?.focus()
     void forceReload(worktreePath)
   })
+
+  // Return focus to whatever opened the dialog (same pattern as PRDetailsModal).
+  onDestroy(() => previouslyFocused?.focus?.())
 
   const matchedResults: Result[] = $derived.by(() => {
     if (query.length === 0 || files.length === 0) return []

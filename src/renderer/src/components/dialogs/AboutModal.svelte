@@ -1,20 +1,25 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
+  let previouslyFocused: HTMLElement | null = null
   let version = $state('')
   let homepage = $state('')
   let licenseText = $state('')
 
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     const info = await window.api.getAboutInfo()
     version = info.version
     homepage = info.homepage
     licenseText = info.license
   })
+
+  // Return focus to whatever opened the dialog (same pattern as PRDetailsModal).
+  onDestroy(() => previouslyFocused?.focus?.())
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {

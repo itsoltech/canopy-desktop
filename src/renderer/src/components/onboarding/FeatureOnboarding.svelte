@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { Sparkles } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { onboardingState, finishOnboarding } from '../../lib/stores/onboarding.svelte'
@@ -10,11 +10,16 @@
 
   let { fromVersion }: Props = $props()
   let containerEl: HTMLDivElement | undefined = $state()
+  let previouslyFocused: HTMLElement | null = null
   let submitting = $state(false)
 
   onMount(() => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
   })
+
+  // Return focus to whatever opened the dialog (same pattern as PRDetailsModal).
+  onDestroy(() => previouslyFocused?.focus?.())
 
   async function handleDismiss(): Promise<void> {
     if (submitting) return

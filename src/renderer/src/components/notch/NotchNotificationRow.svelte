@@ -81,9 +81,11 @@
         <span class="text-notch-text-dim font-normal ml-1.5 text-sm">· {session.title}</span>
       {/if}
     </span>
+    <!-- Truncated status text: `title` keeps long agent error/permission detail readable. -->
     <span
       class="text-xs whitespace-nowrap overflow-hidden text-ellipsis opacity-85"
-      style:color={config.color}>{config.label}</span
+      style:color={config.color}
+      title={config.label}>{config.label}</span
     >
   </span>
 
