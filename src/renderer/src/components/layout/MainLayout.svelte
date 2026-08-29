@@ -545,12 +545,15 @@
     }
 
     // Cmd+Shift+[ and Cmd+Shift+]
-    if (e.key === '[' && e.shiftKey && path) {
+    // `key` reports the SHIFTED glyph, so with Shift held these arrive as '{' and
+    // '}' — matching only '[' / ']' never fires. Accept both forms, the same way
+    // the letter shortcuts above test 't'/'T'.
+    if ((e.key === '[' || e.key === '{') && e.shiftKey && path) {
       e.preventDefault()
       prevTab(path).catch((err) => console.error('prevTab failed:', err))
     }
 
-    if (e.key === ']' && e.shiftKey && path) {
+    if ((e.key === ']' || e.key === '}') && e.shiftKey && path) {
       e.preventDefault()
       nextTab(path).catch((err) => console.error('nextTab failed:', err))
     }

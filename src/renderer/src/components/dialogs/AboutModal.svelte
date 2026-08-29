@@ -8,12 +8,19 @@
   let homepage = $state('')
   let licenseText = $state('')
 
-  onMount(async () => {
+  onMount(() => {
+    // Kept synchronous so the returned cleanup actually runs: an `async`
+    // onMount resolves to a Promise, which Svelte does not treat as a
+    // teardown, and the focus would never be handed back to the opener.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
-    const info = await window.api.getAboutInfo()
-    version = info.version
-    homepage = info.homepage
-    licenseText = info.license
+    void (async () => {
+      const info = await window.api.getAboutInfo()
+      version = info.version
+      homepage = info.homepage
+      licenseText = info.license
+    })()
+    return () => previouslyFocused?.focus?.()
   })
 
   function handleKeydown(e: KeyboardEvent): void {

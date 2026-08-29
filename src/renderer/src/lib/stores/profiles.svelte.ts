@@ -3,6 +3,7 @@ import type { AgentType } from '../../../../main/agents/types'
 
 let profiles: AgentProfileMasked[] = $state([])
 let initialized = false
+let disposed = false
 let unsubscribe: (() => void) | null = null
 
 export function getProfiles(): AgentProfileMasked[] {
@@ -22,12 +23,22 @@ export function getProfileById(id: string): AgentProfileMasked | undefined {
 export async function initProfileStore(): Promise<void> {
   if (initialized) return
   initialized = true
+  disposed = false
+  let loaded: AgentProfileMasked[] = []
   try {
-    profiles = await window.api.listProfiles()
+    loaded = await window.api.listProfiles()
   } catch (e) {
     console.warn('Failed to load profiles:', e)
-    profiles = []
   }
+
+  // destroyProfileStore() can run while the fetch above is in flight. Its
+  // `unsubscribe?.()` is a no-op that early because the handle below does not
+  // exist yet, so subscribing now would strand a listener nothing can remove —
+  // and re-init would stack another on top of it.
+  if (disposed) return
+
+  profiles = loaded
+
   unsubscribe = window.api.onProfilesChanged((list) => {
     profiles = list
   })
@@ -52,6 +63,7 @@ export async function deleteProfile(id: string): Promise<void> {
 }
 
 export function destroyProfileStore(): void {
+  disposed = true
   unsubscribe?.()
   unsubscribe = null
   initialized = false

@@ -17,6 +17,7 @@ let availability: Record<string, boolean> = $state({})
 // don't flash an empty-state message during the initial async fetch.
 let ready = $state(false)
 let initialized = false
+let disposed = false
 let unsubscribe: (() => void) | null = null
 
 // --- Accessors ---
@@ -38,11 +39,18 @@ export function getToolsReady(): boolean {
 export async function initToolStore(): Promise<void> {
   if (initialized) return
   initialized = true
+  disposed = false
 
   const [fetchedTools, fetchedAvailability] = await Promise.all([
     window.api.listTools(),
     window.api.checkToolAvailability(),
   ])
+
+  // destroyToolStore() can run while the fetch above is in flight. Its
+  // `unsubscribe?.()` is a no-op that early because the handle below does not
+  // exist yet, so subscribing now would strand a listener nothing can remove —
+  // and re-init would stack another on top of it.
+  if (disposed) return
 
   tools = fetchedTools
   availability = fetchedAvailability
@@ -61,6 +69,7 @@ export async function initToolStore(): Promise<void> {
 // --- Cleanup ---
 
 export function destroyToolStore(): void {
+  disposed = true
   unsubscribe?.()
   unsubscribe = null
   initialized = false

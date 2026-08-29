@@ -15,15 +15,22 @@
   let loading = $state(true)
   let error = $state(false)
 
-  onMount(async () => {
+  onMount(() => {
+    // Kept synchronous so the returned cleanup actually runs: an `async`
+    // onMount resolves to a Promise, which Svelte does not treat as a
+    // teardown, and the focus would never be handed back to the opener.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
-    const raw = await window.api.getChangelogSinceVersion(fromVersion)
-    if (raw && raw.length > 0) {
-      entries = raw.map((e) => ({ version: e.version, date: e.date, body: e.body }))
-    } else if (!raw) {
-      error = true
-    }
-    loading = false
+    void (async () => {
+      const raw = await window.api.getChangelogSinceVersion(fromVersion)
+      if (raw && raw.length > 0) {
+        entries = raw.map((e) => ({ version: e.version, date: e.date, body: e.body }))
+      } else if (!raw) {
+        error = true
+      }
+      loading = false
+    })()
+    return () => previouslyFocused?.focus?.()
   })
 
   function handleKeydown(e: KeyboardEvent): void {

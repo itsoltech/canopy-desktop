@@ -605,7 +605,7 @@ app.whenReady().then(async () => {
 
     autoUpdater.on('update-not-available', () => {
       if (manualCheckInProgress) {
-        broadcast('update:not-available', {})
+        broadcast('update:notAvailable', {})
         manualCheckInProgress = false
       }
     })

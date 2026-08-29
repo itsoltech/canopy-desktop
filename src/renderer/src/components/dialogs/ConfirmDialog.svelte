@@ -62,18 +62,28 @@
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="w-105 bg-bg-overlay border border-border rounded-2xl shadow-modal p-5"
+    class="w-105 max-h-[calc(100vh-9rem)] flex flex-col bg-bg-overlay border border-border rounded-2xl shadow-modal p-5"
     role="dialog"
     aria-modal="true"
     aria-labelledby="confirm-dialog-title"
     onmousedown={(e) => e.stopPropagation()}
   >
-    <h3 id="confirm-dialog-title" class="m-0 mb-2 text-base font-semibold text-text">{title}</h3>
-    <p class="m-0 mb-1 text-md text-text leading-normal whitespace-pre-wrap">{message}</p>
-    {#if details}
-      <p class="m-0 mb-1 text-xs text-text-muted font-mono break-all">{details}</p>
-    {/if}
-    <div class="flex justify-end gap-2 mt-4">
+    <h3 id="confirm-dialog-title" class="m-0 mb-2 text-base font-semibold text-text shrink-0">
+      {title}
+    </h3>
+    <!-- Messages carry raw command stderr (git conflict lists run to dozens of
+         lines). The app root is `overflow-hidden`, so without a bounded, scrollable
+         body a long message pushes the action row past the viewport where it can be
+         neither read nor clicked. -->
+    <div class="overflow-y-auto min-h-0">
+      <p class="m-0 mb-1 text-md text-text leading-normal whitespace-pre-wrap break-words">
+        {message}
+      </p>
+      {#if details}
+        <p class="m-0 mb-1 text-xs text-text-muted font-mono break-all">{details}</p>
+      {/if}
+    </div>
+    <div class="flex justify-end gap-2 mt-4 shrink-0">
       <button
         bind:this={cancelBtn}
         class="px-3.5 py-1.5 rounded-lg text-md font-inherit cursor-pointer border-0 outline-none transition-colors duration-fast bg-active text-text hover:bg-border focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
