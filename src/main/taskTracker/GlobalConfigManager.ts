@@ -235,9 +235,14 @@ export class GlobalConfigManager {
           this.preferencesStore.delete(conn.authPrefKey)
         }
       }
+
+      // Only flag the migration complete once every token has actually been
+      // moved. Flagging outside the try marked a half-finished run as done, so
+      // a connection whose keychain write threw kept its token in plaintext
+      // prefs and never authenticated again — the retry never happened.
+      this.preferencesStore.set(MIGRATION_FLAG_KEY, '1')
     } catch (e) {
       console.error('[GlobalConfigManager] Legacy migration failed:', e)
     }
-    this.preferencesStore.set(MIGRATION_FLAG_KEY, '1')
   }
 }

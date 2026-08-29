@@ -48,6 +48,10 @@ const BROWSER_PARTITION = 'persist:browser'
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
   private guestContents = new Map<number, WebContents>()
+  // Owning window per tracked guest, keyed like `guestContents` and mutated in
+  // the same two places. `setup()` uses it to reject a renderer that passes a
+  // guest id belonging to another window.
+  private guestOwners = new Map<number, BrowserWindow>()
   private partitionReady = false
 
   /**
@@ -58,8 +62,10 @@ export class BrowserManager {
   trackWindow(win: BrowserWindow): void {
     win.webContents.on('did-attach-webview', (_event, guestWc) => {
       this.guestContents.set(guestWc.id, guestWc)
+      this.guestOwners.set(guestWc.id, win)
       guestWc.on('destroyed', () => {
         this.guestContents.delete(guestWc.id)
+        this.guestOwners.delete(guestWc.id)
       })
     })
 
@@ -113,6 +119,14 @@ export class BrowserManager {
     // only ever target a <webview> guest — never a main renderer or another
     // window's contents — so reject anything that isn't a webview guest.
     if (wc.getType() !== 'webview') return
+    // The type check alone still allows one window's renderer to name a guest
+    // attached to a *different* window, which would wire that window's page up
+    // to this caller's DevTools, debugger and credential autofill, and stream
+    // its favicon/focus events back here. Every window is tracked (see
+    // WindowManager.createWindow), so a guest we know about must belong to the
+    // calling window.
+    const owner = this.guestOwners.get(wcId)
+    if (owner && owner !== win) return
 
     // Idempotency guard: the listeners wired up below are anonymous closures
     // that teardown() cannot selectively remove. If this exact guest is already

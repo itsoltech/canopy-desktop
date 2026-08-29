@@ -1,5 +1,6 @@
-import { match } from 'ts-pattern'
+import { match, P } from 'ts-pattern'
 import { SvelteDate } from 'svelte/reactivity'
+import type { NormalizedEventName } from '../../../../main/agents/types'
 
 export type AgentType = 'claude' | 'gemini' | 'opencode' | 'codex'
 
@@ -134,7 +135,9 @@ export function removeAgentSession(ptySessionId: string): void {
 interface NormalizedHookEvent {
   agentType: string
   sessionId: string
-  event: string
+  // The main-process union rather than `string`, so a newly emitted event name
+  // fails the build below instead of being silently swallowed by the dispatcher.
+  event: NormalizedEventName
   rawEventName: string
   toolName?: string
   toolInput?: Record<string, unknown>
@@ -314,7 +317,11 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
     .with('SessionEnd', () => {
       session.status = { type: 'ended', reason: event.reason ?? 'unknown' }
     })
-    .otherwise(() => {})
+    // Deliberately inert: 'Unknown' is the adapters' catch-all, and 'TeammateIdle'
+    // (emitted by the Claude adapter) carries no session-level state change today.
+    // Listed rather than defaulted so adding an event forces a decision here.
+    .with(P.union('TeammateIdle', 'Unknown'), () => {})
+    .exhaustive()
 }
 
 function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEvent): void {
