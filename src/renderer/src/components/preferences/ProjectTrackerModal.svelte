@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -22,8 +22,13 @@
   let repoCfg = $derived(getRepoConfig())
 
   let containerEl: HTMLElement | undefined = $state()
+  // Restore focus to the opener on close. Captured/released via onDestroy rather
+  // than an onMount teardown because this onMount is async.
+  let previouslyFocused: HTMLElement | null = null
+  onDestroy(() => previouslyFocused?.focus?.())
 
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     await loadGlobalConfig()
     if (repoRoot) await loadRepoConfig(repoRoot)
     containerEl?.focus()

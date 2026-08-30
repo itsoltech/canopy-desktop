@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
   import type { AgentSessionState } from '../../lib/agents/agentState.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { getPanelTask } from '../../lib/stores/taskTracker.svelte'
@@ -39,11 +40,12 @@
 
   function handleTabKeydown(e: KeyboardEvent, current: TabId): void {
     const idx = tabOrder.indexOf(current)
-    let target: TabId | null = null
-    if (e.key === 'ArrowRight') target = tabOrder[(idx + 1) % tabOrder.length]
-    else if (e.key === 'ArrowLeft') target = tabOrder[(idx - 1 + tabOrder.length) % tabOrder.length]
-    else if (e.key === 'Home') target = tabOrder[0]
-    else if (e.key === 'End') target = tabOrder[tabOrder.length - 1]
+    const target = match(e.key)
+      .with('ArrowRight', () => tabOrder[(idx + 1) % tabOrder.length])
+      .with('ArrowLeft', () => tabOrder[(idx - 1 + tabOrder.length) % tabOrder.length])
+      .with('Home', () => tabOrder[0])
+      .with('End', () => tabOrder[tabOrder.length - 1])
+      .otherwise(() => null)
     if (!target) return
     e.preventDefault()
     workspaceState.rightPanelTab = target

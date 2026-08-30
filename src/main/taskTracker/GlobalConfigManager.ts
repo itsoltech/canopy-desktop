@@ -235,9 +235,15 @@ export class GlobalConfigManager {
           this.preferencesStore.delete(conn.authPrefKey)
         }
       }
+
+      // Only mark the migration done once the whole body succeeded. Setting the
+      // flag after the catch would retire a migration that died partway — e.g.
+      // after `save(config)` but before the plaintext tokens above were moved
+      // to the keychain and deleted — leaving those credentials in the
+      // preferences DB with no further attempt to clear them.
+      this.preferencesStore.set(MIGRATION_FLAG_KEY, '1')
     } catch (e) {
       console.error('[GlobalConfigManager] Legacy migration failed:', e)
     }
-    this.preferencesStore.set(MIGRATION_FLAG_KEY, '1')
   }
 }

@@ -3340,8 +3340,8 @@ export function registerIpcHandlers(
         }
       }
       const { connectionId, token, ...updates } = payload
-      const c = taskTrackerManager.updateConnection(connectionId, updates, token)
-      if (!c) return null
+      const result = taskTrackerManager.updateConnection(connectionId, updates, token)
+      const c = unwrapOrThrow(result, taskTrackerErrorMessage)
       return {
         id: c.id,
         provider: c.provider,
@@ -4745,12 +4745,19 @@ export function registerIpcHandlers(
       const configJson = preferencesStore.get(`workspace:${payload.workspaceId}:worktreeSetup`)
       if (!configJson) return { success: true, errors: [] }
 
-      let actions: WorktreeSetupAction[]
+      let parsed: unknown
       try {
-        actions = JSON.parse(configJson) as WorktreeSetupAction[]
+        parsed = JSON.parse(configJson)
       } catch {
         return { success: false, errors: ['Invalid worktree setup config'] }
       }
+      // Assert the shape before the cast: a stored non-array parses fine, and
+      // `actions.length === 0` would then be `undefined === 0` — falling
+      // through to a setup run that silently does nothing and reports success.
+      if (!Array.isArray(parsed)) {
+        return { success: false, errors: ['Invalid worktree setup config'] }
+      }
+      const actions = parsed as WorktreeSetupAction[]
 
       if (actions.length === 0) return { success: true, errors: [] }
 

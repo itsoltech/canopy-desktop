@@ -1,9 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
+  // Restore focus to the opener on close. Captured/released via onDestroy rather
+  // than an onMount teardown because this onMount is async.
+  let previouslyFocused: HTMLElement | null = null
+  onDestroy(() => previouslyFocused?.focus?.())
 
   interface Props {
     fromVersion: string
@@ -16,6 +20,7 @@
   let error = $state(false)
 
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     const raw = await window.api.getChangelogSinceVersion(fromVersion)
     if (raw && raw.length > 0) {

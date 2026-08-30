@@ -1054,10 +1054,12 @@ interface CanopyAPI {
     token: string
   }) => Promise<TaskTrackerConnectionInfo>
   taskTrackerRemoveConnection: (connectionId: string) => Promise<void>
+  /** Rejects a `baseUrl` origin change unless `token` is re-supplied, so a
+   *  stored credential is never sent to a host it was not issued for. */
   taskTrackerUpdateConnection: (
     connectionId: string,
     updates: { name?: string; baseUrl?: string; username?: string; token?: string },
-  ) => Promise<TaskTrackerConnectionInfo | null>
+  ) => Promise<TaskTrackerConnectionInfo>
   taskTrackerTestConnection: (connectionId: string) => Promise<boolean>
   taskTrackerTestNewConnection: (connection: {
     provider: TaskTrackerProvider

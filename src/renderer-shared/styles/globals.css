@@ -519,4 +519,13 @@
   .keystroke-overlay.inferno {
     animation: none;
   }
+
+  /* Tailwind's spin utilities back every loading indicator in the app. The
+   * `motion-reduce:animate-none` variant was only applied at some call sites,
+   * so cover them here instead — these rules are unlayered and therefore win
+   * over the layered utility regardless of which call sites opt in. */
+  .animate-spin,
+  .animate-spin-slow {
+    animation: none;
+  }
 }
