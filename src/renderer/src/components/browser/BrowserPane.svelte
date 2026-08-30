@@ -192,6 +192,28 @@
     ).catch(() => {})
   }
 
+  // Wraps Tab/Shift+Tab at the dialog boundary, matching the focus containment the shared
+  // dialogs use (CreateTaskPRModal, PRDetailsModal, ProjectTrackerModal). Without it, tabbing
+  // past the last field escapes into the page chrome behind the overlay.
+  const FOCUSABLE_SELECTOR =
+    'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+  function trapTab(e: KeyboardEvent, container: HTMLElement | undefined): void {
+    if (e.key !== 'Tab' || !container) return
+    const focusable = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const active = document.activeElement as HTMLElement | null
+    if (e.shiftKey && (active === first || !container.contains(active))) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   // --- Favorites ---
 
   let favModalOpen = $state(false)
@@ -204,6 +226,7 @@
   let favDropIndex: number | null = $state(null)
   let starDropdownOpen = $state(false)
   let favNameInputEl: HTMLInputElement | undefined = $state()
+  let favModalEl: HTMLDivElement | undefined = $state()
 
   // Focus the first input each time the favorites modal opens so Escape bubbles to the backdrop.
   $effect(() => {
@@ -316,6 +339,7 @@
     $state(null)
   let pageHasPasswordField = $state(false)
   let savePromptUsernameEl: HTMLInputElement | undefined = $state()
+  let saveModalEl: HTMLDivElement | undefined = $state()
 
   // Focus the first input each time the save-password modal opens so Escape bubbles to the backdrop.
   $effect(() => {
@@ -1213,7 +1237,9 @@
             e.preventDefault()
             e.stopPropagation()
             favModalOpen = false
+            return
           }
+          trapTab(e, favModalEl)
         }}
       >
         <div
@@ -1221,6 +1247,7 @@
           role="dialog"
           aria-modal="true"
           aria-labelledby="fav-modal-title"
+          bind:this={favModalEl}
           onclick={(e) => e.stopPropagation()}
         >
           <h3 id="fav-modal-title" class="fav-modal-title">
@@ -1320,7 +1347,9 @@
         e.preventDefault()
         e.stopPropagation()
         handleDismissSavePrompt()
+        return
       }
+      trapTab(e, saveModalEl)
     }}
   >
     <div
@@ -1328,6 +1357,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="save-modal-title"
+      bind:this={saveModalEl}
       onclick={(e) => e.stopPropagation()}
     >
       <h3 id="save-modal-title" class="save-modal-title">Save Password</h3>
