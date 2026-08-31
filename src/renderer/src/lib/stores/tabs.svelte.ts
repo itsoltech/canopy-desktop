@@ -57,8 +57,17 @@ function disposeEphemeralPaneState(pane: PaneSession): void {
 
 // --- Active process detection ---
 
-const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
-export const isAiToolId = (id: string): boolean => AI_TOOL_IDS.has(id)
+// Typed as Set<AgentType> so a typo or a newly added agent that is not mirrored
+// here fails to compile, and widened to ReadonlySet<string> so `has()` accepts
+// the arbitrary tool ids stored on panes. That combination makes the type
+// predicate below sound without an assertion at the call sites.
+const AI_TOOL_IDS: ReadonlySet<string> = new Set<AgentType>([
+  'claude',
+  'codex',
+  'opencode',
+  'gemini',
+])
+export const isAiToolId = (id: string): id is AgentType => AI_TOOL_IDS.has(id)
 
 type SerializedSplitNode =
   | {
@@ -113,7 +122,7 @@ function paneFromSnapshot(snapshot: PaneSnapshot, previous?: PaneSession): PaneS
     isAiToolId(snapshot.toolId) &&
     snapshot.isRunning
   ) {
-    rekeyAgentSession(previous.sessionId, snapshot.sessionId, snapshot.toolId as AgentType)
+    rekeyAgentSession(previous.sessionId, snapshot.sessionId, snapshot.toolId)
   }
 
   return {
@@ -213,7 +222,7 @@ export function applyTabsSnapshot(
 
 function initPaneRuntimeState(pane: PaneSession): void {
   if (isAiToolId(pane.toolId) && pane.isRunning) {
-    initAgentSession(pane.sessionId, pane.toolId as AgentType)
+    initAgentSession(pane.sessionId, pane.toolId)
   }
 }
 

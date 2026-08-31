@@ -1,7 +1,7 @@
 import { ok, err } from '../errors'
 import type { Result } from 'neverthrow'
 import type { SkillError } from './errors'
-import type { SkillAgentTarget } from './types'
+import { isSkillAgentTarget, type SkillAgentTarget } from './types'
 
 export interface ParsedSkill {
   name: string
@@ -138,10 +138,13 @@ function parseSkillMd(
   const description = typeof frontmatter.description === 'string' ? frontmatter.description : ''
   const version = typeof frontmatter.version === 'string' ? frontmatter.version : '1.0.0'
   const rawAgents = frontmatter.agents
-  const agents: SkillAgentTarget[] =
-    Array.isArray(rawAgents) && rawAgents.every((a) => typeof a === 'string')
-      ? (rawAgents as SkillAgentTarget[])
-      : ['claude']
+  // Checking "is a string" is not the same as "is a known agent target": an
+  // unrecognised entry such as `vscode` would otherwise be carried as a valid
+  // target and silently no-op in SkillTransformer. Reuse the canonical guard
+  // and drop anything outside the allow-list.
+  const agents: SkillAgentTarget[] = Array.isArray(rawAgents)
+    ? rawAgents.filter((a): a is SkillAgentTarget => typeof a === 'string' && isSkillAgentTarget(a))
+    : ['claude']
   const metadata: Record<string, unknown> = {}
 
   if (frontmatter['allowed-tools']) metadata['allowed-tools'] = frontmatter['allowed-tools']
