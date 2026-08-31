@@ -57,6 +57,18 @@ export interface Workspace {
 
 export type ToolCategory = 'ai' | 'git' | 'system' | 'shell' | 'browser'
 
+const TOOL_CATEGORIES: readonly ToolCategory[] = ['ai', 'git', 'system', 'shell', 'browser']
+
+/**
+ * `tool_definitions.category` is a plain TEXT column, so a stale migration or a
+ * hand-edited database can hold a value outside the union. Fall back to
+ * `system` rather than asserting, so an unexpected value degrades to a valid
+ * category instead of reaching icon/label lookups as an unhandled case.
+ */
+function toToolCategory(value: string): ToolCategory {
+  return TOOL_CATEGORIES.find((category) => category === value) ?? 'system'
+}
+
 export interface SkillDefinition {
   id: string
   name: string
@@ -183,7 +195,7 @@ export function toolFromRow(row: ToolDefinitionRow): ToolDefinition {
     command: row.command,
     args: safeJsonParse<string[]>(row.args_json, []),
     icon: row.icon,
-    category: row.category as ToolCategory,
+    category: toToolCategory(row.category),
     isCustom: row.is_custom === 1,
   }
 }
