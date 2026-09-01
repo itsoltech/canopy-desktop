@@ -181,10 +181,11 @@ The fields below describe the keys stored inside each profile's `prefs_json` (no
 
 Custom env vars are filtered against a blocklist (`BLOCKED_ENV_VARS` from `security/envBlocklist`) and internal vars (`CANOPY_HOOK_PORT`, `CANOPY_HOOK_TOKEN`, `ELECTRON_RUN_AS_NODE`).
 
-Two opt-in Claude Code variables are worth setting through `customEnv` when running many agent sessions at once (both pass the blocklist unchanged; neither has a Canopy default):
+A few opt-in Claude Code variables are worth setting through `customEnv` when running many agent sessions at once (all pass the blocklist unchanged; none has a Canopy default):
 
 - `CLAUDE_CODE_TOOL_MEMORY_LIMIT` — caps Bash tool commands with a memory cgroup on Linux (Claude Code 2.1.233+). Canopy hosts several agent PTYs per workspace, so a runaway build in one session competes with every other pane; this bounds it instead of letting it stall the session.
 - `CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS` — WebFetch session URL cache TTL, default 15 minutes (Claude Code 2.1.233+).
+- `CLAUDE_CODE_SUBAGENT_MODEL` with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` (Claude Code 2.1.257+) — the second applies the first (or the main model) to _every_ subagent, ignoring per-spawn and agent-definition model overrides. Canopy already counts subagents per pane (`activeSubagents`, from `SubagentStart`/`SubagentStop`), and a workspace running several panes fans those out well past what one session would; forcing a cheap model on all of them is the one lever that a repository's own agent definitions cannot override. It is blunt for the same reason — a worktree that deliberately pins a strong model to one subagent loses that pin too.
 
 One further variable passes the blocklist but should be left unset: `CLAUDE_CODE_PROJECT_DIR_NAME` (Claude Code 2.1.234+) names the per-project transcript directory inside the Claude config directory. It exists for hosts that give each session its own config directory — Canopy does not. Claude Code sessions share the user's `~/.claude`; only `--settings` is per-session (unlike Gemini and OpenCode, which do get isolated directories). A profile holds one fixed value, so setting it would point every worktree that runs the profile at the same transcript directory instead of one per worktree.
 
@@ -194,10 +195,17 @@ One further variable passes the blocklist but should be left unset: `CLAUDE_CODE
 pane is what chooses the model — and Claude Code 2.1.243+ accepts a `modelPicker` setting that
 replaces or extends the built-in lineup with an ordered, labeled list. It reaches the CLI through the
 profile's Settings JSON field like any other override. This matters more on Canopy than on a bare
-terminal because the Model field's own hint suggests short names (`sonnet`, `opus`, `haiku`) while
-Bedrock, Vertex and Foundry profiles need those providers' own id spellings — `modelPicker` accepts
-any spelling, so a provider profile can offer the ids that actually work on it instead of leaving the
-user to type one.
+terminal because the Model field's own hint suggests short names (`sonnet`, `opus`, `haiku`, `fable`)
+while Bedrock, Vertex and Foundry profiles need those providers' own id spellings — `modelPicker`
+accepts any spelling, so a provider profile can offer the ids that actually work on it instead of
+leaving the user to type one.
+
+A gateway profile can now skip the curation entirely. 2.1.257 lets a gateway supply a description
+alongside each entry it advertises under `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`; entries
+without one still read "From gateway". The Base URL field exists for exactly these profiles — its own
+hint names Ollama, GLM and MinMax — so a gateway that describes its models makes the picker
+self-documenting and leaves `modelPicker` for the provider profiles that have no discovery endpoint
+to ask.
 
 **`keybindingFlavor: "readline"` only takes effect on macOS.** Claude Code 2.1.238+ accepts a
 `keybindingFlavor` setting; `"readline"` makes Ctrl+W in its prompt delete back to the previous
@@ -373,6 +381,75 @@ was degraded. That is a claude.ai-hosted session driven from those two editors, 
 host for it. Canopy's own Remote Control (`src/main/remote/`) is an unrelated WebRTC feature that
 mirrors a Canopy window to a phone over the LAN; the names collide and nothing in this fix touches
 it.
+
+**Fable 5.1 breaks the 0.1x cache-read ratio the `promptCacheTtl` note assumes.** Claude Code 2.1.257
+makes Claude Fable 5.1 (`claude-fable-5-1`) the default Fable model, with a 1M context and billing of
+$10/$50 per Mtok against $0.25/Mtok for cache reads. That last figure is the one that matters here:
+0.25/10 is **0.025x** base input, not the ~0.1x the rest of the lineup holds to and that the
+`promptCacheTtl` arithmetic above is written around. A cached read on a Fable pane costs a quarter of
+what the note assumes relative to input, so every case for raising `promptCacheTtl` gets
+stronger and the cases against it — a pane used once and closed — are the only ones left. The 1M
+context pushes the same way, because the prefix being written or re-written is that much larger.
+Nothing needs changing in Canopy to display it: `contextWindow` is read straight off the status line
+(`context_window_size` and `used_percentage`), so a 1M-context pane reports its own size.
+
+**Auto mode is no longer full autonomy, and a Canopy pane meets the new prompt in every worktree.**
+2.1.257 adds two holdouts to the Auto permission mode the profile's Permission Mode field selects. The
+first is a Containment Escape rule: cloud metadata-credential fetches, egress evasion and cross-tenant
+reach stop being auto-approved unless the environment marks them expected. The second is a one-time
+prompt before the first file read outside the working directories, with the option to block such reads
+outright. Canopy gives a session exactly one working directory — the worktree — and passes no
+`--add-dir`, so the main checkout, every sibling worktree and anything under `~` is outside it. That
+makes this the same shape as the 2.1.252 "always allow" fix above: `worktree:create` hands each task a
+fresh directory, so "first read outside the working directory" is reached again in each new worktree
+rather than once per machine. A profile that should never read outside can settle it in advance with
+`{ "permissions": { "blockReadsOutsideWorkingDirectories": true } }` in the Settings JSON field.
+Whether the prompt arrives as a `PermissionRequest` hook — and so raises the OS notification
+`formatNotification` builds — is not stated in the release note and is not tested here.
+
+**`.claude/` created mid-session now takes effect, which completes the 2.1.252 story.** 2.1.257 fixes
+settings in a `.claude/` folder created after startup not being picked up until restart. Read against
+the 2.1.252 note above, the two are one sequence: 2.1.252 made a project-level "always allow" actually
+save into a worktree that had no `.claude/settings.local.json`, and until 2.1.257 the file it saved
+was then ignored for the rest of that session. A Canopy pane is where the pair matters, because
+`git worktree add` produces a directory with no `.claude/` in it and the pane's session is the one
+that creates it. Neither fix touches the per-session `--settings` file Canopy writes, which is passed
+by path and read at startup.
+
+**Ctrl+T is Canopy's, and 2.1.257 is the first release where that is fixable.** Claude Code gains an
+`Agents` keybindings context: `keybindings.json` rebinds of Ctrl+G are no longer ignored in claude
+agents, and its Ctrl+S / Ctrl+T are now rebindable there. Of those three, only Ctrl+T collides in a
+Canopy pane. `handleKeydown` is bound with `<svelte:window onkeydown={...}>` in `MainLayout.svelte`
+and has no exemption for a focused terminal, so on Windows and Linux — where the modifier is Ctrl —
+Ctrl+T opens a new tab whichever pane has focus. It is a bubble-phase listener rather than a capture
+one, so whether the keystroke _also_ reaches Claude Code through xterm depends on ordering that is not
+tested here; the tab opens either way. Ctrl+S and Ctrl+G pass through untouched — Canopy's only
+`Mod-s` binding lives inside `CodeMirrorEditor.svelte`, a different pane type, the Electron menu binds
+only `CmdOrCtrl+,` and `CmdOrCtrl+Shift+N`, and `attachCustomKeyEventHandler` in
+`TerminalInstance.svelte` intercepts only Ctrl+V, Ctrl+C, Cmd+Backspace and Ctrl+Z. Unlike
+the Ctrl+W case above, rebinding is a real fix here rather than a workaround that defeats the point:
+Ctrl+W is wanted _because_ it is Ctrl+W, whereas the agents-context actions just need some reachable
+key. Users pick that key in their own `~/.claude/keybindings.json`, which Canopy shares — the
+profile's Settings JSON field is the wrong channel for it.
+
+**A closed pane can leave a sandbox mask file behind.** 2.1.257 adds a `/doctor` warning for stale
+sandbox mask files left by a killed session. Canopy kills sessions as a matter of course — closing a
+pane, closing a tab, quitting the app — so these accumulate faster here than under a terminal the user
+exits cleanly. There is nothing to change in the adapter; it is worth knowing that `/doctor` is where
+the residue shows up, and that a user reporting it has usually just been closing panes.
+
+**Also in 2.1.257, with no Canopy consequence.** New `timeFormat` and `timeZone` settings (12-hour,
+24-hour, 24-hour UTC, or a strftime pattern) control the turn-end clock and transcript timestamps;
+they reach the CLI through the profile's Settings JSON field like any other override, and a pane
+otherwise inherits the app process's timezone. `/effort` gains an `s` option for changing effort for
+the current session only — the same relationship the Model field has with `/model`, since the profile's
+Effort level field re-asserts `--effort` on every spawn and resume. Two background-session start
+failures are fixed, on macOS npm installs mid self-update and on Windows behind a stale daemon lock
+file pointing at a reused process id; those are Claude Code's own background sessions, not Canopy
+panes. Finally, the release moves a large amount of prompt text: total prompt tokens are up 31.2%
+(+4,253), with the system share going from 30.7% to 47.2% of the mix. That comes off the usable
+context of every pane, which is visible in the Agent Inspector's context percentage but needs no code
+change.
 
 ## Error states
 
