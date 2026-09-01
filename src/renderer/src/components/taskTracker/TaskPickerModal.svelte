@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -58,6 +59,16 @@
   )
 
   let showsTaskList = $derived(mode === 'browse' || (linkTab === 'existing' && !selectedLinkTask))
+
+  // Restore focus to whatever opened the dialog so keyboard/AT users don't get
+  // dropped back at <body> and have to re-navigate from the top of the DOM.
+  let previouslyFocused: HTMLElement | null = null
+
+  onMount(() => {
+    previouslyFocused = document.activeElement as HTMLElement | null
+  })
+
+  onDestroy(() => previouslyFocused?.focus?.())
 
   function handleKeydown(e: KeyboardEvent): void {
     // When the branch-create sub-view is open, this window-level handler must not interfere.

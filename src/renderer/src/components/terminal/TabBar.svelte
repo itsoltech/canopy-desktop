@@ -338,6 +338,9 @@
             if (!suppressClick) await switchTab(tab.id)
           }}
           onkeydown={async (e) => {
+            // Enter/Space on the nested close button bubbles here too — ignore it
+            // so activating "close" doesn't also switch to the tab being closed.
+            if (e.target !== e.currentTarget) return
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               await switchTab(tab.id)
@@ -381,7 +384,7 @@
             ></span>
           {/if}
           <button
-            class="hidden group-hover/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
+            class="hidden group-hover/tab:flex group-focus-within/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
             onclick={(e: MouseEvent) => {
               e.stopPropagation()
               closeTab(tab.id)

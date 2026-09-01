@@ -513,11 +513,14 @@
         {@const showIndicatorAfter =
           dragActive && dropIndex === idx + 1 && idx === editorFiles.length - 1}
         {#if showIndicatorBefore}<span class="sub-tab-drop-indicator"></span>{/if}
-        <button
+        <div
           class="sub-tab"
           class:active={isActive}
           class:dragging={draggingPath === file.filePath}
           draggable="true"
+          role="tab"
+          aria-selected={isActive}
+          tabindex={isActive ? 0 : -1}
           ondragstart={(e) => handleSubTabDragStart(e, file.filePath)}
           ondragover={(e) => handleSubTabDragOver(e, idx)}
           ondragend={handleSubTabDragEnd}
@@ -529,28 +532,31 @@
             }
           }}
           onclick={() => handleSubTabClick(file.filePath)}
+          onkeydown={(e) => {
+            // Enter/Space on the nested close button bubbles here too — ignore it
+            // so activating "close" doesn't also switch to the tab being closed.
+            if (e.target !== e.currentTarget) return
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleSubTabClick(file.filePath)
+            }
+          }}
           oncontextmenu={(e) => handleSubTabDetach(e, file.filePath)}
           title={file.filePath + '\nMiddle-click: close · Drag to reorder · Drag out to new tab'}
         >
           {#if file.dirty}<span class="sub-tab-dirty" aria-label="Unsaved changes">●</span>{/if}
           <span class="sub-tab-name">{name}</span>
-          <span
+          <button
+            type="button"
             class="sub-tab-close"
-            role="button"
-            tabindex="-1"
             aria-label="Close file"
             title="Close"
+            tabindex={isActive ? 0 : -1}
             onclick={(e) => handleSubTabClose(e, file.filePath)}
-            onkeydown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                void handleSubTabClose(e, file.filePath)
-              }
-            }}
           >
             <X size={11} />
-          </span>
-        </button>
+          </button>
+        </div>
         {#if showIndicatorAfter}<span class="sub-tab-drop-indicator"></span>{/if}
       {/each}
     </div>
@@ -790,6 +796,7 @@
     justify-content: center;
     width: 16px;
     height: 16px;
+    border: none;
     border-radius: 3px;
     color: var(--color-text-faint);
     background: transparent;
