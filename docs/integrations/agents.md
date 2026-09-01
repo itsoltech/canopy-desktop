@@ -334,6 +334,46 @@ it is carried and ignored. `prompt_cache` is dropped earlier: `normalizeStatus` 
 into the Agent Inspector needs the field shapes confirmed against a real 2.1.251 status line first —
 the release notes name the quantities but not the JSON keys.
 
+**A fresh worktree had nowhere to keep "always allow", and every Canopy pane starts in one.** Claude
+Code 2.1.252 fixes project-level "always allow" not saving in a project that has no
+`.claude/settings.local.json` yet. That is the normal state of a Canopy pane rather than an edge
+case: `worktree:create` hands `git worktree add` a path under the configured base directory
+(`~/canopy/worktrees` unless `worktrees.baseDir` says otherwise), and that file is conventionally
+gitignored, so a newly created worktree does not contain one. The per-session file Canopy does write
+is not a substitute — `setupSettings` writes the hooks and `statusLine` to
+`{userData}/canopy/agent-hooks/session-{uuid}.json`, passes it as `--settings {path}`, and
+`unlinkSync`s it on cleanup, so it is neither the file Claude Code persists permission decisions to
+nor one that would outlive the session if it were. Before the fix the symptom was Canopy-shaped
+rather than silent: `formatNotification` raises an OS notification on every `PermissionRequest`, so a
+choice that failed to persist came back as the same tool re-prompting and re-notifying in each new
+worktree. The fix is entirely CLI-side and needs no adapter change.
+
+**The macOS tasks-directory fix should not reach worktrees Canopy created.** 2.1.252 fixes Bash
+commands failing with "task output swap refused (tasks dir moved or linked)" on some Macs — the
+symlinked-path case that `/tmp` → `/private/tmp` and `/var` → `/private/var` produce there.
+`validateWorktreeCreationPath` already returns `resolvedTarget` from `resolveWithExistingAncestor`,
+which is realpath-canonicalized, and `worktree:create` passes exactly that value to
+`GitRepository.worktreeAdd`, so a pane's working directory is the canonical path rather than an alias
+of it. That canonicalization exists for the containment checks, not for this, but it removes the
+precondition as a side effect. It does not cover a directory the user attached directly, which does
+not go through that path.
+
+**Canopy's 1 MB hook cap still drops what the CLI now truncates.** The fourth fix stops background
+task notifications carrying very large failure output — the release note's example is a git error on
+a full disk — from pushing the conversation past the API request size limit. `TaskCompleted` is in
+`CLAUDE_HOOK_EVENTS` and `EVENT_MAP`, so that class of payload also reaches Canopy, where
+`AgentHookServer`'s `MAX_BODY_BYTES` (1 MB) drops an oversized body silently and the renderer's task
+list never sees the completion. Whether the upstream truncation also applies to what the hook
+receives is not stated in the release note and is not tested here; if it does not, the existing
+silent-drop row in the error table below is the behaviour to expect.
+
+**Claude Code's "Remote Control" is not Canopy's.** 2.1.252 fixes Remote Control sessions hosted by
+Claude Desktop or VS Code stalling for minutes after a tool finished when the connection to claude.ai
+was degraded. That is a claude.ai-hosted session driven from those two editors, and Canopy is not a
+host for it. Canopy's own Remote Control (`src/main/remote/`) is an unrelated WebRTC feature that
+mirrors a Canopy window to a phone over the LAN; the names collide and nothing in this fix touches
+it.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
