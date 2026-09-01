@@ -131,7 +131,12 @@
     return branches.remote.find((r) => r.slice(r.indexOf('/') + 1) === name) ?? ''
   }
 
+  // Restore focus to whatever opened the dialog so keyboard/AT users don't get
+  // dropped back at <body> and have to re-navigate from the top of the DOM.
+  let previouslyFocused: HTMLElement | null = null
+
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))
     try {
@@ -170,6 +175,7 @@
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
+    previouslyFocused?.focus?.()
   })
 
   function initSetupTerminal(container: HTMLDivElement): void {
