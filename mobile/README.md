@@ -23,6 +23,18 @@ npm install
 | iOS device (dev)    | `eas build --profile development --platform ios`           | `.ipa` for TestFlight internal |
 | Production          | `eas build --profile production --platform ios`            | App Store `.ipa`               |
 
+## Automatic EAS builds
+
+`mobile/.eas/workflows/mobile-production.yml` starts cloud builds when a push to `next` or
+`main` contains changes under `mobile/`:
+
+- `next` builds a production iOS archive and a signed Android APK for internal testing.
+- `main` builds a production iOS archive and an Android App Bundle for Google Play.
+
+The workflow builds artifacts only; it does not submit them to TestFlight or Google Play. The
+GitHub repository must be connected under the EAS project's **Settings → GitHub** for push
+triggers to run.
+
 ## Dev against a local desktop
 
 1. Start the desktop app: `npm run dev` from the repo root

@@ -1,0 +1,35 @@
+name: Mobile Builds
+
+on:
+  push:
+    branches: ['main', 'next']
+    paths:
+      - 'mobile/**'
+
+concurrency:
+  cancel_in_progress: true
+  group: ${{ workflow.filename }}-${{ github.ref }}
+
+jobs:
+  build_ios:
+    name: Build iOS
+    type: build
+    params:
+      platform: ios
+      profile: production
+
+  build_android_apk:
+    name: Build Android APK
+    if: ${{ github.ref_name == 'next' }}
+    type: build
+    params:
+      platform: android
+      profile: preview-apk
+
+  build_android_store:
+    name: Build Android AAB
+    if: ${{ github.ref_name == 'main' }}
+    type: build
+    params:
+      platform: android
+      profile: production
