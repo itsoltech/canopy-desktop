@@ -3,7 +3,7 @@
   import { X, GitPullRequest, LoaderCircle, Info } from '@lucide/svelte'
   import { closeDialog, showPRDetails, showProjectTracker } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
-  import { loadBranchPRs } from '../../lib/stores/github.svelte'
+  import { invalidatePRFallback, loadBranchPRs } from '../../lib/stores/github.svelte'
   import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -111,7 +111,8 @@
       // undefined afterwards, which used to open the details panel for branch "undefined".
       const root = repoRoot
       const forBranch = branch
-      void loadBranchPRs(root)
+      invalidatePRFallback(root, forBranch)
+      void loadBranchPRs(root, true)
       closeDialog()
       showPRDetails(root, forBranch)
     } catch (e) {

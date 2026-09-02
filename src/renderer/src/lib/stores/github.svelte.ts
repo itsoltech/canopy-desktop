@@ -4,10 +4,15 @@ import { addToast } from './toast.svelte'
 let branchPRs: GitHubBranchPRMap = $state({})
 let repoInfo: GitHubRepoInfo | null = $state(null)
 let loading = $state(false)
-// Bumped on every loadBranchPRs call so gh-CLI fallbacks (no GitHub API integration) can
-// re-check after a PR is created/mutated — the branchPRs map alone never changes for them.
-let refreshTick = $state(0)
 const lastFetchByRepo: Record<string, number> = {}
+let fallbackGenerationByKey: Record<string, number> = $state({})
+// This is deliberately not reactive: GitSection calls the loader from an effect, so tracking
+// cache get/set operations would make the effect depend on and then mutate the same collection.
+// eslint-disable-next-line svelte/prefer-svelte-reactivity
+const fallbackSummaryRequests = new Map<
+  string,
+  Promise<{ number: number; state: string; isDraft: boolean } | null>
+>()
 
 const DEBOUNCE_MS = 30_000
 
@@ -35,12 +40,37 @@ export function isGitHubLoading(): boolean {
   return loading
 }
 
-export function getPRRefreshTick(): number {
-  return refreshTick
+export function getPRFallbackGeneration(repoRoot: string, branch: string): number {
+  return fallbackGenerationByKey[prKey(repoRoot, branch)] ?? 0
+}
+
+export function invalidatePRFallback(repoRoot: string, branch: string): void {
+  const key = prKey(repoRoot, branch)
+  fallbackGenerationByKey = {
+    ...fallbackGenerationByKey,
+    [key]: (fallbackGenerationByKey[key] ?? 0) + 1,
+  }
+}
+
+export function loadPRFallbackSummary(
+  repoRoot: string,
+  branch: string,
+): Promise<{ number: number; state: string; isDraft: boolean } | null> {
+  const generation = getPRFallbackGeneration(repoRoot, branch)
+  const requestKey = `${prKey(repoRoot, branch)}::${generation}`
+  const existing = fallbackSummaryRequests.get(requestKey)
+  if (existing) return existing
+
+  const request = window.api.taskTrackerPRSummary(repoRoot, branch, generation).finally(() => {
+    if (fallbackSummaryRequests.get(requestKey) === request) {
+      fallbackSummaryRequests.delete(requestKey)
+    }
+  })
+  fallbackSummaryRequests.set(requestKey, request)
+  return request
 }
 
 export async function loadBranchPRs(repoRoot: string, force = false): Promise<void> {
-  refreshTick += 1
   const now = Date.now()
   const lastFetch = lastFetchByRepo[repoRoot] ?? 0
   if (!force && now - lastFetch < DEBOUNCE_MS) return
@@ -78,6 +108,8 @@ export async function loadRepoInfo(repoRoot: string): Promise<void> {
 export function resetGitHubState(): void {
   branchPRs = {}
   repoInfo = null
+  fallbackGenerationByKey = {}
+  fallbackSummaryRequests.clear()
   for (const key of Object.keys(lastFetchByRepo)) delete lastFetchByRepo[key]
 }
 

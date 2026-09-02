@@ -12,7 +12,11 @@
   } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt, showPRDetails, showCreateTaskPR } from '../../lib/stores/dialogs.svelte'
-  import { getPRForBranch, getPRRefreshTick } from '../../lib/stores/github.svelte'
+  import {
+    getPRFallbackGeneration,
+    getPRForBranch,
+    loadPRFallbackSummary,
+  } from '../../lib/stores/github.svelte'
   import { getPanelTask, getPanelTaskResolvedPath } from '../../lib/stores/taskTracker.svelte'
   import { prStateChip } from '../../lib/github/prState'
   import CollapsibleSection from './CollapsibleSection.svelte'
@@ -181,8 +185,8 @@
   $effect(() => {
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     const branch = workspaceState.branch
-    // Re-check after any PR mutation elsewhere in the app (create/merge/close bump the tick).
-    void getPRRefreshTick()
+    // Re-check only after a PR mutation for this exact repository and branch.
+    void getPRFallbackGeneration(path, branch)
     fallbackPR = null
     if (!path || !branch || branchPR) {
       prLoading = false
@@ -190,8 +194,7 @@
     }
     let cancelled = false
     prLoading = true
-    window.api
-      .taskTrackerPRDetails(path, branch)
+    loadPRFallbackSummary(path, branch)
       .then((pr) => {
         if (!cancelled && pr) {
           fallbackPR = { number: pr.number, state: pr.state, isDraft: pr.isDraft }

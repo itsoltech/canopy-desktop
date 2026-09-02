@@ -1186,6 +1186,12 @@ interface CanopyAPI {
 
   taskTrackerFindPR: (repoRoot: string, branch: string) => Promise<string | null>
 
+  taskTrackerPRSummary: (
+    repoRoot: string,
+    branch: string,
+    generation: number,
+  ) => Promise<{ number: number; state: string; isDraft: boolean } | null>
+
   taskTrackerPRDetails: (
     repoRoot: string,
     branch: string,

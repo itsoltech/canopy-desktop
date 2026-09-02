@@ -94,6 +94,7 @@ import {
   type TaskContextInput,
 } from '../taskTracker/taskContext'
 import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTracker/configDefaults'
+import { loadPullRequestSummary } from '../taskTracker/prSummary'
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
@@ -4413,6 +4414,25 @@ export function registerIpcHandlers(
       } catch {
         return null
       }
+    },
+  )
+
+  // Lightweight sidebar lookup. Full PR details are intentionally reserved for
+  // the details modal: large review histories made repeated startup queries costly.
+  ipcMain.handle(
+    'taskTracker:prSummary',
+    async (event, payload: { repoRoot: string; branch: string; generation: number }) => {
+      if (
+        typeof payload.branch !== 'string' ||
+        payload.branch.length === 0 ||
+        payload.branch.startsWith('-') ||
+        !Number.isInteger(payload.generation) ||
+        payload.generation < 0
+      ) {
+        return null
+      }
+      const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
+      return loadPullRequestSummary(resolvedRepo, payload.branch, payload.generation)
     },
   )
 
