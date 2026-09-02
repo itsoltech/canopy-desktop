@@ -55,19 +55,39 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > The fix is one token in `.github/workflows/claude-code-compat.yml`
 > (`Bash(gh api repos/marckrenn/claude-code-changelog/:*)` → `Bash(gh api:*)`), but this job cannot
 > apply it: `RELEASE_TOKEN` has no `workflow` scope, so pushing a `.github/workflows/` change is
-> rejected. It needs a maintainer.
+> rejected. It needs a maintainer. `codex-compat.yml` and `opencode-compat.yml` carry the identical
+> mid-token rule for their own upstream repos and are blocked the same way, so a maintainer fixing
+> this should fix all three rather than only the one that surfaced it.
+>
+> Re-probed on v2.1.257 → v2.1.258 and still broken: `compare/` denied with and without `--jq`, and a
+> plain `tags` path denied too, which rules out the `...` range syntax and the quoting as causes.
+> That is three consecutive runs. Two probes are enough — stop there.
 
 > **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
-> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, two denied so
-> far. The v2.1.241 → v2.1.245 run used it successfully. The v2.1.245 → v2.1.246 run had `WebFetch`
-> **and** `WebSearch` denied ("Claude requested permissions to use WebFetch, but you haven't granted
-> it yet") on every attempt, across two different URLs, and the v2.1.252 → v2.1.257 run hit the same
-> denial on both tools on the first call. Do not assume either answer from this file. Issue one
-> fetch, record which way it went in the PR body, and proceed on that basis.
+> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, three denied so
+> far, the last two consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
+> v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
+> use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
+> v2.1.252 → v2.1.257 and v2.1.257 → v2.1.258 runs both hit the same denial on the first call. Do not
+> assume either answer from this file. Issue one fetch, record which way it went in the PR body, and
+> proceed on that basis.
 >
 > **If it is denied**, the release notes pasted into this prompt are your only source. Truncated
 > "… +N more CLI changelog entries" lines are then genuinely unrecoverable for that run — say so
 > plainly rather than presenting release-notes-only analysis as a full diff review.
+>
+> **One thing is still recoverable when everything is denied: the absolute prompt-token numbers.**
+> The Metadata block gives a token delta, a percentage, and the before/after system-vs-tools split,
+> and those over-determine the totals. Divide the delta by the percentage to get the total before,
+> add the delta back for the total after, then multiply each total by its share. That separates a
+> real change from dilution, which the percentages alone do not: a falling tools share usually
+> means system text was _added_ while tool
+> descriptions sat still, not that any tool description shrank. Worth doing every time, because it is
+> the tools half that can force code changes here (`summarizeToolInput`, the tool views, the
+> `PreToolUse`/`PostToolUse` normalization all key off tool names and shapes) and the system half
+> that cannot. Carry the rounding: the percentages are given to 0.1%, so treat differences of a few
+> tens of tokens as flat rather than as a finding. The 2.1.258 note in `docs/integrations/agents.md`
+> works an example through.
 >
 > **If it works**, these routes return usable content:
 >
@@ -207,6 +227,12 @@ Body:
 2. Commit incremental changes
 3. Push: `git push origin chore/claude-code-compat`
 4. Update the PR title and description to cover the expanded version range using `gh pr edit`
+
+> **Read the existing PR with `gh pr view <n> --json files`, not `gh pr diff`.** `gh pr diff` is not
+> in `--allowedTools` (only `create`, `edit`, `list`, `view`) and is denied. `--json files` gives
+> paths with per-file addition and deletion counts, which is what you actually need to see what
+> earlier runs in the range already changed. Do not request `--json body` on its own line either
+> unless you mean it — the body is tens of kilobytes and will be spilled to a file.
 
 > **Write the description to a `.txt` file and pass it with `gh pr edit --body-file`.** GitHub caps
 > the body at 65,536 characters and each run must re-emit it in full, so the description is held
