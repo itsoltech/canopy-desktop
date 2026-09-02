@@ -1,3 +1,9 @@
+## [0.13.0-next.28](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.27...v0.13.0-next.28) (2026-09-02)
+
+### Bug Fixes
+
+* **github:** prevent PR sidebar startup freeze ([859c746](https://github.com/itsoltech/canopy-desktop/commit/859c746d0c4ef4250fa0fba60085fb9a29cd484b))
+
 ## [0.13.0-next.27](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.26...v0.13.0-next.27) (2026-09-02)
 
 ### Features
