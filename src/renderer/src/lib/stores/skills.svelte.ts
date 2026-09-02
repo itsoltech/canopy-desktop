@@ -37,7 +37,16 @@ export async function initSkillStore(): Promise<void> {
   if (initialized) return
   initialized = true
 
-  skills = await window.api.listSkills()
+  try {
+    skills = await window.api.listSkills()
+  } catch (e) {
+    // Unlatch so a later caller can retry. Leaving `initialized` set would pin
+    // the store to an empty list for the rest of the session, which the UI
+    // renders as "no skills installed" — indistinguishable from a real failure.
+    initialized = false
+    console.error('[skills] listSkills failed:', e)
+    return
+  }
 
   unsubscribe = window.api.onSkillsChanged((updated) => {
     // The skills:changed IPC payload is produced from the typed SkillStore in the

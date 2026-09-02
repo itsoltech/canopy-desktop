@@ -55,8 +55,13 @@ export async function loadBranchPRs(repoRoot: string, force = false): Promise<vo
     branchPRs = { ...branchPRs, ...scoped }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
+    // Auth and rate-limit errors are user-actionable, so they toast. Everything
+    // else (gh missing, network down, non-GitHub remote) would toast on every
+    // refresh tick, so log it rather than dropping it silently.
     if (msg.includes('rate limit') || msg.includes('401') || msg.includes('403')) {
       addToast(msg)
+    } else {
+      console.warn('[github] fetchBranchPRs failed:', e)
     }
   } finally {
     loading = false
@@ -71,6 +76,8 @@ export async function loadRepoInfo(repoRoot: string): Promise<void> {
     const msg = e instanceof Error ? e.message : String(e)
     if (msg.includes('rate limit') || msg.includes('401') || msg.includes('403')) {
       addToast(msg)
+    } else {
+      console.warn('[github] getRepoInfo failed:', e)
     }
   }
 }

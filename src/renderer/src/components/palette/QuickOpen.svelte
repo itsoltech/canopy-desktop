@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, onDestroy, tick } from 'svelte'
   import fuzzysort from 'fuzzysort'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { openFile } from '../../lib/stores/tabs.svelte'
@@ -30,6 +30,14 @@
     indexes: number[]
     fromMru: boolean
   }
+
+  // Captured during init, before the palette takes focus. Restored only if
+  // nothing else claimed focus meanwhile — opening a file focuses the editor,
+  // and we must not steal focus back from it.
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  onDestroy(() => {
+    if (document.activeElement === document.body) previouslyFocused?.focus?.()
+  })
 
   onMount(() => {
     inputEl?.focus()

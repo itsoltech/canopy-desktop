@@ -2,6 +2,7 @@ import { ok, err } from '../errors'
 import type { Result } from 'neverthrow'
 import type { SkillError } from './errors'
 import type { SkillAgentTarget } from './types'
+import { isSkillAgentTarget } from './types'
 
 export interface ParsedSkill {
   name: string
@@ -137,11 +138,16 @@ function parseSkillMd(
     typeof frontmatter.name === 'string' ? frontmatter.name : (fileName ?? 'unnamed-skill')
   const description = typeof frontmatter.description === 'string' ? frontmatter.description : ''
   const version = typeof frontmatter.version === 'string' ? frontmatter.version : '1.0.0'
+  // `every(typeof === 'string')` only proved these were strings, then asserted
+  // them into SkillAgentTarget. Use the same allow-list guard already applied to
+  // untrusted `enabledAgents` IPC input so an unknown target from a SKILL.md
+  // can't reach the transformers. Falls back to the previous default when
+  // nothing valid remains.
   const rawAgents = frontmatter.agents
-  const agents: SkillAgentTarget[] =
-    Array.isArray(rawAgents) && rawAgents.every((a) => typeof a === 'string')
-      ? (rawAgents as SkillAgentTarget[])
-      : ['claude']
+  const parsedAgents = Array.isArray(rawAgents)
+    ? rawAgents.filter((a): a is string => typeof a === 'string').filter(isSkillAgentTarget)
+    : []
+  const agents: SkillAgentTarget[] = parsedAgents.length > 0 ? parsedAgents : ['claude']
   const metadata: Record<string, unknown> = {}
 
   if (frontmatter['allowed-tools']) metadata['allowed-tools'] = frontmatter['allowed-tools']

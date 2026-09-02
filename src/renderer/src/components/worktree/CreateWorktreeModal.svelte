@@ -131,6 +131,10 @@
     return branches.remote.find((r) => r.slice(r.indexOf('/') + 1) === name) ?? ''
   }
 
+  // Captured during init, before the modal takes focus (onMount is async here,
+  // so it cannot return a cleanup — the restore lives in onDestroy below).
+  const previouslyFocused = document.activeElement as HTMLElement | null
+
   onMount(async () => {
     containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))
@@ -170,6 +174,9 @@
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
+    // Return the keyboard user to whatever opened the modal, unless the created
+    // worktree already moved focus somewhere else.
+    if (document.activeElement === document.body) previouslyFocused?.focus?.()
   })
 
   function initSetupTerminal(container: HTMLDivElement): void {

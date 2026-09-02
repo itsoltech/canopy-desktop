@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -31,6 +32,14 @@
 
   let { connectionId, mode = 'browse' }: { connectionId: string; mode?: 'browse' | 'link' } =
     $props()
+
+  // Captured during init, before the modal takes focus. Restored only if
+  // nothing else claimed focus meanwhile — picking a task can switch tabs, and
+  // we must not steal focus back from the pane that just took it.
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  onDestroy(() => {
+    if (document.activeElement === document.body) previouslyFocused?.focus?.()
+  })
 
   // Browse mode: a picked task opens the branch-create sub-view.
   let selectedTask: TrackerTaskLite | null = $state(null)

@@ -1,9 +1,16 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
+
+  // Captured during init, before the dialog takes focus, so closing it returns
+  // the keyboard user to whatever opened it instead of dropping them on <body>.
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  onDestroy(() => {
+    if (document.activeElement === document.body) previouslyFocused?.focus?.()
+  })
 
   interface Props {
     fromVersion: string

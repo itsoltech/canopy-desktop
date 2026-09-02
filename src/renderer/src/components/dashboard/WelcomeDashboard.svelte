@@ -66,9 +66,12 @@
       focusRow(0)
     }
 
-    for (const ws of workspaces.slice(0, 3)) {
-      if (disposed) break
-      if (ws.is_git_repo) {
+    // Refresh in parallel: these are independent IPC round trips, and running
+    // them serially lets one unreachable path (removed drive, network share)
+    // hold up git status for the rows behind it.
+    await Promise.all(
+      workspaces.slice(0, 3).map(async (ws) => {
+        if (disposed || !ws.is_git_repo) return
         try {
           const fresh = await window.api.refreshWorkspaceGitStatus(ws.id, ws.path)
           if (fresh && !disposed) {
@@ -78,8 +81,8 @@
         } catch {
           // path may no longer exist — ignore
         }
-      }
-    }
+      }),
+    )
   })
 
   onDestroy(() => {

@@ -18,6 +18,26 @@ function configPath(repoRoot: string): string {
   return join(repoRoot, CONFIG_DIR, CONFIG_FILE)
 }
 
+const VALID_PROVIDERS = new Set(['jira', 'youtrack', 'github'])
+
+/**
+ * `.canopy/config.json` is checked into the repository, so a clone can carry
+ * arbitrary contents. Drop tracker entries whose provider has no client:
+ * createProviderClient() returns undefined for an unknown provider, which
+ * surfaces as a raw TypeError deep inside a ResultAsync chain rather than a
+ * typed TaskTrackerError. Returns undefined when the field isn't an array so
+ * the legacy single-`tracker` fallback below still applies.
+ */
+function validTrackers(raw: unknown): RepoConfig['trackers'] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  return raw.filter(
+    (t): t is RepoConfig['trackers'][number] =>
+      typeof t === 'object' &&
+      t !== null &&
+      VALID_PROVIDERS.has(String((t as { provider?: unknown }).provider)),
+  )
+}
+
 export class RepoConfigManager {
   async exists(repoRoot: string): Promise<boolean> {
     try {
@@ -45,9 +65,7 @@ export class RepoConfigManager {
         const defaults = defaultConfig()
 
         // Backward compat: convert old single `tracker` to `trackers` array
-        let trackers = (parsed as Record<string, unknown>).trackers as
-          RepoConfig['trackers'] | undefined
-        const VALID_PROVIDERS = new Set(['jira', 'youtrack', 'github'])
+        let trackers = validTrackers((parsed as Record<string, unknown>).trackers)
         if (!trackers && (parsed as Record<string, unknown>).tracker) {
           const old = (parsed as Record<string, unknown>).tracker as {
             provider: string

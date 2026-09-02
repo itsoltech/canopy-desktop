@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import {
     Search,
@@ -56,6 +56,14 @@
   let inputEl: HTMLInputElement | undefined = $state()
 
   let tmuxAvailable = $state(false)
+
+  // Captured during init, before the palette takes focus. Restored only if
+  // nothing else claimed focus meanwhile — running a command can open a tab or
+  // terminal that focuses itself, and we must not steal focus back from it.
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  onDestroy(() => {
+    if (document.activeElement === document.body) previouslyFocused?.focus?.()
+  })
 
   onMount(() => {
     inputEl?.focus()
