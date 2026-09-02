@@ -1,3 +1,14 @@
+## [0.13.0-next.27](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.26...v0.13.0-next.27) (2026-09-02)
+
+### Features
+
+* **ui:** shared Markdown component and in-app attachment viewer ([#342](https://github.com/itsoltech/canopy-desktop/issues/342)) ([d178c3b](https://github.com/itsoltech/canopy-desktop/commit/d178c3b9ad594b801d40b46845cb1b0de4c6e3cb))
+
+### Bug Fixes
+
+* **ci:** pin compatible semantic release tooling ([4af7187](https://github.com/itsoltech/canopy-desktop/commit/4af718768cbb182dc5f56704b349f5592336547d))
+* serialize git subprocesses ([2481aa7](https://github.com/itsoltech/canopy-desktop/commit/2481aa7d4206f7a78728b673a9f2d3483a8e6c6d))
+
 ## [0.13.0-next.26](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.25...v0.13.0-next.26) (2026-07-27)
 
 ## [0.13.0-next.25](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.24...v0.13.0-next.25) (2026-07-23)
