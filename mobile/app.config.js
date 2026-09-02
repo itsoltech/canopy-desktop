@@ -41,10 +41,9 @@ const base = {
       predictiveBackGestureEnabled: false,
       // react-native-webrtc's config plugin unconditionally adds audio/video
       // permissions because most consumers use getUserMedia for calls. Mobile
-      // only opens WebRTC *data channels* (PTY + control flow), never touches
-      // the camera or mic, so strip those permissions from the final manifest.
+      // needs the camera for QR pairing, but WebRTC itself only opens data
+      // channels (PTY + control flow), so keep audio-related permissions out.
       blockedPermissions: [
-        'android.permission.CAMERA',
         'android.permission.RECORD_AUDIO',
         'android.permission.MODIFY_AUDIO_SETTINGS',
         'android.permission.BLUETOOTH',
@@ -85,9 +84,10 @@ const base = {
       ],
       'expo-secure-store',
       '@config-plugins/react-native-webrtc',
+      './plugins/with-android-cleartext-traffic.js',
       // Must run after @config-plugins/react-native-webrtc so it can strip
-      // the NSCameraUsageDescription / NSMicrophoneUsageDescription keys
-      // the plugin unconditionally writes. We use data channels only.
+      // the microphone description the plugin unconditionally writes. The
+      // camera description must remain because pairing scans QR codes.
       './plugins/strip-webrtc-ios-permissions.js',
     ],
     experiments: {

@@ -1,7 +1,7 @@
 import 'react-native-get-random-values'
 
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native'
 import { Stack } from 'expo-router'
+import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import * as Updates from 'expo-updates'
 import React, { useCallback, useEffect, useState } from 'react'

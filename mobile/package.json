@@ -18,6 +18,7 @@
     "build:sim": "eas build --profile development-simulator --platform ios",
     "build:prod": "eas build --profile production --platform ios",
     "build:prod:android": "eas build --profile production --platform android",
+    "build:apk": "eas build --profile preview-apk --platform android",
     "build:run:sim": "eas build:run --platform ios --latest",
     "builds:list": "eas build:list --limit 10",
     "update:dev": "node ./scripts/eas-update-publish.mjs development",
@@ -31,9 +32,6 @@
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^15.0.1",
     "@expo/ui": "~56.0.18",
-    "@react-navigation/bottom-tabs": "^7.18.8",
-    "@react-navigation/elements": "^2.9.10",
-    "@react-navigation/native": "^7.1.33",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "expo": "^56",
