@@ -303,7 +303,11 @@
     <div class="flex items-center justify-center h-full p-4">
       <span class="text-sm text-danger-text" role="alert">Failed to load changes</span>
     </div>
-  {:else if !loading}
+  {:else if loading}
+    <div class="flex items-center justify-center h-full p-4">
+      <span class="text-sm text-text-faint" role="status" aria-live="polite">Loading changes…</span>
+    </div>
+  {:else}
     <div class="flex items-center justify-center h-full p-4">
       <span class="text-sm text-text-faint">
         {#if filterQuery || statusFilter !== 'all'}

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
+
   let {
     direction,
     onDragDelta,
@@ -9,6 +11,15 @@
 
   let dragging = $state(false)
   let startPos = 0
+  let pendingDelta = 0
+  let rafId: number | null = null
+
+  function flushDelta(): void {
+    rafId = null
+    const delta = pendingDelta
+    pendingDelta = 0
+    if (delta !== 0) onDragDelta(delta)
+  }
 
   function handlePointerDown(e: PointerEvent): void {
     e.preventDefault()
@@ -22,15 +33,28 @@
     if (!dragging) return
     const currentPos = direction === 'vertical' ? e.clientX : e.clientY
     const delta = currentPos - startPos
-    if (delta !== 0) {
-      onDragDelta(delta)
-      startPos = currentPos
-    }
+    if (delta === 0) return
+    startPos = currentPos
+    // Coalesce to one update per frame. Each onDragDelta reaches an IPC round
+    // trip plus a layout-persist schedule, and a drag emits pointermove far
+    // faster than we can paint, so sending every event lags the divider behind
+    // the cursor. Deltas are relative, so accumulating them loses nothing.
+    pendingDelta += delta
+    rafId ??= requestAnimationFrame(flushDelta)
   }
 
   function handlePointerUp(): void {
     dragging = false
+    // Commit the tail of the gesture that hasn't been flushed yet.
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId)
+      flushDelta()
+    }
   }
+
+  onDestroy(() => {
+    if (rafId !== null) cancelAnimationFrame(rafId)
+  })
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

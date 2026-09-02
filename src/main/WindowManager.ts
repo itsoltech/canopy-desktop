@@ -162,26 +162,34 @@ export class WindowManager {
 
       event.preventDefault()
 
-      void this.getActiveSessionInfo(wcId).then(async (detail) => {
-        if (!detail) {
-          this.forceClosing.add(wcId)
-          win.close()
-          return
-        }
-        const { response } = await dialog.showMessageBox(win, {
-          type: 'warning',
-          buttons: ['Close Window', 'Cancel'],
-          defaultId: 1,
-          cancelId: 1,
-          title: 'Active Sessions',
-          message: 'This window has active sessions',
-          detail,
+      void this.getActiveSessionInfo(wcId)
+        .then(async (detail) => {
+          if (!detail) {
+            this.forceClosing.add(wcId)
+            win.close()
+            return
+          }
+          const { response } = await dialog.showMessageBox(win, {
+            type: 'warning',
+            buttons: ['Close Window', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'Active Sessions',
+            message: 'This window has active sessions',
+            detail,
+          })
+          if (response === 0) {
+            this.forceClosing.add(wcId)
+            win.close()
+          }
         })
-        if (response === 0) {
+        .catch(() => {
+          // preventDefault() has already fired and this callback owns the only
+          // path back to close(), so a rejection would leave a window the user
+          // cannot close. Fail towards honouring the close request.
           this.forceClosing.add(wcId)
           win.close()
-        }
-      })
+        })
     })
 
     win.on('closed', () => {
@@ -407,7 +415,10 @@ export class WindowManager {
   disposeFileWatcher(wcId: number): void {
     const watcher = this.fileWatchers.get(wcId)
     if (watcher) {
-      void watcher.stop()
+      // stop() returns ResultAsync; void alone discards the error variant. Match
+      // the sibling teardown above so a failed stop resolves instead of leaving
+      // an unobserved rejection.
+      void watcher.stop().unwrapOr(undefined)
       this.fileWatchers.delete(wcId)
     }
   }

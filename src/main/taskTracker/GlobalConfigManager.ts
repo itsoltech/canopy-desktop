@@ -69,7 +69,13 @@ export class GlobalConfigManager {
 
       const result: RepoConfig = {
         version: 1,
-        trackers: parsed.trackers as RepoConfig['trackers'],
+        // Elements are validated, not just the array shape: an unknown provider
+        // makes createProviderClient() return undefined, which throws a raw
+        // TypeError at call time instead of a typed TaskTrackerError. The legacy
+        // branch above already guards this the same way.
+        trackers: (parsed.trackers as unknown[]).filter((t) =>
+          VALID_PROVIDERS.has(String((t as { provider?: unknown })?.provider)),
+        ) as RepoConfig['trackers'],
         branchTemplate: parsed.branchTemplate as RepoConfig['branchTemplate'],
         prTemplate: parsed.prTemplate as RepoConfig['prTemplate'],
         projectOverrides: (parsed.projectOverrides ?? {}) as RepoConfig['projectOverrides'],

@@ -44,6 +44,14 @@ export const BLOCKED_ENV_VARS = new Set([
   'EDITOR',
   'VISUAL',
 
+  // Shell startup hooks — each makes a shell read an attacker-chosen file (or
+  // run an attacker-chosen string) before the agent's own command does, so they
+  // are the same arbitrary-execution risk as EDITOR/GIT_ASKPASS above.
+  'BASH_ENV',
+  'ENV',
+  'ZDOTDIR',
+  'PROMPT_COMMAND',
+
   // Proxies / TLS (callers normalize to uppercase, so lowercase variants are covered)
   'HTTP_PROXY',
   'HTTPS_PROXY',

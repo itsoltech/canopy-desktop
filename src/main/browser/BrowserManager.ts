@@ -48,6 +48,8 @@ const BROWSER_PARTITION = 'persist:browser'
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
   private guestContents = new Map<number, WebContents>()
+  /** Guest webContents id → the window it attached to, for ownership checks in setup(). */
+  private guestOwners = new Map<number, BrowserWindow>()
   private partitionReady = false
 
   /**
@@ -58,8 +60,10 @@ export class BrowserManager {
   trackWindow(win: BrowserWindow): void {
     win.webContents.on('did-attach-webview', (_event, guestWc) => {
       this.guestContents.set(guestWc.id, guestWc)
+      this.guestOwners.set(guestWc.id, win)
       guestWc.on('destroyed', () => {
         this.guestContents.delete(guestWc.id)
+        this.guestOwners.delete(guestWc.id)
       })
     })
 
@@ -114,6 +118,15 @@ export class BrowserManager {
     // window's contents — so reject anything that isn't a webview guest.
     if (wc.getType() !== 'webview') return
 
+    // Being a webview guest is not enough: `wcId` is renderer-supplied, so a
+    // compromised window could name a guest attached to a *different* window and
+    // have DevTools, debugger attach, and credential injection wired to a tab it
+    // does not own. Reject when the recorded owner disagrees with the caller's
+    // window. Guests we never saw attach have no recorded owner and still fall
+    // through to the findWebContents() fallback above.
+    const owner = this.guestOwners.get(wcId)
+    if (owner && owner !== win) return
+
     // Idempotency guard: the listeners wired up below are anonymous closures
     // that teardown() cannot selectively remove. If this exact guest is already
     // registered (e.g. a duplicate `browser:setup` from a renderer re-mount or
@@ -121,7 +134,14 @@ export class BrowserManager {
     // listener on the same WebContents. A genuinely new guest for this
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
-    if (existing && existing.webContentsId === wcId) return
+    if (existing) {
+      if (existing.webContentsId === wcId) return
+      // A genuinely new guest for this browserId (e.g. a process swap on
+      // navigation) replaces the entry below. Tear the old one down first:
+      // overwriting the map orphans its devToolsView, which stays attached to
+      // the window with its webContents alive and no reference left to close it.
+      this.teardown(browserId)
+    }
 
     const entry: WebviewEntry = {
       webContentsId: wcId,

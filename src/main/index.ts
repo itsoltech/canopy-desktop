@@ -503,7 +503,9 @@ function buildAppMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-app.whenReady().then(async () => {
+// Held so the rejection path below can be attached without re-chaining (and
+// re-indenting) the whole bootstrap body.
+const bootstrap = app.whenReady().then(async () => {
   if (PERF) performance.mark('app:ready')
   await resolveLoginEnv()
   if (PERF) performance.mark('app:loginEnvResolved')
@@ -1182,6 +1184,15 @@ app.whenReady().then(async () => {
   })
 })
 
+// Bootstrap owns window creation, so a rejection here leaves the app running with
+// no window and no explanation. The unhandledRejection handler is itself registered
+// inside that block, so an early failure would otherwise be observed nowhere.
+bootstrap.catch((e) => {
+  const error = e instanceof Error ? e : new Error(String(e))
+  crashReporter?.recordCrash('uncaughtException', error)
+  dialog.showErrorBox('Canopy failed to start', error.message)
+})
+
 app.on('before-quit', (event) => {
   if (database.isClosed()) return
 
@@ -1206,32 +1217,41 @@ app.on('before-quit', (event) => {
     })
     if (anyTracked) {
       event.preventDefault()
-      void windowManager.hasAnyActiveSession().then(async (activeInfo) => {
-        if (!activeInfo) {
-          windowManager.isQuitting = true
-          app.quit()
-          return
-        }
-        const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
-        if (!focusedWin || focusedWin.isDestroyed()) {
-          windowManager.isQuitting = true
-          app.quit()
-          return
-        }
-        const { response } = await dialog.showMessageBox(focusedWin, {
-          type: 'warning',
-          buttons: ['Quit', 'Cancel'],
-          defaultId: 1,
-          cancelId: 1,
-          title: 'Active Sessions',
-          message: 'There are active sessions running',
-          detail: activeInfo,
+      void windowManager
+        .hasAnyActiveSession()
+        .then(async (activeInfo) => {
+          if (!activeInfo) {
+            windowManager.isQuitting = true
+            app.quit()
+            return
+          }
+          const focusedWin = BrowserWindow.getFocusedWindow() ?? windowManager.getAllWindows()[0]
+          if (!focusedWin || focusedWin.isDestroyed()) {
+            windowManager.isQuitting = true
+            app.quit()
+            return
+          }
+          const { response } = await dialog.showMessageBox(focusedWin, {
+            type: 'warning',
+            buttons: ['Quit', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'Active Sessions',
+            message: 'There are active sessions running',
+            detail: activeInfo,
+          })
+          if (response === 0) {
+            windowManager.isQuitting = true
+            app.quit()
+          }
         })
-        if (response === 0) {
+        .catch(() => {
+          // preventDefault() has already fired and this callback owns the only
+          // path back to quit(), so a rejection here would strand the user in an
+          // app that cannot be closed. Fail towards honouring the quit request.
           windowManager.isQuitting = true
           app.quit()
-        }
-      })
+        })
       return
     }
   }
@@ -1263,6 +1283,12 @@ app.on('before-quit', (event) => {
             }
           }
         }
+        windowManager.isQuitting = true
+        app.quit()
+      })
+      .catch(() => {
+        // The .catch above only guards listSessions(); a rejection from the
+        // dialog would otherwise leave the app unquittable after preventDefault().
         windowManager.isQuitting = true
         app.quit()
       })

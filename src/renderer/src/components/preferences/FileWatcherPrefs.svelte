@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { X, RotateCcw, Plus } from '@lucide/svelte'
   import { getPref, setPref, prefs } from '../../lib/stores/preferences.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import PrefsRow from './_partials/PrefsRow.svelte'
 
@@ -58,6 +59,15 @@
   }
 
   async function resetDefaults(): Promise<void> {
+    // One click here discards every custom pattern with no undo, so gate it the
+    // same way the app gates its other destructive preference actions.
+    const ok = await confirm({
+      title: 'Reset ignored patterns',
+      message: 'Replace your ignored patterns with the defaults? Custom entries will be lost.',
+      confirmLabel: 'Reset',
+      destructive: true,
+    })
+    if (!ok) return
     await persist([...defaults])
   }
 
