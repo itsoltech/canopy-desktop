@@ -451,6 +451,57 @@ panes. Finally, the release moves a large amount of prompt text: total prompt to
 context of every pane, which is visible in the Agent Inspector's context percentage but needs no code
 change.
 
+**The macOS 12 fix in 2.1.258 reaches Canopy through one narrow path, and the SDK pin is what
+selects it.** 2.1.258 fixes Claude Code failing to launch on macOS 12 (Monterey), a regression from
+2.1.255. Canopy runs two different Claude Code installations and only one of them is ours. A pane
+spawns the `claude` binary the user installed, so a pane on a broken release is fixed by the user
+updating, not by anything in this repo. The exception is `commitMessageGenerator.ts`, the one place
+that imports `@anthropic-ai/claude-agent-sdk`: it resolves the user's binary with `which claude` and
+passes it as `pathToClaudeCodeExecutable`, but that argument is `undefined` when the lookup fails,
+and the SDK then falls back to the CLI it vendors itself. That vendored binary is pinned by
+`package.json`. The mapping is exact rather than inferred — the installed package's `manifest.json`
+carries `"version": "2.1.207"` alongside a per-platform binary table for SDK `0.3.207`, so `0.3.N`
+vendors CLI `2.1.N`, and the `0.3.257` pin that preceded this release vendored the broken build. The
+affected user is therefore on macOS 12 with no `claude` on `PATH`, and the symptom is commit message
+generation failing — a shape that reads as a Canopy bug rather than a CLI launch failure, since that
+user has no pane to see the same error in. Whether Canopy still runs on macOS 12 at all is a separate
+question not settled here: `electron-builder.yml` sets no `minimumSystemVersion`, so the floor is
+whatever Electron 43 carries.
+
+**2.1.255 is referenced by Anthropic despite being recorded here as never released.** The note above
+attributes the regression to 2.1.255, and the analysis of the v2.1.224 → v2.1.257 range concluded
+that v2.1.253–v2.1.256 were never released, on the evidence that npm jumps `0.3.252` → `0.3.257` and
+none of the four has a CHANGELOG entry. Both cannot be read literally. The reconciliation that fits
+the evidence is that the npm SDK line is a republication of the CLI rather than the CLI itself, so a
+version can exist upstream without ever being pushed to npm under `0.3.N`. That weakens npm gaps as
+proof a CLI version does not exist — they are good evidence about what the _SDK_ shipped, which is
+what our pin controls, and weaker evidence about what Anthropic built. Treat the earlier
+"never released" conclusions as "never released to npm" until something confirms otherwise.
+
+**The re-sent-approval fix does not reach Canopy, for two independent reasons.** 2.1.258 fixes remote
+and scheduled sessions failing with "user messages must have non-empty content" after a re-sent
+permission approval could not be applied. First, "remote" here is the same claude.ai-hosted session
+covered in the 2.1.252 note above, not Canopy's WebRTC Remote Control — the names still collide and
+this fix still does not touch it. Second, and more decisive, Canopy never sends a permission approval
+in the first place: the adapter treats `PermissionRequest` as read-only, mapping it to
+`waitingPermission` for the notch and to an OS notification through `formatNotification`. The user
+answers in the pane. Nothing under `src/renderer/src/remote/` handles permissions at all.
+
+**The whole of 2.1.258's prompt growth is system text; tool descriptions did not move.** Prompt
+tokens are up 25.9% (+4,642) with one new prompt file (12 → 13), and the mix goes from 47.2%/52.8%
+system/tools to 58.1%/41.9%. The falling tools share is dilution, not a reduction: the percentages
+put the total at ~17.9k before and ~22.6k after, which holds tools flat at ~9.45k while system rises
+~8.5k → ~13.1k. That is the second consecutive release with this exact shape — 2.1.257 added +4,253
+against the same flat ~9.45k of tools — so across the two, system prompt has roughly tripled from
+~4.2k to ~13.1k while every tool description stayed put. For Canopy the two halves land differently.
+Flat tool descriptions mean nothing is required of the code that keys off tool names and shapes
+(`summarizeToolInput`, the tool views, the `PreToolUse`/`PostToolUse` normalization), which is where
+a tools-side change would have forced work. The system growth is pure overhead: ~9k tokens off the
+usable context of every pane in two releases, visible as a higher starting context percentage in the
+Agent Inspector and as compaction arriving sooner. What the new file contains is not recoverable from
+the release notes, and the diff was not reachable this run — see the blocker note in
+`.github/prompts/claude-code-compat.md`.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
