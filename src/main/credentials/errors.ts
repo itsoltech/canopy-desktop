@@ -7,6 +7,7 @@ export type CredentialError =
   | { _tag: 'CredentialNotFound' }
   | { _tag: 'CredentialAmbiguous'; candidateCount: number }
   | { _tag: 'CredentialBindingIncompatible'; bindingKey: string }
+  | { _tag: 'CredentialApprovalRequired'; bindingKey: string }
   | { _tag: 'CredentialSecretMissing'; credentialId: string }
 
 export function credentialErrorMessage(error: CredentialError): string {
@@ -31,6 +32,10 @@ export function credentialErrorMessage(error: CredentialError): string {
     .with(
       { _tag: 'CredentialBindingIncompatible' },
       () => 'The credential bound to this integration is not compatible',
+    )
+    .with(
+      { _tag: 'CredentialApprovalRequired' },
+      () => 'Explicit approval is required before this integration can use the credential',
     )
     .with(
       { _tag: 'CredentialSecretMissing' },

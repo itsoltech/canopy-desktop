@@ -104,6 +104,53 @@ describe('CI run stage navigation', () => {
   })
 })
 
+describe('TeamCity ambiguous trigger outcome', () => {
+  it('keeps the dialog open and disables a duplicate submission', async () => {
+    const ciTrigger = vi.fn().mockResolvedValue({
+      ok: false,
+      error: {
+        code: 'CiDispatchAmbiguous',
+        message: 'TeamCity may have accepted the build. Check TeamCity before starting it again.',
+      },
+    })
+
+    await withDialogState(
+      {
+        ciBranches: vi.fn().mockResolvedValue(['main']),
+        ciBuildParameters: vi.fn().mockResolvedValue([]),
+        ciTrigger,
+      },
+      async (state) => {
+        state.initialize()
+        await vi.waitFor(() => expect(state.loading).toBe(false))
+        state.primaryAction()
+        expect(state.stage).toBe('confirm')
+        state.primaryAction()
+
+        await vi.waitFor(() => expect(state.running).toBe(false))
+        expect(state.dispatchAmbiguous).toBe(true)
+        expect(state.canContinue).toBe(false)
+        expect(state.triggerError).toContain('Check TeamCity')
+
+        state.primaryAction()
+        expect(ciTrigger).toHaveBeenCalledOnce()
+
+        // An unknown provider outcome is terminal for this dialog instance. Navigating back or
+        // changing the target must not create a path to repeat a possibly accepted deployment.
+        state.cancelOrBack()
+        state.selectedRefName = 'release'
+        await state.selectJob('Build_Deploy')
+        expect(state.dispatchAmbiguous).toBe(true)
+        expect(state.canContinue).toBe(false)
+        expect(state.visibleError).toContain('Check TeamCity')
+        state.primaryAction()
+        expect(ciTrigger).toHaveBeenCalledOnce()
+      },
+      TEAMCITY_CONFIG,
+    )
+  })
+})
+
 describe('ambiguousCiRefNames', () => {
   it('reports names shared by a branch and tag without flagging same-kind duplicates', () => {
     expect(

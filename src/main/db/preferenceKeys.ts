@@ -4,6 +4,7 @@ const ENCRYPTED_KEYS = new Set([
   'opencode.apiKey',
   'codex.apiKey',
   'worktrees.baseDir.trustedResolved',
+  'ci.teamcity.privateOriginApprovals.v1',
   // deviceId is the sole auth factor for trusted-device auto-accept, so this list must be
   // encrypted at rest and excluded from the renderer-facing preferences blob.
   'remote.trustedDevices',
@@ -26,6 +27,7 @@ const NON_EXPORTABLE_KEYS = new Set([
   'remote.trustedDevices',
   'taskTracker.migratedToGlobalConfig',
   'worktrees.baseDir.trustedResolved',
+  'ci.teamcity.privateOriginApprovals.v1',
 ])
 
 const NON_EXPORTABLE_PREFIXES = [

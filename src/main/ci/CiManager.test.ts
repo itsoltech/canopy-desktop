@@ -4,6 +4,7 @@ import { CiManager } from './CiManager'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
 import type { CiActivityBuild, GitHubActionsCiConfig, TeamCityCiConfig } from './types'
+import type { CiError } from './errors'
 import type { GitHubActionsClient } from './github-actions/client'
 import { withCiDegradedCauses } from './degraded'
 
@@ -54,6 +55,8 @@ function fakes(opts?: {
   githubClient?: GitHubActionsClient
   authState?: 'valid' | 'invalid' | 'unknown'
   authCheckedAt?: string
+  teamCityApproved?: boolean
+  teamCityOriginGate?: (baseUrl: string) => ResultAsync<{ allowPrivate: boolean }, CiError>
 }): {
   repoConfigManager: RepoConfigManager
   tokenStore: KeychainTokenStore
@@ -82,6 +85,30 @@ function fakes(opts?: {
         ? err({ _tag: 'CredentialNotFound' as const })
         : ok({ token: opts?.token ?? 'tok', username: undefined }),
     ),
+    resolveApprovedCredentialsResult: vi.fn(() =>
+      opts?.token === null
+        ? err({ _tag: 'CredentialNotFound' as const })
+        : opts?.teamCityApproved === false
+          ? err({
+              _tag: 'CredentialApprovalRequired' as const,
+              bindingKey: 'ci:teamcity:repo-config:test',
+            })
+          : ok({
+              token: opts?.token ?? 'tok',
+              username: undefined,
+              credentialId: 'cred-1',
+            }),
+    ),
+    isCredentialsBindingApproved: vi.fn(() => opts?.teamCityApproved !== false),
+    prepareCredentialsBindingsApproval: vi.fn(() =>
+      ok({
+        credentialId: 'cred-1',
+        revision: 'revision-1',
+        approvalRequired: opts?.teamCityApproved === false,
+      }),
+    ),
+    approveCredentialsBinding: vi.fn(() => ok(undefined)),
+    approveCredentialsBindings: vi.fn(() => ok(undefined)),
     recordResult: vi.fn(),
     setCredentials: vi.fn(() => ok({})),
     getCredentials: vi.fn(() =>
@@ -108,6 +135,7 @@ function fakes(opts?: {
       opts?.remoteUrlResolver ??
         (() => okAsync(opts?.remoteUrl ?? 'git@github.com:itsoltech/canopy-desktop.git')),
       opts?.githubClient ? () => opts.githubClient as GitHubActionsClient : undefined,
+      opts?.teamCityOriginGate ?? (() => okAsync({ allowPrivate: false })),
     ),
   }
 }
@@ -179,6 +207,60 @@ describe('loadConfig', () => {
   })
 })
 
+describe('TeamCity repository credential approval', () => {
+  it('reports a stored server token as requiring approval for an unapproved repository config', () => {
+    const { manager } = fakes({ ci: VALID_CI, teamCityApproved: false })
+
+    expect(manager.credentialStatusForConfig('C:/repo', VALID_CI)).toMatchObject({
+      hasToken: true,
+      approvalRequired: true,
+    })
+  })
+
+  it('does not use the stored token for an unapproved repository config', async () => {
+    const { manager } = fakes({ ci: VALID_CI, teamCityApproved: false })
+
+    const result = await manager.statusFor('C:/repo', VALID_CI, 'next')
+
+    expect(result.isErr() && result.error._tag).toBe('CiCredentialApprovalRequired')
+    expect(fetchBuildForBranch).not.toHaveBeenCalled()
+  })
+
+  it('checks private-origin trust before reading the approved token or using the network', async () => {
+    const originGate = vi.fn(() =>
+      errAsync<{ allowPrivate: boolean }, CiError>({
+        _tag: 'CiPrivateOriginApprovalRequired',
+        baseUrl: VALID_CI.baseUrl,
+      }),
+    )
+    const { manager, tokenStore } = fakes({ ci: VALID_CI, teamCityOriginGate: originGate })
+
+    const result = await manager.statusFor('C:/repo', VALID_CI, 'next')
+
+    expect(result.isErr() && result.error._tag).toBe('CiPrivateOriginApprovalRequired')
+    expect(originGate).toHaveBeenCalledWith(VALID_CI.baseUrl)
+    expect(tokenStore.resolveApprovedCredentialsResult).not.toHaveBeenCalled()
+    expect(fetchBuildForBranch).not.toHaveBeenCalled()
+  })
+
+  it('binds only the exact config scope after trusted approval', () => {
+    const { manager, tokenStore } = fakes({ ci: VALID_CI })
+    const prepared = manager.prepareTeamCityConfigApproval('C:/repo', VALID_CI)._unsafeUnwrap()
+
+    const result = manager.approveTeamCityConfig('C:/repo', VALID_CI, prepared)
+
+    expect(result.isOk()).toBe(true)
+    expect(tokenStore.approveCredentialsBinding).toHaveBeenCalledOnce()
+    expect(tokenStore.approveCredentialsBinding).toHaveBeenCalledWith(
+      'teamcity',
+      VALID_CI.baseUrl,
+      'builds.read',
+      expect.stringContaining('ci:teamcity:repo-config:'),
+      expect.objectContaining({ credentialId: 'cred-1', revision: 'revision-1' }),
+    )
+  })
+})
+
 describe('credentialStatusForConfig', () => {
   it('reads the exact configured binding without exposing its secret', () => {
     const checkedAt = '2026-08-08T12:00:00.000Z'
@@ -188,7 +270,7 @@ describe('credentialStatusForConfig', () => {
       authCheckedAt: checkedAt,
     })
 
-    expect(manager.credentialStatusForConfig(GITHUB_CI)).toEqual({
+    expect(manager.credentialStatusForConfig('C:/repo', GITHUB_CI)).toEqual({
       hasToken: true,
       authenticationState: 'invalid',
       authenticationCheckedAt: checkedAt,
@@ -202,7 +284,7 @@ describe('credentialStatusForConfig', () => {
   it('reports a missing configured credential without listing unrelated entries', () => {
     const { manager } = fakes({ ci: VALID_CI, token: null })
 
-    expect(manager.credentialStatusForConfig(VALID_CI)).toEqual({
+    expect(manager.credentialStatusForConfig('C:/repo', VALID_CI)).toEqual({
       hasToken: false,
       authenticationState: 'unknown',
     })
@@ -276,6 +358,7 @@ describe('the configured-build-type allowlist', () => {
     expect(triggerBuild).toHaveBeenCalledWith(
       'https://tc.example.com',
       'tok',
+      { allowPrivate: false },
       'Gakko_Build',
       'next',
       props,
@@ -318,6 +401,7 @@ describe('the configured-build-type allowlist', () => {
     expect(fetchActivity).toHaveBeenCalledWith(
       'https://tc.example.com',
       'tok',
+      { allowPrivate: false },
       ['Gakko_Build'],
       undefined,
     )
@@ -331,7 +415,10 @@ describe('the configured-build-type allowlist', () => {
       'builds.read',
       403,
       'Queue forbidden',
-      { usedSecret: 'tok' },
+      expect.objectContaining({
+        usedSecret: 'tok',
+        bindingKey: expect.stringContaining('ci:teamcity:repo-config:'),
+      }),
     )
   })
 })
@@ -447,28 +534,32 @@ describe('the token gate', () => {
 
   it('gates listBuildTypes the same way — the one method taking a renderer-supplied URL', async () => {
     const { manager } = fakes({ token: null })
-    const result = await manager.listBuildTypes('https://tc.example.com')
+    const result = await manager.listBuildTypes('C:/repo', 'https://tc.example.com')
     expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
     expect(fetchBuildTypes).not.toHaveBeenCalled()
   })
 
   it('passes listBuildTypes through with the stored token', async () => {
     const { manager } = fakes({})
-    const result = await manager.listBuildTypes('https://tc.example.com')
+    const result = await manager.listBuildTypes('C:/repo', 'https://tc.example.com')
     expect(result.isOk()).toBe(true)
-    expect(fetchBuildTypes).toHaveBeenCalledWith('https://tc.example.com', 'tok')
+    expect(fetchBuildTypes).toHaveBeenCalledWith('https://tc.example.com', 'tok', {
+      allowPrivate: false,
+    })
   })
 
   it('normalizes an existing stored TeamCity token before every API use', async () => {
     const { manager } = fakes({ token: '  tok\r\n' })
-    const result = await manager.listBuildTypes('https://tc.example.com')
+    const result = await manager.listBuildTypes('C:/repo', 'https://tc.example.com')
     expect(result.isOk()).toBe(true)
-    expect(fetchBuildTypes).toHaveBeenCalledWith('https://tc.example.com', 'tok')
+    expect(fetchBuildTypes).toHaveBeenCalledWith('https://tc.example.com', 'tok', {
+      allowPrivate: false,
+    })
   })
 
   it('treats an existing whitespace-only TeamCity token as missing', async () => {
     const { manager } = fakes({ token: ' \r\n ' })
-    const result = await manager.listBuildTypes('https://tc.example.com')
+    const result = await manager.listBuildTypes('C:/repo', 'https://tc.example.com')
     expect(result.isErr() && result.error._tag).toBe('CiAuthMissing')
     expect(fetchBuildTypes).not.toHaveBeenCalled()
   })
@@ -591,7 +682,7 @@ describe('statusFor', () => {
     const { manager, tokenStore } = fakes({ ci: VALID_CI })
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()
 
-    const result = await manager.statusFor(config, 'next')
+    const result = await manager.statusFor('C:/repo', config, 'next')
 
     expect(result.isOk()).toBe(true)
     expect(tokenStore.recordResult).toHaveBeenCalledWith(
@@ -600,7 +691,10 @@ describe('statusFor', () => {
       'builds.read',
       200,
       undefined,
-      { usedSecret: 'tok' },
+      expect.objectContaining({
+        usedSecret: 'tok',
+        bindingKey: expect.stringContaining('ci:teamcity:repo-config:'),
+      }),
     )
   })
 
@@ -622,7 +716,7 @@ describe('statusFor', () => {
       )
 
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()
-    const result = await manager.statusFor(config, 'next')
+    const result = await manager.statusFor('C:/repo', config, 'next')
 
     expect(result.isOk() && result.value.every((row) => row.error?.includes('401'))).toBe(true)
     expect(tokenStore.recordResult).toHaveBeenCalledWith(
@@ -631,7 +725,10 @@ describe('statusFor', () => {
       'builds.read',
       401,
       'Unauthorized',
-      { usedSecret: 'tok' },
+      expect.objectContaining({
+        usedSecret: 'tok',
+        bindingKey: expect.stringContaining('ci:teamcity:repo-config:'),
+      }),
     )
     expect(vi.mocked(tokenStore.recordResult).mock.calls.some((call) => call[3] === 200)).toBe(
       false,
@@ -650,14 +747,14 @@ describe('statusFor', () => {
       ],
     }
     const { manager, tokenStore } = fakes({ ci })
-    vi.mocked(fetchBuildForBranch).mockImplementation((_url, _tok, id) =>
+    vi.mocked(fetchBuildForBranch).mockImplementation((_url, _tok, _connection, id) =>
       id === 'Scoped_Away'
         ? errAsync({ _tag: 'CiApiError' as const, status: 401, message: 'Unauthorized' })
         : okAsync(null),
     )
 
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()
-    const result = await manager.statusFor(config, 'next')
+    const result = await manager.statusFor('C:/repo', config, 'next')
 
     expect(result.isOk()).toBe(true)
     const rows = result._unsafeUnwrap()
@@ -669,7 +766,10 @@ describe('statusFor', () => {
       'builds.read',
       401,
       'Unauthorized',
-      { usedSecret: 'tok' },
+      expect.objectContaining({
+        usedSecret: 'tok',
+        bindingKey: expect.stringContaining('ci:teamcity:repo-config:'),
+      }),
     )
     expect(vi.mocked(tokenStore.recordResult).mock.calls.some((call) => call[3] === 200)).toBe(
       false,
@@ -680,7 +780,7 @@ describe('statusFor', () => {
     const { manager } = fakes({ ci: VALID_CI })
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()
 
-    const result = await manager.statusFor(config, 'feat(ci),v2')
+    const result = await manager.statusFor('C:/repo', config, 'feat(ci),v2')
 
     expect(result.isErr() && result.error).toMatchObject({
       _tag: 'CiApiError',
@@ -701,7 +801,7 @@ describe('statusFor', () => {
     const { manager, tokenStore } = fakes({ ci })
     // The survivor must carry a REAL build — with okAsync(null) here, a regression
     // that nulls every sibling's build would produce the exact passing state.
-    vi.mocked(fetchBuildForBranch).mockImplementation((_url, _tok, id) =>
+    vi.mocked(fetchBuildForBranch).mockImplementation((_url, _tok, _connection, id) =>
       id === 'Dead_Job'
         ? errAsync({ _tag: 'CiApiError' as const, status: 404, message: 'No build type found' })
         : okAsync({
@@ -719,7 +819,7 @@ describe('statusFor', () => {
           }),
     )
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()
-    const result = await manager.statusFor(config, 'next')
+    const result = await manager.statusFor('C:/repo', config, 'next')
     expect(result.isOk()).toBe(true)
     const rows = result._unsafeUnwrap()
     expect(rows).toHaveLength(2)
@@ -736,12 +836,13 @@ describe('statusFor', () => {
     const { manager, repoConfigManager } = fakes({ ci: VALID_CI })
     const config = (await manager.loadConfig('r'))._unsafeUnwrap()
     vi.mocked(repoConfigManager.load).mockClear()
-    const result = await manager.statusFor(config, 'next')
+    const result = await manager.statusFor('C:/repo', config, 'next')
     expect(result.isOk()).toBe(true)
     expect(repoConfigManager.load).not.toHaveBeenCalled()
     expect(fetchBuildForBranch).toHaveBeenCalledWith(
       'https://tc.example.com',
       'tok',
+      { allowPrivate: false },
       'Gakko_Build',
       'next',
     )
@@ -774,7 +875,10 @@ describe('credential verification for partial activity', () => {
       'builds.read',
       403,
       'Forbidden',
-      { usedSecret: 'tok' },
+      expect.objectContaining({
+        usedSecret: 'tok',
+        bindingKey: expect.stringContaining('ci:teamcity:repo-config:'),
+      }),
     )
     expect(vi.mocked(tokenStore.recordResult).mock.calls.some((call) => call[3] === 200)).toBe(
       false,

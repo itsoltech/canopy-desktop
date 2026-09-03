@@ -9,10 +9,11 @@ import {
   parseCiConfig,
 } from './config'
 import type { CiConfig, CiInputValue, CiRef, CiStatusResponse, CiTriggerRequest } from './types'
-import { ciErrorMessage } from './errors'
+import { ciErrorMessage, type CiError } from './errors'
 import { isTeamCityLocatorSafeRef, testConnection as ciTestConnection } from './teamcity'
 import { CREDENTIAL_TOKEN_MAX, normalizedCredentialToken } from './token'
 import { isSafeGitRefName } from '../../renderer-shared/gitRef'
+import type { TeamCityConnectionPolicy, TeamCityOriginTrust } from './teamcityAccess'
 
 // The CI IPC surface, extracted so the AUTHORIZATION contract is unit-testable:
 // every repo-scoped channel resolves `payload.repoRoot` through the injected
@@ -37,6 +38,21 @@ export interface CiHandlerDeps {
   validatePathAccess: (wcId: number, targetPath: string) => Promise<string>
   /** Optional trusted native confirmation extension point, parented to the invoking window. */
   confirmGitHubDispatch?: (event: CiIpcEvent, details: CiDispatchConfirmation) => Promise<boolean>
+  teamCityOriginTrust: Pick<TeamCityOriginTrust, 'requiresApproval' | 'approve' | 'ensureAllowed'>
+  confirmTeamCityAccess?: (
+    event: CiIpcEvent,
+    details: TeamCityAccessConfirmation,
+  ) => Promise<boolean>
+}
+
+export interface TeamCityAccessConfirmation {
+  action: 'test-connection' | 'discover-build-types' | 'save-config'
+  baseUrl: string
+  repoRoot?: string
+  buildTypes?: Array<{ id: string; label: string }>
+  usesStoredCredential: boolean
+  privateOrigin: boolean
+  credentialApproval: boolean
 }
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
@@ -127,6 +143,8 @@ export function registerCiHandlers({
   ciManager,
   validatePathAccess,
   confirmGitHubDispatch,
+  teamCityOriginTrust,
+  confirmTeamCityAccess,
 }: CiHandlerDeps): void {
   /** Repo-scoped payloads: type-check, then authorize — the resolved path is the
       ONLY form that continues; the renderer-supplied string never reaches CiManager. */
@@ -135,6 +153,41 @@ export function registerCiHandlers({
       throw new Error('repoRoot is required')
     }
     return await validatePathAccess(event.sender.id, repoRoot)
+  }
+
+  async function authorizeTeamCityAccess(
+    event: CiIpcEvent,
+    details: Omit<TeamCityAccessConfirmation, 'privateOrigin' | 'credentialApproval'>,
+    options?: {
+      requestedRepoRoot?: string
+      approveCredential?: () => Result<void, CiError>
+    },
+  ): Promise<TeamCityConnectionPolicy> {
+    const privateOrigin = await teamCityOriginTrust.requiresApproval(details.baseUrl)
+    const credentialApproval = options?.approveCredential !== undefined
+    const candidateCredential = !details.usesStoredCredential
+    if (privateOrigin || credentialApproval || candidateCredential) {
+      if (!confirmTeamCityAccess) throw new Error('TeamCity access confirmation is unavailable')
+      const accepted = await confirmTeamCityAccess(event, {
+        ...details,
+        privateOrigin,
+        credentialApproval,
+      })
+      if (!accepted) throw new Error('TeamCity access was not approved')
+
+      if (options?.requestedRepoRoot && details.repoRoot) {
+        const root = await authorizedRepoRoot(event, options.requestedRepoRoot)
+        if (root !== details.repoRoot) throw new Error('Repository authorization changed')
+      }
+      if (privateOrigin) teamCityOriginTrust.approve(details.baseUrl)
+      if (options?.approveCredential) {
+        unwrapOrThrow(options.approveCredential(), ciErrorMessage)
+      }
+    }
+
+    // Reclassify immediately before the network or config write. If DNS changed from public to
+    // private while the confirmation was open, fail closed and ask again on the next attempt.
+    return unwrapOrThrow(await teamCityOriginTrust.ensureAllowed(details.baseUrl), ciErrorMessage)
   }
 
   // Validated CI config of a repo — drives the CI section and both CI modals.
@@ -147,7 +200,7 @@ export function registerCiHandlers({
     if (result.isOk()) {
       return {
         config: result.value,
-        credential: ciManager.credentialStatusForConfig(result.value),
+        credential: ciManager.credentialStatusForConfig(repoRoot, result.value),
       }
     }
     if (result.error._tag === 'CiConfigInvalid') {
@@ -359,7 +412,7 @@ export function registerCiHandlers({
       }
 
       // Pass the loaded config down — statusFor doesn't re-read .canopy/config.json.
-      const result = await ciManager.statusFor(config, payload.branch)
+      const result = await ciManager.statusFor(repoRoot, config, payload.branch)
       return result.match(
         (rows): CiStatusResponse => ({
           configured: true,
@@ -406,7 +459,17 @@ export function registerCiHandlers({
         payload.branch,
         properties,
       )
-      return unwrapOrThrow(result, ciErrorMessage)
+      return result.match(
+        (value) => ({ ok: true as const, value }),
+        (error) => ({
+          ok: false as const,
+          error: {
+            code: error._tag,
+            message: ciErrorMessage(error),
+            ...(error._tag === 'CiApiError' ? { status: error.status } : {}),
+          },
+        }),
+      )
     },
   )
 
@@ -453,18 +516,45 @@ export function registerCiHandlers({
     },
   )
 
-  // Init flow: the URL comes from the Settings form (no `ci` block exists yet) — the
-  // same trust level as taskTracker:testNewConnection. The token never leaves the
-  // keychain; only http(s) origins are accepted. NOT repo-scoped: no path involved.
-  ipcMain.handle('ci:listBuildTypes', async (_event: CiIpcEvent, payload: { baseUrl: string }) => {
-    if (typeof payload.baseUrl !== 'string' || !payload.baseUrl) {
-      throw new Error('baseUrl is required')
-    }
-    const baseUrl = normalizeTeamCityBaseUrl(payload.baseUrl)
-    if (!baseUrl) throw new Error('Invalid TeamCity server URL')
-    const result = await ciManager.listBuildTypes(baseUrl)
-    return unwrapOrThrow(result, ciErrorMessage)
-  })
+  // Init flow: the URL comes from the per-repo configurator before a `ci` block exists.
+  // The token never leaves the keychain, and both the repository and exact discovery
+  // URL require main-process authorization before jobs are fetched.
+  ipcMain.handle(
+    'ci:listBuildTypes',
+    async (event: CiIpcEvent, payload: { repoRoot: string; baseUrl: string }) => {
+      const requestedRepoRoot = payload.repoRoot
+      const repoRoot = await authorizedRepoRoot(event, requestedRepoRoot)
+      if (typeof payload.baseUrl !== 'string' || !payload.baseUrl) {
+        throw new Error('baseUrl is required')
+      }
+      const baseUrl = normalizeTeamCityBaseUrl(payload.baseUrl)
+      if (!baseUrl) throw new Error('Invalid TeamCity server URL')
+      const credentialApproval = unwrapOrThrow(
+        ciManager.prepareTeamCityDiscoveryApproval(repoRoot, baseUrl),
+        ciErrorMessage,
+      )
+      await authorizeTeamCityAccess(
+        event,
+        {
+          action: 'discover-build-types',
+          baseUrl,
+          repoRoot,
+          usesStoredCredential: true,
+        },
+        {
+          requestedRepoRoot,
+          ...(credentialApproval.approvalRequired
+            ? {
+                approveCredential: () =>
+                  ciManager.approveTeamCityDiscovery(repoRoot, baseUrl, credentialApproval),
+              }
+            : {}),
+        },
+      )
+      const result = await ciManager.listBuildTypes(repoRoot, baseUrl)
+      return unwrapOrThrow(result, ciErrorMessage)
+    },
+  )
 
   // Write (or remove, with null) the repo's `ci` block from the Settings configurator.
   ipcMain.handle(
@@ -526,12 +616,40 @@ export function registerCiHandlers({
               typeof bt.label === 'string' ? bt.label.trim().slice(0, CI_MAX_LABEL_LEN) : ''
             return { id: bt.id, label: label || bt.id }
           })
+          if (new Set(buildTypes.map((buildType) => buildType.id)).size !== buildTypes.length) {
+            throw new Error('Duplicate TeamCity build configuration')
+          }
           ci = {
             provider: 'teamcity',
             baseUrl,
             buildTypes,
           }
         }
+      }
+      if (ci?.provider === 'teamcity') {
+        const credentialApproval = unwrapOrThrow(
+          ciManager.prepareTeamCityConfigApproval(repoRoot, ci),
+          ciErrorMessage,
+        )
+        await authorizeTeamCityAccess(
+          event,
+          {
+            action: 'save-config',
+            baseUrl: ci.baseUrl,
+            repoRoot,
+            buildTypes: ci.buildTypes,
+            usesStoredCredential: true,
+          },
+          {
+            requestedRepoRoot: payload.repoRoot,
+            ...(credentialApproval.approvalRequired
+              ? {
+                  approveCredential: () =>
+                    ciManager.approveTeamCityConfig(repoRoot, ci, credentialApproval),
+                }
+              : {}),
+          },
+        )
       }
       const result = await ciManager.saveConfig(repoRoot, ci)
       return unwrapOrThrow(result, ciErrorMessage)
@@ -560,14 +678,19 @@ export function registerCiHandlers({
   // taskTracker:testNewConnection. Nothing is stored. NOT repo-scoped.
   ipcMain.handle(
     'ci:testNewConnection',
-    async (_event: CiIpcEvent, payload: { baseUrl: string; token: string }) => {
+    async (event: CiIpcEvent, payload: { baseUrl: string; token: string }) => {
       if (typeof payload.baseUrl !== 'string' || !payload.baseUrl) {
         throw new Error('baseUrl is required')
       }
       const baseUrl = normalizeTeamCityBaseUrl(payload.baseUrl)
       if (!baseUrl) throw new Error('Invalid TeamCity server URL')
       const token = normalizeTeamCityInputToken(payload.token)
-      const result = await ciTestConnection(baseUrl, token)
+      const connection = await authorizeTeamCityAccess(event, {
+        action: 'test-connection',
+        baseUrl,
+        usesStoredCredential: false,
+      })
+      const result = await ciTestConnection(baseUrl, token, connection)
       return unwrapOrThrow(result, ciErrorMessage)
     },
   )

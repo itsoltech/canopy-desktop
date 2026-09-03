@@ -1,545 +1,62 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
-  import {
-    Plus,
-    Settings,
-    ExternalLink,
-    KeyRound,
-    LoaderCircle,
-    Play,
-    History,
-  } from '@lucide/svelte'
+  import { Plus, Settings } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
-  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
-  import CiLastJobCard from '../ci/CiLastJobCard.svelte'
-  import CiLastRunCard from '../ci/CiLastRunCard.svelte'
-  import { workspaceState } from '../../lib/stores/workspace.svelte'
-  import { showProjectCi, showCiRunJob, showCiActivity } from '../../lib/stores/dialogs.svelte'
-  import {
-    getCiRepoConfig,
-    loadCiRepoConfig,
-    getCiActivityTick,
-    getCiState,
-    refreshCi,
-    getCiJobsState,
-    refreshCiJobs,
-    getCiCredentialTick,
-    ciKey,
-  } from '../../lib/stores/ci.svelte'
-  import { anyBuildActive, anyRunActive } from '../../lib/ci/status'
-  import { ipcErrorMessage } from '../../lib/ci/errors'
-  import { formatDateTime } from '../../lib/formatDate'
-  import type { CiActivity, CiCardIssue, CiRunActivity } from '../../lib/ci/types'
+  import CiConfiguredContent from './_partials/CiConfiguredContent.svelte'
+  import { createCiSectionState } from './ciSectionState.svelte'
 
-  // CI/CD section: per-repo TeamCity — configuration entry, running any job on any
-  // branch, and the server's current activity. Mirrors the Project management
-  // section's architecture (config in the repo, credentials personal). Dialogs are
-  // NOT rendered here: the sidebar's backdrop-filter would pin position:fixed
-  // overlays to its column, so they open via dialogState from MainLayout.
-
-  let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
-  let cfgState = $derived(getCiRepoConfig())
-  let config = $derived(cfgState.config)
-  let provider = $derived(config?.provider ?? 'teamcity')
-  let providerLabel = $derived(provider === 'github-actions' ? 'GitHub' : 'TeamCity')
-  let runActionLabel = $derived(provider === 'github-actions' ? 'Run workflow…' : 'Run job…')
-  let runActionTitle = $derived(
-    provider === 'github-actions'
-      ? 'Choose a configured workflow and branch to run'
-      : 'Choose a configured job and branch to queue',
-  )
-  let configureActionTitle = $derived(
-    provider === 'github-actions'
-      ? 'Configure CI/CD — GitHub repository and available workflows'
-      : 'Configure CI/CD — server and available build configurations',
-  )
-  let providerUrl = $derived(
-    config?.provider === 'github-actions'
-      ? `https://github.com/${config.repository}`
-      : (config?.baseUrl ?? ''),
-  )
-
-  $effect(() => {
-    const root = repoRoot
-    // Credential writers bump this after saving or removing the exact CI binding.
-    void getCiCredentialTick()
-    // Untracked: the loader reads store state it also writes — tracking it here
-    // would loop the effect (see the refreshCi note in the ci store).
-    if (root) untrack(() => void loadCiRepoConfig(root))
-  })
-
-  // True until this worktree's OWN config has landed. The store keys its state by repo, and
-  // resets `loaded` whenever the key changes — so between the click and the response the
-  // section knows neither the config nor whether the token still works. Everything below
-  // depends on both: Run job… would queue against a server we have not re-checked, and the
-  // history entry would open a window for the previous worktree.
-  let ciBusy = $derived(!cfgState.loaded || cfgState.key !== (repoRoot ?? '').replace(/\\/g, '/'))
-  let ciBodyEl = $state<HTMLElement>()
-  let ciFrozenHeight = $state(0)
-
-  $effect(() => {
-    if (ciBusy || !ciBodyEl) return
-    const el = ciBodyEl
-    // Observed while idle only, so the frozen value is always the last settled render.
-    const observer = new ResizeObserver(() => {
-      ciFrozenHeight = el.offsetHeight
-    })
-    observer.observe(el)
-    ciFrozenHeight = el.offsetHeight
-    return () => observer.disconnect()
-  })
-
-  let ciPlaceholderRows = $derived(Math.max(1, Math.round(ciFrozenHeight / 28)))
-
-  // --- Server activity: polled here only for its FAILURE state. The running/queued
-  // list, and its counts, live in the window (CiActivityModal) — the sidebar has no
-  // room for them and now shows one element, not a summary row plus a card ---
-
-  let activity = $state<CiActivity | CiRunActivity | null>(null)
-  let activityError = $state('')
-  let activityLoaded = $state(false)
-  let identicalPartialCount = $state(0)
-  let activitySeq = 0
-
-  async function refreshActivity(root: string): Promise<void> {
-    const seq = ++activitySeq
-    try {
-      const result =
-        config?.provider === 'github-actions'
-          ? await window.api.ciRunActivity(root)
-          : await window.api.ciActivity(root)
-      if (seq !== activitySeq) return
-      activity = result
-      activityError = ''
-      const hasPartial = 'partialErrors' in result && (result.partialErrors?.length ?? 0) > 0
-      if (!hasPartial) {
-        identicalPartialCount = 0
-      } else {
-        identicalPartialCount += 1
-      }
-    } catch (e) {
-      if (seq !== activitySeq) return
-      activity = null
-      activityError = ipcErrorMessage(e, 'Failed to load activity')
-    } finally {
-      if (seq === activitySeq) activityLoaded = true
-    }
-  }
-
-  // Effect dependencies are primitives on purpose (see GitSection) — the activity
-  // OBJECT changes on every poll and would loop the effect.
-  let hasConfigAndToken = $derived(config != null && cfgState.hasToken)
-  let activeCount = $derived(activity ? activity.running.length + activity.queued.length : 0)
-  let activityPartialErrors = $derived(
-    activity && 'partialErrors' in activity ? (activity.partialErrors ?? []) : [],
-  )
-  // Keep the polling effect dependent on a primitive. Depending on the derived array would
-  // invalidate the effect after every response because each activity object produces a new array.
-  let activityIncomplete = $derived(activityPartialErrors.length > 0)
-  let fastPartialRecovery = $derived(activityIncomplete && identicalPartialCount <= 3)
-  $effect(() => {
-    if (!hasConfigAndToken) return
-    const root = repoRoot
-    if (!root) return
-    // Triggering a build bumps the tick → immediate re-fetch, so a stale failure
-    // suffix clears (and the cadence speeds up) without waiting for the next poll.
-    void getCiActivityTick()
-    // A transient missing slice can hide a running job. Retry the same partial result quickly a
-    // few times, then decay to idle cadence so permanent config drift cannot poll fast forever.
-    // A rejected token will keep being rejected until the user replaces it, and repeated
-    // 401s are how accounts get locked out. Slow to the idle ceiling: the poll is only
-    // still running so recovery is noticed without the user having to switch worktrees.
-    const interval = credentialsRejected
-      ? 300_000
-      : provider === 'github-actions'
-        ? activeCount > 0 || fastPartialRecovery
-          ? 60_000
-          : 300_000
-        : activeCount > 0 || fastPartialRecovery
-          ? 10_000
-          : 30_000
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const poll = async (): Promise<void> => {
-      await refreshActivity(root)
-      if (!cancelled) timer = setTimeout(() => void poll(), interval)
-    }
-    untrack(() => void poll())
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
-  })
-
-  // Worktree switches must not show the previous repo's activity while the new
-  // fetch is in flight.
-  $effect(() => {
-    void repoRoot
-    activity = null
-    activityLoaded = false
-    activityError = ''
-    identicalPartialCount = 0
-  })
-
-  // Only FAILURE survives in the sidebar. The running/queued counts moved into the
-  // history window along with the row that carried them, so a healthy poll leaves the
-  // one CI element unadorned. Unlike the old chip this is not suppressed while a build
-  // is known to be active: with no counts left to prefer, hiding the failure would
-  // leave nothing at all.
-  // `ci:config` returns the verdict for its exact provider binding in the same response as the
-  // config, so the loading gate covers it and unrelated credentials can never hide this section.
-  let credentialsRejected = $derived(cfgState.authenticationState === 'invalid')
-  let rejectedSince = $derived(cfgState.authenticationCheckedAt)
-
-  let activityIssue = $derived.by((): CiCardIssue | undefined => {
-    // The banner already states this one, with the action and the timestamp.
-    if (credentialsRejected) return undefined
-    if (activityError)
-      return { label: 'Error', detail: `CI activity unavailable: ${activityError}` }
-    if (activityPartialErrors.length > 0) {
-      return {
-        label: 'Incomplete',
-        detail: `CI activity is incomplete: ${activityPartialErrors.join(' · ')}`,
-      }
-    }
-    return undefined
-  })
-
-  // --- Last build of the CURRENT branch (highlighted card) — the newest build per
-  // configured job for the active worktree's branch, via ci:status ---
-
-  let currentCiKey = $derived(ciKey(repoRoot ?? '', workspaceState.branch ?? ''))
-  let branchState = $derived(getCiState(currentCiKey))
-  let jobsState = $derived(getCiJobsState(currentCiKey))
-  let branchRows = $derived(branchState.response?.configured ? branchState.response.rows : [])
-  let jobRows = $derived(jobsState.rows)
-  // ci:status reports failures as a field (never throws) — surface them, or the
-  // Last-job card silently vanishes with nothing naming the reason.
-  let branchError = $derived(
-    provider === 'github-actions' ? jobsState.error : (branchState.response?.error ?? ''),
-  )
-  // A 401 updates the main-process registry before the failing IPC reaches this component.
-  // Re-read the exact configured binding when a new failure lands; token writes use the tick.
-  $effect(() => {
-    const root = repoRoot
-    const failure = activityError || branchError
-    if (root && failure) untrack(() => void loadCiRepoConfig(root))
-  })
-  // Primitive deps for the poll effect (see the activity effect above).
-  let branchBuildActive = $derived(
-    provider === 'github-actions' ? anyRunActive(jobRows) : anyBuildActive(branchRows),
-  )
-
-  let branchLoading = $derived(
-    provider === 'github-actions'
-      ? // Row count cannot distinguish an initial load from a settled empty result or failure.
-        // Keep subsequent polls silent while retaining the previous rows/error on screen.
-        jobsState.loading && !jobsState.settled
-      : branchState.loading && !branchState.response,
-  )
-  // The card stands in for the history entry only when it has something to render.
-  // Initial/recovery loading gets a non-interactive status row; after a ci:status
-  // failure or on a branch with no configured jobs, the history window stays reachable.
-  let hasCardRows = $derived(
-    !branchLoading &&
-      !branchError &&
-      (provider === 'github-actions' ? jobRows.length > 0 : branchRows.length > 0),
-  )
-
-  // Coarse state for the live region — no percentage, so a running build announces
-  // once instead of on every 10 s poll. Deliberately still carries the running/queued
-  // counts even though nothing on screen shows them any more: the history window does,
-  // and dropping them would leave screen-reader users with less than sighted ones.
-  let ciAnnouncement = $derived.by(() => {
-    if (ciBusy) return 'Loading CI status'
-    // An unreadable ci block has no other announcement path — polling never starts.
-    if (!hasConfigAndToken) return cfgState.error ? 'CI configuration invalid' : ''
-    if (branchLoading || !activityLoaded) return 'Loading jobs history'
-    // Both halves in one string: they are independent (a dead build-type id says
-    // nothing about the server's queue), so a persistent per-row failure must not
-    // shadow activity transitions for the rest of the session. Still coarse — no
-    // percentage — so identical polls produce an identical string and stay quiet.
-    const parts: string[] = []
-    if (branchError) {
-      parts.push('CI status unavailable')
-    } else {
-      const unavailable =
-        provider === 'github-actions'
-          ? jobRows.filter((row) => row.error).length
-          : branchRows.filter((row) => row.error).length
-      if (unavailable > 0) {
-        parts.push(`CI status unavailable for ${unavailable} ${unavailable === 1 ? 'job' : 'jobs'}`)
-      }
-    }
-    if (activityLoaded) {
-      if (activityError) {
-        parts.push('CI activity unavailable')
-      } else {
-        const running = activity?.running.length ?? 0
-        const queued = activity?.queued.length ?? 0
-        if (running > 0 || queued > 0) {
-          parts.push(`CI: ${running} running, ${queued} queued`)
-        } else if (activityPartialErrors.length === 0) {
-          parts.push('CI idle')
-        }
-        if (activityPartialErrors.length > 0) parts.push('CI activity incomplete')
-      }
-    }
-    return parts.join(' · ')
-  })
-
-  $effect(() => {
-    // Keep a rejected credential dormant. Loading the exact binding after a token
-    // replacement flips this primitive to false and immediately restarts the poll.
-    if (!hasConfigAndToken || credentialsRejected) return
-    const root = repoRoot
-    const branch = workspaceState.branch
-    if (!root || !branch) return
-    void getCiActivityTick()
-    const interval =
-      provider === 'github-actions'
-        ? branchBuildActive
-          ? 60_000
-          : 300_000
-        : branchBuildActive
-          ? 10_000
-          : 45_000
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const poll = async (): Promise<void> => {
-      if (provider === 'github-actions') await refreshCiJobs(root, branch)
-      else await refreshCi(root, branch)
-      if (!cancelled) timer = setTimeout(() => void poll(), interval)
-    }
-    untrack(() => void poll())
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
-  })
-
-  function openRunJob(): void {
-    if (!repoRoot) return
-    // Preselect the overwhelmingly common worktree branch. Dispatch still requires the shared
-    // confirmation step, and the main process independently validates the target and inputs.
-    showCiRunJob(repoRoot, { branch: workspaceState.branch || undefined })
-  }
-
-  function openActivity(): void {
-    if (repoRoot) showCiActivity(repoRoot)
-  }
-
-  // Separate from `openActivity` on purpose: the card is branch-scoped, so it
-  // preselects the window's filter and lands on the same builds it was describing —
-  // which a repository-wide list, capped at the newest few, may not even contain. The
-  // fallback entry stays unfiltered, matching what it says it shows.
-  function openBranchActivity(): void {
-    if (repoRoot) showCiActivity(repoRoot, workspaceState.branch || undefined)
-  }
+  const state = createCiSectionState()
 </script>
 
-<!-- The card's heading and status flip on a background poll — announce the change
-     instead of mutating silently under assistive tech. -->
-<span class="sr-only" aria-live="polite">{ciAnnouncement}</span>
+<span class="sr-only" aria-live="polite">{state.ciAnnouncement}</span>
 <CollapsibleSection title="CI/CD" sectionKey="cicd" borderTop>
   {#snippet headerExtra()}
-    <!-- Always available — for unconfigured worktrees this is the ONLY entry point
-         (their section body stays empty on purpose). -->
     <button
       class="flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint cursor-pointer opacity-60 hover:opacity-100 hover:bg-hover hover:text-text-secondary"
-      onclick={() => repoRoot && showProjectCi(repoRoot)}
+      onclick={() => state.openConfigurator()}
       aria-label="Configure CI/CD"
-      title={configureActionTitle}
+      title={state.configureActionTitle}
     >
       <Settings size={12} />
     </button>
   {/snippet}
 
-  <!-- Same treatment as the tracker section: while the next worktree's CI config and token
-       state are unknown, cover the body instead of tearing it down. Run job… and the history
-       entry must not stay clickable on a token we cannot vouch for yet, and cfgState.loaded
-       drops to false on every switch — which collapsed this whole section to nothing and
-       rebuilt it, moving every section below twice. -->
   <div
-    bind:this={ciBodyEl}
-    class="flex flex-col {ciBusy ? 'overflow-hidden' : ''}"
-    style:height={ciBusy && ciFrozenHeight > 0 ? `${ciFrozenHeight}px` : undefined}
+    bind:this={state.ciBodyEl}
+    class="flex flex-col {state.ciBusy ? 'overflow-hidden' : ''}"
+    style:height={state.ciBusy && state.ciFrozenHeight > 0
+      ? `${state.ciFrozenHeight}px`
+      : undefined}
   >
-    {#if ciBusy && ciFrozenHeight > 0}
+    {#if state.ciBusy && state.ciFrozenHeight > 0}
       <div class="flex flex-col" aria-hidden="true">
-        {#each { length: ciPlaceholderRows }, i (i)}
+        {#each { length: state.ciPlaceholderRows }, index (index)}
           <div class="flex items-center h-7 px-3">
             <span
               class="h-2 rounded-sm bg-active animate-pulse motion-reduce:animate-none"
-              style:width={`${[58, 40, 70, 48][i % 4]}%`}
+              style:width={`${[58, 40, 70, 48][index % 4]}%`}
             ></span>
           </div>
         {/each}
       </div>
-    {:else if repoRoot && cfgState.loaded && config}
-      <div class="flex flex-col">
-        <button
-          class="group flex items-center gap-2.5 w-full h-7 pl-3 pr-1 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-          onclick={() => window.api.openExternal(providerUrl)}
-          title={provider === 'github-actions'
-            ? 'Open repository in GitHub'
-            : 'Open TeamCity in the browser'}
-        >
-          <span class="inline-flex items-center flex-shrink-0"
-            ><TrackerProviderIcon
-              provider={provider === 'github-actions' ? 'github' : 'teamcity'}
-              size={13}
-            /></span
-          >
-          <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1" title={providerUrl}
-            >{config.provider === 'github-actions' ? config.repository : config.baseUrl}</span
-          >
-          <ExternalLink
-            size={11}
-            class="shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60 group-focus-within:opacity-60"
-          />
-        </button>
-
-        <!-- A token that is missing and one the provider rejects lead to the same dead ends:
-           The run action cannot list refs or start anything, and the history window has
-           nothing to load. So the banner REPLACES them rather than sitting above them —
-           the only thing left worth offering is fixing the credential. -->
-        {#if !cfgState.hasToken || credentialsRejected}
-          <div class="px-2 py-1">
-            <div
-              class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
-              title={credentialsRejected
-                ? `${providerLabel} credentials need updating${rejectedSince ? ` since ${formatDateTime(Date.parse(rejectedSince))}` : ''}`
-                : providerUrl}
-            >
-              <KeyRound size={13} class="shrink-0 text-warning-text" />
-              <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug">
-                {#if credentialsRejected}
-                  {providerLabel} rejected the stored token.{rejectedSince
-                    ? ` Since ${formatDateTime(Date.parse(rejectedSince))}.`
-                    : ''}
-                {:else}
-                  {provider === 'github-actions'
-                    ? 'No token for this GitHub repository.'
-                    : 'No token for this CI server.'}
-                {/if}
-              </span>
-              <button
-                type="button"
-                class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-                onclick={() => repoRoot && showProjectCi(repoRoot, 'credentials')}
-              >
-                {credentialsRejected ? 'Update token' : 'Add credentials'}
-              </button>
-            </div>
-          </div>
-        {:else}
-          <button
-            class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover"
-            onclick={openRunJob}
-            title={runActionTitle}
-          >
-            <Play
-              size={13}
-              class="text-text-faint group-enabled:group-hover:text-text-secondary group-focus-within:text-text-secondary flex-shrink-0"
-            />
-            <span class="flex-1">{runActionLabel}</span>
-          </button>
-
-          <div
-            class="h-px mx-3 my-1 bg-border-subtle"
-            role="separator"
-            aria-orientation="horizontal"
-          ></div>
-
-          <!-- ONE CI element, never two: a non-interactive loading row while the first
-             read is in flight, then the branch card when it has rows, otherwise the plain
-             history entry. The card also preselects its branch in the same window. The
-             fallback entry is the route when the branch has no configured jobs, no branch
-             is checked out, or the settled read failed. -->
-          {#if branchLoading || !activityLoaded}
-            <div class="flex items-center gap-2.5 w-full h-7 px-3 text-sm text-text-faint">
-              <LoaderCircle
-                size={13}
-                class="animate-spin-slow shrink-0 motion-reduce:animate-none"
-              />
-              <span>Loading jobs history…</span>
-            </div>
-          {:else if hasCardRows && workspaceState.branch}
-            {#if provider === 'github-actions'}
-              <CiLastRunCard
-                rows={jobRows}
-                branch={workspaceState.branch}
-                issue={activityIssue}
-                onActivate={openBranchActivity}
-              />
-            {:else}
-              <CiLastJobCard
-                rows={branchRows}
-                branch={workspaceState.branch}
-                issue={activityIssue}
-                onActivate={openBranchActivity}
-              />
-            {/if}
-          {:else}
-            <button
-              class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
-              onclick={openActivity}
-              aria-haspopup="dialog"
-              title={`Recent and running jobs for this repository — opens in a window${
-                activityIssue ? ` (${activityIssue.detail})` : ''
-              }`}
-            >
-              <History
-                size={13}
-                class="text-text-faint group-hover:text-text-secondary group-focus-within:text-text-secondary shrink-0"
-              />
-              <span class="flex-1">Jobs history</span>
-              {#if activityIssue}
-                <span
-                  class="px-1.5 py-px rounded-md text-2xs shrink-0 bg-warning-bg text-warning-text"
-                  title={activityIssue.detail}>{activityIssue.label}</span
-                >
-              {:else if !activityLoaded}
-                <LoaderCircle
-                  size={12}
-                  class="text-text-faint animate-spin-slow shrink-0 motion-reduce:animate-none"
-                />
-              {/if}
-            </button>
-
-            <!-- Diagnostics stay a sub-line under the entry rather than folding into it:
-               they name a reason, and a reason with no visible route to act on it is
-               what this section was already pulled up on once. -->
-            {#if branchError}
-              <div class="px-3 py-1 text-xs text-warning-text truncate" title={branchError}>
-                Last job unavailable — {branchError}
-              </div>
-            {/if}
-          {/if}
-        {/if}
-      </div>
-    {:else if repoRoot && cfgState.loaded}
-      {#if cfgState.error}
-        <!-- The block EXISTS but cannot be used — a "Configure TeamCity" entry here
-           would send the user to set up what they already have. ciErrorMessage
-           front-loads the reason for this truncated column (rendered verbatim —
-           never re-parsed), and the recovery is a visible button, not just the
-           header gear. -->
+    {:else if state.repoRoot && state.cfgState.loaded && state.config}
+      <CiConfiguredContent {state} />
+    {:else if state.repoRoot && state.cfgState.loaded}
+      {#if state.cfgState.error}
         <div class="px-3 py-1 flex flex-col gap-0.5 text-xs text-warning-text">
-          <span class="truncate" title={cfgState.error}>{cfgState.error}</span>
+          <span class="truncate" title={state.cfgState.error}>{state.cfgState.error}</span>
           <button
             type="button"
             class="self-start text-2xs underline underline-offset-2 bg-transparent border-0 p-0 font-inherit text-warning-text cursor-pointer hover:text-text"
-            onclick={() => repoRoot && showProjectCi(repoRoot)}>Open the configurator</button
+            onclick={() => state.openConfigurator()}
           >
+            Open the configurator
+          </button>
         </div>
       {:else}
-        <!-- Init entry, mirroring Project Management's "Configure Tracker". -->
         <div class="px-3 py-2">
           <button
             class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
-            onclick={() => repoRoot && showProjectCi(repoRoot)}
+            onclick={() => state.openConfigurator()}
           >
             <Plus size={14} />
             Configure CI/CD

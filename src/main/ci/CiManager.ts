@@ -1,6 +1,7 @@
 import { ResultAsync, err, errAsync, ok, okAsync, type Result } from 'neverthrow'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
+import type { CredentialBindingApprovalTarget } from '../taskTracker/KeychainTokenStore'
 import type { CredentialCapability } from '../credentials/CredentialRegistry'
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { GitRepository } from '../git/GitRepository'
@@ -42,12 +43,22 @@ import { GitHubActionsClient } from './github-actions/client'
 import { discoverGitHubWorkflows, GitHubActionsAdapter } from './providers/github-actions'
 import { TeamCityAdapter } from './providers/teamcity'
 import type { CiProviderAdapter } from './providers/types'
-import { credentialErrorMessage } from '../credentials/errors'
+import { credentialErrorMessage, type CredentialError } from '../credentials/errors'
 import { githubActionsCredentialBaseUrl } from '../../renderer-shared/credentialBindings'
 import { ciDegradedCauses, withCiDegradedCauses } from './degraded'
+import {
+  teamCityConfigBindingKey,
+  teamCityDiscoveryBindingKey,
+  type TeamCityConnectionPolicy,
+} from './teamcityAccess'
 
 type RemoteUrlResolver = (repoRoot: string) => ResultAsync<string, unknown>
 type GitHubClientFactory = (owner: string, repository: string, token: string) => GitHubActionsClient
+type TeamCityOriginGate = (baseUrl: string) => ResultAsync<TeamCityConnectionPolicy, CiError>
+interface TeamCityCredentialContext {
+  token: string
+  connection: TeamCityConnectionPolicy
+}
 export interface CiDispatchConfirmation {
   repository: string
   workflowPath: string
@@ -122,6 +133,8 @@ export class CiManager {
       GitRepository.getRemoteUrl(repoRoot),
     private githubClientFactory: GitHubClientFactory = (owner, repository, token) =>
       new GitHubActionsClient(owner, repository, token),
+    private teamCityOriginGate: TeamCityOriginGate = (baseUrl) =>
+      errAsync({ _tag: 'CiPrivateOriginApprovalRequired', baseUrl }),
   ) {}
 
   /**
@@ -137,10 +150,12 @@ export class CiManager {
     capability: CredentialCapability,
     result: ResultAsync<T, CiError>,
     usedSecret?: string,
+    bindingKey?: string,
   ): ResultAsync<T, CiError> {
     const record = (status: number, reason?: string, authenticationRejected?: true): void =>
       this.tokenStore.recordResult(provider, baseUrl, capability, status, reason, {
         usedSecret,
+        ...(bindingKey ? { bindingKey } : {}),
         ...(authenticationRejected ? { authenticationRejected } : {}),
       })
     return result
@@ -203,17 +218,26 @@ export class CiManager {
   }
 
   /** Safe credential metadata for the exact provider binding selected by a validated CI config. */
-  credentialStatusForConfig(ci: CiConfig): CiCredentialStatus {
+  credentialStatusForConfig(repoRoot: string, ci: CiConfig): CiCredentialStatus {
     const provider = ci.provider === 'github-actions' ? 'github-actions' : 'teamcity'
     const baseUrl =
       ci.provider === 'github-actions' ? githubActionsCredentialBaseUrl(ci.repository) : ci.baseUrl
     const credentials = this.tokenStore.getCredentials(provider, baseUrl)
     if (!credentials) return { hasToken: false, authenticationState: 'unknown' }
+    const approvalRequired =
+      ci.provider === 'teamcity' &&
+      !this.tokenStore.isCredentialsBindingApproved(
+        'teamcity',
+        ci.baseUrl,
+        'builds.read',
+        teamCityConfigBindingKey(repoRoot, ci),
+      )
     const descriptor = this.tokenStore.registry
       .list()
       .find((candidate) => candidate.id === credentials.credentialId)
     return {
       hasToken: true,
+      ...(approvalRequired ? { approvalRequired: true } : {}),
       authenticationState: descriptor?.authenticationState ?? 'unknown',
       ...(descriptor?.authenticationCheckedAt
         ? { authenticationCheckedAt: descriptor.authenticationCheckedAt }
@@ -224,33 +248,113 @@ export class CiManager {
   private tokenForUrl(
     baseUrl: string,
     capability: Extract<CredentialCapability, 'builds.read' | 'builds.trigger'> = 'builds.read',
-  ): ResultAsync<string, CiError> {
-    return this.tokenStore.resolveCredentialsResult('teamcity', baseUrl, capability).match(
-      (credentials) => {
-        const token = normalizedCredentialToken(credentials.token)
-        return token
-          ? okAsync(token)
-          : errAsync({
-              _tag: 'CiAuthMissing' as const,
-              baseUrl,
-            })
-      },
-      (error) =>
-        error._tag === 'CredentialNotFound'
-          ? errAsync({ _tag: 'CiAuthMissing' as const, baseUrl })
-          : errAsync({
-              _tag: 'CiCredentialUnavailable' as const,
-              baseUrl,
-              reason: credentialErrorMessage(error),
-            }),
+    bindingKey?: string,
+  ): ResultAsync<TeamCityCredentialContext, CiError> {
+    return this.teamCityOriginGate(baseUrl).andThen((connection) =>
+      (bindingKey
+        ? this.tokenStore.resolveApprovedCredentialsResult(
+            'teamcity',
+            baseUrl,
+            capability,
+            bindingKey,
+          )
+        : this.tokenStore.resolveCredentialsResult('teamcity', baseUrl, capability)
+      ).match(
+        (credentials) => {
+          const token = normalizedCredentialToken(credentials.token)
+          return token
+            ? okAsync({ token, connection })
+            : errAsync({
+                _tag: 'CiAuthMissing' as const,
+                baseUrl,
+              })
+        },
+        (error) =>
+          error._tag === 'CredentialApprovalRequired'
+            ? errAsync({ _tag: 'CiCredentialApprovalRequired' as const, baseUrl })
+            : error._tag === 'CredentialNotFound'
+              ? errAsync({ _tag: 'CiAuthMissing' as const, baseUrl })
+              : errAsync({
+                  _tag: 'CiCredentialUnavailable' as const,
+                  baseUrl,
+                  reason: credentialErrorMessage(error),
+                }),
+      ),
     )
   }
 
   private tokenFor(
+    repoRoot: string,
     ci: TeamCityCiConfig,
     capability: Extract<CredentialCapability, 'builds.read' | 'builds.trigger'> = 'builds.read',
-  ): ResultAsync<string, CiError> {
-    return this.tokenForUrl(ci.baseUrl, capability)
+  ): ResultAsync<TeamCityCredentialContext, CiError> {
+    return this.tokenForUrl(ci.baseUrl, capability, teamCityConfigBindingKey(repoRoot, ci))
+  }
+
+  private teamCityCredentialError(baseUrl: string, error: CredentialError): CiError {
+    if (error._tag === 'CredentialNotFound') return { _tag: 'CiAuthMissing', baseUrl }
+    if (error._tag === 'CredentialApprovalRequired') {
+      return { _tag: 'CiCredentialApprovalRequired', baseUrl }
+    }
+    return {
+      _tag: 'CiCredentialUnavailable',
+      baseUrl,
+      reason: credentialErrorMessage(error),
+    }
+  }
+
+  prepareTeamCityConfigApproval(
+    repoRoot: string,
+    ci: TeamCityCiConfig,
+  ): Result<CredentialBindingApprovalTarget, CiError> {
+    return this.tokenStore
+      .prepareCredentialsBindingsApproval('teamcity', ci.baseUrl, 'builds.read', [
+        teamCityConfigBindingKey(repoRoot, ci),
+      ])
+      .mapErr((error) => this.teamCityCredentialError(ci.baseUrl, error))
+  }
+
+  approveTeamCityConfig(
+    repoRoot: string,
+    ci: TeamCityCiConfig,
+    expected: Pick<CredentialBindingApprovalTarget, 'credentialId' | 'revision'>,
+  ): Result<void, CiError> {
+    return this.tokenStore
+      .approveCredentialsBinding(
+        'teamcity',
+        ci.baseUrl,
+        'builds.read',
+        teamCityConfigBindingKey(repoRoot, ci),
+        expected,
+      )
+      .mapErr((error) => this.teamCityCredentialError(ci.baseUrl, error))
+  }
+
+  prepareTeamCityDiscoveryApproval(
+    repoRoot: string,
+    baseUrl: string,
+  ): Result<CredentialBindingApprovalTarget, CiError> {
+    return this.tokenStore
+      .prepareCredentialsBindingsApproval('teamcity', baseUrl, 'builds.read', [
+        teamCityDiscoveryBindingKey(repoRoot, baseUrl),
+      ])
+      .mapErr((error) => this.teamCityCredentialError(baseUrl, error))
+  }
+
+  approveTeamCityDiscovery(
+    repoRoot: string,
+    baseUrl: string,
+    expected: Pick<CredentialBindingApprovalTarget, 'credentialId' | 'revision'>,
+  ): Result<void, CiError> {
+    return this.tokenStore
+      .approveCredentialsBinding(
+        'teamcity',
+        baseUrl,
+        'builds.read',
+        teamCityDiscoveryBindingKey(repoRoot, baseUrl),
+        expected,
+      )
+      .mapErr((error) => this.teamCityCredentialError(baseUrl, error))
   }
 
   private githubToken(
@@ -321,9 +425,9 @@ export class CiManager {
     ci: CiConfig,
   ): ResultAsync<{ ci: CiConfig; adapter: CiProviderAdapter; token: string }, CiError> {
     if (ci.provider === 'teamcity') {
-      return this.tokenFor(ci).map((token) => ({
+      return this.tokenFor(repoRoot, ci).map(({ token, connection }) => ({
         ci,
-        adapter: new TeamCityAdapter(ci, token),
+        adapter: new TeamCityAdapter(ci, token, connection),
         token,
       }))
     }
@@ -409,7 +513,11 @@ export class CiManager {
    * already-loaded config so callers that hold one (the `ci:status` handler polls
    * every 10–45 s) don't pay a second config read per tick.
    */
-  statusFor(ci: CiConfig, branch: string): ResultAsync<CiBuildTypeStatus[], CiError> {
+  statusFor(
+    repoRoot: string,
+    ci: CiConfig,
+    branch: string,
+  ): ResultAsync<CiBuildTypeStatus[], CiError> {
     if (ci.provider !== 'teamcity') {
       return errAsync({
         _tag: 'CiApiError',
@@ -425,11 +533,11 @@ export class CiManager {
         message: 'TeamCity branch contains locator-unsafe characters',
       })
     }
-    return this.tokenFor(ci).andThen((token) => {
+    return this.tokenFor(repoRoot, ci).andThen(({ token, connection }) => {
       const causes: CiError[] = []
       const result = ResultAsync.combine(
         ci.buildTypes.map((bt) =>
-          fetchBuildForBranch(ci.baseUrl, token, bt.id, branch)
+          fetchBuildForBranch(ci.baseUrl, token, connection, bt.id, branch)
             // One dead build-type id (deleted/re-ided on TeamCity → 404) must cost
             // ONE row, not the whole card: combine() is fail-fast. The failure is
             // CARRIED, not discarded — `null` already means "no build on this
@@ -451,13 +559,20 @@ export class CiManager {
         // mixed result (one scoped-away build type, the rest fine) re-stamp the
         // credential "verified" on every poll. Same gate as TeamCityAdapter.status.
       ).map((rows) => (causes.length > 0 ? withCiDegradedCauses(rows, causes) : rows))
-      return this.observeCredentialResult('teamcity', ci.baseUrl, 'builds.read', result, token)
+      return this.observeCredentialResult(
+        'teamcity',
+        ci.baseUrl,
+        'builds.read',
+        result,
+        token,
+        teamCityConfigBindingKey(repoRoot, ci),
+      )
     })
   }
 
   /** Convenience wrapper for one-shot callers. */
   statusForBranch(repoRoot: string, branch: string): ResultAsync<CiBuildTypeStatus[], CiError> {
-    return this.loadConfig(repoRoot).andThen((ci) => this.statusFor(ci, branch))
+    return this.loadConfig(repoRoot).andThen((ci) => this.statusFor(repoRoot, ci, branch))
   }
 
   trigger(
@@ -474,13 +589,14 @@ export class CiManager {
           message: `Build type ${buildTypeId} is not configured for this repository`,
         })
       }
-      return this.tokenFor(ci, 'builds.trigger').andThen((token) =>
+      return this.tokenFor(repoRoot, ci, 'builds.trigger').andThen(({ token, connection }) =>
         this.observeCredentialResult(
           'teamcity',
           ci.baseUrl,
           'builds.trigger',
-          triggerBuild(ci.baseUrl, token, buildTypeId, branch, properties),
+          triggerBuild(ci.baseUrl, token, connection, buildTypeId, branch, properties),
           token,
+          teamCityConfigBindingKey(repoRoot, ci),
         ),
       )
     })
@@ -488,8 +604,9 @@ export class CiManager {
 
   /** "Run custom build" prompt parameters of a CONFIGURED build type. */
   promptParameters(repoRoot: string, buildTypeId: string): ResultAsync<CiParameter[], CiError> {
-    return this.requireConfiguredBuildType(repoRoot, buildTypeId).andThen(({ ci, token }) =>
-      fetchPromptParameters(ci.baseUrl, token, buildTypeId),
+    return this.requireConfiguredBuildType(repoRoot, buildTypeId).andThen(
+      ({ ci, token, connection }) =>
+        fetchPromptParameters(ci.baseUrl, token, connection, buildTypeId),
     )
   }
 
@@ -506,10 +623,11 @@ export class CiManager {
             message: 'Use provider-neutral activity for GitHub Actions',
             provider: 'github-actions',
           })
-        : this.tokenFor(ci).andThen((token) => {
+        : this.tokenFor(repoRoot, ci).andThen(({ token, connection }) => {
             const result = fetchActivity(
               ci.baseUrl,
               token,
+              connection,
               ci.buildTypes.map((bt) => bt.id),
               branch,
             ).map((activity) => {
@@ -533,6 +651,7 @@ export class CiManager {
               'builds.read',
               result,
               token,
+              teamCityConfigBindingKey(repoRoot, ci),
             )
           }),
     )
@@ -540,8 +659,8 @@ export class CiManager {
 
   /** Branches TeamCity knows for a CONFIGURED build type — feeds the Run job dialog. */
   branches(repoRoot: string, buildTypeId: string): ResultAsync<string[], CiError> {
-    return this.requireConfiguredBuildType(repoRoot, buildTypeId).andThen(({ ci, token }) =>
-      fetchBranches(ci.baseUrl, token, buildTypeId),
+    return this.requireConfiguredBuildType(repoRoot, buildTypeId).andThen(
+      ({ ci, token, connection }) => fetchBranches(ci.baseUrl, token, connection, buildTypeId),
     )
   }
 
@@ -550,10 +669,16 @@ export class CiManager {
   private requireConfiguredBuildType(
     repoRoot: string,
     buildTypeId: string,
-  ): ResultAsync<{ ci: TeamCityCiConfig; token: string }, CiError> {
+  ): ResultAsync<
+    { ci: TeamCityCiConfig; token: string; connection: TeamCityConnectionPolicy },
+    CiError
+  > {
     return this.loadConfig(repoRoot).andThen((ci) => {
       if (ci.provider !== 'teamcity') {
-        return errAsync<{ ci: TeamCityCiConfig; token: string }, CiError>({
+        return errAsync<
+          { ci: TeamCityCiConfig; token: string; connection: TeamCityConnectionPolicy },
+          CiError
+        >({
           _tag: 'CiApiError',
           status: 0,
           message: 'This endpoint is only available for TeamCity',
@@ -561,16 +686,16 @@ export class CiManager {
         })
       }
       if (!ci.buildTypes.some((bt) => bt.id === buildTypeId)) {
-        return errAsync<{ ci: TeamCityCiConfig; token: string }, CiError>({
+        return errAsync<
+          { ci: TeamCityCiConfig; token: string; connection: TeamCityConnectionPolicy },
+          CiError
+        >({
           _tag: 'CiApiError',
           status: 0,
           message: `Build type ${buildTypeId} is not configured for this repository`,
         })
       }
-      return this.tokenFor(ci).map((token): { ci: TeamCityCiConfig; token: string } => ({
-        ci,
-        token,
-      }))
+      return this.tokenFor(repoRoot, ci).map(({ token, connection }) => ({ ci, token, connection }))
     })
   }
 
@@ -580,14 +705,16 @@ export class CiManager {
    * (validated at the IPC boundary) and the token from the keychain entry the user
    * just saved for that URL.
    */
-  listBuildTypes(baseUrl: string): ResultAsync<CiServerBuildType[], CiError> {
-    return this.tokenForUrl(baseUrl).andThen((token) =>
+  listBuildTypes(repoRoot: string, baseUrl: string): ResultAsync<CiServerBuildType[], CiError> {
+    const bindingKey = teamCityDiscoveryBindingKey(repoRoot, baseUrl)
+    return this.tokenForUrl(baseUrl, 'builds.read', bindingKey).andThen(({ token, connection }) =>
       this.observeCredentialResult(
         'teamcity',
         baseUrl,
         'builds.read',
-        fetchBuildTypes(baseUrl, token),
+        fetchBuildTypes(baseUrl, token, connection),
         token,
+        bindingKey,
       ),
     )
   }
@@ -672,8 +799,8 @@ export class CiManager {
               message: 'TeamCity server configuration changed while watching the build',
               provider: 'teamcity',
             })
-          : this.tokenFor(ci).andThen((token) =>
-              fetchBuild(ci.baseUrl, token, buildId).andThen((build) =>
+          : this.tokenFor(repoRoot, ci).andThen(({ token, connection }) =>
+              fetchBuild(ci.baseUrl, token, connection, buildId).andThen((build) =>
                 ci.buildTypes.some((configured) => configured.id === build.buildTypeId)
                   ? okAsync(build)
                   : errAsync({
@@ -703,6 +830,7 @@ export class CiManager {
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.status(ref),
         token,
+        ci.provider === 'teamcity' ? teamCityConfigBindingKey(repoRoot, ci) : undefined,
       ),
     )
   }
@@ -717,6 +845,7 @@ export class CiManager {
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.refs(jobId),
         token,
+        ci.provider === 'teamcity' ? teamCityConfigBindingKey(repoRoot, ci) : undefined,
       ),
     )
   }
@@ -731,6 +860,7 @@ export class CiManager {
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.exactRef(jobId, name),
         token,
+        ci.provider === 'teamcity' ? teamCityConfigBindingKey(repoRoot, ci) : undefined,
       ),
     )
   }
@@ -748,13 +878,14 @@ export class CiManager {
           ),
         )
       }
-      return this.tokenFor(ci, 'builds.read').andThen((readToken) =>
+      return this.tokenFor(repoRoot, ci, 'builds.read').andThen(({ token: readToken }) =>
         this.observeCredentialResult(
           ci.provider,
           ci.baseUrl,
           'builds.read',
           adapter.parameters(jobId, ref),
           readToken,
+          teamCityConfigBindingKey(repoRoot, ci),
         ),
       )
     })
@@ -770,6 +901,7 @@ export class CiManager {
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.activity(branch),
         token,
+        ci.provider === 'teamcity' ? teamCityConfigBindingKey(repoRoot, ci) : undefined,
       ),
     )
   }
@@ -784,6 +916,7 @@ export class CiManager {
         ci.provider === 'github-actions' ? 'actions.read' : 'builds.read',
         adapter.run(runId),
         token,
+        ci.provider === 'teamcity' ? teamCityConfigBindingKey(repoRoot, ci) : undefined,
       ),
     )
   }
@@ -937,7 +1070,7 @@ export class CiManager {
       }
       request = { ...request, ref: resolved }
     } else {
-      const triggerCredential = await this.tokenFor(context.value.ci, 'builds.trigger')
+      const triggerCredential = await this.tokenFor(repoRoot, context.value.ci, 'builds.trigger')
       if (triggerCredential.isErr()) return err(triggerCredential.error)
     }
     const baseUrl =
@@ -950,6 +1083,9 @@ export class CiManager {
       context.value.ci.provider === 'github-actions' ? 'actions.dispatch' : 'builds.trigger',
       context.value.adapter.trigger(request),
       context.value.token,
+      context.value.ci.provider === 'teamcity'
+        ? teamCityConfigBindingKey(repoRoot, context.value.ci)
+        : undefined,
     )
   }
 }

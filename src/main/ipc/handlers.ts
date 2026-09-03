@@ -63,7 +63,8 @@ import type {
 import { taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
 import { CiManager } from '../ci/CiManager'
-import { registerCiHandlers } from '../ci/ipc'
+import { registerCiHandlers, type TeamCityAccessConfirmation } from '../ci/ipc'
+import { TeamCityOriginTrust } from '../ci/teamcityAccess'
 import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
@@ -3355,7 +3356,14 @@ export function registerIpcHandlers(
 
   // --- CI (TeamCity) ---
 
-  const ciManager = new CiManager(repoConfigManager, keychainTokenStore)
+  const teamCityOriginTrust = new TeamCityOriginTrust(preferencesStore)
+  const ciManager = new CiManager(
+    repoConfigManager,
+    keychainTokenStore,
+    undefined,
+    undefined,
+    (baseUrl) => teamCityOriginTrust.ensureAllowed(baseUrl),
+  )
   // Extracted to src/main/ci/ipc.ts so the authorization contract is testable:
   // every repo-scoped ci:* channel resolves repoRoot through the SAME workspace
   // gate as repoConfig:* and passes only the resolved path downstream.
@@ -3363,9 +3371,57 @@ export function registerIpcHandlers(
     ipcMain,
     ciManager,
     validatePathAccess,
-    // No native confirmation: both run dialogs now ask in-app, with one shared component,
-    // so wiring this too would put the same question in front of the user twice. The hook
-    // stays available in the IPC layer if a trusted (renderer-proof) prompt is wanted again.
+    teamCityOriginTrust,
+    confirmTeamCityAccess: async (event, details: TeamCityAccessConfirmation) => {
+      const win = BrowserWindow.getAllWindows().find(
+        (candidate) => candidate.webContents.id === event.sender.id,
+      )
+      const action =
+        details.action === 'save-config'
+          ? 'Allow this repository to use TeamCity?'
+          : details.action === 'discover-build-types'
+            ? 'Allow TeamCity job discovery for this repository?'
+            : details.privateOrigin
+              ? 'Send this token to a private TeamCity server?'
+              : 'Send this token to this TeamCity server?'
+      const detail = [
+        `Server: ${details.baseUrl}`,
+        ...(details.repoRoot ? [`Repository: ${details.repoRoot}`] : []),
+        ...(details.buildTypes?.length
+          ? [
+              `Build configurations: ${details.buildTypes
+                .map((buildType) => buildType.id)
+                .join(', ')}`,
+            ]
+          : []),
+        ...(details.credentialApproval
+          ? ['This grants the exact repository scope access to the stored TeamCity credential.']
+          : details.usesStoredCredential
+            ? ['This operation uses the repository scope approved for the stored credential.']
+            : ['The token entered in the form will be sent to this server.']),
+        ...(details.baseUrl.startsWith('http://')
+          ? ['Warning: this connection is not encrypted; the token will be sent in plaintext.']
+          : []),
+        ...(details.privateOrigin
+          ? [
+              'This address reaches a private or local network. Continue only if you trust this server and repository.',
+            ]
+          : []),
+      ].join('\n')
+      const options = {
+        type: 'warning' as const,
+        buttons: ['Cancel', 'Allow'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        message: action,
+        detail,
+      }
+      const { response } = win
+        ? await dialog.showMessageBox(win, options)
+        : await dialog.showMessageBox(options)
+      return response === 1
+    },
   })
 
   // --- Task Tracker ---

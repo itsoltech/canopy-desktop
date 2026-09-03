@@ -1472,7 +1472,8 @@ const api = {
     ipcRenderer.invoke('ci:activity', { repoRoot, branch }),
   ciBranches: (repoRoot: string, buildTypeId: string) =>
     ipcRenderer.invoke('ci:branches', { repoRoot, buildTypeId }),
-  ciListBuildTypes: (baseUrl: string) => ipcRenderer.invoke('ci:listBuildTypes', { baseUrl }),
+  ciListBuildTypes: (repoRoot: string, baseUrl: string) =>
+    ipcRenderer.invoke('ci:listBuildTypes', { repoRoot, baseUrl }),
   ciSaveConfig: (
     repoRoot: string,
     ci:

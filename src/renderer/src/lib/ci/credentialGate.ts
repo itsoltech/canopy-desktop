@@ -7,6 +7,13 @@ export interface TeamCityCredentialGate {
   saveReason: string
 }
 
+/** Repository approval belongs to the full configurator; token recovery stays credentials-only. */
+export function credentialConfiguratorSection(
+  approvalRequired: boolean,
+): 'credentials' | undefined {
+  return approvalRequired ? undefined : 'credentials'
+}
+
 export function canUseTeamCityCredential(
   status: CiCredentialStatus,
   hasReplacementToken: boolean,
@@ -31,6 +38,15 @@ export function teamCityCredentialGate(status: CiCredentialStatus): TeamCityCred
       credentialLabel: 'No TeamCity token stored',
       jobsReason: 'Add a token under Personal credentials before loading jobs.',
       saveReason: 'Save is disabled until you add a token above.',
+    }
+  }
+
+  if (status.approvalRequired) {
+    return {
+      canLoadJobs: true,
+      credentialLabel: 'Approval required for this repository',
+      jobsReason: '',
+      saveReason: '',
     }
   }
 

@@ -12,7 +12,7 @@ export function isSafeExternalUrl(url: string): boolean {
   }
 }
 
-function isPrivateIp(ip: string): boolean {
+export function isPrivateIp(ip: string): boolean {
   // Unwrap IPv4-mapped IPv6. URL.hostname serializes embedded IPv4 as two
   // hex hextets (e.g. ::ffff:a9fe:a9fe), so handle both forms.
   const lowerIp = ip.toLowerCase()
@@ -44,6 +44,30 @@ function isPrivateIp(ip: string): boolean {
   return false
 }
 
+export type HttpUrlNetworkClass = 'public' | 'private' | 'unresolved' | 'invalid'
+
+/** Classifies the network reached by an HTTP URL without making the HTTP request. */
+export async function classifyHttpUrl(rawUrl: string): Promise<HttpUrlNetworkClass> {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return 'invalid'
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return 'invalid'
+
+  const host = parsed.hostname.replace(/^\[/, '').replace(/\]$/, '')
+  if (isIP(host)) return isPrivateIp(host) ? 'private' : 'public'
+
+  try {
+    const records = await lookup(host, { all: true })
+    if (records.length === 0) return 'unresolved'
+    return records.some((record) => isPrivateIp(record.address)) ? 'private' : 'public'
+  } catch {
+    return 'unresolved'
+  }
+}
+
 /**
  * Guards against SSRF for renderer-supplied URLs that the main process will
  * fetch (e.g. `skills:install` with an `http(s):` source). Rejects non-http(s)
@@ -52,22 +76,5 @@ function isPrivateIp(ip: string): boolean {
  * to `fetch` so a 3xx cannot bounce past this check to an internal address.
  */
 export async function isPublicHttpUrl(rawUrl: string): Promise<boolean> {
-  let parsed: URL
-  try {
-    parsed = new URL(rawUrl)
-  } catch {
-    return false
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-
-  const host = parsed.hostname.replace(/^\[/, '').replace(/\]$/, '')
-  if (isIP(host) && isPrivateIp(host)) return false
-
-  try {
-    const records = await lookup(host, { all: true })
-    if (records.length === 0) return false
-    return !records.some((r) => isPrivateIp(r.address))
-  } catch {
-    return false
-  }
+  return (await classifyHttpUrl(rawUrl)) === 'public'
 }

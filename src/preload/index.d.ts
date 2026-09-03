@@ -1097,14 +1097,14 @@ interface CanopyAPI {
     buildTypeId: string,
     branch: string,
     properties?: Array<{ name: string; value: string }>,
-  ) => Promise<CiTriggerResult>
+  ) => Promise<CiTriggerResponse>
   ciBuild: (repoRoot: string, expectedBaseUrl: string, buildId: number) => Promise<CiBuildStatus>
   ciTestNewConnection: (baseUrl: string, token: string) => Promise<void>
   ciBuildParameters: (repoRoot: string, buildTypeId: string) => Promise<CiParameter[]>
   /** `branch` scopes the TeamCity locator; omit it for the history window's "All branches". */
   ciActivity: (repoRoot: string, branch?: string) => Promise<CiActivity>
   ciBranches: (repoRoot: string, buildTypeId: string) => Promise<string[]>
-  ciListBuildTypes: (baseUrl: string) => Promise<CiServerBuildType[]>
+  ciListBuildTypes: (repoRoot: string, baseUrl: string) => Promise<CiServerBuildType[]>
   ciSaveConfig: (
     repoRoot: string,
     ci:
@@ -1702,6 +1702,7 @@ interface CiConfigResult {
   /** Status of the exact provider binding selected by `config`; never includes the secret. */
   credential?: {
     hasToken: boolean
+    approvalRequired?: boolean
     authenticationState: 'valid' | 'invalid' | 'unknown'
     authenticationCheckedAt?: string
   }
@@ -1822,6 +1823,8 @@ type CiErrorCode =
   | 'CiConfigInvalid'
   | 'CiConfigUnwritable'
   | 'CiAuthMissing'
+  | 'CiCredentialApprovalRequired'
+  | 'CiPrivateOriginApprovalRequired'
   | 'CiCredentialUnavailable'
   | 'CiRepositoryMismatch'
   | 'CiWorkflowSchemaInvalid'
@@ -1834,6 +1837,10 @@ type CiErrorCode =
 
 type CiTriggerJobResponse =
   | { ok: true; value: CiRunTriggerResult }
+  | { ok: false; error: { code: CiErrorCode; message: string; status?: number } }
+
+type CiTriggerResponse =
+  | { ok: true; value: CiTriggerResult }
   | { ok: false; error: { code: CiErrorCode; message: string; status?: number } }
 
 interface CiBuildStatus {

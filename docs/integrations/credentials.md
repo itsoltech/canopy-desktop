@@ -33,6 +33,19 @@ If there is no binding, Canopy auto-binds only when exactly one compatible crede
 Replacing a credential used by several bindings creates a new record and moves only the edited
 binding, so changing one integration cannot silently rotate another integration's secret.
 
+Repository-scoped TeamCity use is stricter: it never auto-binds a compatible server credential.
+The native approval flow binds the current credential identity to a hash of the canonical
+repository, exact normalized server URL and exact configured build ids (job discovery uses a
+separate repository-plus-URL scope). Replacing the server credential changes its identity and
+requires the repository approval again. The flow also snapshots an opaque revision of the secret
+before displaying the native dialog and compares both values inside the binding transaction, so a
+same-id or new-id replacement during confirmation cannot receive stale consent. Config and
+discovery grants are separate. TeamCity's server-default binding never falls back to an older
+repository-approved candidate after the current default is removed. Rotation or deletion removes
+the derived repository grants and any now-unreferenced old secret atomically. A result arriving
+from an earlier request ignores an already-revoked binding, so it cannot silently approve the
+replacement credential.
+
 The last authentication and per-capability verification results are diagnostic metadata. A 401,
 or a 403 from a provider's authenticated-identity probe, marks authentication as rejected. A 403
 from an integration operation remains scoped to that denied capability. Both remain visible in
@@ -87,6 +100,9 @@ retain it and keeps it available to them.
   added in a newer version.
 - **Needs attention after 401/403:** Settings keeps the last authentication or authorization failure
   visible. Correct or replace the token; a subsequent successful request clears the stale state.
+- **Repository approval required:** a TeamCity server token exists, but this repository, exact URL
+  and selected job set have not been granted access to it. Use **Review access** and approve the
+  native confirmation; re-entering the token is not required.
 
 ## Configuration
 

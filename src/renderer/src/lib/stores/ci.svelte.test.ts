@@ -129,9 +129,12 @@ describe('repository-scoped CI status', () => {
 
 function queuedTrigger(buildId: number): void {
   api.ciTrigger.mockResolvedValueOnce({
-    buildId,
-    webUrl: `https://tc/build/${buildId}`,
-    branchName: 'release/1',
+    ok: true,
+    value: {
+      buildId,
+      webUrl: `https://tc/build/${buildId}`,
+      branchName: 'release/1',
+    },
   })
 }
 
@@ -160,7 +163,10 @@ describe('triggerCiBuild + observeBuild', () => {
   it('returns the failure message instead of toasting (the dialog owns the surface)', async () => {
     api.ciTrigger.mockRejectedValueOnce(new Error('TeamCity API error 403: forbidden'))
     const failure = await triggerCiBuild('r', 'https://tc.example.test', 'Bt', 'next', 'Deploy')
-    expect(failure).toBe('TeamCity API error 403: forbidden')
+    expect(failure).toEqual({
+      code: 'CiApiError',
+      message: 'TeamCity API error 403: forbidden',
+    })
     expect(toastState.visible).toBe(false)
   })
 

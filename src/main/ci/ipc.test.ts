@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { errAsync, okAsync } from 'neverthrow'
+import { err, errAsync, ok, okAsync } from 'neverthrow'
 import { registerCiHandlers } from './ipc'
 import type { CiManager } from './CiManager'
 import { testConnection as ciTestConnection } from './teamcity'
@@ -14,12 +14,33 @@ vi.mock('./teamcity', () => ({
   testConnection: vi.fn(() => okAsync(undefined)),
 }))
 
-function harness({ nativeConfirmation = true }: { nativeConfirmation?: boolean } = {}): {
+function harness({
+  nativeConfirmation = true,
+  teamCityConfirmation = true,
+  teamCityConfigApprovalRequired = false,
+  teamCityDiscoveryApprovalRequired = false,
+  privateOriginApprovalRequired = false,
+  rotateTeamCityCredentialDuringConfirmation = false,
+}: {
+  nativeConfirmation?: boolean
+  teamCityConfirmation?: boolean
+  teamCityConfigApprovalRequired?: boolean
+  teamCityDiscoveryApprovalRequired?: boolean
+  privateOriginApprovalRequired?: boolean
+  rotateTeamCityCredentialDuringConfirmation?: boolean
+} = {}): {
   invoke: (channel: string, payload: unknown) => Promise<unknown>
   ciManager: CiManager
   validatePathAccess: ReturnType<typeof vi.fn>
   confirmGitHubDispatch: ReturnType<typeof vi.fn>
+  confirmTeamCityAccess: ReturnType<typeof vi.fn>
+  teamCityOriginTrust: {
+    requiresApproval: ReturnType<typeof vi.fn>
+    approve: ReturnType<typeof vi.fn>
+    ensureAllowed: ReturnType<typeof vi.fn>
+  }
 } {
+  let currentCredential = { credentialId: 'cred-1', revision: 'revision-1' }
   const handlers = new Map<string, (event: unknown, payload: unknown) => unknown>()
   const ipcMain = {
     handle: (channel: string, listener: (event: unknown, payload: unknown) => unknown) => {
@@ -77,6 +98,24 @@ function harness({ nativeConfirmation = true }: { nativeConfirmation?: boolean }
     ),
     testGitHubConnection: vi.fn(() => okAsync(undefined)),
     saveGitHubCredential: vi.fn(() => okAsync(undefined)),
+    prepareTeamCityConfigApproval: vi.fn(() =>
+      ok({ ...currentCredential, approvalRequired: teamCityConfigApprovalRequired }),
+    ),
+    prepareTeamCityDiscoveryApproval: vi.fn(() =>
+      ok({ ...currentCredential, approvalRequired: teamCityDiscoveryApprovalRequired }),
+    ),
+    approveTeamCityConfig: vi.fn((_repoRoot, ci, expected) =>
+      expected.credentialId === currentCredential.credentialId &&
+      expected.revision === currentCredential.revision
+        ? ok(undefined)
+        : err({ _tag: 'CiCredentialApprovalRequired' as const, baseUrl: ci.baseUrl }),
+    ),
+    approveTeamCityDiscovery: vi.fn((_repoRoot, baseUrl, expected) =>
+      expected.credentialId === currentCredential.credentialId &&
+      expected.revision === currentCredential.revision
+        ? ok(undefined)
+        : err({ _tag: 'CiCredentialApprovalRequired' as const, baseUrl }),
+    ),
   } as unknown as CiManager
   // The workspace gate: only paths under /ws are inside the sender's workspaces,
   // and authorization RESOLVES the path (realpath) — downstream must use that form.
@@ -85,11 +124,24 @@ function harness({ nativeConfirmation = true }: { nativeConfirmation?: boolean }
     return `/resolved${target}`
   })
   const confirmGitHubDispatch = vi.fn(async () => true)
+  const confirmTeamCityAccess = vi.fn(async () => {
+    if (rotateTeamCityCredentialDuringConfirmation) {
+      currentCredential = { credentialId: 'cred-1', revision: 'revision-2' }
+    }
+    return true
+  })
+  const teamCityOriginTrust = {
+    requiresApproval: vi.fn(async () => privateOriginApprovalRequired),
+    approve: vi.fn(),
+    ensureAllowed: vi.fn(() => okAsync({ allowPrivate: false })),
+  }
   registerCiHandlers({
     ipcMain,
     ciManager,
     validatePathAccess,
     ...(nativeConfirmation ? { confirmGitHubDispatch } : {}),
+    ...(teamCityConfirmation ? { confirmTeamCityAccess } : {}),
+    teamCityOriginTrust,
   })
   return {
     invoke: (channel, payload) => {
@@ -100,6 +152,8 @@ function harness({ nativeConfirmation = true }: { nativeConfirmation?: boolean }
     ciManager,
     validatePathAccess,
     confirmGitHubDispatch,
+    confirmTeamCityAccess,
+    teamCityOriginTrust,
   }
 }
 
@@ -148,6 +202,11 @@ const REPO_SCOPED: Array<{
       expectedBaseUrl: 'https://tc.example.com',
       buildId: 1,
     }),
+  },
+  {
+    channel: 'ci:listBuildTypes',
+    method: 'listBuildTypes',
+    payload: (repoRoot) => ({ repoRoot, baseUrl: 'https://tc.example.com' }),
   },
   {
     channel: 'ci:jobsStatus',
@@ -235,11 +294,145 @@ describe('CI IPC authorization', () => {
     })
   }
 
-  it('URL-scoped channels stay path-free (no workspace gate involved)', async () => {
-    const { invoke, ciManager, validatePathAccess } = harness()
-    await invoke('ci:listBuildTypes', { baseUrl: 'https://tc.example.com' })
-    expect(ciManager.listBuildTypes).toHaveBeenCalledWith('https://tc.example.com')
+  it('candidate-token connection tests stay path-free', async () => {
+    const { invoke, ciManager, validatePathAccess, confirmTeamCityAccess } = harness()
+    await invoke('ci:testNewConnection', { baseUrl: 'https://tc.example.com', token: 'token' })
+    expect(ciManager.listBuildTypes).not.toHaveBeenCalled()
     expect(validatePathAccess).not.toHaveBeenCalled()
+    expect(confirmTeamCityAccess).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'test-connection',
+        baseUrl: 'https://tc.example.com',
+        usesStoredCredential: false,
+        privateOrigin: false,
+      }),
+    )
+  })
+
+  it('requires trusted repository approval before a stored token can discover jobs', async () => {
+    const { invoke, ciManager, confirmTeamCityAccess } = harness({
+      teamCityDiscoveryApprovalRequired: true,
+    })
+
+    await invoke('ci:listBuildTypes', {
+      repoRoot: '/ws/repo',
+      baseUrl: 'https://tc.example.com',
+    })
+
+    expect(confirmTeamCityAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ sender: { id: 7 } }),
+      expect.objectContaining({
+        action: 'discover-build-types',
+        repoRoot: '/resolved/ws/repo',
+        baseUrl: 'https://tc.example.com',
+        usesStoredCredential: true,
+      }),
+    )
+    expect(ciManager.approveTeamCityDiscovery).toHaveBeenCalledWith(
+      '/resolved/ws/repo',
+      'https://tc.example.com',
+      expect.objectContaining({ credentialId: 'cred-1', revision: 'revision-1' }),
+    )
+    expect(ciManager.listBuildTypes).toHaveBeenCalledWith(
+      '/resolved/ws/repo',
+      'https://tc.example.com',
+    )
+  })
+
+  it('does not discover jobs when repository credential approval is declined', async () => {
+    const { invoke, ciManager, confirmTeamCityAccess } = harness({
+      teamCityDiscoveryApprovalRequired: true,
+    })
+    confirmTeamCityAccess.mockResolvedValue(false)
+
+    await expect(
+      invoke('ci:listBuildTypes', {
+        repoRoot: '/ws/repo',
+        baseUrl: 'https://tc.example.com',
+      }),
+    ).rejects.toThrow('not approved')
+
+    expect(ciManager.approveTeamCityDiscovery).not.toHaveBeenCalled()
+    expect(ciManager.listBuildTypes).not.toHaveBeenCalled()
+  })
+
+  it('does not bind or discover when the credential changes during confirmation', async () => {
+    const { invoke, ciManager } = harness({
+      teamCityDiscoveryApprovalRequired: true,
+      rotateTeamCityCredentialDuringConfirmation: true,
+    })
+
+    await expect(
+      invoke('ci:listBuildTypes', {
+        repoRoot: '/ws/repo',
+        baseUrl: 'https://tc.example.com',
+      }),
+    ).rejects.toThrow(/Approve/i)
+
+    expect(ciManager.approveTeamCityDiscovery).toHaveBeenCalledWith(
+      '/resolved/ws/repo',
+      'https://tc.example.com',
+      expect.objectContaining({ credentialId: 'cred-1', revision: 'revision-1' }),
+    )
+    expect(ciManager.listBuildTypes).not.toHaveBeenCalled()
+  })
+
+  it('combines exact config credential consent with private-origin consent', async () => {
+    const { invoke, ciManager, confirmTeamCityAccess, teamCityOriginTrust } = harness({
+      teamCityConfigApprovalRequired: true,
+      privateOriginApprovalRequired: true,
+    })
+
+    await invoke('ci:saveConfig', {
+      repoRoot: '/ws/repo',
+      ci: {
+        baseUrl: 'https://teamcity.internal',
+        buildTypes: [{ id: 'Deploy', label: 'Deploy' }],
+      },
+    })
+
+    expect(confirmTeamCityAccess).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'save-config',
+        repoRoot: '/resolved/ws/repo',
+        baseUrl: 'https://teamcity.internal',
+        buildTypes: [{ id: 'Deploy', label: 'Deploy' }],
+        usesStoredCredential: true,
+        privateOrigin: true,
+      }),
+    )
+    expect(teamCityOriginTrust.approve).toHaveBeenCalledWith('https://teamcity.internal')
+    expect(ciManager.approveTeamCityConfig).toHaveBeenCalledWith(
+      '/resolved/ws/repo',
+      expect.objectContaining({ buildTypes: [{ id: 'Deploy', label: 'Deploy' }] }),
+      expect.objectContaining({ credentialId: 'cred-1', revision: 'revision-1' }),
+    )
+    expect(ciManager.saveConfig).toHaveBeenCalled()
+  })
+
+  it('requires private-origin consent before testing a candidate token', async () => {
+    const { invoke, confirmTeamCityAccess, teamCityOriginTrust } = harness({
+      privateOriginApprovalRequired: true,
+    })
+
+    await invoke('ci:testNewConnection', {
+      baseUrl: 'https://teamcity.internal',
+      token: 'token',
+    })
+
+    expect(confirmTeamCityAccess).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'test-connection',
+        baseUrl: 'https://teamcity.internal',
+        usesStoredCredential: false,
+        privateOrigin: true,
+      }),
+    )
+    expect(teamCityOriginTrust.approve).toHaveBeenCalledWith('https://teamcity.internal')
+    expect(ciTestConnection).toHaveBeenCalledOnce()
   })
 
   it('trims candidate TeamCity tokens before testing the connection', async () => {
@@ -250,7 +443,46 @@ describe('CI IPC authorization', () => {
       token: '  token  ',
     })
 
-    expect(ciTestConnection).toHaveBeenCalledWith('https://tc.example.com', 'token')
+    expect(ciTestConnection).toHaveBeenCalledWith('https://tc.example.com', 'token', {
+      allowPrivate: false,
+    })
+  })
+
+  it('does not send a candidate token to a public origin when native consent is declined', async () => {
+    const { invoke, confirmTeamCityAccess } = harness()
+    confirmTeamCityAccess.mockResolvedValue(false)
+
+    await expect(
+      invoke('ci:testNewConnection', {
+        baseUrl: 'https://tc.example.com',
+        token: 'token',
+      }),
+    ).rejects.toThrow('not approved')
+
+    expect(ciTestConnection).not.toHaveBeenCalled()
+  })
+
+  it('rejects duplicate TeamCity build ids before approval or config writes', async () => {
+    const { invoke, ciManager, confirmTeamCityAccess } = harness({
+      teamCityConfigApprovalRequired: true,
+    })
+
+    await expect(
+      invoke('ci:saveConfig', {
+        repoRoot: '/ws/repo',
+        ci: {
+          baseUrl: 'https://tc.example.com',
+          buildTypes: [
+            { id: 'Deploy', label: 'Deploy one' },
+            { id: 'Deploy', label: 'Deploy two' },
+          ],
+        },
+      }),
+    ).rejects.toThrow('Duplicate TeamCity build configuration')
+
+    expect(ciManager.prepareTeamCityConfigApproval).not.toHaveBeenCalled()
+    expect(confirmTeamCityAccess).not.toHaveBeenCalled()
+    expect(ciManager.saveConfig).not.toHaveBeenCalled()
   })
 
   it('rejects oversized raw TeamCity tokens before trimming or making a request', async () => {
@@ -453,7 +685,11 @@ describe('CI IPC authorization', () => {
       })
 
       expect(status).toMatchObject({ configured: true, rows: [] })
-      expect(ciManager.statusFor).toHaveBeenCalledWith(expect.any(Object), branch)
+      expect(ciManager.statusFor).toHaveBeenCalledWith(
+        '/resolved/ws/repo',
+        expect.any(Object),
+        branch,
+      )
       expect(ciManager.trigger).toHaveBeenCalledWith(
         '/resolved/ws/repo',
         'Gakko_Build',
@@ -474,6 +710,31 @@ describe('CI IPC authorization', () => {
       error: 'Invalid branch name',
     })
     expect(ciManager.statusFor).not.toHaveBeenCalled()
+  })
+
+  it('returns a stable ambiguous code for a TeamCity trigger that may have been accepted', async () => {
+    const { invoke, ciManager } = harness()
+    vi.mocked(ciManager.trigger).mockReturnValue(
+      errAsync({
+        _tag: 'CiDispatchAmbiguous',
+        provider: 'teamcity',
+        detailsUrl: 'https://tc.example.com/viewType.html?buildTypeId=Deploy',
+      }),
+    )
+
+    await expect(
+      invoke('ci:trigger', {
+        repoRoot: '/ws/repo',
+        buildTypeId: 'Deploy',
+        branch: 'next',
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        code: 'CiDispatchAmbiguous',
+        message: expect.stringContaining('Check TeamCity'),
+      }),
+    })
   })
 
   it('rejects locator-unsafe refs on the shipped legacy TeamCity status channel', async () => {

@@ -20,6 +20,8 @@ export type CiError =
   // fault, so it must not wear the "TeamCity:" prefix CiApiError renders with.
   | { _tag: 'CiConfigUnwritable'; reason: string }
   | { _tag: 'CiAuthMissing'; baseUrl: string; provider?: 'teamcity' | 'github-actions' }
+  | { _tag: 'CiCredentialApprovalRequired'; baseUrl: string }
+  | { _tag: 'CiPrivateOriginApprovalRequired'; baseUrl: string }
   | {
       _tag: 'CiCredentialUnavailable'
       baseUrl: string
@@ -31,7 +33,11 @@ export type CiError =
   | { _tag: 'CiWorkflowSchemaChanged' }
   | { _tag: 'CiRefChanged' }
   | { _tag: 'CiDispatchCancelled' }
-  | { _tag: 'CiDispatchAmbiguous'; workflowUrl: string }
+  | {
+      _tag: 'CiDispatchAmbiguous'
+      provider: 'teamcity' | 'github-actions'
+      detailsUrl: string
+    }
   | { _tag: 'CiRateLimited'; resetAt: number | undefined }
   | {
       _tag: 'CiApiError'
@@ -75,6 +81,16 @@ export function ciErrorMessage(error: CiError): string {
           `No ${e.provider === 'github-actions' ? 'GitHub' : 'TeamCity'} token stored for ${e.baseUrl} — connect it in Settings`,
       )
       .with(
+        { _tag: 'CiCredentialApprovalRequired' },
+        (e) =>
+          `Approve this repository before it can use the stored TeamCity credential for ${e.baseUrl}`,
+      )
+      .with(
+        { _tag: 'CiPrivateOriginApprovalRequired' },
+        (e) =>
+          `Explicit approval is required before connecting to private TeamCity origin ${e.baseUrl}`,
+      )
+      .with(
         { _tag: 'CiCredentialUnavailable' },
         (e) =>
           `${e.provider === 'github-actions' ? 'GitHub' : 'TeamCity'} credentials unavailable for ${e.baseUrl}: ${e.reason}`,
@@ -94,9 +110,10 @@ export function ciErrorMessage(error: CiError): string {
         () => 'The selected GitHub ref moved. Review its new commit before running the workflow.',
       )
       .with({ _tag: 'CiDispatchCancelled' }, () => 'Workflow run cancelled before dispatch')
-      .with(
-        { _tag: 'CiDispatchAmbiguous' },
-        () => 'GitHub may have accepted the workflow run. Check Actions before trying again.',
+      .with({ _tag: 'CiDispatchAmbiguous' }, (e) =>
+        e.provider === 'teamcity'
+          ? 'TeamCity may have accepted the build. Check TeamCity before starting it again.'
+          : 'GitHub may have accepted the workflow run. Check Actions before trying again.',
       )
       .with({ _tag: 'CiRateLimited' }, (e) =>
         e.resetAt

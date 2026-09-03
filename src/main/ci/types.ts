@@ -50,6 +50,8 @@ export type CiInputValue = string | boolean
 
 export interface CiCredentialStatus {
   hasToken: boolean
+  /** A compatible server token exists, but this exact repository/config is not approved. */
+  approvalRequired?: boolean
   authenticationState: 'valid' | 'invalid' | 'unknown'
   authenticationCheckedAt?: string
 }

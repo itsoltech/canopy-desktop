@@ -9,9 +9,14 @@ import {
   mapBuild,
   parseBuildsResponse,
   queuedActivityLocator,
+  selectTeamCityConnectionAddress,
   testConnection,
+  triggerBuild,
+  validateTeamCityConnectionAddresses,
 } from './teamcity'
 import { ciErrorMessage } from './errors'
+
+const PUBLIC_CONNECTION = { allowPrivate: false }
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -28,6 +33,151 @@ describe('activityBuildTypesLocator', () => {
     expect(queuedActivityLocator(['Gakko_Build'])).toBe(
       'buildType:(item:(id:Gakko_Build)),count:20',
     )
+  })
+})
+
+describe('TeamCity socket address guard', () => {
+  const mixedAddresses = [
+    { address: '203.0.113.10', family: 4 },
+    { address: '127.0.0.1', family: 4 },
+  ]
+
+  it('rejects a private or mixed actual lookup without exact-origin consent', () => {
+    expect(() => selectTeamCityConnectionAddress(mixedAddresses, PUBLIC_CONNECTION)).toThrow(
+      'private network',
+    )
+  })
+
+  it('allows the same actual lookup after exact-origin consent', () => {
+    expect(selectTeamCityConnectionAddress(mixedAddresses, { allowPrivate: true })).toEqual(
+      mixedAddresses[0],
+    )
+  })
+
+  it('preserves every validated address for Undici fallback and Happy Eyeballs', () => {
+    expect(validateTeamCityConnectionAddresses(mixedAddresses, { allowPrivate: true })).toEqual(
+      mixedAddresses,
+    )
+  })
+
+  it('blocks a private IP literal before the request without consent', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await testConnection('http://127.0.0.1:8111', 'token', PUBLIC_CONNECTION)
+
+    expect(result.isErr() && result.error._tag).toBe('CiPrivateOriginApprovalRequired')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('triggerBuild ambiguity', () => {
+  it('reports a 502 after dispatch as ambiguous and performs one request', async () => {
+    const response = new Response(JSON.stringify({ message: 'upstream failed' }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const fetchMock = vi.fn().mockResolvedValue(response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await triggerBuild(
+      'https://tc.example.com',
+      'token',
+      PUBLIC_CONNECTION,
+      'Deploy',
+      'next',
+    )
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiDispatchAmbiguous',
+      provider: 'teamcity',
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(response.bodyUsed).toBe(true)
+  })
+
+  it('reports a transport failure after dispatch as ambiguous and performs one request', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('connection reset'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await triggerBuild(
+      'https://tc.example.com',
+      'token',
+      PUBLIC_CONNECTION,
+      'Deploy',
+      'next',
+    )
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiDispatchAmbiguous',
+      provider: 'teamcity',
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('cancels an oversized 502 body while preserving an ambiguous dispatch result', async () => {
+    const response = new Response('upstream failed', {
+      status: 502,
+      headers: { 'Content-Length': String(2 * 1024 * 1024 + 1) },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+
+    const result = await triggerBuild(
+      'https://tc.example.com',
+      'token',
+      PUBLIC_CONNECTION,
+      'Deploy',
+      'next',
+    )
+
+    expect(result.isErr() && result.error._tag).toBe('CiDispatchAmbiguous')
+    expect(response.bodyUsed).toBe(true)
+  })
+
+  it('keeps a definite 4xx rejection retryable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: 'invalid branch' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    )
+
+    const result = await triggerBuild(
+      'https://tc.example.com',
+      'token',
+      PUBLIC_CONNECTION,
+      'Deploy',
+      'next',
+    )
+
+    expect(result.isErr() && result.error).toMatchObject({ _tag: 'CiApiError', status: 400 })
+  })
+
+  it('does not reflect submitted parameter secrets from a mutation error', async () => {
+    const secret = 'deployment-password'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(`Invalid value ${secret}`, { status: 400 })),
+    )
+
+    const result = await triggerBuild(
+      'https://tc.example.com',
+      'token',
+      PUBLIC_CONNECTION,
+      'Deploy',
+      'next',
+      [{ name: 'password', value: secret }],
+    )
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      status: 400,
+      message: 'TeamCity rejected the request',
+    })
+    expect(result.isErr() && JSON.stringify(result.error)).not.toContain(secret)
   })
 })
 
@@ -51,7 +201,9 @@ describe('fetchActivity', () => {
         ),
     )
 
-    const result = await fetchActivity('https://tc.example.com', 'token', ['Build'])
+    const result = await fetchActivity('https://tc.example.com', 'token', PUBLIC_CONNECTION, [
+      'Build',
+    ])
 
     expect(result.isOk()).toBe(true)
     if (result.isErr()) throw result.error
@@ -68,7 +220,9 @@ describe('fetchActivity', () => {
     // wrapper that repeats the status put the same line in front of the user four times.
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('VPN unavailable')))
 
-    const result = await fetchActivity('https://tc.example.com', 'token', ['Build'])
+    const result = await fetchActivity('https://tc.example.com', 'token', PUBLIC_CONNECTION, [
+      'Build',
+    ])
 
     expect(result.isErr()).toBe(true)
     if (result.isOk()) throw new Error('Expected total activity failure')
@@ -91,7 +245,9 @@ describe('fetchActivity', () => {
         .mockResolvedValueOnce(body('boom', 500)),
     )
 
-    const result = await fetchActivity('https://tc.example.com', 'token', ['Build'])
+    const result = await fetchActivity('https://tc.example.com', 'token', PUBLIC_CONNECTION, [
+      'Build',
+    ])
 
     expect(result.isErr()).toBe(true)
     if (result.isOk()) throw new Error('Expected total activity failure')
@@ -120,7 +276,13 @@ describe('fetchActivity', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await fetchActivity('https://tc.example.com', 'token', ['Build'], 'feat/x')
+    const result = await fetchActivity(
+      'https://tc.example.com',
+      'token',
+      PUBLIC_CONNECTION,
+      ['Build'],
+      'feat/x',
+    )
 
     expect(result.isOk()).toBe(true)
     if (result.isErr()) throw result.error
@@ -142,6 +304,7 @@ describe('fetchActivity', () => {
     const result = await fetchActivity(
       'https://tc.example.com',
       'token',
+      PUBLIC_CONNECTION,
       ['Build'],
       'feat/x),foo:(',
     )
@@ -160,7 +323,7 @@ describe('testConnection', () => {
   it('requires explicit TeamCity server identity metadata', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })))
 
-    const result = await testConnection('https://tc.example.com', 'token')
+    const result = await testConnection('https://tc.example.com', 'token', PUBLIC_CONNECTION)
 
     expect(result.isErr() && result.error).toMatchObject({
       _tag: 'CiApiError',
@@ -171,7 +334,7 @@ describe('testConnection', () => {
   it('rejects an empty successful response instead of treating it as a connection success', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })))
 
-    const result = await testConnection('https://tc.example.com', 'token')
+    const result = await testConnection('https://tc.example.com', 'token', PUBLIC_CONNECTION)
 
     expect(result.isErr() && result.error).toMatchObject({
       _tag: 'CiApiError',
@@ -182,7 +345,7 @@ describe('testConnection', () => {
   it('returns a structured error when the build-type endpoint has an empty success body', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })))
 
-    const result = await fetchBuildTypes('https://tc.example.com', 'token')
+    const result = await fetchBuildTypes('https://tc.example.com', 'token', PUBLIC_CONNECTION)
 
     expect(result.isErr() && result.error).toMatchObject({
       _tag: 'CiApiError',
@@ -201,7 +364,7 @@ describe('testConnection', () => {
       ),
     )
 
-    const result = await fetchBuildTypes('https://tc.example.com', 'token')
+    const result = await fetchBuildTypes('https://tc.example.com', 'token', PUBLIC_CONNECTION)
 
     expect(result.isErr() && result.error).toMatchObject({
       _tag: 'CiApiError',
@@ -219,7 +382,7 @@ describe('testConnection', () => {
       ),
     )
 
-    const result = await testConnection('https://tc.example.com', 'token')
+    const result = await testConnection('https://tc.example.com', 'token', PUBLIC_CONNECTION)
 
     expect(result.isErr()).toBe(true)
     if (result.isOk()) throw new Error('Expected an oversized response to fail')
@@ -237,7 +400,7 @@ describe('testConnection', () => {
         .mockResolvedValue(new Response(JSON.stringify({ padding: 'x'.repeat(2 * 1024 * 1024) }))),
     )
 
-    const result = await testConnection('https://tc.example.com', 'token')
+    const result = await testConnection('https://tc.example.com', 'token', PUBLIC_CONNECTION)
 
     expect(result.isErr()).toBe(true)
     if (result.isOk()) throw new Error('Expected an oversized response to fail')
@@ -258,7 +421,7 @@ describe('testConnection', () => {
       ),
     )
 
-    const result = await testConnection('https://tc.example.com', 'token')
+    const result = await testConnection('https://tc.example.com', 'token', PUBLIC_CONNECTION)
 
     expect(result.isErr() && result.error).toMatchObject({
       _tag: 'CiApiError',
@@ -274,7 +437,7 @@ describe('testConnection', () => {
       vi.fn().mockResolvedValue(new Response(`Bearer ${token}`, { status: 401 })),
     )
 
-    const result = await testConnection('https://tc.example.com', token)
+    const result = await testConnection('https://tc.example.com', token, PUBLIC_CONNECTION)
 
     expect(result.isErr()).toBe(true)
     if (result.isOk()) throw new Error('Expected the connection to fail')
@@ -290,7 +453,7 @@ describe('testConnection', () => {
     const token = 'secret-token-value'
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error(`request included ${token}`)))
 
-    const result = await testConnection('https://tc.example.com', token)
+    const result = await testConnection('https://tc.example.com', token, PUBLIC_CONNECTION)
 
     expect(result.isErr()).toBe(true)
     if (result.isOk()) throw new Error('Expected the connection to fail')
@@ -441,6 +604,7 @@ describe('fetchBuildForBranch', () => {
     const result = await fetchBuildForBranch(
       'https://tc.example.com',
       'token',
+      PUBLIC_CONNECTION,
       'Gakko_Build',
       'feature/status',
     )

@@ -1,7 +1,31 @@
 import { describe, expect, it } from 'vitest'
-import { canUseTeamCityCredential, teamCityCredentialGate } from './credentialGate'
+import {
+  canUseTeamCityCredential,
+  credentialConfiguratorSection,
+  teamCityCredentialGate,
+} from './credentialGate'
 
 describe('teamCityCredentialGate', () => {
+  it('routes repository approval to configuration and token recovery to credentials', () => {
+    expect(credentialConfiguratorSection(true)).toBeUndefined()
+    expect(credentialConfiguratorSection(false)).toBe('credentials')
+  })
+
+  it('allows an explicit repository approval prompt for a stored server token', () => {
+    expect(
+      teamCityCredentialGate({
+        hasToken: true,
+        approvalRequired: true,
+        authenticationState: 'valid',
+      }),
+    ).toEqual({
+      canLoadJobs: true,
+      credentialLabel: 'Approval required for this repository',
+      jobsReason: '',
+      saveReason: '',
+    })
+  })
+
   it('blocks job loading and points at token recovery when TeamCity rejected the token', () => {
     expect(teamCityCredentialGate({ hasToken: true, authenticationState: 'invalid' })).toEqual({
       canLoadJobs: false,

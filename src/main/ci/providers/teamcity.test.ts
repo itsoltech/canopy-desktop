@@ -8,6 +8,7 @@ const CONFIG: TeamCityCiConfig = {
   baseUrl: 'https://tc.example.com',
   buildTypes: [{ id: 'Gakko_Build', label: 'Build' }],
 }
+const PUBLIC_CONNECTION = { allowPrivate: false }
 
 describe('TeamCityAdapter', () => {
   it('rejects a run owned by a build type outside the repository configuration', async () => {
@@ -29,7 +30,7 @@ describe('TeamCityAdapter', () => {
         }),
       ),
     }
-    const adapter = new TeamCityAdapter(CONFIG, 'token', client)
+    const adapter = new TeamCityAdapter(CONFIG, 'token', PUBLIC_CONNECTION, client)
 
     const result = await adapter.run('123')
 
@@ -54,7 +55,7 @@ describe('TeamCityAdapter', () => {
         }),
       ),
     }
-    const adapter = new TeamCityAdapter(CONFIG, 'token', client)
+    const adapter = new TeamCityAdapter(CONFIG, 'token', PUBLIC_CONNECTION, client)
 
     const result = await adapter.status({ name: 'next', kind: 'branch' })
 
@@ -75,6 +76,7 @@ describe('TeamCityAdapter', () => {
     expect(client.fetchBuildForBranch).toHaveBeenCalledWith(
       'https://tc.example.com',
       'token',
+      PUBLIC_CONNECTION,
       'Gakko_Build',
       'next',
     )
@@ -82,7 +84,9 @@ describe('TeamCityAdapter', () => {
 
   it('rejects locator-unsafe refs before querying TeamCity', async () => {
     const fetchBuildForBranch = vi.fn(() => okAsync(null))
-    const adapter = new TeamCityAdapter(CONFIG, 'token', { fetchBuildForBranch })
+    const adapter = new TeamCityAdapter(CONFIG, 'token', PUBLIC_CONNECTION, {
+      fetchBuildForBranch,
+    })
 
     const result = await adapter.status({ name: 'main),count:999', kind: 'branch' })
 

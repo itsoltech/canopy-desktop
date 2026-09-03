@@ -86,6 +86,7 @@ export function createCiRunDialogState(
   let parametersError = $state('')
   let triggerError = $state('')
   let triggerErrorStatus = $state<number | undefined>(undefined)
+  let dispatchAmbiguous = $state(false)
   let refsSequence = 0
   let parametersSequence = 0
 
@@ -134,7 +135,10 @@ export function createCiRunDialogState(
     !!jobId && !!selectedRef && parameters !== null && !loading && !refsError && !parametersError,
   )
   const canContinue = $derived(
-    selectionReady && (stage === 'select' || missing.length === 0) && !running,
+    selectionReady &&
+      (stage === 'select' || missing.length === 0) &&
+      !running &&
+      !dispatchAmbiguous,
   )
   const dispatchDenied = $derived(isGitHubDispatchDenied(config.provider, triggerErrorStatus))
   const worktreeBranchMissing = $derived(
@@ -149,21 +153,23 @@ export function createCiRunDialogState(
   const runBlockedReason = $derived(
     running
       ? `Disabled while the ${runNoun} request is in flight`
-      : refsLoading
-        ? `Disabled: loading ${refsNoun}…`
-        : parametersLoading
-          ? `Disabled: loading ${parameterNoun}…`
-          : refsError
-            ? `Disabled: ${refsNoun} could not be loaded`
-            : parametersError
-              ? `Disabled: ${parameterNoun} could not be loaded`
-              : !jobId
-                ? `Disabled: pick a ${jobNoun} first`
-                : !selectedRef
-                  ? `Disabled: pick a ${isTeamCity ? 'branch' : 'remote branch or tag'}`
-                  : stage !== 'select' && missing.length > 0
-                    ? `Disabled: fill the required ${parameterNoun} first`
-                    : '',
+      : dispatchAmbiguous
+        ? `Disabled: check ${providerName} before starting this ${runNoun} again`
+        : refsLoading
+          ? `Disabled: loading ${refsNoun}…`
+          : parametersLoading
+            ? `Disabled: loading ${parameterNoun}…`
+            : refsError
+              ? `Disabled: ${refsNoun} could not be loaded`
+              : parametersError
+                ? `Disabled: ${parameterNoun} could not be loaded`
+                : !jobId
+                  ? `Disabled: pick a ${jobNoun} first`
+                  : !selectedRef
+                    ? `Disabled: pick a ${isTeamCity ? 'branch' : 'remote branch or tag'}`
+                    : stage !== 'select' && missing.length > 0
+                      ? `Disabled: fill the required ${parameterNoun} first`
+                      : '',
   )
   const runBlockedHint = $derived(
     stage !== 'select' || running || loading || refsError || parametersError
@@ -270,8 +276,10 @@ export function createCiRunDialogState(
     values = {}
     refsError = ''
     parametersError = ''
-    triggerError = ''
-    triggerErrorStatus = undefined
+    if (!dispatchAmbiguous) {
+      triggerError = ''
+      triggerErrorStatus = undefined
+    }
     refsLoading = false
     exactRefLoading = false
     parametersLoading = false
@@ -434,7 +442,7 @@ export function createCiRunDialogState(
     try {
       if (config.provider === 'teamcity') {
         const properties = parameters.length > 0 ? toProperties(parameters, values) : undefined
-        const failure = await triggerCiBuild(
+        const issue = await triggerCiBuild(
           repoRoot,
           config.baseUrl,
           jobId,
@@ -442,8 +450,10 @@ export function createCiRunDialogState(
           jobLabel,
           properties,
         )
-        if (failure) triggerError = failure
-        else closeDialog()
+        if (issue) {
+          triggerError = issue.message
+          dispatchAmbiguous = issue.code === 'CiDispatchAmbiguous'
+        } else closeDialog()
         return
       }
 
@@ -460,6 +470,7 @@ export function createCiRunDialogState(
       if (issue?.kind === 'cancelled') return
       if (issue?.kind === 'failure') {
         triggerErrorStatus = issue.status
+        dispatchAmbiguous = issue.code === 'CiDispatchAmbiguous'
         if (issue.code === 'CiWorkflowSchemaChanged') {
           await loadParameters()
           stage = (parameters?.length ?? 0) > 0 ? 'configure' : 'select'
@@ -495,8 +506,10 @@ export function createCiRunDialogState(
       selectedRefName = value
       // A confirmation must never outlive the ref it describes.
       stage = 'select'
-      triggerError = ''
-      triggerErrorStatus = undefined
+      if (!dispatchAmbiguous) {
+        triggerError = ''
+        triggerErrorStatus = undefined
+      }
     },
     get refQuery() {
       return refQuery
@@ -532,6 +545,9 @@ export function createCiRunDialogState(
     },
     get triggerError() {
       return triggerError
+    },
+    get dispatchAmbiguous() {
+      return dispatchAmbiguous
     },
     get branchNames() {
       return branchNames

@@ -224,6 +224,11 @@ failure.
   `src/renderer/src/components/ci/CiRunConfirmation.svelte`,
   `src/renderer/src/components/ci/CiRunParameterFields.svelte`,
   `src/renderer/src/lib/ci/runDialogState.svelte.ts`,
-  `src/renderer/src/components/preferences/GitHubActionsCiConfigurator.svelte`
+  `src/renderer/src/components/preferences/GitHubActionsCiConfigurator.svelte`,
+  `src/renderer/src/components/preferences/githubActionsCiConfiguratorState.svelte.ts`,
+  `src/renderer/src/components/preferences/_partials/GitHubCiRepositorySection.svelte`,
+  `src/renderer/src/components/preferences/_partials/GitHubCiCredentialSection.svelte`,
+  `src/renderer/src/components/preferences/_partials/GitHubCiWorkflowsSection.svelte`,
+  `src/renderer/src/components/preferences/_partials/GitHubCiFooter.svelte`
 - Shared credential registry: `src/main/credentials/`,
   `src/main/taskTracker/KeychainTokenStore.ts`

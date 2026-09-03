@@ -1,5 +1,11 @@
+import { lookup } from 'dns'
+import type { LookupAddress } from 'dns'
+import { isIP } from 'net'
+import type { LookupFunction } from 'net'
+import { Agent } from 'undici'
 import { ResultAsync, errAsync, okAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
+import { isPrivateIp } from '../security/validateUrl'
 import type {
   CiActivity,
   CiBuildResult,
@@ -13,6 +19,7 @@ import { ciErrorMessage, type CiError } from './errors'
 import { parsePromptParameters } from './parameters'
 import { parseActivity, parseBranches, parseTcDate, type RawActivityResponse } from './activity'
 import { withCiDegradedCauses } from './degraded'
+import type { TeamCityConnectionPolicy } from './teamcityAccess'
 
 // TeamCity REST client (https://www.jetbrains.com/help/teamcity/rest/). Pure
 // response-mapping helpers are exported for unit tests; network access follows the
@@ -171,6 +178,71 @@ export function parseBuildsResponse(json: {
 
 // --- Network layer ---
 
+class TeamCityPrivateOriginBlocked extends Error {}
+
+/** Validates the whole DNS set without discarding Undici's multi-address fallback. */
+export function validateTeamCityConnectionAddresses(
+  addresses: readonly LookupAddress[],
+  policy: TeamCityConnectionPolicy,
+): LookupAddress[] {
+  if (addresses.length === 0) throw new Error('Could not resolve TeamCity server')
+  if (!policy.allowPrivate && addresses.some((address) => isPrivateIp(address.address))) {
+    throw new TeamCityPrivateOriginBlocked('TeamCity resolved to a private network address')
+  }
+  return [...addresses]
+}
+
+export function selectTeamCityConnectionAddress(
+  addresses: readonly LookupAddress[],
+  policy: TeamCityConnectionPolicy,
+): LookupAddress {
+  return validateTeamCityConnectionAddresses(addresses, policy)[0]
+}
+
+function guardedLookup(policy: TeamCityConnectionPolicy): LookupFunction {
+  return (hostname, options, callback) => {
+    lookup(
+      hostname,
+      {
+        family: options.family,
+        hints: options.hints,
+        all: true,
+        verbatim: true,
+      },
+      (error, addresses) => {
+        if (error) {
+          callback(error, '')
+          return
+        }
+        try {
+          const approved = validateTeamCityConnectionAddresses(addresses, policy)
+          if (options.all) callback(null, approved)
+          else callback(null, approved[0].address, approved[0].family)
+        } catch (cause) {
+          callback(cause instanceof Error ? cause : new Error('Unsafe TeamCity origin'), '')
+        }
+      },
+    )
+  }
+}
+
+const teamCityDispatchers = new Map<boolean, Agent>()
+
+function dispatcherFor(policy: TeamCityConnectionPolicy): Agent {
+  let dispatcher = teamCityDispatchers.get(policy.allowPrivate)
+  if (!dispatcher) {
+    dispatcher = new Agent({ connect: { lookup: guardedLookup(policy) } })
+    teamCityDispatchers.set(policy.allowPrivate, dispatcher)
+  }
+  return dispatcher
+}
+
+function isPrivateOriginBlocked(error: unknown): boolean {
+  if (error instanceof TeamCityPrivateOriginBlocked) return true
+  if (!error || typeof error !== 'object' || !('cause' in error)) return false
+  return error.cause instanceof TeamCityPrivateOriginBlocked
+}
+
 function redactTeamCityToken(message: string, token?: string): string {
   // These messages can become plaintext credential verification metadata, so redact before the
   // response body is truncated, persisted, or returned to the renderer.
@@ -181,6 +253,12 @@ const apiError = (status: number, message: string, token?: string): CiError => (
   _tag: 'CiApiError',
   status,
   message: redactTeamCityToken(message, token),
+})
+
+const ambiguousDispatchError = (detailsUrl: string): CiError => ({
+  _tag: 'CiDispatchAmbiguous',
+  provider: 'teamcity',
+  detailsUrl,
 })
 
 async function readBoundedResponse(response: Response): Promise<Uint8Array> {
@@ -214,58 +292,94 @@ async function readBoundedResponse(response: Response): Promise<Uint8Array> {
 function tcFetch<T>(
   baseUrl: string,
   token: string,
+  connection: TeamCityConnectionPolicy,
   path: string,
-  init?: { method?: string; body?: string },
+  init?: { method?: string; body?: string; ambiguousDispatchUrl?: string },
 ): ResultAsync<T, CiError> {
   const url = `${baseUrl.replace(/\/$/, '')}${path}`
-  return fromExternalCall(
-    fetch(url, {
-      method: init?.method ?? 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: init?.body,
-      redirect: 'error',
-      signal: AbortSignal.timeout(15_000),
-    }),
-    (e) => apiError(0, errorMessage(e), token),
+  const hostname = new URL(baseUrl).hostname.replace(/^\[/, '').replace(/\]$/, '')
+  if (isIP(hostname) && isPrivateIp(hostname) && !connection.allowPrivate) {
+    return errAsync({ _tag: 'CiPrivateOriginApprovalRequired', baseUrl })
+  }
+  const requestInit: RequestInit & { dispatcher: Agent } = {
+    method: init?.method ?? 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: init?.body,
+    redirect: 'error',
+    signal: AbortSignal.timeout(15_000),
+    dispatcher: dispatcherFor(connection),
+  }
+  return fromExternalCall(fetch(url, requestInit), (e) =>
+    isPrivateOriginBlocked(e)
+      ? { _tag: 'CiPrivateOriginApprovalRequired' as const, baseUrl }
+      : init?.ambiguousDispatchUrl
+        ? ambiguousDispatchError(init.ambiguousDispatchUrl)
+        : apiError(0, errorMessage(e), token),
   ).andThen((res) => {
     const contentLength = Number(res.headers.get('content-length'))
     if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
-      return errAsync(apiError(res.ok ? 0 : res.status, 'TeamCity response exceeds the size limit'))
+      const oversizedError =
+        init?.ambiguousDispatchUrl && (res.ok || res.status >= 500)
+          ? ambiguousDispatchError(init.ambiguousDispatchUrl)
+          : apiError(res.ok ? 0 : res.status, 'TeamCity response exceeds the size limit')
+      return ResultAsync.fromPromise(
+        res.body?.cancel() ?? Promise.resolve(),
+        (): CiError => oversizedError,
+      ).andThen(() => errAsync(oversizedError))
     }
 
     return fromExternalCall(readBoundedResponse(res), (e) =>
-      apiError(res.ok ? 0 : res.status, errorMessage(e), token),
+      init?.ambiguousDispatchUrl && (res.ok || res.status >= 500)
+        ? ambiguousDispatchError(init.ambiguousDispatchUrl)
+        : apiError(res.ok ? 0 : res.status, errorMessage(e), token),
     ).andThen((bytes) => {
       const body = Buffer.from(bytes).toString('utf8')
       if (!res.ok) {
+        if (init?.ambiguousDispatchUrl && res.status >= 500) {
+          return errAsync(ambiguousDispatchError(init.ambiguousDispatchUrl))
+        }
         return errAsync(
           apiError(
             res.status,
-            redactTeamCityToken(body.trim(), token).slice(0, 300) || res.statusText,
+            init?.method && init.method !== 'GET'
+              ? 'TeamCity rejected the request'
+              : redactTeamCityToken(body.trim(), token).slice(0, 300) || res.statusText,
           ),
         )
       }
 
       if (!body.trim()) {
-        return errAsync(apiError(0, 'TeamCity returned malformed JSON'))
+        return errAsync(
+          init?.ambiguousDispatchUrl
+            ? ambiguousDispatchError(init.ambiguousDispatchUrl)
+            : apiError(0, 'TeamCity returned malformed JSON'),
+        )
       }
 
       try {
         return okAsync(JSON.parse(body) as T)
       } catch {
-        return errAsync(apiError(0, 'TeamCity returned malformed JSON'))
+        return errAsync(
+          init?.ambiguousDispatchUrl
+            ? ambiguousDispatchError(init.ambiguousDispatchUrl)
+            : apiError(0, 'TeamCity returned malformed JSON'),
+        )
       }
     })
   })
 }
 
 /** Cheap authenticated probe used by the Settings connection test. */
-export function testConnection(baseUrl: string, token: string): ResultAsync<void, CiError> {
-  return tcFetch<unknown>(baseUrl, token, '/app/rest/server')
+export function testConnection(
+  baseUrl: string,
+  token: string,
+  connection: TeamCityConnectionPolicy,
+): ResultAsync<void, CiError> {
+  return tcFetch<unknown>(baseUrl, token, connection, '/app/rest/server')
     .andThen((response) =>
       decodeTcResponse<JsonRecord>(
         response,
@@ -279,6 +393,7 @@ export function testConnection(baseUrl: string, token: string): ResultAsync<void
 export function fetchBuildForBranch(
   baseUrl: string,
   token: string,
+  connection: TeamCityConnectionPolicy,
   buildTypeId: string,
   branch: string,
 ): ResultAsync<CiBuildStatus | null, CiError> {
@@ -286,6 +401,7 @@ export function fetchBuildForBranch(
   return tcFetch<unknown>(
     baseUrl,
     token,
+    connection,
     `/app/rest/builds?locator=${locator}&fields=count,build(${BUILD_FIELDS})`,
   )
     .andThen((response) =>
@@ -298,11 +414,13 @@ export function fetchBuildForBranch(
 export function fetchBuild(
   baseUrl: string,
   token: string,
+  connection: TeamCityConnectionPolicy,
   buildId: number,
 ): ResultAsync<CiBuildWithType, CiError> {
   return tcFetch<unknown>(
     baseUrl,
     token,
+    connection,
     `/app/rest/builds/id:${buildId}?fields=${BUILD_FIELDS},buildType(id)`,
   )
     .andThen((response) => decodeTcResponse<RawBuild>(response, isRawBuild))
@@ -317,12 +435,15 @@ export function fetchBuild(
 export function triggerBuild(
   baseUrl: string,
   token: string,
+  connection: TeamCityConnectionPolicy,
   buildTypeId: string,
   branch: string,
   properties?: Array<{ name: string; value: string }>,
 ): ResultAsync<CiTriggerResult, CiError> {
-  return tcFetch<unknown>(baseUrl, token, '/app/rest/buildQueue', {
+  const detailsUrl = `${baseUrl.replace(/\/$/, '')}/viewType.html?buildTypeId=${encodeURIComponent(buildTypeId)}`
+  return tcFetch<unknown>(baseUrl, token, connection, '/app/rest/buildQueue', {
     method: 'POST',
+    ambiguousDispatchUrl: detailsUrl,
     body: JSON.stringify({
       buildType: { id: buildTypeId },
       branchName: branch,
@@ -340,6 +461,11 @@ export function triggerBuild(
           hasOptionalString(value, 'branchName'),
       ),
     )
+    .orElse((error) =>
+      error._tag === 'CiApiError' && error.status === 0
+        ? errAsync(ambiguousDispatchError(detailsUrl))
+        : errAsync(error),
+    )
     .map((res) => ({ buildId: res.id, webUrl: res.webUrl ?? '', branchName: res.branchName }))
 }
 
@@ -347,10 +473,12 @@ export function triggerBuild(
 export function fetchBuildTypes(
   baseUrl: string,
   token: string,
+  connection: TeamCityConnectionPolicy,
 ): ResultAsync<CiServerBuildType[], CiError> {
   return tcFetch<unknown>(
     baseUrl,
     token,
+    connection,
     '/app/rest/buildTypes?fields=buildType(id,name,projectName)',
   )
     .andThen((response) =>
@@ -387,6 +515,7 @@ export function queuedActivityLocator(buildTypeIds: string[]): string {
 export function fetchActivity(
   baseUrl: string,
   token: string,
+  connection: TeamCityConnectionPolicy,
   buildTypeIds: string[],
   branch?: string,
 ): ResultAsync<CiActivity, CiError> {
@@ -407,7 +536,7 @@ export function fetchActivity(
     cause?: CiError
   }
   const collect = (label: string, path: string): ResultAsync<ActivityPart, CiError> =>
-    tcFetch<unknown>(baseUrl, token, path)
+    tcFetch<unknown>(baseUrl, token, connection, path)
       .andThen((response) => decodeTcResponse<RawActivityResponse>(response, isBuildCollection))
       .map((response) => ({ response }))
       .orElse((error) =>
@@ -478,11 +607,13 @@ export function fetchActivity(
 export function fetchBranches(
   baseUrl: string,
   token: string,
+  connection: TeamCityConnectionPolicy,
   buildTypeId: string,
 ): ResultAsync<string[], CiError> {
   return tcFetch<unknown>(
     baseUrl,
     token,
+    connection,
     `/app/rest/buildTypes/id:${buildTypeId}/branches?locator=policy:VCS_BRANCHES&fields=branch(name,default)`,
   )
     .andThen((response) =>
@@ -498,11 +629,13 @@ export function fetchBranches(
 export function fetchPromptParameters(
   baseUrl: string,
   token: string,
+  connection: TeamCityConnectionPolicy,
   buildTypeId: string,
 ): ResultAsync<CiParameter[], CiError> {
   return tcFetch<unknown>(
     baseUrl,
     token,
+    connection,
     `/app/rest/buildTypes/id:${buildTypeId}/parameters?fields=property(name,value,type(rawValue))`,
   )
     .andThen((response) =>

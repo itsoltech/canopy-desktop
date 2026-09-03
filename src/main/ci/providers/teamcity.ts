@@ -24,6 +24,7 @@ import type {
 } from '../types'
 import type { CiProviderAdapter } from './types'
 import { ciDegradedCauses, withCiDegradedCauses } from '../degraded'
+import type { TeamCityConnectionPolicy } from '../teamcityAccess'
 
 interface TeamCityClient {
   fetchBuildForBranch: typeof fetchBuildForBranch
@@ -91,6 +92,7 @@ export class TeamCityAdapter implements CiProviderAdapter {
   constructor(
     private readonly config: TeamCityCiConfig,
     private readonly token: string,
+    private readonly connection: TeamCityConnectionPolicy,
     client: Partial<TeamCityClient> = {},
   ) {
     this.client = { ...defaultClient, ...client }
@@ -114,7 +116,13 @@ export class TeamCityAdapter implements CiProviderAdapter {
     return ResultAsync.combine(
       this.config.buildTypes.map((buildType) =>
         this.client
-          .fetchBuildForBranch(this.config.baseUrl, this.token, buildType.id, ref.name)
+          .fetchBuildForBranch(
+            this.config.baseUrl,
+            this.token,
+            this.connection,
+            buildType.id,
+            ref.name,
+          )
           .map((build): CiJobStatus => ({
             jobId: buildType.id,
             label: buildType.label,
@@ -143,7 +151,7 @@ export class TeamCityAdapter implements CiProviderAdapter {
         message: `Build type ${jobId} is not configured`,
       })
     return this.client
-      .fetchBranches(this.config.baseUrl, this.token, jobId)
+      .fetchBranches(this.config.baseUrl, this.token, this.connection, jobId)
       .map((branches) => branches.map((name): CiRef => ({ name, kind: 'branch' })))
   }
 
@@ -168,7 +176,7 @@ export class TeamCityAdapter implements CiProviderAdapter {
         message: `Build type ${jobId} is not configured`,
       })
     return this.client
-      .fetchPromptParameters(this.config.baseUrl, this.token, jobId)
+      .fetchPromptParameters(this.config.baseUrl, this.token, this.connection, jobId)
       .map((parameters) => ({ parameters, schemaRevision: `teamcity:${jobId}` }))
   }
 
@@ -193,7 +201,14 @@ export class TeamCityAdapter implements CiProviderAdapter {
       properties.push({ name, value })
     }
     return this.client
-      .triggerBuild(this.config.baseUrl, this.token, request.jobId, request.ref.name, properties)
+      .triggerBuild(
+        this.config.baseUrl,
+        this.token,
+        this.connection,
+        request.jobId,
+        request.ref.name,
+        properties,
+      )
       .map((result) => ({
         provider: 'teamcity',
         runId: String(result.buildId),
@@ -209,7 +224,7 @@ export class TeamCityAdapter implements CiProviderAdapter {
     if (!/^\d+$/.test(runId))
       return errAsync({ _tag: 'CiApiError', status: 0, message: 'Invalid TeamCity build id' })
     return this.client
-      .fetchBuild(this.config.baseUrl, this.token, Number(runId))
+      .fetchBuild(this.config.baseUrl, this.token, this.connection, Number(runId))
       .andThen((build) => {
         const configured = this.config.buildTypes.find((item) => item.id === build.buildTypeId)
         return configured
@@ -228,6 +243,7 @@ export class TeamCityAdapter implements CiProviderAdapter {
       .fetchActivity(
         this.config.baseUrl,
         this.token,
+        this.connection,
         this.config.buildTypes.map((buildType) => buildType.id),
         branch,
       )

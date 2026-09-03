@@ -23,6 +23,227 @@ function fakePreferences(initial: Record<string, string> = {}): PreferencesStore
 }
 
 describe('KeychainTokenStore capability facade', () => {
+  it('does not auto-bind a server credential into a repository approval scope', () => {
+    const store = new KeychainTokenStore(fakePreferences())
+    const baseUrl = 'https://tc.example.com'
+    store.setCredentials('teamcity', baseUrl, 'token')
+
+    const scoped = store.resolveApprovedCredentialsResult(
+      'teamcity',
+      baseUrl,
+      'builds.read',
+      'ci:teamcity:repo:scope-a',
+    )
+
+    expect(scoped.isErr() && scoped.error._tag).toBe('CredentialApprovalRequired')
+    expect(store.registry.listBindings()['ci:teamcity:repo:scope-a']).toBeUndefined()
+  })
+
+  it('uses a server credential only after it is explicitly bound to the repository scope', () => {
+    const store = new KeychainTokenStore(fakePreferences())
+    const baseUrl = 'https://tc.example.com'
+    store.setCredentials('teamcity', baseUrl, 'token')
+    const approval = store
+      .prepareCredentialsBindingsApproval('teamcity', baseUrl, 'builds.read', [
+        'ci:teamcity:repo:scope-a',
+      ])
+      ._unsafeUnwrap()
+
+    expect(
+      store
+        .approveCredentialsBinding(
+          'teamcity',
+          baseUrl,
+          'builds.read',
+          'ci:teamcity:repo:scope-a',
+          approval,
+        )
+        .isOk(),
+    ).toBe(true)
+    expect(
+      store.resolveApprovedCredentialsResult(
+        'teamcity',
+        baseUrl,
+        'builds.trigger',
+        'ci:teamcity:repo:scope-a',
+      ),
+    ).toMatchObject({ value: expect.objectContaining({ token: 'token' }) })
+  })
+
+  it('requires renewed approval when the shared TeamCity credential changes identity', () => {
+    const store = new KeychainTokenStore(fakePreferences())
+    const baseUrl = 'https://tc.example.com'
+    const bindingKey = 'ci:teamcity:repo-config:scope-a'
+    const oldCredential = store.setCredentials('teamcity', baseUrl, 'old-token')._unsafeUnwrap()
+    const approval = store
+      .prepareCredentialsBindingsApproval('teamcity', baseUrl, 'builds.read', [bindingKey])
+      ._unsafeUnwrap()
+    store.approveCredentialsBinding('teamcity', baseUrl, 'builds.read', bindingKey, approval)
+    store.setCredentials('teamcity', baseUrl, 'new-token')
+
+    const scoped = store.resolveApprovedCredentialsResult(
+      'teamcity',
+      baseUrl,
+      'builds.read',
+      bindingKey,
+    )
+
+    expect(scoped.isErr() && scoped.error._tag).toBe('CredentialApprovalRequired')
+    expect(store.registry.listBindings()[bindingKey]).toBeUndefined()
+    expect(store.registry.list().some((credential) => credential.id === oldCredential.id)).toBe(
+      false,
+    )
+  })
+
+  it('does not let a late result from the old TeamCity token approve its replacement', () => {
+    const store = new KeychainTokenStore(fakePreferences())
+    const baseUrl = 'https://tc.example.com'
+    const bindingKey = 'ci:teamcity:repo-config:scope-a'
+    store.setCredentials('teamcity', baseUrl, 'old-token')
+    const approval = store
+      .prepareCredentialsBindingsApproval('teamcity', baseUrl, 'builds.read', [bindingKey])
+      ._unsafeUnwrap()
+    store.approveCredentialsBinding('teamcity', baseUrl, 'builds.read', bindingKey, approval)
+    const inFlight = store
+      .resolveApprovedCredentialsResult('teamcity', baseUrl, 'builds.read', bindingKey)
+      ._unsafeUnwrap()
+
+    store.setCredentials('teamcity', baseUrl, 'new-token')
+    store.recordResult('teamcity', baseUrl, 'builds.read', 200, undefined, {
+      bindingKey,
+      usedSecret: inFlight.token,
+    })
+
+    expect(store.registry.listBindings()[bindingKey]).toBeUndefined()
+    const resolved = store.resolveApprovedCredentialsResult(
+      'teamcity',
+      baseUrl,
+      'builds.read',
+      bindingKey,
+    )
+    expect(resolved.isErr() && resolved.error._tag).toBe('CredentialApprovalRequired')
+  })
+
+  it('removes repository approvals and the secret when an approved TeamCity credential is deleted', () => {
+    const preferences = fakePreferences()
+    const store = new KeychainTokenStore(preferences)
+    const baseUrl = 'https://tc.example.com'
+    const bindingKey = 'ci:teamcity:repo-config:scope-a'
+    store.setCredentials('teamcity', baseUrl, 'token')
+    const approval = store
+      .prepareCredentialsBindingsApproval('teamcity', baseUrl, 'builds.read', [bindingKey])
+      ._unsafeUnwrap()
+    store.approveCredentialsBinding('teamcity', baseUrl, 'builds.read', bindingKey, approval)
+
+    const removed = store.deleteCredentials('teamcity', baseUrl)
+
+    expect(removed).toEqual({ removed: true, retainedBindings: [] })
+    expect(store.registry.listBindings()[bindingKey]).toBeUndefined()
+    expect(store.registry.list()).toEqual([])
+    expect(store.listCredentials()).toEqual([])
+    expect(preferences.keysWithPrefix('credential.secret.v2.')).toEqual([])
+  })
+
+  it('rolls back every repository scope when a multi-binding approval cannot be persisted', () => {
+    const preferences = fakePreferences()
+    const store = new KeychainTokenStore(preferences)
+    const baseUrl = 'https://tc.example.com'
+    store.setCredentials('teamcity', baseUrl, 'token')
+    const approval = store
+      .prepareCredentialsBindingsApproval('teamcity', baseUrl, 'builds.read', [
+        'ci:teamcity:repo:config',
+        'ci:teamcity:repo:discovery',
+      ])
+      ._unsafeUnwrap()
+    const originalSet = preferences.set.bind(preferences)
+    let bindingWrites = 0
+    vi.spyOn(preferences, 'set').mockImplementation((key, value) => {
+      if (key === 'credential.bindings.v2' && ++bindingWrites === 2) {
+        throw new Error('second approval binding failed')
+      }
+      originalSet(key, value)
+    })
+
+    expect(() =>
+      store.approveCredentialsBindings(
+        'teamcity',
+        baseUrl,
+        'builds.read',
+        ['ci:teamcity:repo:config', 'ci:teamcity:repo:discovery'],
+        approval,
+      ),
+    ).toThrow('second approval binding failed')
+    expect(store.registry.listBindings()['ci:teamcity:repo:config']).toBeUndefined()
+    expect(store.registry.listBindings()['ci:teamcity:repo:discovery']).toBeUndefined()
+  })
+
+  it('rejects approval when a same-id credential secret changes during confirmation', () => {
+    const store = new KeychainTokenStore(fakePreferences())
+    const baseUrl = 'https://tc.example.com'
+    const bindingKey = 'ci:teamcity:repo:scope-a'
+    store.setCredentials('teamcity', baseUrl, 'old-token')
+    const approval = store
+      .prepareCredentialsBindingsApproval('teamcity', baseUrl, 'builds.read', [bindingKey])
+      ._unsafeUnwrap()
+
+    store.setCredentials('teamcity', baseUrl, 'new-token')
+    const result = store.approveCredentialsBinding(
+      'teamcity',
+      baseUrl,
+      'builds.read',
+      bindingKey,
+      approval,
+    )
+
+    expect(result.isErr() && result.error._tag).toBe('CredentialApprovalRequired')
+    expect(store.registry.listBindings()[bindingKey]).toBeUndefined()
+  })
+
+  it('rejects approval when credential identity changes during confirmation', () => {
+    const store = new KeychainTokenStore(fakePreferences())
+    const baseUrl = 'https://tc.example.com'
+    const bindingKey = 'ci:teamcity:repo:scope-a'
+    store.setCredentials('teamcity', baseUrl, 'old-token')
+    const approval = store
+      .prepareCredentialsBindingsApproval('teamcity', baseUrl, 'builds.read', [bindingKey])
+      ._unsafeUnwrap()
+    store.registry.bind('test:shared-binding', approval.credentialId)
+
+    store.setCredentials('teamcity', baseUrl, 'new-token')
+    const result = store.approveCredentialsBinding(
+      'teamcity',
+      baseUrl,
+      'builds.read',
+      bindingKey,
+      approval,
+    )
+
+    expect(result.isErr() && result.error._tag).toBe('CredentialApprovalRequired')
+    expect(store.registry.listBindings()[bindingKey]).toBeUndefined()
+  })
+
+  it('does not reactivate an old approved TeamCity token after removing its replacement', () => {
+    const store = new KeychainTokenStore(fakePreferences())
+    const baseUrl = 'https://tc.example.com'
+    const bindingKey = 'ci:teamcity:repo-config:scope-a'
+    store.setCredentials('teamcity', baseUrl, 'old-token')
+    const approval = store
+      .prepareCredentialsBindingsApproval('teamcity', baseUrl, 'builds.read', [bindingKey])
+      ._unsafeUnwrap()
+    store.approveCredentialsBinding('teamcity', baseUrl, 'builds.read', bindingKey, approval)
+    store.setCredentials('teamcity', baseUrl, 'new-token')
+
+    store.deleteCredentials('teamcity', baseUrl)
+    const result = store.resolveApprovedCredentialsResult(
+      'teamcity',
+      baseUrl,
+      'builds.read',
+      bindingKey,
+    )
+
+    expect(result.isErr() && result.error._tag).toBe('CredentialNotFound')
+  })
+
   it('treats a probe-specific 403 as rejected authentication, not denied Actions access', () => {
     const baseUrl = 'https://github.com/itsoltech/canopy-desktop'
     const store = new KeychainTokenStore(fakePreferences())

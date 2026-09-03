@@ -1,5 +1,6 @@
 import type { PreferencesStore } from '../db/PreferencesStore'
-import { err, type Result } from 'neverthrow'
+import { createHash } from 'crypto'
+import { err, ok, type Result } from 'neverthrow'
 import {
   CredentialRegistry,
   type CredentialAudience,
@@ -19,6 +20,13 @@ export interface TrackerCredentials {
   credentialId?: string
 }
 
+/** Opaque main-process snapshot pinned to the exact credential secret shown in a consent flow. */
+export interface CredentialBindingApprovalTarget {
+  credentialId: string
+  revision: string
+  approvalRequired: boolean
+}
+
 /** A stored credential entry WITHOUT the token — safe to cross IPC for Settings. */
 export interface StoredTrackerCredential {
   id: string
@@ -36,6 +44,14 @@ export interface StoredTrackerCredential {
 }
 
 const LEGACY_TOKEN_KEY_PREFIX = 'taskTracker.token.'
+const TEAMCITY_REPO_BINDING_PREFIXES = [
+  'ci:teamcity:repo-config:',
+  'ci:teamcity:repo-discovery:',
+] as const
+
+function isTeamCityRepoBinding(bindingKey: string): boolean {
+  return TEAMCITY_REPO_BINDING_PREFIXES.some((prefix) => bindingKey.startsWith(prefix))
+}
 
 function normalizeUrl(baseUrl: string): string {
   try {
@@ -122,6 +138,12 @@ function defaultBinding(provider: string, baseUrl: string): string {
 
 function legacyTeamCityBinding(baseUrl: string): string {
   return `ci:teamcity:${normalizeUrl(baseUrl).toLowerCase()}`
+}
+
+function credentialRevision(credentials: TrackerCredentials): string {
+  return createHash('sha256')
+    .update(JSON.stringify([credentials.credentialId, credentials.token]))
+    .digest('hex')
 }
 
 function descriptorProvider(descriptor: CredentialDescriptor): string {
@@ -228,6 +250,16 @@ export class KeychainTokenStore {
     }
     return this.preferencesStore.runInTransaction(() => {
       this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
+      // TeamCity repository approvals can deliberately keep an older credential alive after the
+      // server-scoped credential is rotated. If the current server binding is later removed, never
+      // let the registry's generic single-candidate fallback silently reactivate that old token.
+      if (
+        provider === 'teamcity' &&
+        bindingKey === defaultBinding(provider, baseUrl) &&
+        !this.registry.listBindings()[bindingKey]
+      ) {
+        return err({ _tag: 'CredentialNotFound' as const })
+      }
       const wasBound = this.registry.listBindings()[bindingKey]
       return this.registry
         .resolve({
@@ -246,6 +278,90 @@ export class KeychainTokenStore {
           return { token: resolved.secret, username: resolved.account, credentialId: resolved.id }
         })
     })
+  }
+
+  /**
+   * Resolves only when the current server credential was explicitly bound to this scope.
+   * Unlike the generic resolver, this never auto-binds a compatible credential to a repository.
+   */
+  resolveApprovedCredentialsResult(
+    provider: string,
+    baseUrl: string,
+    capability: CredentialCapability,
+    bindingKey: string,
+  ): Result<TrackerCredentials, CredentialError> {
+    const current = this.resolveCredentialsResult(provider, baseUrl, capability)
+    if (current.isErr()) return current
+    const approvedCredentialId = this.registry.listBindings()[bindingKey]
+    if (!current.value.credentialId || approvedCredentialId !== current.value.credentialId) {
+      return err({ _tag: 'CredentialApprovalRequired', bindingKey })
+    }
+    return this.resolveCredentialsResult(provider, baseUrl, capability, bindingKey)
+  }
+
+  isCredentialsBindingApproved(
+    provider: string,
+    baseUrl: string,
+    capability: CredentialCapability,
+    bindingKey: string,
+  ): boolean {
+    return this.resolveApprovedCredentialsResult(provider, baseUrl, capability, bindingKey).isOk()
+  }
+
+  /** Captures the exact credential generation before a trusted confirmation is displayed. */
+  prepareCredentialsBindingsApproval(
+    provider: string,
+    baseUrl: string,
+    capability: CredentialCapability,
+    bindingKeys: readonly string[],
+  ): Result<CredentialBindingApprovalTarget, CredentialError> {
+    return this.resolveCredentialsResult(provider, baseUrl, capability).map((credentials) => ({
+      credentialId: credentials.credentialId!,
+      revision: credentialRevision(credentials),
+      approvalRequired: bindingKeys.some(
+        (bindingKey) => this.registry.listBindings()[bindingKey] !== credentials.credentialId,
+      ),
+    }))
+  }
+
+  /** Called only after a trusted main-process confirmation has accepted the exact scope. */
+  approveCredentialsBinding(
+    provider: string,
+    baseUrl: string,
+    capability: CredentialCapability,
+    bindingKey: string,
+    expected: Pick<CredentialBindingApprovalTarget, 'credentialId' | 'revision'>,
+  ): Result<void, CredentialError> {
+    return this.approveCredentialsBindings(provider, baseUrl, capability, [bindingKey], expected)
+  }
+
+  /** Atomically grants one confirmed credential to every scope named by the caller. */
+  approveCredentialsBindings(
+    provider: string,
+    baseUrl: string,
+    capability: CredentialCapability,
+    bindingKeys: readonly string[],
+    expected: Pick<CredentialBindingApprovalTarget, 'credentialId' | 'revision'>,
+  ): Result<void, CredentialError> {
+    return this.preferencesStore.runInTransaction(() =>
+      this.resolveCredentialsResult(provider, baseUrl, capability).andThen((credentials) => {
+        if (!credentials.credentialId) return err({ _tag: 'CredentialNotFound' as const })
+        if (
+          credentials.credentialId !== expected.credentialId ||
+          credentialRevision(credentials) !== expected.revision
+        ) {
+          return err({
+            _tag: 'CredentialApprovalRequired' as const,
+            bindingKey: bindingKeys[0] ?? defaultBinding(provider, baseUrl),
+          })
+        }
+        for (const scope of new Set(bindingKeys)) {
+          const bound = this.registry.bind(scope, credentials.credentialId)
+          if (bound.isErr()) throw new Error('Could not bind approved credential scope')
+        }
+        return ok(undefined)
+      }),
+    )
   }
 
   getCredentialsForTracker(
@@ -311,12 +427,17 @@ export class KeychainTokenStore {
       // the same transaction, so an Err is unreachable; if bind gains another error path, it must
       // throw here (or be checked before mutation) so SQLite does not commit an Err return value.
       return this.registry.bind(bindingKey, descriptor.id).map(() => {
-        if (
-          currentlyBoundId &&
-          currentlyBoundId !== descriptor.id &&
-          this.registry.bindingsFor(currentlyBoundId).length === 0
-        ) {
-          this.registry.remove(currentlyBoundId)
+        if (currentlyBoundId && currentlyBoundId !== descriptor.id) {
+          // Repository grants approve one exact TeamCity credential generation. Rotation revokes
+          // those derived bindings so the old encrypted secret cannot become an unreachable orphan.
+          if (provider === 'teamcity') {
+            for (const scope of this.registry.bindingsFor(currentlyBoundId)) {
+              if (isTeamCityRepoBinding(scope)) this.registry.unbind(scope)
+            }
+          }
+          if (this.registry.bindingsFor(currentlyBoundId).length === 0) {
+            this.registry.remove(currentlyBoundId)
+          }
         }
         return descriptor
       })
@@ -333,6 +454,11 @@ export class KeychainTokenStore {
       this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
       const credentialId = this.registry.listBindings()[bindingKey]
       if (!credentialId) return { removed: false, retainedBindings: [] }
+      if (provider === 'teamcity') {
+        for (const scope of this.registry.bindingsFor(credentialId)) {
+          if (isTeamCityRepoBinding(scope)) this.registry.unbind(scope)
+        }
+      }
       if (liveTrackerBindingKeys) {
         for (const key of this.registry.bindingsFor(credentialId)) {
           if (parseTrackerBindingKey(key) && !liveTrackerBindingKeys.has(key)) {
@@ -370,12 +496,16 @@ export class KeychainTokenStore {
     opts?: { bindingKey?: string; usedSecret?: string; authenticationRejected?: true },
   ): void {
     const bindingKey = opts?.bindingKey ?? defaultBinding(provider, baseUrl)
+    // Results may arrive after credential rotation revoked a repository grant. Never resolve an
+    // absent binding here: the registry's single-candidate convenience path would bind the new
+    // credential generation without the native consent required for this repository scope.
+    const existingCredentialId = this.registry.listBindings()[bindingKey]
+    if (!existingCredentialId) return
     const current = opts?.usedSecret ? this.getCredentials(provider, baseUrl, bindingKey) : null
     // A singly-bound credential keeps its descriptor id when its secret is replaced. Correlate
     // against the actual secret version so a late result cannot validate or reject its successor.
     if (opts?.usedSecret && current?.token !== opts.usedSecret) return
-    const credentialId = current?.credentialId ?? this.registry.listBindings()[bindingKey]
-    if (!credentialId) return
+    const credentialId = current?.credentialId ?? existingCredentialId
     if (status === 401 || (status === 403 && opts?.authenticationRejected)) {
       this.registry.recordAuthentication(credentialId, 'invalid')
       return

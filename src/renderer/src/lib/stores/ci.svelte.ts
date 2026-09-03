@@ -124,6 +124,7 @@ interface CiRepoConfigState {
   loaded: boolean
   config: CiRepoConfigInfo | null
   hasToken: boolean
+  credentialApprovalRequired: boolean
   authenticationState: 'valid' | 'invalid' | 'unknown'
   authenticationCheckedAt?: string
   /** Set when a ci block EXISTS but cannot be used (either scope) — null config
@@ -136,6 +137,7 @@ let repoConfigState = $state<CiRepoConfigState>({
   loaded: false,
   config: null,
   hasToken: false,
+  credentialApprovalRequired: false,
   authenticationState: 'unknown',
 })
 let configSeq = 0
@@ -154,6 +156,7 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
       loaded: false,
       config: null,
       hasToken: false,
+      credentialApprovalRequired: false,
       authenticationState: 'unknown',
     }
   }
@@ -168,6 +171,7 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
       loaded: true,
       config: res.config,
       hasToken: res.credential?.hasToken ?? false,
+      credentialApprovalRequired: res.credential?.approvalRequired ?? false,
       authenticationState: res.credential?.authenticationState ?? 'unknown',
       authenticationCheckedAt: res.credential?.authenticationCheckedAt,
       error: res.invalid?.message,
@@ -179,6 +183,7 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
       loaded: true,
       config: null,
       hasToken: false,
+      credentialApprovalRequired: false,
       authenticationState: 'unknown',
       error: e instanceof Error ? e.message : "Could not read this repository's CI configuration",
     }
@@ -357,6 +362,11 @@ function observeBuild(repoRoot: string, baseUrl: string, buildId: number, label:
 }
 
 /** Returns the failure message, or `null` when the build was queued. */
+export interface CiTriggerIssue {
+  code: string
+  message: string
+}
+
 export async function triggerCiBuild(
   repoRoot: string,
   baseUrl: string,
@@ -364,19 +374,23 @@ export async function triggerCiBuild(
   branch: string,
   label: string,
   properties?: Array<{ name: string; value: string }>,
-): Promise<string | null> {
+): Promise<CiTriggerIssue | null> {
   try {
     const result = await window.api.ciTrigger(repoRoot, buildTypeId, branch, properties)
+    if (!result.ok) return result.error
     // TeamCity's own answer is the ground truth — if it queued on a different branch
     // than requested (e.g. fell back to the default), the toast makes that visible.
-    addToast(`${label}: build queued on ${result.branchName ?? branch}`, 'success')
-    observeBuild(repoRoot, baseUrl, result.buildId, label)
+    addToast(`${label}: build queued on ${result.value.branchName ?? branch}`, 'success')
+    observeBuild(repoRoot, baseUrl, result.value.buildId, label)
     activityTick += 1
   } catch (e) {
     // No failure toast: the only callers are the run dialogs, whose scrim
     // (z-overlay) paints OVER the toast layer (z-banner) — the message goes back
     // to the caller so it lands in the dialog's own live region instead.
-    return e instanceof Error ? e.message : 'Failed to trigger build'
+    return {
+      code: 'CiApiError',
+      message: e instanceof Error ? e.message : 'Failed to trigger build',
+    }
   }
   // Show the queued build in the row right away instead of waiting for the next poll.
   void refreshCi(repoRoot, branch)

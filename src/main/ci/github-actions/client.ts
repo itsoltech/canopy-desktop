@@ -265,7 +265,8 @@ export class GitHubActionsClient {
       if (init?.ambiguousWorkflowUrl) {
         return err<T, GitHubClientError>({
           _tag: 'CiDispatchAmbiguous',
-          workflowUrl: init.ambiguousWorkflowUrl,
+          provider: 'github-actions',
+          detailsUrl: init.ambiguousWorkflowUrl,
         })
       }
       return err<T, GitHubClientError>(apiError(0, 'GitHub returned an invalid response shape'))
@@ -307,7 +308,11 @@ export class GitHubActionsClient {
       })
     } catch (cause) {
       if (init?.ambiguousWorkflowUrl) {
-        return err({ _tag: 'CiDispatchAmbiguous', workflowUrl: init.ambiguousWorkflowUrl })
+        return err({
+          _tag: 'CiDispatchAmbiguous',
+          provider: 'github-actions',
+          detailsUrl: init.ambiguousWorkflowUrl,
+        })
       }
       const message =
         cause instanceof Error ? cause.message.slice(0, 300) : 'Network request failed'
@@ -331,7 +336,11 @@ export class GitHubActionsClient {
     }
     if (!response.ok) {
       if (init?.ambiguousWorkflowUrl && response.status >= 500) {
-        return err({ _tag: 'CiDispatchAmbiguous', workflowUrl: init.ambiguousWorkflowUrl })
+        return err({
+          _tag: 'CiDispatchAmbiguous',
+          provider: 'github-actions',
+          detailsUrl: init.ambiguousWorkflowUrl,
+        })
       }
       return err(apiError(response.status, safeStatusMessage(response)))
     }
@@ -339,7 +348,11 @@ export class GitHubActionsClient {
     const contentLength = Number(response.headers.get('content-length'))
     if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
       if (init?.ambiguousWorkflowUrl) {
-        return err({ _tag: 'CiDispatchAmbiguous', workflowUrl: init.ambiguousWorkflowUrl })
+        return err({
+          _tag: 'CiDispatchAmbiguous',
+          provider: 'github-actions',
+          detailsUrl: init.ambiguousWorkflowUrl,
+        })
       }
       return err(apiError(0, 'GitHub response exceeds the size limit'))
     }
@@ -348,14 +361,22 @@ export class GitHubActionsClient {
       bytes = await response.arrayBuffer()
     } catch (cause) {
       if (init?.ambiguousWorkflowUrl) {
-        return err({ _tag: 'CiDispatchAmbiguous', workflowUrl: init.ambiguousWorkflowUrl })
+        return err({
+          _tag: 'CiDispatchAmbiguous',
+          provider: 'github-actions',
+          detailsUrl: init.ambiguousWorkflowUrl,
+        })
       }
       const message = cause instanceof Error ? cause.message.slice(0, 300) : 'Response read failed'
       return err(apiError(0, message.replaceAll(this.token, '[redacted]')))
     }
     if (bytes.byteLength > MAX_RESPONSE_BYTES) {
       if (init?.ambiguousWorkflowUrl) {
-        return err({ _tag: 'CiDispatchAmbiguous', workflowUrl: init.ambiguousWorkflowUrl })
+        return err({
+          _tag: 'CiDispatchAmbiguous',
+          provider: 'github-actions',
+          detailsUrl: init.ambiguousWorkflowUrl,
+        })
       }
       return err(apiError(0, 'GitHub response exceeds the size limit'))
     }
@@ -364,7 +385,11 @@ export class GitHubActionsClient {
       return ok(JSON.parse(Buffer.from(bytes).toString('utf8')) as T)
     } catch {
       if (init?.ambiguousWorkflowUrl) {
-        return err({ _tag: 'CiDispatchAmbiguous', workflowUrl: init.ambiguousWorkflowUrl })
+        return err({
+          _tag: 'CiDispatchAmbiguous',
+          provider: 'github-actions',
+          detailsUrl: init.ambiguousWorkflowUrl,
+        })
       }
       return err(apiError(0, 'GitHub returned malformed JSON'))
     }
@@ -612,7 +637,8 @@ export class GitHubActionsClient {
       ) {
         return err<GitHubDispatchResult, CiError>({
           _tag: 'CiDispatchAmbiguous',
-          workflowUrl,
+          provider: 'github-actions',
+          detailsUrl: workflowUrl,
         })
       }
       return ok({

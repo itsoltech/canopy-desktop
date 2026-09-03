@@ -73,6 +73,7 @@ export type CiRepoConfigInfo = TeamCityCiRepoConfigInfo | GitHubActionsCiRepoCon
 
 export interface CiCredentialStatus {
   hasToken: boolean
+  approvalRequired?: boolean
   authenticationState: 'valid' | 'invalid' | 'unknown'
   authenticationCheckedAt?: string
 }
