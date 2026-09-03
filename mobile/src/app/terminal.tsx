@@ -3,12 +3,13 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Pressable, StyleSheet, View } from 'react-native'
+import { Alert, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { TerminalTabBar } from '@/components/terminal/tab-bar'
 import TerminalView, { type TerminalViewHandle } from '@/components/terminal/terminal-view'
 import { ToolPickerSheet } from '@/components/terminal/tool-picker-sheet'
+import { WorktreeSidebar } from '@/components/terminal/worktree-sidebar'
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { resolveTerminalPalette } from '@/constants/terminal-themes'
@@ -19,6 +20,7 @@ import { useRemoteSession } from '@/hooks/use-remote-session'
 import {
   useActiveTabId,
   useIsHydrated,
+  useProjects,
   useProfiles,
   useTabsFor,
   useTools,
@@ -26,6 +28,12 @@ import {
 import { useSavedInstance } from '@/hooks/use-saved-instances'
 import { useTheme } from '@/hooks/use-theme'
 import { wrapAsBracketedPaste } from '@/lib/pty/paste'
+import type { ProjectSnapshot, WorktreeSnapshot } from '@/lib/remote/protocol/state-snapshot'
+
+const EXPANDED_LAYOUT_MIN_WIDTH = 600
+const EXPANDED_LAYOUT_MIN_HEIGHT = 480
+const SIDEBAR_MIN_WIDTH = 224
+const SIDEBAR_MAX_WIDTH = 320
 
 export default function TerminalScreen(): React.ReactElement {
   useKeepAwake()
@@ -35,6 +43,7 @@ export default function TerminalScreen(): React.ReactElement {
     worktreePath: string
   }>()
   const router = useRouter()
+  const { width, height } = useWindowDimensions()
   const theme = useTheme()
   const colorScheme = useTerminalColorScheme()
   const { instance } = useSavedInstance(instanceId)
@@ -58,6 +67,7 @@ export default function TerminalScreen(): React.ReactElement {
 
   const tools = useTools()
   const profiles = useProfiles()
+  const projects = useProjects()
   const hydrated = useIsHydrated()
   const [pickerVisible, setPickerVisible] = useState(false)
 
@@ -73,6 +83,11 @@ export default function TerminalScreen(): React.ReactElement {
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [streamError, setStreamError] = useState<string | null>(null)
   const [toolbarNotice, setToolbarNotice] = useState<string | null>(null)
+  const expandedLayout = width >= EXPANDED_LAYOUT_MIN_WIDTH && height >= EXPANDED_LAYOUT_MIN_HEIGHT
+  const sidebarWidth = Math.min(
+    SIDEBAR_MAX_WIDTH,
+    Math.max(SIDEBAR_MIN_WIDTH, Math.round(width * 0.3)),
+  )
 
   // Mirror latest api/sessionId into refs so the onInput/onResize callbacks
   // passed to the DOM component can stay referentially stable forever. If
@@ -280,6 +295,21 @@ export default function TerminalScreen(): React.ReactElement {
     [api],
   )
 
+  const handleWorktreeSelect = useCallback(
+    (_project: ProjectSnapshot, worktree: WorktreeSnapshot) => {
+      if (worktree.path === worktreePath) return
+      setLocalTabId(null)
+      router.setParams({ worktreePath: encodeURIComponent(worktree.path) })
+      if (api) {
+        void api.workspace.selectWorktree(worktree.path).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err)
+          setStreamError(msg)
+        })
+      }
+    },
+    [api, router, worktreePath],
+  )
+
   const handleToolPick = useCallback(
     async (toolId: string, profileId?: string) => {
       setPickerVisible(false)
@@ -326,112 +356,116 @@ export default function TerminalScreen(): React.ReactElement {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.safeArea}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
-            accessibilityLabel="Back"
-          >
-            <SymbolView
-              name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
-              size={20}
-              weight="semibold"
-              tintColor={theme.text}
+      <View style={styles.splitLayout}>
+        {expandedLayout ? (
+          <WorktreeSidebar
+            width={sidebarWidth}
+            instanceName={instance?.nickname ?? 'Canopy'}
+            projects={projects}
+            activeWorktreePath={worktreePath}
+            connected={sessionState.kind === 'ready'}
+            onWorktreePress={handleWorktreeSelect}
+          />
+        ) : null}
+
+        <View style={styles.terminalPane}>
+          <SafeAreaView edges={['top']} style={styles.safeArea}>
+            <View style={styles.header}>
+              <Pressable
+                onPress={() => router.back()}
+                style={({ pressed }) => [styles.iconBack, pressed && styles.pressed]}
+                accessibilityLabel="Back"
+              >
+                <SymbolView
+                  name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
+                  size={20}
+                  weight="semibold"
+                  tintColor={theme.text}
+                />
+              </Pressable>
+              <View style={styles.titleWrap}>
+                <ThemedText type="smallBold" numberOfLines={1}>
+                  {title}
+                </ThemedText>
+                {instance ? (
+                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                    {instance.nickname}
+                  </ThemedText>
+                ) : null}
+              </View>
+            </View>
+            <TerminalTabBar
+              tabs={tabs}
+              activeId={activeTabId}
+              onSelect={handleTabSelect}
+              onLongPress={api ? handleTabLongPress : undefined}
+              onNewTab={api ? () => setPickerVisible(true) : undefined}
             />
-          </Pressable>
-          <View style={styles.titleWrap}>
-            <ThemedText type="smallBold" numberOfLines={1}>
-              {title}
-            </ThemedText>
-            {instance ? (
-              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                {instance.nickname}
-              </ThemedText>
+            {streamError || toolbarNotice ? (
+              <View style={styles.banner}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {streamError ?? toolbarNotice}
+                </ThemedText>
+              </View>
+            ) : null}
+          </SafeAreaView>
+
+          <View style={[styles.terminalSlot, { backgroundColor: slotBackground }]}>
+            {/*
+              TerminalView must stay mounted while the selected worktree changes.
+              The wide sidebar updates route params in place so the DOM-component
+              ref remains bound to the same live WebView.
+            */}
+            <TerminalView
+              ref={terminalRef}
+              themeMode={themeMode}
+              terminalThemeId={terminalThemeId}
+              onInput={onInput}
+              onResize={onResize}
+              onCopyRequest={handleCopySelection}
+              onPasteRequest={handlePaste}
+              onToolbarNotice={handleToolbarNotice}
+              dom={{
+                style: { flex: 1 },
+                matchContents: false,
+                keyboardDisplayRequiresUserAction: false,
+                hideKeyboardAccessoryView: true,
+                automaticallyAdjustContentInsets: false,
+                scrollEnabled: false,
+              }}
+            />
+            {activeTab ? null : (
+              <View
+                pointerEvents="none"
+                style={[
+                  StyleSheet.absoluteFill,
+                  styles.emptyOverlay,
+                  { backgroundColor: slotBackground },
+                ]}
+              >
+                <ThemedText type="small" themeColor="textSecondary">
+                  {sessionState.kind === 'ready'
+                    ? 'No tabs in this worktree'
+                    : 'Waiting for connection…'}
+                </ThemedText>
+              </View>
+            )}
+            {sessionState.kind === 'reconnecting' ? (
+              <View
+                pointerEvents="box-only"
+                style={[
+                  StyleSheet.absoluteFill,
+                  styles.reconnectingOverlay,
+                  { backgroundColor: slotBackground },
+                ]}
+              >
+                <ThemedText type="small" themeColor="textSecondary">
+                  Reconnecting…
+                </ThemedText>
+              </View>
             ) : null}
           </View>
         </View>
-        <TerminalTabBar
-          tabs={tabs}
-          activeId={activeTabId}
-          onSelect={handleTabSelect}
-          onLongPress={api ? handleTabLongPress : undefined}
-          onNewTab={api ? () => setPickerVisible(true) : undefined}
-        />
-        {streamError || toolbarNotice ? (
-          <View style={styles.banner}>
-            <ThemedText type="small" themeColor="textSecondary">
-              {streamError ?? toolbarNotice}
-            </ThemedText>
-          </View>
-        ) : null}
-      </SafeAreaView>
-
-      <View style={[styles.terminalSlot, { backgroundColor: slotBackground }]}>
-        {/*
-          NOTE: TerminalView must stay mounted for the entire lifetime of
-          this screen — never gate it behind a ternary, never give it a
-          `key={activeTab.id}`, never swap it out when `activeTab` is
-          null. The Expo DOM-component ref is a Proxy installed exactly
-          once, the first time `terminalRef.current` is assigned. React
-          does NOT clear our ref on unmount because the wrapper assigns
-          it imperatively (not via useImperativeHandle), so any remount
-          reuses the stale Proxy bound to a dead webview and every
-          `write()` silently no-ops. Empty / loading state is rendered
-          as an absolute overlay on top of the stable TerminalView
-          instead — the xterm underneath just sits empty (the
-          subscription effect bails early when sessionId is null). The
-          subscription effect clears xterm content whenever sessionId
-          changes, so switching tabs stays clean.
-        */}
-        <TerminalView
-          ref={terminalRef}
-          themeMode={themeMode}
-          terminalThemeId={terminalThemeId}
-          onInput={onInput}
-          onResize={onResize}
-          onCopyRequest={handleCopySelection}
-          onPasteRequest={handlePaste}
-          onToolbarNotice={handleToolbarNotice}
-          dom={{
-            style: { flex: 1 },
-            matchContents: false,
-            keyboardDisplayRequiresUserAction: false,
-            hideKeyboardAccessoryView: true,
-            automaticallyAdjustContentInsets: false,
-            scrollEnabled: false,
-          }}
-        />
-        {activeTab ? null : (
-          <View
-            pointerEvents="none"
-            style={[
-              StyleSheet.absoluteFill,
-              styles.emptyOverlay,
-              { backgroundColor: slotBackground },
-            ]}
-          >
-            <ThemedText type="small" themeColor="textSecondary">
-              {sessionState.kind === 'ready'
-                ? 'No tabs in this worktree'
-                : 'Waiting for connection…'}
-            </ThemedText>
-          </View>
-        )}
-        {sessionState.kind === 'reconnecting' ? (
-          <View
-            pointerEvents="box-only"
-            style={[
-              StyleSheet.absoluteFill,
-              styles.reconnectingOverlay,
-              { backgroundColor: slotBackground },
-            ]}
-          >
-            <ThemedText type="small" themeColor="textSecondary">
-              Reconnecting…
-            </ThemedText>
-          </View>
-        ) : null}
       </View>
 
       <ToolPickerSheet
@@ -456,6 +490,14 @@ function deriveWorktreeLabel(path: string): string {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  splitLayout: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  terminalPane: {
+    flex: 1,
+    minWidth: 0,
   },
   safeArea: {
     width: '100%',

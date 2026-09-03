@@ -11,11 +11,13 @@ import type { ProjectSnapshot, WorktreeSnapshot } from '@/lib/mock/snapshot-type
 
 type ProjectSectionProps = {
   project: ProjectSnapshot
+  selectedWorktreePath?: string
   onWorktreePress: (project: ProjectSnapshot, worktree: WorktreeSnapshot) => void
 }
 
 export function ProjectSection({
   project,
+  selectedWorktreePath,
   onWorktreePress,
 }: ProjectSectionProps): React.ReactElement {
   const theme = useTheme()
@@ -75,6 +77,7 @@ export function ProjectSection({
               <WorktreeRow
                 worktree={w}
                 repoRoot={project.repoRoot}
+                selected={w.path === selectedWorktreePath}
                 onPress={() => onWorktreePress(project, w)}
               />
             </View>

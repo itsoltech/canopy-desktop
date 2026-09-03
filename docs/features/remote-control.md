@@ -111,6 +111,15 @@ When the mobile soft keyboard is open, the terminal renders its action toolbar i
 
 Hide blurs xterm's hidden textarea to dismiss the soft keyboard. Copy sends only the current DOM terminal selection to the native app for clipboard writing; if there is no selection, the terminal shows a short transient notice and does not change the clipboard. Paste reads text from the native clipboard, sanitizes it with the mobile PTY paste wrapper, wraps it in bracketed-paste markers, and writes it to the active PTY without submitting Enter. The old native paste action bar below the terminal tabs is no longer shown.
 
+### Wide-screen mobile terminal
+
+On foldables and tablets with at least 600 dp of width and 480 dp of height, the terminal screen
+uses a split layout. A persistent project/worktree sidebar occupies 30% of the available width
+(clamped to 224–320 dp), while the terminal remains mounted in the flexible pane on the right.
+Selecting a worktree updates the current terminal route in place and switches the host workspace
+without rebuilding the terminal WebView. Phones and short landscape viewports keep the existing
+full-screen terminal navigation.
+
 ## Configuration
 
 | Preference key               | Values                 | Default   | Notes                                                                                                                                                                                                                          |
