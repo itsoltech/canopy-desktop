@@ -11,12 +11,18 @@ import type { WorktreeAgentStatus, WorktreeSnapshot } from '@/lib/mock/snapshot-
 type WorktreeRowProps = {
   worktree: WorktreeSnapshot
   repoRoot: string | null
+  selected?: boolean
   onPress: () => void
 }
 
 const STATUS_COLORS: Record<Exclude<WorktreeAgentStatus, 'none'>, string> = StatusColors
 
-export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): React.ReactElement {
+export function WorktreeRow({
+  worktree,
+  repoRoot,
+  selected = false,
+  onPress,
+}: WorktreeRowProps): React.ReactElement {
   const theme = useTheme()
   const { api } = useRemoteSession()
   const [removing, setRemoving] = useState(false)
@@ -82,9 +88,12 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
       onPress={removing ? undefined : onPress}
       style={({ pressed }) => [
         styles.row,
+        selected && { backgroundColor: theme.backgroundSelected },
         pressed && !removing && styles.pressed,
         removing && styles.dimmed,
       ]}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
     >
       {agentStatus !== 'none' ? (
         <View style={[styles.statusDot, { backgroundColor: STATUS_COLORS[agentStatus] }]} />
@@ -139,6 +148,7 @@ export function WorktreeRow({ worktree, repoRoot, onPress }: WorktreeRowProps): 
 
 const styles = StyleSheet.create({
   row: {
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.three,

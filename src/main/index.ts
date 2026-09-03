@@ -981,7 +981,13 @@ app.whenReady().then(async () => {
     pauseReasons: [...terminalStreamPauseReasons],
   }))
 
-  powerMonitor.on('lock-screen', () => pauseTerminalStreams('lock-screen'))
+  powerMonitor.on('lock-screen', () => {
+    if (remoteSessionService.shouldKeepRunningWhileLocked()) {
+      console.log('[remote] keeping terminal streams active while the screen is locked')
+      return
+    }
+    pauseTerminalStreams('lock-screen')
+  })
   powerMonitor.on('suspend', () => pauseTerminalStreams('suspend'))
   powerMonitor.on('unlock-screen', () => {
     clearLockScreenResumeWatchdog()

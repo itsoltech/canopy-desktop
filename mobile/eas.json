@@ -52,10 +52,20 @@
       "android": {
         "buildType": "app-bundle"
       }
+    },
+    "preview-apk": {
+      "extends": "production",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {
     "production": {
+      "ios": {
+        "ascAppId": "6768351426"
+      },
       "android": {
         "serviceAccountKeyPath": "./secrets/android-service-account.json",
         "track": "production"

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, webContents as webContentsNs } from 'electron'
+import { app, BrowserWindow, powerSaveBlocker, webContents as webContentsNs } from 'electron'
 import { hostname as osHostname } from 'node:os'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
@@ -15,6 +15,10 @@ import { selectPrimaryInterface } from './discovery'
 import type { RemoteServerError } from './errors'
 import type { PendingDevice, RemoteSessionStatus, PairingUrlInfo } from './types'
 import { TrustedDeviceStore } from './TrustedDeviceStore'
+import {
+  RemoteBackgroundExecutionController,
+  remoteSessionNeedsBackgroundExecution,
+} from './RemoteBackgroundExecutionController'
 
 /** How long the QR code (and its one-shot token) remains valid before auto-stop. */
 const PAIRING_TTL_MS = 10 * 60 * 1000 // 10 minutes
@@ -102,6 +106,10 @@ export class RemoteSessionService {
   private hostWcId: number | null = null
 
   private trustedDevices: TrustedDeviceStore
+  private backgroundExecution = new RemoteBackgroundExecutionController({
+    powerSaveBlocker,
+    findWebContents: (id) => webContentsNs.fromId(id) ?? null,
+  })
 
   constructor(private preferencesStore: PreferencesStore) {
     this.trustedDevices = new TrustedDeviceStore(preferencesStore)
@@ -119,6 +127,10 @@ export class RemoteSessionService {
 
   isEnabledInPreferences(): boolean {
     return this.preferencesStore.get('remote.enabled') === 'true'
+  }
+
+  shouldKeepRunningWhileLocked(): boolean {
+    return remoteSessionNeedsBackgroundExecution(this.status)
   }
 
   /** Trusted devices listing — used by the settings UI. */
@@ -327,6 +339,7 @@ export class RemoteSessionService {
       }
       if (!prevLive) {
         this.hostWcId = hostWcId
+        this.backgroundExecution.sync(this.status, this.hostWcId)
       }
       return okAsync(undefined)
     }
@@ -540,6 +553,7 @@ export class RemoteSessionService {
     this.cleanupSession()
     this.hostWcId = null
     this.status = { kind: 'idle' }
+    this.backgroundExecution.dispose()
   }
 
   // ===== SignalingServer callbacks =====
@@ -880,6 +894,7 @@ export class RemoteSessionService {
     const ts = new Date().toISOString().slice(11, 23)
     console.log(`[remote ${ts}] setStatus: ${this.status.kind} → ${next.kind}`)
     this.status = next
+    this.backgroundExecution.sync(next, this.hostWcId)
     this.broadcastStatus()
   }
 

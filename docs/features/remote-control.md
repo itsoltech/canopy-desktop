@@ -38,6 +38,18 @@ Listen mode lets a previously trusted device reconnect to Canopy after a desktop
 
 Listen mode keeps the signaling server bound in the background for the lifetime of the app, not just while the pairing UI is open. The listener scope is user-controlled from the Remote sidebar. This is covered in "Security and privacy" below.
 
+### Screen lock and system sleep
+
+While Remote Control is starting, listening, pairing, connected, or reconnecting, Canopy asks the
+operating system to prevent application suspension while still allowing the display to turn off.
+It also disables background throttling for the renderer that owns the WebRTC session. Locking the
+screen therefore keeps signaling, terminal output, and remote commands active.
+
+Stopping Remote Control or entering an error/idle state releases the power assertion and restores
+normal renderer throttling. Explicitly putting the computer to sleep, shutting it down, or closing
+a MacBook lid can still suspend networking and interrupt remote access; the app resumes its normal
+reconnect/listen flow after the operating system wakes.
+
 ### Starting a pairing session
 
 1. Open the Remote section in the left sidebar, click `Start listening`, then click `Pair device`. Select the adapter shown above the QR area; choosing an adapter generates the QR code for the mobile app.
@@ -98,6 +110,15 @@ The native mobile app (`mobile/src/components/terminal/terminal-view.tsx`) enabl
 When the mobile soft keyboard is open, the terminal renders its action toolbar inside the WebView instead of using a separate native action bar. Keeping the toolbar in the WebView preserves xterm focus and selected terminal text while the user taps toolbar controls. The toolbar includes Hide, Copy, Paste, Esc, Tab, Shift+Tab, Ctrl, Alt, Left, Right, Up, Down, Home, End, and Enter.
 
 Hide blurs xterm's hidden textarea to dismiss the soft keyboard. Copy sends only the current DOM terminal selection to the native app for clipboard writing; if there is no selection, the terminal shows a short transient notice and does not change the clipboard. Paste reads text from the native clipboard, sanitizes it with the mobile PTY paste wrapper, wraps it in bracketed-paste markers, and writes it to the active PTY without submitting Enter. The old native paste action bar below the terminal tabs is no longer shown.
+
+### Wide-screen mobile terminal
+
+On foldables and tablets with at least 600 dp of width and 480 dp of height, the terminal screen
+uses a split layout. A persistent project/worktree sidebar occupies 30% of the available width
+(clamped to 224–320 dp), while the terminal remains mounted in the flexible pane on the right.
+Selecting a worktree updates the current terminal route in place and switches the host workspace
+without rebuilding the terminal WebView. Phones and short landscape viewports keep the existing
+full-screen terminal navigation.
 
 ## Configuration
 

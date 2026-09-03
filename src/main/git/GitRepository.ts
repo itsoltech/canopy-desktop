@@ -7,6 +7,7 @@ import type { ParsedDiff, DiffFile } from './types'
 import { parseDiff } from './diffParser'
 import { fromExternalCall, errorMessage } from '../errors'
 import { hasRemoteName } from './remoteNames'
+import { runGitProcess } from './GitProcessQueue'
 
 function validateRef(name: string): Result<string, GitError> {
   if (name.startsWith('-')) return err({ _tag: 'InvalidRef', ref: name })
@@ -17,8 +18,16 @@ function gitErr(command: string, e: unknown): GitError {
   return { _tag: 'GitCommandFailed', command, message: errorMessage(e) }
 }
 
-function gitCall<T>(command: string, promise: Promise<T>): ResultAsync<T, GitError> {
-  return fromExternalCall(promise, (e) => gitErr(command, e))
+function readKey(repoRoot: string, operation: string, ...args: string[]): string {
+  return JSON.stringify([repoRoot, operation, ...args])
+}
+
+function gitCall<T>(
+  command: string,
+  operation: () => Promise<T>,
+  key: string | null = null,
+): ResultAsync<T, GitError> {
+  return fromExternalCall(runGitProcess(key, operation), (e) => gitErr(command, e))
 }
 
 // Cap untracked-file size to keep the main thread responsive when a large
@@ -116,10 +125,13 @@ export interface GitWorktreeInfo {
 export class GitRepository {
   static detect(dirPath: string): ResultAsync<GitInfo, GitError> {
     const git = simpleGit(dirPath)
-    return fromExternalCall(git.revparse(['--show-toplevel']), () => ({
-      _tag: 'NotAGitRepo' as const,
-      path: dirPath,
-    })).andThen((raw) => {
+    return fromExternalCall(
+      runGitProcess(readKey(dirPath, 'detect-root'), () => git.revparse(['--show-toplevel'])),
+      () => ({
+        _tag: 'NotAGitRepo' as const,
+        path: dirPath,
+      }),
+    ).andThen((raw) => {
       const repoRoot = raw.trim()
       // Sub-commands use orElse so failures (empty repo, no upstream, etc.)
       // don't cause detect() to report isGitRepo: false
@@ -160,7 +172,11 @@ export class GitRepository {
 
   static getBranch(repoRoot: string): ResultAsync<string | null, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('rev-parse', git.revparse(['--abbrev-ref', 'HEAD']))
+    return gitCall(
+      'rev-parse',
+      () => git.revparse(['--abbrev-ref', 'HEAD']),
+      readKey(repoRoot, 'branch'),
+    )
       .map((raw) => {
         const branch = raw.trim()
         return branch === 'HEAD' ? null : branch
@@ -179,29 +195,37 @@ export class GitRepository {
     // Guard the positional `remote` argument against leading-dash flag injection.
     return validateRef(remote).asyncAndThen(() => {
       const git = simpleGit(repoRoot)
-      return gitCall('remote get-url', git.raw(['remote', 'get-url', remote])).map((raw) =>
-        raw.trim(),
-      )
+      return gitCall(
+        'remote get-url',
+        () => git.raw(['remote', 'get-url', remote]),
+        readKey(repoRoot, 'remote-url', remote),
+      ).map((raw) => raw.trim())
     })
   }
 
   static hasRemote(repoRoot: string, remote = 'origin'): ResultAsync<boolean, GitError> {
     return validateRef(remote).asyncAndThen(() => {
       const git = simpleGit(repoRoot)
-      return gitCall('remote', git.raw(['remote'])).map((raw) => hasRemoteName(raw, remote))
+      return gitCall('remote', () => git.raw(['remote']), readKey(repoRoot, 'remotes')).map((raw) =>
+        hasRemoteName(raw, remote),
+      )
     })
   }
 
   static listWorktrees(repoRoot: string): ResultAsync<GitWorktreeInfo[], GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('worktree list', git.raw(['worktree', 'list', '--porcelain'])).map(
-      parseWorktreeOutput,
-    )
+    return gitCall(
+      'worktree list',
+      () => git.raw(['worktree', 'list', '--porcelain']),
+      readKey(repoRoot, 'worktree-list'),
+    ).map(parseWorktreeOutput)
   }
 
   static isDirty(repoRoot: string): ResultAsync<boolean, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('status', git.status()).map((status) => status.files.length > 0)
+    return gitCall('status', () => git.status(), readKey(repoRoot, 'status')).map(
+      (status) => status.files.length > 0,
+    )
   }
 
   static getAheadBehind(
@@ -210,7 +234,8 @@ export class GitRepository {
     const git = simpleGit(repoRoot)
     return gitCall(
       'rev-list',
-      git.raw(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}']),
+      () => git.raw(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}']),
+      readKey(repoRoot, 'ahead-behind'),
     ).map((raw) => {
       const parts = raw.trim().split(/\s+/)
       if (parts.length === 2) {
@@ -228,9 +253,11 @@ export class GitRepository {
     stageAll?: boolean,
   ): ResultAsync<GitCommitResult, GitError> {
     const git = simpleGit(repoRoot)
-    const doStage = stageAll ? gitCall('add', git.add('-A')) : okAsync<unknown, GitError>(undefined)
+    const doStage = stageAll
+      ? gitCall('add', () => git.add('-A'))
+      : okAsync<unknown, GitError>(undefined)
     return doStage.andThen(() =>
-      gitCall('commit', git.commit(message)).map((result) => ({
+      gitCall('commit', () => git.commit(message)).map((result) => ({
         hash: result.commit || '',
         summary: result.summary
           ? `${result.summary.changes} changed, ${result.summary.insertions} insertions, ${result.summary.deletions} deletions`
@@ -242,9 +269,11 @@ export class GitRepository {
   static push(repoRoot: string): ResultAsync<{ branch: string; remote: string }, GitError> {
     const git = simpleGit(repoRoot)
     return fromExternalCall(
-      git.revparse(['--abbrev-ref', '@{u}']).then(
-        () => git.push(),
-        () => git.push(['-u', 'origin', 'HEAD']),
+      runGitProcess(null, () =>
+        git.revparse(['--abbrev-ref', '@{u}']).then(
+          () => git.push(),
+          () => git.push(['-u', 'origin', 'HEAD']),
+        ),
       ),
       (e) => gitErr('push', e),
     ).map((result) => ({
@@ -255,52 +284,54 @@ export class GitRepository {
 
   static pull(repoRoot: string, rebase: boolean): ResultAsync<{ summary: string }, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('pull', git.pull(undefined, undefined, rebase ? { '--rebase': null } : {})).map(
-      (result) => {
-        const files = result.files?.length ?? 0
-        return { summary: `${files} file(s) updated` }
-      },
-    )
+    return gitCall('pull', () =>
+      git.pull(undefined, undefined, rebase ? { '--rebase': null } : {}),
+    ).map((result) => {
+      const files = result.files?.length ?? 0
+      return { summary: `${files} file(s) updated` }
+    })
   }
 
   static fetch(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('fetch', git.fetch()).map(() => undefined)
+    return gitCall('fetch', () => git.fetch()).map(() => undefined)
   }
 
   static fetchAll(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('fetch', git.fetch(['--all'])).map(() => undefined)
+    return gitCall('fetch', () => git.fetch(['--all'])).map(() => undefined)
   }
 
   static stash(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('stash', git.stash()).map(() => undefined)
+    return gitCall('stash', () => git.stash()).map(() => undefined)
   }
 
   static stashPop(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('stash pop', git.stash(['pop'])).map(() => undefined)
+    return gitCall('stash pop', () => git.stash(['pop'])).map(() => undefined)
   }
 
   static listBranches(repoRoot: string): ResultAsync<GitBranchList, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('branch', git.branch(['-a'])).map((result) => {
-      const local: string[] = []
-      const remote: string[] = []
+    return gitCall('branch', () => git.branch(['-a']), readKey(repoRoot, 'branches')).map(
+      (result) => {
+        const local: string[] = []
+        const remote: string[] = []
 
-      for (const [name, info] of Object.entries(result.branches)) {
-        if (name.startsWith('remotes/')) {
-          if (!name.endsWith('/HEAD')) {
-            remote.push(name.replace('remotes/', ''))
+        for (const [name, info] of Object.entries(result.branches)) {
+          if (name.startsWith('remotes/')) {
+            if (!name.endsWith('/HEAD')) {
+              remote.push(name.replace('remotes/', ''))
+            }
+          } else {
+            local.push(info.name)
           }
-        } else {
-          local.push(info.name)
         }
-      }
 
-      return { local, remote, current: result.current || null }
-    })
+        return { local, remote, current: result.current || null }
+      },
+    )
   }
 
   static createBranch(
@@ -312,7 +343,7 @@ export class GitRepository {
       .andThen(() => validateRef(baseBranch))
       .asyncAndThen(() => {
         const git = simpleGit(repoRoot)
-        return gitCall('branch', git.raw(['branch', name, baseBranch]))
+        return gitCall('branch', () => git.raw(['branch', name, baseBranch]))
       })
       .map(() => undefined)
   }
@@ -321,7 +352,7 @@ export class GitRepository {
     return validateRef(branch)
       .asyncAndThen(() => {
         const git = simpleGit(repoRoot)
-        return gitCall('checkout', git.checkout(branch))
+        return gitCall('checkout', () => git.checkout(branch))
       })
       .map(() => undefined)
   }
@@ -330,7 +361,7 @@ export class GitRepository {
     return validateRef(name)
       .asyncAndThen(() => {
         const git = simpleGit(repoRoot)
-        return gitCall('branch -d', git.branch([force ? '-D' : '-d', name]))
+        return gitCall('branch -d', () => git.branch([force ? '-D' : '-d', name]))
       })
       .map(() => undefined)
   }
@@ -344,31 +375,38 @@ export class GitRepository {
       .andThen(() => validateRef(name))
       .asyncAndThen(() => {
         const git = simpleGit(repoRoot)
-        return gitCall('push --delete', git.push(remote, name, { '--delete': null }))
+        return gitCall('push --delete', () => git.push(remote, name, { '--delete': null }))
       })
       .map(() => undefined)
   }
 
   static getPushInfo(repoRoot: string): ResultAsync<GitPushInfo | null, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('rev-parse', git.revparse(['--abbrev-ref', 'HEAD'])).andThen((raw) => {
+    return gitCall(
+      'rev-parse',
+      () => git.revparse(['--abbrev-ref', 'HEAD']),
+      readKey(repoRoot, 'push-info-branch'),
+    ).andThen((raw) => {
       const branch = raw.trim()
       if (branch === 'HEAD') return okAsync<GitPushInfo | null, GitError>(null)
 
-      return gitCall('config', git.raw(['config', `branch.${branch}.remote`])).andThen(
-        (remoteRaw) => {
-          const remote = remoteRaw.trim()
-          if (!remote) return okAsync<GitPushInfo | null, GitError>(null)
+      return gitCall(
+        'config',
+        () => git.raw(['config', `branch.${branch}.remote`]),
+        readKey(repoRoot, 'push-info-remote', branch),
+      ).andThen((remoteRaw) => {
+        const remote = remoteRaw.trim()
+        if (!remote) return okAsync<GitPushInfo | null, GitError>(null)
 
-          return gitCall(
-            'rev-list',
-            git.raw(['rev-list', '--count', `${remote}/${branch}..HEAD`]),
-          ).map((countRaw) => {
-            const commitCount = parseInt(countRaw.trim(), 10) || 0
-            return { branch, remote, commitCount }
-          })
-        },
-      )
+        return gitCall(
+          'rev-list',
+          () => git.raw(['rev-list', '--count', `${remote}/${branch}..HEAD`]),
+          readKey(repoRoot, 'push-info-count', remote, branch),
+        ).map((countRaw) => {
+          const commitCount = parseInt(countRaw.trim(), 10) || 0
+          return { branch, remote, commitCount }
+        })
+      })
     })
   }
 
@@ -378,7 +416,11 @@ export class GitRepository {
 
   static getMergedBranches(repoRoot: string): ResultAsync<string[], GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('branch --merged', git.raw(['branch', '--merged'])).map((raw) =>
+    return gitCall(
+      'branch --merged',
+      () => git.raw(['branch', '--merged']),
+      readKey(repoRoot, 'merged-branches'),
+    ).map((raw) =>
       raw
         .split('\n')
         .map((line) => line.replace(/^\*?\s+/, '').trim())
@@ -398,7 +440,9 @@ export class GitRepository {
       .andThen(() => validateRef(path))
       .asyncAndThen(() => {
         const git = simpleGit(repoRoot)
-        return gitCall('worktree add', git.raw(['worktree', 'add', '-b', branch, path, baseBranch]))
+        return gitCall('worktree add', () =>
+          git.raw(['worktree', 'add', '-b', branch, path, baseBranch]),
+        )
       })
       .map(() => undefined)
   }
@@ -416,12 +460,12 @@ export class GitRepository {
         const git = simpleGit(repoRoot)
 
         if (!createLocalTracking) {
-          return gitCall('worktree add', git.raw(['worktree', 'add', path, branch]))
+          return gitCall('worktree add', () => git.raw(['worktree', 'add', path, branch]))
         }
 
         const slash = branch.indexOf('/')
         if (slash < 0) {
-          return gitCall('worktree add', git.raw(['worktree', 'add', path, branch]))
+          return gitCall('worktree add', () => git.raw(['worktree', 'add', path, branch]))
         }
         const localName = branch.slice(slash + 1)
 
@@ -431,12 +475,15 @@ export class GitRepository {
         return validateRef(localName).asyncAndThen(() =>
           gitCall(
             'branch list',
-            git.raw(['branch', '--list', '--format=%(refname:short)', localName]),
+            () => git.raw(['branch', '--list', '--format=%(refname:short)', localName]),
+            readKey(repoRoot, 'branch-exists', localName),
           ).andThen((output) => {
             const exists = output.split('\n').some((line) => line.trim() === localName)
             return exists
-              ? gitCall('worktree add', git.raw(['worktree', 'add', path, localName]))
-              : gitCall('worktree add', git.raw(['worktree', 'add', '-b', localName, path, branch]))
+              ? gitCall('worktree add', () => git.raw(['worktree', 'add', path, localName]))
+              : gitCall('worktree add', () =>
+                  git.raw(['worktree', 'add', '-b', localName, path, branch]),
+                )
           }),
         )
       })
@@ -453,7 +500,7 @@ export class GitRepository {
       const git = simpleGit(repoRoot)
       const args = ['worktree', 'remove', path]
       if (force) args.push('--force')
-      return gitCall('worktree remove', git.raw(args)).map(() => undefined)
+      return gitCall('worktree remove', () => git.raw(args)).map(() => undefined)
     })
   }
 
@@ -466,7 +513,11 @@ export class GitRepository {
    */
   static hasInitializedSubmodules(worktreePath: string): ResultAsync<boolean, GitError> {
     const git = simpleGit(worktreePath)
-    return gitCall('submodule status', git.raw(['submodule', 'status'])).map((raw) =>
+    return gitCall(
+      'submodule status',
+      () => git.raw(['submodule', 'status']),
+      readKey(worktreePath, 'submodule-status'),
+    ).map((raw) =>
       raw.split('\n').some((line) => line.trim().length > 0 && !line.trimStart().startsWith('-')),
     )
   }
@@ -474,7 +525,7 @@ export class GitRepository {
   /** Drop stale worktree registrations whose directories are gone. */
   static worktreePrune(repoRoot: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('worktree prune', git.raw(['worktree', 'prune'])).map(() => undefined)
+    return gitCall('worktree prune', () => git.raw(['worktree', 'prune'])).map(() => undefined)
   }
 
   static branchExists(repoRoot: string, name: string): ResultAsync<boolean, GitError> {
@@ -482,7 +533,8 @@ export class GitRepository {
       const git = simpleGit(repoRoot)
       return gitCall(
         'branch list',
-        git.raw(['branch', '--list', '--format=%(refname:short)', name]),
+        () => git.raw(['branch', '--list', '--format=%(refname:short)', name]),
+        readKey(repoRoot, 'branch-exists', name),
       ).map((output) => output.split('\n').some((line) => line.trim() === name))
     })
   }
@@ -490,9 +542,11 @@ export class GitRepository {
   static getUnmergedCommits(repoRoot: string, branch: string): ResultAsync<string[], GitError> {
     return validateRef(branch).asyncAndThen(() => {
       const git = simpleGit(repoRoot)
-      return gitCall('log', git.raw(['log', branch, '--not', '--remotes', '--oneline'])).map(
-        (raw) => raw.trim().split('\n').filter(Boolean),
-      )
+      return gitCall(
+        'log',
+        () => git.raw(['log', branch, '--not', '--remotes', '--oneline']),
+        readKey(repoRoot, 'unmerged-commits', branch),
+      ).map((raw) => raw.trim().split('\n').filter(Boolean))
     })
   }
 
@@ -500,31 +554,41 @@ export class GitRepository {
     repoRoot: string,
     worktreePath?: string,
   ): ResultAsync<string, GitError> {
-    const git = simpleGit(worktreePath ?? repoRoot)
-    return gitCall('status', git.raw(['status', '--porcelain']))
+    const target = worktreePath ?? repoRoot
+    const git = simpleGit(target)
+    return gitCall(
+      'status',
+      () => git.raw(['status', '--porcelain']),
+      readKey(target, 'status-porcelain'),
+    )
   }
 
   static getDiff(repoRoot: string): ResultAsync<string, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('diff', git.diff(['--cached'])).andThen((staged) => {
-      if (staged.trim()) return okAsync<string, GitError>(staged)
-      return gitCall('diff', git.diff())
-    })
+    return gitCall('diff', () => git.diff(['--cached']), readKey(repoRoot, 'diff-cached')).andThen(
+      (staged) => {
+        if (staged.trim()) return okAsync<string, GitError>(staged)
+        return gitCall('diff', () => git.diff(), readKey(repoRoot, 'diff-working'))
+      },
+    )
   }
 
   static getDiffParsed(repoRoot: string): ResultAsync<ParsedDiff, GitError> {
     const git = simpleGit(repoRoot)
 
-    const trackedDiff = gitCall('diff', git.diff(['HEAD']))
+    const trackedDiff = gitCall('diff', () => git.diff(['HEAD']), readKey(repoRoot, 'diff-head'))
       .orElse((e) => {
-        if (e._tag === 'GitCommandFailed') return gitCall('diff', git.diff())
+        if (e._tag === 'GitCommandFailed') {
+          return gitCall('diff', () => git.diff(), readKey(repoRoot, 'diff-working'))
+        }
         return okAsync<string, GitError>('')
       })
       .map((raw) => parseDiff(raw))
 
     const untrackedFiles = gitCall(
       'ls-files',
-      git.raw(['ls-files', '--others', '--exclude-standard']),
+      () => git.raw(['ls-files', '--others', '--exclude-standard']),
+      readKey(repoRoot, 'untracked-files'),
     )
       .map((raw) => raw.trim().split('\n').filter(Boolean))
       .orElse(() => okAsync<string[], GitError>([]))
@@ -546,10 +610,18 @@ export class GitRepository {
 
   static getFileDiff(repoRoot: string, filePath: string): ResultAsync<ParsedDiff, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('diff', git.diff(['HEAD', '--', filePath]))
+    return gitCall(
+      'diff',
+      () => git.diff(['HEAD', '--', filePath]),
+      readKey(repoRoot, 'file-diff-head', filePath),
+    )
       .orElse((e) => {
         if (e._tag === 'GitCommandFailed') {
-          return gitCall('diff', git.diff(['--', filePath]))
+          return gitCall(
+            'diff',
+            () => git.diff(['--', filePath]),
+            readKey(repoRoot, 'file-diff-working', filePath),
+          )
         }
         return okAsync<string, GitError>('')
       })
@@ -565,12 +637,12 @@ export class GitRepository {
     const git = simpleGit(repoRoot)
     // Pass the path after `--` so a filename beginning with `-` can't be
     // parsed as a git option, mirroring revertFile's `['--', filePath]`.
-    return gitCall('add', git.raw(['add', '--', filePath])).map(() => undefined)
+    return gitCall('add', () => git.raw(['add', '--', filePath])).map(() => undefined)
   }
 
   static revertFile(repoRoot: string, filePath: string): ResultAsync<void, GitError> {
     const git = simpleGit(repoRoot)
-    return gitCall('checkout', git.checkout(['--', filePath])).map(() => undefined)
+    return gitCall('checkout', () => git.checkout(['--', filePath])).map(() => undefined)
   }
 }
 
