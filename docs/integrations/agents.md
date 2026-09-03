@@ -502,6 +502,70 @@ Agent Inspector and as compaction arriving sooner. What the new file contains is
 the release notes, and the diff was not reachable this run — see the blocker note in
 `.github/prompts/claude-code-compat.md`.
 
+**2.1.259's concurrent-`~/.claude.json` fix lands on the way Canopy is normally used, not on an edge
+case.** Before this release, concurrent Claude Code sessions silently reverted each other's writes to
+`~/.claude.json`: workspace trust reset and MCP/project state was lost. Canopy produces that
+concurrency by design. Each pane spawns its own `claude` process against its own worktree, and a
+user working across several worktrees has several running at once; separately,
+`commitMessageGenerator.ts` spawns a further process through the SDK's `query()`, so generating a
+commit message while any pane is live is two writers on one file. The expected pre-2.1.259 symptom
+is a worktree asking to be trusted again after it had already been trusted — which reads as a Canopy
+bug, because the trust prompt appears inside a Canopy pane. No code change: the per-session state
+Canopy owns is the `--settings` file it writes per session at
+`{userData}/canopy/agent-hooks/session-{uuid}.json`, and that was never the contended file. Panes are
+fixed by the user updating their own CLI; the SDK pin only moves the vendored fallback described
+above.
+
+**`--permission-prompts none` is new and deliberately not adopted.** It makes anything that would
+prompt deny automatically, while the active permission mode keeps deciding, for unattended headless
+hosts. Panes are the opposite of that: Canopy's whole permission path assumes a human answers. The
+adapter maps `PermissionRequest` to `waitingPermission` for the notch, raises an OS notification
+through `formatNotification`, and drives the `permission` badge that is never downgraded to `unread`
+at either tab or worktree level. Passing this flag would strand that machinery — the user would see
+silent tool failures instead of a prompt. It is recorded here so a later pass does not read it as an
+unadopted feature. The same reasoning rules it out of the `Permission mode` profile field, which
+selects `--permission-mode` values (`plan`, `auto`, `acceptEdits`, `bypassPermissions`); this flag is
+orthogonal to those and would deny-all rather than allow-all.
+
+**The `Bash` `Read()` deny-rule fix matters to profiles that lock a pane down, and Canopy has such a
+seam.** 2.1.259 closes several ways a denied file could still be read: as an option value
+(`--ignore-revs-file=.env`, `-f.env`, `@file`), as a `git diff`/`git grep` file operand, or through a
+`cd DIR && cat FILE` compound; `grep -r`/`cp -r` over a directory holding a denied file now asks.
+Canopy does not write permission rules itself, but a profile's settings JSON override is merged into
+the per-session settings file by `setupSettings`, so a user who denied `Read(.env)` there was getting
+less than it looked like. Nothing to change in this repo — `.claude/settings.json` defines hooks and
+no `Read()` deny rules — but the guarantee that field offers is stronger from 2.1.259 on.
+
+**`managedMcpServers` needs nothing from Canopy and is unlikely to be visible in it.** The new
+managed setting lets an organization provision HTTP/SSE MCP servers to every user, using the
+`.mcp.json` entry shape, with entries naming a command to run skipped. It is an
+administrator-provisioned setting rather than anything a session passes, so it would reach panes on a
+managed machine without Canopy participating; Canopy neither reads nor writes MCP configuration
+anywhere, which the codebase scan confirms. The related `--json` output for `claude plugin validate`
+and the `glab mr` tool-summary recognition are both surfaces Canopy does not consume — it reads hook
+events over its local HTTP server, never the CLI's rendered output.
+
+**Prompt growth is system-side for the third consecutive release; tool descriptions have still not
+moved.** Prompt tokens are up 22.3% (+5,031) with one new prompt file (13 → 14), and the mix goes
+from 58.1%/41.9% system/tools to 65.7%/34.3%. Running the same arithmetic as the 2.1.258 note puts
+the total at ~22.6k before and ~27.6k after, which holds tools flat at ~9.46k against ~9.45k — a
+difference of tens of tokens, inside the rounding the 0.1% percentages carry, so flat rather than a
+finding — while system rises ~13.1k → ~18.1k. Across 2.1.257, 2.1.258 and 2.1.259 that is +13,926
+tokens, all of it system text: system prompt has gone ~4.2k → ~18.1k while every tool description
+stayed at ~9.45k. The consequence for Canopy is unchanged and still splits the same way. Flat tool
+descriptions mean nothing is asked of the code keyed to tool names and shapes (`summarizeToolInput`,
+the tool views, the `PreToolUse`/`PostToolUse` normalization). The system growth is overhead: ~14k
+tokens off the usable context of every pane across three releases, visible as a higher starting
+context percentage in the Agent Inspector and as compaction arriving sooner.
+
+**25 of 2.1.259's CLI changelog entries were not readable this run.** The release notes truncate at
+"… +25 more CLI changelog entries", and both routes to the rest were denied — `gh api` against the
+changelog repo by the allowlist defect described in `.github/prompts/claude-code-compat.md`, and
+`WebFetch` on its own. The items above are the visible entries only. Nothing in them required an
+adapter change, but that is not the same as having reviewed the release, and in particular a new hook
+event in the hidden entries would not have been seen: `CLAUDE_HOOK_EVENTS` is a hand-maintained list
+of 18 names, so an event Claude Code gains is silently not subscribed to rather than failing loudly.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
