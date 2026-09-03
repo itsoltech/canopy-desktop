@@ -38,6 +38,18 @@ Listen mode lets a previously trusted device reconnect to Canopy after a desktop
 
 Listen mode keeps the signaling server bound in the background for the lifetime of the app, not just while the pairing UI is open. The listener scope is user-controlled from the Remote sidebar. This is covered in "Security and privacy" below.
 
+### Screen lock and system sleep
+
+While Remote Control is starting, listening, pairing, connected, or reconnecting, Canopy asks the
+operating system to prevent application suspension while still allowing the display to turn off.
+It also disables background throttling for the renderer that owns the WebRTC session. Locking the
+screen therefore keeps signaling, terminal output, and remote commands active.
+
+Stopping Remote Control or entering an error/idle state releases the power assertion and restores
+normal renderer throttling. Explicitly putting the computer to sleep, shutting it down, or closing
+a MacBook lid can still suspend networking and interrupt remote access; the app resumes its normal
+reconnect/listen flow after the operating system wakes.
+
 ### Starting a pairing session
 
 1. Open the Remote section in the left sidebar, click `Start listening`, then click `Pair device`. Select the adapter shown above the QR area; choosing an adapter generates the QR code for the mobile app.

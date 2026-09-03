@@ -144,7 +144,7 @@
   <PrefsSection title="Remote control">
     <PrefsRow
       label="Enable remote control"
-      help="Shows the Remote sidebar section, lets you pair the mobile app, and lets trusted devices reconnect on your local network or via VPN."
+      help="Shows the Remote sidebar section and lets trusted devices reconnect over LAN or VPN. While listening or connected, Canopy keeps the computer awake but allows the display to turn off."
       search="remote control enable signaling pair phone tablet"
       badge={{ text: 'Beta', tone: 'warning' }}
     >
