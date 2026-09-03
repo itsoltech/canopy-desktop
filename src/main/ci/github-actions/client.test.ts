@@ -36,6 +36,21 @@ describe('GitHubActionsClient', () => {
     })
   })
 
+  it('returns a structured error when a workflow collection is not an array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => jsonResponse({ workflows: {} })),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'invalid-workflows', 'token')
+
+    const result = await client.listWorkflows()
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'GitHub returned an invalid response shape',
+    })
+  })
+
   it('loads a selected-ref workflow with its blob SHA and decoded content', async () => {
     const source = 'on: workflow_dispatch\n'
     vi.stubGlobal(
@@ -88,6 +103,30 @@ describe('GitHubActionsClient', () => {
     })
   })
 
+  it('rejects non-string authenticated-user metadata', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => jsonResponse({ login: 42 })),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'invalid-user', 'token')
+
+    const result = await client.verifyAuthentication()
+
+    expect(result.isErr() && result.error._tag).toBe('CiApiError')
+  })
+
+  it('rejects non-string repository metadata', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => jsonResponse({ full_name: 42, default_branch: true })),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'invalid-repository', 'token')
+
+    const result = await client.getRepository()
+
+    expect(result.isErr() && result.error._tag).toBe('CiApiError')
+  })
+
   it.each([401, 403])('marks an authenticated-user %s as an identity rejection', async (status) => {
     vi.stubGlobal(
       'fetch',
@@ -123,6 +162,21 @@ describe('GitHubActionsClient', () => {
     expect(fetchMock.mock.calls[4]?.[0]).toContain('/branches?per_page=100&page=5')
   })
 
+  it('returns a structured error when a refs response is not an array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => jsonResponse({ name: 'not-an-array' })),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'invalid-refs', 'token')
+
+    const result = await client.listBranches()
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'GitHub returned an invalid response shape',
+    })
+  })
+
   it('loads repository runs in bounded pages with a branch query', async () => {
     const fetchMock = vi.fn<typeof fetch>(async (url) => {
       const page = new URL(String(url)).searchParams.get('page')
@@ -143,6 +197,35 @@ describe('GitHubActionsClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock.mock.calls[0]?.[0]).toContain('/actions/runs?')
     expect(fetchMock.mock.calls[0]?.[0]).toContain('branch=feat%2Fx')
+  })
+
+  it('returns a structured error when a workflow-run collection is not an array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => jsonResponse({ total_count: 1, workflow_runs: {} })),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'invalid-runs', 'token')
+
+    const result = await client.listRepositoryRuns()
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'GitHub returned an invalid response shape',
+    })
+  })
+
+  it('rejects invalid fields inside a workflow-run collection', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        jsonResponse({ total_count: 1, workflow_runs: [{ id: 1, path: {} }] }),
+      ),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'invalid-run-fields', 'token')
+
+    const result = await client.listRepositoryRuns()
+
+    expect(result.isErr() && result.error._tag).toBe('CiApiError')
   })
 
   it('stops repository run pagination at five full pages', async () => {
@@ -265,6 +348,31 @@ describe('GitHubActionsClient', () => {
     const client = new GitHubActionsClient('itsoltech', 'canopy-desktop', 'token')
 
     const result = await client.dispatchWorkflow(42, 'next', { dry_run: true })
+
+    expect(result.isErr() && result.error._tag).toBe('CiDispatchAmbiguous')
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('treats invalid dispatch URL fields as ambiguous', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        jsonResponse({ workflow_run_id: 123, run_url: 42, html_url: true }),
+      ),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'invalid-dispatch', 'token')
+
+    const result = await client.dispatchWorkflow(42, 'next', {})
+
+    expect(result.isErr() && result.error._tag).toBe('CiDispatchAmbiguous')
+  })
+
+  it('treats a server failure after dispatch starts as ambiguous and never retries', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('bad gateway', { status: 502 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new GitHubActionsClient('itsoltech', 'dispatch-server-failure', 'token')
+
+    const result = await client.dispatchWorkflow(42, 'next', {})
 
     expect(result.isErr() && result.error._tag).toBe('CiDispatchAmbiguous')
     expect(fetchMock).toHaveBeenCalledOnce()

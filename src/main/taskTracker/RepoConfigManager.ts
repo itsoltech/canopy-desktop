@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { access, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
+import { access, mkdir, open, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { setTimeout as delay } from 'timers/promises'
 import { ok, err, type ResultAsync } from 'neverthrow'
@@ -15,6 +15,30 @@ const CONFIG_TEMP_PREFIX = `.${CONFIG_FILE}.`
 const CONFIG_TEMP_SUFFIX = '.tmp'
 const STALE_CONFIG_TEMP_AGE_MS = 24 * 60 * 60 * 1_000
 const RENAME_RETRY_DELAYS_MS = [25, 50, 100, 200] as const
+const MAX_CONFIG_BYTES = 1024 * 1024
+
+class ConfigTooLargeError extends Error {}
+
+async function readBoundedConfig(path: string): Promise<string> {
+  const handle = await open(path, 'r')
+  try {
+    // Read no more than one byte past the limit. A pre-read stat alone would leave a
+    // replacement/growing-file race and could still allocate an unbounded buffer.
+    const buffer = Buffer.alloc(MAX_CONFIG_BYTES + 1)
+    let offset = 0
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+    }
+    if (offset > MAX_CONFIG_BYTES) {
+      throw new ConfigTooLargeError('Configuration file exceeds the 1 MiB size limit')
+    }
+    return buffer.toString('utf8', 0, offset)
+  } finally {
+    await handle.close()
+  }
+}
 
 function configDir(repoRoot: string): string {
   return join(repoRoot, CONFIG_DIR)
@@ -79,10 +103,18 @@ export class RepoConfigManager {
   }
 
   load(repoRoot: string): ResultAsync<RepoConfig, TaskTrackerError> {
-    return fromExternalCall(readFile(configPath(repoRoot), 'utf-8'), () => ({
-      _tag: 'ConfigNotFound' as const,
-      repoRoot,
-    })).andThen((raw) => {
+    return fromExternalCall(readBoundedConfig(configPath(repoRoot)), (error) =>
+      error instanceof ConfigTooLargeError
+        ? {
+            _tag: 'ConfigParseError' as const,
+            repoRoot,
+            reason: error.message,
+          }
+        : {
+            _tag: 'ConfigNotFound' as const,
+            repoRoot,
+          },
+    ).andThen((raw) => {
       try {
         const parsed = JSON.parse(raw) as Record<string, unknown>
         if (parsed.version !== CURRENT_VERSION) {

@@ -229,6 +229,62 @@ describe('KeychainTokenStore capability facade', () => {
     expect(store.deleteCredentials('jira', baseUrl, 'tracker:jira-main').removed).toBe(true)
   })
 
+  it('rolls back auto-binding and shared-binding cleanup when the second write fails', () => {
+    const baseUrl = 'https://itsol.atlassian.net'
+    const preferences = fakePreferences({
+      [`taskTracker.token.jira:${baseUrl}`]: JSON.stringify({ token: 'legacy-token' }),
+    })
+    const store = new KeychainTokenStore(preferences)
+    const originalBindings = store.listCredentials()[0].bindings
+    const persist = preferences.set.bind(preferences)
+    let bindingWrites = 0
+    const setSpy = vi.spyOn(preferences, 'set').mockImplementation((key, value) => {
+      if (key === 'credential.bindings.v2' && ++bindingWrites === 2) {
+        throw new Error('cleanup write failed')
+      }
+      persist(key, value)
+    })
+
+    expect(() => store.getCredentials('jira', baseUrl, 'tracker:jira-main')).toThrow(
+      'cleanup write failed',
+    )
+    expect(store.listCredentials()[0].bindings).toEqual(originalBindings)
+
+    setSpy.mockRestore()
+    expect(store.getCredentials('jira', baseUrl, 'tracker:jira-main')?.token).toBe('legacy-token')
+    expect(store.listCredentials()[0].bindings).toEqual(['tracker:jira-main'])
+  })
+
+  it('rolls back the complete multi-binding stable-token migration and retries cleanly', () => {
+    const baseUrl = 'https://itsol.atlassian.net'
+    const legacyKey = `taskTracker.token.jira:${baseUrl}`
+    const preferences = fakePreferences({
+      'taskTracker.connections': JSON.stringify([
+        { id: 'jira-a', provider: 'jira', name: 'A', baseUrl, projectKey: 'A' },
+        { id: 'jira-b', provider: 'jira', name: 'B', baseUrl, projectKey: 'B' },
+      ]),
+      [legacyKey]: JSON.stringify({ token: 'legacy-token' }),
+    })
+    const persist = preferences.set.bind(preferences)
+    let bindingWrites = 0
+    const setSpy = vi.spyOn(preferences, 'set').mockImplementation((key, value) => {
+      if (key === 'credential.bindings.v2' && ++bindingWrites === 2) {
+        throw new Error('second binding write failed')
+      }
+      persist(key, value)
+    })
+
+    expect(() => new KeychainTokenStore(preferences)).toThrow('second binding write failed')
+    expect(preferences.get('credential.registry.v2')).toBeNull()
+    expect(preferences.keysWithPrefix('credential.secret.v2.')).toEqual([])
+    expect(preferences.get(legacyKey)).not.toBeNull()
+
+    setSpy.mockRestore()
+    const retried = new KeychainTokenStore(preferences)
+    expect(retried.listCredentials()[0].bindings).toEqual(['tracker:jira-a', 'tracker:jira-b'])
+    expect(preferences.get(legacyKey)).toBeNull()
+  })
+
   it('deletes a credential after pruning its only orphaned tracker binding', () => {
     const baseUrl = 'https://itsol.atlassian.net'
     const store = new KeychainTokenStore(fakePreferences())

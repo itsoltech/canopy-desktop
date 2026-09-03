@@ -157,6 +157,17 @@ describe('fetchActivity', () => {
 })
 
 describe('testConnection', () => {
+  it('requires explicit TeamCity server identity metadata', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })))
+
+    const result = await testConnection('https://tc.example.com', 'token')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'TeamCity returned an invalid response shape',
+    })
+  })
+
   it('rejects an empty successful response instead of treating it as a connection success', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })))
 
@@ -176,6 +187,25 @@ describe('testConnection', () => {
     expect(result.isErr() && result.error).toMatchObject({
       _tag: 'CiApiError',
       message: 'TeamCity returned malformed JSON',
+    })
+  })
+
+  it('returns a structured error when a successful build-type response is not an array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ buildType: {} }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    )
+
+    const result = await fetchBuildTypes('https://tc.example.com', 'token')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'CiApiError',
+      message: 'TeamCity returned an invalid response shape',
     })
   })
 

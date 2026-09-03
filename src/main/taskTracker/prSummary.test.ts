@@ -68,6 +68,47 @@ describe('loadPullRequestSummary', () => {
     ])
   })
 
+  it('coalesces identical in-flight commands in the main process', async () => {
+    const command = Promise.withResolvers<{ stdout: string }>()
+    const run = vi.fn().mockReturnValue(command.promise)
+
+    const first = loadPullRequestSummary('C:\\repo', 'feature/large-pr', 0, run)
+    const duplicate = loadPullRequestSummary('C:/repo', 'feature/large-pr', 0, run)
+
+    expect(duplicate).toBe(first)
+    expect(run).toHaveBeenCalledOnce()
+
+    command.resolve({
+      stdout: JSON.stringify([{ number: 344, state: 'OPEN', isDraft: false }]),
+    })
+    const result = await first
+    expect(result.isOk() && result.value).toMatchObject({ number: 344 })
+  })
+
+  it('runs a newer generation only after the previous command exits', async () => {
+    const firstCommand = Promise.withResolvers<{ stdout: string }>()
+    const run = vi
+      .fn()
+      .mockReturnValueOnce(firstCommand.promise)
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify([{ number: 344, state: 'MERGED', isDraft: false }]),
+      })
+
+    const stale = loadPullRequestSummary('C:/repo', 'feature/large-pr', 0, run)
+    const refreshed = loadPullRequestSummary('C:/repo', 'feature/large-pr', 1, run)
+
+    expect(run).toHaveBeenCalledOnce()
+    firstCommand.resolve({
+      stdout: JSON.stringify([{ number: 344, state: 'OPEN', isDraft: false }]),
+    })
+
+    const staleResult = await stale
+    const refreshedResult = await refreshed
+    expect(staleResult.isOk() && staleResult.value).toMatchObject({ state: 'OPEN' })
+    expect(refreshedResult.isOk() && refreshedResult.value).toMatchObject({ state: 'MERGED' })
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps Create PR available when only the decorative closed lookup fails', async () => {
     const run = vi
       .fn()

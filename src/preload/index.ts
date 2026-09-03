@@ -1676,10 +1676,16 @@ const api = {
   taskTrackerFindPR: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,
 
-  taskTrackerPRSummary: (repoRoot: string, branch: string, forceRemoteProbe = false) =>
+  taskTrackerPRSummary: (
+    repoRoot: string,
+    branch: string,
+    generation: number,
+    forceRemoteProbe = false,
+  ) =>
     ipcRenderer.invoke('taskTracker:prSummary', {
       repoRoot,
       branch,
+      generation,
       forceRemoteProbe,
     }) as Promise<{
       number: number

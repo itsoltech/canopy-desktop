@@ -2,7 +2,6 @@
   import { onMount } from 'svelte'
   import { LoaderCircle, Server, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
-  import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
   import ProjectCiModal from './ProjectCiModal.svelte'
   import GitHubActionsCiConfigurator from './GitHubActionsCiConfigurator.svelte'
@@ -10,7 +9,7 @@
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import type { CiCredentialStatus, CiRepoConfigInfo } from '../../lib/ci/types'
 
-  let { mode }: { mode: 'configuration' | 'credentials' } = $props()
+  let { repoRoot, mode }: { repoRoot: string; mode: 'configuration' | 'credentials' } = $props()
 
   interface InvalidCiConfig {
     scope: 'file' | 'block'
@@ -18,7 +17,6 @@
     provider?: 'teamcity' | 'github-actions'
   }
 
-  let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let provider = $state<'teamcity' | 'github-actions' | ''>('')
   let config = $state<CiRepoConfigInfo | null>(null)
   let credential = $state<CiCredentialStatus | undefined>()
@@ -65,12 +63,14 @@
   <CiCredentialModal {repoRoot} {config} />
 {:else if provider === 'teamcity'}
   <ProjectCiModal
+    {repoRoot}
     initialConfig={config?.provider === 'teamcity' ? config : null}
     initialCredential={credential}
     initialInvalid={invalid}
   />
 {:else if provider === 'github-actions'}
   <GitHubActionsCiConfigurator
+    {repoRoot}
     initialConfig={config?.provider === 'github-actions' ? config : null}
     initialInvalid={invalid}
   />

@@ -192,7 +192,7 @@
           <button
             type="button"
             class="shrink-0 self-center px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-            onclick={() => showProjectCi('credentials')}
+            onclick={() => showProjectCi(repoRoot, 'credentials')}
           >
             Update token
           </button>

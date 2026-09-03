@@ -24,6 +24,85 @@ const BUILD_FIELDS =
 const TEAMCITY_LOCATOR_STRUCTURAL_CHARS = /[(),:]/u
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
+type JsonRecord = Record<string, unknown>
+type RuntimeGuard = (value: unknown) => boolean
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasOptionalString(record: JsonRecord, key: string): boolean {
+  return record[key] === undefined || typeof record[key] === 'string'
+}
+
+function hasOptionalBoolean(record: JsonRecord, key: string): boolean {
+  return record[key] === undefined || typeof record[key] === 'boolean'
+}
+
+function hasOptionalNumber(record: JsonRecord, key: string): boolean {
+  return record[key] === undefined || typeof record[key] === 'number'
+}
+
+function isCollection(value: unknown, key: string, itemGuard: RuntimeGuard): boolean {
+  if (!isRecord(value)) return false
+  const items = value[key]
+  return items === undefined || (Array.isArray(items) && items.every(itemGuard))
+}
+
+function isRawBuild(value: unknown): value is RawBuild {
+  if (!isRecord(value) || typeof value.id !== 'number') return false
+  if (
+    !hasOptionalString(value, 'number') ||
+    !hasOptionalString(value, 'state') ||
+    !hasOptionalString(value, 'status') ||
+    !hasOptionalString(value, 'statusText') ||
+    !hasOptionalNumber(value, 'percentageComplete') ||
+    !hasOptionalString(value, 'webUrl') ||
+    !hasOptionalString(value, 'branchName') ||
+    !hasOptionalString(value, 'queuedDate') ||
+    !hasOptionalString(value, 'startDate') ||
+    !hasOptionalString(value, 'finishDate')
+  ) {
+    return false
+  }
+  return (
+    value.buildType === undefined ||
+    (isRecord(value.buildType) && hasOptionalString(value.buildType, 'id'))
+  )
+}
+
+function isBuildCollection(value: unknown): boolean {
+  return isCollection(value, 'build', isRawBuild)
+}
+
+function isBuildType(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOptionalString(value, 'id') &&
+    hasOptionalString(value, 'name') &&
+    hasOptionalString(value, 'projectName')
+  )
+}
+
+function isBranch(value: unknown): boolean {
+  return isRecord(value) && hasOptionalString(value, 'name') && hasOptionalBoolean(value, 'default')
+}
+
+function isParameter(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.name !== 'string' || !hasOptionalString(value, 'value')) {
+    return false
+  }
+  return (
+    value.type === undefined || (isRecord(value.type) && hasOptionalString(value.type, 'rawValue'))
+  )
+}
+
+function decodeTcResponse<T>(value: unknown, guard: RuntimeGuard): ResultAsync<T, CiError> {
+  return guard(value)
+    ? okAsync(value as T)
+    : errAsync(apiError(0, 'TeamCity returned an invalid response shape'))
+}
+
 /** Refs are parenthesized in TeamCity locators; structural characters must not reach the sink. */
 export function isTeamCityLocatorSafeRef(ref: string): boolean {
   return ref.length > 0 && ref.length <= 255 && !TEAMCITY_LOCATOR_STRUCTURAL_CHARS.test(ref)
@@ -186,7 +265,14 @@ function tcFetch<T>(
 
 /** Cheap authenticated probe used by the Settings connection test. */
 export function testConnection(baseUrl: string, token: string): ResultAsync<void, CiError> {
-  return tcFetch<{ version?: string }>(baseUrl, token, '/app/rest/server').map(() => undefined)
+  return tcFetch<unknown>(baseUrl, token, '/app/rest/server')
+    .andThen((response) =>
+      decodeTcResponse<JsonRecord>(
+        response,
+        (value) => isRecord(value) && typeof value.version === 'string' && value.version.length > 0,
+      ),
+    )
+    .map(() => undefined)
 }
 
 /** Newest build (queued/running included) of a configuration on a branch, or null. */
@@ -197,11 +283,15 @@ export function fetchBuildForBranch(
   branch: string,
 ): ResultAsync<CiBuildStatus | null, CiError> {
   const locator = encodeURIComponent(buildBranchLocator(buildTypeId, branch))
-  return tcFetch<{ count?: number; build?: RawBuild[] }>(
+  return tcFetch<unknown>(
     baseUrl,
     token,
     `/app/rest/builds?locator=${locator}&fields=count,build(${BUILD_FIELDS})`,
-  ).map(parseBuildsResponse)
+  )
+    .andThen((response) =>
+      decodeTcResponse<{ count?: number; build?: RawBuild[] }>(response, isBuildCollection),
+    )
+    .map(parseBuildsResponse)
 }
 
 /** Single build by id — used to watch a build triggered from Canopy to completion. */
@@ -210,15 +300,17 @@ export function fetchBuild(
   token: string,
   buildId: number,
 ): ResultAsync<CiBuildWithType, CiError> {
-  return tcFetch<RawBuild>(
+  return tcFetch<unknown>(
     baseUrl,
     token,
     `/app/rest/builds/id:${buildId}?fields=${BUILD_FIELDS},buildType(id)`,
-  ).andThen((raw) =>
-    raw.buildType?.id
-      ? okAsync({ ...mapBuild(raw), buildTypeId: raw.buildType.id })
-      : errAsync(apiError(0, 'TeamCity returned a build without its build configuration')),
   )
+    .andThen((response) => decodeTcResponse<RawBuild>(response, isRawBuild))
+    .andThen((raw) =>
+      raw.buildType?.id
+        ? okAsync({ ...mapBuild(raw), buildTypeId: raw.buildType.id })
+        : errAsync(apiError(0, 'TeamCity returned a build without its build configuration')),
+    )
 }
 
 /** Queue a build of the configuration on the given branch, optionally with custom parameters. */
@@ -229,20 +321,26 @@ export function triggerBuild(
   branch: string,
   properties?: Array<{ name: string; value: string }>,
 ): ResultAsync<CiTriggerResult, CiError> {
-  return tcFetch<{ id: number; webUrl?: string; branchName?: string }>(
-    baseUrl,
-    token,
-    '/app/rest/buildQueue',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        buildType: { id: buildTypeId },
-        branchName: branch,
-        comment: { text: 'Triggered from Canopy' },
-        ...(properties?.length ? { properties: { property: properties } } : {}),
-      }),
-    },
-  ).map((res) => ({ buildId: res.id, webUrl: res.webUrl ?? '', branchName: res.branchName }))
+  return tcFetch<unknown>(baseUrl, token, '/app/rest/buildQueue', {
+    method: 'POST',
+    body: JSON.stringify({
+      buildType: { id: buildTypeId },
+      branchName: branch,
+      comment: { text: 'Triggered from Canopy' },
+      ...(properties?.length ? { properties: { property: properties } } : {}),
+    }),
+  })
+    .andThen((response) =>
+      decodeTcResponse<{ id: number; webUrl?: string; branchName?: string }>(
+        response,
+        (value) =>
+          isRecord(value) &&
+          typeof value.id === 'number' &&
+          hasOptionalString(value, 'webUrl') &&
+          hasOptionalString(value, 'branchName'),
+      ),
+    )
+    .map((res) => ({ buildId: res.id, webUrl: res.webUrl ?? '', branchName: res.branchName }))
 }
 
 /** All build configurations on the server — source for the per-repo config picker. */
@@ -250,15 +348,21 @@ export function fetchBuildTypes(
   baseUrl: string,
   token: string,
 ): ResultAsync<CiServerBuildType[], CiError> {
-  return tcFetch<{ buildType?: Array<{ id?: string; name?: string; projectName?: string }> }>(
+  return tcFetch<unknown>(
     baseUrl,
     token,
     '/app/rest/buildTypes?fields=buildType(id,name,projectName)',
-  ).map((res) =>
-    (res.buildType ?? []).flatMap((bt) =>
-      bt.id ? [{ id: bt.id, name: bt.name ?? bt.id, projectName: bt.projectName ?? '' }] : [],
-    ),
   )
+    .andThen((response) =>
+      decodeTcResponse<{
+        buildType?: Array<{ id?: string; name?: string; projectName?: string }>
+      }>(response, (value) => isCollection(value, 'buildType', isBuildType)),
+    )
+    .map((res) =>
+      (res.buildType ?? []).flatMap((bt) =>
+        bt.id ? [{ id: bt.id, name: bt.name ?? bt.id, projectName: bt.projectName ?? '' }] : [],
+      ),
+    )
 }
 
 /** A BuildTypeLocator union used to scope every activity query to configured jobs. */
@@ -303,7 +407,8 @@ export function fetchActivity(
     cause?: CiError
   }
   const collect = (label: string, path: string): ResultAsync<ActivityPart, CiError> =>
-    tcFetch<RawActivityResponse>(baseUrl, token, path)
+    tcFetch<unknown>(baseUrl, token, path)
+      .andThen((response) => decodeTcResponse<RawActivityResponse>(response, isBuildCollection))
       .map((response) => ({ response }))
       .orElse((error) =>
         okAsync<ActivityPart, CiError>({
@@ -375,11 +480,18 @@ export function fetchBranches(
   token: string,
   buildTypeId: string,
 ): ResultAsync<string[], CiError> {
-  return tcFetch<{ count?: number; branch?: Array<{ name?: string; default?: boolean }> }>(
+  return tcFetch<unknown>(
     baseUrl,
     token,
     `/app/rest/buildTypes/id:${buildTypeId}/branches?locator=policy:VCS_BRANCHES&fields=branch(name,default)`,
-  ).map(parseBranches)
+  )
+    .andThen((response) =>
+      decodeTcResponse<{
+        count?: number
+        branch?: Array<{ name?: string; default?: boolean }>
+      }>(response, (value) => isCollection(value, 'branch', isBranch)),
+    )
+    .map(parseBranches)
 }
 
 /** The parameters TeamCity would prompt for in its "Run custom build" dialog. */
@@ -388,12 +500,16 @@ export function fetchPromptParameters(
   token: string,
   buildTypeId: string,
 ): ResultAsync<CiParameter[], CiError> {
-  return tcFetch<{
-    count?: number
-    property?: Array<{ name: string; value?: string; type?: { rawValue?: string } }>
-  }>(
+  return tcFetch<unknown>(
     baseUrl,
     token,
     `/app/rest/buildTypes/id:${buildTypeId}/parameters?fields=property(name,value,type(rawValue))`,
-  ).map(parsePromptParameters)
+  )
+    .andThen((response) =>
+      decodeTcResponse<{
+        count?: number
+        property?: Array<{ name: string; value?: string; type?: { rawValue?: string } }>
+      }>(response, (value) => isCollection(value, 'property', isParameter)),
+    )
+    .map(parsePromptParameters)
 }

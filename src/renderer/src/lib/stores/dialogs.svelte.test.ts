@@ -5,14 +5,22 @@ describe('project CI dialog entry mode', () => {
   afterEach(() => closeDialog())
 
   it('routes token recovery without opening the shared configuration editor', () => {
-    showProjectCi('credentials')
+    showProjectCi('C:/repo-a', 'credentials')
 
-    expect(dialogState.current).toEqual({ type: 'projectCi', mode: 'credentials' })
+    expect(dialogState.current).toEqual({
+      type: 'projectCi',
+      repoRoot: 'C:/repo-a',
+      mode: 'credentials',
+    })
   })
 
   it('keeps explicit configuration entry separate', () => {
-    showProjectCi()
+    showProjectCi('C:/repo-b')
 
-    expect(dialogState.current).toEqual({ type: 'projectCi', mode: 'configuration' })
+    expect(dialogState.current).toEqual({
+      type: 'projectCi',
+      repoRoot: 'C:/repo-b',
+      mode: 'configuration',
+    })
   })
 })

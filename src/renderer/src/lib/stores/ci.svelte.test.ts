@@ -105,6 +105,26 @@ describe('repository-scoped CI status', () => {
       error: 'offline',
     })
   })
+
+  it('keeps the previous polling error visible while a retry is in flight', async () => {
+    api.ciJobsStatus.mockRejectedValueOnce(new Error('offline'))
+    const retry = deferred<Awaited<ReturnType<typeof api.ciJobsStatus>>>()
+    api.ciJobsStatus.mockReturnValueOnce(retry.promise)
+    const key = ciKey('persistent-error-repo', 'next')
+
+    await refreshCiJobs('persistent-error-repo', 'next')
+    const retryRequest = refreshCiJobs('persistent-error-repo', 'next')
+
+    expect(getCiJobsState(key)).toMatchObject({
+      loading: true,
+      settled: true,
+      rows: [],
+      error: 'offline',
+    })
+
+    retry.resolve([])
+    await retryRequest
+  })
 })
 
 function queuedTrigger(buildId: number): void {

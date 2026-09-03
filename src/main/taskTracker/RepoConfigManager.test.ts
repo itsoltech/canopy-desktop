@@ -5,6 +5,7 @@ import { dirname, join } from 'path'
 // initializes defaults when it reports false, and binding-pruning drops the repo
 // from the live set. Only a genuine ENOENT may report absent.
 const access = vi.fn()
+const open = vi.fn()
 const mkdir = vi.fn()
 const readdir = vi.fn()
 const rename = vi.fn()
@@ -14,6 +15,7 @@ const writeFile = vi.fn()
 const delay = vi.fn()
 vi.mock('fs/promises', () => ({
   access: (path: string) => access(path),
+  open: (...args: unknown[]) => open(...args),
   readFile: vi.fn(),
   writeFile: (...args: unknown[]) => writeFile(...args),
   mkdir: (...args: unknown[]) => mkdir(...args),
@@ -27,6 +29,30 @@ vi.mock('timers/promises', () => ({ setTimeout: (...args: unknown[]) => delay(..
 
 import { RepoConfigManager } from './RepoConfigManager'
 import { defaultConfig } from './configDefaults'
+
+describe('RepoConfigManager.load', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('rejects an oversized repository config without reading beyond the limit', async () => {
+    const read = vi.fn(async (buffer: Buffer) => {
+      buffer.fill(0x78)
+      return { bytesRead: buffer.length, buffer }
+    })
+    const close = vi.fn(async () => undefined)
+    open.mockResolvedValueOnce({ read, close })
+
+    const result = await new RepoConfigManager().load('/repo')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'ConfigParseError',
+      reason: 'Configuration file exceeds the 1 MiB size limit',
+    })
+    expect(read).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+  })
+})
 
 describe('RepoConfigManager.exists', () => {
   beforeEach(() => {

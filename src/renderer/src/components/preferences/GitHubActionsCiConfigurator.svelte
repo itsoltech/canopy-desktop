@@ -3,7 +3,6 @@
   import { Check, LoaderCircle, Trash2, X } from '@lucide/svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
-  import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { bumpCiCredentialTick, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
@@ -24,9 +23,11 @@
   }
 
   let {
+    repoRoot,
     initialConfig,
     initialInvalid,
   }: {
+    repoRoot: string
     initialConfig: GitHubActionsCiRepoConfigInfo | null
     initialInvalid?: InvalidCiConfig
   } = $props()
@@ -40,7 +41,6 @@
     error?: string
   }
 
-  let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let containerEl: HTMLElement | undefined = $state()
   let existingConfig = $state<GitHubActionsCiRepoConfigInfo | null>(null)
   let repository = $state('')

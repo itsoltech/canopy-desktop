@@ -33,6 +33,7 @@
   import Toast from '../shared/Toast.svelte'
   import { LoaderCircle } from '@lucide/svelte'
   import { formatCrashReportMarkdown } from '../../lib/crashReportMarkdown'
+  import { guardAppShortcut, shouldBlockAppShortcuts } from '../../lib/shortcuts/appShortcutGate'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import {
@@ -335,12 +336,20 @@
 
   // Subscribe to menu:showAbout from native menu
   $effect(() => {
-    return window.api.onMenuShowAbout(() => showAbout())
+    return window.api.onMenuShowAbout(() => {
+      if (!shouldBlockAppShortcuts(dialogState.current.type, confirmState.current !== null)) {
+        showAbout()
+      }
+    })
   })
 
   // Subscribe to menu:showPreferences from native menu (Windows File menu)
   $effect(() => {
-    return window.api.onMenuShowPreferences(() => showPreferences())
+    return window.api.onMenuShowPreferences(() => {
+      if (!shouldBlockAppShortcuts(dialogState.current.type, confirmState.current !== null)) {
+        showPreferences()
+      }
+    })
   })
 
   // Subscribe to onboarding push event
@@ -429,6 +438,9 @@
 
   // Global keyboard shortcuts
   function handleKeydown(e: KeyboardEvent): void {
+    const mod = isMac ? e.metaKey : e.ctrlKey
+    if (guardAppShortcut(dialogState.current.type, confirmState.current !== null, mod, e)) return
+
     if (e.key === 'Escape') {
       if (paletteOpen) {
         e.preventDefault()
@@ -442,7 +454,6 @@
       }
     }
 
-    const mod = isMac ? e.metaKey : e.ctrlKey
     if (!mod) return
 
     // Cmd+K: toggle command palette
@@ -611,7 +622,7 @@
 {:else if dialogState.current.type === 'projectTracker'}
   <ProjectTrackerModal />
 {:else if dialogState.current.type === 'projectCi'}
-  <ProjectCiModalRouter mode={dialogState.current.mode} />
+  <ProjectCiModalRouter repoRoot={dialogState.current.repoRoot} mode={dialogState.current.mode} />
 {:else if dialogState.current.type === 'ciRunJob'}
   <CiRunDialogRouter
     repoRoot={dialogState.current.repoRoot}

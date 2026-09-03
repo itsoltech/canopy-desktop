@@ -97,7 +97,7 @@ export async function refreshCiJobs(repoRoot: string, branch: string): Promise<v
     loading: true,
     settled: previous?.settled ?? false,
     rows: previous?.rows ?? [],
-    error: '',
+    error: previous?.error ?? '',
   })
   try {
     const rows = await window.api.ciJobsStatus(repoRoot, { name: branch, kind: 'branch' })

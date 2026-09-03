@@ -95,6 +95,118 @@ interface GitHubRequestOptions {
   ambiguousWorkflowUrl?: string
 }
 
+type JsonRecord = Record<string, unknown>
+type RuntimeGuard = (value: unknown) => boolean
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasOptionalString(record: JsonRecord, key: string): boolean {
+  return record[key] === undefined || typeof record[key] === 'string'
+}
+
+function hasOptionalNumber(record: JsonRecord, key: string): boolean {
+  return record[key] === undefined || typeof record[key] === 'number'
+}
+
+function hasOptionalNullableString(record: JsonRecord, key: string): boolean {
+  return record[key] === undefined || record[key] === null || typeof record[key] === 'string'
+}
+
+function isObjectCollection(value: unknown, key: string, itemGuard: RuntimeGuard): boolean {
+  if (!isRecord(value)) return false
+  const entries = value[key]
+  return (
+    Array.isArray(entries) && entries.every(itemGuard) && hasOptionalNumber(value, 'total_count')
+  )
+}
+
+function isRawWorkflow(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'number' &&
+    hasOptionalString(value, 'name') &&
+    typeof value.path === 'string' &&
+    hasOptionalString(value, 'state') &&
+    hasOptionalString(value, 'html_url')
+  )
+}
+
+function isRawRef(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    isRecord(value.commit) &&
+    typeof value.commit.sha === 'string'
+  )
+}
+
+function isRawEnvironment(value: unknown): boolean {
+  return isRecord(value) && typeof value.name === 'string'
+}
+
+function isAuthenticatedUser(value: unknown): boolean {
+  return isRecord(value) && hasOptionalString(value, 'login')
+}
+
+function isRepositoryMetadata(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOptionalString(value, 'full_name') &&
+    hasOptionalString(value, 'default_branch')
+  )
+}
+
+function isRawWorkflowFile(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOptionalString(value, 'sha') &&
+    hasOptionalString(value, 'encoding') &&
+    hasOptionalString(value, 'content') &&
+    hasOptionalString(value, 'type')
+  )
+}
+
+function isExactRefResponse(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOptionalString(value, 'ref') &&
+    (value.object === undefined ||
+      (isRecord(value.object) && hasOptionalString(value.object, 'sha')))
+  )
+}
+
+function isWorkflowRun(value: unknown): value is GitHubWorkflowRun {
+  if (!isRecord(value) || typeof value.id !== 'number') return false
+  if (!hasOptionalNumber(value, 'run_number') || !hasOptionalNumber(value, 'run_attempt')) {
+    return false
+  }
+  for (const key of [
+    'name',
+    'display_title',
+    'path',
+    'status',
+    'html_url',
+    'head_sha',
+    'event',
+    'created_at',
+    'updated_at',
+  ]) {
+    if (!hasOptionalString(value, key)) return false
+  }
+  if (
+    !hasOptionalNullableString(value, 'conclusion') ||
+    !hasOptionalNullableString(value, 'head_branch') ||
+    !hasOptionalNullableString(value, 'run_started_at')
+  ) {
+    return false
+  }
+  return (
+    value.actor === undefined || (isRecord(value.actor) && hasOptionalString(value.actor, 'login'))
+  )
+}
+
 function apiError(status: number, message: string): CiError {
   return { _tag: 'CiApiError', status, message, provider: 'github-actions' }
 }
@@ -141,12 +253,31 @@ export class GitHubActionsClient {
     this.rateLimitKey = `${this.repositoryPath}:${credentialFingerprint}`
   }
 
-  private request<T>(path: string, init?: GitHubRequestOptions): ResultAsync<T, GitHubClientError> {
-    return new ResultAsync(this.performRequest<T>(`${this.repositoryPath}${path}`, init))
+  private request<T>(
+    path: string,
+    init?: GitHubRequestOptions,
+    guard?: RuntimeGuard,
+  ): ResultAsync<T, GitHubClientError> {
+    return new ResultAsync(
+      this.performRequest<unknown>(`${this.repositoryPath}${path}`, init),
+    ).andThen((response) => {
+      if (!guard || guard(response)) return ok<T, GitHubClientError>(response as T)
+      if (init?.ambiguousWorkflowUrl) {
+        return err<T, GitHubClientError>({
+          _tag: 'CiDispatchAmbiguous',
+          workflowUrl: init.ambiguousWorkflowUrl,
+        })
+      }
+      return err<T, GitHubClientError>(apiError(0, 'GitHub returned an invalid response shape'))
+    })
   }
 
-  private apiRequest<T>(path: string): ResultAsync<T, GitHubClientError> {
-    return new ResultAsync(this.performRequest<T>(path))
+  private apiRequest<T>(path: string, guard?: RuntimeGuard): ResultAsync<T, GitHubClientError> {
+    return new ResultAsync(this.performRequest<unknown>(path)).andThen((response) =>
+      !guard || guard(response)
+        ? ok(response as T)
+        : err(apiError(0, 'GitHub returned an invalid response shape')),
+    )
   }
 
   private async performRequest<T>(
@@ -198,7 +329,12 @@ export class GitHubActionsClient {
         resetAt,
       })
     }
-    if (!response.ok) return err(apiError(response.status, safeStatusMessage(response)))
+    if (!response.ok) {
+      if (init?.ambiguousWorkflowUrl && response.status >= 500) {
+        return err({ _tag: 'CiDispatchAmbiguous', workflowUrl: init.ambiguousWorkflowUrl })
+      }
+      return err(apiError(response.status, safeStatusMessage(response)))
+    }
 
     const contentLength = Number(response.headers.get('content-length'))
     if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
@@ -235,7 +371,7 @@ export class GitHubActionsClient {
   }
 
   verifyAuthentication(): ResultAsync<void, CiError> {
-    return this.apiRequest<{ login?: string }>('/user')
+    return this.apiRequest<{ login?: string }>('/user', isAuthenticatedUser)
       .andThen((user) =>
         user.login
           ? ok(undefined)
@@ -255,6 +391,8 @@ export class GitHubActionsClient {
         for (let page = 1; page <= MAX_PAGES; page += 1) {
           const result = await this.request<{ total_count?: number; workflows?: RawWorkflow[] }>(
             `/actions/workflows?per_page=100&page=${page}`,
+            undefined,
+            (value) => isObjectCollection(value, 'workflows', isRawWorkflow),
           )
           if (result.isErr()) return err(result.error)
           const entries = result.value.workflows ?? []
@@ -281,7 +419,11 @@ export class GitHubActionsClient {
   }
 
   getRepository(): ResultAsync<GitHubRepositoryInfo, CiError> {
-    return this.request<{ full_name?: string; default_branch?: string }>('').andThen((raw) =>
+    return this.request<{ full_name?: string; default_branch?: string }>(
+      '',
+      undefined,
+      isRepositoryMetadata,
+    ).andThen((raw) =>
       raw.full_name && raw.default_branch
         ? ok({ fullName: raw.full_name, defaultBranch: raw.default_branch })
         : err(apiError(0, 'GitHub returned invalid repository metadata')),
@@ -291,6 +433,8 @@ export class GitHubActionsClient {
   getWorkflowFile(path: string, ref: string): ResultAsync<GitHubWorkflowFile, CiError> {
     return this.request<RawWorkflowFile>(
       `/contents/${path}?ref=${encodeURIComponent(ref)}`,
+      undefined,
+      isRawWorkflowFile,
     ).andThen((raw) => {
       if (raw.type !== undefined && raw.type !== 'file') {
         return err(apiError(0, 'Workflow path is not a file'))
@@ -321,6 +465,8 @@ export class GitHubActionsClient {
     const namespace = kind === 'branch' ? 'heads' : 'tags'
     return this.request<{ ref?: string; object?: { sha?: string } }>(
       `/git/ref/${namespace}/${encodeURIComponent(name)}`,
+      undefined,
+      isExactRefResponse,
     )
       .andThen((result) =>
         result.object?.sha
@@ -339,6 +485,8 @@ export class GitHubActionsClient {
         for (let page = 1; page <= MAX_PAGES; page += 1) {
           const result = await this.request<{ name?: string; commit?: { sha?: string } }[]>(
             `${path}?per_page=100&page=${page}`,
+            undefined,
+            (value) => Array.isArray(value) && value.every(isRawRef),
           )
           if (result.isErr()) return err(result.error)
           refs.push(
@@ -363,7 +511,9 @@ export class GitHubActionsClient {
           const result = await this.request<{
             total_count?: number
             environments?: Array<{ name?: string }>
-          }>(`/environments?per_page=100&page=${page}`)
+          }>(`/environments?per_page=100&page=${page}`, undefined, (value) =>
+            isObjectCollection(value, 'environments', isRawEnvironment),
+          )
           if (result.isErr()) return err(result.error)
           const entries = result.value.environments ?? []
           environments.push(
@@ -390,6 +540,8 @@ export class GitHubActionsClient {
     if (ref) query.set('branch', ref)
     return this.request<{ total_count?: number; workflow_runs?: GitHubWorkflowRun[] }>(
       `/actions/workflows/${workflowId}/runs?${query.toString()}`,
+      undefined,
+      (value) => isObjectCollection(value, 'workflow_runs', isWorkflowRun),
     ).map((result) => ({
       runs: result.workflow_runs ?? [],
       totalCount: result.total_count ?? result.workflow_runs?.length ?? 0,
@@ -414,7 +566,9 @@ export class GitHubActionsClient {
           const result = await this.request<{
             total_count?: number
             workflow_runs?: GitHubWorkflowRun[]
-          }>(`/actions/runs?${query.toString()}`)
+          }>(`/actions/runs?${query.toString()}`, undefined, (value) =>
+            isObjectCollection(value, 'workflow_runs', isWorkflowRun),
+          )
           if (result.isErr()) return err(result.error)
           const entries = result.value.workflow_runs ?? []
           totalCount = result.value.total_count ?? entries.length
@@ -427,7 +581,11 @@ export class GitHubActionsClient {
   }
 
   getRun(runId: string): ResultAsync<GitHubWorkflowRun, CiError> {
-    return this.request<GitHubWorkflowRun>(`/actions/runs/${encodeURIComponent(runId)}`)
+    return this.request<GitHubWorkflowRun>(
+      `/actions/runs/${encodeURIComponent(runId)}`,
+      undefined,
+      isWorkflowRun,
+    )
   }
 
   dispatchWorkflow(
@@ -447,7 +605,9 @@ export class GitHubActionsClient {
     }).andThen((response) => {
       if (
         typeof response?.workflow_run_id !== 'number' ||
+        typeof response.run_url !== 'string' ||
         !response.run_url ||
+        typeof response.html_url !== 'string' ||
         !response.html_url
       ) {
         return err<GitHubDispatchResult, CiError>({

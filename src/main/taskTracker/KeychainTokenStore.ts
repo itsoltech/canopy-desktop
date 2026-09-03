@@ -226,24 +226,26 @@ export class KeychainTokenStore {
     if (!spec.capabilities.includes(capability)) {
       return err({ _tag: 'CredentialCapabilityUnsupported', provider, capability })
     }
-    this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
-    const wasBound = this.registry.listBindings()[bindingKey]
-    return this.registry
-      .resolve({
-        bindingKey,
-        service: spec.service,
-        audience: audienceFor(provider, baseUrl),
-        capability,
-      })
-      .map((resolved) => {
-        if (!wasBound && parseTrackerBindingKey(bindingKey)) {
-          const sharedBinding = defaultBinding(provider, baseUrl)
-          if (this.registry.listBindings()[sharedBinding] === resolved.id) {
-            this.registry.unbind(sharedBinding)
+    return this.preferencesStore.runInTransaction(() => {
+      this.migrateLegacyTeamCityBinding(provider, baseUrl, bindingKey)
+      const wasBound = this.registry.listBindings()[bindingKey]
+      return this.registry
+        .resolve({
+          bindingKey,
+          service: spec.service,
+          audience: audienceFor(provider, baseUrl),
+          capability,
+        })
+        .map((resolved) => {
+          if (!wasBound && parseTrackerBindingKey(bindingKey)) {
+            const sharedBinding = defaultBinding(provider, baseUrl)
+            if (this.registry.listBindings()[sharedBinding] === resolved.id) {
+              this.registry.unbind(sharedBinding)
+            }
           }
-        }
-        return { token: resolved.secret, username: resolved.account, credentialId: resolved.id }
-      })
+          return { token: resolved.secret, username: resolved.account, credentialId: resolved.id }
+        })
+    })
   }
 
   getCredentialsForTracker(
@@ -409,22 +411,25 @@ export class KeychainTokenStore {
         credentials = { token: raw }
       }
       if (!credentials.token) continue
-      const descriptor = this.setCredentials(
-        provider,
-        baseUrl,
-        credentials.token,
-        credentials.username,
-        bindingKey,
-      )
-      if (descriptor.isErr()) continue
-      let bindingsStored = true
-      for (const additionalBinding of additionalBindings) {
-        if (this.registry.bind(additionalBinding, descriptor.value.id).isErr()) {
-          bindingsStored = false
-          break
+      const migrated = this.preferencesStore.runInTransaction(() => {
+        const descriptor = this.setCredentials(
+          provider,
+          baseUrl,
+          credentials.token,
+          credentials.username,
+          bindingKey,
+        )
+        if (descriptor.isErr()) return false
+        for (const additionalBinding of additionalBindings) {
+          const bound = this.registry.bind(additionalBinding, descriptor.value.id)
+          // Returning Err after prior writes would commit a partial migration. This path is
+          // unreachable for the descriptor just saved, so fail closed and let SQLite roll back.
+          if (bound.isErr()) throw new Error('Could not bind migrated credential')
         }
-      }
-      if (bindingsStored) this.preferencesStore.delete(key)
+        this.preferencesStore.delete(key)
+        return true
+      })
+      if (!migrated) continue
     }
   }
 

@@ -3,7 +3,6 @@
   import { Check, LoaderCircle, Trash2, X } from '@lucide/svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
-  import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { bumpCiCredentialTick, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
@@ -16,6 +15,7 @@
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import CiCredentialModal from './CiCredentialModal.svelte'
   import { credentialStorageClause } from './_partials/credentialStorage'
+  import { createLatestRequestGuard } from '../../lib/async/latestRequest'
 
   interface InvalidCiConfig {
     scope: 'file' | 'block'
@@ -24,10 +24,12 @@
   }
 
   let {
+    repoRoot,
     initialConfig,
     initialCredential,
     initialInvalid,
   }: {
+    repoRoot: string
     initialConfig: TeamCityCiRepoConfigInfo | null
     initialCredential?: CiCredentialStatus
     initialInvalid?: InvalidCiConfig
@@ -46,7 +48,6 @@
     projectName: string
   }
 
-  let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let containerEl: HTMLElement | undefined = $state()
 
   // The SHARED shape (renderer mirror of the preload CiConfigInfo) — an inline
@@ -87,6 +88,7 @@
   let typesLoading = $state(false)
   let typesError = $state('')
   let typesLoaded = $state(false)
+  const typesRequestGuard = createLatestRequestGuard()
   const selected = new SvelteMap<string, string>()
 
   let effectiveUrl = $derived(
@@ -203,6 +205,8 @@
   }
 
   function selectServer(value: string): void {
+    typesRequestGuard.invalidate()
+    typesLoading = false
     selectedServer = value
     testResult = ''
     typesLoaded = false
@@ -234,16 +238,16 @@
    * come from the git-SHARED repo config (editing an existing setup preselects it),
    * so the token must never leave the machine unacknowledged.
    */
-  async function confirmDestination(): Promise<boolean> {
-    if (effectiveUrl === acknowledgedUrl) return true
+  async function confirmDestination(destinationUrl = effectiveUrl): Promise<boolean> {
+    if (destinationUrl === acknowledgedUrl) return true
     const encryptionAvailable = await window.api
       .isCredentialEncryptionAvailable()
       .catch(() => false)
     const storage = credentialStorageClause(window.api.platform, encryptionAvailable)
-    const insecure = effectiveUrl.startsWith('http://')
+    const insecure = destinationUrl.startsWith('http://')
     const ok = await confirm({
       title: 'Confirm CI server address',
-      message: `Send your TeamCity token to ${effectiveUrl}?`,
+      message: `Send your TeamCity token to ${destinationUrl}?`,
       details:
         `The token will be sent only to this address and, when saved, stored ${storage} for this server-scoped TeamCity integration. Only continue if you recognize it as your TeamCity server.` +
         (insecure
@@ -251,66 +255,83 @@
           : ''),
       confirmLabel: 'Continue',
     })
-    if (ok) acknowledgedUrl = effectiveUrl
+    if (ok) acknowledgedUrl = destinationUrl
     return ok
   }
 
   async function testConnection(): Promise<void> {
     // Mirrors the button's aria-disabled — which does not stop clicks.
-    if (!urlValid || !trimmedFormToken || testing) return
-    if (!(await confirmDestination())) return
+    if (!urlValid || !trimmedFormToken || testing || typesLoading) return
+    const destinationUrl = effectiveUrl
+    const token = trimmedFormToken
     testing = true
     testResult = ''
     try {
-      await window.api.ciTestNewConnection(effectiveUrl, trimmedFormToken)
-      testResult = 'success'
+      if (!(await confirmDestination(destinationUrl))) return
+      await window.api.ciTestNewConnection(destinationUrl, token)
+      if (effectiveUrl === destinationUrl && trimmedFormToken === token) testResult = 'success'
     } catch {
-      testResult = 'fail'
+      if (effectiveUrl === destinationUrl && trimmedFormToken === token) testResult = 'fail'
     } finally {
       testing = false
     }
   }
 
   /** Stores a typed token (behind the destination gate) before first use. */
-  async function ensureToken(): Promise<boolean> {
-    if (serverHasToken && !trimmedFormToken) return true
-    if (!trimmedFormToken) return false
-    if (!(await confirmDestination())) return false
+  async function ensureToken(destinationUrl: string, token: string): Promise<boolean> {
+    if (serverHasToken && !token) return true
+    if (!token) return false
+    if (!(await confirmDestination(destinationUrl))) return false
     try {
-      await window.api.keychainSetCredentials('teamcity', effectiveUrl, trimmedFormToken)
+      await window.api.keychainSetCredentials('teamcity', destinationUrl, token)
       bumpCiCredentialTick()
     } catch (e) {
       // In-modal per the scrim rule — a toast would paint under this dialog. The
       // caller (Load available jobs) surfaces typesError right next to its button.
-      typesError = ipcErrorMessage(e, 'Failed to save credentials')
+      if (effectiveUrl === destinationUrl && trimmedFormToken === token) {
+        typesError = ipcErrorMessage(e, 'Failed to save credentials')
+      }
       return false
     }
     servers = [
-      ...servers.filter((server) => server.baseUrl !== effectiveUrl),
-      { baseUrl: effectiveUrl, authenticationState: 'valid' },
+      ...servers.filter((server) => server.baseUrl !== destinationUrl),
+      { baseUrl: destinationUrl, authenticationState: 'valid' },
     ]
-    if (selectedServer === NEW_SERVER) selectedServer = effectiveUrl
-    formToken = ''
-    return true
+    const formStillCurrent = effectiveUrl === destinationUrl && trimmedFormToken === token
+    if (selectedServer === NEW_SERVER && formStillCurrent) {
+      selectedServer = destinationUrl
+    }
+    if (formStillCurrent) formToken = ''
+    return formStillCurrent
   }
 
   async function loadBuildTypes(): Promise<void> {
     // Mirrors the button's aria-disabled — which does not stop clicks.
-    if (!canLoadTypes || typesLoading) return
-    if (!(await ensureToken())) return
+    if (!canLoadTypes || typesLoading || testing) return
+    const requestedUrl = effectiveUrl
+    const requestedToken = trimmedFormToken
+    const request = typesRequestGuard.begin(requestedUrl)
+    // Acquire the re-entrancy guard before confirmation or keychain I/O. Two rapid activations
+    // must not replace the singleton confirmation and strand its first Promise.
     typesLoading = true
     typesError = ''
     // A stale WRITE failure must not sit through a reload it does not describe.
     saveError = ''
     try {
-      serverTypes = await window.api.ciListBuildTypes(effectiveUrl)
+      if (!(await ensureToken(requestedUrl, requestedToken))) return
+      if (!typesRequestGuard.isCurrent(request, effectiveUrl)) return
+      const response = await window.api.ciListBuildTypes(requestedUrl)
+      if (!typesRequestGuard.isCurrent(request, effectiveUrl)) return
+      serverTypes = response
       typesLoaded = true
     } catch (e) {
+      if (!typesRequestGuard.isCurrent(request, effectiveUrl)) return
       const message = ipcErrorMessage(e, 'Could not load TeamCity jobs')
       let rejected = credentialRejected
       if (repoRoot && existingConfig && selectedServer === existingConfig.baseUrl) {
         try {
           const refreshed = await window.api.ciConfig(repoRoot)
+          if (!typesRequestGuard.isCurrent(request, effectiveUrl)) return
           if (refreshed.credential) configuredCredentialOverride = refreshed.credential
           rejected = refreshed.credential?.authenticationState === 'invalid'
         } catch {
@@ -323,7 +344,7 @@
       // picker, the stale-job warning and Save out of the "we know" state.
       typesLoaded = false
     } finally {
-      typesLoading = false
+      if (typesRequestGuard.isLatest(request)) typesLoading = false
     }
   }
 
@@ -385,20 +406,28 @@
   // removal states do so transiently. Busy states live on the button itself
   // (label + aria-busy), as in CiServerForm's `formBlockedReason` split.
   let testBlockedTitle = $derived(
-    testing ? 'Testing the connection…' : !urlValid ? URL_REQUIRED : '',
+    testing
+      ? 'Testing the connection…'
+      : typesLoading
+        ? "Loading the server's jobs…"
+        : !urlValid
+          ? URL_REQUIRED
+          : '',
   )
   let loadBlockedTitle = $derived(
     typesLoading
       ? "Loading the server's jobs…"
-      : !urlValid
-        ? URL_REQUIRED
-        : credentialRejected && trimmedFormToken.length === 0
-          ? credentialGate.jobsReason
-          : !canLoadTypes
-            ? isInitialSetup
-              ? 'Disabled: enter an access token first (or pick a server with one stored)'
-              : credentialGate.jobsReason
-            : '',
+      : testing
+        ? 'Testing the connection…'
+        : !urlValid
+          ? URL_REQUIRED
+          : credentialRejected && trimmedFormToken.length === 0
+            ? credentialGate.jobsReason
+            : !canLoadTypes
+              ? isInitialSetup
+                ? 'Disabled: enter an access token first (or pick a server with one stored)'
+                : credentialGate.jobsReason
+              : '',
   )
   // One source for the Save tooltip and its assistive description keeps the two
   // explanations from drifting apart.
@@ -730,7 +759,7 @@
                 type="button"
                 class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"
                 onclick={testConnection}
-                aria-disabled={testing || !urlValid}
+                aria-disabled={testing || typesLoading || !urlValid}
                 aria-busy={testing}
                 aria-describedby={serverBlockedReason ? 'ci-server-blocked' : undefined}
                 title={testBlockedTitle ||
@@ -743,7 +772,7 @@
               type="button"
               class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-bg-input text-text-secondary hover:bg-hover-strong hover:text-text aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-bg-input aria-disabled:hover:text-text-secondary"
               onclick={loadBuildTypes}
-              aria-disabled={typesLoading || !canLoadTypes}
+              aria-disabled={typesLoading || testing || !canLoadTypes}
               aria-busy={typesLoading}
               aria-describedby={serverBlockedReason ? 'ci-server-blocked' : undefined}
               title={loadBlockedTitle ||

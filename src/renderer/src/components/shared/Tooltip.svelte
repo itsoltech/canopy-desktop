@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { tooltipPosition, type TooltipRect } from './tooltipPosition'
+  import { createDelayedAction } from '../../lib/tooltip/delayedAction'
 
   let {
     text,
@@ -13,8 +14,8 @@
   } = $props()
 
   let triggerRect: TooltipRect | null = null
-  let timer: ReturnType<typeof setTimeout> | null = null
   let portalEl: HTMLDivElement | null = null
+  const delayedPortal = createDelayedAction(showPortal, 400)
 
   const tooltipClasses =
     'fixed max-w-[min(24rem,calc(100vw-8px))] px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-normal break-words pointer-events-none z-banner shadow-tooltip'
@@ -27,17 +28,15 @@
       width: rect.width,
       height: rect.height,
     }
-    timer = setTimeout(() => showPortal(), 400)
+    delayedPortal.schedule()
   }
 
   function dismiss(): void {
-    if (timer) clearTimeout(timer)
-    timer = null
+    delayedPortal.cancel()
     hidePortal()
   }
 
   function showPortal(): void {
-    timer = null
     if (!triggerRect) return
     hidePortal()
     portalEl = document.createElement('div')
@@ -67,10 +66,7 @@
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') return
-    if (timer) {
-      clearTimeout(timer)
-      timer = null
-    }
+    if (delayedPortal.pending) delayedPortal.cancel()
     // A pending tooltip is not visible yet, so Escape must keep bubbling to the modal.
     if (!portalEl) return
     // Keyboard events target the focused descendant, never a merely hovered sibling. A tooltip
@@ -82,8 +78,7 @@
 
   $effect(() => {
     return () => {
-      if (timer) clearTimeout(timer)
-      timer = null
+      delayedPortal.dispose()
       hidePortal()
     }
   })

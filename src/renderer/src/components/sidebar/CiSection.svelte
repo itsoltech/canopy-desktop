@@ -347,7 +347,7 @@
          (their section body stays empty on purpose). -->
     <button
       class="flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint cursor-pointer opacity-60 hover:opacity-100 hover:bg-hover hover:text-text-secondary"
-      onclick={() => showProjectCi()}
+      onclick={() => repoRoot && showProjectCi(repoRoot)}
       aria-label="Configure CI/CD"
       title={configureActionTitle}
     >
@@ -427,7 +427,7 @@
               <button
                 type="button"
                 class="shrink-0 px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:border-accent-muted hover:text-accent-text"
-                onclick={() => showProjectCi('credentials')}
+                onclick={() => repoRoot && showProjectCi(repoRoot, 'credentials')}
               >
                 {credentialsRejected ? 'Update token' : 'Add credentials'}
               </button>
@@ -531,7 +531,7 @@
           <button
             type="button"
             class="self-start text-2xs underline underline-offset-2 bg-transparent border-0 p-0 font-inherit text-warning-text cursor-pointer hover:text-text"
-            onclick={() => showProjectCi()}>Open the configurator</button
+            onclick={() => repoRoot && showProjectCi(repoRoot)}>Open the configurator</button
           >
         </div>
       {:else}
@@ -539,7 +539,7 @@
         <div class="px-3 py-2">
           <button
             class="flex items-center gap-1.5 w-full px-2.5 py-1.5 border border-dashed border-border rounded-lg bg-transparent text-text-muted text-sm font-inherit cursor-pointer transition-colors duration-fast hover:border-accent-muted hover:text-accent-text"
-            onclick={() => showProjectCi()}
+            onclick={() => repoRoot && showProjectCi(repoRoot)}
           >
             <Plus size={14} />
             Configure CI/CD

@@ -66,7 +66,12 @@ describe('GitHub PR fallback refresh', () => {
 
     expect(refreshed).not.toBe(a)
     expect(api.taskTrackerPRSummary).toHaveBeenCalledTimes(2)
-    expect(api.taskTrackerPRSummary).toHaveBeenLastCalledWith('C:/repo', 'feature/large-pr', true)
+    expect(api.taskTrackerPRSummary).toHaveBeenLastCalledWith(
+      'C:/repo',
+      'feature/large-pr',
+      1,
+      true,
+    )
 
     first.resolve({ number: 344, state: 'OPEN', isDraft: false })
     second.resolve({ number: 344, state: 'MERGED', isDraft: false })
@@ -193,6 +198,6 @@ describe('GitHub PR fallback refresh', () => {
 
     await loadPRFallbackSummary('C:/repo', 'feature/a')
 
-    expect(api.taskTrackerPRSummary).toHaveBeenLastCalledWith('C:/repo', 'feature/a', true)
+    expect(api.taskTrackerPRSummary).toHaveBeenLastCalledWith('C:/repo', 'feature/a', 1, true)
   })
 })

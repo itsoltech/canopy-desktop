@@ -4520,8 +4520,17 @@ export function registerIpcHandlers(
   // the details modal: large review histories made repeated startup queries costly.
   ipcMain.handle(
     'taskTracker:prSummary',
-    async (event, payload: { repoRoot: string; branch: string; forceRemoteProbe?: boolean }) => {
+    async (
+      event,
+      payload: {
+        repoRoot: string
+        branch: string
+        generation: number
+        forceRemoteProbe?: boolean
+      },
+    ) => {
       if (!isSafeGitRefName(payload.branch)) return null
+      if (!Number.isInteger(payload.generation) || payload.generation < 0) return null
       if (payload.forceRemoteProbe !== undefined && typeof payload.forceRemoteProbe !== 'boolean') {
         return null
       }
@@ -4537,7 +4546,7 @@ export function registerIpcHandlers(
       ) {
         return null
       }
-      const result = await loadPullRequestSummary(resolvedRepo, payload.branch)
+      const result = await loadPullRequestSummary(resolvedRepo, payload.branch, payload.generation)
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )

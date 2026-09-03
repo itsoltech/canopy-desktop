@@ -19,7 +19,7 @@ const fallbackSummaryRequests = new Map<string, PRFallbackCacheEntry>()
 // Invalidating the renderer cache also forces the next main-process origin probe. This makes the
 // visible Retry action recover immediately after an origin is added or changed.
 // eslint-disable-next-line svelte/prefer-svelte-reactivity
-const forceRemoteProbeKeys = new Set<string>()
+const forceRemoteProbeKeys = new Map<string, number>()
 
 const DEBOUNCE_MS = 30_000
 export const PR_FALLBACK_TTL_MS = 30_000
@@ -45,7 +45,7 @@ function trimFallbackMetadata(protectedKey?: string): void {
 
 function trimForcedProbeKeys(protectedKey: string): void {
   while (forceRemoteProbeKeys.size > PR_FALLBACK_CACHE_MAX) {
-    const oldest = [...forceRemoteProbeKeys].find((key) => key !== protectedKey)
+    const oldest = [...forceRemoteProbeKeys.keys()].find((key) => key !== protectedKey)
     if (!oldest) break
     forceRemoteProbeKeys.delete(oldest)
     if (!hasFallbackRequest(oldest)) delete fallbackGenerationByKey[oldest]
@@ -115,8 +115,9 @@ export function invalidatePRFallback(repoRoot: string, branch: string): void {
   for (const requestKey of fallbackSummaryRequests.keys()) {
     if (requestKey.startsWith(`${key}::`)) fallbackSummaryRequests.delete(requestKey)
   }
-  fallbackGenerationByKey[key] = (fallbackGenerationByKey[key] ?? 0) + 1
-  forceRemoteProbeKeys.add(key)
+  const generation = (fallbackGenerationByKey[key] ?? 0) + 1
+  fallbackGenerationByKey[key] = generation
+  forceRemoteProbeKeys.set(key, generation)
   trimForcedProbeKeys(key)
   trimFallbackMetadata(key)
 }
@@ -125,15 +126,19 @@ export function loadPRFallbackSummary(
   repoRoot: string,
   branch: string,
 ): Promise<{ number: number; state: string; isDraft: boolean } | null> {
-  const generation = getPRFallbackGeneration(repoRoot, branch)
+  const key = prKey(repoRoot, branch)
+  // Forced-probe metadata outlives the bounded generation cache. Retaining its generation here
+  // prevents a trimmed entry from colliding with an older generation still running in main.
+  const forcedGeneration = forceRemoteProbeKeys.get(key)
+  const generation = forcedGeneration ?? getPRFallbackGeneration(repoRoot, branch)
   const requestKey = `${prKey(repoRoot, branch)}::${generation}`
   const existing = fallbackSummaryRequests.get(requestKey)
   if (existing && existing.expiresAt > Date.now()) return existing.request
   if (existing) fallbackSummaryRequests.delete(requestKey)
   trimFallbackRequests(Date.now())
 
-  const forceRemoteProbe = forceRemoteProbeKeys.delete(prKey(repoRoot, branch))
-  const request = window.api.taskTrackerPRSummary(repoRoot, branch, forceRemoteProbe)
+  const forceRemoteProbe = forceRemoteProbeKeys.delete(key)
+  const request = window.api.taskTrackerPRSummary(repoRoot, branch, generation, forceRemoteProbe)
   const entry: PRFallbackCacheEntry = {
     request,
     expiresAt: Number.POSITIVE_INFINITY,

@@ -62,6 +62,7 @@ interface ProjectTrackerState {
 
 interface ProjectCiState {
   type: 'projectCi'
+  repoRoot: string
   mode: 'configuration' | 'credentials'
 }
 
@@ -234,8 +235,11 @@ export function showProjectTracker(): void {
 }
 
 /** Open either the shared repository configuration or the machine-local credential editor. */
-export function showProjectCi(mode: ProjectCiState['mode'] = 'configuration'): void {
-  dialogState.current = { type: 'projectCi', mode }
+export function showProjectCi(
+  repoRoot: string,
+  mode: ProjectCiState['mode'] = 'configuration',
+): void {
+  dialogState.current = { type: 'projectCi', repoRoot, mode }
 }
 
 /**
