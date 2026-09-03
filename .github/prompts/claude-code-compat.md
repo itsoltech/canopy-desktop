@@ -52,23 +52,51 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > Probe once with the `compare` call below. If it is denied, **stop probing** and use `WebFetch`
 > instead — see the next block. Do not represent release-notes-only analysis as a full diff review.
 >
-> The fix is one token in `.github/workflows/claude-code-compat.yml`
-> (`Bash(gh api repos/marckrenn/claude-code-changelog/:*)` → `Bash(gh api:*)`), but this job cannot
-> apply it: `RELEASE_TOKEN` has no `workflow` scope, so pushing a `.github/workflows/` change is
-> rejected. It needs a maintainer. `codex-compat.yml` and `opencode-compat.yml` carry the identical
-> mid-token rule for their own upstream repos and are blocked the same way, so a maintainer fixing
-> this should fix all three rather than only the one that surfaced it.
+> **The fix is to delete one character, not to widen the rule to all of GitHub.** Earlier revisions
+> of this note proposed `Bash(gh api:*)`; that works but gives away the repo scoping, and it is not
+> the minimal change. Claude Code's permission docs state that `:*` is shorthand for a trailing
+> _space_-and-wildcard — `Bash(ls:*)` is defined as equivalent to `Bash(ls *)`, and "the space before
+> a trailing `*` is part of the rule", which is why `Bash(ls *)` does not match `lsof` while
+> `Bash(ls*)` does. So the current rule demands a literal space immediately after
+> `claude-code-changelog/`, and no real command has one. Dropping the colon removes that demand:
+>
+> ```
+> Bash(gh api repos/marckrenn/claude-code-changelog/*)
+> ```
+>
+> This matches `compare/…`, `contents/…` and `releases/…` while still refusing `gh api` against any
+> other repository. One caveat the same docs raise: argument-scoped Bash rules are fragile, and this
+> one requires the path to come first, so keep `-H` and `--jq` _after_ the path as the examples below
+> do — `gh api -H "…" repos/…` would not match. There is no supported way to scope by argument
+> substring beyond this; the alternative is `Bash(gh api *)` plus a `PreToolUse` hook.
+>
+> This job cannot apply the change: `RELEASE_TOKEN` has no `workflow` scope, so pushing a
+> `.github/workflows/` change is rejected. It needs a maintainer. `codex-compat.yml` and
+> `opencode-compat.yml` carry the identical mid-token rule for their own upstream repos and are
+> blocked the same way, so a maintainer fixing this should fix all three rather than only the one
+> that surfaced it.
 >
 > Re-probed on v2.1.257 → v2.1.258 and still broken: `compare/` denied with and without `--jq`, and a
 > plain `tags` path denied too, which rules out the `...` range syntax and the quoting as causes.
-> That is three consecutive runs. Two probes are enough — stop there.
+> Re-probed again on v2.1.258 → v2.1.259: `compare/`, `contents/` and `releases/latest` all denied.
+> That is four consecutive runs. Two probes are enough — stop there.
+
+> **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
+> rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
+> the prompt with `cat .github/prompts/claude-code-compat.md`, so a running job always gets the `next`
+> copy. Every note here lives on `chore/claude-code-compat` and is therefore invisible to the analysis
+> it is addressed to. The v2.1.258 → v2.1.259 run re-derived the mid-token diagnosis, the `WebFetch`
+> denial and the `npm install` denial independently, spending roughly a dozen turns on ground this
+> file had already covered. Merging PR 350 is what fixes that; until then, expect the same
+> rediscovery each run and do not assume a later run will inherit anything written here.
 
 > **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
-> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, three denied so
-> far, the last two consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
+> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, four denied so
+> far, the last three consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
 > v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
 > use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
-> v2.1.252 → v2.1.257 and v2.1.257 → v2.1.258 runs both hit the same denial on the first call. Do not
+> v2.1.252 → v2.1.257, v2.1.257 → v2.1.258 and v2.1.258 → v2.1.259 runs all hit the same denial on the
+> first call. The last of those also had `curl` denied, so shelling out is not a way around it. Do not
 > assume either answer from this file. Issue one fetch, record which way it went in the PR body, and
 > proceed on that basis.
 >
