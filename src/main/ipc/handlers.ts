@@ -4782,6 +4782,14 @@ export function registerIpcHandlers(
       const controller = new AbortController()
       setupAbortControllers.set(sender.id, controller)
 
+      // Setup commands run on a bare node-pty handle that PtyManager does not
+      // own, so neither disposeWindow nor the quit-time ptyManager.dispose()
+      // can reach them. Without this, closing the window (or quitting) while a
+      // setup step is running strands the shell and its children until the
+      // 5-minute timeout fires. Aborting on 'destroyed' covers both paths.
+      const abortOnDestroy = (): void => controller.abort()
+      sender.once('destroyed', abortOnDestroy)
+
       try {
         return await runWorktreeSetup(
           actions,
@@ -4798,6 +4806,7 @@ export function registerIpcHandlers(
           controller.signal,
         )
       } finally {
+        sender.removeListener('destroyed', abortOnDestroy)
         setupAbortControllers.delete(sender.id)
       }
     },
