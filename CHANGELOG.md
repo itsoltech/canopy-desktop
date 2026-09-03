@@ -1,3 +1,10 @@
+## [0.13.0-next.29](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.28...v0.13.0-next.29) (2026-09-03)
+
+### Bug Fixes
+
+* **mobile:** restore release builds and remote pairing ([3dedd98](https://github.com/itsoltech/canopy-desktop/commit/3dedd98c71b2554090d6840551be3c1cda08d27b))
+* **remote:** keep sessions active while screen is locked ([ba98dc1](https://github.com/itsoltech/canopy-desktop/commit/ba98dc1ff7c85b8fce38f4fc5cd7cd22c6ce2266))
+
 ## [0.13.0-next.28](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.27...v0.13.0-next.28) (2026-09-02)
 
 ### Bug Fixes
