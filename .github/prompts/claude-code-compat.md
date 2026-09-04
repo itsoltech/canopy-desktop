@@ -79,7 +79,10 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > Re-probed on v2.1.257 → v2.1.258 and still broken: `compare/` denied with and without `--jq`, and a
 > plain `tags` path denied too, which rules out the `...` range syntax and the quoting as causes.
 > Re-probed again on v2.1.258 → v2.1.259: `compare/`, `contents/` and `releases/latest` all denied.
-> That is four consecutive runs. Two probes are enough — stop there.
+> Re-probed again on v2.1.259 → v2.1.260: `compare/` denied twice, once with a pipe inside `--jq` and
+> once without, and a plain `tags` path denied too. That is five consecutive runs, and the second of
+> those three probes was spent re-testing the pipe theory this note already records as wrong. Two
+> probes are enough — stop there.
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
@@ -91,14 +94,21 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > rediscovery each run and do not assume a later run will inherit anything written here.
 
 > **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
-> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, four denied so
-> far, the last three consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
+> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, five denied so
+> far, the last four consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
 > v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
 > use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
-> v2.1.252 → v2.1.257, v2.1.257 → v2.1.258 and v2.1.258 → v2.1.259 runs all hit the same denial on the
-> first call. The last of those also had `curl` denied, so shelling out is not a way around it. Do not
-> assume either answer from this file. Issue one fetch, record which way it went in the PR body, and
-> proceed on that basis.
+> v2.1.252 → v2.1.257, v2.1.257 → v2.1.258, v2.1.258 → v2.1.259 and v2.1.259 → v2.1.260 runs all hit
+> the same denial on the first call. One of those also had `curl` denied, so shelling out is not a way
+> around it. Do not assume either answer from this file. Issue one fetch, record which way it went in
+> the PR body, and proceed on that basis.
+>
+> **Delegating the fetch does not get around a denial.** `Task`/`Agent` are allowed, and it is tempting
+> to hand the fetching to a subagent whose tool list includes `WebFetch` and `WebSearch` — the
+> `claude-code-guide` agent, for instance. The v2.1.259 → v2.1.260 run tried it and the subagent hit
+> the identical refusal, because the permission decision is the session's rather than the agent's. It
+> still answered a documentation question from files it could read locally, so a subagent is worth it
+> for reasoning and worthless for reach. Do not spend a delegation on the fetch itself.
 >
 > **If it is denied**, the release notes pasted into this prompt are your only source. Truncated
 > "… +N more CLI changelog entries" lines are then genuinely unrecoverable for that run — say so
@@ -137,6 +147,35 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > `WebFetch` answers through a small model with a ~125-character quoting limit, so it will refuse
 > "return this verbatim" and summarize instead. Ask narrow, specific questions and issue several
 > fetches rather than one broad one.
+
+> **One source is always reachable: the SDK `npm ci` has already installed.** It needs no network, no
+> allowlist entry and no probe, and it was the only route that survived every denial above on the
+> v2.1.259 → v2.1.260 run. It is the authoritative answer to "is `CLAUDE_HOOK_EVENTS` still complete",
+> which the release notes can never give you.
+>
+> ```bash
+> # every hook event name the CLI defines, as a TypeScript union
+> grep -n "declare type HookEvent" node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts
+>
+> # which CLI build is vendored — check this first, see below
+> jq -r '.version' node_modules/@anthropic-ai/claude-agent-sdk/manifest.json
+>
+> # whether a named string exists in the vendored CLI binary at all
+> grep -ac "SomeHookName" node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude
+> ```
+>
+> **Check the vendored version before believing any of it.** The workflow checks out `ref: next` and
+> runs `npm ci` there, so `node_modules` holds whatever `next` pins — not what this PR bumps to, and
+> not `TO_VERSION`. On the v2.1.259 → v2.1.260 run that was `0.3.207`, vendoring CLI `2.1.207`. Read
+> without checking, that copy says `PreModelSwitch` and `PostModelSwitch` do not exist: true of
+> 2.1.207, false since 2.1.251, and close to being written up as a defect in Canopy's own adapter.
+> Treat everything read this way as a lower bound. A name present at the vendored version is almost
+> certainly present at `TO_VERSION`; a name absent proves nothing.
+>
+> `grep -a` with `-c` works on the binary, and `strings <binary> | grep` works, but `grep -o` and
+> `grep -oE` are denied, so context around a match cannot be pulled out — and the binary is minified
+> JavaScript, so a single matching "line" from `strings` can be tens of kilobytes. Count with `-c` and
+> match on names; do not try to recover JSON field shapes this way.
 
 ```bash
 # Compare two tags to see all file changes
