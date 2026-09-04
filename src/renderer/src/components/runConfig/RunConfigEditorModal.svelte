@@ -116,12 +116,14 @@
   aria-modal="true"
   aria-label="Run Configuration Editor"
   onkeydown={handleKeydown}
+  onmousedown={closeDialog}
 >
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
     class="bg-bg border border-border rounded-xl w-[480px] max-h-[80vh] flex flex-col shadow-modal"
     tabindex="0"
     bind:this={modalEl}
+    onmousedown={(e) => e.stopPropagation()}
   >
     <div class="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
       <h2 class="m-0 text-lg font-semibold text-text">

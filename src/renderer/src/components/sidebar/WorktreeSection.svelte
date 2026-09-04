@@ -122,7 +122,7 @@
   {#snippet headerExtra()}
     <button
       class="inline-flex items-center h-5 px-1.5 rounded-sm font-inherit text-2xs font-medium text-text-faint bg-transparent border-0 cursor-pointer transition-colors duration-fast hover:text-text hover:bg-hover"
-      onclick={showCreateWorktree}
+      onclick={() => showCreateWorktree()}
       title="Create worktree">+ new</button
     >
   {/snippet}

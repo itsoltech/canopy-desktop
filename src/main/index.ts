@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BROWSER_PARTITION, BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -705,6 +705,12 @@ app.whenReady().then(async () => {
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
 
+      // Pin the session too. The deny-all permission policy (camera, mic,
+      // geolocation, WebUSB/Serial/HID) lives on the browser partition, so a
+      // webview attached to any other session would run untrusted content
+      // under the app session's more permissive policy and share its storage.
+      webPreferences.partition = BROWSER_PARTITION
+
       // Only allow http(s) or about:blank as source
       const src = params.src
       if (src && src !== '' && src !== 'about:blank') {
@@ -1006,7 +1012,20 @@ app.whenReady().then(async () => {
 
     if (configsJson) {
       try {
-        windowConfigs = JSON.parse(configsJson) as WindowConfig[]
+        // Valid JSON of the wrong shape used to survive this catch and then
+        // throw in the flatMap below — outside any handler, at startup. Because
+        // the bad value stays in the prefs DB, that broke every subsequent
+        // launch, not just one. Validate the shape, not just the parse.
+        const parsed: unknown = JSON.parse(configsJson)
+        if (Array.isArray(parsed)) {
+          windowConfigs = parsed.filter(
+            (c): c is WindowConfig =>
+              !!c &&
+              typeof c === 'object' &&
+              Array.isArray((c as WindowConfig).paths) &&
+              (c as WindowConfig).paths.every((p) => typeof p === 'string'),
+          )
+        }
       } catch {
         // Invalid JSON
       }

@@ -3728,7 +3728,13 @@ export function registerIpcHandlers(
         payload.trackerId,
         payload.repoRoot,
       )
-      return unwrapOrThrow(result, taskTrackerErrorMessage)
+      const localPath = unwrapOrThrow(result, taskTrackerErrorMessage)
+      // Each download lands in its own `canopy-attachments-*` temp dir. The
+      // caller needs the file to outlive this handler, so sweep it on the same
+      // deferred schedule `taskTracker:buildTaskContext` uses — otherwise every
+      // download leaks a directory until the OS cleans its temp space.
+      setTimeout(() => taskTrackerManager.cleanupAttachmentDir(localPath), 60_000)
+      return localPath
     },
   )
 
@@ -4767,7 +4773,14 @@ export function registerIpcHandlers(
 
       let actions: WorktreeSetupAction[]
       try {
-        actions = JSON.parse(configJson) as WorktreeSetupAction[]
+        const parsed: unknown = JSON.parse(configJson)
+        // Same untrusted preference the comment above describes: valid JSON of
+        // the wrong shape parsed cleanly and then threw downstream, where the
+        // runner reads each action's fields outside its own error handling.
+        if (!Array.isArray(parsed) || parsed.some((a) => !a || typeof a !== 'object')) {
+          return { success: false, errors: ['Invalid worktree setup config'] }
+        }
+        actions = parsed as WorktreeSetupAction[]
       } catch {
         return { success: false, errors: ['Invalid worktree setup config'] }
       }

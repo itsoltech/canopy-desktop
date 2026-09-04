@@ -1,7 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
+
+  // Restore focus to the element that opened the dialog when it closes. Captured
+  // in the script body rather than in onMount because that callback is async —
+  // Svelte does not treat a returned promise as a cleanup function.
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  onDestroy(() => previouslyFocused?.focus?.())
 
   let containerEl: HTMLDivElement | undefined = $state()
   let version = $state('')

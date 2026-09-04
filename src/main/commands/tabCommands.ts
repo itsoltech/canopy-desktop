@@ -223,6 +223,13 @@ export class ToolSessionService {
     wsUrl: string
   }> {
     validateTmuxName(payload.tmuxSessionName)
+    // attachArgs asserts a tmux path that is only resolved inside isAvailable().
+    // In packaged builds that returns false without resolving anything, so an
+    // unguarded attach spawned a PTY with a null command. Guard it the same way
+    // the openTab path at the top of this file does.
+    if (!(await this.deps.tmuxManager.isAvailable())) {
+      throw new Error('tmux is not available')
+    }
     const attach = this.deps.tmuxManager.attachArgs(payload.tmuxSessionName)
     const session = this.deps.ptyManager.spawn({
       command: attach.command,
