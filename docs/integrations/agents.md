@@ -566,6 +566,84 @@ adapter change, but that is not the same as having reviewed the release, and in 
 event in the hidden entries would not have been seen: `CLAUDE_HOOK_EVENTS` is a hand-maintained list
 of 18 names, so an event Claude Code gains is silently not subscribed to rather than failing loudly.
 
+**The vendored SDK answers the question that note left open, but not for the release being analysed.**
+There is a check on `CLAUDE_HOOK_EVENTS` that needs no network and no allowlist:
+`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` exports a `HookEvent` union of every event
+name, and `node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude` is the vendored CLI itself,
+whose strings `grep -a` will read. The trap is which copy is on disk. The compat workflow checks out
+`ref: next` and runs `npm ci` there, so `node_modules` holds whatever `next` pins — `0.3.207` while
+this PR sits unmerged, whose `manifest.json` carries `"2.1.207"`, well below the range being
+analysed. Taken at face value that copy reports `PreModelSwitch` and `PostModelSwitch` as
+nonexistent, which is true only of 2.1.207: they arrived in 2.1.251. Anything read this way is a
+statement about `next`'s pin rather than about `TO_VERSION`, and the gap widens with every release
+until the pin lands.
+
+**Read as a lower bound it still shows the subscription gap is wide and long-standing.** The
+`HookEvent` union already carried 30 names at `0.3.207`, against the 16 of them Canopy subscribes to.
+The 14 it does not are `PostToolBatch`, `UserPromptExpansion`, `PermissionDenied`, `Setup`,
+`TaskCreated`, `Elicitation`, `ElicitationResult`, `ConfigChange`, `WorktreeCreate`, `WorktreeRemove`,
+`InstructionsLoaded`, `CwdChanged`, `FileChanged` and `MessageDisplay`. None reads like a candidate
+for removal since, so treat that as a floor on today's gap rather than as a current list. Four line
+up with machinery Canopy already has and would need no new concepts: `PermissionDenied` is the
+outcome half of the `PermissionRequest` the adapter maps to `waitingPermission` and notifies on, so a
+pane learns that a prompt appeared but never that it was refused; `TaskCreated` is the opening half
+of the `TaskCompleted` the renderer's task list already consumes; `Elicitation` is a second thing
+that blocks on the user while raising no OS notification; and `CwdChanged` would desync a pane whose
+whole model is one worktree per session. Subscribing changes behaviour for every pane and the payload
+shapes are not settled here, so this is recorded for a maintainer to decide rather than taken.
+
+**`prompt_cache` grew again and is still discarded before the renderer sees it.** 2.1.260 adds a
+likely cause for a prompt-cache miss — the examples given are tool definitions or the system prompt
+changing, and going idle past the TTL — to `/cost` and to the status line's `prompt_cache` field.
+That is the second release to put content into a field Canopy drops: `normalizeStatus` reads five
+named keys (`version`, `model`, `context_window`, `cost`, `rate_limits`) and discards the rest, so
+`prompt_cache` never reaches `handleStatusUpdate`. The 2.1.251 note above made wiring it conditional
+on confirming the JSON keys against a real status line, and that condition is not met this run
+either — the release notes name the quantity but not the key, and the diff was unreachable. What has
+changed is the value of doing it: a miss cause is exactly what would explain a `promptCacheTtl`
+setting failing to pay off, which is the tuning question these notes spend the most space on.
+
+**`/diff`, `/advisor` and `/reload-plugins` are pane-local and need nothing.** 2.1.260 adds a
+fullscreen diff panel toggled with `/diff`, a text form of `/advisor` for desktop, Remote Control and
+other headless sessions, and `/reload-plugins` in headless sessions so it appears in SDK command
+lists. Canopy enumerates no Claude Code slash commands anywhere — the codebase scan finds none, and
+`tabCommands.ts` holds only tool ids and session ids — so all three reach a user by being typed into
+the pane's PTY. The diff panel overlaps Canopy's own Git sidebar in purpose without colliding with
+it: it renders inside the pane, against the same worktree.
+
+**The permission-rule fixes land on the profile Settings JSON seam, as 2.1.259's `Read()` fix did.**
+2.1.260 stops `Edit`/`Write`/`Read` rules whose path contains parentheses being dropped as invalid or
+ignored by the Bash sandbox, which had left folders that read as "read-only" writable; stops a single
+rule with an uncompilable pattern, an unclosed `[` for instance, making every file edit fail with
+"Invalid regular expression"; and stops Bash checks auto-approving zsh commands that hide a command
+substitution in a `REPORTTIME`, `REPORTMEMORY` or `DIRSTACKSIZE` assignment. Canopy writes no
+permission rules of its own, but `setupSettings` merges a profile's Settings JSON overrides into the
+per-session file, so a user who locked a pane down through that field gets a guarantee that is real
+from 2.1.260 rather than approximately real. Nothing in this repository trips the parenthesis case:
+`.claude/settings.json` defines only hooks, and `.claude/settings.local.json` only `Bash(git add:*)`
+and `Bash(git commit:*)`. The rule defect the compat workflow itself hits is a different mechanism
+and is not fixed by any of this — see the allowlist note in `.github/prompts/claude-code-compat.md`.
+
+**Prompt growth is system-side for the fourth consecutive release.** Prompt tokens are up 19.7%
+(+5,420) with one new prompt file (14 → 15), and the mix goes from 65.7%/34.3% system/tools to
+71.3%/28.7%. The arithmetic the 2.1.258 and 2.1.259 notes use puts the total at ~27.5k before and
+~32.9k after, which holds tools at ~9.44k against ~9.45k — tens of tokens, inside the rounding the
+0.1% percentages carry, so flat rather than a finding — while system rises ~18.1k → ~23.5k. Across
+2.1.257 through 2.1.260 that is +19,346 tokens, all of it system text, taking the system prompt from
+~4.2k to ~23.5k while every tool description stayed at ~9.45k. The consequence for Canopy has not
+changed across the four: flat tool descriptions ask nothing of the code keyed to tool names and
+shapes (`summarizeToolInput`, the tool views, the `PreToolUse`/`PostToolUse` normalization), and the
+system growth is overhead off the usable context of every pane, visible as a higher starting context
+percentage in the Agent Inspector and as compaction arriving sooner.
+
+**54 of 2.1.260's CLI changelog entries were not readable this run, and delegating did not help.**
+The release notes truncate at "… +54 more CLI changelog entries" — twice the 25 hidden at 2.1.259 —
+and both routes to the rest were denied again: `gh api` against the changelog repo by the allowlist
+defect, and `WebFetch` on its own. New this run is that the denial is not the main session's alone. A
+subagent spawned with `WebFetch` and `WebSearch` in its tool list hit the same refusal, so delegating
+the fetch is not a way around it and is not worth the turns. The items above are the visible entries
+only, which is not the same as having reviewed the release.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
