@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import {
     tabsByWorktree,
     activeTabId,
@@ -119,6 +120,26 @@
   let overflowTabs = $derived(
     visibleCount > 0 && tabs.length > visibleCount ? tabs.slice(visibleCount) : [],
   )
+
+  // The roving tabindex exposes only the active tab to Tab-key navigation, so
+  // without arrow keys the other tabs are unreachable from the keyboard — the
+  // Cmd+1..9 shortcuts are the only alternative and are undiscoverable.
+  async function focusTabByOffset(currentId: string, offset: number): Promise<void> {
+    const index = visibleTabs.findIndex((t) => t.id === currentId)
+    if (index === -1 || visibleTabs.length < 2) return
+    const next = visibleTabs[(index + offset + visibleTabs.length) % visibleTabs.length]
+    await switchTab(next.id)
+    await tick()
+    // Match the existing `[data-tab-id]` lookup idiom rather than interpolating
+    // a tab id into a selector.
+    const tabEls = containerEl?.querySelectorAll<HTMLElement>('[data-tab-id]')
+    for (const el of tabEls ?? []) {
+      if (el.dataset.tabId === next.id) {
+        el.focus()
+        return
+      }
+    }
+  }
 
   function handleMiddleClick(e: MouseEvent, tabId: string): void {
     if (e.button === 1) {
@@ -341,6 +362,12 @@
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               await switchTab(tab.id)
+            } else if (e.key === 'ArrowRight') {
+              e.preventDefault()
+              await focusTabByOffset(tab.id, 1)
+            } else if (e.key === 'ArrowLeft') {
+              e.preventDefault()
+              await focusTabByOffset(tab.id, -1)
             }
           }}
           onauxclick={(e) => handleMiddleClick(e, tab.id)}

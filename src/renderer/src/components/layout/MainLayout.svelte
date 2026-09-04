@@ -209,6 +209,38 @@
     }
   }
 
+  // Dragging the divider is the only way to size these panels, so it also has
+  // to work without a pointer. Arrows nudge, Home/End jump to the bounds, and
+  // each commits the preference exactly as releasing a drag does.
+  const RESIZE_STEP = 16
+
+  function handleSidebarKeydown(e: KeyboardEvent): void {
+    const next = match(e.key)
+      .with('ArrowLeft', () => sidebarWidth - RESIZE_STEP)
+      .with('ArrowRight', () => sidebarWidth + RESIZE_STEP)
+      .with('Home', () => SIDEBAR_MIN)
+      .with('End', () => SIDEBAR_MAX)
+      .otherwise(() => null)
+    if (next === null) return
+    e.preventDefault()
+    sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, next))
+    setPref('sidebar.width', String(sidebarWidth))
+  }
+
+  function handleRpKeydown(e: KeyboardEvent): void {
+    // The right panel grows leftwards, matching handleRpPointerMove's delta.
+    const next = match(e.key)
+      .with('ArrowLeft', () => rightPanelWidth + RESIZE_STEP)
+      .with('ArrowRight', () => rightPanelWidth - RESIZE_STEP)
+      .with('Home', () => RPANEL_MIN)
+      .with('End', () => RPANEL_MAX)
+      .otherwise(() => null)
+    if (next === null) return
+    e.preventDefault()
+    rightPanelWidth = Math.min(RPANEL_MAX, Math.max(RPANEL_MIN, next))
+    setPref('rightPanel.width', String(rightPanelWidth))
+  }
+
   let allTabs = $derived(getAllTabs())
   let currentActiveTabId = $derived(
     workspaceState.selectedWorktreePath
@@ -671,14 +703,24 @@
   {:else}
     {#if workspaceState.sidebarOpen && projects.length > 0}
       <Sidebar onLaunchTool={handleLaunchTool} width={sidebarWidth} />
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- A focusable separator is the ARIA window-splitter pattern; the role is
+           only "non-interactive" when it has no tabindex. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
-        class="w-1 cursor-col-resize bg-transparent flex-shrink-0 transition-colors duration-base hover:bg-accent-muted"
+        class="w-1 cursor-col-resize bg-transparent flex-shrink-0 transition-colors duration-base hover:bg-accent-muted focus-visible:bg-accent-muted focus-visible:outline-none"
         class:bg-accent-muted={sidebarDragging}
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        aria-valuenow={sidebarWidth}
+        aria-valuemin={SIDEBAR_MIN}
+        aria-valuemax={SIDEBAR_MAX}
         onpointerdown={handleSidebarPointerDown}
         onpointermove={handleSidebarPointerMove}
         onpointerup={handleSidebarPointerUp}
         onpointercancel={handleSidebarPointerUp}
+        onkeydown={handleSidebarKeydown}
       ></div>
     {/if}
 
@@ -721,14 +763,22 @@
         </div>
 
         {#if workspaceState.rightPanelOpen && workspaceState.selectedWorktreePath}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
           <div
-            class="w-px cursor-col-resize bg-transparent flex-shrink-0 relative after:content-empty after:absolute after:inset-y-0 after:-inset-x-1 after:cursor-col-resize hover:bg-accent-muted"
+            class="w-px cursor-col-resize bg-transparent flex-shrink-0 relative after:content-empty after:absolute after:inset-y-0 after:-inset-x-1 after:cursor-col-resize hover:bg-accent-muted focus-visible:bg-accent-muted focus-visible:outline-none"
             class:bg-accent-muted={rpDragging}
+            role="separator"
+            tabindex="0"
+            aria-orientation="vertical"
+            aria-label="Resize right panel"
+            aria-valuenow={rightPanelWidth}
+            aria-valuemin={RPANEL_MIN}
+            aria-valuemax={RPANEL_MAX}
             onpointerdown={handleRpPointerDown}
             onpointermove={handleRpPointerMove}
             onpointerup={handleRpPointerUp}
             onpointercancel={handleRpPointerUp}
+            onkeydown={handleRpKeydown}
           ></div>
           <RightPanel
             agentState={activeAgentState}

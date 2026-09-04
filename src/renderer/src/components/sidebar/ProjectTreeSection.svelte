@@ -215,7 +215,10 @@
 
   function handleNewWorktree(e: MouseEvent, project: ProjectState): void {
     e.stopPropagation()
-    showCreateWorktree({ repoRoot: project.repoRoot!, workspaceId: project.workspace.id })
+    // isGitRepo and repoRoot are independent (checkMergedStatus tests both), so
+    // the button's isGitRepo gate does not imply a resolved root.
+    if (!project.repoRoot) return
+    showCreateWorktree({ repoRoot: project.repoRoot, workspaceId: project.workspace.id })
   }
 
   function handleInitGit(e: MouseEvent, project: ProjectState): void {
@@ -289,8 +292,9 @@
     if (!ctxMenu) return
     const { project, wt } = ctxMenu
     closeCtxMenu()
+    if (!project.repoRoot) return
     showCreateWorktree({
-      repoRoot: project.repoRoot!,
+      repoRoot: project.repoRoot,
       workspaceId: project.workspace.id,
       baseBranch: wt.branch,
     })

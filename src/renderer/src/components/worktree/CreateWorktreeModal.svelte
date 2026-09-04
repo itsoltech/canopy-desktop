@@ -131,6 +131,12 @@
     return branches.remote.find((r) => r.slice(r.indexOf('/') + 1) === name) ?? ''
   }
 
+  // Restore focus to the element that opened the modal when it closes. Captured
+  // in the script body rather than in onMount because that callback is async —
+  // Svelte does not treat a returned promise as a cleanup function.
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  onDestroy(() => previouslyFocused?.focus?.())
+
   onMount(async () => {
     containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))

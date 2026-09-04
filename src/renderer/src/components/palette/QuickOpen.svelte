@@ -32,8 +32,12 @@
   }
 
   onMount(() => {
+    // Return focus to whatever opened Quick Open (usually the terminal) so a
+    // keyboard user is not dumped on <body> when it closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     inputEl?.focus()
     void forceReload(worktreePath)
+    return () => previouslyFocused?.focus?.()
   })
 
   const matchedResults: Result[] = $derived.by(() => {

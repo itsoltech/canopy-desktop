@@ -241,7 +241,14 @@ export class DataChannelRpc {
     if (frame.ok) {
       pending.resolve(frame.result)
     } else {
-      pending.reject(new Error(`${frame.error._tag}: ${frame.error.message}`))
+      // `frame` is a cast over peer-supplied JSON, so `error` is a claim rather
+      // than a guarantee. A `{ok: false}` frame with no `error` used to throw
+      // here — after the timer was cleared and the entry deleted — leaving the
+      // caller's promise permanently unsettled. Read it defensively.
+      const error = frame.error as { _tag?: string; message?: string } | undefined
+      pending.reject(
+        new Error(`${error?._tag ?? 'PEER_ERROR'}: ${error?.message ?? 'Malformed error frame'}`),
+      )
     }
   }
 

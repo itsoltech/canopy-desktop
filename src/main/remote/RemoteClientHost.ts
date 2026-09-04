@@ -4,7 +4,7 @@ import path from 'node:path'
 import { match } from 'ts-pattern'
 
 const CSP_HEADER =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:"
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:; base-uri 'none'; object-src 'none'"
 
 function contentTypeFor(ext: string): string {
   return match(ext.toLowerCase())
