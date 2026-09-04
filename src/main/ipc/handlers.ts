@@ -60,7 +60,7 @@ import type {
   ResolvedConfig,
   PRTemplateConfig,
 } from '../taskTracker/types'
-import { taskTrackerErrorMessage } from '../taskTracker/errors'
+import { repoConfigOrNull, taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
 import { CiManager } from '../ci/CiManager'
 import { registerCiHandlers, type TeamCityAccessConfirmation } from '../ci/ipc'
@@ -3164,7 +3164,7 @@ export function registerIpcHandlers(
   ipcMain.handle('repoConfig:load', async (event, payload: { repoRoot: string }) => {
     const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
     const result = await repoConfigManager.load(resolved)
-    return result.unwrapOr(null)
+    return repoConfigOrNull(result)
   })
 
   ipcMain.handle(
@@ -3213,7 +3213,7 @@ export function registerIpcHandlers(
     let repo: RepoConfig | null = null
     if (repoRoot) {
       const result = await repoConfigManager.load(repoRoot)
-      repo = result.unwrapOr(null)
+      repo = repoConfigOrNull(result)
     }
     return mergeConfigs(global, repo)
   }

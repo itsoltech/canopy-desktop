@@ -1,16 +1,14 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import { ExternalLink, LoaderCircle, RefreshCw, X } from '@lucide/svelte'
+  import { LoaderCircle, RefreshCw, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { getCiActivityTick } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
-  import { formatDuration, formatWhen } from '../../lib/ci/format'
-  import { formatDateTime } from '../../lib/formatDate'
-  import { ciRunChip, ciRunStatusTextClass } from '../../lib/ci/status'
   import { ipcErrorMessage } from '../../lib/ci/errors'
-  import type { CiRun, CiRunActivity } from '../../lib/ci/types'
+  import type { CiRunActivity } from '../../lib/ci/types'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import GitHubActionsActivityRow from './GitHubActionsActivityRow.svelte'
 
   let { repoRoot, initialBranch }: { repoRoot: string; initialBranch?: string } = $props()
   let activity = $state<CiRunActivity | null>(null)
@@ -102,91 +100,7 @@
       cycleFocus(dialogEl, event)
     }
   }
-
-  function runMeta(run: CiRun): string {
-    const parts: string[] = []
-    const when = run.startedAt ?? run.queuedAt ?? run.finishedAt
-    if (when != null) parts.push(formatWhen(when, now))
-    if (run.startedAt != null) {
-      const end = run.finishedAt ?? now
-      parts.push(`${formatDuration(end - run.startedAt)}${run.finishedAt ? '' : ' elapsed'}`)
-    }
-    return parts.join(' · ')
-  }
 </script>
-
-{#snippet runRow(run: CiRun)}
-  {@const chip = ciRunChip({ run })}
-  {@const meta = runMeta(run)}
-  {@const stamp = run.startedAt ?? run.queuedAt ?? run.finishedAt}
-  <!-- Timestamp on the top line and chip on the second, both shrink-0 at the row's
-       right edge. They used to share one line, where the timestamp was only ml-auto
-       INSIDE the text column — so its position tracked the chip's variable width
-       ("Running 27%" vs "Success") and jittered on every poll as the percentage ticked. -->
-  <button
-    type="button"
-    class="group w-full min-h-10 px-3 py-1.5 rounded-md border-0 bg-transparent text-left text-text flex flex-col gap-0.5 cursor-pointer hover:bg-hover aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:opacity-60"
-    aria-disabled={!run.webUrl}
-    onclick={() => run.webUrl && window.api.openExternal(run.webUrl)}
-    title={run.webUrl
-      ? `Open ${run.jobLabel}${run.number ? ` #${run.number}` : ''} in GitHub Actions`
-      : `${run.jobLabel} cannot be opened in GitHub Actions`}
-  >
-    <span class="flex items-center gap-2 w-full min-w-0">
-      <span class="flex-1 min-w-0 truncate text-sm">{run.jobLabel}</span>
-      {#if run.number}
-        <span
-          class="shrink-0 font-mono text-2xs text-text-faint underline-offset-2 group-hover:text-accent-text group-focus-within:text-accent-text group-hover:underline group-focus-within:underline"
-          >#{run.number}</span
-        >
-      {/if}
-      {#if meta}
-        <!-- Grid overlap keeps the top line stable: HOVER swaps the timestamp for the
-             link icon. Deliberately not focus — that is where a keyboard user already
-             is, and Chromium never renders `title` on :focus, so the time would be gone
-             with nothing to recover it. The run number carries their affordance. -->
-        <span class="grid shrink-0 items-center justify-items-end">
-          <span
-            class="col-start-1 row-start-1 text-2xs text-text-faint whitespace-nowrap transition-opacity duration-fast {run.webUrl
-              ? 'group-hover:opacity-0'
-              : ''}"
-            title={stamp != null ? formatDateTime(stamp) : undefined}>{meta}</span
-          >
-          {#if run.webUrl}
-            <span
-              class="col-start-1 row-start-1 flex items-center justify-end text-text-muted opacity-0 pointer-events-none transition-opacity duration-fast group-hover:opacity-100"
-              aria-hidden="true"
-            >
-              <ExternalLink size={11} />
-            </span>
-          {/if}
-        </span>
-      {:else if run.webUrl}
-        <!-- Nothing to displace here, so focus keeps its reveal. -->
-        <span
-          class="shrink-0 flex items-center text-text-muted opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-within:opacity-100"
-          aria-hidden="true"
-        >
-          <ExternalLink size={11} />
-        </span>
-      {/if}
-    </span>
-    <span class="flex items-center gap-2 w-full min-w-0">
-      {#if run.ref}
-        <span
-          class="flex-1 min-w-0 truncate font-mono text-2xs text-text-muted"
-          title={run.ref.name}>{run.ref.name}</span
-        >
-      {/if}
-      <span class="ml-auto shrink-0 px-1.5 py-px rounded-md text-2xs {chip.cls}">{chip.label}</span>
-    </span>
-    {#if run.statusText}
-      <span class="w-full truncate text-2xs {ciRunStatusTextClass(run)}" title={run.statusText}
-        >{run.statusText}</span
-      >
-    {/if}
-  </button>
-{/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
@@ -286,7 +200,9 @@
             <h3 class="m-0 px-3 py-1 text-2xs uppercase tracking-caps-tight text-text-faint">
               Running / waiting
             </h3>
-            {#each activity.running as run (run.runId)}{@render runRow(run)}{/each}
+            {#each activity.running as run (run.runId)}
+              <GitHubActionsActivityRow {run} {now} />
+            {/each}
           </section>
         {/if}
         {#if activity.queued.length}
@@ -294,16 +210,18 @@
             <h3 class="m-0 px-3 py-1 text-2xs uppercase tracking-caps-tight text-text-faint">
               Queued
             </h3>
-            {#each activity.queued as run (run.runId)}{@render runRow(run)}{/each}
+            {#each activity.queued as run (run.runId)}
+              <GitHubActionsActivityRow {run} {now} />
+            {/each}
           </section>
         {/if}
         <section>
           <h3 class="m-0 px-3 py-1 text-2xs uppercase tracking-caps-tight text-text-faint">
             Recent
           </h3>
-          {#if activity.recent.length}{#each activity.recent as run (run.runId)}{@render runRow(
-                run,
-              )}{/each}{:else}<p class="m-0 px-3 py-4 text-sm text-text-muted">
+          {#if activity.recent.length}{#each activity.recent as run (run.runId)}
+              <GitHubActionsActivityRow {run} {now} />
+            {/each}{:else}<p class="m-0 px-3 py-4 text-sm text-text-muted">
               No runs for the configured workflows{branchFilter ? ` on ${branchFilter}` : ''}.
             </p>{/if}
         </section>

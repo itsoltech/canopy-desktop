@@ -1,13 +1,5 @@
 <script lang="ts">
-  import {
-    Plus,
-    ExternalLink,
-    KeyRound,
-    LoaderCircle,
-    Link2,
-    Settings,
-    Unlink,
-  } from '@lucide/svelte'
+  import { Plus, ExternalLink, KeyRound, LoaderCircle, Link2, Settings } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import {
     getResolvedConfig,
@@ -21,12 +13,12 @@
     removeActiveTask,
     resolvePanelTask,
   } from '../../lib/stores/taskTracker.svelte'
-  import { statusChipClass } from '../../lib/taskTracker/statusChip'
   import { extractTaskKeys } from '../../lib/taskTracker/branchTaskKey'
   import { showProjectTracker, showTaskPicker } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
+  import TaskTrackerTaskRow from './_partials/TaskTrackerTaskRow.svelte'
 
   let resolved = $derived(getResolvedConfig())
   // Only trackers declared by THIS project's .canopy/config.json — the merged config also carries
@@ -232,69 +224,12 @@
         {:else if panelTasks.length > 0}
           {#each panelTasks as t (t.taskKey)}
             {@const fromBranch = branchKeys.includes(t.taskKey)}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <div
-              class="group flex items-center gap-2.5 w-full h-7 px-3 bg-transparent text-sm cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
-              role="button"
-              tabindex="0"
-              onclick={() => openTaskPanel(t.taskKey)}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  openTaskPanel(t.taskKey)
-                }
-              }}
-              title={t.summary
-                ? `${t.taskKey} — ${t.summary}\nOpen the task panel (status, comments)`
-                : 'Open the task panel (status, comments)'}
-            >
-              {#if t.typeIcon}
-                <img
-                  src={t.typeIcon}
-                  alt={t.typeName ?? t.type ?? 'task type'}
-                  title={t.typeName ?? t.type}
-                  class="size-3.5 shrink-0 rounded-sm"
-                />
-              {/if}
-              <span
-                class="text-xs font-semibold flex-shrink-0 {t.missing
-                  ? 'text-warning-text line-through'
-                  : 'text-accent-text'}">{t.taskKey}</span
-              >
-              {#if t.missing}
-                <span
-                  class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 bg-warning/15 text-warning-text"
-                  >not found</span
-                >
-              {/if}
-              <span
-                class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted"
-                >{t.summary ?? ''}</span
-              >
-              <!-- VS Code-style swap: the status chip sits flush right and yields its slot to the
-                 unlink action on hover/focus, so no empty gutter is reserved next to it. -->
-              {#if t.status}
-                <span
-                  class="px-1.5 py-px rounded-md text-2xs flex-shrink-0 group-hover:hidden group-focus-within:hidden {statusChipClass(
-                    t.statusCategory,
-                  )}">{t.status}</span
-                >
-              {/if}
-              <button
-                class="hidden group-hover:flex group-focus-within:flex items-center justify-center size-5 rounded-md border-0 bg-transparent text-text-faint p-0 shrink-0 enabled:cursor-pointer enabled:hover:bg-danger-bg enabled:hover:text-danger-text disabled:cursor-not-allowed disabled:opacity-40"
-                onclick={(e) => {
-                  e.stopPropagation()
-                  void unlinkTask(t.taskKey)
-                }}
-                disabled={fromBranch}
-                aria-label="Unlink task"
-                title={fromBranch
-                  ? 'This task key is part of the branch name — the link comes from the branch and cannot be removed'
-                  : 'Unlink this task from the worktree'}
-              >
-                <Unlink size={12} />
-              </button>
-            </div>
+            <TaskTrackerTaskRow
+              task={t}
+              {fromBranch}
+              onOpen={() => openTaskPanel(t.taskKey)}
+              onUnlink={() => void unlinkTask(t.taskKey)}
+            />
           {/each}
           {#if hasUsableTracker}
             <button

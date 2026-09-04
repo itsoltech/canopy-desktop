@@ -185,11 +185,16 @@ export class CiManager {
   loadConfig(repoRoot: string): ResultAsync<CiConfig, CiError> {
     return this.repoConfigManager
       .load(repoRoot)
-      .mapErr((e): CiError =>
-        e._tag === 'ConfigParseError'
-          ? { _tag: 'CiConfigInvalid', scope: 'file', reason: e.reason }
-          : { _tag: 'CiNotConfigured' },
-      )
+      .mapErr((e): CiError => {
+        if (e._tag === 'ConfigParseError' || e._tag === 'ConfigReadError') {
+          return {
+            _tag: 'CiConfigInvalid',
+            scope: 'file',
+            reason: e._tag === 'ConfigReadError' ? taskTrackerErrorMessage(e) : e.reason,
+          }
+        }
+        return { _tag: 'CiNotConfigured' }
+      })
       .andThen((cfg) => {
         if (cfg.ci == null) return errAsync<CiConfig, CiError>({ _tag: 'CiNotConfigured' })
         const parsed = parseCiConfig(cfg.ci)
@@ -758,29 +763,23 @@ export class CiManager {
   private performConfigWrite(repoRoot: string, ci: CiConfig | null): ResultAsync<void, CiError> {
     return ResultAsync.fromSafePromise(this.repoConfigManager.exists(repoRoot))
       .andThen((exists) =>
-        // A file that exists but won't load is never initialized over: `init`
-        // writes defaults, so ANY read failure — a parse error, EACCES, a
-        // transient EMFILE (load's ConfigNotFound tag is lossy about the cause) —
-        // would delete the repo's committed trackers, templates and agent config.
-        // The filesystem decides whether the file is absent, not the error tag.
+        // A file that exists but won't load is never treated as absent. `init` is
+        // creation-only as a second guard, while this check keeps the useful read
+        // or parse error for the configurator.
         exists ? this.repoConfigManager.load(repoRoot) : this.repoConfigManager.init(repoRoot),
       )
       .andThen((cfg) => this.repoConfigManager.save(repoRoot, { ...cfg, ci: ci ?? undefined }))
       .mapErr((e): CiError => {
         // Same reason loadConfig scopes this: a config file that won't parse is
         // not a TeamCity failure, and CiApiError renders as "TeamCity: …".
-        // Neither is a write failure or an unreadable file — exists() already
-        // said the file is there, so ConfigNotFound here means EACCES/EMFILE,
-        // not absence. NOTHING in this chain talks to TeamCity.
+        // Read and write failures are local config errors too. NOTHING in this
+        // chain talks to TeamCity.
         if (e._tag === 'ConfigParseError') {
           return { _tag: 'CiConfigInvalid', scope: 'file', reason: e.reason }
         }
         return {
           _tag: 'CiConfigUnwritable',
-          reason:
-            e._tag === 'ConfigNotFound'
-              ? 'the existing file could not be read (permissions or a transient file error)'
-              : taskTrackerErrorMessage(e),
+          reason: taskTrackerErrorMessage(e),
         }
       })
   }

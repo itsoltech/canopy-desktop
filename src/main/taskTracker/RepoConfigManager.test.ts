@@ -5,6 +5,7 @@ import { dirname, join } from 'path'
 // initializes defaults when it reports false, and binding-pruning drops the repo
 // from the live set. Only a genuine ENOENT may report absent.
 const access = vi.fn()
+const link = vi.fn()
 const open = vi.fn()
 const mkdir = vi.fn()
 const readdir = vi.fn()
@@ -15,6 +16,7 @@ const writeFile = vi.fn()
 const delay = vi.fn()
 vi.mock('fs/promises', () => ({
   access: (path: string) => access(path),
+  link: (...args: unknown[]) => link(...args),
   open: (...args: unknown[]) => open(...args),
   readFile: vi.fn(),
   writeFile: (...args: unknown[]) => writeFile(...args),
@@ -51,6 +53,25 @@ describe('RepoConfigManager.load', () => {
     })
     expect(read).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
+  })
+
+  it('reports only ENOENT as a missing repository config', async () => {
+    open.mockRejectedValueOnce(Object.assign(new Error('no such file'), { code: 'ENOENT' }))
+
+    const result = await new RepoConfigManager().load('/repo')
+
+    expect(result.isErr() && result.error).toMatchObject({ _tag: 'ConfigNotFound' })
+  })
+
+  it('keeps filesystem read failures distinct from a missing repository config', async () => {
+    open.mockRejectedValueOnce(Object.assign(new Error('permission denied'), { code: 'EACCES' }))
+
+    const result = await new RepoConfigManager().load('/repo')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'ConfigReadError',
+      reason: 'permission denied',
+    })
   })
 })
 
@@ -109,6 +130,49 @@ describe('RepoConfigManager.save', () => {
     expect(unlink).not.toHaveBeenCalled()
   })
 
+  it('does not publish a loaded config when pretty serialization exceeds the read limit', async () => {
+    const config = defaultConfig()
+    config.projectOverrides = Object.fromEntries(
+      Array.from({ length: 8_000 }, (_, index) => [
+        `PROJECT_${index}`,
+        {
+          branchTemplate: {
+            template: 'feature/{taskKey}-{taskTitle}',
+            customVars: { owner: 'team' },
+          },
+        },
+      ]),
+    )
+    const compact = JSON.stringify(config)
+    expect(Buffer.byteLength(compact, 'utf8')).toBeLessThanOrEqual(1024 * 1024)
+    expect(Buffer.byteLength(JSON.stringify(config, null, 2) + '\n', 'utf8')).toBeGreaterThan(
+      1024 * 1024,
+    )
+    let consumed = false
+    const read = vi.fn(async (buffer: Buffer) => {
+      if (consumed) return { bytesRead: 0, buffer }
+      consumed = true
+      const bytes = Buffer.from(compact)
+      bytes.copy(buffer)
+      return { bytesRead: bytes.length, buffer }
+    })
+    const close = vi.fn(async () => undefined)
+    open.mockResolvedValueOnce({ read, close })
+    const manager = new RepoConfigManager()
+    const loaded = await manager.load('/repo')
+    expect(loaded.isOk()).toBe(true)
+
+    const result = await manager.save('/repo', loaded._unsafeUnwrap())
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'ConfigWriteError',
+      reason: 'Configuration file exceeds the 1 MiB size limit',
+    })
+    expect(mkdir).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(rename).not.toHaveBeenCalled()
+  })
+
   it('removes the temporary file when publishing fails', async () => {
     rename.mockRejectedValueOnce(new Error('rename failed'))
 
@@ -156,5 +220,60 @@ describe('RepoConfigManager.save', () => {
 
     expect(result.isOk()).toBe(true)
     expect(unlink).not.toHaveBeenCalled()
+  })
+})
+
+describe('RepoConfigManager.init', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mkdir.mockResolvedValue(undefined)
+    link.mockResolvedValue(undefined)
+    unlink.mockResolvedValue(undefined)
+    writeFile.mockResolvedValue(undefined)
+  })
+
+  it('publishes a complete temporary file with an exclusive hard link', async () => {
+    const result = await new RepoConfigManager().init('/repo')
+
+    expect(result.isOk()).toBe(true)
+    const temporary = writeFile.mock.calls[0]?.[0]
+    const destination = join('/repo', '.canopy', 'config.json')
+    expect(temporary).not.toBe(destination)
+    expect(writeFile).toHaveBeenCalledWith(
+      expect.stringContaining('.config.json.config-write-id.tmp'),
+      expect.stringContaining('"version": 1'),
+      { encoding: 'utf-8', flag: 'wx' },
+    )
+    expect(link).toHaveBeenCalledWith(temporary, destination)
+    expect(unlink).toHaveBeenCalledWith(temporary)
+    expect(writeFile.mock.invocationCallOrder[0]).toBeLessThan(link.mock.invocationCallOrder[0])
+  })
+
+  it('cannot overwrite an existing config and removes its completed temporary file', async () => {
+    link.mockRejectedValueOnce(Object.assign(new Error('file exists'), { code: 'EEXIST' }))
+
+    const result = await new RepoConfigManager().init('/repo')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'ConfigWriteError',
+      reason: 'file exists',
+    })
+    const temporary = writeFile.mock.calls[0]?.[0]
+    expect(link).toHaveBeenCalledWith(temporary, join('/repo', '.canopy', 'config.json'))
+    expect(unlink).toHaveBeenCalledWith(temporary)
+    expect(rename).not.toHaveBeenCalled()
+  })
+
+  it('removes a partial temporary file when its write fails', async () => {
+    writeFile.mockRejectedValueOnce(new Error('disk full'))
+
+    const result = await new RepoConfigManager().init('/repo')
+
+    expect(result.isErr() && result.error).toMatchObject({
+      _tag: 'ConfigWriteError',
+      reason: 'disk full',
+    })
+    expect(link).not.toHaveBeenCalled()
+    expect(unlink).toHaveBeenCalledWith(writeFile.mock.calls[0]?.[0])
   })
 })

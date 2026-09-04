@@ -1,16 +1,14 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import { ExternalLink, LoaderCircle, RefreshCw, X } from '@lucide/svelte'
+  import { LoaderCircle, RefreshCw, X } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { getCiActivityTick } from '../../lib/stores/ci.svelte'
   import { cycleFocus } from '../../lib/a11y/focusTrap'
-  import { formatDuration, formatWhen } from '../../lib/ci/format'
-  import { formatDateTime } from '../../lib/formatDate'
-  import { ciChip, ciStatusTextClass } from '../../lib/ci/status'
   import { ipcErrorMessage } from '../../lib/ci/errors'
   import { startSettledPoll } from '../../lib/ci/settledPoll'
-  import type { CiActivity, CiActivityBuild } from '../../lib/ci/types'
+  import type { CiActivity } from '../../lib/ci/types'
   import CustomSelect from '../shared/CustomSelect.svelte'
+  import TeamCityActivityRow from './TeamCityActivityRow.svelte'
 
   // Repository activity: running, queued and recent builds whose configurations
   // are selected in this repo's CI config. Refreshes while open.
@@ -97,38 +95,6 @@
     }
   })
 
-  /**
-   * The instant `buildMeta` renders as relative time. Kept next to it so the row's
-   * absolute-time tooltip cannot end up describing a different moment than the text
-   * it annotates — the two disagree for a build that was queued but never started.
-   */
-  function buildStamp(build: CiActivityBuild): number | undefined {
-    if (build.state === 'finished') return build.startedAt ?? build.finishedAt
-    if (build.state === 'running') return build.startedAt
-    return build.queuedAt
-  }
-
-  function buildMeta(build: CiActivityBuild): string {
-    if (build.state === 'finished') {
-      const when = build.startedAt ?? build.finishedAt
-      const parts: string[] = []
-      if (when != null) parts.push(formatWhen(when, now))
-      if (build.startedAt != null && build.finishedAt != null) {
-        parts.push(formatDuration(build.finishedAt - build.startedAt))
-      }
-      return parts.join(' · ')
-    }
-    if (build.state === 'running') {
-      const parts: string[] = []
-      if (build.startedAt != null) {
-        parts.push(formatWhen(build.startedAt, now))
-        parts.push(`${formatDuration(now - build.startedAt)} elapsed`)
-      }
-      return parts.join(' · ')
-    }
-    return build.queuedAt != null ? `queued ${formatWhen(build.queuedAt, now)}` : ''
-  }
-
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -137,84 +103,7 @@
     }
     if (e.key === 'Tab' && dialogEl) cycleFocus(dialogEl, e)
   }
-
-  function openBuild(webUrl: string): void {
-    if (webUrl) window.api.openExternal(webUrl)
-  }
 </script>
-
-{#snippet buildRow(build: CiActivityBuild)}
-  {@const meta = buildMeta(build)}
-  {@const chip = ciChip({ build })}
-  {@const stamp = buildStamp(build)}
-  <!-- Timestamp on the top line and chip on the second, both shrink-0 at the row's
-       right edge. They used to share one line, where the timestamp was only ml-auto
-       INSIDE the text column — so its position tracked the chip's variable width
-       ("Running 27%" vs "Success") and jittered on every poll as the percentage ticked. -->
-  <button
-    type="button"
-    class="group flex shrink-0 flex-col gap-0.5 w-full min-h-8 px-3 py-1 border-0 bg-transparent text-text text-sm font-inherit text-left rounded-md transition-colors duration-fast cursor-pointer hover:bg-hover aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:opacity-60"
-    aria-disabled={!build.webUrl}
-    onclick={() => openBuild(build.webUrl)}
-    title={build.webUrl
-      ? `Open ${build.buildTypeName}${build.number ? ` #${build.number}` : ''} in TeamCity`
-      : `${build.buildTypeName} cannot be opened in TeamCity`}
-  >
-    <span class="flex items-center gap-2 w-full min-w-0">
-      <span class="flex-1 min-w-0 truncate">{build.buildTypeName}</span>
-      {#if build.number}
-        <span
-          class="shrink-0 font-mono text-2xs text-text-faint underline-offset-2 group-hover:text-accent-text group-focus-within:text-accent-text group-hover:underline group-focus-within:underline"
-          >#{build.number}</span
-        >
-      {/if}
-      {#if meta}
-        <!-- Grid overlap keeps the top line stable: HOVER swaps the timestamp for the
-             link icon. Deliberately not focus — that is where a keyboard user already
-             is, and Chromium never renders `title` on :focus, so the time would be gone
-             with nothing to recover it. The build number carries their affordance. -->
-        <span class="grid shrink-0 items-center justify-items-end">
-          <span
-            class="col-start-1 row-start-1 text-2xs text-text-faint whitespace-nowrap transition-opacity duration-fast {build.webUrl
-              ? 'group-hover:opacity-0'
-              : ''}"
-            title={stamp != null ? formatDateTime(stamp) : undefined}>{meta}</span
-          >
-          {#if build.webUrl}
-            <span
-              class="col-start-1 row-start-1 flex items-center justify-end text-text-muted opacity-0 pointer-events-none transition-opacity duration-fast group-hover:opacity-100"
-              aria-hidden="true"
-            >
-              <ExternalLink size={11} />
-            </span>
-          {/if}
-        </span>
-      {:else if build.webUrl}
-        <!-- Nothing to displace here, so focus keeps its reveal. -->
-        <span
-          class="shrink-0 flex items-center text-text-muted opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-within:opacity-100"
-          aria-hidden="true"
-        >
-          <ExternalLink size={11} />
-        </span>
-      {/if}
-    </span>
-    <span class="flex items-center gap-2 w-full min-w-0">
-      {#if build.branchName}
-        <span
-          class="flex-1 min-w-0 truncate font-mono text-2xs text-text-muted"
-          title={build.branchName}>{build.branchName}</span
-        >
-      {/if}
-      <span class="ml-auto shrink-0 px-1.5 py-px rounded-md text-2xs {chip.cls}">{chip.label}</span>
-    </span>
-    {#if build.statusText}
-      <span class="w-full truncate text-2xs {ciStatusTextClass(build)}" title={build.statusText}
-        >{build.statusText}</span
-      >
-    {/if}
-  </button>
-{/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
@@ -325,7 +214,7 @@
           </p>
         {:else}
           {#each [...activity.running, ...activity.queued] as build (build.state + build.id)}
-            {@render buildRow(build)}
+            <TeamCityActivityRow {build} {now} />
           {/each}
         {/if}
 
@@ -339,7 +228,7 @@
           </p>
         {:else}
           {#each activity.recent as build (build.id)}
-            {@render buildRow(build)}
+            <TeamCityActivityRow {build} {now} />
           {/each}
         {/if}
       {/if}

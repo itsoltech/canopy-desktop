@@ -269,6 +269,18 @@ JSON or the next complete JSON, never a partially written document. On transient
 before reporting `ConfigWriteError`. This is an atomic-publication guarantee, not an `fsync`
 durability guarantee across power loss.
 
+Both reads and the exact final UTF-8 serialization written by Save are capped at 1 MiB. Canopy
+checks the pretty-printed form before creating a temporary file, so loading a compact near-limit
+configuration and saving it cannot replace the repository file with a document that the next load
+would reject.
+
+Only an `ENOENT` read is treated as an absent project config. Oversized, malformed and unreadable
+files are surfaced as errors, do not fall back silently to global settings, and suppress the
+Initialize action. Initialization writes a complete temporary sibling and publishes it through an
+exclusive same-directory hard link. A stale UI or another Canopy process therefore cannot replace
+a config that appeared after the initial load, and interruption cannot expose partial JSON at the
+destination.
+
 A hard process kill can leave the hidden temporary sibling behind. A later save in that repository
 removes matching files older than 24 hours; they contain only the same non-secret repository config
 that was being saved and can also be deleted manually once no Canopy instance is writing the repo.
@@ -369,24 +381,25 @@ Note: `taskTracker:attachmentSave` additionally throws plain validation errors t
 verbatim in a toast — `Invalid task key`, `Invalid attachment id`, `No tracker configured`,
 and `Attachment not found on this task`.
 
-| Error                      | User sees                                        | Cause                                                                     |
-| -------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |
-| `ConnectionNotFound`       | "Connection not found: {id}"                     | Deleted or invalid connection ID referenced                               |
-| `AuthTokenMissing`         | "No auth token for {name}"                       | No credentials stored for this tracker's provider/URL pair                |
-| `CredentialUnavailable`    | "Credentials unavailable for {name}: {reason}"   | Stored credentials are ambiguous, incompatibly bound, or missing a secret |
-| `ProviderApiError`         | "{provider} API error {status}: {message}"       | HTTP error from the provider API (auth failure, rate limit, server error) |
-| `AttachmentDownloadFailed` | "Failed to download {filename}: {reason}"        | Download timeout, file too large (>50 MB), URL mismatch, or network error |
-| `ConfigNotFound`           | "Config not found at {root}/.canopy/config.json" | Repo config file does not exist                                           |
-| `ConfigParseError`         | "Invalid config in {root}: {reason}"             | JSON parse error or unsupported config version                            |
-| `ConfigWriteError`         | "Failed to write config in {root}: {reason}"     | Temp write/rename failure, permissions, disk full, or persistent lock     |
-| `PRCreationFailed`         | "PR creation failed: {reason}"                   | `gh` CLI not installed, Git push failure, or `gh pr create` error         |
-| `PRLookupFailed`           | "PR lookup failed: {reason}"                     | `gh` auth, network, timeout, or malformed summary/details response        |
-| `NoActiveAgent`            | "No running agent is available..."               | Quick send was triggered after the active agent target disappeared        |
-| `AgentStartFailed`         | "The worktree was created, but..."               | Worktree creation succeeded, but Canopy could not open the selected agent |
-| `AgentNotReady`            | "The agent did not become ready..."              | Started agent ended, errored, or did not become idle before timeout       |
-| `TabFocusFailed`           | "Could not focus the target agent tab..."        | The target agent tab could not be activated before sending                |
-| `TaskContextBuildFailed`   | "Could not build the task context..."            | Task details/comments/attachments could not be fetched or formatted       |
-| `TaskContextPasteFailed`   | "Could not paste the task into the agent..."     | Target agent session rejected or lost the paste target                    |
+| Error                      | User sees                                        | Cause                                                                                       |
+| -------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `ConnectionNotFound`       | "Connection not found: {id}"                     | Deleted or invalid connection ID referenced                                                 |
+| `AuthTokenMissing`         | "No auth token for {name}"                       | No credentials stored for this tracker's provider/URL pair                                  |
+| `CredentialUnavailable`    | "Credentials unavailable for {name}: {reason}"   | Stored credentials are ambiguous, incompatibly bound, or missing a secret                   |
+| `ProviderApiError`         | "{provider} API error {status}: {message}"       | HTTP error from the provider API (auth failure, rate limit, server error)                   |
+| `AttachmentDownloadFailed` | "Failed to download {filename}: {reason}"        | Download timeout, file too large (>50 MB), URL mismatch, or network error                   |
+| `ConfigNotFound`           | "Config not found at {root}/.canopy/config.json" | Repo config file does not exist                                                             |
+| `ConfigReadError`          | "Could not read config in {root}: {reason}"      | Existing repo config is unreadable because of permissions or a transient filesystem failure |
+| `ConfigParseError`         | "Invalid config in {root}: {reason}"             | JSON parse error, unsupported config version, or a file over 1 MiB                          |
+| `ConfigWriteError`         | "Failed to write config in {root}: {reason}"     | Final serialization over 1 MiB, temp write/link/rename failure, permissions, or disk full   |
+| `PRCreationFailed`         | "PR creation failed: {reason}"                   | `gh` CLI not installed, Git push failure, or `gh pr create` error                           |
+| `PRLookupFailed`           | "PR lookup failed: {reason}"                     | `gh` auth, network, timeout, or malformed summary/details response                          |
+| `NoActiveAgent`            | "No running agent is available..."               | Quick send was triggered after the active agent target disappeared                          |
+| `AgentStartFailed`         | "The worktree was created, but..."               | Worktree creation succeeded, but Canopy could not open the selected agent                   |
+| `AgentNotReady`            | "The agent did not become ready..."              | Started agent ended, errored, or did not become idle before timeout                         |
+| `TabFocusFailed`           | "Could not focus the target agent tab..."        | The target agent tab could not be activated before sending                                  |
+| `TaskContextBuildFailed`   | "Could not build the task context..."            | Task details/comments/attachments could not be fetched or formatted                         |
+| `TaskContextPasteFailed`   | "Could not paste the task into the agent..."     | Target agent session rejected or lost the paste target                                      |
 
 For the four statuses that carry an underlying error — `AgentStartFailed`, `TabFocusFailed`, `TaskContextBuildFailed`, and `TaskContextPasteFailed` — the banner appends that detail as `"{message} — {detail}"` (e.g. the provider, path, or agent error) so the cause is visible without DevTools. The other statuses show the generic message only.
 
@@ -418,6 +431,8 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
   - `errors.ts` - typed error union with message formatter
 - Credential registry: `src/main/credentials/CredentialRegistry.ts`
 - Store: `src/renderer/src/lib/stores/taskTracker.svelte.ts`
+- Sidebar: `src/renderer/src/components/sidebar/TaskTrackerSection.svelte`,
+  `src/renderer/src/components/sidebar/_partials/TaskTrackerTaskRow.svelte`
 - UI components: `src/renderer/src/components/taskTracker/AttachmentLightbox.svelte` (in-app
   attachment viewer with save-to-disk) and `src/renderer/src/components/shared/Markdown.svelte`
   (sanitized markdown rendering for descriptions/comments)

@@ -223,6 +223,8 @@ failure.
   `src/renderer/src/components/ci/CiRunDialogRouter.svelte`,
   `src/renderer/src/components/ci/CiRunConfirmation.svelte`,
   `src/renderer/src/components/ci/CiRunParameterFields.svelte`,
+  `src/renderer/src/components/ci/GitHubActionsActivityModal.svelte`,
+  `src/renderer/src/components/ci/GitHubActionsActivityRow.svelte`,
   `src/renderer/src/lib/ci/runDialogState.svelte.ts`,
   `src/renderer/src/components/preferences/GitHubActionsCiConfigurator.svelte`,
   `src/renderer/src/components/preferences/githubActionsCiConfiguratorState.svelte.ts`,

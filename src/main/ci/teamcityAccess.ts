@@ -15,10 +15,12 @@ export interface TeamCityConnectionPolicy {
   allowPrivate: boolean
 }
 
-function normalizedPath(value: string): string {
+function normalizedPath(value: string, platform: NodeJS.Platform): string {
   // Callers pass the realpath returned by the workspace gate. Preserve case so distinct
-  // case-sensitive repositories cannot collapse to one approval on macOS/Linux.
-  return value.replace(/\\/g, '/').replace(/\/+$/, '')
+  // case-sensitive repositories cannot collapse to one approval on macOS/Linux. A backslash is
+  // a legal POSIX filename character, so treat it as a separator only on Windows.
+  const normalized = platform === 'win32' ? value.replace(/\\/g, '/') : value
+  return normalized.replace(/\/+$/, '')
 }
 
 function normalizedBaseUrl(value: string): string {
@@ -35,16 +37,24 @@ function fingerprint(parts: readonly string[]): string {
   return createHash('sha256').update(JSON.stringify(parts)).digest('hex')
 }
 
-export function teamCityDiscoveryBindingKey(repoRoot: string, baseUrl: string): string {
+export function teamCityDiscoveryBindingKey(
+  repoRoot: string,
+  baseUrl: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   return `ci:teamcity:repo-discovery:${fingerprint([
-    normalizedPath(repoRoot),
+    normalizedPath(repoRoot, platform),
     normalizedBaseUrl(baseUrl),
   ])}`
 }
 
-export function teamCityConfigBindingKey(repoRoot: string, config: TeamCityCiConfig): string {
+export function teamCityConfigBindingKey(
+  repoRoot: string,
+  config: TeamCityCiConfig,
+  platform: NodeJS.Platform = process.platform,
+): string {
   return `ci:teamcity:repo-config:${fingerprint([
-    normalizedPath(repoRoot),
+    normalizedPath(repoRoot, platform),
     normalizedBaseUrl(config.baseUrl),
     ...config.buildTypes.map((buildType) => buildType.id).sort(),
   ])}`

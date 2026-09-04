@@ -144,7 +144,8 @@ token in that connection to create its explicit binding.
 - Verification metadata writers: `src/main/ci/CiManager.ts`,
   `src/main/taskTracker/TaskTrackerManager.ts`
 - Global Settings UI: `src/renderer/src/components/preferences/ConnectionsPrefs.svelte`,
-  `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte`
+  `src/renderer/src/components/preferences/CiConnectionsPrefs.svelte`,
+  `src/renderer/src/components/preferences/_partials/CiConnectionRow.svelte`
 - Sidebar/project UI: `src/renderer/src/components/preferences/ProjectConnections.svelte`,
   `src/renderer/src/components/preferences/_partials/TrackerEditForm.svelte`,
   `src/renderer/src/lib/credentials/removal.ts`

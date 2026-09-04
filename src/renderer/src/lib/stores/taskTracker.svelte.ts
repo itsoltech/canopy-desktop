@@ -44,6 +44,7 @@ let connections: TaskTrackerConnectionInfo[] = $state([])
 let loadCount = $state(0)
 const loading = $derived(loadCount > 0)
 let repoConfig: RepoConfig | null = $state(null)
+let repoConfigLoadError: string | null = $state(null)
 let globalConfig: RepoConfig | null = $state(null)
 let resolvedConfig: ResolvedConfig | null = $state(null)
 let lastRepoRoot: string | undefined = $state(undefined)
@@ -61,6 +62,10 @@ export function isTaskTrackerLoading(): boolean {
 
 export function getRepoConfig(): RepoConfig | null {
   return repoConfig
+}
+
+export function getRepoConfigLoadError(): string | null {
+  return repoConfigLoadError
 }
 
 export function getGlobalConfig(): RepoConfig | null {
@@ -219,6 +224,7 @@ export async function loadRepoConfig(
     if (!shouldApply()) return
     lastRepoRoot = repoRoot
     repoConfig = nextRepo
+    repoConfigLoadError = null
     resolvedConfig = nextResolved
     trackerCredentials = nextCredentials
     if (nextResolved) {
@@ -226,12 +232,13 @@ export async function loadRepoConfig(
       // API calls — and they re-check the generation before writing.
       void verifyCredentials(nextResolved.config.trackers, repoRoot, shouldApply)
     }
-  } catch {
+  } catch (error) {
     if (!shouldApply()) return
     // The CURRENT worktree failed to load — leaving the previous worktree's trackers visible
     // would let a later save target the wrong project config.
     lastRepoRoot = repoRoot
     repoConfig = null
+    repoConfigLoadError = error instanceof Error ? error.message : String(error)
     resolvedConfig = null
     trackerCredentials = {}
   } finally {
@@ -243,6 +250,7 @@ export async function saveRepoConfig(repoRoot: string, config: RepoConfig): Prom
   const plain = $state.snapshot(config) as RepoConfig
   await window.api.repoConfigSave(repoRoot, plain)
   repoConfig = plain
+  repoConfigLoadError = null
   resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
   if (resolvedConfig) {
     await refreshCredentials(resolvedConfig.config.trackers, repoRoot)
@@ -252,6 +260,7 @@ export async function saveRepoConfig(repoRoot: string, config: RepoConfig): Prom
 export async function initRepoConfig(repoRoot: string): Promise<RepoConfig> {
   const config = await window.api.repoConfigInit(repoRoot)
   repoConfig = config
+  repoConfigLoadError = null
   resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
   return config
 }

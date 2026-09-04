@@ -1,5 +1,6 @@
 import { match } from 'ts-pattern'
-import type { TaskTrackerProvider } from './types'
+import type { Result } from 'neverthrow'
+import type { RepoConfig, TaskTrackerProvider } from './types'
 
 export type TaskTrackerError =
   | { _tag: 'ConnectionNotFound'; connectionId: string }
@@ -8,6 +9,7 @@ export type TaskTrackerError =
   | { _tag: 'ProviderApiError'; status: number; message: string; provider: TaskTrackerProvider }
   | { _tag: 'AttachmentDownloadFailed'; filename: string; reason: string }
   | { _tag: 'ConfigNotFound'; repoRoot: string }
+  | { _tag: 'ConfigReadError'; repoRoot: string; reason: string }
   | { _tag: 'ConfigParseError'; repoRoot: string; reason: string }
   | { _tag: 'ConfigWriteError'; repoRoot: string; reason: string }
   | { _tag: 'PRCreationFailed'; reason: string }
@@ -30,6 +32,7 @@ export function taskTrackerErrorMessage(error: TaskTrackerError): string {
       { _tag: 'ConfigNotFound' },
       (e) => `Config not found at ${e.repoRoot}/.canopy/config.json`,
     )
+    .with({ _tag: 'ConfigReadError' }, (e) => `Could not read config in ${e.repoRoot}: ${e.reason}`)
     .with({ _tag: 'ConfigParseError' }, (e) => `Invalid config in ${e.repoRoot}: ${e.reason}`)
     .with(
       { _tag: 'ConfigWriteError' },
@@ -38,4 +41,11 @@ export function taskTrackerErrorMessage(error: TaskTrackerError): string {
     .with({ _tag: 'PRCreationFailed' }, (e) => `PR creation failed: ${e.reason}`)
     .with({ _tag: 'PRLookupFailed' }, (e) => `PR lookup failed: ${e.reason}`)
     .exhaustive()
+}
+
+/** A missing project config permits global fallback; an unusable existing file never does. */
+export function repoConfigOrNull(result: Result<RepoConfig, TaskTrackerError>): RepoConfig | null {
+  if (result.isOk()) return result.value
+  if (result.error._tag === 'ConfigNotFound') return null
+  throw new Error(taskTrackerErrorMessage(result.error))
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { access, mkdir, open, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
+import { access, link, mkdir, open, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { setTimeout as delay } from 'timers/promises'
 import { ok, err, type ResultAsync } from 'neverthrow'
@@ -18,6 +18,14 @@ const RENAME_RETRY_DELAYS_MS = [25, 50, 100, 200] as const
 const MAX_CONFIG_BYTES = 1024 * 1024
 
 class ConfigTooLargeError extends Error {}
+
+function serializeConfig(config: RepoConfig): string {
+  const serialized = JSON.stringify(config, null, 2) + '\n'
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_CONFIG_BYTES) {
+    throw new ConfigTooLargeError('Configuration file exceeds the 1 MiB size limit')
+  }
+  return serialized
+}
 
 async function readBoundedConfig(path: string): Promise<string> {
   const handle = await open(path, 'r')
@@ -103,18 +111,23 @@ export class RepoConfigManager {
   }
 
   load(repoRoot: string): ResultAsync<RepoConfig, TaskTrackerError> {
-    return fromExternalCall(readBoundedConfig(configPath(repoRoot)), (error) =>
-      error instanceof ConfigTooLargeError
-        ? {
-            _tag: 'ConfigParseError' as const,
-            repoRoot,
-            reason: error.message,
-          }
-        : {
-            _tag: 'ConfigNotFound' as const,
-            repoRoot,
-          },
-    ).andThen((raw) => {
+    return fromExternalCall(readBoundedConfig(configPath(repoRoot)), (error) => {
+      if (error instanceof ConfigTooLargeError) {
+        return {
+          _tag: 'ConfigParseError' as const,
+          repoRoot,
+          reason: error.message,
+        }
+      }
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        return { _tag: 'ConfigNotFound' as const, repoRoot }
+      }
+      return {
+        _tag: 'ConfigReadError' as const,
+        repoRoot,
+        reason: error instanceof Error ? error.message : String(error),
+      }
+    }).andThen((raw) => {
       try {
         const parsed = JSON.parse(raw) as Record<string, unknown>
         if (parsed.version !== CURRENT_VERSION) {
@@ -184,6 +197,9 @@ export class RepoConfigManager {
   save(repoRoot: string, config: RepoConfig): ResultAsync<void, TaskTrackerError> {
     return fromExternalCall(
       (async () => {
+        // Enforce the same limit on the exact bytes that load() will later read. Pretty-printing
+        // can expand a compact, readable config beyond the cap, so check before touching disk.
+        const serialized = serializeConfig(config)
         const dir = configDir(repoRoot)
         await mkdir(dir, { recursive: true })
         // A hard kill cannot run `finally`; remove old orphaned publications on a later save.
@@ -196,7 +212,7 @@ export class RepoConfigManager {
           // Same-directory rename makes publication atomic for readers: they see either the
           // previous complete JSON or the new one. This does not claim fsync-level durability
           // across power loss; the goal here is to prevent consumers from parsing partial bytes.
-          await writeFile(temporary, JSON.stringify(config, null, 2) + '\n', {
+          await writeFile(temporary, serialized, {
             encoding: 'utf-8',
             flag: 'wx',
           })
@@ -219,7 +235,29 @@ export class RepoConfigManager {
 
   init(repoRoot: string): ResultAsync<RepoConfig, TaskTrackerError> {
     const config = defaultConfig()
-    return this.save(repoRoot, config).map(() => config)
+    return fromExternalCall(
+      (async () => {
+        const serialized = serializeConfig(config)
+        const dir = configDir(repoRoot)
+        await mkdir(dir, { recursive: true })
+        await cleanupStaleConfigTemps(dir)
+        const temporary = join(dir, `.${CONFIG_FILE}.${randomUUID()}.tmp`)
+        try {
+          await writeFile(temporary, serialized, { encoding: 'utf-8', flag: 'wx' })
+          // A same-directory hard link atomically publishes the already-complete bytes and fails
+          // with EEXIST instead of replacing a config created by another process.
+          await link(temporary, configPath(repoRoot))
+          return config
+        } finally {
+          await unlink(temporary).catch(() => undefined)
+        }
+      })(),
+      (e) => ({
+        _tag: 'ConfigWriteError' as const,
+        repoRoot,
+        reason: e instanceof Error ? e.message : String(e),
+      }),
+    )
   }
 
   getBranchTemplate(

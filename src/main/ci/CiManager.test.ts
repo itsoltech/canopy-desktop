@@ -46,7 +46,7 @@ const GITHUB_CI = {
 function fakes(opts?: {
   ci?: unknown
   token?: string | null
-  loadFails?: 'notFound' | 'parse'
+  loadFails?: 'notFound' | 'parse' | 'read'
   /** Overrides what exists() reports — defaults to "file is there unless notFound". */
   exists?: boolean
   saveFails?: boolean
@@ -69,7 +69,9 @@ function fakes(opts?: {
         ? errAsync({ _tag: 'ConfigNotFound', repoRoot: 'r' })
         : opts?.loadFails === 'parse'
           ? errAsync({ _tag: 'ConfigParseError', repoRoot: 'r', reason: 'bad JSON' })
-          : okAsync(structuredClone(config)),
+          : opts?.loadFails === 'read'
+            ? errAsync({ _tag: 'ConfigReadError', repoRoot: 'r', reason: 'EACCES' })
+            : okAsync(structuredClone(config)),
     ),
     exists: vi.fn(async () => opts?.exists ?? opts?.loadFails !== 'notFound'),
     init: vi.fn(() => okAsync({ version: 1, trackers: [], projectOverrides: {}, filters: {} })),
@@ -1021,19 +1023,14 @@ describe('saveConfig', () => {
     expect(result.isErr() && result.error._tag).toBe('CiConfigUnwritable')
   })
 
-  it('refuses to init when the file exists but the read failed with the lossy tag', async () => {
-    // RepoConfigManager.load maps EVERY readFile rejection to ConfigNotFound — a
-    // transient EMFILE/EACCES on an existing file must not read as "absent" and
-    // be initialized over. The filesystem decides, not the error tag.
-    const { manager, repoConfigManager } = fakes({ loadFails: 'notFound', exists: true })
+  it('refuses to init when an existing file cannot be read', async () => {
+    const { manager, repoConfigManager } = fakes({ loadFails: 'read', exists: true })
     const result = await manager.saveConfig('r', null)
     expect(result.isErr()).toBe(true)
-    // The lossy tag means EACCES/EMFILE on a file that IS there — not absence,
-    // and not TeamCity. The reason must not repeat load()'s "not found" claim.
     expect(result.isErr() && result.error._tag).toBe('CiConfigUnwritable')
     expect(
       result.isErr() && result.error._tag === 'CiConfigUnwritable' && result.error.reason,
-    ).not.toContain('not found')
+    ).toContain('EACCES')
     expect(repoConfigManager.init).not.toHaveBeenCalled()
     expect(repoConfigManager.save).not.toHaveBeenCalled()
   })

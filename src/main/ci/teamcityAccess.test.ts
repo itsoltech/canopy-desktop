@@ -16,51 +16,71 @@ function fakePreferences(): PreferencesStore {
 
 describe('TeamCity credential scopes', () => {
   it('binds approval to the canonical repository, exact server URL and exact build ids', () => {
-    const base = teamCityConfigBindingKey('C:\\repo', {
-      provider: 'teamcity',
-      baseUrl: 'https://tc.example.com/teamcity',
-      buildTypes: [
-        { id: 'Deploy', label: 'Deploy prod' },
-        { id: 'Build', label: 'Build' },
-      ],
-    })
+    const base = teamCityConfigBindingKey(
+      'C:\\repo',
+      {
+        provider: 'teamcity',
+        baseUrl: 'https://tc.example.com/teamcity',
+        buildTypes: [
+          { id: 'Deploy', label: 'Deploy prod' },
+          { id: 'Build', label: 'Build' },
+        ],
+      },
+      'win32',
+    )
 
     expect(
-      teamCityConfigBindingKey('C:/repo', {
-        provider: 'teamcity',
-        baseUrl: 'https://tc.example.com/teamcity',
-        buildTypes: [
-          { id: 'Build', label: 'Renamed label' },
-          { id: 'Deploy', label: 'Deploy' },
-        ],
-      }),
+      teamCityConfigBindingKey(
+        'C:/repo',
+        {
+          provider: 'teamcity',
+          baseUrl: 'https://tc.example.com/teamcity',
+          buildTypes: [
+            { id: 'Build', label: 'Renamed label' },
+            { id: 'Deploy', label: 'Deploy' },
+          ],
+        },
+        'win32',
+      ),
     ).toBe(base)
     expect(
-      teamCityConfigBindingKey('C:/other', {
-        provider: 'teamcity',
-        baseUrl: 'https://tc.example.com/teamcity',
-        buildTypes: [
-          { id: 'Build', label: 'Build' },
-          { id: 'Deploy', label: 'Deploy' },
-        ],
-      }),
+      teamCityConfigBindingKey(
+        'C:/other',
+        {
+          provider: 'teamcity',
+          baseUrl: 'https://tc.example.com/teamcity',
+          buildTypes: [
+            { id: 'Build', label: 'Build' },
+            { id: 'Deploy', label: 'Deploy' },
+          ],
+        },
+        'win32',
+      ),
     ).not.toBe(base)
     expect(
-      teamCityConfigBindingKey('C:/Repo', {
-        provider: 'teamcity',
-        baseUrl: 'https://tc.example.com/teamcity',
-        buildTypes: [
-          { id: 'Build', label: 'Build' },
-          { id: 'Deploy', label: 'Deploy' },
-        ],
-      }),
+      teamCityConfigBindingKey(
+        'C:/Repo',
+        {
+          provider: 'teamcity',
+          baseUrl: 'https://tc.example.com/teamcity',
+          buildTypes: [
+            { id: 'Build', label: 'Build' },
+            { id: 'Deploy', label: 'Deploy' },
+          ],
+        },
+        'win32',
+      ),
     ).not.toBe(base)
     expect(
-      teamCityConfigBindingKey('C:/repo', {
-        provider: 'teamcity',
-        baseUrl: 'https://tc.example.com/teamcity',
-        buildTypes: [{ id: 'Build', label: 'Build' }],
-      }),
+      teamCityConfigBindingKey(
+        'C:/repo',
+        {
+          provider: 'teamcity',
+          baseUrl: 'https://tc.example.com/teamcity',
+          buildTypes: [{ id: 'Build', label: 'Build' }],
+        },
+        'win32',
+      ),
     ).not.toBe(base)
   })
 
@@ -73,6 +93,26 @@ describe('TeamCity credential scopes', () => {
   it('does not let separator characters collapse distinct approval tuples', () => {
     expect(teamCityDiscoveryBindingKey('/repo\nhttps://one.test', 'https://two.test')).not.toBe(
       teamCityDiscoveryBindingKey('/repo', 'https://one.test\nhttps://two.test'),
+    )
+  })
+
+  it('preserves literal backslashes in POSIX discovery approval paths', () => {
+    expect(
+      teamCityDiscoveryBindingKey('/workspace/trusted/repo', 'https://tc.example.com', 'linux'),
+    ).not.toBe(
+      teamCityDiscoveryBindingKey('/workspace/trusted\\repo', 'https://tc.example.com', 'linux'),
+    )
+  })
+
+  it('preserves literal backslashes in POSIX configured approval paths', () => {
+    const config = {
+      provider: 'teamcity' as const,
+      baseUrl: 'https://tc.example.com',
+      buildTypes: [{ id: 'Build', label: 'Build' }],
+    }
+
+    expect(teamCityConfigBindingKey('/workspace/trusted/repo', config, 'linux')).not.toBe(
+      teamCityConfigBindingKey('/workspace/trusted\\repo', config, 'linux'),
     )
   })
 })
