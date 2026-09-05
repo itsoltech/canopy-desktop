@@ -644,6 +644,75 @@ subagent spawned with `WebFetch` and `WebSearch` in its tool list hit the same r
 the fetch is not a way around it and is not worth the turns. The items above are the visible entries
 only, which is not the same as having reviewed the release.
 
+**2.1.261's 128K inline output limit reached Canopy through the hook script's argv, and that is the
+first release note in this range to have forced a code change.** `bashOutputMaxChars` and
+`taskOutputMaxChars` raise how much command and background-task output stays inline before being
+spilled to a file, up to 128K characters. Canopy forwards that output verbatim: `PostToolUse` carries
+it in `tool_response`, which `normalizeEvent` reads and the tool views render. Until this release
+`canopy-agent-hook.sh` passed the entire hook body to `curl` as an argv element (`-d "$INPUT"`), and
+Linux caps a single `execve` argument at `MAX_ARG_STRLEN` — 32 pages, 131,072 bytes. A 128K-character
+`tool_response` lands on that limit before the rest of the payload is counted and any JSON escaping is
+applied, so `execve` fails with `E2BIG`; the script's `2>/dev/null` and `|| exit 0` then swallow it and
+the event is dropped with no trace. The symptom would have been a notch stuck on `toolCalling`,
+showing the last tool until the next event arrived, on exactly the turns with the most output. The
+script now streams the body from stdin with `--data-binary @-`, which has no size limit — the form
+`canopy-agent-hook.cmd` already used, so the two agree. `canopy-agent-statusline.sh` keeps the argv
+form deliberately: status payloads carry `version`, `model`, `context_window`, `cost` and
+`rate_limits`, never tool output.
+
+**Neither setting needs a preference of its own, because the profile Settings JSON already reaches
+them.** This is the same seam the 2.1.259 `Read()` and 2.1.260 permission-rule notes turn on:
+`tabCommands.ts` parses a profile's `claude.settingsJson` and `setupSettings` merges it into the
+per-session `--settings` file unmodified, so a user can set either key today without Canopy knowing
+the names. That is why the argv defect above was reachable in-product rather than hypothetical. The
+server-side cap needs no change to match: `AgentHookServer`'s `MAX_BODY_BYTES` is 1 MB, and 128K
+characters is at most ~768 KB even if every one of them escapes to a six-byte `\uXXXX`, so the
+"Hook server body too large" row below stays accurate rather than becoming the new bottleneck.
+
+**`--append-subagent-system-prompt-file` is the file form of a flag Canopy does not pass.** It exists
+for subagent system prompts too large for a command line. The profile's Append System Prompt field
+maps to `--append-system-prompt` for the main session only (`buildCliArgs`), and Canopy has no
+subagent-prompt field to feed the new flag from — it observes subagents through `SubagentStart` /
+`SubagentStop` counts rather than configuring them. Worth noting for the pattern rather than the flag:
+the CLI is moving prompt-sized arguments off argv, for the same reason the hook script had to.
+
+**`/skill-doctor` reports on a surface Canopy manages but does not report on.** It lists which loaded
+skills go unused and what they cost in context. Canopy has its own skills subsystem — `SkillScanner`,
+`SkillParser`, `SkillInstaller` and a `claude.ts` transformer that writes skills into the format
+Claude Code reads — so a pane's loaded skills are partly Canopy's doing, and the context they consume
+compounds the system-prompt growth tracked below. The command is pane-local and typed into the PTY,
+so nothing is required here, but the pruning signal it produces has no path back into the Skills
+preferences UI that installed them.
+
+**The two SDK-side fixes do not reach `commitMessageGenerator`.** 2.1.261 makes SDK and cloud sessions
+honour Stop/interrupts sent right after the first prompt, and stops a resume losing hook output and
+other context around parallel tool calls. Canopy's only SDK caller runs a single-shot `query()` with a
+JSON schema and no tools, drains the iterator to the `result` message and never interrupts or resumes,
+so neither path is exercised. The resume fix does matter to panes, which resume through
+`buildResumeArgs`' `--resume` — but panes run the user's own `claude` binary, so they get it by the
+user updating, not by this pin. The new "Organization policy" line in `/status` and `claude doctor` is
+rendered CLI output, not the status-line JSON `normalizeStatus` parses, so it is invisible to Canopy
+either way.
+
+**Prompt growth is system-side for the fifth consecutive release.** Prompt tokens are up 17.6%
+(+5,809) with one new prompt file (15 → 16), and the mix goes from 71.3%/28.7% system/tools to
+75.6%/24.4%. The arithmetic the 2.1.258 note introduces puts the total at ~33.0k before and ~38.8k
+after, which holds tools at ~9.47k against ~9.47k — flat again — while system rises ~23.5k → ~29.3k.
+Across 2.1.257 through 2.1.261 that is +25,155 tokens, all of it system text, taking the system prompt
+from ~4.2k to ~29.3k while every tool description stayed at ~9.45k. Five releases is enough to call
+this a trend rather than a run: the code keyed to tool names and shapes (`summarizeToolInput`, the
+tool views, the `PreToolUse`/`PostToolUse` normalization) has been asked for nothing, and the cost is
+entirely context Canopy's panes no longer have.
+
+**55 of 2.1.261's CLI changelog entries were not readable this run.** The release notes truncate at
+"… +55 more CLI changelog entries" — the largest hidden count in this range, after 25 at 2.1.259 and
+54 at 2.1.260 — and every route to the rest was denied: `gh api` against the changelog repo by the
+allowlist defect described in `.github/prompts/claude-code-compat.md`, and `WebFetch` and `WebSearch`
+on their own. The items above are the visible entries only. The reachable-without-network check that
+the 2.1.259 notes describe was run and still reports `next`'s pin rather than `TO_VERSION`:
+`manifest.json` carries `"2.1.207"`, so its 30-name `HookEvent` union remains a floor on the
+subscription gap, not a current list.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
