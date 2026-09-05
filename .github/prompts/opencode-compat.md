@@ -74,12 +74,11 @@ Cross-reference with what the release notes mention. If a relevant update exists
 - `src/renderer/src/lib/agents/agentState.svelte.ts` — agent state handling (todo sync, question detection)
 - `src/main/agents/types.ts` — shared agent types
 
-**Then discover more** — search broadly for additional references:
+**Then discover more** — search broadly for additional references using the `Grep` tool (not `grep`
+via Bash, which also walks `node_modules/` and buries real hits):
 
-```bash
-grep -r "opencode" --include="*.ts" --include="*.yml" --include="*.md" --include="*.json" --include="*.svelte" -l .
-grep -r "OPENCODE" --include="*.ts" --include="*.yml" --include="*.json" -l .
-```
+- pattern `opencode`, glob `**/*.{ts,yml,md,json,svelte}`
+- pattern `OPENCODE`, glob `**/*.{ts,yml,json}` (case-sensitive)
 
 ### 5. Apply changes
 
