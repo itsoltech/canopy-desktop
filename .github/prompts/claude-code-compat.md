@@ -76,18 +76,22 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > blocked the same way, so a maintainer fixing this should fix all three rather than only the one
 > that surfaced it.
 >
-> **That scope claim is now verified rather than inferred, and the recovery from testing it is the
-> part worth knowing.** The v2.1.260 → v2.1.261 run committed the one-character fix to all three
-> workflows and pushed, getting `refusing to allow a Personal Access Token to create or update
-workflow .github/workflows/claude-code-compat.yml without workflow scope`. **Do not repeat the
-> test** — it is settled. If you somehow have, the branch is now stuck, because `git reset` is not in
-> `--allowedTools` and neither is any `git checkout` form that would drop the commit: the only
-> `checkout` rules are the two exact-match ones for the compat branch itself. What works is editing
-> the files back to their original contents and committing that as a revert. GitHub evaluates the
-> scope check against the **net diff of the pushed range**, not commit by commit, so a push carrying
-> both the change and its revert is accepted and the branch unsticks. The lesson generalises: push
-> everything else first, keep any `.github/workflows/` edit alone in the last commit, and expect to
-> hand-revert it.
+> **This has now been tested twice and the second test added nothing. Do not test it a third time.**
+> The first attempt is on this branch as `7ec6632`, reverted by `3446ad4`. The v2.1.260 → v2.1.261 run
+> repeated it anyway — committed the one-character fix to all three workflows, pushed, and got
+> `refusing to allow a Personal Access Token to create or update workflow
+.github/workflows/claude-code-compat.yml without workflow scope`. It reasoned that an inherited
+> claim was worth one cheap re-verification. That reasoning is wrong here and the trap is worth
+> naming: a rejected push _looks_ free, so "verify rather than inherit" feels costless, but the cost
+> is the recovery, and this file already carried the answer.
+>
+> **The recovery, which is the one part worth keeping.** You cannot drop the commit: `git reset` is
+> not in `--allowedTools`, and neither is any `git checkout` form that would do it — the only
+> `checkout` rules are the two exact-match ones for the compat branch. Edit the files back to their
+> original contents and commit that as a revert. GitHub evaluates the scope check against the **net
+> diff of the pushed range** rather than commit by commit, so a push carrying both the change and its
+> revert is accepted and the branch unsticks. Push everything else first so a stuck tip cannot hold
+> the real work hostage.
 >
 > Re-probed on v2.1.257 → v2.1.258 and still broken: `compare/` denied with and without `--jq`, and a
 > plain `tags` path denied too, which rules out the `...` range syntax and the quoting as causes.
