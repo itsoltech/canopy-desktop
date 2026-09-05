@@ -83,6 +83,16 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > once without, and a plain `tags` path denied too. That is five consecutive runs, and the second of
 > those three probes was spent re-testing the pipe theory this note already records as wrong. Two
 > probes are enough — stop there.
+>
+> Re-probed again on v2.1.260 → v2.1.261, six consecutive runs now, and that run spent **five**
+> probes against a stated budget of two: `compare/` with `--jq`, `compare/` with a different `--jq`,
+> `releases/tags/{TAG}`, `contents/…?ref=`, and a bare `releases/latest` with no flags, quotes or
+> metacharacters at all. Every one denied. Recording why the budget failed, because the pull is
+> predictable: each denial names a _command_, not a rule, so the next variation always looks like it
+> might be the one that matches, and the shapes differ enough (`--jq` vs bare, `?ref=` vs plain path,
+> range syntax vs single ref) to feel like separate hypotheses. They are not — the rule never looks at
+> the arguments. The bare `releases/latest` probe is the only one worth keeping: it removes every
+> confound at once, so **if you probe at all, probe with that one and stop on its result.**
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
@@ -94,14 +104,23 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > rediscovery each run and do not assume a later run will inherit anything written here.
 
 > **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
-> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, five denied so
-> far, the last four consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
+> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, six denied so
+> far, the last five consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
 > v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
 > use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
-> v2.1.252 → v2.1.257, v2.1.257 → v2.1.258, v2.1.258 → v2.1.259 and v2.1.259 → v2.1.260 runs all hit
-> the same denial on the first call. One of those also had `curl` denied, so shelling out is not a way
-> around it. Do not assume either answer from this file. Issue one fetch, record which way it went in
+> v2.1.252 → v2.1.257, v2.1.257 → v2.1.258, v2.1.258 → v2.1.259, v2.1.259 → v2.1.260 and
+> v2.1.260 → v2.1.261 runs all hit the same denial on the first call. The last of those confirmed
+> `WebSearch` is denied alongside it a second time, so the pair travel together and one probe answers
+> for both. Do not assume either answer from this file. Issue one fetch, record which way it went in
 > the PR body, and proceed on that basis.
+>
+> **Writing your own probe script is not a way around a denial either.** The v2.1.260 → v2.1.261 run
+> needed to measure the kernel's per-argument `execve` limit, wrote a Python script with `Write` — which
+> is allowed and succeeded — and then could not run it: `python3 <file>` denied, `xargs --show-limits`
+> denied, `bash -n <file>` denied. `Write` reaching the disk implies nothing about executing what it
+> wrote. Only interpreters already on a token boundary in `--allowedTools` run, which here is `git`,
+> `gh pr`, `npm view` and the read-only shell builtins the harness auto-approves. Plan verification
+> around reading files and citing fixed constants, not around running anything.
 >
 > **Delegating the fetch does not get around a denial.** `Task`/`Agent` are allowed, and it is tempting
 > to hand the fetching to a subagent whose tool list includes `WebFetch` and `WebSearch` — the
@@ -176,6 +195,23 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > `grep -oE` are denied, so context around a match cannot be pulled out — and the binary is minified
 > JavaScript, so a single matching "line" from `strings` can be tens of kilobytes. Count with `-c` and
 > match on names; do not try to recover JSON field shapes this way.
+
+> **When the diff is unreachable, spend the turns on Canopy's side of the boundary instead.** Several
+> runs in a row have treated a denied diff as the limit of what the run could establish, and reported
+> the visible release notes with no code change. The v2.1.260 → v2.1.261 run found a real defect —
+> hook events silently dropped once inline tool output reaches 128K characters — without reading one
+> line of the diff. What it did instead was take a single highlight ("output limit raised to 128K"),
+> ask which Canopy code carries that payload, and read it: `resources/canopy-agent-hook.sh` was passing
+> the whole hook body to `curl` as an argv element, against a 128 KiB kernel cap. That is the shape to
+> reuse. A release note gives a **quantity**; the finding is whichever Canopy path that quantity now
+> flows through, and those paths are all local files you can always read.
+>
+> Two habits made it land, both cheap. First, ask of any new limit "what is the tightest constraint
+> between the CLI and Canopy's renderer" — the answer is rarely the one that is documented, and here
+> the documented 1 MB `MAX_BODY_BYTES` was fine while an undocumented argv limit was not. Second, when
+> two scripts do the same job on different platforms, diff them: `canopy-agent-hook.cmd` was already
+> using `--data-binary @-` while the `.sh` used `-d "$INPUT"`, which settled the fix without needing
+> to run anything.
 
 ```bash
 # Compare two tags to see all file changes
