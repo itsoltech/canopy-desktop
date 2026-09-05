@@ -1,3 +1,10 @@
+## [0.13.0-next.30](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.29...v0.13.0-next.30) (2026-09-05)
+
+### Features
+
+* **ci:** teamCity build status and trigger in the GIT section ([#344](https://github.com/itsoltech/canopy-desktop/issues/344)) ([2dca902](https://github.com/itsoltech/canopy-desktop/commit/2dca90224dbd151735ff6adb8ad74e5a8610ed0e))
+* **mobile:** add wide-screen terminal sidebar ([c4477d7](https://github.com/itsoltech/canopy-desktop/commit/c4477d7630edf7eda260fe3cb3858576ea17ce81))
+
 ## [0.13.0-next.29](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.28...v0.13.0-next.29) (2026-09-03)
 
 ### Bug Fixes
