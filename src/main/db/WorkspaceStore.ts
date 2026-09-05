@@ -18,11 +18,22 @@ export class WorkspaceStore {
     return this.database.db
   }
 
+  /** Hard ceiling on `list` — callers that must see EVERY workspace check `count()`. */
+  static readonly LIST_MAX = 100
+
   list(limit = 10): WorkspaceRow[] {
-    const clamped = Math.max(1, Math.min(limit, 100))
+    const clamped = Math.max(1, Math.min(limit, WorkspaceStore.LIST_MAX))
     return this.db
       .prepare('SELECT * FROM workspaces ORDER BY last_opened DESC LIMIT ?')
       .all(clamped) as WorkspaceRow[]
+  }
+
+  /** Total persisted workspaces, unclamped — `list` truncates, this does not. */
+  count(): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS total FROM workspaces').get() as {
+      total: number
+    }
+    return row.total
   }
 
   get(id: string): WorkspaceRow | undefined {

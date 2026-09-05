@@ -16,12 +16,23 @@ describe('ipcErrorMessage', () => {
     expect(ipcErrorMessage(e)).toBe('No tracker configured')
   })
 
+  it('strips repeated serialized error class prefixes consistently with CI surfaces', () => {
+    const e = new Error(
+      "Error invoking remote method 'git:getPullRequest': Error: TypeError: connect ECONNREFUSED",
+    )
+    expect(ipcErrorMessage(e)).toBe('connect ECONNREFUSED')
+  })
+
   it('leaves plain error messages untouched', () => {
     expect(ipcErrorMessage(new Error('Network down'))).toBe('Network down')
   })
 
   it('stringifies non-Error values', () => {
     expect(ipcErrorMessage('boom')).toBe('boom')
+  })
+
+  it('uses the fallback for values that do not carry a user-facing message', () => {
+    expect(ipcErrorMessage({ message: 'internal shape' }, 'Failed')).toBe('Failed')
   })
 
   it('falls back when the message is empty', () => {

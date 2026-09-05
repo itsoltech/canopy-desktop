@@ -196,9 +196,9 @@ export const onboardingSteps: OnboardingStep[] = [
   },
   {
     id: 'task-tracker-panel',
-    title: 'Work with tracker tasks and PRs in place',
+    title: 'Project services in the sidebar',
     description:
-      'The sidebar Project Management section links tracker tasks to worktrees, and the GIT section shows the branch pull request with a native create/inspect flow. The right panel gains a Task tab: change status, read and add comments, preview attachments, and send the task or a comment — with your own notes or an image — to the active agent.',
+      'Project Management links tracker tasks to worktrees, while Git - full or Git - only pull requests shows the branch pull request. Enable CI/CD in Sidebar settings to run configured TeamCity jobs or GitHub Actions workflows and inspect their history. The right panel Task tab lets you change status, work with comments and attachments, and send task context to the active agent.',
     introducedIn: '0.13.0',
     category: 'feature',
   },

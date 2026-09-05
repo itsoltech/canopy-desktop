@@ -6,8 +6,8 @@
 
   // Shown before credentials are saved (future tense). Credentials are encrypted at rest via
   // Electron safeStorage (DPAPI / Keychain / keyring) in Canopy's local DB — never written into any
-  // file in the repositories. When a specific connection is in context, its provider + URL are named.
-  // `sharingNote: false` drops the "all connections … will use those credentials" sentence when the
+  // file in the repositories. When a specific connection is in context, its service and audience are named.
+  // `sharingNote: false` drops the purpose-binding sentence when the
   // surrounding UI already says it.
   // `stored: true` switches to present tense — the note then describes credentials that already
   // exist rather than ones about to be saved.
@@ -43,10 +43,11 @@
     <div class="flex flex-col gap-1">
       {#if sharingNote}
         <span>
-          {#if specific}All connections to <strong>{providerName}</strong> at
-            <strong>{baseUrl}</strong>
-            across your projects will use those credentials.{:else}All connections using the same
-            provider + URL across your projects will use those credentials.{/if}
+          {#if specific}These credentials are registered for <strong>{providerName}</strong> at
+            <strong>{baseUrl}</strong>. An explicit local binding is used when present; otherwise
+            Canopy auto-binds the only credential matching the service, destination and capability.{:else}An
+            explicit local binding is used when present; otherwise Canopy auto-binds the only
+            credential matching the service, destination and capability.{/if}
         </span>
       {/if}
       <span>
@@ -64,10 +65,11 @@
     <div class="flex flex-col gap-1">
       {#if sharingNote}
         <span>
-          {#if specific}All connections to <strong>{providerName}</strong> at
-            <strong>{baseUrl}</strong>
-            across your projects will use those credentials.{:else}All connections using the same
-            provider + URL across your projects will use those credentials.{/if}
+          {#if specific}These credentials are registered for <strong>{providerName}</strong> at
+            <strong>{baseUrl}</strong>. An explicit local binding is used when present; otherwise
+            Canopy auto-binds the only credential matching the service, destination and capability.{:else}An
+            explicit local binding is used when present; otherwise Canopy auto-binds the only
+            credential matching the service, destination and capability.{/if}
         </span>
       {/if}
       <span>

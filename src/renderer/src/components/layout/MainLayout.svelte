@@ -12,6 +12,10 @@
   import CreateWorktreeModal from '../worktree/CreateWorktreeModal.svelte'
   import PreferencesModal from '../preferences/PreferencesModal.svelte'
   import ProjectTrackerModal from '../preferences/ProjectTrackerModal.svelte'
+  import ProjectCiModalRouter from '../preferences/ProjectCiModalRouter.svelte'
+  import CiRunDialogRouter from '../ci/CiRunDialogRouter.svelte'
+  import CiActivityModalRouter from '../ci/CiActivityModalRouter.svelte'
+  import CiDialogFocusBoundary from '../ci/CiDialogFocusBoundary.svelte'
   import AboutModal from '../dialogs/AboutModal.svelte'
   import ChangelogModal from '../dialogs/ChangelogModal.svelte'
   import TaskPickerModal from '../taskTracker/TaskPickerModal.svelte'
@@ -29,6 +33,7 @@
   import Toast from '../shared/Toast.svelte'
   import { LoaderCircle } from '@lucide/svelte'
   import { formatCrashReportMarkdown } from '../../lib/crashReportMarkdown'
+  import { guardAppShortcut, shouldBlockAppShortcuts } from '../../lib/shortcuts/appShortcutGate'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import {
@@ -331,12 +336,20 @@
 
   // Subscribe to menu:showAbout from native menu
   $effect(() => {
-    return window.api.onMenuShowAbout(() => showAbout())
+    return window.api.onMenuShowAbout(() => {
+      if (!shouldBlockAppShortcuts(dialogState.current.type, confirmState.current !== null)) {
+        showAbout()
+      }
+    })
   })
 
   // Subscribe to menu:showPreferences from native menu (Windows File menu)
   $effect(() => {
-    return window.api.onMenuShowPreferences(() => showPreferences())
+    return window.api.onMenuShowPreferences(() => {
+      if (!shouldBlockAppShortcuts(dialogState.current.type, confirmState.current !== null)) {
+        showPreferences()
+      }
+    })
   })
 
   // Subscribe to onboarding push event
@@ -425,6 +438,9 @@
 
   // Global keyboard shortcuts
   function handleKeydown(e: KeyboardEvent): void {
+    const mod = isMac ? e.metaKey : e.ctrlKey
+    if (guardAppShortcut(dialogState.current.type, confirmState.current !== null, mod, e)) return
+
     if (e.key === 'Escape') {
       if (paletteOpen) {
         e.preventDefault()
@@ -438,7 +454,6 @@
       }
     }
 
-    const mod = isMac ? e.metaKey : e.ctrlKey
     if (!mod) return
 
     // Cmd+K: toggle command palette
@@ -571,6 +586,10 @@
   <ConfirmDialog {...confirmState.current} />
 {/if}
 
+{#if dialogState.current.type === 'projectCi' || dialogState.current.type === 'ciRunJob' || dialogState.current.type === 'ciActivity'}
+  <CiDialogFocusBoundary />
+{/if}
+
 {#if dialogState.current.type === 'input'}
   <InputDialog {...dialogState.current.props} />
 {:else if dialogState.current.type === 'createWorktree'}
@@ -602,6 +621,18 @@
   />
 {:else if dialogState.current.type === 'projectTracker'}
   <ProjectTrackerModal />
+{:else if dialogState.current.type === 'projectCi'}
+  <ProjectCiModalRouter repoRoot={dialogState.current.repoRoot} mode={dialogState.current.mode} />
+{:else if dialogState.current.type === 'ciRunJob'}
+  <CiRunDialogRouter
+    repoRoot={dialogState.current.repoRoot}
+    initialBranch={dialogState.current.branch}
+  />
+{:else if dialogState.current.type === 'ciActivity'}
+  <CiActivityModalRouter
+    repoRoot={dialogState.current.repoRoot}
+    branch={dialogState.current.branch}
+  />
 {:else if dialogState.current.type === 'about'}
   <AboutModal />
 {:else if dialogState.current.type === 'changelog'}

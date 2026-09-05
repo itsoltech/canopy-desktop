@@ -8,11 +8,14 @@ import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'never
 import { isPublicHttpUrl } from '../security/validateUrl'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { KeychainTokenStore } from './KeychainTokenStore'
+import type { CredentialCapability } from '../credentials/CredentialRegistry'
 import type { TaskTrackerError } from './errors'
 import { fromExternalCall, errorMessage } from '../errors'
 import { createProviderClient } from './providers'
 import { GitRepository } from '../git/GitRepository'
 import { parseGitHubRemote } from '../github/remoteUrl'
+import { trackerBindingKey } from '../../renderer-shared/credentialBindings'
+import { credentialErrorMessage } from '../credentials/errors'
 import type {
   TaskTrackerConnection,
   TrackerConfig,
@@ -52,6 +55,32 @@ export class TaskTrackerManager {
     private keychainTokenStore?: KeychainTokenStore,
   ) {}
 
+  private observeCredentialResult<T>(
+    connection: TaskTrackerConnection,
+    capability: Extract<CredentialCapability, 'issues.read' | 'issues.write'>,
+    result: ResultAsync<T, TaskTrackerError>,
+    usedSecret: string,
+  ): ResultAsync<T, TaskTrackerError> {
+    const record = (status: number, reason?: string): void =>
+      this.keychainTokenStore?.recordResult(
+        connection.provider,
+        connection.baseUrl,
+        capability,
+        status,
+        reason,
+        { bindingKey: trackerBindingKey(connection.id), usedSecret },
+      )
+    return result
+      .map((value) => {
+        record(200)
+        return value
+      })
+      .mapErr((error) => {
+        if (error._tag === 'ProviderApiError') record(error.status, error.message)
+        return error
+      })
+  }
+
   // --- Config-based methods ---
 
   private findTracker(config: RepoConfig, trackerId?: string): TrackerConfig | undefined {
@@ -66,7 +95,7 @@ export class TaskTrackerManager {
     tracker: TrackerConfig,
     projectKey?: string,
   ): TaskTrackerConnection {
-    const creds = this.keychainTokenStore?.getCredentials(tracker.provider, tracker.baseUrl)
+    const creds = this.keychainTokenStore?.getCredentialsForTracker(tracker)
     return {
       id: tracker.id,
       provider: tracker.provider,
@@ -78,21 +107,32 @@ export class TaskTrackerManager {
     }
   }
 
-  private getTokenFromTracker(tracker: TrackerConfig): Result<string, TaskTrackerError> {
+  private getTokenFromTracker(
+    tracker: TrackerConfig,
+    capability: Extract<CredentialCapability, 'issues.read' | 'issues.write'> = 'issues.read',
+  ): Result<string, TaskTrackerError> {
     if (!this.keychainTokenStore) {
       return err({ _tag: 'AuthTokenMissing', connectionName: tracker.baseUrl })
     }
-    const creds = this.keychainTokenStore.getCredentials(tracker.provider, tracker.baseUrl)
-    if (!creds) {
-      return err({ _tag: 'AuthTokenMissing', connectionName: tracker.baseUrl })
-    }
-    return ok(creds.token)
+    return this.keychainTokenStore
+      .getCredentialsForTrackerResult(tracker, capability)
+      .map((credentials) => credentials.token)
+      .mapErr((error): TaskTrackerError =>
+        error._tag === 'CredentialNotFound'
+          ? { _tag: 'AuthTokenMissing', connectionName: tracker.baseUrl }
+          : {
+              _tag: 'CredentialUnavailable',
+              connectionName: tracker.baseUrl,
+              reason: credentialErrorMessage(error),
+            },
+      )
   }
 
   private resolveConfigConnection(
     config: RepoConfig,
     trackerId?: string,
     projectKey?: string,
+    capability: Extract<CredentialCapability, 'issues.read' | 'issues.write'> = 'issues.read',
   ): Result<{ conn: TaskTrackerConnection; token: string }, TaskTrackerError> {
     const tracker = this.findTracker(config, trackerId)
     if (!tracker) {
@@ -102,7 +142,7 @@ export class TaskTrackerManager {
       })
     }
     const conn = this.buildConnectionFromTracker(tracker, projectKey)
-    return this.getTokenFromTracker(tracker).map((token) => ({ conn, token }))
+    return this.getTokenFromTracker(tracker, capability).map((token) => ({ conn, token }))
   }
 
   /** Async variant that resolves GitHub projectKey from git remote when empty */
@@ -110,12 +150,14 @@ export class TaskTrackerManager {
     config: RepoConfig,
     trackerId?: string,
     repoRoot?: string,
+    capability: Extract<CredentialCapability, 'issues.read' | 'issues.write'> = 'issues.read',
   ): ResultAsync<{ conn: TaskTrackerConnection; token: string }, TaskTrackerError> {
-    return this.resolveConfigConnection(config, trackerId).asyncAndThen(({ conn, token }) =>
-      this.resolveGitHubConnection(conn, repoRoot).map((resolved) => ({
-        conn: resolved,
-        token,
-      })),
+    return this.resolveConfigConnection(config, trackerId, undefined, capability).asyncAndThen(
+      ({ conn, token }) =>
+        this.resolveGitHubConnection(conn, repoRoot).map((resolved) => ({
+          conn: resolved,
+          token,
+        })),
     )
   }
 
@@ -257,7 +299,12 @@ export class TaskTrackerManager {
     return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)
-        return client.getCurrentUserDisplayName(conn, token)
+        return this.observeCredentialResult(
+          conn,
+          'issues.read',
+          client.getCurrentUserDisplayName(conn, token),
+          token,
+        )
       },
     )
   }
@@ -298,10 +345,15 @@ export class TaskTrackerManager {
     trackerId?: string,
     repoRoot?: string,
   ): ResultAsync<void, TaskTrackerError> {
-    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot, 'issues.write').andThen(
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)
-        return client.applyTransition(conn, token, taskKey, transitionId, opts)
+        return this.observeCredentialResult(
+          conn,
+          'issues.write',
+          client.applyTransition(conn, token, taskKey, transitionId, opts),
+          token,
+        )
       },
     )
   }
@@ -313,10 +365,15 @@ export class TaskTrackerManager {
     trackerId?: string,
     repoRoot?: string,
   ): ResultAsync<void, TaskTrackerError> {
-    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot, 'issues.write').andThen(
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)
-        return client.addComment(conn, token, taskKey, body)
+        return this.observeCredentialResult(
+          conn,
+          'issues.write',
+          client.addComment(conn, token, taskKey, body),
+          token,
+        )
       },
     )
   }
@@ -397,10 +454,15 @@ export class TaskTrackerManager {
     trackerId?: string,
     repoRoot?: string,
   ): ResultAsync<CreatedTask, TaskTrackerError> {
-    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot).andThen(
+    return this.resolveConfigConnectionAsync(config, trackerId, repoRoot, 'issues.write').andThen(
       ({ conn, token }) => {
         const client = createProviderClient(conn.provider)
-        return client.createTask(conn, token, input)
+        return this.observeCredentialResult(
+          conn,
+          'issues.write',
+          client.createTask(conn, token, input),
+          token,
+        )
       },
     )
   }

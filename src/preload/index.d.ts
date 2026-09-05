@@ -1026,21 +1026,101 @@ interface CanopyAPI {
   }) => Promise<CreatedTask>
 
   // Keychain
-  keychainHasCredentials: (provider: string, baseUrl: string) => Promise<boolean>
+  keychainHasCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+    repoRoot?: string,
+  ) => Promise<boolean>
   keychainSetCredentials: (
     provider: string,
     baseUrl: string,
     token: string,
     username?: string,
+    bindingKey?: string,
+    repoRoot?: string,
   ) => Promise<void>
-  keychainDeleteCredentials: (provider: string, baseUrl: string) => Promise<void>
+  keychainDeleteCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+    repoRoot?: string,
+  ) => Promise<{ removed: boolean; retainedBindings: string[] }>
   keychainGetCredentials: (
     provider: string,
     baseUrl: string,
-  ) => Promise<{ username?: string; hasToken: boolean } | null>
+    bindingKey?: string,
+    repoRoot?: string,
+  ) => Promise<{
+    username?: string
+    hasToken: boolean
+    credentialId?: string
+    intendedUses: string[]
+    capabilities: string[]
+    verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+    authenticationState: string
+    bindings: string[]
+  } | null>
   keychainListCredentials: () => Promise<
-    Array<{ provider: string; baseUrl: string; username?: string }>
+    Array<{
+      id: string
+      provider: string
+      baseUrl: string
+      username?: string
+      service: string
+      intendedUses: string[]
+      capabilities: string[]
+      verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+      authenticationState: string
+      /** When `authenticationState` was decided — a 401 leaves `verification` untouched. */
+      authenticationCheckedAt?: string
+      bindings: string[]
+    }>
   >
+
+  // CI/CD
+  ciConfig: (repoRoot: string) => Promise<CiConfigResult>
+  ciGitHubSetup: (repoRoot: string) => Promise<GitHubActionsSetupInfo>
+  ciTestGitHubConnection: (repoRoot: string, token: string) => Promise<void>
+  ciSetGitHubCredential: (repoRoot: string, token: string) => Promise<void>
+  ciJobsStatus: (repoRoot: string, ref: CiRef) => Promise<CiJobStatus[]>
+  ciJobRefs: (repoRoot: string, jobId: string) => Promise<CiRef[]>
+  ciExactJobRef: (repoRoot: string, jobId: string, name: string) => Promise<CiRef>
+  ciJobParameters: (repoRoot: string, jobId: string, ref: CiRef) => Promise<CiParameterSet>
+  ciTriggerJob: (repoRoot: string, request: CiTriggerRequest) => Promise<CiTriggerJobResponse>
+  /** `branch` scopes the provider's own query; omit it for the history window's "All branches". */
+  ciRunActivity: (repoRoot: string, branch?: string) => Promise<CiRunActivity>
+  ciRun: (repoRoot: string, runId: string) => Promise<CiRun>
+  ciStatus: (repoRoot: string, branch: string) => Promise<CiStatusResponse>
+  ciTrigger: (
+    repoRoot: string,
+    buildTypeId: string,
+    branch: string,
+    properties?: Array<{ name: string; value: string }>,
+  ) => Promise<CiTriggerResponse>
+  ciBuild: (repoRoot: string, expectedBaseUrl: string, buildId: number) => Promise<CiBuildStatus>
+  ciTestNewConnection: (baseUrl: string, token: string) => Promise<void>
+  ciBuildParameters: (repoRoot: string, buildTypeId: string) => Promise<CiParameter[]>
+  /** `branch` scopes the TeamCity locator; omit it for the history window's "All branches". */
+  ciActivity: (repoRoot: string, branch?: string) => Promise<CiActivity>
+  ciBranches: (repoRoot: string, buildTypeId: string) => Promise<string[]>
+  ciListBuildTypes: (repoRoot: string, baseUrl: string) => Promise<CiServerBuildType[]>
+  ciSaveConfig: (
+    repoRoot: string,
+    ci:
+      | {
+          provider?: 'teamcity'
+          baseUrl: string
+          buildTypes: Array<{ id: string; label: string }>
+        }
+      | {
+          provider: 'github-actions'
+          baseUrl: 'https://github.com'
+          repository: string
+          workflows: Array<{ path: string; label: string }>
+        }
+      | null,
+  ) => Promise<void>
 
   // Task Tracker
   taskTrackerGetConnections: () => Promise<TaskTrackerConnectionInfo[]>
@@ -1190,6 +1270,7 @@ interface CanopyAPI {
     repoRoot: string,
     branch: string,
     generation: number,
+    forceRemoteProbe?: boolean,
   ) => Promise<{ number: number; state: string; isDraft: boolean } | null>
 
   taskTrackerPRDetails: (
@@ -1258,9 +1339,14 @@ interface CanopyAPI {
     repoRoot: string,
     params: { title: string; body: string; baseRefName: string; draft: boolean },
   ) => Promise<GitHubPRInfo>
-  githubGetRepoIdentifier: (
-    repoRoot: string,
-  ) => Promise<{ owner: string; repo: string; host: string; apiUrl: string } | null>
+  githubGetRepoIdentifier: (repoRoot: string) => Promise<
+    | {
+        status: 'found'
+        identifier: { owner: string; repo: string; host: string; apiUrl: string }
+      }
+    | { status: 'missing' }
+    | { status: 'error'; message: string }
+  >
 
   // Performance diagnostics (only present when CANOPY_PERF=1)
   perfDiagnostics?: () => Promise<{
@@ -1433,6 +1519,12 @@ interface RepoConfig {
   /** Template overrides keyed by tracker project key (the task-key prefix, e.g. GAKKO). */
   projectOverrides: Record<string, ProjectOverride>
   filters: TaskFilterConfig
+  /**
+   * Optional CI integration (TeamCity). RAW, possibly malformed value — it round-trips
+   * saves verbatim so a bad hand-edited block is never deleted from the git-tracked
+   * file. Read the validated form via `window.api.ciConfig()` instead.
+   */
+  ci?: unknown
 }
 
 type ConfigSource = 'global' | 'repo'
@@ -1564,6 +1656,227 @@ interface CreatedTask {
   url?: string
   /** Post-create steps that failed after the task itself was created (partial state). */
   warnings: string[]
+}
+
+/** Validated CI config of a repo, as resolved by the main process (`ci:config`). */
+interface TeamCityCiConfigInfo {
+  provider: 'teamcity'
+  baseUrl: string
+  buildTypes: Array<{ id: string; label: string }>
+  /** Typo'd ids from a hand-edited file (charset failures) — announced with a
+      correct-the-file recovery; `ids` is a capped sample, `count` exact. */
+  droppedInvalid?: { count: number; ids: string[] }
+  /** Valid entries beyond the parse-time cap — announced with a re-tick recovery. */
+  droppedOverCap?: { count: number; ids: string[] }
+}
+
+interface GitHubActionsCiConfigInfo {
+  provider: 'github-actions'
+  baseUrl: 'https://github.com'
+  repository: string
+  workflows: Array<{ path: string; label: string }>
+  droppedInvalid?: { count: number; ids: string[] }
+  droppedOverCap?: { count: number; ids: string[] }
+}
+
+interface CiDiscoveredWorkflow {
+  id: string
+  path: string
+  name: string
+  webUrl: string
+  available: boolean
+  error?: string
+}
+
+interface GitHubActionsSetupInfo {
+  repository: string
+  defaultBranch: string
+  workflows: CiDiscoveredWorkflow[]
+}
+
+type CiConfigInfo = TeamCityCiConfigInfo | GitHubActionsCiConfigInfo
+
+/** Structured `ci:config` answer — `invalid`'s scope gates the recovery routes. */
+interface CiConfigResult {
+  config: CiConfigInfo | null
+  /** Status of the exact provider binding selected by `config`; never includes the secret. */
+  credential?: {
+    hasToken: boolean
+    approvalRequired?: boolean
+    authenticationState: 'valid' | 'invalid' | 'unknown'
+    authenticationCheckedAt?: string
+  }
+  /** Present when a ci block EXISTS but cannot be used (config is null then). */
+  invalid?: {
+    scope: 'file' | 'block'
+    message: string
+    provider?: 'teamcity' | 'github-actions'
+  }
+}
+
+/** A running, queued or recently finished build in the server-wide activity view. */
+interface CiActivityBuild {
+  id: number
+  number: string | undefined
+  state: 'running' | 'queued' | 'finished'
+  status: string | undefined
+  statusText: string | undefined
+  percentageComplete: number | undefined
+  webUrl: string
+  branchName: string | undefined
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
+  buildTypeId: string
+  buildTypeName: string
+}
+
+interface CiActivity {
+  running: CiActivityBuild[]
+  queued: CiActivityBuild[]
+  recent: CiActivityBuild[]
+  partialErrors?: string[]
+}
+
+/** A build configuration on the TeamCity server (config picker source). */
+interface CiServerBuildType {
+  id: string
+  name: string
+  projectName: string
+}
+
+/** One "Run custom build" prompt parameter (dynamic trigger form). */
+interface CiParameter {
+  name: string
+  kind: 'text' | 'password' | 'checkbox' | 'select'
+  label: string
+  description: string | undefined
+  required: boolean
+  defaultValue: string
+  options: string[] | undefined
+  multiple: boolean
+  valueSeparator: string
+  checkedValue: string | undefined
+  uncheckedValue: string | undefined
+  valueType?: 'string' | 'boolean'
+  hasDefault?: boolean
+}
+
+interface CiRef {
+  name: string
+  kind: 'branch' | 'tag'
+  commitSha?: string
+}
+
+interface CiParameterSet {
+  parameters: CiParameter[]
+  schemaRevision: string
+}
+
+interface CiRun {
+  provider: 'teamcity' | 'github-actions'
+  runId: string
+  number: string | undefined
+  jobId: string
+  jobLabel: string
+  state: 'queued' | 'running' | 'waiting' | 'finished' | 'unknown'
+  conclusion: 'success' | 'failure' | 'cancelled' | 'neutral' | 'unknown'
+  statusText: string | undefined
+  webUrl: string
+  ref: CiRef | undefined
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
+}
+
+interface CiJobStatus {
+  jobId: string
+  label: string
+  provider: 'teamcity' | 'github-actions'
+  run: CiRun | null
+  error?: string
+}
+
+interface CiRunActivity {
+  running: CiRun[]
+  queued: CiRun[]
+  recent: CiRun[]
+  partialErrors?: string[]
+}
+
+interface CiTriggerRequest {
+  jobId: string
+  ref: CiRef
+  schemaRevision?: string
+  inputs: Record<string, string | boolean>
+}
+
+interface CiRunTriggerResult {
+  provider: 'teamcity' | 'github-actions'
+  runId: string
+  webUrl: string
+  ref: CiRef
+}
+
+type CiErrorCode =
+  | 'CiNotConfigured'
+  | 'CiConfigInvalid'
+  | 'CiConfigUnwritable'
+  | 'CiAuthMissing'
+  | 'CiCredentialApprovalRequired'
+  | 'CiPrivateOriginApprovalRequired'
+  | 'CiCredentialUnavailable'
+  | 'CiRepositoryMismatch'
+  | 'CiWorkflowSchemaInvalid'
+  | 'CiWorkflowSchemaChanged'
+  | 'CiRefChanged'
+  | 'CiDispatchCancelled'
+  | 'CiDispatchAmbiguous'
+  | 'CiRateLimited'
+  | 'CiApiError'
+
+type CiTriggerJobResponse =
+  | { ok: true; value: CiRunTriggerResult }
+  | { ok: false; error: { code: CiErrorCode; message: string; status?: number } }
+
+type CiTriggerResponse =
+  | { ok: true; value: CiTriggerResult }
+  | { ok: false; error: { code: CiErrorCode; message: string; status?: number } }
+
+interface CiBuildStatus {
+  id: number
+  number: string
+  state: 'queued' | 'running' | 'finished'
+  status: 'SUCCESS' | 'FAILURE' | 'ERROR' | 'UNKNOWN'
+  statusText: string | undefined
+  percentageComplete: number | undefined
+  webUrl: string
+  branchName: string | undefined
+  queuedAt: number | undefined
+  startedAt: number | undefined
+  finishedAt: number | undefined
+}
+
+interface CiBuildTypeStatus {
+  buildTypeId: string
+  label: string
+  build: CiBuildStatus | null
+  error?: string
+}
+
+interface CiStatusResponse {
+  configured: boolean
+  baseUrl?: string
+  hasToken?: boolean
+  rows: CiBuildTypeStatus[]
+  /** Set when the repo has CI configured but the fetch failed (auth missing, API error). */
+  error?: string
+}
+
+interface CiTriggerResult {
+  buildId: number
+  webUrl: string
+  branchName: string | undefined
 }
 
 type SessionStatusType =

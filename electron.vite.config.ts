@@ -7,7 +7,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        external: ['node-pty', 'better-sqlite3'],
+        external: ['node-pty', 'better-sqlite3', 'undici'],
       },
     },
   },

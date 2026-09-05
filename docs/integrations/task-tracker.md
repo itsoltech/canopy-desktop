@@ -12,7 +12,11 @@ The task tracker lets users connect one or more issue trackers (Jira Cloud, YouT
 
 Configuration lives in two stores: a personal store in Canopy preferences (tracker connections, private to the user) and the per-repository config in `.canopy/config.json` (naming configuration, shared via git). Tracker definitions are merged additively (repo overrides personal on the same `id`); branch/PR templates and project overrides come from the repo config alone, falling back to built-in defaults when unset. Project-level overrides customize branch and PR templates per tracker project, keyed by the task-key prefix.
 
-Authentication tokens are stored locally on the user's machine in Canopy's SQLite database (`canopy.db` under `app.getPath('userData')`), keyed by `provider:baseUrl`, and encrypted at rest via Electron `safeStorage` (Windows DPAPI / macOS Keychain / Linux keyring; plaintext fallback when no OS keyring is available). They are never written to `.canopy/config.json` and never committed to git. Legacy connections that stored tokens directly in preferences are automatically migrated on first load.
+Authentication tokens are stored locally in Canopy's capability-scoped credential registry. Stable
+credential IDs are bound to individual tracker connections, while service, audience and capability
+checks prevent a token intended for another integration from being reused. Secrets are encrypted at
+rest via Electron `safeStorage` when available and are never written to `.canopy/config.json`. See
+[Integration credentials](credentials.md) for the storage, binding and migration model.
 
 Each provider implements a common `TaskTrackerProviderClient` interface. Jira uses the REST v3 and Agile 1.0 APIs. YouTrack uses the Hub REST API. GitHub Issues uses the GraphQL API (with automatic `owner/repo` detection from git remotes when the `projectKey` is empty).
 
@@ -26,6 +30,45 @@ Each provider implements a common `TaskTrackerProviderClient` interface. Jira us
 4. Canopy calls `testConnection` or `testNewConnection` against the provider's user endpoint (`/rest/api/3/myself` for Jira, `/api/users/me` for YouTrack, `{ viewer { login } }` GraphQL query for GitHub).
 5. On success, credentials are stored via `keychainSetCredentials(provider, baseUrl, token, username?)`. The tracker definition is saved to the personal (Settings) or repo config.
 6. On failure, the provider returns a `ProviderApiError` with the HTTP status and message. The UI shows the error inline.
+
+### Sidebar section during a worktree switch
+
+Selecting another worktree reloads that worktree's `.canopy/config.json` and re-verifies its
+tokens. Everything the **Project management** section shows is worktree-scoped — the tracker comes
+from the worktree's own config file — so none of it may bleed into the next selection. The section
+therefore replaces its contents with valueless placeholder bars as soon as the switch starts
+(measured: 5–7 ms after the click), and **keeps the box at its measured height** until the new data
+lands.
+
+Both halves matter. Hiding the values stops a row describing the previous worktree from being read
+as belonging to the current one. Freezing the height stops the section — and everything below it in
+the sidebar — from moving while that happens: the placeholders that used to stand in here were a
+single `h-7` row each, so they collapsed the list and restored it a few hundred milliseconds later,
+moving the sidebar three or four times per switch (measured: 122 → 85 → 150 → 206 → 178 px). It now
+moves once, when the resolved content arrives (measured: 178 → placeholder at 178 → 122).
+
+The height comes from a `ResizeObserver` that runs only while the section is idle, so it always
+holds the last fully-loaded measurement. That is deliberate rather than rendering a skeleton shaped
+like the real rows: the credentials banner is not row-shaped, and any structural stand-in would
+drift from it as either side changes. A single measurement cannot.
+
+**Loading trackers…** still appears on a genuine first load, when there is no previous height or
+content to preserve.
+
+All three settled states of the section — configured, first-loading, and the empty
+**Configure Tracker** tile — are matched to the same **56px**, which is the configured
+layout's floor: two `h-7` rows. The separator that used to sit between them is gone, since its
+`my-1` margins cost 9px for a decorative line. The empty tile reserves that height by
+**centring its dashed frame with margin** rather than stretching it — the frame stays at its
+own 31px, so the box lines up without inflating a control that has nothing to fill.
+
+Before this, the three states settled at 65px, 47px and 28px, so moving between a project that
+has a tracker and one that does not shifted every section below. Measured after: no change at
+all across a cross-project switch.
+
+**Checking credentials…** appears only before a tracker has any credential verdict —
+re-verifying one that already has a verdict stays silent, since it fires on every switch and its
+row would otherwise appear and vanish in ~300 ms.
 
 ### Browsing tasks
 
@@ -165,7 +208,24 @@ Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`.
 
 ### Creating a pull request from a task
 
-1. User triggers PR creation from the sidebar **GIT** section (`Create PR` row; an existing PR shows as `View PR #N` with a state chip instead). A native form shows the title and description for editing — rendered from the PR template when a tracker task is linked to the worktree, otherwise pre-filled from the branch name — plus a target-branch select, a reviewer search picker, and an assignee field defaulting to the authenticated `gh` user.
+Repository-declared trackers are ordered before personal/global connections when configurations
+are merged. Operations that do not carry an explicit tracker ID therefore default to repository
+context; an explicit unknown ID always fails closed instead of falling back to another tracker.
+
+When the repository does not have the GitHub API integration configured, the sidebar resolves its
+`View PR #N` row through the lightweight `taskTracker:prSummary` IPC channel. The main process first
+runs `gh pr list --state open --head <branch> --limit 1`; when there is no open PR, it repeats the
+lookup with `--state closed` so the sidebar can still show the latest merged/closed state while
+keeping **Create PR** available. Both calls return only the PR number, state, and draft flag. The
+lookup is coalesced per repository and branch, and settled results are cached for 30 seconds; in-app
+PR mutations invalidate the entry immediately. A PR created externally — including with `gh pr
+create` in a Canopy terminal — is picked up after the cache expires when the branch is revisited, or
+after restarting Canopy. A missing `gh` executable
+or repository without a GitHub origin silently disables this optional fallback. Authentication,
+network, timeout, and malformed-response failures are shown as a retryable `PRLookupFailed` row and
+hide **Create PR** until the retry succeeds; they are not treated as proof that the branch has no PR.
+
+1. User triggers PR creation from the sidebar **GIT** or **PULL REQUESTS** section (`Create PR` row; an existing PR shows as `View PR #N` with a state chip instead). The Sidebar settings expose these as mutually exclusive modes: full Git actions with PR, or PR only. A native form shows the title and description for editing - rendered from the PR template when a tracker task is linked to the worktree, otherwise pre-filled from the branch name - plus a target-branch select, a reviewer search picker, and an assignee field defaulting to the authenticated `gh` user.
 2. Canopy pushes the current branch to the remote (failure is non-fatal).
 3. Canopy checks that the GitHub CLI (`gh`) is installed. If not, the operation fails with a `PRCreationFailed` error.
 4. Canopy checks for an existing **open** PR on the branch using `gh pr list --state open --head`. If one exists, its URL is returned without creating a duplicate; merged/closed PRs do not block a new one.
@@ -201,6 +261,31 @@ Each provider exposes sprint/milestone information differently:
 | Built-in defaults | Hardcoded in `configDefaults.ts`           | Source code                 |
 | Personal store    | Preferences key `taskTracker.globalConfig` | `PreferencesStore` (SQLite) |
 | Repo config       | `{repoRoot}/.canopy/config.json`           | Filesystem                  |
+
+Repo-config saves first write a unique sibling `.config.json.<uuid>.tmp` file with exclusive
+creation, then publish it with a same-directory rename. Readers therefore see the previous complete
+JSON or the next complete JSON, never a partially written document. On transient Windows
+`EPERM`/`EACCES`/`EBUSY` destination locks, Canopy retries four times over approximately 375 ms
+before reporting `ConfigWriteError`. This is an atomic-publication guarantee, not an `fsync`
+durability guarantee across power loss.
+
+Both reads and the exact final UTF-8 serialization written by Save are capped at 1 MiB. Canopy
+checks the pretty-printed form before creating a temporary file, so loading a compact near-limit
+configuration and saving it cannot replace the repository file with a document that the next load
+would reject.
+
+Only an `ENOENT` read is treated as an absent project config. Oversized, malformed and unreadable
+files are surfaced as errors, do not fall back silently to global settings, and suppress the
+Initialize action. Initialization writes a complete temporary sibling and publishes it through an
+exclusive same-directory hard link. A stale UI or another Canopy process therefore cannot replace
+a config that appeared after the initial load, and interruption cannot expose partial JSON at the
+destination.
+
+A hard process kill can leave the hidden temporary sibling behind. A later save in that repository
+removes matching files older than 24 hours; they contain only the same non-secret repository config
+that was being saved and can also be deleted manually once no Canopy instance is writing the repo.
+Repositories that want these rare crash artifacts hidden from Git status may ignore
+`.canopy/.config.json.*.tmp` locally or in their shared `.gitignore`.
 
 ### Config schema (`RepoConfig`)
 
@@ -262,9 +347,9 @@ The `ResolvedConfig` includes a `source` object indicating where each field came
 
 Two separate surfaces, deliberately not mixed:
 
-- **Settings → Project management → Your connections** — your personal tracker connections (stored in the preferences DB, private to you, reused across projects) with full add/edit/delete and credential management. This is the authoritative place to change or remove a token. An **OS-aware** note states where credentials are kept — encrypted via Windows DPAPI / macOS Keychain / Linux keyring in Canopy's local database, keyed by provider + URL, never written to the repository (and warns when OS encryption is unavailable).
+- **Settings → Project management → Your connections** — your personal tracker connections (stored in the preferences DB, private to you, reused across projects) with full add/edit/delete and credential management. This is the authoritative place to change or remove a token. An **OS-aware** note states where credentials are kept — encrypted via Windows DPAPI / macOS Keychain / Linux keyring in Canopy's local database, bound to the connection by stable credential ID, never written to the repository (and warns when OS encryption is unavailable).
 - **Project tracker modal** — opened from the left sidebar's **Project management** section; scoped to the **active worktree** and edits its `.canopy/config.json` (shared with the team via git). Sections:
-  - **Connections** — trackers defined in the repo config; here you only _connect_ them (enter credentials in a dedicated dialog). Credentials are global per provider + URL. Stored tokens are **verified** against the tracker API on config load; a token the tracker rejects (401/403) shows a `Credentials expired` badge with a **Reconnect** action (in the modal, in Settings, and in the sidebar), and blocks task browsing until replaced.
+  - **Connections** — trackers defined in the repo config; here you only _connect_ them (enter credentials in a dedicated dialog). Each tracker has a local binding to a compatible credential. Stored tokens are **verified** against the tracker API on config load; a rejected token shows its last authentication/capability result with a **Reconnect** action. The binding remains resolvable so corrected server-side permissions can recover on the next request.
   - **Branch naming** and **Pull request naming** — per-project rows (`All projects (default)` + one row per project override), each showing the template plus a rendered example. Editing happens in place (Cancel reverts, Done collapses); **Add project override** creates a new per-project template, picking from the tracker's project list. PR rows show the title; the editor exposes title, body (multi-line) and the default target branch. The base branch editor also maps the tracker's task types to {branchType}. Editing is read-only until a tracker is connected.
 - **Reset to default** — removes the project value from `.canopy/config.json` so the **built-in** template applies (there is no other tier). **Remove project override** drops a project-specific override so tasks from that project fall back to the base template.
 - **Template editor** — hybrid: `{field}` placeholders are draggable chips; everything between them is plain text edited in place (any separator works). Renderer-side helpers in `src/renderer/src/components/preferences/_partials/configScopeLabels.ts` (unit-tested with Vitest, `npm test`).
@@ -281,7 +366,10 @@ Project overrides are keyed by the tracker PROJECT key — the task-key prefix (
 
 ### Credential storage
 
-Credentials are stored at key `taskTracker.token.{provider}:{normalizedBaseUrl}` as JSON: `{ "token": "...", "username": "..." }`, in Canopy's local SQLite DB (`canopy.db` under `app.getPath('userData')`). The `taskTracker.token.` prefix is in `PreferencesStore`'s `ENCRYPTED_KEY_PREFIXES`, so values are encrypted at rest via Electron `safeStorage` (Windows DPAPI / macOS Keychain / Linux keyring); if `safeStorage.isEncryptionAvailable()` is false they fall back to plaintext. They are never written to the repo. The UI shows an OS-aware note reflecting this (driven by `window.api.platform` and the `app:isEncryptionAvailable` IPC). Legacy entries that stored plain token strings are read transparently.
+Tracker connections bind to stable records in the capability-scoped credential registry. Secret,
+descriptor and binding storage, renderer isolation and migration of legacy
+`taskTracker.token.<provider>:<baseUrl>` entries are documented in
+[Integration credentials](credentials.md).
 
 ### GitHub auto-detection
 
@@ -293,28 +381,33 @@ Note: `taskTracker:attachmentSave` additionally throws plain validation errors t
 verbatim in a toast — `Invalid task key`, `Invalid attachment id`, `No tracker configured`,
 and `Attachment not found on this task`.
 
-| Error                      | User sees                                        | Cause                                                                     |
-| -------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |
-| `ConnectionNotFound`       | "Connection not found: {id}"                     | Deleted or invalid connection ID referenced                               |
-| `AuthTokenMissing`         | "No auth token for {name}"                       | No credentials stored for this tracker's provider/URL pair                |
-| `ProviderApiError`         | "{provider} API error {status}: {message}"       | HTTP error from the provider API (auth failure, rate limit, server error) |
-| `AttachmentDownloadFailed` | "Failed to download {filename}: {reason}"        | Download timeout, file too large (>50 MB), URL mismatch, or network error |
-| `ConfigNotFound`           | "Config not found at {root}/.canopy/config.json" | Repo config file does not exist                                           |
-| `ConfigParseError`         | "Invalid config in {root}: {reason}"             | JSON parse error or unsupported config version                            |
-| `ConfigWriteError`         | "Failed to write config in {root}: {reason}"     | Filesystem permission error or disk full                                  |
-| `PRCreationFailed`         | "PR creation failed: {reason}"                   | `gh` CLI not installed, Git push failure, or `gh pr create` error         |
-| `NoActiveAgent`            | "No running agent is available..."               | Quick send was triggered after the active agent target disappeared        |
-| `AgentStartFailed`         | "The worktree was created, but..."               | Worktree creation succeeded, but Canopy could not open the selected agent |
-| `AgentNotReady`            | "The agent did not become ready..."              | Started agent ended, errored, or did not become idle before timeout       |
-| `TabFocusFailed`           | "Could not focus the target agent tab..."        | The target agent tab could not be activated before sending                |
-| `TaskContextBuildFailed`   | "Could not build the task context..."            | Task details/comments/attachments could not be fetched or formatted       |
-| `TaskContextPasteFailed`   | "Could not paste the task into the agent..."     | Target agent session rejected or lost the paste target                    |
+| Error                      | User sees                                        | Cause                                                                                       |
+| -------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `ConnectionNotFound`       | "Connection not found: {id}"                     | Deleted or invalid connection ID referenced                                                 |
+| `AuthTokenMissing`         | "No auth token for {name}"                       | No credentials stored for this tracker's provider/URL pair                                  |
+| `CredentialUnavailable`    | "Credentials unavailable for {name}: {reason}"   | Stored credentials are ambiguous, incompatibly bound, or missing a secret                   |
+| `ProviderApiError`         | "{provider} API error {status}: {message}"       | HTTP error from the provider API (auth failure, rate limit, server error)                   |
+| `AttachmentDownloadFailed` | "Failed to download {filename}: {reason}"        | Download timeout, file too large (>50 MB), URL mismatch, or network error                   |
+| `ConfigNotFound`           | "Config not found at {root}/.canopy/config.json" | Repo config file does not exist                                                             |
+| `ConfigReadError`          | "Could not read config in {root}: {reason}"      | Existing repo config is unreadable because of permissions or a transient filesystem failure |
+| `ConfigParseError`         | "Invalid config in {root}: {reason}"             | JSON parse error, unsupported config version, or a file over 1 MiB                          |
+| `ConfigWriteError`         | "Failed to write config in {root}: {reason}"     | Final serialization over 1 MiB, temp write/link/rename failure, permissions, or disk full   |
+| `PRCreationFailed`         | "PR creation failed: {reason}"                   | `gh` CLI not installed, Git push failure, or `gh pr create` error                           |
+| `PRLookupFailed`           | "PR lookup failed: {reason}"                     | `gh` auth, network, timeout, or malformed summary/details response                          |
+| `NoActiveAgent`            | "No running agent is available..."               | Quick send was triggered after the active agent target disappeared                          |
+| `AgentStartFailed`         | "The worktree was created, but..."               | Worktree creation succeeded, but Canopy could not open the selected agent                   |
+| `AgentNotReady`            | "The agent did not become ready..."              | Started agent ended, errored, or did not become idle before timeout                         |
+| `TabFocusFailed`           | "Could not focus the target agent tab..."        | The target agent tab could not be activated before sending                                  |
+| `TaskContextBuildFailed`   | "Could not build the task context..."            | Task details/comments/attachments could not be fetched or formatted                         |
+| `TaskContextPasteFailed`   | "Could not paste the task into the agent..."     | Target agent session rejected or lost the paste target                                      |
 
 For the four statuses that carry an underlying error — `AgentStartFailed`, `TabFocusFailed`, `TaskContextBuildFailed`, and `TaskContextPasteFailed` — the banner appends that detail as `"{message} — {detail}"` (e.g. the provider, path, or agent error) so the cause is visible without DevTools. The other statuses show the generic message only.
 
 ## Security and privacy
 
-- Authentication tokens are stored via the `KeychainTokenStore`, which persists credentials in `PreferencesStore` keyed by `provider:baseUrl`, encrypted at rest via Electron `safeStorage` (OS-native: DPAPI / Keychain / keyring; plaintext fallback when no keyring is available). They live only in Canopy's local DB on the user's machine — never in `.canopy/config.json` or git. The legacy migration moves plaintext tokens from connection-specific preference keys to this store and deletes the originals.
+- Authentication tokens are stored through `KeychainTokenStore` in the capability-scoped,
+  main-process-only registry documented in [Integration credentials](credentials.md). Secrets live
+  only in Canopy's local database and never in `.canopy/config.json` or git.
 - Attachment downloads validate that the URL origin matches the connection's `baseUrl` before fetching. Downloads are capped at 50 MB and time out after 60 seconds.
 - Provider API requests use a 15-second timeout (`AbortSignal.timeout`).
 - Jira supports both Basic auth (username + API token) and Bearer token auth, selected based on whether a `username` is present.
@@ -330,12 +423,16 @@ For the four statuses that carry an underlying error — `AgentStartFailed`, `Ta
   - `branchTemplate.ts` - template rendering, slugification, validation, type mapping
   - `prTemplate.ts` - PR title/body rendering, target branch resolution
   - `prCreation.ts` - `gh` CLI integration for push + PR creation
-  - `KeychainTokenStore.ts` - credential storage keyed by provider:baseUrl
+  - `prSummary.ts` - bounded, typed `gh` CLI lookup for sidebar/worktree PR state
+  - `KeychainTokenStore.ts` - capability resolution, local bindings and legacy migration
   - `providers/jira.ts` - Jira REST + Agile API client
   - `providers/youtrack.ts` - YouTrack REST API client
   - `providers/github.ts` - GitHub GraphQL API client
   - `errors.ts` - typed error union with message formatter
+- Credential registry: `src/main/credentials/CredentialRegistry.ts`
 - Store: `src/renderer/src/lib/stores/taskTracker.svelte.ts`
+- Sidebar: `src/renderer/src/components/sidebar/TaskTrackerSection.svelte`,
+  `src/renderer/src/components/sidebar/_partials/TaskTrackerTaskRow.svelte`
 - UI components: `src/renderer/src/components/taskTracker/AttachmentLightbox.svelte` (in-app
   attachment viewer with save-to-disk) and `src/renderer/src/components/shared/Markdown.svelte`
   (sanitized markdown rendering for descriptions/comments)

@@ -6,6 +6,8 @@ export interface ConfirmOptions {
   details?: string
   confirmLabel?: string
   destructive?: boolean
+  /** Optional viewport point used to center a confirmation over its parent dialog. */
+  anchorCenter?: { x: number; y: number }
 }
 
 export interface PromptCheckbox {
@@ -56,6 +58,26 @@ interface TaskPickerState {
 
 interface ProjectTrackerState {
   type: 'projectTracker'
+}
+
+interface ProjectCiState {
+  type: 'projectCi'
+  repoRoot: string
+  mode: 'configuration' | 'credentials'
+}
+
+interface CiActivityState {
+  type: 'ciActivity'
+  repoRoot: string
+  /** Preselects the window's branch filter; undefined opens on "All branches". */
+  branch?: string
+}
+
+interface CiRunJobState {
+  type: 'ciRunJob'
+  repoRoot: string
+  /** Prefilled branch (worktree flows). */
+  branch?: string
 }
 
 interface AboutState {
@@ -129,6 +151,9 @@ type DialogState =
   | PreferencesState
   | TaskPickerState
   | ProjectTrackerState
+  | ProjectCiState
+  | CiRunJobState
+  | CiActivityState
   | PRDetailsState
   | CreateTaskPRState
   | AboutState
@@ -207,6 +232,32 @@ export function showTaskPicker(connectionId: string, mode: 'browse' | 'link' = '
 
 export function showProjectTracker(): void {
   dialogState.current = { type: 'projectTracker' }
+}
+
+/** Open either the shared repository configuration or the machine-local credential editor. */
+export function showProjectCi(
+  repoRoot: string,
+  mode: ProjectCiState['mode'] = 'configuration',
+): void {
+  dialogState.current = { type: 'projectCi', repoRoot, mode }
+}
+
+/**
+ * Run-job dialog (job + searchable branch + parameters). Rendered from MainLayout —
+ * dialogs must not render inside the sidebar, whose backdrop-filter turns it into
+ * the containing block for position:fixed and pins them to the sidebar column.
+ */
+export function showCiRunJob(repoRoot: string, opts?: { branch?: string }): void {
+  dialogState.current = { type: 'ciRunJob', repoRoot, ...opts }
+}
+
+/**
+ * Jobs history window (running / queued / recent). `branch` preselects the window's
+ * filter so opening it from the branch-scoped sidebar card lands on the same builds
+ * the card was describing, instead of a repository-wide list the card is not part of.
+ */
+export function showCiActivity(repoRoot: string, branch?: string): void {
+  dialogState.current = { type: 'ciActivity', repoRoot, branch }
 }
 
 /** Native PR panel — details fetched via the authenticated gh CLI, no browser login needed. */

@@ -7,6 +7,7 @@
     loadGlobalConfig,
     loadRepoConfig,
     getRepoConfig,
+    getRepoConfigLoadError,
     initRepoConfig,
   } from '../../lib/stores/taskTracker.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -20,6 +21,7 @@
     repoRoot ? (repoRoot.split(/[\\/]/).filter(Boolean).pop() ?? repoRoot) : '',
   )
   let repoCfg = $derived(getRepoConfig())
+  let repoConfigLoadError = $derived(getRepoConfigLoadError())
 
   let containerEl: HTMLElement | undefined = $state()
 
@@ -120,6 +122,18 @@
     <div class="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
       {#if !repoRoot}
         <p class="text-sm text-text-faint m-0">Open a repository to configure its tracker.</p>
+      {:else if repoConfigLoadError}
+        <section
+          class="rounded-lg border border-danger-border bg-danger-bg p-4 flex flex-col gap-2"
+          role="alert"
+        >
+          <h3 class="m-0 text-sm font-semibold text-danger-text">Could not load project config</h3>
+          <p class="m-0 text-xs text-text-muted leading-snug">{repoConfigLoadError}</p>
+          <p class="m-0 text-xs text-text-muted leading-snug">
+            The existing <code class="font-mono">.canopy/config.json</code> was not changed. Fix it by
+            hand before editing project tracker settings.
+          </p>
+        </section>
       {:else}
         <!-- Connections first — you connect before anything else makes sense. -->
         <section class="rounded-lg border border-border-subtle px-4 pb-4 pt-2.5">

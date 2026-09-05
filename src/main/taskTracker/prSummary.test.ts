@@ -4,15 +4,28 @@ import { loadPullRequestSummary, PR_SUMMARY_FIELDS, PR_SUMMARY_TIMEOUT_MS } from
 describe('loadPullRequestSummary', () => {
   it('requests and parses only the fields needed by the sidebar', async () => {
     const run = vi.fn().mockResolvedValue({
-      stdout: JSON.stringify({ number: 344, state: 'OPEN', isDraft: false }),
+      stdout: JSON.stringify([{ number: 344, state: 'OPEN', isDraft: false }]),
     })
 
-    const summary = await loadPullRequestSummary('C:/repo', 'feature/large-pr', 0, run)
+    const result = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
 
-    expect(summary).toEqual({ number: 344, state: 'OPEN', isDraft: false })
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toEqual({ number: 344, state: 'OPEN', isDraft: false })
     expect(run).toHaveBeenCalledWith(
       'gh',
-      ['pr', 'view', 'feature/large-pr', '--json', PR_SUMMARY_FIELDS],
+      [
+        'pr',
+        'list',
+        '--head',
+        'feature/large-pr',
+        '--state',
+        'open',
+        '--limit',
+        '1',
+        '--json',
+        PR_SUMMARY_FIELDS,
+      ],
       {
         cwd: 'C:/repo',
         encoding: 'utf8',
@@ -25,9 +38,39 @@ describe('loadPullRequestSummary', () => {
     expect(PR_SUMMARY_TIMEOUT_MS).toBe(15_000)
   })
 
+  it('returns null only when the branch has no pull request', async () => {
+    const run = vi.fn().mockResolvedValue({ stdout: '[]' })
+
+    const result = await loadPullRequestSummary('C:/repo', 'feature/without-pr', run)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toBeNull()
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it('falls back to the latest closed pull request when no open one exists', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: '[]' })
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify([{ number: 343, state: 'MERGED', isDraft: false }]),
+      })
+
+    const result = await loadPullRequestSummary('C:/repo', 'feature/merged-pr', run)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toEqual({ number: 343, state: 'MERGED', isDraft: false })
+    expect(run.mock.calls.map((call) => call[1])).toEqual([
+      expect.arrayContaining(['--state', 'open']),
+      expect.arrayContaining(['--state', 'closed']),
+    ])
+  })
+
   it('coalesces identical in-flight commands in the main process', async () => {
-    const result = Promise.withResolvers<{ stdout: string }>()
-    const run = vi.fn().mockReturnValue(result.promise)
+    const command = Promise.withResolvers<{ stdout: string }>()
+    const run = vi.fn().mockReturnValue(command.promise)
 
     const first = loadPullRequestSummary('C:\\repo', 'feature/large-pr', 0, run)
     const duplicate = loadPullRequestSummary('C:/repo', 'feature/large-pr', 0, run)
@@ -35,46 +78,89 @@ describe('loadPullRequestSummary', () => {
     expect(duplicate).toBe(first)
     expect(run).toHaveBeenCalledOnce()
 
-    result.resolve({
-      stdout: JSON.stringify({ number: 344, state: 'OPEN', isDraft: false }),
+    command.resolve({
+      stdout: JSON.stringify([{ number: 344, state: 'OPEN', isDraft: false }]),
     })
-    await expect(first).resolves.toMatchObject({ number: 344 })
+    const result = await first
+    expect(result.isOk() && result.value).toMatchObject({ number: 344 })
   })
 
-  it('runs a newer generation after the previous command exits', async () => {
-    const firstResult = Promise.withResolvers<{ stdout: string }>()
+  it('runs a newer generation only after the previous command exits', async () => {
+    const firstCommand = Promise.withResolvers<{ stdout: string }>()
     const run = vi
       .fn()
-      .mockReturnValueOnce(firstResult.promise)
+      .mockReturnValueOnce(firstCommand.promise)
       .mockResolvedValueOnce({
-        stdout: JSON.stringify({ number: 344, state: 'MERGED', isDraft: false }),
+        stdout: JSON.stringify([{ number: 344, state: 'MERGED', isDraft: false }]),
       })
 
     const stale = loadPullRequestSummary('C:/repo', 'feature/large-pr', 0, run)
     const refreshed = loadPullRequestSummary('C:/repo', 'feature/large-pr', 1, run)
 
     expect(run).toHaveBeenCalledOnce()
-    firstResult.resolve({
-      stdout: JSON.stringify({ number: 344, state: 'OPEN', isDraft: false }),
+    firstCommand.resolve({
+      stdout: JSON.stringify([{ number: 344, state: 'OPEN', isDraft: false }]),
     })
 
-    await expect(stale).resolves.toMatchObject({ state: 'OPEN' })
-    await expect(refreshed).resolves.toMatchObject({ state: 'MERGED' })
+    const staleResult = await stale
+    const refreshedResult = await refreshed
+    expect(staleResult.isOk() && staleResult.value).toMatchObject({ state: 'OPEN' })
+    expect(refreshedResult.isOk() && refreshedResult.value).toMatchObject({ state: 'MERGED' })
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps Create PR available when only the decorative closed lookup fails', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: '[]' })
+      .mockRejectedValueOnce(new Error('closed lookup timed out'))
+
+    const result = await loadPullRequestSummary('C:/repo', 'feature/new-pr', run)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toBeNull()
     expect(run).toHaveBeenCalledTimes(2)
   })
 
   it.each([
-    ['invalid JSON', { stdout: '{' }],
-    ['wrong shape', { stdout: JSON.stringify({ number: '344', state: 'OPEN' }) }],
-  ])('returns null for %s', async (_label, result) => {
-    const run = vi.fn().mockResolvedValue(result)
+    ['invalid JSON', { stdout: '{' }, 'Invalid GitHub CLI response'],
+    [
+      'wrong shape',
+      { stdout: JSON.stringify([{ number: '344', state: 'OPEN' }]) },
+      'invalid pull request summary',
+    ],
+  ])('returns an error for %s', async (_label, commandResult, expectedReason) => {
+    const run = vi.fn().mockResolvedValue(commandResult)
 
-    await expect(loadPullRequestSummary('C:/repo', 'feature/large-pr', 0, run)).resolves.toBeNull()
+    const result = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected PR lookup to fail')
+    expect(result.error).toEqual({
+      _tag: 'PRLookupFailed',
+      reason: expect.stringContaining(expectedReason),
+    })
   })
 
-  it('returns null when GitHub CLI fails or times out', async () => {
+  it('returns an error when GitHub CLI fails or times out', async () => {
     const run = vi.fn().mockRejectedValue(new Error('timed out'))
 
-    await expect(loadPullRequestSummary('C:/repo', 'feature/large-pr', 0, run)).resolves.toBeNull()
+    const result = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
+
+    expect(result.isErr()).toBe(true)
+    if (result.isOk()) throw new Error('Expected PR lookup to fail')
+    expect(result.error).toEqual({ _tag: 'PRLookupFailed', reason: 'timed out' })
+  })
+
+  it('treats a missing GitHub CLI as an unavailable optional fallback', async () => {
+    const missingGh = Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' })
+    const run = vi.fn().mockRejectedValue(missingGh)
+
+    const result = await loadPullRequestSummary('C:/repo', 'feature/large-pr', run)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    expect(result.value).toBeNull()
   })
 })

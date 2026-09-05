@@ -2,9 +2,11 @@
   import { onMount } from 'svelte'
   import ProjectTreeSection from './ProjectTreeSection.svelte'
   import GitSection from './GitSection.svelte'
+  import PullRequestSection from './PullRequestSection.svelte'
   import FileTreeSection from './FileTreeSection.svelte'
   import ToolSection from './ToolSection.svelte'
   import TaskTrackerSection from './TaskTrackerSection.svelte'
+  import CiSection from './CiSection.svelte'
   import RunConfigSection from './RunConfigSection.svelte'
   import RemoteSection from './RemoteSection.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -51,12 +53,23 @@
           {#if workspaceState.isGitRepo && workspaceState.selectedWorktreePath}
             <GitSection />
           {/if}
+        {:else if section.id === 'pullRequests'}
+          {#if workspaceState.isGitRepo && workspaceState.selectedWorktreePath}
+            <PullRequestSection />
+          {/if}
         {:else if section.id === 'files'}
           <FileTreeSection />
         {:else if section.id === 'tools'}
           <ToolSection {onLaunchTool} />
         {:else if section.id === 'tasks'}
           <TaskTrackerSection />
+        {:else if section.id === 'cicd'}
+          <!-- Strictly opt-in (no auto-show on repo config, unlike 'tasks') — the ci
+               block arrives via the git-shared config and must not enable the feature
+               for everyone opening the repo. -->
+          {#if workspaceState.isGitRepo}
+            <CiSection />
+          {/if}
         {:else if section.id === 'runConfigs'}
           <RunConfigSection />
         {:else if section.id === 'remote'}

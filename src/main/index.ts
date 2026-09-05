@@ -739,8 +739,6 @@ app.whenReady().then(async () => {
   const keychainTokenStore = new KeychainTokenStore(preferencesStore)
   const repoConfigManager = new RepoConfigManager()
   const globalConfigManager = new GlobalConfigManager(preferencesStore, keychainTokenStore)
-  // Tokens saved by older builds may lack a personal connection — backfill once at startup.
-  globalConfigManager.ensureConnectionsForStoredCredentials()
   const { RunConfigManager } = await import('./runConfig/RunConfigManager')
   const runConfigManager = new RunConfigManager()
   const taskTrackerManager = new TaskTrackerManager(preferencesStore, keychainTokenStore)

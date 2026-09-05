@@ -1352,21 +1352,144 @@ const api = {
   }) => ipcRenderer.invoke('trackerConfig:createTask', payload),
 
   // Keychain
-  keychainHasCredentials: (provider: string, baseUrl: string) =>
-    ipcRenderer.invoke('keychain:hasCredentials', { provider, baseUrl }) as Promise<boolean>,
-  keychainSetCredentials: (provider: string, baseUrl: string, token: string, username?: string) =>
-    ipcRenderer.invoke('keychain:setCredentials', { provider, baseUrl, token, username }),
-  keychainDeleteCredentials: (provider: string, baseUrl: string) =>
-    ipcRenderer.invoke('keychain:deleteCredentials', { provider, baseUrl }),
-  keychainGetCredentials: (provider: string, baseUrl: string) =>
-    ipcRenderer.invoke('keychain:getCredentials', { provider, baseUrl }) as Promise<{
+  keychainHasCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+    repoRoot?: string,
+  ) =>
+    ipcRenderer.invoke('keychain:hasCredentials', {
+      provider,
+      baseUrl,
+      bindingKey,
+      repoRoot,
+    }) as Promise<boolean>,
+  keychainSetCredentials: (
+    provider: string,
+    baseUrl: string,
+    token: string,
+    username?: string,
+    bindingKey?: string,
+    repoRoot?: string,
+  ) =>
+    ipcRenderer.invoke('keychain:setCredentials', {
+      provider,
+      baseUrl,
+      token,
+      username,
+      bindingKey,
+      repoRoot,
+    }),
+  keychainDeleteCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+    repoRoot?: string,
+  ) =>
+    ipcRenderer.invoke('keychain:deleteCredentials', { provider, baseUrl, bindingKey, repoRoot }),
+  keychainGetCredentials: (
+    provider: string,
+    baseUrl: string,
+    bindingKey?: string,
+    repoRoot?: string,
+  ) =>
+    ipcRenderer.invoke('keychain:getCredentials', {
+      provider,
+      baseUrl,
+      bindingKey,
+      repoRoot,
+    }) as Promise<{
       username?: string
       hasToken: boolean
+      credentialId?: string
+      intendedUses: string[]
+      capabilities: string[]
+      verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+      authenticationState: string
+      bindings: string[]
     } | null>,
   keychainListCredentials: () =>
     ipcRenderer.invoke('keychain:listCredentials') as Promise<
-      Array<{ provider: string; baseUrl: string; username?: string }>
+      Array<{
+        id: string
+        provider: string
+        baseUrl: string
+        username?: string
+        service: string
+        intendedUses: string[]
+        capabilities: string[]
+        verification: Record<string, { state: string; checkedAt: string; reason?: string }>
+        authenticationState: string
+        bindings: string[]
+      }>
     >,
+
+  // CI/CD
+  ciConfig: (repoRoot: string) => ipcRenderer.invoke('ci:config', { repoRoot }),
+  ciGitHubSetup: (repoRoot: string) => ipcRenderer.invoke('ci:githubSetup', { repoRoot }),
+  ciTestGitHubConnection: (repoRoot: string, token: string) =>
+    ipcRenderer.invoke('ci:testGitHubConnection', { repoRoot, token }),
+  ciSetGitHubCredential: (repoRoot: string, token: string) =>
+    ipcRenderer.invoke('ci:setGitHubCredential', { repoRoot, token }),
+  ciJobsStatus: (repoRoot: string, ref: { name: string; kind: 'branch' | 'tag' }) =>
+    ipcRenderer.invoke('ci:jobsStatus', { repoRoot, ref }),
+  ciJobRefs: (repoRoot: string, jobId: string) =>
+    ipcRenderer.invoke('ci:jobRefs', { repoRoot, jobId }),
+  ciExactJobRef: (repoRoot: string, jobId: string, name: string) =>
+    ipcRenderer.invoke('ci:exactJobRef', { repoRoot, jobId, name }),
+  ciJobParameters: (
+    repoRoot: string,
+    jobId: string,
+    ref: { name: string; kind: 'branch' | 'tag' },
+  ) => ipcRenderer.invoke('ci:jobParameters', { repoRoot, jobId, ref }),
+  ciTriggerJob: (
+    repoRoot: string,
+    request: {
+      jobId: string
+      ref: { name: string; kind: 'branch' | 'tag' }
+      schemaRevision?: string
+      inputs: Record<string, string | boolean>
+    },
+  ) => ipcRenderer.invoke('ci:triggerJob', { repoRoot, ...request }),
+  ciRunActivity: (repoRoot: string, branch?: string) =>
+    ipcRenderer.invoke('ci:runActivity', { repoRoot, branch }),
+  ciRun: (repoRoot: string, runId: string) => ipcRenderer.invoke('ci:run', { repoRoot, runId }),
+  ciStatus: (repoRoot: string, branch: string) =>
+    ipcRenderer.invoke('ci:status', { repoRoot, branch }),
+  ciTrigger: (
+    repoRoot: string,
+    buildTypeId: string,
+    branch: string,
+    properties?: Array<{ name: string; value: string }>,
+  ) => ipcRenderer.invoke('ci:trigger', { repoRoot, buildTypeId, branch, properties }),
+  ciBuild: (repoRoot: string, expectedBaseUrl: string, buildId: number) =>
+    ipcRenderer.invoke('ci:build', { repoRoot, expectedBaseUrl, buildId }),
+  ciTestNewConnection: (baseUrl: string, token: string) =>
+    ipcRenderer.invoke('ci:testNewConnection', { baseUrl, token }),
+  ciBuildParameters: (repoRoot: string, buildTypeId: string) =>
+    ipcRenderer.invoke('ci:buildParameters', { repoRoot, buildTypeId }),
+  ciActivity: (repoRoot: string, branch?: string) =>
+    ipcRenderer.invoke('ci:activity', { repoRoot, branch }),
+  ciBranches: (repoRoot: string, buildTypeId: string) =>
+    ipcRenderer.invoke('ci:branches', { repoRoot, buildTypeId }),
+  ciListBuildTypes: (repoRoot: string, baseUrl: string) =>
+    ipcRenderer.invoke('ci:listBuildTypes', { repoRoot, baseUrl }),
+  ciSaveConfig: (
+    repoRoot: string,
+    ci:
+      | {
+          provider?: 'teamcity'
+          baseUrl: string
+          buildTypes: Array<{ id: string; label: string }>
+        }
+      | {
+          provider: 'github-actions'
+          baseUrl: 'https://github.com'
+          repository: string
+          workflows: Array<{ path: string; label: string }>
+        }
+      | null,
+  ) => ipcRenderer.invoke('ci:saveConfig', { repoRoot, ci }),
 
   // Task Tracker
   taskTrackerGetConnections: () => ipcRenderer.invoke('taskTracker:getConnections'),
@@ -1554,8 +1677,18 @@ const api = {
   taskTrackerFindPR: (repoRoot: string, branch: string) =>
     ipcRenderer.invoke('taskTracker:findPR', { repoRoot, branch }) as Promise<string | null>,
 
-  taskTrackerPRSummary: (repoRoot: string, branch: string, generation: number) =>
-    ipcRenderer.invoke('taskTracker:prSummary', { repoRoot, branch, generation }) as Promise<{
+  taskTrackerPRSummary: (
+    repoRoot: string,
+    branch: string,
+    generation: number,
+    forceRemoteProbe = false,
+  ) =>
+    ipcRenderer.invoke('taskTracker:prSummary', {
+      repoRoot,
+      branch,
+      generation,
+      forceRemoteProbe,
+    }) as Promise<{
       number: number
       state: string
       isDraft: boolean

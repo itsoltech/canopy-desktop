@@ -1,0 +1,237 @@
+<script lang="ts">
+  import { onMount, untrack } from 'svelte'
+  import { LoaderCircle, RefreshCw, X } from '@lucide/svelte'
+  import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { getCiActivityTick } from '../../lib/stores/ci.svelte'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
+  import { ipcErrorMessage } from '../../lib/ci/errors'
+  import { startSettledPoll } from '../../lib/ci/settledPoll'
+  import type { CiActivity } from '../../lib/ci/types'
+  import CustomSelect from '../shared/CustomSelect.svelte'
+  import TeamCityActivityRow from './TeamCityActivityRow.svelte'
+
+  // Repository activity: running, queued and recent builds whose configurations
+  // are selected in this repo's CI config. Refreshes while open.
+
+  let { repoRoot, initialBranch }: { repoRoot: string; initialBranch?: string } = $props()
+
+  let activity = $state<CiActivity | null>(null)
+  let error = $state('')
+  let loaded = $state(false)
+  let refreshing = $state(false)
+  let now = $state(Date.now())
+  let dialogEl = $state<HTMLElement>()
+  let seq = 0
+
+  /** undefined = every branch. Applied by TeamCity, not to the response — see `refresh`. */
+  // svelte-ignore state_referenced_locally
+  // Capturing the initial value is the point: the opener only SEEDS the filter, which
+  // the user then owns. MainLayout keys this dialog by identity, so reopening it
+  // remounts with a fresh seed rather than needing this to stay reactive.
+  let branchFilter = $state(initialBranch)
+  // Seeded from the opener because a filtered response only ever contains the branch
+  // it was filtered to: without the seed, a branch with no builds at all would have no
+  // option to select. Switching to "All branches" is what discovers the rest.
+  // svelte-ignore state_referenced_locally
+  let knownBranches = $state<string[]>(initialBranch ? [initialBranch] : [])
+  let branchOptions = $derived(
+    branchFilter && !knownBranches.includes(branchFilter)
+      ? [...knownBranches, branchFilter].sort()
+      : knownBranches,
+  )
+  let branchPickerOptions = $derived([
+    { value: '', label: 'All branches' },
+    ...branchOptions.map((name) => ({ value: name, label: name })),
+  ])
+
+  async function refresh(): Promise<void> {
+    const mySeq = ++seq
+    refreshing = true
+    try {
+      // The branch goes into the QUERY: TeamCity applies `count:10` before the response
+      // exists, so filtering here instead would blank any branch whose builds are older
+      // than the ten newest in the repository.
+      const result = await window.api.ciActivity(repoRoot, branchFilter)
+      if (mySeq !== seq) return
+      activity = result
+      knownBranches = [
+        ...new Set([
+          ...knownBranches,
+          ...[...result.running, ...result.queued, ...result.recent].flatMap((build) =>
+            build.branchName ? [build.branchName] : [],
+          ),
+        ]),
+      ].sort()
+      now = Date.now()
+      error = ''
+    } catch (e) {
+      if (mySeq !== seq) return
+      error = ipcErrorMessage(e, 'Failed to load activity')
+    } finally {
+      if (mySeq === seq) {
+        loaded = true
+        refreshing = false
+      }
+    }
+  }
+
+  onMount(() => {
+    dialogEl?.focus()
+  })
+
+  $effect(() => {
+    // A trigger elsewhere in the app bumps the tick → refresh right away.
+    void getCiActivityTick()
+    // Tracked so picking another branch re-queries instead of re-rendering rows that
+    // were fetched under the old filter, and restarts the poll on the new selection.
+    void branchFilter
+    let stop: () => void = () => undefined
+    untrack(() => {
+      stop = startSettledPoll(refresh, 10_000)
+    })
+    return () => {
+      seq += 1
+      stop()
+    }
+  })
+
+  function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeDialog()
+      return
+    }
+    if (e.key === 'Tab' && dialogEl) cycleFocus(dialogEl, e)
+  }
+</script>
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="fixed inset-0 z-overlay flex justify-center items-center bg-scrim"
+  onmousedown={closeDialog}
+  onkeydown={handleKeydown}
+>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- Native CSS resize (bottom-right handle): needs explicit dimensions and a
+       non-visible overflow; the inner list scrolls independently. -->
+  <div
+    bind:this={dialogEl}
+    class="outline-none w-[560px] h-[520px] min-w-[420px] min-h-[300px] max-w-[95vw] max-h-[92vh] flex flex-col bg-bg-overlay border border-border rounded-xl shadow-modal overflow-hidden"
+    style="resize: both"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Jobs history"
+    tabindex="-1"
+    onmousedown={(e) => e.stopPropagation()}
+  >
+    <header
+      class="px-5 pt-4 pb-3 border-b border-border-subtle shrink-0 flex items-center justify-between gap-3"
+    >
+      <h2 class="text-base font-semibold text-text m-0 leading-tight shrink-0">Jobs history</h2>
+      <div class="flex items-center gap-1 min-w-0">
+        <label class="sr-only" for="ci-history-branch">Filter by branch</label>
+        <div class="w-[200px] min-w-0" title="Show only builds of one branch">
+          <CustomSelect
+            id="ci-history-branch"
+            value={branchFilter ?? ''}
+            options={branchPickerOptions}
+            onchange={(value) => (branchFilter = value || undefined)}
+          />
+        </div>
+        <!-- aria-disabled, not disabled: `refreshing` flips on a 10 s TIMER, and a
+             real disabled would blur a merely-focused user to <body>, past the
+             focus trap on the descendant backdrop div. -->
+        <button
+          type="button"
+          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0 aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-text-muted"
+          onclick={() => {
+            // Mirrors this button's aria-disabled, which does not stop clicks.
+            // Scoped to the CLICK path on purpose: the 10 s poll and the
+            // trigger-driven tick must still fire while a fetch is in flight —
+            // seq already makes that overlap harmless, and gating them would
+            // drop the re-fetch-immediately-after-a-trigger contract.
+            if (!refreshing) void refresh()
+          }}
+          aria-disabled={refreshing}
+          aria-busy={refreshing}
+          aria-label="Refresh"
+          title={refreshing ? 'Refreshing…' : 'Refresh now (auto-refreshes every 10 s)'}
+        >
+          <RefreshCw
+            size={13}
+            class={refreshing ? 'animate-spin-slow motion-reduce:animate-none' : ''}
+          />
+        </button>
+        <button
+          type="button"
+          class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
+          onclick={closeDialog}
+          aria-label="Close"
+          title="Close"
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </header>
+
+    <div class="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-1">
+      <!-- The coarse sentence is the ANNOUNCEMENT (role=status implies aria-atomic,
+           so the region is read whole — a visible copy would print it a second time
+           above the warning box that already says it). The wrapper's sr-only stays
+           conditional: an empty in-flow child would add a gap to this flex column. -->
+      <div role="status" class:sr-only={!activity?.partialErrors?.length}>
+        {#if activity?.partialErrors?.length}
+          <span class="sr-only">Partial history — some jobs could not be loaded</span>
+          <p
+            class="mx-3 mt-0 mb-2 px-2.5 py-2 rounded-md bg-warning-bg text-xs text-warning-text break-words"
+            title={activity.partialErrors.join(' · ')}
+            aria-hidden="true"
+          >
+            Partial history: {activity.partialErrors.join(' · ')}
+          </p>
+        {/if}
+      </div>
+      {#if !loaded}
+        <div class="flex items-center gap-2 px-3 py-2 text-sm text-text-faint">
+          <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" />
+          Loading activity…
+        </div>
+      {:else if error && !activity}
+        <div class="px-3 py-2" role="alert">
+          <p class="m-0 text-xs text-text-faint break-words" title={error}>{error}</p>
+        </div>
+      {:else if activity}
+        {#if error}<p class="px-3 py-2 m-0 text-sm text-warning-text" title={error}>
+            Could not refresh; showing the last loaded history. {error}
+          </p>{/if}
+        <span
+          class="px-3 pt-1 pb-0.5 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+          >Running & queued</span
+        >
+        {#if activity.running.length === 0 && activity.queued.length === 0}
+          <p class="px-3 py-1 m-0 text-sm text-text-faint">
+            Nothing is running or queued{branchFilter ? ` on ${branchFilter}` : ''}.
+          </p>
+        {:else}
+          {#each [...activity.running, ...activity.queued] as build (build.state + build.id)}
+            <TeamCityActivityRow {build} {now} />
+          {/each}
+        {/if}
+
+        <span
+          class="px-3 pt-3 pb-0.5 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
+          >Recent</span
+        >
+        {#if activity.recent.length === 0}
+          <p class="px-3 py-1 m-0 text-sm text-text-faint">
+            No finished builds{branchFilter ? ` on ${branchFilter}` : ''} yet.
+          </p>
+        {:else}
+          {#each activity.recent as build (build.id)}
+            <TeamCityActivityRow {build} {now} />
+          {/each}
+        {/if}
+      {/if}
+    </div>
+  </div>
+</div>

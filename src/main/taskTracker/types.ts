@@ -193,6 +193,13 @@ export interface RepoConfig {
   agents?: {
     instructions: string[]
   }
+  /**
+   * Optional CI integration (TeamCity) — drives the CI rows in the sidebar GIT section.
+   * Held RAW (unvalidated) so a malformed hand-edited block survives the load→save
+   * round-trip instead of being silently deleted from the git-tracked file; the only
+   * reader is `CiManager`, which validates through `parseCiConfig` at use time.
+   */
+  ci?: unknown
 }
 
 // --- Resolved config (merged global + repo) ---

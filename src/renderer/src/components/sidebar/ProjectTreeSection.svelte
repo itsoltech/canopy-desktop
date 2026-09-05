@@ -1,7 +1,7 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
   import { untrack } from 'svelte'
-  import { ChevronRight, Square, Trash2, X } from '@lucide/svelte'
+  import { ChevronRight, LoaderCircle, Square, Trash2, X } from '@lucide/svelte'
   import { fileManagerLabel } from '../../lib/platform'
   import {
     projects,
@@ -12,7 +12,10 @@
     initGitRepo,
     type ProjectState,
   } from '../../lib/stores/workspace.svelte'
-  import { showCreateWorktree, confirm } from '../../lib/stores/dialogs.svelte'
+  import { showCreateWorktree, showCiRunJob, confirm } from '../../lib/stores/dialogs.svelte'
+  import { prefs } from '../../lib/stores/preferences.svelte'
+  import { getSidebarConfig } from '../../lib/stores/sidebarSections.svelte'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
@@ -243,20 +246,55 @@
     y: number
     project: ProjectState
     wt: ProjectState['worktrees'][number]
+    /** undefined while the worktree's git-tracked CI config and credential are being checked. */
+    ci:
+      | {
+          provider: 'teamcity' | 'github-actions'
+          hasUsableCredentials: boolean
+        }
+      | null
+      | undefined
   }
 
   let ctxMenu = $state<WorktreeCtx | null>(null)
+  let ctxMenuRequest = 0
 
-  function handleWorktreeContextMenu(
+  async function handleWorktreeContextMenu(
     e: MouseEvent,
     project: ProjectState,
     wt: ProjectState['worktrees'][number],
-  ): void {
+  ): Promise<void> {
     e.preventDefault()
-    ctxMenu = { x: e.clientX, y: e.clientY, project, wt }
+    // Open the menu IMMEDIATELY — a context menu that waits on IPC + disk reads as a
+    // dropped click. The per-worktree CI probe (the ci block lives in each checkout's
+    // .canopy/config.json) resolves into the already-visible menu. A monotonic request
+    // id avoids object-identity comparisons across Svelte's deep state proxies and
+    // prevents a slow result from updating a newer menu.
+    const request = ++ctxMenuRequest
+    const menu: WorktreeCtx = { x: e.clientX, y: e.clientY, project, wt, ci: undefined }
+    ctxMenu = menu
+    if (!ciMenuEnabled || wt.branch === '(detached)') return
+    let ci: WorktreeCtx['ci'] = null
+    try {
+      const result = await window.api.ciConfig(wt.path)
+      if (result.config) {
+        ci = {
+          provider: result.config.provider,
+          hasUsableCredentials:
+            result.credential?.hasToken === true &&
+            result.credential.authenticationState !== 'invalid',
+        }
+      }
+    } catch {
+      ci = null
+    }
+    if (ctxMenuRequest === request && ctxMenu?.wt.path === wt.path) {
+      ctxMenu = { ...menu, ci }
+    }
   }
 
   function closeCtxMenu(): void {
+    ctxMenuRequest += 1
     ctxMenu = null
   }
 
@@ -294,6 +332,22 @@
       workspaceId: project.workspace.id,
       baseBranch: wt.branch,
     })
+  }
+
+  // Deploy/CI entry lives HERE (on the branch), not in the GIT section — that section
+  // holds CI-independent git actions. Shown only with the CI/CD feature opted in; a
+  // checkout without a ci config gets the modal's own "not configured" message.
+  let ciMenuEnabled = $derived.by(() => {
+    const sections = getSidebarConfig(prefs['sidebar.sections'] ?? '')
+    return sections.find((s) => s.id === 'cicd')?.visible === true
+  })
+
+  function ctxRunCiJob(): void {
+    if (!ctxMenu?.ci?.hasUsableCredentials) return
+    const { wt } = ctxMenu
+    closeCtxMenu()
+    // The worktree's own checkout carries the repo config; its branch prefills the run.
+    showCiRunJob(wt.path, { branch: wt.branch })
   }
 
   async function ctxStopAll(): Promise<void> {
@@ -381,6 +435,43 @@
           role="menuitem"
           onclick={ctxNewWorktree}>New Worktree from Branch</button
         >
+        {#if ciMenuEnabled}
+          <div class="h-px mx-2 my-1 bg-border-subtle"></div>
+          <button
+            class="flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
+            role="menuitem"
+            onclick={ctxRunCiJob}
+            aria-disabled={!ctxMenu.ci?.hasUsableCredentials}
+            aria-busy={ctxMenu.ci === undefined}
+            class:opacity-50={!ctxMenu.ci?.hasUsableCredentials}
+            class:cursor-default={!ctxMenu.ci?.hasUsableCredentials}
+            title={ctxMenu.ci === undefined
+              ? 'Checking this worktree for a CI configuration…'
+              : ctxMenu.ci === null
+                ? 'CI/CD is not configured for this worktree'
+                : !ctxMenu.ci.hasUsableCredentials
+                  ? `${ctxMenu.ci.provider === 'github-actions' ? 'GitHub Actions' : 'TeamCity'} credentials are missing or need updating`
+                  : ctxMenu.ci.provider === 'github-actions'
+                    ? 'Run a GitHub Actions workflow on this branch — the branch must exist on the remote'
+                    : 'Queue a TeamCity job on this branch — the branch must exist on the remote'}
+          >
+            <span class="inline-flex items-center shrink-0">
+              {#if ctxMenu.ci}
+                <TrackerProviderIcon
+                  provider={ctxMenu.ci.provider === 'github-actions' ? 'github' : 'teamcity'}
+                  size={13}
+                />
+              {:else if ctxMenu.ci === undefined}
+                <LoaderCircle size={13} class="animate-spin-slow motion-reduce:animate-none" />
+              {/if}
+            </span>
+            {ctxMenu.ci?.provider === 'github-actions'
+              ? 'Run CI Workflow on Branch…'
+              : ctxMenu.ci?.provider === 'teamcity'
+                ? 'Run CI Job on Branch…'
+                : 'Run CI on Branch…'}
+          </button>
+        {/if}
       {/if}
       {#if isWorktreeActive(ctxMenu.wt.path)}
         <div class="h-px mx-2 my-1 bg-border-subtle"></div>
@@ -447,6 +538,7 @@
                   isMain: true,
                   isBare: false,
                 },
+                ci: null,
               }
             }
           }}

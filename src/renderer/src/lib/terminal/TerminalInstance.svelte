@@ -66,6 +66,27 @@
 
   const MAX_REPLAY_CHARS_PER_FRAME = 16_384
 
+  function openTerminalUrl(rawUrl: string): void {
+    let url: string
+    try {
+      const parsed = new URL(rawUrl)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
+      url = parsed.href
+    } catch {
+      return
+    }
+
+    const mode = prefs.urlOpenMode || 'ask'
+    if (mode === 'canopy') {
+      const path = workspaceState.selectedWorktreePath
+      if (path) openTool('browser', path, { initialUrl: url })
+    } else if (mode === 'system') {
+      void window.api.openExternal(url)
+    } else {
+      showUrlToast(url, { force: true })
+    }
+  }
+
   function attachWebgl(term: Terminal): void {
     if (webglAddonRef) return
     try {
@@ -455,6 +476,11 @@
         allowProposedApi: true,
         theme: currentTheme,
         scrollback: 5000,
+        // Agent CLIs emit OSC 8 hyperlinks. Without a custom handler xterm shows its own native
+        // confirm dialog and then calls window.open(), bypassing Canopy's URL-opening preference.
+        linkHandler: {
+          activate: (_event, url) => openTerminalUrl(url),
+        },
         ...(isWindows ? { windowsPty: { backend: 'conpty' as const } } : {}),
       })
 
@@ -468,19 +494,7 @@
       term.loadAddon(ligaturesAddon)
 
       // URL detection — open based on urlOpenMode preference
-      term.loadAddon(
-        new WebLinksAddon((_event, url) => {
-          const mode = prefs.urlOpenMode || 'ask'
-          if (mode === 'canopy') {
-            const path = workspaceState.selectedWorktreePath
-            if (path) openTool('browser', path, { initialUrl: url })
-          } else if (mode === 'system') {
-            window.api.openExternal(url)
-          } else {
-            showUrlToast(url)
-          }
-        }),
-      )
+      term.loadAddon(new WebLinksAddon((_event, url) => openTerminalUrl(url)))
 
       // File path detection — click opens file in editor. Only paths that
       // resolve to files tracked in the workspace are linkified, so arbitrary

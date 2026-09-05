@@ -20,9 +20,11 @@
   import PrefsSection from './_partials/PrefsSection.svelte'
   import TrackerEditForm from './_partials/TrackerEditForm.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
+  import { trackerBindingKey } from '../../../../renderer-shared/credentialBindings'
+  import { credentialRemovalMessage } from '../../lib/credentials/removal'
 
   // Project connections = trackers configured in the repo's .canopy/config.json (active worktree).
-  // Here you only CONNECT (authenticate) them — credentials are global per provider+URL. Adding /
+  // Here you only CONNECT (authenticate) them — credentials are purpose-bound locally. Adding /
   // editing / removing the tracker DEFINITION is intentionally not here (managed elsewhere).
   let repoRoot = $derived(workspaceState.selectedWorktreePath ?? workspaceState.repoRoot)
   let repoCfg = $derived(getRepoConfig())
@@ -169,7 +171,7 @@
         baseUrl: formBaseUrl.replace(/\/$/, ''),
         projectKey: formProjectKey || undefined,
         username: formUsername || undefined,
-        token: formToken,
+        token: formToken.trim(),
       })
       testResult = 'success'
     } catch {
@@ -208,12 +210,15 @@
   // so there's no extra confirm here.
   async function saveCredentials(): Promise<void> {
     const url = formBaseUrl.replace(/\/$/, '')
+    const normalizedToken = formToken.trim()
     try {
       await window.api.keychainSetCredentials(
         formProvider,
         url,
-        formToken,
+        normalizedToken,
         formUsername || undefined,
+        connectingId ? trackerBindingKey(connectingId) : undefined,
+        repoRoot,
       )
       await ensurePersonalConnection(formProvider, url, formProjectKey || undefined)
     } catch (e) {
@@ -225,24 +230,34 @@
     addToast('Credentials saved')
   }
 
-  async function removeCredentials(t: { provider: string; baseUrl: string }): Promise<void> {
+  async function removeCredentials(t: {
+    id: string
+    provider: string
+    baseUrl: string
+  }): Promise<void> {
     const ok = await confirm({
       title: 'Remove credentials',
       message: `Remove your stored token for ${providerLabel(t.provider)} at ${t.baseUrl}?`,
       details:
-        'Clears the token on this machine only. The token is global (keyed by provider + URL), so this affects every connection using this URL across all your projects. The tracker stays configured in the repo.',
+        'Disconnects this project tracker on this machine. Other integrations bound to the same credential keep working. The tracker stays configured in the repo.',
       confirmLabel: 'Remove credentials',
       destructive: true,
     })
     if (!ok) return
+    let result: Awaited<ReturnType<typeof window.api.keychainDeleteCredentials>>
     try {
-      await window.api.keychainDeleteCredentials(t.provider, t.baseUrl)
+      result = await window.api.keychainDeleteCredentials(
+        t.provider,
+        t.baseUrl,
+        trackerBindingKey(t.id),
+        repoRoot,
+      )
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to remove credentials')
       return
     }
     if (repoRoot) await loadRepoConfig(repoRoot)
-    addToast('Credentials removed')
+    addToast(credentialRemovalMessage(result, 'Project tracker disconnected'))
   }
 </script>
 
@@ -262,6 +277,12 @@
 
     {#each trackers as tracker (tracker.id)}
       {@const creds = trackerCreds[tracker.id]}
+      {@const credentialIssue =
+        creds?.authenticationState === 'invalid'
+          ? 'The stored token was rejected by the tracker'
+          : Object.values(creds?.verification ?? {}).some((entry) => entry.state === 'denied')
+            ? 'The stored token lacks a required permission'
+            : ''}
       <div class="flex items-center gap-1">
         <div
           class="flex-1 flex items-center gap-2 px-2.5 py-1.5 border border-border-subtle rounded-md bg-bg-input text-text text-sm min-w-0"
@@ -284,11 +305,11 @@
               {tracker.projects.length === 1 ? 'project' : 'projects'}</span
             >
           {/if}
-          {#if creds?.hasToken && creds.valid === false}
+          {#if creds?.hasToken && (creds.valid === false || credentialIssue)}
             <span
               class="text-2xs text-warning-text shrink-0"
-              title="The stored token was rejected by the tracker — it may have expired or been revoked"
-              >Credentials expired</span
+              title={credentialIssue || 'The stored token was rejected by the tracker'}
+              >Needs attention</span
             >
           {:else if creds?.hasToken}
             <span
@@ -305,7 +326,7 @@
           {/if}
         </div>
         {#if creds?.hasToken}
-          {#if creds.valid === false}
+          {#if creds.valid === false || credentialIssue}
             <button
               type="button"
               class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-accent-bg border-0 text-accent-text text-xs font-inherit cursor-pointer hover:bg-accent-bg-hover"
@@ -331,7 +352,7 @@
             class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
             onclick={() => removeCredentials(tracker)}
             aria-label="Remove credentials"
-            title={`Remove the credentials for ${providerLabel(tracker.provider)} at ${tracker.baseUrl} — affects every project that connects to this URL`}
+            title="Disconnect credentials from this tracker; other explicit bindings keep working"
           >
             <Unlink size={12} />
           </button>

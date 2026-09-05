@@ -7,7 +7,7 @@
 
 ## Overview
 
-Canopy stores all app state in a single SQLite database at `app.getPath('userData')/canopy.db`. Secrets (AI API keys, task tracker tokens, saved credentials) are encrypted at rest with Electron's `safeStorage` when OS-level encryption is available, which is bound to the source machine's OS keychain — an encrypted blob from machine A cannot be decrypted on machine B. If `safeStorage` is unavailable, for example on Linux without a configured keyring, encrypted-class preference values fall back to storage without OS-level encryption and Canopy logs a warning.
+Canopy stores all app state in a single SQLite database at `app.getPath('userData')/canopy.db`. Exportable secrets (AI API keys and saved `CredentialStore` passwords) are encrypted at rest with Electron's `safeStorage` when OS-level encryption is available, which is bound to the source machine's OS keychain — an encrypted blob from machine A cannot be decrypted on machine B. Task-tracker and CI tokens live in the separate integration credential registry and are deliberately excluded from export. If `safeStorage` is unavailable, for example on Linux without a configured keyring, encrypted-class preference values fall back to storage without OS-level encryption and Canopy logs a warning.
 
 The Backup & Restore feature works around this by decrypting secrets in the main process before writing them to a JSON file, and re-encrypting them with the destination machine's `safeStorage` on import. The exported file therefore contains plaintext API keys and tokens and must be treated as sensitive.
 
@@ -42,12 +42,12 @@ Export is a merge-friendly operation: import upserts rows by natural key (`key` 
 
 ## What is included
 
-| Section       | Table              | Included rows                                 | Secret handling                                |
-| ------------- | ------------------ | --------------------------------------------- | ---------------------------------------------- |
-| `preferences` | `preferences`      | All keys except the non-exportable list below | Encrypted keys decrypted before serialization  |
-| `profiles`    | `agent_profiles`   | All rows                                      | `apiKey` included as plaintext; `id` omitted   |
-| `credentials` | `credentials`      | All rows                                      | `password` included as plaintext; `id` omitted |
-| `customTools` | `tool_definitions` | Only `is_custom = 1`                          | No secrets                                     |
+| Section       | Table              | Included rows                                 | Secret handling                                          |
+| ------------- | ------------------ | --------------------------------------------- | -------------------------------------------------------- |
+| `preferences` | `preferences`      | All keys except the non-exportable list below | Exportable encrypted keys decrypted before serialization |
+| `profiles`    | `agent_profiles`   | All rows                                      | `apiKey` included as plaintext; `id` omitted             |
+| `credentials` | `credentials`      | All rows                                      | `password` included as plaintext; `id` omitted           |
+| `customTools` | `tool_definitions` | Only `is_custom = 1`                          | No secrets                                               |
 
 ## What is excluded
 
@@ -57,7 +57,7 @@ Excluded to avoid corrupting destination-local state:
 - **Onboarding completions** — `onboarding_completions`. Each machine runs its own setup wizard.
 - **Built-in tool definitions** — `tool_definitions` where `is_custom = 0`. These are re-seeded on first launch via DB migrations.
 
-Machine-bound or runtime-state preference keys are also filtered from the `preferences` section. The filter is defined in `src/main/db/PreferencesStore.ts` (`NON_EXPORTABLE_KEYS` and `NON_EXPORTABLE_PREFIXES`):
+Machine-bound, runtime-state and integration-credential preference keys are filtered from the `preferences` section. The filter is defined in `src/main/db/preferenceKeys.ts` (`NON_EXPORTABLE_KEYS` and `NON_EXPORTABLE_PREFIXES`):
 
 | Key / prefix                         | Reason                                                    |
 | ------------------------------------ | --------------------------------------------------------- |
@@ -68,6 +68,13 @@ Machine-bound or runtime-state preference keys are also filtered from the `prefe
 | `remote.trustedDevices`              | Per-machine device identity and authorization list        |
 | `taskTracker.migratedToGlobalConfig` | Internal one-shot migration flag                          |
 | `workspace:*`                        | Workspace-UUID–scoped state (e.g. worktree setup configs) |
+| `taskTracker.token.*`                | Legacy task-tracker secrets                               |
+| `credential.registry.*`              | Main-process-only integration credential descriptors      |
+| `credential.bindings.*`              | Main-process-only integration authorization bindings      |
+| `credential.secret.*`                | Task-tracker and CI tokens                                |
+
+After importing settings on another machine, re-enter task-tracker and CI tokens in the relevant
+connection settings. Their descriptors, bindings and secrets are intentionally machine-local.
 
 ## File format
 
@@ -138,7 +145,8 @@ Backup & Restore has no user-configurable options. The Export and Import actions
 - Service: `src/main/settings/SettingsExport.ts`
 - Types: `src/main/settings/types.ts`
 - Errors: `src/main/settings/errors.ts`
-- Store helpers: `src/main/db/PreferencesStore.ts` (`getAllDecrypted`, `setMany`, `NON_EXPORTABLE_KEYS`), `src/main/profiles/ProfileStore.ts` (`listInternal`, `upsertForImport`), `src/main/db/CredentialStore.ts` (`listInternalDecrypted`, `upsertForImport`), `src/main/tools/ToolRegistry.ts` (`listCustom`, `upsertCustomForImport`)
+- Preference policy: `src/main/db/preferenceKeys.ts` (`NON_EXPORTABLE_KEYS`, `NON_EXPORTABLE_PREFIXES`)
+- Store helpers: `src/main/db/PreferencesStore.ts` (`getAllDecrypted`, `setMany`), `src/main/profiles/ProfileStore.ts` (`listInternal`, `upsertForImport`), `src/main/db/CredentialStore.ts` (`listInternalDecrypted`, `upsertForImport`), `src/main/tools/ToolRegistry.ts` (`listCustom`, `upsertCustomForImport`)
 - IPC handlers: `src/main/ipc/handlers.ts` (`settings:export`, `settings:import`)
 - Preload bridge: `src/preload/index.ts` (`exportSettings`, `importSettings`)
 - UI: `src/renderer/src/components/preferences/PreferencesModal.svelte` (sidebar-footer Import/Export buttons)

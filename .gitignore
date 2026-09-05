@@ -12,3 +12,4 @@ perf/results/*.cpuprofile
 .codex/
 .itsol/plans/
 docs/superpowers/
+.canopy/.config.json.*.tmp

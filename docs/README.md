@@ -36,12 +36,15 @@ Terminal, git, and worktree management. Shared by all users.
 
 Connections to external services and tools.
 
-| Doc                                             | Description                                                            |
-| ----------------------------------------------- | ---------------------------------------------------------------------- |
-| [task-tracker.md](integrations/task-tracker.md) | Jira, YouTrack, GitHub Issues: browse tasks, create branches, open PRs |
-| [agents.md](integrations/agents.md)             | Claude Code, Codex, Gemini CLI, OpenCode: normalized session tracking  |
-| [github.md](integrations/github.md)             | PR status per branch, repo identity from remotes, PR creation          |
-| [browser.md](integrations/browser.md)           | Sandboxed web pages, DevTools, device emulation, credential autofill   |
+| Doc                                                 | Description                                                            |
+| --------------------------------------------------- | ---------------------------------------------------------------------- |
+| [task-tracker.md](integrations/task-tracker.md)     | Jira, YouTrack, GitHub Issues: browse tasks, create branches, open PRs |
+| [agents.md](integrations/agents.md)                 | Claude Code, Codex, Gemini CLI, OpenCode: normalized session tracking  |
+| [github.md](integrations/github.md)                 | PR status per branch, repo identity from remotes, PR creation          |
+| [github-actions.md](integrations/github-actions.md) | GitHub Actions CI/CD: workflow dispatch, status, and scoped history    |
+| [credentials.md](integrations/credentials.md)       | Capability-scoped local credentials and integration bindings           |
+| [browser.md](integrations/browser.md)               | Sandboxed web pages, DevTools, device emulation, credential autofill   |
+| [teamcity.md](integrations/teamcity.md)             | TeamCity CI/CD: branch build status, running jobs, server activity     |
 
 ## Features
 

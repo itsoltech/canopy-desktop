@@ -8,11 +8,13 @@ function mergeTrackers(global: TrackerConfig[], repo: TrackerConfig[]): TrackerC
     `${t.provider}:${(t.baseUrl ?? '').replace(/\/$/, '')}`
   const repoUrlKeys = new Set(repo.map(urlKey))
   const byId = new Map<string, TrackerConfig>()
+  // Repository trackers are the project context and therefore come first. Callers that still
+  // need a default can no longer accidentally address an unrelated personal connection.
+  for (const t of repo) byId.set(t.id, t)
   for (const t of global) {
-    if (repoUrlKeys.has(urlKey(t))) continue
+    if (repoUrlKeys.has(urlKey(t)) || byId.has(t.id)) continue
     byId.set(t.id, t)
   }
-  for (const t of repo) byId.set(t.id, t) // repo wins on same id
   return [...byId.values()]
 }
 
@@ -80,6 +82,8 @@ export function mergeConfigs(
     filters: r.filters,
     // Agent guidance is project-owned, like the naming templates.
     agents: r.agents,
+    // `ci` is deliberately NOT merged: it is repo-owned (no global counterpart), and the
+    // merged config only feeds tracker resolution — CI reads the repo config directly.
   }
 
   return {

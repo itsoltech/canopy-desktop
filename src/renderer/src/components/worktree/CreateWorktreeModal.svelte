@@ -25,6 +25,7 @@
   import { getTheme } from '../../lib/terminal/themes'
   import { safeDirName } from '../../lib/sanitize'
   import { prStateChip } from '../../lib/github/prState'
+  import { loadPRFallbackSummary } from '../../lib/stores/github.svelte'
   import BranchPicker from './BranchPicker.svelte'
   import { isRemoteOnly } from './utils'
 
@@ -366,8 +367,7 @@
     if (list.length === 0) return
     let cancelled = false
     for (const b of list.slice(0, 3)) {
-      void window.api
-        .taskTrackerPRDetails(trackerRepoRoot, b.name)
+      void loadPRFallbackSummary(trackerRepoRoot, b.name)
         .then((pr) => {
           if (!cancelled && pr) {
             taskBranchPRs = {

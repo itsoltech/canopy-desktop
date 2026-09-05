@@ -6,7 +6,7 @@ function pad(n: number): string {
 }
 
 /** ISO-ish date → `YYYY-MM-DD` in local time. Empty string for missing/invalid input. */
-export function formatDate(iso?: string | null): string {
+export function formatDate(iso?: string | number | null): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
@@ -14,9 +14,9 @@ export function formatDate(iso?: string | null): string {
 }
 
 /** ISO-ish date → `YYYY-MM-DD HH:mm` in local time. Empty string for missing/invalid input. */
-export function formatDateTime(iso?: string | null): string {
+export function formatDateTime(iso?: string | number | null): string {
   const date = formatDate(iso)
   if (!date) return ''
-  const d = new Date(iso as string)
+  const d = new Date(iso as string | number)
   return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }

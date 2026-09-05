@@ -16,7 +16,8 @@ import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import { TmuxManager as TmuxManagerStatics } from '../pty/TmuxManager'
-import type { WorkspaceStore } from '../db/WorkspaceStore'
+import { WorkspaceStore } from '../db/WorkspaceStore'
+import { liveTrackerBindingKeys } from '../credentials/liveTrackerBindings'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { LayoutStore } from '../db/LayoutStore'
 import type { OnboardingStore } from '../db/OnboardingStore'
@@ -39,6 +40,7 @@ import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/work
 import { comparableWorkspacePath } from '../db/workspacePaths'
 
 const execFileAsync = promisify(execFile)
+const PR_DETAILS_TIMEOUT_MS = 30_000
 const WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir'
 const TRUSTED_WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir.trustedResolved'
 
@@ -58,12 +60,26 @@ import type {
   ResolvedConfig,
   PRTemplateConfig,
 } from '../taskTracker/types'
-import { taskTrackerErrorMessage } from '../taskTracker/errors'
+import { repoConfigOrNull, taskTrackerErrorMessage } from '../taskTracker/errors'
 import { mergeConfigs } from '../taskTracker/configMerge'
+import { CiManager } from '../ci/CiManager'
+import { registerCiHandlers, type TeamCityAccessConfirmation } from '../ci/ipc'
+import { TeamCityOriginTrust } from '../ci/teamcityAccess'
 import { cascadeBounds } from '../windowBounds'
 import { gitErrorMessage } from '../git/errors'
 import { fileSystemErrorMessage, type FileSystemError, type FsWriteFileResponse } from './fsErrors'
 import { fromExternalCall, errorMessage } from '../errors'
+import {
+  authorizeKeychainBindingForConfig,
+  normalizeKeychainBindingPayload,
+  normalizeKeychainCredentialPayload,
+  validateKeychainBinding,
+} from './keychainCredentials'
+import { normalizeCredentialToken } from '../ci/token'
+import { loadPullRequestSummary } from '../taskTracker/prSummary'
+import { isSafeGitRefName } from '../../renderer-shared/gitRef'
+import { credentialErrorMessage } from '../credentials/errors'
+import { trackerBindingKey } from '../../renderer-shared/credentialBindings'
 
 function unwrapOrThrow<T, E>(result: Result<T, E>, toMessage: (e: E) => string): T {
   if (result.isErr()) throw new Error(toMessage(result.error))
@@ -94,9 +110,15 @@ import {
   type TaskContextInput,
 } from '../taskTracker/taskContext'
 import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTracker/configDefaults'
-import { loadPullRequestSummary } from '../taskTracker/prSummary'
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
+import { parseGitHubRemote } from '../github/remoteUrl'
+import {
+  gitHubCliFailureReason,
+  isMissingGitHubCli,
+  redactGitHubFailureReason,
+} from '../github/redactFailureReason'
+import { hasSupportedGitHubRemote } from '../github/supportedRemote'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
 import { listSelectableInterfaces } from '../remote/discovery'
@@ -123,6 +145,12 @@ import { TabCommandService, ToolSessionService } from '../commands/tabCommands'
 import { AgentCommandService } from '../commands/agentCommands'
 import { RunConfigCommandService } from '../commands/runConfigCommands'
 import type { AppStateSnapshot, EditorFileReadResult } from '../commands/types'
+
+function ghFailureReason(error: unknown): string {
+  return isMissingGitHubCli(error)
+    ? 'GitHub CLI (gh) is not installed'
+    : gitHubCliFailureReason(error, PR_DETAILS_TIMEOUT_MS)
+}
 
 // Session-level flag: once the user has successfully authenticated to reveal
 // a saved credential in the current app session, subsequent autofills reuse
@@ -998,23 +1026,20 @@ export function registerIpcHandlers(
   // --- Preferences ---
 
   ipcMain.handle('db:prefs:get', (_event, payload: { key: string }) => {
-    // Encrypted keys (API keys, tracker tokens) are main-process-only —
-    // returning their plaintext to the renderer would let any compromised
-    // page or webview script extract credentials. The renderer reads
-    // non-secret prefs only; secrets reach agent processes via env vars
-    // built inside the main process.
-    if (preferencesStore.isEncrypted(payload.key)) return null
+    // Secrets and credential authorization metadata are main-process-only.
+    // Returning either would let a compromised renderer extract a secret or
+    // rewrite which credential is allowed to satisfy an integration operation.
+    if (preferencesStore.isMainProcessOnly(payload.key)) return null
     return preferencesStore.get(payload.key)
   })
 
   ipcMain.handle('db:prefs:set', async (event, payload: { key: string; value: string }) => {
-    // Renderer must not be able to overwrite encrypted pref keys (API keys,
-    // tracker tokens) — `preferencesStore.set` auto-encrypts via safeStorage,
-    // so a write here would silently replace the user's stored credential
-    // with an attacker-controlled value, redirecting agent calls. Secret
-    // writes go through `profile:save` / `keychain:setCredentials`.
-    if (preferencesStore.isEncrypted(payload.key)) {
-      throw new Error(`Refusing to set encrypted preference key "${payload.key}" via db:prefs:set`)
+    // Renderer must not overwrite secrets or credential registry/binding metadata.
+    // Their lifecycle goes through purpose-specific main-process services.
+    if (preferencesStore.isMainProcessOnly(payload.key)) {
+      throw new Error(
+        `Refusing to set main-process-only preference key "${payload.key}" via db:prefs:set`,
+      )
     }
     if (payload.key === WORKTREE_BASE_DIR_PREF_KEY) {
       await updateTrustedWorktreeBaseDir(event.sender.id, payload.value)
@@ -1056,14 +1081,11 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('db:prefs:delete', (_event, payload: { key: string }) => {
-    // Symmetry with db:prefs:get/set: the renderer must not be able to delete
-    // encrypted pref keys (API keys, tracker tokens) either — dropping a stored
-    // credential from a compromised page/webview would silently de-auth the
-    // user's agents/trackers. Secret lifecycle goes through profile:save /
-    // keychain:setCredentials.
-    if (preferencesStore.isEncrypted(payload.key)) {
+    // Symmetry with db:prefs:get/set: deleting a secret, registry or binding key
+    // could de-auth integrations or orphan encrypted credential rows.
+    if (preferencesStore.isMainProcessOnly(payload.key)) {
       throw new Error(
-        `Refusing to delete encrypted preference key "${payload.key}" via db:prefs:delete`,
+        `Refusing to delete main-process-only preference key "${payload.key}" via db:prefs:delete`,
       )
     }
     preferencesStore.delete(payload.key)
@@ -2249,7 +2271,10 @@ export function registerIpcHandlers(
             'GitHub CLI (gh) is not installed. Install it from cli.github.com or configure a GitHub connection in Preferences.',
           )
         }
-        throw err
+        // `gh pr create` prints the push remote on failure, and for a
+        // token-authenticated remote that is https://x-access-token:<token>@… —
+        // re-raising the execFile error verbatim would hand it to the renderer.
+        throw new Error(redactGitHubFailureReason(errorMessage(err)))
       }
     },
   )
@@ -3139,7 +3164,7 @@ export function registerIpcHandlers(
   ipcMain.handle('repoConfig:load', async (event, payload: { repoRoot: string }) => {
     const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
     const result = await repoConfigManager.load(resolved)
-    return result.unwrapOr(null)
+    return repoConfigOrNull(result)
   })
 
   ipcMain.handle(
@@ -3188,9 +3213,49 @@ export function registerIpcHandlers(
     let repo: RepoConfig | null = null
     if (repoRoot) {
       const result = await repoConfigManager.load(repoRoot)
-      repo = result.unwrapOr(null)
+      repo = repoConfigOrNull(result)
     }
     return mergeConfigs(global, repo)
+  }
+
+  async function authorizeRendererKeychainBinding(
+    event: IpcMainInvokeEvent,
+    payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
+  ): Promise<void> {
+    validateKeychainBinding(payload.provider, payload.bindingKey)
+    if (!payload.bindingKey) return
+    const trackers = payload.repoRoot
+      ? ((await resolveEffectiveConfig(await validatePathAccess(event.sender.id, payload.repoRoot)))
+          ?.config.trackers ?? [])
+      : (globalConfigManager.load()?.trackers ?? [])
+    authorizeKeychainBindingForConfig(
+      payload.provider,
+      payload.baseUrl,
+      payload.bindingKey,
+      trackers,
+    )
+  }
+
+  /** Tracker bindings are machine-global; prune only against persisted workspace configs too. */
+  function currentLiveTrackerBindingKeys(): Promise<Set<string> | undefined> {
+    const globalConfig = globalConfigManager.load()
+    return liveTrackerBindingKeys<RepoConfig['trackers'][number]>({
+      globalTrackers:
+        globalConfig?.trackers ?? (globalConfigManager.hasStoredConfig() ? undefined : []),
+      workspacePaths: workspaceStore.list(WorkspaceStore.LIST_MAX).map((w) => w.path),
+      windowPaths: windowManager
+        .getAllWindowConfigs()
+        .flatMap((config) => [
+          ...config.paths,
+          ...(config.activeWorktreePath ? [config.activeWorktreePath] : []),
+        ]),
+      workspaceCount: workspaceStore.count(),
+      listMax: WorkspaceStore.LIST_MAX,
+      configExists: (repoRoot) => repoConfigManager.exists(repoRoot),
+      // `ResultAsync` is PromiseLike but not a Promise — settle it explicitly.
+      loadTrackers: async (repoRoot) => await repoConfigManager.load(repoRoot),
+      bindingKeyFor: (tracker) => trackerBindingKey(tracker.id),
+    })
   }
 
   async function resolveTaskTrackerBranchName(
@@ -3225,48 +3290,138 @@ export function registerIpcHandlers(
 
   // --- Keychain ---
 
-  ipcMain.handle(
-    'keychain:hasCredentials',
-    (_event, payload: { provider: string; baseUrl: string }) => {
-      return keychainTokenStore.hasCredentials(payload.provider, payload.baseUrl)
-    },
-  )
+  ipcMain.handle('keychain:hasCredentials', async (event, payload: unknown) => {
+    const request = normalizeKeychainBindingPayload(payload)
+    await authorizeRendererKeychainBinding(event, request)
+    return keychainTokenStore.hasCredentials(request.provider, request.baseUrl, request.bindingKey)
+  })
 
-  ipcMain.handle(
-    'keychain:setCredentials',
-    (_event, payload: { provider: string; baseUrl: string; token: string; username?: string }) => {
-      if (!payload.provider || !payload.baseUrl) {
-        throw new Error('Provider and baseUrl are required')
-      }
+  ipcMain.handle('keychain:setCredentials', async (event, payload: unknown) => {
+    const credentials = normalizeKeychainCredentialPayload(payload)
+    await authorizeRendererKeychainBinding(event, credentials)
+    unwrapOrThrow(
       keychainTokenStore.setCredentials(
-        payload.provider,
-        payload.baseUrl,
-        payload.token,
-        payload.username,
-      )
-    },
-  )
+        credentials.provider,
+        credentials.baseUrl,
+        credentials.token,
+        credentials.username,
+        credentials.bindingKey,
+      ),
+      credentialErrorMessage,
+    )
+  })
 
-  ipcMain.handle(
-    'keychain:deleteCredentials',
-    (_event, payload: { provider: string; baseUrl: string }) => {
-      keychainTokenStore.deleteCredentials(payload.provider, payload.baseUrl)
-    },
-  )
+  ipcMain.handle('keychain:deleteCredentials', async (event, payload: unknown) => {
+    const request = normalizeKeychainBindingPayload(payload)
+    await authorizeRendererKeychainBinding(event, request)
+    return keychainTokenStore.deleteCredentials(
+      request.provider,
+      request.baseUrl,
+      request.bindingKey,
+      request.bindingKey ? await currentLiveTrackerBindingKeys() : undefined,
+    )
+  })
 
-  ipcMain.handle(
-    'keychain:getCredentials',
-    (_event, payload: { provider: string; baseUrl: string }) => {
-      const creds = keychainTokenStore.getCredentials(payload.provider, payload.baseUrl)
-      if (!creds) return null
-      // Never send token to renderer — only username and hasToken flag
-      return { username: creds.username, hasToken: true }
-    },
-  )
+  ipcMain.handle('keychain:getCredentials', async (event, payload: unknown) => {
+    const request = normalizeKeychainBindingPayload(payload)
+    await authorizeRendererKeychainBinding(event, request)
+    const creds = keychainTokenStore.getCredentials(
+      request.provider,
+      request.baseUrl,
+      request.bindingKey,
+    )
+    if (!creds) return null
+    // Never send token to renderer — only username and hasToken flag
+    const descriptor = keychainTokenStore.registry
+      .list()
+      .find((credential) => credential.id === creds.credentialId)
+    return {
+      username: creds.username,
+      hasToken: true,
+      credentialId: creds.credentialId,
+      intendedUses: descriptor?.intendedUses ?? [],
+      capabilities: descriptor?.capabilities ?? [],
+      verification: descriptor?.verification ?? {},
+      authenticationState: descriptor?.authenticationState ?? 'unknown',
+      bindings: creds.credentialId
+        ? keychainTokenStore.registry.bindingsFor(creds.credentialId)
+        : [],
+    }
+  })
 
   // Tokens never cross this boundary — listCredentials returns provider/baseUrl/username only.
   ipcMain.handle('keychain:listCredentials', () => {
     return keychainTokenStore.listCredentials()
+  })
+
+  // --- CI (TeamCity) ---
+
+  const teamCityOriginTrust = new TeamCityOriginTrust(preferencesStore)
+  const ciManager = new CiManager(
+    repoConfigManager,
+    keychainTokenStore,
+    undefined,
+    undefined,
+    (baseUrl) => teamCityOriginTrust.ensureAllowed(baseUrl),
+  )
+  // Extracted to src/main/ci/ipc.ts so the authorization contract is testable:
+  // every repo-scoped ci:* channel resolves repoRoot through the SAME workspace
+  // gate as repoConfig:* and passes only the resolved path downstream.
+  registerCiHandlers({
+    ipcMain,
+    ciManager,
+    validatePathAccess,
+    teamCityOriginTrust,
+    confirmTeamCityAccess: async (event, details: TeamCityAccessConfirmation) => {
+      const win = BrowserWindow.getAllWindows().find(
+        (candidate) => candidate.webContents.id === event.sender.id,
+      )
+      const action =
+        details.action === 'save-config'
+          ? 'Allow this repository to use TeamCity?'
+          : details.action === 'discover-build-types'
+            ? 'Allow TeamCity job discovery for this repository?'
+            : details.privateOrigin
+              ? 'Send this token to a private TeamCity server?'
+              : 'Send this token to this TeamCity server?'
+      const detail = [
+        `Server: ${details.baseUrl}`,
+        ...(details.repoRoot ? [`Repository: ${details.repoRoot}`] : []),
+        ...(details.buildTypes?.length
+          ? [
+              `Build configurations: ${details.buildTypes
+                .map((buildType) => buildType.id)
+                .join(', ')}`,
+            ]
+          : []),
+        ...(details.credentialApproval
+          ? ['This grants the exact repository scope access to the stored TeamCity credential.']
+          : details.usesStoredCredential
+            ? ['This operation uses the repository scope approved for the stored credential.']
+            : ['The token entered in the form will be sent to this server.']),
+        ...(details.baseUrl.startsWith('http://')
+          ? ['Warning: this connection is not encrypted; the token will be sent in plaintext.']
+          : []),
+        ...(details.privateOrigin
+          ? [
+              'This address reaches a private or local network. Continue only if you trust this server and repository.',
+            ]
+          : []),
+      ].join('\n')
+      const options = {
+        type: 'warning' as const,
+        buttons: ['Cancel', 'Allow'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        message: action,
+        detail,
+      }
+      const { response } = win
+        ? await dialog.showMessageBox(win, options)
+        : await dialog.showMessageBox(options)
+      return response === 1
+    },
   })
 
   // --- Task Tracker ---
@@ -3386,7 +3541,7 @@ export function registerIpcHandlers(
       const { token, projectKey, ...rest } = payload
       const result = await taskTrackerManager.testNewConnection(
         { ...rest, projectKey: projectKey ?? '' },
-        token,
+        normalizeCredentialToken(token),
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -4401,8 +4556,8 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:findPR',
     async (event, payload: { repoRoot: string; branch: string }) => {
-      // Reject leading-`-` branch names so they can't be consumed as gh flags.
-      if (typeof payload.branch !== 'string' || payload.branch.startsWith('-')) return null
+      // Keep renderer-supplied values within the same safe git-ref contract as PR mutations.
+      if (!isSafeGitRefName(payload.branch)) return null
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
       try {
         const { stdout } = await execFileAsync(
@@ -4421,18 +4576,34 @@ export function registerIpcHandlers(
   // the details modal: large review histories made repeated startup queries costly.
   ipcMain.handle(
     'taskTracker:prSummary',
-    async (event, payload: { repoRoot: string; branch: string; generation: number }) => {
-      if (
-        typeof payload.branch !== 'string' ||
-        payload.branch.length === 0 ||
-        payload.branch.startsWith('-') ||
-        !Number.isInteger(payload.generation) ||
-        payload.generation < 0
-      ) {
+    async (
+      event,
+      payload: {
+        repoRoot: string
+        branch: string
+        generation: number
+        forceRemoteProbe?: boolean
+      },
+    ) => {
+      if (!isSafeGitRefName(payload.branch)) return null
+      if (!Number.isInteger(payload.generation) || payload.generation < 0) return null
+      if (payload.forceRemoteProbe !== undefined && typeof payload.forceRemoteProbe !== 'boolean') {
         return null
       }
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-      return loadPullRequestSummary(resolvedRepo, payload.branch, payload.generation)
+      // The gh CLI fallback is optional. Repositories without a GitHub origin keep the normal
+      // Create PR affordance rather than showing a retryable auth/network error for every branch.
+      if (
+        !(await hasSupportedGitHubRemote(
+          resolvedRepo,
+          undefined,
+          payload.forceRemoteProbe === true,
+        ))
+      ) {
+        return null
+      }
+      const result = await loadPullRequestSummary(resolvedRepo, payload.branch, payload.generation)
+      return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
 
@@ -4441,11 +4612,11 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:prDetails',
     async (event, payload: { repoRoot: string; branch: string }) => {
-      // Reject leading-`-` branch names so they can't be consumed as gh flags.
-      if (typeof payload.branch !== 'string' || payload.branch.startsWith('-')) return null
+      // Keep renderer-supplied values within the same safe git-ref contract as PR mutations.
+      if (!isSafeGitRefName(payload.branch)) return null
       const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-      try {
-        const { stdout } = await execFileAsync(
+      const result = await fromExternalCall(
+        execFileAsync(
           'gh',
           [
             'pr',
@@ -4454,11 +4625,24 @@ export function registerIpcHandlers(
             '--json',
             'number,title,state,url,body,baseRefName,headRefName,isDraft,reviewDecision,author,createdAt,additions,deletions,changedFiles,statusCheckRollup,mergedAt,closedAt,mergedBy,mergeable,mergeStateStatus,assignees,reviewRequests,latestReviews',
           ],
-          { cwd: resolvedRepo, maxBuffer: 4 * 1024 * 1024 },
-        )
+          {
+            cwd: resolvedRepo,
+            maxBuffer: 4 * 1024 * 1024,
+            timeout: PR_DETAILS_TIMEOUT_MS,
+          },
+        ),
+        (e) => ({ _tag: 'PRLookupFailed' as const, reason: ghFailureReason(e) }),
+      )
+      const { stdout } = unwrapOrThrow(result, taskTrackerErrorMessage)
+      try {
         return JSON.parse(stdout)
-      } catch {
-        return null
+      } catch (e) {
+        throw new Error(
+          taskTrackerErrorMessage({
+            _tag: 'PRLookupFailed',
+            reason: `Invalid GitHub CLI response: ${errorMessage(e)}`,
+          }),
+        )
       }
     },
   )
@@ -4908,8 +5092,28 @@ export function registerIpcHandlers(
 
   ipcMain.handle('github:getRepoIdentifier', async (event, payload: { repoRoot: string }) => {
     const resolvedRepo = await validatePathAccess(event.sender.id, payload.repoRoot)
-    const result = await gitHubService.getRepoIdentifier(resolvedRepo)
-    return result.unwrapOr(null)
+    const hasOrigin = await GitRepository.hasRemote(resolvedRepo)
+    if (hasOrigin.isErr()) {
+      return {
+        status: 'error' as const,
+        message: 'git remotes could not be listed.',
+      }
+    }
+    if (!hasOrigin.value) return { status: 'missing' as const }
+    const remote = await GitRepository.getRemoteUrl(resolvedRepo)
+    if (remote.isErr()) {
+      return { status: 'error' as const, message: 'the origin remote has no readable URL.' }
+    }
+    const identifier = parseGitHubRemote(remote.value)
+    return identifier.match(
+      (value) => ({ status: 'found' as const, identifier: value }),
+      () => ({
+        status: 'error' as const,
+        // InvalidRemoteUrl carries the raw remote, which may contain userinfo.
+        // Keep credentials out of the renderer-visible setup error.
+        message: 'it is not a supported GitHub URL.',
+      }),
+    )
   })
 
   // --- Remote control (WebRTC pairing via QR) ---

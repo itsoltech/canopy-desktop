@@ -1,0 +1,231 @@
+<script lang="ts">
+  import { onMount, untrack } from 'svelte'
+  import { LoaderCircle, RefreshCw, X } from '@lucide/svelte'
+  import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { getCiActivityTick } from '../../lib/stores/ci.svelte'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
+  import { ipcErrorMessage } from '../../lib/ci/errors'
+  import type { CiRunActivity } from '../../lib/ci/types'
+  import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
+  import CustomSelect from '../shared/CustomSelect.svelte'
+  import GitHubActionsActivityRow from './GitHubActionsActivityRow.svelte'
+
+  let { repoRoot, initialBranch }: { repoRoot: string; initialBranch?: string } = $props()
+  let activity = $state<CiRunActivity | null>(null)
+  let loaded = $state(false)
+  let refreshing = $state(false)
+  let error = $state('')
+  let now = $state(Date.now())
+  let dialogEl: HTMLElement | undefined = $state()
+  let sequence = 0
+
+  /** undefined = every branch. Applied by the GitHub query, not to the response. */
+  // svelte-ignore state_referenced_locally
+  // Capturing the initial value is the point: the opener only SEEDS the filter, which
+  // the user then owns. MainLayout keys this dialog by identity, so reopening it
+  // remounts with a fresh seed rather than needing this to stay reactive.
+  let branchFilter = $state(initialBranch)
+  // Seeded from the opener because a filtered response only ever contains the branch
+  // it was filtered to: without the seed, a branch with no runs at all would have no
+  // option to select. Switching to "All branches" is what discovers the rest.
+  // svelte-ignore state_referenced_locally
+  let knownBranches = $state<string[]>(initialBranch ? [initialBranch] : [])
+  let branchOptions = $derived(
+    branchFilter && !knownBranches.includes(branchFilter)
+      ? [...knownBranches, branchFilter].sort()
+      : knownBranches,
+  )
+  let branchPickerOptions = $derived([
+    { value: '', label: 'All branches' },
+    ...branchOptions.map((name) => ({ value: name, label: name })),
+  ])
+
+  async function refresh(): Promise<void> {
+    const current = ++sequence
+    refreshing = true
+    try {
+      // The branch goes into the QUERY: `recent` is sliced to the ten newest across
+      // every configured workflow before we see it, so filtering here instead would
+      // blank any branch whose last run is older than that.
+      const result = await window.api.ciRunActivity(repoRoot, branchFilter)
+      if (current !== sequence) return
+      activity = result
+      knownBranches = [
+        ...new Set([
+          ...knownBranches,
+          ...[...result.running, ...result.queued, ...result.recent].flatMap((run) =>
+            run.ref?.name ? [run.ref.name] : [],
+          ),
+        ]),
+      ].sort()
+      now = Date.now()
+      error = ''
+    } catch (cause) {
+      if (current !== sequence) return
+      error = ipcErrorMessage(cause, 'Could not load GitHub Actions history')
+    } finally {
+      if (current === sequence) {
+        loaded = true
+        refreshing = false
+      }
+    }
+  }
+
+  onMount(() => dialogEl?.focus())
+
+  $effect(() => {
+    void getCiActivityTick()
+    // Tracked so picking another branch re-queries instead of re-rendering rows that
+    // were fetched under the old filter, and restarts the poll on the new selection.
+    void branchFilter
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async (): Promise<void> => {
+      await refresh()
+      if (!cancelled) timer = setTimeout(() => void poll(), 60_000)
+    }
+    untrack(() => void poll())
+    return () => {
+      cancelled = true
+      sequence += 1
+      if (timer) clearTimeout(timer)
+    }
+  })
+
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeDialog()
+    } else if (event.key === 'Tab' && dialogEl) {
+      cycleFocus(dialogEl, event)
+    }
+  }
+</script>
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="fixed inset-0 z-overlay flex items-center justify-center bg-scrim"
+  onmousedown={closeDialog}
+  onkeydown={handleKeydown}
+>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div
+    bind:this={dialogEl}
+    class="outline-none w-[560px] h-[520px] min-w-[420px] min-h-[300px] max-w-[95vw] max-h-[92vh] flex flex-col bg-bg-overlay border border-border rounded-xl shadow-modal overflow-hidden"
+    style="resize: both"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="github-history-title"
+    tabindex="-1"
+    onmousedown={(event) => event.stopPropagation()}
+  >
+    <header class="px-5 py-3 border-b border-border-subtle flex items-center justify-between">
+      <h2
+        id="github-history-title"
+        class="m-0 text-base font-semibold text-text flex items-center gap-2"
+      >
+        <TrackerProviderIcon provider="github" size={17} /> Jobs history
+      </h2>
+      <div class="flex items-center gap-1 min-w-0">
+        <label class="sr-only" for="github-history-branch">Filter by branch</label>
+        <div class="w-[200px] min-w-0" title="Show only runs of one branch">
+          <CustomSelect
+            id="github-history-branch"
+            value={branchFilter ?? ''}
+            options={branchPickerOptions}
+            onchange={(value) => (branchFilter = value || undefined)}
+          />
+        </div>
+        <button
+          type="button"
+          class="flex size-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover aria-disabled:opacity-50 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+          onclick={() => !refreshing && void refresh()}
+          aria-label="Refresh"
+          aria-disabled={refreshing}
+          aria-busy={refreshing}
+          title={refreshing ? 'Refreshing…' : 'Refresh now (auto-refreshes every 60 s)'}
+        >
+          <RefreshCw
+            size={14}
+            class={refreshing ? 'animate-spin motion-reduce:animate-none' : ''}
+          />
+        </button>
+        <button
+          type="button"
+          class="flex size-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-text-muted cursor-pointer hover:bg-hover hover:text-text"
+          onclick={closeDialog}
+          aria-label="Close"
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </header>
+    <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+      <!-- The coarse sentence is the ANNOUNCEMENT (role=status implies aria-atomic,
+           so the region is read whole — a visible copy would print it a second time
+           above the warning box that already says it). The wrapper's sr-only stays
+           conditional: an empty in-flow child would add a gap to this flex column. -->
+      <div role="status" class:sr-only={!activity?.partialErrors?.length}>
+        {#if activity?.partialErrors?.length}
+          <span class="sr-only">Partial history — some jobs could not be loaded</span>
+          <div
+            class="p-2 rounded-md bg-warning-bg text-xs text-warning-text break-words"
+            title={activity.partialErrors.join(' · ')}
+            aria-hidden="true"
+          >
+            Partial history: {activity.partialErrors.join(' · ')}
+          </div>
+        {/if}
+      </div>
+      {#if !loaded}
+        <div class="flex items-center gap-2 p-3 text-sm text-text-muted" role="status">
+          <LoaderCircle size={14} class="animate-spin-slow motion-reduce:animate-none" /> Loading history…
+        </div>
+      {:else if error && !activity}
+        <div class="p-3" role="alert">
+          <p class="m-0 text-xs text-text-faint break-words" title={error}>{error}</p>
+        </div>
+      {:else if activity}
+        <!-- Persistent while activity is displayed: a background refresh failure changes the
+             contents of an existing live region instead of mounting the region with its text. -->
+        <div role="status" class:sr-only={!error}>
+          {#if error}
+            <div class="p-2 rounded-md bg-warning-bg text-xs text-warning-text">
+              Could not refresh; showing the last loaded history. {error}
+            </div>
+          {/if}
+        </div>
+        {#if activity.running.length}
+          <section>
+            <h3 class="m-0 px-3 py-1 text-2xs uppercase tracking-caps-tight text-text-faint">
+              Running / waiting
+            </h3>
+            {#each activity.running as run (run.runId)}
+              <GitHubActionsActivityRow {run} {now} />
+            {/each}
+          </section>
+        {/if}
+        {#if activity.queued.length}
+          <section>
+            <h3 class="m-0 px-3 py-1 text-2xs uppercase tracking-caps-tight text-text-faint">
+              Queued
+            </h3>
+            {#each activity.queued as run (run.runId)}
+              <GitHubActionsActivityRow {run} {now} />
+            {/each}
+          </section>
+        {/if}
+        <section>
+          <h3 class="m-0 px-3 py-1 text-2xs uppercase tracking-caps-tight text-text-faint">
+            Recent
+          </h3>
+          {#if activity.recent.length}{#each activity.recent as run (run.runId)}
+              <GitHubActionsActivityRow {run} {now} />
+            {/each}{:else}<p class="m-0 px-3 py-4 text-sm text-text-muted">
+              No runs for the configured workflows{branchFilter ? ` on ${branchFilter}` : ''}.
+            </p>{/if}
+        </section>
+      {/if}
+    </div>
+  </div>
+</div>

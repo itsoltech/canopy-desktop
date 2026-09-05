@@ -1,36 +1,43 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { tooltipPosition, type TooltipRect } from './tooltipPosition'
+  import { createDelayedAction } from '../../lib/tooltip/delayedAction'
 
   let {
     text,
     children,
+    class: className = '',
   }: {
     text: string
     children: Snippet
+    class?: string
   } = $props()
 
-  let x = $state(0)
-  let y = $state(0)
-  let timer: ReturnType<typeof setTimeout> | null = null
+  let triggerRect: TooltipRect | null = null
   let portalEl: HTMLDivElement | null = null
+  const delayedPortal = createDelayedAction(showPortal, 400)
 
   const tooltipClasses =
-    'fixed px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-nowrap pointer-events-none z-banner shadow-tooltip'
+    'fixed max-w-[min(24rem,calc(100vw-8px))] px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-normal break-words pointer-events-none z-banner shadow-tooltip'
 
   function handleEnter(event: MouseEvent | FocusEvent): void {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    x = rect.left + rect.width / 2
-    y = rect.bottom + 4
-    timer = setTimeout(() => showPortal(), 400)
+    triggerRect = {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    }
+    delayedPortal.schedule()
   }
 
   function dismiss(): void {
-    if (timer) clearTimeout(timer)
-    timer = null
+    delayedPortal.cancel()
     hidePortal()
   }
 
   function showPortal(): void {
+    if (!triggerRect) return
     hidePortal()
     portalEl = document.createElement('div')
     portalEl.className = tooltipClasses
@@ -40,11 +47,13 @@
     document.body.appendChild(portalEl)
 
     const rect = portalEl.getBoundingClientRect()
-    let left = x - rect.width / 2
-    if (left + rect.width > window.innerWidth - 4) left = window.innerWidth - rect.width - 4
-    if (left < 4) left = 4
-    portalEl.style.left = `${left}px`
-    portalEl.style.top = `${y}px`
+    const position = tooltipPosition(
+      triggerRect,
+      { width: rect.width, height: rect.height },
+      { width: window.innerWidth, height: window.innerHeight },
+    )
+    portalEl.style.left = `${position.left}px`
+    portalEl.style.top = `${position.top}px`
     portalEl.style.visibility = 'visible'
   }
 
@@ -55,10 +64,21 @@
     }
   }
 
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape') return
+    if (delayedPortal.pending) delayedPortal.cancel()
+    // A pending tooltip is not visible yet, so Escape must keep bubbling to the modal.
+    if (!portalEl) return
+    // Keyboard events target the focused descendant, never a merely hovered sibling. A tooltip
+    // opened only by hover therefore cannot intercept Escape intended for another open control.
+    event.preventDefault()
+    event.stopPropagation()
+    dismiss()
+  }
+
   $effect(() => {
     return () => {
-      if (timer) clearTimeout(timer)
-      timer = null
+      delayedPortal.dispose()
       hidePortal()
     }
   })
@@ -66,12 +86,13 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span
-  class="inline-flex"
+  class="inline-flex min-w-0 {className}"
   onmouseenter={handleEnter}
   onmouseleave={dismiss}
   onmousedown={dismiss}
   onfocusin={handleEnter}
   onfocusout={dismiss}
+  onkeydown={handleKeydown}
 >
   {@render children()}
 </span>

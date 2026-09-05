@@ -1,6 +1,7 @@
 import { setPref } from './preferences.svelte'
 import { trackersNeedingCredentials } from '../../components/preferences/_partials/configScopeLabels'
 import { extractTaskKeys } from '../taskTracker/branchTaskKey'
+import { trackerBindingKey } from '../../../../renderer-shared/credentialBindings'
 
 export interface ActiveTaskContext {
   taskKey: string
@@ -28,6 +29,12 @@ export interface PanelTaskContext extends ActiveTaskContext {
 export interface TrackerCredentialState {
   hasToken: boolean
   username?: string
+  credentialId?: string
+  intendedUses?: string[]
+  capabilities?: string[]
+  verification?: Record<string, { state: string; checkedAt: string; reason?: string }>
+  bindings?: string[]
+  authenticationState?: 'valid' | 'invalid' | 'unknown'
   /** false = the stored token was rejected by the tracker (expired/revoked); true = verified
    *  against the tracker API; undefined = not verified (e.g. offline or check still running). */
   valid?: boolean
@@ -37,6 +44,7 @@ let connections: TaskTrackerConnectionInfo[] = $state([])
 let loadCount = $state(0)
 const loading = $derived(loadCount > 0)
 let repoConfig: RepoConfig | null = $state(null)
+let repoConfigLoadError: string | null = $state(null)
 let globalConfig: RepoConfig | null = $state(null)
 let resolvedConfig: ResolvedConfig | null = $state(null)
 let lastRepoRoot: string | undefined = $state(undefined)
@@ -54,6 +62,10 @@ export function isTaskTrackerLoading(): boolean {
 
 export function getRepoConfig(): RepoConfig | null {
   return repoConfig
+}
+
+export function getRepoConfigLoadError(): string | null {
+  return repoConfigLoadError
 }
 
 export function getGlobalConfig(): RepoConfig | null {
@@ -94,20 +106,43 @@ export function getTrackerCredential(trackerId: string): TrackerCredentialState 
 
 async function computeCredentials(
   trackers: TrackerConfig[],
+  repoRoot?: string,
 ): Promise<Record<string, TrackerCredentialState>> {
   const entries = await Promise.all(
     trackers
       .filter((t) => t.baseUrl)
       .map(async (t) => {
         try {
-          const has = await window.api.keychainHasCredentials(t.provider, t.baseUrl)
+          const bindingKey = trackerBindingKey(t.id)
+          const has = await window.api.keychainHasCredentials(
+            t.provider,
+            t.baseUrl,
+            bindingKey,
+            repoRoot,
+          )
           if (has) {
-            const info = await window.api.keychainGetCredentials(t.provider, t.baseUrl)
+            const info = await window.api.keychainGetCredentials(
+              t.provider,
+              t.baseUrl,
+              bindingKey,
+              repoRoot,
+            )
             // Carry the verification flag over so frequent refreshes (e.g. template auto-saves)
             // don't wipe it; verifyCredentials re-runs only on config loads.
             return [
               t.id,
-              { hasToken: true, username: info?.username, valid: trackerCredentials[t.id]?.valid },
+              {
+                hasToken: true,
+                username: info?.username,
+                credentialId: info?.credentialId,
+                intendedUses: info?.intendedUses,
+                capabilities: info?.capabilities,
+                verification: info?.verification,
+                bindings: info?.bindings,
+                authenticationState: info?.authenticationState,
+                valid:
+                  info?.authenticationState === 'invalid' ? false : trackerCredentials[t.id]?.valid,
+              },
             ] as const
           }
           return [t.id, { hasToken: false }] as const
@@ -119,12 +154,14 @@ async function computeCredentials(
   return Object.fromEntries(entries)
 }
 
-async function refreshCredentials(trackers: TrackerConfig[]): Promise<void> {
-  trackerCredentials = await computeCredentials(trackers)
+async function refreshCredentials(trackers: TrackerConfig[], repoRoot?: string): Promise<void> {
+  trackerCredentials = await computeCredentials(trackers, repoRoot)
 }
 
 // Errors that mean the tracker rejected the token itself (vs. network being down etc.).
-const AUTH_ERROR_RE = /\b(401|403)\b|unauthoriz|authenticat|forbidden|invalid token/i
+// 403 is capability/resource-specific (the token may still be valid for other integrations).
+// Only authentication failures invalidate the whole credential.
+const AUTH_ERROR_RE = /\b401\b|unauthoriz|authenticat|invalid token/i
 
 // Verification runs fire-and-forget after config loads; the UI shows a "checking credentials"
 // hint instead of having the expired-credentials banner pop in unannounced seconds later.
@@ -182,11 +219,12 @@ export async function loadRepoConfig(
     const nextRepo = await window.api.repoConfigLoad(repoRoot)
     const nextResolved = await window.api.trackerResolvedConfig(repoRoot)
     const nextCredentials = nextResolved
-      ? await computeCredentials(nextResolved.config.trackers)
+      ? await computeCredentials(nextResolved.config.trackers, repoRoot)
       : {}
     if (!shouldApply()) return
     lastRepoRoot = repoRoot
     repoConfig = nextRepo
+    repoConfigLoadError = null
     resolvedConfig = nextResolved
     trackerCredentials = nextCredentials
     if (nextResolved) {
@@ -194,12 +232,13 @@ export async function loadRepoConfig(
       // API calls — and they re-check the generation before writing.
       void verifyCredentials(nextResolved.config.trackers, repoRoot, shouldApply)
     }
-  } catch {
+  } catch (error) {
     if (!shouldApply()) return
     // The CURRENT worktree failed to load — leaving the previous worktree's trackers visible
     // would let a later save target the wrong project config.
     lastRepoRoot = repoRoot
     repoConfig = null
+    repoConfigLoadError = error instanceof Error ? error.message : String(error)
     resolvedConfig = null
     trackerCredentials = {}
   } finally {
@@ -211,15 +250,17 @@ export async function saveRepoConfig(repoRoot: string, config: RepoConfig): Prom
   const plain = $state.snapshot(config) as RepoConfig
   await window.api.repoConfigSave(repoRoot, plain)
   repoConfig = plain
+  repoConfigLoadError = null
   resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
   if (resolvedConfig) {
-    await refreshCredentials(resolvedConfig.config.trackers)
+    await refreshCredentials(resolvedConfig.config.trackers, repoRoot)
   }
 }
 
 export async function initRepoConfig(repoRoot: string): Promise<RepoConfig> {
   const config = await window.api.repoConfigInit(repoRoot)
   repoConfig = config
+  repoConfigLoadError = null
   resolvedConfig = await window.api.trackerResolvedConfig(repoRoot)
   return config
 }
@@ -244,7 +285,7 @@ export async function loadGlobalConfig(): Promise<void> {
     if (resolved) {
       resolvedConfig = resolved
       const trackers = allKnownTrackers(resolved)
-      await refreshCredentials(trackers)
+      await refreshCredentials(trackers, lastRepoRoot)
       void verifyCredentials(trackers, lastRepoRoot)
     } else if (globalConfig) {
       await refreshCredentials(globalConfig.trackers)
@@ -262,7 +303,7 @@ export async function saveGlobalConfig(config: RepoConfig): Promise<void> {
   globalConfig = plain
   // Re-resolve merged config so sidebar reflects the change
   resolvedConfig = await window.api.trackerResolvedConfig(lastRepoRoot)
-  await refreshCredentials(allKnownTrackers(resolvedConfig))
+  await refreshCredentials(allKnownTrackers(resolvedConfig), lastRepoRoot)
 }
 
 export async function initGlobalConfig(): Promise<RepoConfig> {
@@ -396,7 +437,10 @@ export async function resolvePanelTask(
 ): Promise<void> {
   const apply = (): boolean => !options.shouldApply || options.shouldApply()
   const normPath = worktreePath.replace(/\\/g, '/')
-  const trackerId = resolvedConfig?.config.trackers[0]?.id ?? ''
+  // Branch-derived task keys belong to the repository context. Personal/global trackers are
+  // available for explicit links, but must never become the implicit owner merely by list order.
+  const trackerId =
+    resolvedConfig?.repoTrackerIds[0] ?? resolvedConfig?.config.trackers[0]?.id ?? ''
 
   const branchKeys = branch ? extractTaskKeys(branch) : []
   const keys = [
@@ -423,7 +467,7 @@ export async function resolvePanelTask(
         : null
       try {
         // Address the tracker that owns the stored link; bare branch keys use the default.
-        const ownerTrackerId = stored?.connectionId || undefined
+        const ownerTrackerId = stored?.connectionId || trackerId || undefined
         const task = await window.api.trackerConfigFindTaskByKey(worktreePath, key, ownerTrackerId)
         // The tracker answered and doesn't know this key — a false match, drop it (unless it is
         // the explicitly linked task, which we keep as stored and flag as missing).

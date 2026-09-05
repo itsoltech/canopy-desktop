@@ -5,9 +5,39 @@ import type { TrackerTask, PRTemplateConfig, PRTargetRule } from './types'
 import type { TaskTrackerError } from './errors'
 import { renderPRTitle, renderPRBody, resolveTargetBranch } from './prTemplate'
 import { GitRepository } from '../git/GitRepository'
-import { fromExternalCall, errorMessage } from '../errors'
+import { fromExternalCall } from '../errors'
+import { gitHubCliFailureReason, isMissingGitHubCli } from '../github/redactFailureReason'
+import { isSafeGitRefName } from '../../renderer-shared/gitRef'
 
 const execFileAsync = promisify(execFile)
+export const PR_COMMAND_TIMEOUT_MS = 30_000
+
+interface PRCommandOptions {
+  cwd: string
+  encoding: 'utf8'
+  timeout: number
+  windowsHide: true
+}
+
+const commandOptions = (repoRoot: string): PRCommandOptions => ({
+  cwd: repoRoot,
+  encoding: 'utf8',
+  timeout: PR_COMMAND_TIMEOUT_MS,
+  windowsHide: true,
+})
+
+export type PRCommandRunner = (
+  repoRoot: string,
+  args: string[],
+  extraOptions?: { maxBuffer?: number },
+) => Promise<{ stdout: string; stderr: string }>
+
+const runGhCommand: PRCommandRunner = (repoRoot, args, extraOptions = {}) => {
+  return execFileAsync('gh', args, {
+    ...commandOptions(repoRoot),
+    ...extraOptions,
+  }) as Promise<{ stdout: string; stderr: string }>
+}
 
 export interface CreatePRParams {
   repoRoot: string
@@ -60,39 +90,42 @@ function prErr(reason: string): TaskTrackerError {
   return { _tag: 'PRCreationFailed', reason }
 }
 
-function detectGhCli(): ResultAsync<true, TaskTrackerError> {
-  return fromExternalCall(execFileAsync('gh', ['--version']), () =>
-    prErr('GitHub CLI (gh) is not installed. Install it to create PRs automatically.'),
+export function prCliFailure(error: unknown): TaskTrackerError {
+  return prErr(gitHubCliFailureReason(error, PR_COMMAND_TIMEOUT_MS))
+}
+
+function detectGhCli(
+  repoRoot: string,
+  commandRunner: PRCommandRunner,
+): ResultAsync<true, TaskTrackerError> {
+  return fromExternalCall(commandRunner(repoRoot, ['--version']), (error) =>
+    isMissingGitHubCli(error)
+      ? prErr('GitHub CLI (gh) is not installed. Install it to create PRs automatically.')
+      : prCliFailure(error),
   ).map(() => true as const)
 }
 
 function findExistingPR(
   repoRoot: string,
   sourceBranch: string,
+  commandRunner: PRCommandRunner,
 ): ResultAsync<string | null, TaskTrackerError> {
-  // Reject branch names starting with `-` so they can't be consumed as a gh
-  // CLI flag. sanitizeBranchName already strips leading `-` from generated
-  // names, but `sourceBranch` here can be any string passed over IPC.
-  if (sourceBranch.startsWith('-')) return okAsync(null)
+  if (!isSafeGitRefName(sourceBranch)) return okAsync(null)
   // Only an OPEN PR blocks creating another one — a branch may accumulate merged/closed PRs
   // (gh pr view would happily return those), and a new PR is legitimate then.
   return fromExternalCall(
-    execFileAsync(
-      'gh',
-      [
-        'pr',
-        'list',
-        '--state',
-        'open',
-        '--json',
-        'url',
-        '--jq',
-        '.[0].url // empty',
-        '--head',
-        sourceBranch,
-      ],
-      { cwd: repoRoot },
-    ),
+    commandRunner(repoRoot, [
+      'pr',
+      'list',
+      '--state',
+      'open',
+      '--json',
+      'url',
+      '--jq',
+      '.[0].url // empty',
+      '--head',
+      sourceBranch,
+    ]),
     () => prErr('Failed to check existing PR'),
   )
     .map((result) => result.stdout.trim() || null)
@@ -101,13 +134,14 @@ function findExistingPR(
 
 export function createPullRequest(
   params: CreatePRParams,
+  commandRunner: PRCommandRunner = runGhCommand,
 ): ResultAsync<CreatePRResult, TaskTrackerError> {
   const { repoRoot, task, sourceBranch, prConfig, existingBranches, overrides } = params
 
   // Reject branch names that could be consumed as a gh CLI flag. sourceBranch is
   // passed as the value to `--head` below; `--` separators don't help in that
   // position. findExistingPR already performs the same check.
-  if (typeof sourceBranch !== 'string' || sourceBranch.startsWith('-')) {
+  if (!isSafeGitRefName(sourceBranch)) {
     return errAsync(prErr('Invalid source branch name'))
   }
 
@@ -124,7 +158,7 @@ export function createPullRequest(
 
   // Same defense for the resolved target branch — it comes from the PR config
   // (defaultTargetBranch / targetRules) which a renderer or repo file can set.
-  if (targetBranch.startsWith('-')) {
+  if (!isSafeGitRefName(targetBranch)) {
     return errAsync(prErr('Invalid target branch name'))
   }
 
@@ -132,9 +166,9 @@ export function createPullRequest(
     GitRepository.push(repoRoot)
       .orElse(() => okAsync({ branch: '', remote: '' }))
       // Verify gh CLI is available
-      .andThen(() => detectGhCli())
+      .andThen(() => detectGhCli(repoRoot, commandRunner))
       // Check if PR already exists
-      .andThen(() => findExistingPR(repoRoot, sourceBranch))
+      .andThen(() => findExistingPR(repoRoot, sourceBranch, commandRunner))
       .andThen((existingUrl) => {
         if (existingUrl) {
           return okAsync<CreatePRResult, TaskTrackerError>({
@@ -162,13 +196,13 @@ export function createPullRequest(
         for (const reviewer of reviewers) {
           args.push('--reviewer', reviewer.trim())
         }
-        return fromExternalCall(execFileAsync('gh', args, { cwd: repoRoot }), (e) =>
-          prErr(errorMessage(e)),
-        ).map((result): CreatePRResult => ({
-          url: result.stdout.trim(),
-          title,
-          targetBranch,
-        }))
+        return fromExternalCall(commandRunner(repoRoot, args), prCliFailure).map(
+          (result): CreatePRResult => ({
+            url: result.stdout.trim(),
+            title,
+            targetBranch,
+          }),
+        )
       })
   )
 }
@@ -187,14 +221,13 @@ export function mergePullRequest(
   prNumber: number,
   strategy: PRMergeStrategy,
   deleteBranch: boolean,
+  commandRunner: PRCommandRunner = runGhCommand,
 ): ResultAsync<void, TaskTrackerError> {
   if (!validPRNumber(prNumber)) return errAsync(prErr('Invalid PR number'))
   if (!MERGE_STRATEGIES.includes(strategy)) return errAsync(prErr('Invalid merge strategy'))
   const args = ['pr', 'merge', String(prNumber), `--${strategy}`]
   if (deleteBranch) args.push('--delete-branch')
-  return fromExternalCall(execFileAsync('gh', args, { cwd: repoRoot }), (e) =>
-    prErr(errorMessage(e)),
-  ).map(() => undefined)
+  return fromExternalCall(commandRunner(repoRoot, args), prCliFailure).map(() => undefined)
 }
 
 /** Close an open PR without merging. */
@@ -202,32 +235,12 @@ export function closePullRequest(
   repoRoot: string,
   prNumber: number,
   deleteBranch: boolean,
+  commandRunner: PRCommandRunner = runGhCommand,
 ): ResultAsync<void, TaskTrackerError> {
   if (!validPRNumber(prNumber)) return errAsync(prErr('Invalid PR number'))
   const args = ['pr', 'close', String(prNumber)]
   if (deleteBranch) args.push('--delete-branch')
-  return fromExternalCall(execFileAsync('gh', args, { cwd: repoRoot }), (e) =>
-    prErr(errorMessage(e)),
-  ).map(() => undefined)
-}
-
-/**
- * Renderer-supplied branch names end up interpolated into the PATH of authenticated `gh api`
- * calls (including a DELETE). Validate against git ref-name rules plus URL metacharacters so a
- * crafted value cannot retarget the request — legitimate branch names keep their `/` segments,
- * so validation is preferred over encoding here.
- */
-function isSafeBranchRef(branch: unknown): branch is string {
-  if (typeof branch !== 'string') return false
-  const b = branch.trim()
-  if (b === '' || b.length > 255) return false
-  if (b.startsWith('-') || b.startsWith('/') || b.endsWith('/') || b.includes('//')) return false
-  if (b.includes('..') || b.endsWith('.') || b.endsWith('.lock')) return false
-  // Control chars, characters git forbids in ref names, and URL path/query metacharacters.
-  // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1f\x7f ~^:?*[\\#%]/.test(b)) return false
-  if (b.includes('@{')) return false
-  return true
+  return fromExternalCall(commandRunner(repoRoot, args), prCliFailure).map(() => undefined)
 }
 
 /**
@@ -237,16 +250,20 @@ function isSafeBranchRef(branch: unknown): branch is string {
 export function remoteBranchExists(
   repoRoot: string,
   branch: string,
+  commandRunner: PRCommandRunner = runGhCommand,
 ): ResultAsync<boolean, TaskTrackerError> {
-  if (!isSafeBranchRef(branch)) {
+  if (!isSafeGitRefName(branch)) {
     return okAsync(false)
   }
   return fromExternalCall(
-    execFileAsync('gh', ['api', `repos/{owner}/{repo}/branches/${branch.trim()}`], {
-      cwd: repoRoot,
-      maxBuffer: 1024 * 1024,
-    }),
-    (e) => prErr(errorMessage(e)),
+    commandRunner(
+      repoRoot,
+      ['api', `repos/{owner}/{repo}/branches/${encodeURIComponent(branch)}`],
+      {
+        maxBuffer: 1024 * 1024,
+      },
+    ),
+    prCliFailure,
   )
     .map(() => true)
     .orElse((e) => okAsync(!/HTTP 404|Not Found/i.test('reason' in e ? String(e.reason) : '')))
@@ -256,17 +273,19 @@ export function remoteBranchExists(
 export function deleteRemoteBranch(
   repoRoot: string,
   branch: string,
+  commandRunner: PRCommandRunner = runGhCommand,
 ): ResultAsync<void, TaskTrackerError> {
-  if (!isSafeBranchRef(branch)) {
+  if (!isSafeGitRefName(branch)) {
     return errAsync(prErr('Invalid branch name'))
   }
   return fromExternalCall(
-    execFileAsync(
-      'gh',
-      ['api', '-X', 'DELETE', `repos/{owner}/{repo}/git/refs/heads/${branch.trim()}`],
-      { cwd: repoRoot },
-    ),
-    (e) => prErr(errorMessage(e)),
+    commandRunner(repoRoot, [
+      'api',
+      '-X',
+      'DELETE',
+      `repos/{owner}/{repo}/git/refs/heads/${encodeURIComponent(branch)}`,
+    ]),
+    prCliFailure,
   ).map(() => undefined)
 }
 
