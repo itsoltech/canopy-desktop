@@ -713,6 +713,52 @@ the 2.1.259 notes describe was run and still reports `next`'s pin rather than `T
 `manifest.json` carries `"2.1.207"`, so its 30-name `HookEvent` union remains a floor on the
 subscription gap, not a current list.
 
+**2.1.263 names nothing that reaches Canopy, and for once that is the whole release rather than the
+visible part of it.** Its CLI changelog is a single line — "Bug fixes and reliability improvements" —
+with no flag, environment variable, config key, hook, permission or tool change named, and no
+`… +N more CLI changelog entries` marker. That last detail is what separates this note from the
+2.1.259, 2.1.260 and 2.1.261 ones above, which each had 25, 54 and 55 entries hidden behind that
+marker: here the release-notes text is complete even though the diff is still unreachable, so
+"nothing named" is a statement about the release rather than about what this run could see. The
+unreachability is unchanged and was re-confirmed — `gh api` against the changelog repo denied by the
+allowlist defect described in `.github/prompts/claude-code-compat.md`, `WebFetch` denied on its own —
+so an unannounced change remains possible; it is only the announced set that is known to be empty.
+2.1.262 never shipped: the changelog repo has no release for it and npm goes `0.3.261` → `0.3.263`.
+
+**Prompt growth is system-side for the sixth consecutive release, and the tools half has now been
+flat for six.** Prompt tokens are up 16.0% (+6,198) with one new prompt file (16 → 17), and the mix
+goes from 75.6%/24.4% system/tools to 79.0%/21.0%. The arithmetic the 2.1.258 note introduces puts
+the total at ~38.7k before and ~44.9k after — the "before" reproducing the ~38.8k the 2.1.261 note
+derived independently, which is the useful check on this method — and that holds tools at ~9.45k
+against ~9.44k while system rises ~29.3k → ~35.5k. Across 2.1.257 through 2.1.263 that is +31,353
+tokens, all of it system text, taking the system prompt from ~4.2k to ~35.5k while every tool
+description stayed at ~9.45k. Six releases makes the earlier reading safe to rely on rather than
+merely repeat: the code keyed to tool names and shapes (`summarizeToolInput`, the tool views, the
+`PreToolUse`/`PostToolUse` normalization) has been asked for nothing across the entire range, and
+this release is the strongest case of it — a 21% jump in system text against a tools half that did
+not move.
+
+**The bundle delta argues against reading that new file as 6.2k tokens of new instruction text.**
+The same metadata reports the bundle up 2.0 kB (+0.0%). At roughly four characters per token, 6,198
+tokens is on the order of 25 kB of prose, and prompt text is string literals that neither minify nor
+compress away in a bundle measured this way. Ten kB of the difference could be argued about; an
+order of magnitude cannot. The likelier reading is that the file is assembled at runtime from text
+already present — a prompt now emitted where it previously was not, rather than one newly written —
+which is also why a release whose only announced content is bug fixes can post its largest prompt
+delta in the range. Recorded as an inference, not a finding: the diff that would settle it is behind
+the same denial as everything else. Either way the consequence for Canopy is the same, because the
+consequence follows from the tools half being flat, which is measured rather than inferred.
+
+**The context-window floor moves with it, and the two places Canopy draws thresholds on it do not
+need changing.** `normalizeStatus` reads `context_window.used_percentage` straight from the status
+line, so a system prompt that grew ~6.2k tokens raises the number every pane starts at: about +3.1
+percentage points on a 200k window, +0.6 on a 1M one. `AgentInspector.svelte` colours its bar at
+≥70% and ≥90% and clamps the width with `Math.min(…, 100)`; `StatusBar.svelte` colours the `ctx N%`
+readout the same way. Both take the percentage the CLI computes rather than deriving it, so the
+floor shifting is reflected honestly and no constant here encodes an assumption that just became
+wrong. Worth stating because it is the one Canopy path this release's only measurable quantity
+flows through, and the answer is that it flows through correctly.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
