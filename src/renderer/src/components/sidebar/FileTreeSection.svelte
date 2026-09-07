@@ -89,6 +89,18 @@
       .otherwise((s) => s.toUpperCase())
   }
 
+  // The visible status letter is aria-hidden, so screen readers get the word
+  // form through the row's accessible name instead.
+  function statusDescription(status: string): string {
+    return match(status)
+      .with('M', () => 'modified')
+      .with('A', () => 'added')
+      .with('D', () => 'deleted')
+      .with('R', () => 'renamed')
+      .with('?', () => 'untracked')
+      .otherwise(() => 'changed')
+  }
+
   function statusTone(status: string): string {
     return match(status)
       .with('M', () => 'text-warning-text')
@@ -284,6 +296,7 @@
                 onclick={() => fileTree.toggleDir(absPath)}
                 oncontextmenu={(e) => handleContextMenu(e, absPath)}
                 title={entry.name}
+                aria-label={hasChanges && !ignored ? `${entry.name}, contains changes` : entry.name}
               >
                 <span
                   class="inline-flex items-center justify-center size-3 flex-shrink-0 text-text-faint transition-transform duration-fast ease-std"
@@ -330,6 +343,9 @@
               onclick={() => handleFileClick(absPath)}
               oncontextmenu={(e) => handleContextMenu(e, absPath)}
               title={entry.name}
+              aria-label={status && status !== '!'
+                ? `${entry.name}, ${statusDescription(status)}`
+                : entry.name}
             >
               <FileTypeIcon name={entry.name} size={13} />
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
