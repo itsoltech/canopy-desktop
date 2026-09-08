@@ -82,19 +82,25 @@
   })
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="h-7 min-h-7 flex items-center justify-between gap-2 pl-2.5 pr-1.5 bg-bg-glass-light border-b border-border-subtle select-none"
   class:bg-active={focused}
-  onclick={onFocus}
   onpointerdown={handleStripPointerDown}
 >
-  <span
-    class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs"
+  <!--
+    The pane label carries the focus action. It has to be a real <button> rather
+    than the strip itself: the strip already contains the detach/close buttons,
+    so making the strip a button would nest interactive elements. Keeping the
+    pointerdown drag handler on the strip means dragging by the label still
+    works — click fires after pointerdown regardless of preventDefault().
+  -->
+  <button
+    type="button"
+    class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-xs border-0 bg-transparent p-0 font-inherit cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-focus-ring rounded-sm"
     class:text-text={focused}
     class:text-text-secondary={!focused}
-    title={label}>{label}</span
+    onclick={onFocus}
+    title={label}>{label}</button
   >
   <div class="flex items-center gap-0.5 flex-shrink-0">
     <button
