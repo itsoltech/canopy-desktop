@@ -759,6 +759,98 @@ floor shifting is reflected honestly and no constant here encodes an assumption 
 wrong. Worth stating because it is the one Canopy path this release's only measurable quantity
 flows through, and the answer is that it flows through correctly.
 
+**2.1.265 regressed an environment variable Canopy can hand the CLI without anyone having typed it,
+and the pin steps over that release rather than through it.** `CLAUDE_CODE_USE_GATEWAY` is
+undocumented and was previously ignored unless `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` were
+both set. In 2.1.265 it began forcing Cloud-gateway sign-in on its own, so a configuration that set
+it alongside an API key, an `apiKeyHelper` or custom auth headers failed **every** request with
+"Not signed in to the Cloud gateway"; 2.1.266 restores the old behaviour and needs no configuration
+change. The combination is reachable here without a Canopy setting being involved:
+`commitMessageGenerator.ts` builds the SDK's child env as `{ ...process.env, ...envOverrides }` and
+then layers `ANTHROPIC_API_KEY` on top, so a user who exports `CLAUDE_CODE_USE_GATEWAY` in their
+shell supplies the first half and Canopy's own preference supplies the second. This lands through
+the vendored-fallback path the 2.1.258 note describes — `pathToClaudeCodeExecutable` is `undefined`
+when `which claude` fails, and the SDK then runs the CLI it vendors, which `package.json` pins. So
+the pin moves `0.3.263` → `0.3.266` and deliberately skips `0.3.265`, whose vendored CLI is the
+broken build. Panes are unaffected by the pin either way: they spawn the user's own binary, and a
+user on 2.1.265 is fixed by updating it.
+
+**Adding `CLAUDE_CODE_USE_GATEWAY` to `BLOCKED_ENV_VARS` was considered and rejected.** It would
+mask the 2.1.265 failure, but the variable is legitimate for users who genuinely front the API with
+the Cloud gateway, and blocking it would break them on every release where it works correctly —
+trading a transient upstream bug for a permanent Canopy one. The blocklist exists to stop
+user-supplied `customEnv` from redirecting an agent's traffic or loading code (`LD_PRELOAD`,
+`*_PROXY`, the CA-bundle overrides); a variable that only selects between two of Anthropic's own
+auth paths is not that. The pin is the whole fix.
+
+**2.1.265 gives back the entire 2.1.257–2.1.263 system-prompt growth, and the number is exact rather
+than approximate.** Prompt tokens are down 69.7% (−31,353) with six prompt files removed (17 → 11),
+and the mix inverts from 79.0%/21.0% system/tools to 30.7%/69.3%. The arithmetic the 2.1.258 note
+introduces puts the total at ~45.0k before and ~13.6k after, which holds tools at ~9,446 against
+~9,446 — flat for the seventh consecutive release — while system falls ~35.5k → ~4.2k. The −31,353
+is the same figure, to the token, that the 2.1.263 note records as the cumulative system-side growth
+across 2.1.257 through 2.1.263, so this release does not merely trim the system prompt but returns it
+to its pre-2.1.257 size of ~4.2k. Two independent checks say the method is sound rather than
+coincidental: this release's derived "before" (~45.0k total, ~35.5k system, ~9.45k tools) reproduces
+the 2.1.263 note's derived "after", and the tools half has now sat at ~9.45k across seven releases in
+which system text tripled and then collapsed.
+
+**The bundle delta says that text was not deleted, which matters for whether the saving is
+reliable.** The same metadata reports the bundle **up** 413.8 kB (+0.9%) in the release that shed
+~31.4k tokens of prompt — on the order of 125 kB of prose at roughly four characters per token. Text
+removed from the bundle cannot make it larger, so the 2.1.263 note's inference that these prompts are
+assembled at runtime from material already present is strengthened rather than merely repeated: what
+changed is when the text is emitted, not whether it exists. The practical consequence is a caveat on
+the paragraph below — a session that triggers whatever now gates that text could still pay for it, so
+the floor should be read as lower on average rather than lower always. Recorded as an inference; the
+diff that would settle it is behind the same denial as everything else.
+
+**The context-window floor moves the other way for the first time in this range, and again nothing
+needs changing.** `normalizeStatus` reads `context_window.used_percentage` straight from the status
+line, so ~31.4k fewer tokens of system prompt lowers the number every pane starts at by about 15.7
+percentage points on a 200k window and 3.1 on a 1M one — roughly reversing the ~+9 points the
+2.1.257–2.1.263 notes tracked accumulating. `AgentInspector.svelte` colours its bar at ≥70% and ≥90%
+and `StatusBar.svelte` colours the `ctx N%` readout the same way; both consume the percentage the CLI
+computes rather than deriving it, so a floor that drops is reflected as honestly as one that rose.
+Users should see panes starting materially emptier and compaction arriving later. This is the release
+range's largest user-visible change to Canopy and it arrives entirely through data, with no code.
+
+**What else 2.1.265 names does not reach Canopy.** `--plugin-dir` can now point at a folder of
+plugins, with child manifests auto-loading and additions or removals picked up while running; Canopy
+passes no `--plugin-dir` at all, and `buildCliArgs` emits only `--model`, `--permission-mode`,
+`--effort` and `--append-system-prompt`. The two plugin-path security fixes — a backslash in a plugin
+path bypassing the symlink containment check on macOS and Linux, and directories whose names begin
+with two dots being wrongly refused — are unreachable for the same reason. Telemetry now sends
+`user.email` and `user.groups` from Claude Desktop and Cowork through a Claude apps gateway, which is
+those products' own telemetry path and not something a Canopy pane emits. The new 1 GB cap on tool
+results saved to disk, with the conversation preview marking a saved file as truncated, applies to
+the CLI's own conversation storage; Canopy sees tool results as the `tool_response` field of a hook
+payload, and the limit that governs that path is still the hook server's 1 MB body cap in the table
+below. The prompt-cache fixes for resumed foreground subagents and for agent teammates moving
+`SubagentStart` hook context out of the prompt prefix are internal to the CLI's cache accounting —
+Canopy registers `SubagentStart` but only normalizes it, and the resume path it owns is
+`buildResumeArgs`' `--resume`. The resume-after-crash fix, which stops the last prompt being
+rewritten and keeps an interrupted tool call marked interrupted, likewise changes transcript content
+Canopy does not parse.
+
+**One 2.1.265 fix is worth knowing about at the support level even though it needs no code.**
+`/model opusplan[1m]` was being rejected with "Model not found". Canopy's profile Model field is free
+text — placeholder "sonnet, opus, haiku, fable, or model ID" — and `buildCliArgs` forwards whatever
+it holds as `--model`, so `opusplan[1m]` is a value a user can enter. The release note names the
+slash command rather than the flag and the diff was not reachable, so whether `--model` was affected
+identically is not established here; what is established is that a user who hit this had a plausible
+route to reading it as a Canopy bug, since the failure would surface inside a Canopy pane.
+
+**38 of 2.1.265's CLI changelog entries were not readable this run.** The release notes truncate at
+"… +38 more CLI changelog entries" and every route to the rest was denied: `gh api` against the
+changelog repo by the allowlist defect described in `.github/prompts/claude-code-compat.md`, and
+`WebFetch` on its own — the seventh consecutive denial and the eighth of nine attempts across this
+range. The items above are the visible entries only. 2.1.266 has no such marker: its changelog is the
+single `CLAUDE_CODE_USE_GATEWAY` fix, its prompt tokens and file count are unchanged from 2.1.265
+(+0, +0.0%, mix flat at 30.7%/69.3%) and its bundle moves −0.1 kB, so that release is known complete
+rather than merely un-truncated. 2.1.264 never shipped: the changelog repo has no release for it and
+npm goes `0.3.263` → `0.3.265`.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
