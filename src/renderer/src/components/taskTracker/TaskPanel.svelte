@@ -862,6 +862,8 @@
       {/if}
       {#if credentialsBroken}
         <div
+          role="status"
+          aria-live="polite"
           class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
         >
           <KeyRound size={13} class="shrink-0 text-warning-text" />
@@ -879,12 +881,18 @@
           </button>
         </div>
       {:else if checkingCreds}
-        <div class="flex items-center gap-2 text-xs text-text-faint">
+        <div
+          role="status"
+          aria-live="polite"
+          class="flex items-center gap-2 text-xs text-text-faint"
+        >
           <LoaderCircle size={12} class="animate-spin" />
           <span>Checking credentials…</span>
         </div>
       {:else if notFound}
         <div
+          role="status"
+          aria-live="polite"
           class="flex flex-col gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
         >
           <span class="text-xs text-text-secondary leading-snug">
@@ -907,6 +915,7 @@
         </div>
       {:else if loadError}
         <div
+          role="alert"
           class="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-xs text-danger-text leading-snug"
         >
           {loadError}
@@ -994,6 +1003,7 @@
 
             {#if applyError}
               <div
+                role="alert"
                 class="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-xs text-danger-text leading-snug whitespace-pre-wrap"
               >
                 {applyError}

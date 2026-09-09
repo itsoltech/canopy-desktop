@@ -132,7 +132,12 @@
     return branches.remote.find((r) => r.slice(r.indexOf('/') + 1) === name) ?? ''
   }
 
+  // Captured before the modal steals focus so onDestroy can hand the keyboard
+  // back to the opener. onMount is async here, so it cannot return a teardown.
+  let previouslyFocused: HTMLElement | null = null
+
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))
     try {
@@ -171,6 +176,7 @@
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
+    previouslyFocused?.focus?.()
   })
 
   function initSetupTerminal(container: HTMLDivElement): void {

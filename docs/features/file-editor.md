@@ -174,8 +174,8 @@ A pane with zero files after a merge/detach is not restored.
 | `tab:command:prepareCloseEditorFile`     | Dirty-file Save / Don't Save / Cancel preflight for one editor sub-tab.                               |
 | `tab:command:prepareCloseTab`            | Dirty-file Save / Don't Save / Cancel preflight before closing a tab.                                 |
 | `tab:command:prepareCloseAllForWorktree` | Batched dirty-file and active-process preflight before closing all tabs in a worktree.                |
-| `fs:createFile`                          | Creates an empty file (`wx` flag), creating parent dirs as needed. Used by file tree.                 |
-| `fs:mkdir`                               | Recursively creates a directory. Used by file tree.                                                   |
+| `fileTree:createFile`                    | Creates an empty file (`wx` flag), creating parent dirs as needed. Used by file tree.                 |
+| `fileTree:createDirectory`               | Recursively creates a directory. Used by file tree.                                                   |
 | `dialog:confirmUnsavedChanges`           | Native 3-way dialog (Save / Don't Save / Cancel) used by tab and worktree close preflight.            |
 
 Tab close and close-all worktree flows use main-owned preflight commands before destroying
@@ -185,7 +185,7 @@ cleanup runs.
 
 Editor load/save commands validate `filePath` through `validatePathAccess`, which calls
 `fs.realpath` on the target and rejects anything outside the renderer's workspace roots.
-Create handlers (`fs:createFile`, `fs:mkdir`) use `validateCreationPath`, which walks up
+Create handlers (`fileTree:createFile`, `fileTree:createDirectory`) use `validateCreationPath`, which walks up
 to the closest existing ancestor, runs `validatePathAccess` against it, and rejects tails
 that escape via `..` or absolute references — needed because the target itself does not
 yet exist and `realpath` would fail with `ENOENT`.

@@ -1,4 +1,5 @@
 import { ResultAsync, err, errAsync, ok, okAsync, type Result } from 'neverthrow'
+import { match } from 'ts-pattern'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
 import type { KeychainTokenStore } from '../taskTracker/KeychainTokenStore'
 import type { CredentialBindingApprovalTarget } from '../taskTracker/KeychainTokenStore'
@@ -274,16 +275,7 @@ export class CiManager {
                 baseUrl,
               })
         },
-        (error) =>
-          error._tag === 'CredentialApprovalRequired'
-            ? errAsync({ _tag: 'CiCredentialApprovalRequired' as const, baseUrl })
-            : error._tag === 'CredentialNotFound'
-              ? errAsync({ _tag: 'CiAuthMissing' as const, baseUrl })
-              : errAsync({
-                  _tag: 'CiCredentialUnavailable' as const,
-                  baseUrl,
-                  reason: credentialErrorMessage(error),
-                }),
+        (error) => errAsync(this.teamCityCredentialError(baseUrl, error)),
       ),
     )
   }
@@ -297,15 +289,17 @@ export class CiManager {
   }
 
   private teamCityCredentialError(baseUrl: string, error: CredentialError): CiError {
-    if (error._tag === 'CredentialNotFound') return { _tag: 'CiAuthMissing', baseUrl }
-    if (error._tag === 'CredentialApprovalRequired') {
-      return { _tag: 'CiCredentialApprovalRequired', baseUrl }
-    }
-    return {
-      _tag: 'CiCredentialUnavailable',
-      baseUrl,
-      reason: credentialErrorMessage(error),
-    }
+    return match(error)
+      .with({ _tag: 'CredentialNotFound' }, () => ({ _tag: 'CiAuthMissing' as const, baseUrl }))
+      .with({ _tag: 'CredentialApprovalRequired' }, () => ({
+        _tag: 'CiCredentialApprovalRequired' as const,
+        baseUrl,
+      }))
+      .otherwise((e) => ({
+        _tag: 'CiCredentialUnavailable' as const,
+        baseUrl,
+        reason: credentialErrorMessage(e),
+      }))
   }
 
   prepareTeamCityConfigApproval(

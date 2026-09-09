@@ -24,6 +24,23 @@
   // Collapse state
   let collapsedFiles = new SvelteSet<string>()
 
+  // Every changed line mounts its own DOM row, so a regenerated lockfile or a
+  // formatter-wide reflow can push tens of thousands of rows into the pane at
+  // once and stall it. Collapse those on first sight and let the user opt in.
+  // Tracked per path so a manual expand survives the auto-refresh cycle.
+  const LARGE_DIFF_LINE_THRESHOLD = 500
+  const autoCollapseChecked = new SvelteSet<string>()
+
+  function autoCollapseLargeFiles(next: DiffFile[]): void {
+    for (const file of next) {
+      if (autoCollapseChecked.has(file.path)) continue
+      autoCollapseChecked.add(file.path)
+      if (file.additions + file.deletions > LARGE_DIFF_LINE_THRESHOLD) {
+        collapsedFiles.add(file.path)
+      }
+    }
+  }
+
   // Search state
   let searchQuery = $state('')
   let showSearch = $state(false)
@@ -49,6 +66,7 @@
     loadError = false
     try {
       const result = await window.api.changesGetDiff({ worktreePath })
+      autoCollapseLargeFiles(result.files)
       files = result.files
     } catch (e) {
       files = []
