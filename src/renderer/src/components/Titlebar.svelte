@@ -34,7 +34,7 @@
   })
 </script>
 
-<div
+<header
   class="h-10 flex items-center justify-center flex-shrink-0 relative bg-bg-glass backdrop-blur-xl border-b border-border-subtle app-drag"
   class:px-mac-traffic={isMac}
 >
@@ -70,4 +70,4 @@
       <RunConfigToolbar />
     </div>
   {/if}
-</div>
+</header>

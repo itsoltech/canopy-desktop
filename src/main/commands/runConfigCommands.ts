@@ -85,6 +85,7 @@ export class RunConfigCommandService {
       // `.canopy/run.toml` can be committed, so treat env overrides as untrusted.
       const env = filterRunConfigEnv(config.env)
       const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
+      const senderId = sender.id
 
       // Pre-run hook (30s timeout)
       if (config.pre_run) {
@@ -100,6 +101,10 @@ export class RunConfigCommandService {
           cwd,
           env,
         })
+        // Track the hook PTY against the owning window so closing that window
+        // kills it immediately. Untracked, it would survive window close until
+        // its own 30s timeout fired.
+        this.deps.windowManager.trackPtySession(senderId, preSession.id)
         let preOutput = ''
         preSession.pty.onData((data) => {
           preOutput += data
@@ -113,6 +118,7 @@ export class RunConfigCommandService {
             if (!done) {
               done = true
               this.deps.ptyManager.kill(preSession.id)
+              this.deps.windowManager.untrackPtySession(senderId, preSession.id)
               reject(new Error(`pre_run "${config.pre_run}" timed out after 30s`))
             }
           }, PRE_RUN_TIMEOUT)
@@ -121,6 +127,7 @@ export class RunConfigCommandService {
             done = true
             clearTimeout(timer)
             this.deps.ptyManager.kill(preSession.id)
+            this.deps.windowManager.untrackPtySession(senderId, preSession.id)
             if (exitCode !== 0) {
               const lastLines = preOutput.trim().split('\n').slice(-5).join('\n')
               reject(
@@ -139,7 +146,6 @@ export class RunConfigCommandService {
         cwd,
         env,
       })
-      const senderId = sender.id
       let cleanedUp = false
       const cleanup = (): void => {
         if (cleanedUp) return
@@ -166,12 +172,15 @@ export class RunConfigCommandService {
             cwd,
             env,
           })
+          // Same window-lifetime tracking as the pre_run hook above.
+          this.deps.windowManager.trackPtySession(senderId, postSession.id)
           const POST_RUN_TIMEOUT = 30_000
           let postDone = false
           const postTimer = setTimeout(() => {
             if (!postDone) {
               postDone = true
               this.deps.ptyManager.kill(postSession.id)
+              this.deps.windowManager.untrackPtySession(senderId, postSession.id)
               if (!sender.isDestroyed()) {
                 sender.send('runConfig:postRunResult', {
                   success: false,
@@ -194,6 +203,7 @@ export class RunConfigCommandService {
               )
             }
             this.deps.ptyManager.kill(postSession.id)
+            this.deps.windowManager.untrackPtySession(senderId, postSession.id)
           })
         }
       })

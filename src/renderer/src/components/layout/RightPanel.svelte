@@ -55,6 +55,7 @@
 <aside
   class="min-w-50 max-w-125 h-full bg-bg border-l border-border-subtle flex flex-col flex-shrink-0"
   style:width="{width}px"
+  aria-label="Right panel"
 >
   <div
     class="flex items-stretch px-3 border-b border-border-subtle flex-shrink-0"
