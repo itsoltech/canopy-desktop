@@ -143,6 +143,16 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > it only reached them after `git checkout chore/claude-code-compat` — by which point the probes were
 > spent. **The budget is not what fails; the ordering is.** Two runs in a row have now burned five
 > probes each, and step 0 exists to make the third one stop at zero.
+>
+> Re-probed again on v2.1.263 → v2.1.266, eight consecutive runs. That run spent **three** — down
+> from five, but not the zero step 0 is for, and the reason is worth one sentence because it is a
+> defect in step 0 rather than in the run's discipline. It did check out the branch early, second
+> tool batch, before reading any pin. But it then read `AGENTS.md` — a plausible place for agent
+> notes, and the wrong one — and issued its third probe in the same batch, reaching this file only
+> afterwards. **Step 0 says "check out the branch"; what actually pays is re-reading _this file_,
+> and it should be the first `Read` after the checkout, ahead of `AGENTS.md`, `CLAUDE.md` and
+> `.itsol.md`.** A checkout whose notes go unread buys nothing. The two probes that run spent before
+> the checkout were unavoidable given the ordering it inherited; the third was not.
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
@@ -163,8 +173,8 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > fix and the merge as what retires it.
 
 > **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
-> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, seven denied so
-> far, the last six consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
+> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, eight denied so
+> far, the last seven consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
 > v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
 > use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
 > v2.1.252 → v2.1.257, v2.1.257 → v2.1.258, v2.1.258 → v2.1.259, v2.1.259 → v2.1.260,
