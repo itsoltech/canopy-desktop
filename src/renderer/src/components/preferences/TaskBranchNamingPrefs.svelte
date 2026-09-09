@@ -159,6 +159,7 @@
             <input
               class="w-32 px-2 py-0.5 border border-border rounded-md bg-bg-input text-text text-sm font-mono font-inherit outline-none focus:border-focus-ring placeholder:text-text-faint"
               type="text"
+              aria-label={`Branch type for ${t}`}
               value={typeMapping[t] ?? ''}
               placeholder={defaultBranchTypeFor(t)}
               spellcheck="false"
