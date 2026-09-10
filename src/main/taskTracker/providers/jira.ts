@@ -2,6 +2,7 @@ import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
 import { match } from 'ts-pattern'
 import { taskTrackerErrorMessage, type TaskTrackerError } from '../errors'
 import { fromExternalCall, errorMessage } from '../../errors'
+import { redactSecret } from '../../credentials/redactSecret'
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
@@ -49,8 +50,13 @@ function buildAuthHeaders(connection: TaskTrackerConnection, token: string): Hea
   }
 }
 
-function apiError(status: number, message: string): TaskTrackerError {
-  return { _tag: 'ProviderApiError', status, message, provider: 'jira' }
+function apiError(status: number, message: string, token?: string): TaskTrackerError {
+  return {
+    _tag: 'ProviderApiError',
+    status,
+    message: redactSecret(message, token),
+    provider: 'jira',
+  }
 }
 
 /** Jira error bodies are JSON ({errorMessages, errors}) — surface the human sentences instead
@@ -85,15 +91,17 @@ function jiraFetch<T>(
       redirect: 'error',
       signal: AbortSignal.timeout(15_000),
     }),
-    (e) => apiError(0, errorMessage(e)),
+    (e) => apiError(0, errorMessage(e), token),
   ).andThen((res) => {
     if (!res.ok) {
       return fromExternalCall(
         res.text().catch(() => ''),
-        (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((body) => errAsync(apiError(res.status, jiraErrorText(body, res.statusText))))
+        (e) => apiError(res.status, errorMessage(e), token),
+      ).andThen((body) =>
+        errAsync(apiError(res.status, jiraErrorText(body, res.statusText), token)),
+      )
     }
-    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e), token))
   })
 }
 
@@ -116,13 +124,15 @@ function jiraSend(
       redirect: 'error',
       signal: AbortSignal.timeout(15_000),
     }),
-    (e) => apiError(0, errorMessage(e)),
+    (e) => apiError(0, errorMessage(e), token),
   ).andThen((res) => {
     if (!res.ok) {
       return fromExternalCall(
         res.text().catch(() => ''),
-        (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((text) => errAsync(apiError(res.status, jiraErrorText(text, res.statusText))))
+        (e) => apiError(res.status, errorMessage(e), token),
+      ).andThen((text) =>
+        errAsync(apiError(res.status, jiraErrorText(text, res.statusText), token)),
+      )
     }
     return okAsync(undefined)
   })
@@ -146,15 +156,17 @@ function jiraPost<T>(
       redirect: 'error',
       signal: AbortSignal.timeout(15_000),
     }),
-    (e) => apiError(0, errorMessage(e)),
+    (e) => apiError(0, errorMessage(e), token),
   ).andThen((res) => {
     if (!res.ok) {
       return fromExternalCall(
         res.text().catch(() => ''),
-        (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((text) => errAsync(apiError(res.status, jiraErrorText(text, res.statusText))))
+        (e) => apiError(res.status, errorMessage(e), token),
+      ).andThen((text) =>
+        errAsync(apiError(res.status, jiraErrorText(text, res.statusText), token)),
+      )
     }
-    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e), token))
   })
 }
 
@@ -188,14 +200,16 @@ function jiraUploadAttachments(
       redirect: 'error',
       signal: AbortSignal.timeout(60_000),
     }),
-    (e) => apiError(0, errorMessage(e)),
+    (e) => apiError(0, errorMessage(e), token),
   )
     .andThen((res) => {
       if (!res.ok) {
         return fromExternalCall(
           res.text().catch(() => ''),
-          (e) => apiError(res.status, errorMessage(e)),
-        ).andThen((text) => errAsync(apiError(res.status, jiraErrorText(text, res.statusText))))
+          (e) => apiError(res.status, errorMessage(e), token),
+        ).andThen((text) =>
+          errAsync(apiError(res.status, jiraErrorText(text, res.statusText), token)),
+        )
       }
       return okAsync([] as string[])
     })
