@@ -432,8 +432,11 @@ export class BrowserManager {
     } else {
       wc.debugger
         .sendCommand('Emulation.clearDeviceMetricsOverride')
-        .then(() => {
-          if (wc.debugger.isAttached()) wc.debugger.detach()
+        // Detach in `finally`, not `then`: a rejected CDP command would otherwise leave the
+        // debugger attached for the rest of the tab's life (stuck "inspected" banner, and no
+        // other client can attach).
+        .finally(() => {
+          if (!wc.isDestroyed() && wc.debugger.isAttached()) wc.debugger.detach()
         })
         .catch(() => {})
     }

@@ -17,6 +17,7 @@
     pendingEditorJumps,
   } from '../../lib/stores/tabs.svelte'
   import { dragState, clearDrag, setDropTarget } from '../../lib/stores/dragState.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { detectIndent, indentUnitString, type IndentInfo } from './cm/detectIndent'
   import { detectLanguageName } from './cm/language'
 
@@ -238,6 +239,18 @@
   }
 
   async function reloadAndDiscard(): Promise<void> {
+    // Reloading throws away the unsaved buffer with no undo, so it gets the same confirmation
+    // as every other destructive action. Only when there is actually something to lose —
+    // a clean buffer reloads straight away.
+    if (dirty) {
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message: `Reloading "${activeFilePath}" from disk discards your unsaved changes. This cannot be undone.`,
+        confirmLabel: 'Discard and reload',
+        destructive: true,
+      })
+      if (!ok) return
+    }
     await loadFile(activeFilePath)
   }
 

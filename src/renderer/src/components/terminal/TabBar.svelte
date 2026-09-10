@@ -380,8 +380,11 @@
               title={connState === 'disconnected' ? 'Disconnected' : 'Reconnecting...'}
             ></span>
           {/if}
+          <!-- Revealed on `group-focus-within` as well as `group-hover`: `hidden` keeps the button
+               out of the tab order, so a hover-only reveal left keyboard users with no way to
+               close a tab at all (the only other affordance, middle-click, is mouse-only). -->
           <button
-            class="hidden group-hover/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
+            class="hidden group-hover/tab:flex group-focus-within/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
             onclick={(e: MouseEvent) => {
               e.stopPropagation()
               closeTab(tab.id)
