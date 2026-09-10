@@ -154,6 +154,7 @@ The fields below describe the keys stored inside each profile's `prefs_json` (no
 | `permissionMode`                       | Claude   | `--permission-mode` argument                                                                                   |
 | `effortLevel`                          | Claude   | `--effort` argument                                                                                            |
 | `appendSystemPrompt`                   | Claude   | `--append-system-prompt` argument                                                                              |
+| `systemPromptSnapshot`                 | Claude   | `--system-prompt-snapshot off` when set to `"off"`; omitted otherwise (Claude Code 2.1.267+)                   |
 | `apiKey` _(encrypted)_                 | Claude   | `ANTHROPIC_API_KEY` env var                                                                                    |
 | `baseUrl`                              | Claude   | `ANTHROPIC_BASE_URL` env var                                                                                   |
 | `provider`                             | Claude   | Sets `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY`                                                              |
@@ -206,6 +207,16 @@ without one still read "From gateway". The Base URL field exists for exactly the
 hint names Ollama, GLM and MinMax — so a gateway that describes its models makes the picker
 self-documenting and leaves `modelPicker` for the provider profiles that have no discovery endpoint
 to ask.
+
+**Capping effort with `maxEffortLevel`.** Claude Code 2.1.267+ accepts a `maxEffortLevel` setting,
+top level or per model under `modelSettings`, which caps the effort level on every provider including
+Bedrock, Vertex and Foundry. It reaches the CLI through the profile's Settings JSON field like the
+other settings here. The reason to know about it in Canopy specifically is that the profile has its
+own **Effort level** dropdown, and the two do not negotiate: `buildCliArgs` emits `--effort` from the
+dropdown, the CLI silently lowers it to the cap, and the dropdown goes on reading whatever was picked.
+Users can still choose anything at or below the cap, so the setting is a ceiling rather than an
+override — useful for holding a shared or cost-sensitive profile down without editing every pane, and
+worth checking first when a profile behaves a tier below what it displays.
 
 **`keybindingFlavor: "readline"` only takes effect on macOS.** Claude Code 2.1.238+ accepts a
 `keybindingFlavor` setting; `"readline"` makes Ctrl+W in its prompt delete back to the previous
@@ -850,6 +861,88 @@ single `CLAUDE_CODE_USE_GATEWAY` fix, its prompt tokens and file count are uncha
 (+0, +0.0%, mix flat at 30.7%/69.3%) and its bundle moves −0.1 kB, so that release is known complete
 rather than merely un-truncated. 2.1.264 never shipped: the changelog repo has no release for it and
 npm goes `0.3.263` → `0.3.265`.
+
+**2.1.267 is the first release in this range that adds a flag Canopy had a reason to adopt, and the
+reason is a seam Canopy already owned.** `--system-prompt-snapshot off` re-renders the system prompt
+on every request instead of replaying the one recorded when the conversation started; the release
+note frames it as a convenience for iterating on prompt text. That framing undersells it here,
+because the prompt text a Canopy user iterates on is a Canopy preference — the profile's **Append to
+system prompt** field — and the path that ignores their edit is `buildResumeArgs`' `--resume`. So a
+user who edited that field and resumed an existing pane got the old text with nothing indicating
+why. `buildCliArgs` now emits `--system-prompt-snapshot off` when the profile opts in.
+
+**It is opt-in for a reason that is easy to get wrong.** Panes spawn the user's **own** `claude`
+binary rather than the SDK's vendored copy, so the flag reaches a CLI whose version Canopy does not
+control, and an unknown flag is a startup failure rather than a warning. The adapter therefore emits
+only the literal `off` and omits the flag for every other state, including the default — the same
+shape `effortLevel` already uses, where empty means "add no flag" rather than "add a default value".
+A user who turns it on is opting into requiring 2.1.267, which the help text says.
+
+**`maxEffortLevel` needs no code and is worth a support note anyway.** The new setting caps effort on
+every provider including Bedrock, Vertex and Foundry, and it can sit at the top level or per model
+under `modelSettings`. It reaches Canopy through the profile's existing **Settings JSON override**,
+which `setupSettings` merges into the per-session `settings.json` wholesale, so nothing needed
+adding. The interaction worth knowing is that the cap is **silent**: `buildCliArgs` still emits
+`--effort max` from the dropdown, the CLI still lowers it, and the dropdown still reads "Max". A user
+under managed settings who reports that Max behaves like Medium is describing correct behaviour, so
+the Effort level help text now says so.
+
+**One 2.1.267 fix lands on a provider configuration Canopy itself enables.** Expired AWS or Google
+Cloud credentials under a host app were retrying ten times behind a generic "request failed" before
+the re-authenticate error appeared. Canopy sets `CLAUDE_CODE_USE_BEDROCK` and `CLAUDE_CODE_USE_VERTEX`
+from the profile Provider dropdown, so this is not a configuration a Canopy user has to go out of
+their way to reach — it is two clicks in the profile editor. Nothing to change; the failure just
+becomes legible, and it becomes legible inside a Canopy pane where it would otherwise have read as a
+Canopy networking problem.
+
+**The managed hook-settings fix reads as though it should reach Canopy and does not.** 2.1.267 makes
+managed `allowedHttpHookUrls`, `httpHookAllowedEnvVars` and `allowedChannelPlugins` admit nothing
+rather than everything when unreadable — a fail-closed change that would break hook delivery under
+managed settings for anyone relying on the old permissive fallback. Canopy posts every hook to
+`127.0.0.1` over HTTP, so the naive reading is that this gates Canopy. It does not: `setupSettings`
+registers each event as `{ type: 'command', command: hookScriptPath }`, and the HTTP request happens
+one level down, inside `canopy-agent-hook.sh`'s `curl`. The CLI sees a command hook and never
+consults its HTTP-hook allowlist. Recorded because the wrong reading is the more natural one and the
+right one is two files away.
+
+**The large-session resume fix is transcript-side, but Canopy users are the ones who reach it.**
+Resuming a session whose transcript exceeds 5 MB was dropping parallel tool calls and their hook
+output from the reloaded conversation. Canopy does not parse transcripts — the same reasoning the
+2.1.265 note applies to the resume-after-crash fix — so no code changes. What is worth naming is the
+exposure: `buildResumeArgs` is how every Canopy pane returns to a session, and a workstation whose
+sessions persist across days accumulates 5 MB far more readily than a one-off terminal invocation
+does. A resumed pane that came back missing tool calls would have looked like Canopy losing them.
+
+**What else 2.1.267 names does not reach Canopy.** The tmux/ssh fix — shift+enter and option+backspace
+failing after reconnecting inside an agent view — is about the CLI's own agent view, not Canopy's
+panes, which run their own PTY through `PtyManager` and handle keys in `TerminalInstance.svelte`;
+worth stating explicitly because Canopy is a terminal workstation and the entry reads as though it
+were addressed to one. The `-p --resume` fix for a spurious "Continue from where you left off." turn
+is scoped to print mode, which panes do not use and `commitMessageGenerator` reaches through the SDK
+rather than the CLI. Cowork scheduled tasks failing under sandboxing-required managed settings, `/context`
+rendering blank on mobile clients, and the dim last-prompt header in fullscreen are all other
+products' surfaces or CLI chrome. The marketplace backslash containment fix is unreachable: Canopy
+passes no marketplace or `--plugin-dir` configuration at all. The Workflow `agent()` large-output-schema
+fix is internal to that tool.
+
+**Prompt tokens are flat for the second release running, and the bundle delta confirms the 2.1.265
+inference rather than complicating it.** Prompt tokens move +0 (+0.0%) with no file added or removed
+and the mix identical at 30.7%/69.3% system/tools, so the totals hold exactly where 2.1.266 left
+them: ~13.6k overall, ~4.2k system, ~9.4k tools. The tools half has now been ~9.4k continuously since
+before 2.1.257, through a system prompt that tripled and then collapsed back. Meanwhile the bundle is
+**up** 277.7 kB (+0.6%) in a release that changed no prompt text at all — which puts the bundle near
+46 MB, reproducing the figure implied by 2.1.265's +413.8 kB at +0.9%, and which is what a release
+that adds a setting, a flag and forty-odd fixes should look like. Nothing here moves the
+context-window floor, so `normalizeStatus`, `AgentInspector.svelte` and `StatusBar.svelte` are
+untouched by this release in the way the 2.1.257–2.1.265 notes track.
+
+**41 of 2.1.267's CLI changelog entries were not readable this run.** The release notes truncate at
+"… +41 more CLI changelog entries" against 13 visible, and both routes to the rest were denied again:
+`gh api` against the changelog repo by the allowlist defect described in
+`.github/prompts/claude-code-compat.md`, and `WebFetch` on its own — the eighth consecutive denial.
+The items above are the visible entries only. The two highlights this release leads with are both
+covered above, so the adoption decision does not rest on the hidden entries, but a flag or setting
+among those 41 would not have been seen.
 
 ## Error states
 
