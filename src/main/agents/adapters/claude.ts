@@ -186,11 +186,16 @@ export const claudeAdapter: AgentAdapter = {
     const permMode = prefs.get('claude.permissionMode')
     const effort = prefs.get('claude.effortLevel')
     const appendPrompt = prefs.get('claude.appendSystemPrompt')
+    const promptSnapshot = prefs.get('claude.systemPromptSnapshot')
 
     if (model) args.push('--model', model)
     if (permMode) args.push('--permission-mode', permMode)
     if (effort) args.push('--effort', effort)
     if (appendPrompt) args.push('--append-system-prompt', appendPrompt)
+    // Only ever emit the documented 'off' value. Anything else (including the
+    // implicit default) omits the flag, so panes running a CLI older than
+    // 2.1.267 — which does not know the flag — start normally.
+    if (promptSnapshot === 'off') args.push('--system-prompt-snapshot', 'off')
 
     return args
   },
