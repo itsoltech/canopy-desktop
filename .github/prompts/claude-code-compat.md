@@ -144,6 +144,28 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > spent. **The budget is not what fails; the ordering is.** Two runs in a row have now burned five
 > probes each, and step 0 exists to make the third one stop at zero.
 >
+> **The mechanism is testable for free, against a rule that already works — stop probing the broken
+> one.** Every run above tried to learn something about the rule by issuing the command the rule
+> denies, which costs a probe and returns the same one bit each time. The question is not really about
+> `gh api` at all, it is "what terminates a `:*` prefix", and any allowlisted rule answers it. In this
+> session `Bash(npm view:*)` is allowed, so two commands settled it: `npm viewXXXX` **denied** and
+> `npm view/foo` **denied**, while `npm view @anthropic-ai/claude-agent-sdk versions --json` ran. A
+> raw string prefix would have permitted the first two. So the terminator is **whitespace
+> specifically** — not any non-word character, and in particular not `/`.
+>
+> That is the documented `Bash(ls:*)` ≡ `Bash(ls *)` equivalence confirmed by experiment rather than
+> by citation, and it settles the fix's shape rather than merely restating the diagnosis. It rules out
+> the tempting near-miss: `Bash(gh api repos/marckrenn/claude-code-changelog:*)`, dropping only the
+> trailing slash, still demands a space where a `/` stands and fails identically. The colon has to go,
+> which is what the `Bash(gh api repos/marckrenn/claude-code-changelog/*)` form above already does —
+> that one is a glob rather than a prefix rule and carries no space requirement. Both are consistent;
+> the experiment just means nobody has to take either on faith again.
+>
+> **Generalise it.** Before spending a probe on a denied rule, find an allowlisted rule of the same
+> shape and probe _that_ with an input designed to fail. It costs nothing, it is not rate limited, and
+> it answers about the matcher rather than about one command. That is the technique this file was
+> missing for nine runs.
+>
 > Re-probed again on v2.1.263 → v2.1.266, eight consecutive runs. That run spent **three** — down
 > from five, but not the zero step 0 is for, and the reason is worth one sentence because it is a
 > defect in step 0 rather than in the run's discipline. It did check out the branch early, second
@@ -153,6 +175,18 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > and it should be the first `Read` after the checkout, ahead of `AGENTS.md`, `CLAUDE.md` and
 > `.itsol.md`.** A checkout whose notes go unread buys nothing. The two probes that run spent before
 > the checkout were unavoidable given the ordering it inherited; the third was not.
+>
+> Re-probed again on v2.1.266 → v2.1.267, nine consecutive runs, three probes again — all three before
+> the checkout, none after, which is the pattern step 0 predicts and does not yet prevent. Worth being
+> exact about why, since this is the third run in a row to land here: the prompt a run is _handed_ puts
+> its `gh api` examples in step 2 and its "check out the branch" instruction in step 0, but a run
+> reading top-to-bottom hits `FROM_VERSION`/`TO_VERSION` in the header and reaches for the compare call
+> as its opening move, because that is the one action the header's data is obviously _for_. The
+> checkout looks like bookkeeping next to it. **The ordering fix that would actually work is upstream
+> of this file: step 0 has to be the first thing in the prompt body the workflow assembles, and the
+> `gh api` block has to stop appearing before it.** Until then, expect ~2–3 probes per run and treat
+> the free control-probe technique above as the thing that makes them unnecessary rather than merely
+> discouraged.
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
@@ -361,6 +395,21 @@ Be **proactive** — not just compatibility fixes but also:
 - Bump SDK version if appropriate
 
 For each change, make a **targeted, minimal edit**. Do not reformat or restructure code beyond what the change requires.
+
+> **This workflow can change `src/**` but cannot check it.** `--allowedTools` grants `Write` and
+> `Edit` with no path restriction, and several runs in this range have used them on application code —
+> the hook-script stdin fix and the preferences-hint correction, among others. It grants no `npm run`
+> at all, only `Bash(npm view:*)`, so `npm run lint`, `npm run typecheck`, `npm run svelte-check` and
+> the repository's own `verify` skill are all denied. Confirmed again on v2.1.266 → v2.1.267. This is
+> the same class of gap as the `gh api` rule and wants the same maintainer fix — `auto-fix.yml` and
+> `bug-auto-fix.yml` already allowlist `Bash(npm run lint:*)` and friends, so the entries exist to copy.
+>
+> Two things do still work in the meantime, and neither is a substitute. The repository's `PostToolUse`
+> hook runs `npx prettier --write` on every file written, so formatting is handled and does not need
+> checking. And the `Stop` hook runs lint and build — but only when `git status --porcelain` still
+> shows a dirty `.ts`/`.svelte` file, so committing before the turn ends skips it. Until the allowlist
+> gains a verification command, prefer edits whose correctness can be read off the types, say in the PR
+> body that CI is the first real check, and do not claim a change was verified locally.
 
 ### 6. Create or update the PR
 
