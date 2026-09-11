@@ -187,6 +187,20 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > `gh api` block has to stop appearing before it.** Until then, expect ~2–3 probes per run and treat
 > the free control-probe technique above as the thing that makes them unnecessary rather than merely
 > discouraged.
+>
+> Re-probed again on v2.1.267 → v2.1.268, ten consecutive runs, and that run spent **six** — the worst
+> figure yet, all before the checkout, in the exact pattern the paragraph above predicts. Two of them
+> were not even denials of the rule: `--jq … | base64 -d` and a trailing `2>&1` were rejected as
+> multi-operation shell commands first, which reads like a different failure and invites a "try it
+> without the pipe" retry that this file already records as a dead end. The four real denials were
+> `compare/` with `--jq`, `compare/` bare, `contents/…?ref=` with `-H`, and `releases/tags/{TAG}` both
+> with `--jq` and bare. **That last one is the control the file asks for and it came back denied**, so
+> the mid-token diagnosis now has a clean confirmation against a single ref path with no flags, no
+> quotes and no metacharacters. Nothing about the rule is open. The lesson this run adds is narrow:
+> **the harness has two rejection messages and only one of them is about the allowlist.** "This
+> command contains multiple operations" means the shell form was wrong; "This command requires
+> approval" means the rule did not match. Only the second is evidence about anything, and only the
+> second should ever cost a follow-up.
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
@@ -212,9 +226,9 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
 > use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
 > v2.1.252 → v2.1.257, v2.1.257 → v2.1.258, v2.1.258 → v2.1.259, v2.1.259 → v2.1.260,
-> v2.1.260 → v2.1.261 and v2.1.261 → v2.1.263 runs all hit the same denial on the first call. Six
-> consecutive is enough that the one success is the outlier; budget for the denial and treat a
-> working fetch as a windfall. The v2.1.260 → v2.1.261 run confirmed
+> v2.1.260 → v2.1.261 and v2.1.261 → v2.1.263 runs all hit the same denial on the first call, as did
+> v2.1.263 → v2.1.266, v2.1.266 → v2.1.267 and v2.1.267 → v2.1.268 — nine consecutive. That is enough
+> that the one success is the outlier; budget for the denial and treat a working fetch as a windfall. The v2.1.260 → v2.1.261 run confirmed
 > `WebSearch` is denied alongside it a second time, so the pair travel together and one probe answers
 > for both. Do not assume either answer from this file. Issue one fetch, record which way it went in
 > the PR body, and proceed on that basis.
@@ -374,8 +388,13 @@ npm install @anthropic-ai/claude-agent-sdk@{VERSION} --save-exact=false
 - `.github/workflows/` — Claude Code action configurations (`anthropics/claude-code-action@v1`), model args, allowed tools
 - `.github/prompts/` — prompt templates passed to Claude Code action
 - `.claude/` — harness settings (`settings.json`), skills
-- `src/main/changelog/` — changelog fetching module
 - `CLAUDE.md`, `AGENTS.md` — agent instruction files
+
+The list above used to include `src/main/changelog/` as a "changelog fetching module". It is not a
+Claude Code integration point: `fetchChangelog.ts` reads Canopy's **own** GitHub releases from
+`api.github.com/repos/itsoltech/canopy-desktop/releases`. Nothing there tracks upstream. The real
+integration points for the CLI are `src/main/agents/adapters/claude.ts`, `src/main/ai/commitMessageGenerator.ts`
+(the only `@anthropic-ai/claude-agent-sdk` import in `src/`) and `resources/canopy-agent-hook.*`.
 
 **Then discover more** — search broadly for additional references using the `Grep` tool (not `grep`
 via Bash, which also walks `node_modules/` and buries real hits):
