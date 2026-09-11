@@ -944,6 +944,98 @@ The items above are the visible entries only. The two highlights this release le
 covered above, so the adoption decision does not rest on the hidden entries, but a flag or setting
 among those 41 would not have been seen.
 
+**2.1.268 fixes a total outage on the endpoint configuration Canopy's own help text tells users to
+pick, and this branch had been shipping it for three increments.** Since 2.1.265 a regex in the
+Artifact tool's input schema made every turn fail with HTTP 400 against third-party
+Anthropic-compatible endpoints — anything `ANTHROPIC_BASE_URL` points at that is not Anthropic's own
+API. The **Base URL** field in the Claude profile editor sets exactly that variable, and its help
+text reads "Use for Ollama, GLM, MinMax, or any OpenAI-compatible Anthropic proxy", so this is not an
+exotic configuration a user has to construct: it is the field's advertised purpose. The SDK pin moved
+`0.3.265` → `0.3.266` → `0.3.267` across this PR while the bug was live, which is the first time in
+this range a bump carried a defect rather than merely a version number. `0.3.268` retires it.
+
+**The pin fixes one of the two paths that set that variable, and it is the less used one.**
+`commitMessageGenerator` runs through the SDK's `query()` and passes `ANTHROPIC_BASE_URL` on the
+scoped child env, so it takes the fix from `package.json` — but only when it falls back to the
+vendored binary. It prefers the user's own `claude`, resolved from `PATH` by
+`resolveClaudeExecutable()` and handed to `pathToClaudeCodeExecutable`. Panes have no fallback at
+all: `buildEnvVars` sets the variable for a CLI Canopy spawns but does not install. So a user on a
+2.1.265–2.1.267 CLI with a Base URL set still sees every turn fail after this bump, and the fix
+reaches them when they update their own CLI — the same asymmetry `--system-prompt-snapshot` has, read
+in the other direction.
+
+**The CPU fix is the one 2.1.268 entry written for how Canopy is used rather than for what it
+configures.** Two causes are named: a busy loop that pinned a core in long-running idle sessions, and
+rapid terminal focus reports during a session recap. Both describe a workstation rather than a
+terminal invocation. Canopy keeps a `claude` process per pane across worktrees and tabs, most of them
+idle most of the time, so a per-session busy loop multiplies by the pane count rather than costing
+one core. And the focus half meets Canopy twice over: `TerminalInstance.svelte` calls `term.focus()`
+from a `$effect` every time a tab becomes active, again from the `canopy:focus-terminal` handler, and
+again at init — while `buildResumeArgs` is how every pane returns to a session, which is when a recap
+runs. A layout restore does both at once, mounting many panes that each resume and each take focus as
+they become visible. Nothing to change here, and nothing the SDK pin delivers: panes run the user's
+own binary.
+
+**A worktree Canopy just created is, to the CLI, a folder nobody has trusted — and 2.1.268 closes one
+consequence of that.** A respawned in-process teammate was picking up tools or a system prompt from a
+same-named agent file in an untrusted folder. Canopy reaches untrusted folders by construction rather
+than by accident, which the 2.1.252 note above already establishes from the other side: every pane
+starts in a fresh worktree, and fresh is what untrusted means here. The routine case is worth naming
+because it does not look like a security scenario — a user makes a worktree for someone else's branch
+to review it, the branch carries `.claude/agents/*.md`, and a pane opens in it. Canopy passes
+`--settings` with a temp file but sets no isolated config directory for Claude the way it does for
+Gemini, so the worktree's own agent files are in scope for the CLI exactly as they would be outside
+Canopy. No code change: the fix is upstream and Canopy has no say in folder trust.
+
+**The new `WebFetch` deadline needs no code and removes a way panes could hang busy forever.** A
+fetch against a server that holds the response open without finishing now fails after 300 seconds,
+overridable with `CLAUDE_CODE_WEBFETCH_DEADLINE_MS` (`0` disables it). That variable is in neither
+`BLOCKED_ENV_VARS` nor the adapter's `INTERNAL_BLOCKED`, so the profile's **Custom env** field
+already carries it and nothing needed adding. The Canopy-side consequence is in the busy/idle model:
+`PreToolUse` is a busy event and `Stop`/`StopFailure`/`SessionEnd` are the idle ones, so a fetch that
+never returned left the pane pinned busy with no event able to clear it, and the worktree badge
+aggregated that stuck state upward. A bounded failure produces the `Stop` that releases it.
+
+**The gateway pricing entry lands on a number Canopy already draws.** With `pricing:` set in
+`gateway.yaml`, signed-in clients now receive the same rates through managed settings, so the CLI's
+own cost accounting matches the gateway's spend meter. Canopy reads `cost.total_cost_usd` from the
+status line in `normalizeStatus`, stores it as `session.costUsd`, and renders it through `formatCost`
+in both `StatusBar.svelte` and `AgentInspector.svelte` — so for anyone behind a priced gateway that
+figure stops being list-rate arithmetic. Reached through **Custom env**, not the Provider dropdown,
+which offers only `bedrock`, `vertex` and `foundry`.
+
+**What else 2.1.268 names does not reach Canopy.** `configDirectory` in `claude auth status --json`,
+`--json` on the five `claude plugin` subcommands and `errorDetails`/`noteDetails` in `claude plugin
+list --json` are all additions to CLI subcommands Canopy never invokes: it shells out to `git` and
+`gh`, and to `claude` only as a PTY session or through the SDK. The MCP "your message came through
+empty" fix cannot reach a Canopy-configured server because Canopy configures none — there is no MCP
+code in `src/main/` at all — though a user's own `~/.claude.json` servers are in scope. The gateway
+`allow_cidrs` startup warning, the public-address alert, `gatewayInternalNetworks` and
+`claude self-hosted-runner --remove-session-state` are operator surfaces for people running a gateway
+or a runner, not for a desktop client. Artifact browser-tab icons are a published-artifact surface.
+One near-miss worth recording so it is not looked up again: `src/main/changelog/` sounds like a Claude
+Code integration point and is not — `fetchChangelog.ts` reads Canopy's own GitHub releases.
+
+**Prompt tokens are flat for the third consecutive release, and this release is a good reminder that
+"+0" is a floor rather than a proof.** Prompt tokens move +0 (+0.0%) with no file added or removed
+and the mix identical at 30.7%/69.3%, so the totals hold where 2.1.266 and 2.1.267 left them: ~13.6k
+overall, ~4.2k system, ~9.4k tools. But 2.1.268 demonstrably _did_ change a tool's input schema —
+that is what the HTTP 400 fix is — and the metadata did not register it. The percentages are given to
+0.1%, which on ~13.6k is about ±13 tokens, and a regex pattern removed from one JSON schema fits
+inside that. So the arithmetic in `.github/prompts/claude-code-compat.md` is good for spotting a
+change of a few hundred tokens and cannot rule out one of a few dozen. The bundle is the only figure
+moving: +510.4 kB (+1.1%) implies ~46.4 MB before and ~46.9 MB after, which lines up with the
+2.1.267 note's ~46.6 MB inside the rounding both figures carry.
+
+**84 of 2.1.268's CLI changelog entries were not readable this run** — against 12 visible, the
+largest hidden count anywhere in this range (2.1.267 hid 41, 2.1.265 hid 38), for a 96-entry release
+built in the 23h 41m since 2.1.267. Both routes were denied again: `gh api` against the changelog
+repo by the allowlist defect described in `.github/prompts/claude-code-compat.md`, and `WebFetch` on
+its own — the ninth consecutive denial. The items above are the visible entries only, and with 84
+hidden the usual caveat is doing more work than usual: the release-notes highlights lead with the
+HTTP 400 fix, so the finding that mattered most here was visible, but seven eighths of this release
+was not.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
