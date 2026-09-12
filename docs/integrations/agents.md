@@ -1036,6 +1036,101 @@ hidden the usual caveat is doing more work than usual: the release-notes highlig
 HTTP 400 fix, so the finding that mattered most here was visible, but seven eighths of this release
 was not.
 
+**2.1.269 fixes a stray-text bug whose exact string is one Canopy's own terminals emit, and this is
+the rarest kind of entry in this range: one where Canopy is the terminal the CLI was mis-handling.**
+The entry reads "fixed the terminal's replies to capability queries (`^[[?1;2c`) appearing as stray
+text at startup in some terminals". That reply is not a constant the CLI invents — it is what a
+terminal sends back when asked, and the chain from Canopy to that literal is short enough to verify
+end to end in the vendored xterm.js. `sendDeviceAttributesPrimary` answers a primary Device
+Attributes query (`CSI c`) with `ESC [?1;2c` when `_is("xterm") || _is("rxvt-unicode") ||
+_is("screen")`; `_is(e)` is `rawOptions.termName.indexOf(e) === 0`; and xterm.js's default is
+`termName: "xterm"`. Canopy sets no `termName` at any of its three `new Terminal({...})` sites —
+`TerminalInstance.svelte`, `CreateWorktreeModal.svelte` and the remote-control
+`RemoteTerminalView.svelte` — so the default stands and **every Canopy terminal replies with exactly
+the byte sequence the release note names.** A Canopy user starting a pane on 2.1.268 or earlier saw
+`[?1;2c` printed into their session.
+
+**No Canopy change, and the reason is worth stating because the tempting fix is wrong.** Answering
+`CSI c` is correct terminal behaviour, not a Canopy defect; suppressing the reply would break every
+other program that probes the terminal. The bug was the CLI issuing a query and then failing to
+consume its own answer, and it is fixed upstream. What Canopy inherits is the 2.1.268 asymmetry read
+once more in the same direction: panes run the **user's own** `claude`, resolved from `PATH`, so the
+SDK pin in `package.json` does not deliver this to a pane. A user still on ≤2.1.268 keeps seeing the
+stray text until they update their own CLI, and the mobile remote view is affected identically
+because `RemoteTerminalView.svelte` is xterm.js on the same defaults.
+
+**The Bash tool's new diff is the release's lead item, and where it lands on Canopy is the hook body
+cap rather than any rendering code.** With `bashEditDiffEnabled`, a Bash result now carries a diff of
+the files the command changed alongside its output. Nothing in Canopy renders tool results, so the
+visible surface is unaffected; what changes is size. `PostToolUse` carries `tool_response` through
+`canopy-agent-hook.sh` to `AgentHookServer.readBody`, which destroys the request past
+`MAX_BODY_BYTES` (1 MB) and drops the event silently — the row already in **Error states** below. A
+dropped `AfterToolUse` leaves the pane on `toolCalling` showing the finished Bash command until the
+next event arrives, self-healing at `Stop`. Whether this is now reachable depends on something this
+run could not establish: if the CLI applies its 128K-character inline output limit (the 2.1.261
+note) to the whole result including the diff, a Bash result cannot approach 1 MB and nothing changes;
+if the diff is appended after that truncation, the ceiling moved. **No code change on an unverified
+mechanism** — recorded so the next run that can read a diff knows which question to answer. The
+`summarizeToolInput` path is not involved either way: it reads tool _input_, and Bash's input is
+still `command`.
+
+**The four new environment variables all reach a pane already, and the check is the same one each
+time.** `OTEL_METRICS_INCLUDE_REPOSITORY`, `CLAUDE_CODE_GATEWAY_MODEL_DISCOVERY_TIMEOUT_MS`,
+`CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` and `CLAUDE_CODE_BG_TASKS_REPORT_RUNNING` are in neither
+`BLOCKED_ENV_VARS` nor the adapter's `INTERNAL_BLOCKED`, so the profile's **Custom env** field
+already carries all four and nothing needed adding. The gateway discovery timeout is the one with a
+real audience here: the 2.1.268 note establishes that the **Base URL** field actively steers users
+onto third-party endpoints, and a gateway slower than the 3s `/v1/models` default is exactly the
+configuration that field produces. `bashEditDiffEnabled` is a setting rather than a variable and is
+reachable too, through the Claude profile's **Settings JSON override**, which `setupSettings` spreads
+into the generated file ahead of Canopy's own `hooks` key.
+
+**Two entries name Canopy-shaped things and reach neither.** The key-encoding fixes — F1/F2/F4 under
+the kitty protocol, Delete in `st`, Alt+arrows in `rxvt-unicode`, Shift+punctuation in WezTerm — are
+selected by terminal identity, and `PtyManager` sets `TERM=xterm-256color` with
+`TERM_PROGRAM=canopy`, so none of those detection paths fire for a pane; xterm.js also implements no
+kitty keyboard protocol for the CLI to negotiate. This is the same reasoning the 2.1.267 note applies
+to the tmux/ssh fix, and it needs restating every time because Canopy being a terminal makes these
+entries read as though they were addressed to it. Separately, `/output-style [name]` working "over
+Remote Control" is a name collision: that is Claude Code's own Remote Control, while Canopy's is its
+mobile client talking to the desktop app. In a pane the command is pane-local chrome, like `/diff`
+and `/advisor` from 2.1.260. The `CLAUDE_CODE_BG_TASKS_REPORT_RUNNING` fix is scoped to remote and
+headless sessions for the same reason it does not touch panes, which are interactive PTYs; the one
+genuinely headless Claude path Canopy owns is `commitMessageGenerator`, a single-shot `query()` that
+starts no background agents.
+
+**Prompt tokens break an eight-release plateau, and it is the tools half that moved.** Prompt tokens
+go +9,376 (+68.7%) with three files added (+27.3%). Working the arithmetic the usual way: 9,376 ÷
+0.687 puts the total at ~13.6k before and ~23.0k after, and 11 files before against 14 after. The
+"before" figure reproduces the ~13.6k the 2.1.266, 2.1.267 and 2.1.268 notes each derived
+independently, which is the check that the series is still being read correctly. Splitting by the
+given mix — 30.7%/69.3% before, 36.7%/63.3% after — gives system ~4.2k → ~8.4k and tools ~9.5k →
+~14.6k, so **tools +5.1k (+54%) and system +4.3k (+102%)**. The tools half had sat at ~9.45k
+continuously from before 2.1.257 through 2.1.268, surviving a system prompt that tripled and
+collapsed back; this is the first release in the range to move it, and by the notes' own reasoning it
+is the half that can force code changes here.
+
+**It does not force one, and that was checked rather than assumed.** Three new prompt files and a
++5.1k tools jump is the shape of tool descriptions being _added_ — `claude plugin eval` and the Bash
+diff are both visible candidates — but attribution needs `meta/prompt-stats.md`, which was
+unreachable. What could be checked is whether an unknown tool name breaks anything on Canopy's side,
+and it does not: `summarizeToolInput` ends in a generic fallback that returns the first non-empty
+string value in the input, `EVENT_MAP` and `toNotchStatus` key off normalized _hook event_ names
+rather than tool names, and the renderer special-cases exactly one tool (`question`, and that is
+OpenCode's). A new tool degrades to a generic summary instead of failing. The bundle is +524.4 kB
+(+1.1%); taken at face value that implies ~47.7 MB before, but the 0.1% rounding band spans
+~45.6–49.9 MB and comfortably contains the ~46.9 MB the 2.1.268 note derived, so it corroborates
+rather than adds anything. Nothing here moves the context-window floor, so `normalizeStatus`,
+`AgentInspector.svelte` and `StatusBar.svelte` are untouched.
+
+**86 of 2.1.269's CLI changelog entries were not readable this run** — against 12 visible, a
+98-entry release built in the 1d 0h 26m since 2.1.268, and a new high for hidden entries in this
+range (2.1.268 hid 84, 2.1.267 hid 41). Both routes were denied again: `gh api` against the changelog
+repo by the allowlist defect described in `.github/prompts/claude-code-compat.md`, and `WebFetch` on
+its own — the tenth consecutive denial. The items above are the visible entries only. The caveat
+carries more weight than usual in one specific place: the +5.1k tools-side jump is the largest
+unexplained figure in this range, and the entry that explains it is quite likely among the 86.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
