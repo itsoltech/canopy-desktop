@@ -14,6 +14,19 @@ function tomlPath(configDir: string): string {
   return join(configDir, CONFIG_DIR, CONFIG_FILE)
 }
 
+/**
+ * `.canopy/run.toml` is repo-supplied and hand-editable, so parsed entries are
+ * untrusted shapes rather than `RunConfiguration` values. Without this check a
+ * malformed entry flows through to the command service, which builds
+ * `${command} ${args}` and hands it to a shell — an entry missing `command`
+ * would run the literal string `undefined` instead of surfacing a parse error.
+ */
+function isRunConfiguration(value: unknown): value is RunConfiguration {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Record<string, unknown>
+  return typeof candidate.name === 'string' && typeof candidate.command === 'string'
+}
+
 export class RunConfigManager {
   discover(repoRoot: string): ResultAsync<RunConfigSource[], RunConfigError> {
     return fromExternalCall(this.scanForConfigs(repoRoot), () => ({
@@ -31,7 +44,7 @@ export class RunConfigManager {
       try {
         const parsed = parse(raw) as Record<string, unknown>
         const configurations = Array.isArray(parsed.configurations)
-          ? (parsed.configurations as RunConfiguration[])
+          ? parsed.configurations.filter(isRunConfiguration)
           : []
         return ok({ configurations })
       } catch (e) {
