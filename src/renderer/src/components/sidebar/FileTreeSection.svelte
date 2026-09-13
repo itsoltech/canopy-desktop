@@ -316,7 +316,23 @@
                 <Plus size={11} />
               </button>
             </div>
-            {#if isExpanded && fileTree.expandedDirs[absPath]}
+            {#if isExpanded && fileTree.dirLoadErrors.has(absPath)}
+              <div
+                class="flex items-center h-7 text-sm text-danger-text"
+                style:padding-left="{12 + (depth + 1) * 12}px"
+                role="alert"
+              >
+                <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                  Failed to read folder
+                </span>
+                <button
+                  class="mr-3 ml-1 px-1.5 bg-transparent border-0 rounded-sm text-text-faint cursor-pointer flex-shrink-0 hover:text-text hover:bg-hover-strong"
+                  onclick={() => fileTree.expandDir(absPath)}
+                >
+                  Retry
+                </button>
+              </div>
+            {:else if isExpanded && fileTree.expandedDirs[absPath]}
               {@render renderEntries(fileTree.expandedDirs[absPath], absPath, depth + 1)}
             {/if}
           {:else}
