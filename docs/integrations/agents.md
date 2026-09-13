@@ -1131,6 +1131,73 @@ its own — the tenth consecutive denial. The items above are the visible entrie
 carries more weight than usual in one specific place: the +5.1k tools-side jump is the largest
 unexplained figure in this range, and the entry that explains it is quite likely among the 86.
 
+**2.1.270's single CLI entry is the fix for a regression this branch would otherwise have shipped.**
+2.1.269 made read-only git commands in Bash start asking for permission once a session had been
+running for a while; 2.1.270 reverts that. The bump from `0.3.269` to `0.3.270` is therefore a
+regression fix rather than the usual version-tracking, and it is worth separating the two places
+Canopy touches a CLI because only one of them moves with the pin. Panes run the **user's own**
+`claude` resolved from `PATH` — the asymmetry the 2.1.268 and 2.1.269 notes both record — so a user
+sitting on 2.1.269 keeps the spurious prompts until they update their own install, and no pin in this
+repo reaches them. The pin governs exactly one binary: the SDK's vendored CLI, which
+`commitMessageGenerator` falls back to when `which claude` finds nothing.
+
+**That fallback never actually hits the regression, and saying so is the point.** The regression needs
+a session that has been running for a while; `generateCommitMessageInner` is a single-shot `query()`
+on `haiku` with the diff inlined in the prompt and a JSON schema on the output. It is one turn, and it
+runs no read-only git commands of its own — the `git:generateCommitMessage` handler
+(`src/main/ipc/handlers.ts:2197`) computes the diff with `GitRepository.getDiff` and passes it in.
+So the honest statement of the bump's value is narrower than "fixes a bug for us": it keeps the
+vendored fallback off a build that is known bad, which matters for the next regression rather than
+this one.
+
+**Where 2.1.269 _would_ have surfaced on Canopy is the notification path, and the amplification there
+is Canopy's own.** `PermissionRequest` reaches `claudeAdapter.formatNotification`, and
+`AgentSessionManager.showNotification` (`src/main/agents/AgentSessionManager.ts:359`) constructs and
+shows a fresh OS `Notification` per event with no dedup, coalescing or rate limit. A pane on 2.1.269
+doing ordinary git-heavy work would have emitted one desktop notification per read-only git command,
+multiplied by every open pane. The CLI half is fixed upstream; the multiplier is not.
+
+**No throttle was added, and the reason is a real tradeoff rather than scope discipline.** Deduping or
+rate-limiting permission notifications trades a cheap failure for an expensive one: a duplicate
+notification is noise, but a suppressed one is a pane sitting on `waitingPermission` with nothing
+telling the user it needs an answer. That asymmetry argues for leaving the path alone until there is a
+dedup key that provably cannot swallow a distinct request, which a burst of identical
+`Bash`-plus-git-command bodies does not supply. The notch itself is fine either way: `toNotchStatus`
+maps `PermissionRequest` to `waitingPermission`, and the next `PreToolUse` or `Stop` clears it, so a
+denied request leaves no stuck state.
+
+**The two named prompt changes are both tool descriptions, and both tools were already shape-covered.**
+The release adds a description for a tool that runs a Bash command and returns its output, and one for
+a tool that launches an agent for multi-step work. `summarizeToolInput` matches on input _shape_ and
+not on tool name, and it has a `command` branch (Bash) and a `prompt` branch (the agent launcher)
+before its generic fallback — so the `Task`→`Agent` naming the second item implies costs nothing here.
+This is the 2.1.269 note's "an unknown tool degrades to a generic summary" check run against two named
+tools instead of a hypothetical, and it comes back clean.
+
+**The token split says the same thing, and it is the first release in a while where the falling tools
+share is pure dilution.** Prompt tokens go +5,258 (+22.8%) with one file added (+7.1%). Working it the
+usual way: 5,258 ÷ 0.228 puts the total at ~23.1k before and ~28.3k after, and 1 ÷ 0.071 gives 14
+files before against 15 after. The "before" figure reproduces the ~23.0k the 2.1.269 note derived,
+which is the continuity check that the series is still being read correctly. Splitting by the given
+mix — 36.7%/63.3% before, 46.3%/53.7% after — gives system ~8.5k → ~13.1k and tools ~14.6k → ~15.2k,
+so **system +4.6k (+55%) and tools +0.6k (+4%)**. Carrying the 0.1% rounding band through both
+percentages puts the tools delta between +525 and +695, so it is a real increase and a small one. The
+tools share dropping 63.3% → 53.7% is therefore system text being added around tool descriptions that
+barely moved, exactly the dilution the prompt file warns not to read as a shrinking tools half — and
+the single added file is system-kind at roughly 4.6k tokens, not either of the two tool descriptions
+named above.
+
+**The mismatch between one CLI entry and a +22.8% prompt jump is the open question this run leaves.**
+Unlike the three releases before it, 2.1.270's notes carry no "… +N more CLI changelog entries"
+truncation marker — one visible entry and, on its face, one entry total, built in the 1d 0h 35m since
+2.1.269. But a release that adds a ~4.6k-token system prompt file while its changelog names only a
+permission bugfix is not self-consistent, and this run could not resolve it: `gh api` against the
+changelog repo was denied by the allowlist defect described in
+`.github/prompts/claude-code-compat.md`, and `WebFetch` was denied for the eleventh consecutive run,
+so neither `meta/prompt-stats.md` nor the official `CHANGELOG.md` was reachable. Nothing in the
+visible entry forces a code change; the unread system file is where a next run with a working diff
+route should look first.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
