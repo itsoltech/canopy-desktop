@@ -1,6 +1,5 @@
 import { app } from 'electron'
 import { ok, err, errAsync, okAsync, type Result, type ResultAsync } from 'neverthrow'
-import { match, P } from 'ts-pattern'
 import type { Database } from '../db/Database'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { CredentialStore } from '../db/CredentialStore'
@@ -183,11 +182,9 @@ export class SettingsExportService {
           reason: `profiles[${i}].prefs must be an object`,
         })
       }
-      const apiKey = match(entry.apiKey)
-        .with(P.string, (s) => s)
-        .with(null, () => null)
-        .with(undefined, () => null)
-        .otherwise(() => null)
+      // Two outcomes, not four: null/undefined/anything-else all collapse to null,
+      // so a plain conditional says it more directly than a four-arm match.
+      const apiKey = typeof entry.apiKey === 'string' ? entry.apiKey : null
 
       out.push({
         agentType: entry.agentType as AgentType,

@@ -10,7 +10,13 @@ export interface NewTaskFieldVisibility {
 }
 
 /** Which create-form fields a provider supports (GitHub issues have no project/type/board;
- *  its milestones stand in for sprints). */
+ *  its milestones stand in for sprints).
+ *
+ *  Ends in `.otherwise()` rather than `.exhaustive()` on purpose: `provider` is typed as a
+ *  closed union but reaches here from JSON config that is asserted, not validated, at the
+ *  store boundary, so an unrecognised value is reachable at runtime and has to degrade to
+ *  the Jira field set instead of throwing mid-render. Make it exhaustive once that boundary
+ *  validates `provider`. */
 export function visibleFields(provider: TrackerProviderKind): NewTaskFieldVisibility {
   return match(provider)
     .with('github', () => ({
