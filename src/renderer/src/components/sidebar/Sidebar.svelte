@@ -42,6 +42,7 @@
 <aside
   class="flex-shrink-0 h-full bg-bg-glass backdrop-blur-xl border-r border-border-subtle flex flex-col overflow-hidden"
   style="width: {width}px; min-width: {width}px"
+  aria-label="Workspace sidebar"
 >
   <div class="flex-1 min-h-0 overflow-y-auto flex flex-col [scrollbar-gutter:stable]">
     {#each sections as section (section.id)}

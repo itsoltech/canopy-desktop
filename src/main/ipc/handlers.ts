@@ -2542,7 +2542,7 @@ export function registerIpcHandlers(
    * user's ignore patterns. Handles plain names (`node_modules`) and the first
    * segment of glob patterns (`dist/**` → hides a child named `dist`). More
    * complex globs like `**\/*.log` are left to the file watcher and ignored
-   * here, since `fs:readDir` only sees immediate children.
+   * here, since `fileTree:readDir` only sees immediate children.
    */
   function isIgnoredEntry(name: string, patterns: string[]): boolean {
     for (const pattern of patterns) {
@@ -2716,55 +2716,10 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('fs:readDir', async (event, payload: { dirPath: string }) => {
-    return readFileTreeDir(event.sender.id, payload.dirPath)
-  })
-
-  ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
-    const resolved = await validatePathAccess(event.sender.id, payload.filePath)
-    const maxBytes = Math.min(payload.maxBytes ?? 1_048_576, 10_485_760)
-    // Sync stat too: closes the TOCTOU gap with the openSync below and removes
-    // the last await between validatePathAccess and the fd trio. Operating on
-    // the realpath'd target prevents a symlink swap between validation and
-    // open from redirecting the read outside the workspace.
-    const size = fs.statSync(resolved).size
-    const readSize = Math.min(size, maxBytes)
-
-    // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle
-    // across multiple `await` points, which is the only call site in this
-    // codebase that exposes us to FileHandle::CloseReq::Resolve races (#150).
-    // A bounded read (≤10 MB) from local disk is fast enough to run inline.
-    const fd = fs.openSync(resolved, 'r')
-    try {
-      const buf = Buffer.alloc(readSize)
-      let offset = 0
-      while (offset < readSize) {
-        const bytesRead = fs.readSync(fd, buf, offset, readSize - offset, offset)
-        if (bytesRead === 0) break
-        offset += bytesRead
-      }
-
-      // Binary detection: check first 8KB for null bytes
-      const detectEnd = Math.min(offset, 8192)
-      for (let i = 0; i < detectEnd; i++) {
-        if (buf[i] === 0) return { binary: true, size }
-      }
-
-      return {
-        content: buf.subarray(0, offset).toString('utf-8'),
-        truncated: size > maxBytes,
-        size,
-        binary: false,
-      }
-    } finally {
-      fs.closeSync(fd)
-    }
-  })
-
   // Quick Open — LRU-bounded workspace file listing. Uses `git ls-files` when
   // the worktree is a git repo (respects `.gitignore` automatically); falls
   // back to a recursive readdir filtered by the same ignore patterns as
-  // `fs:readDir` so secrets (.env, *.pem, credentials) never land in the
+  // `fileTree:readDir` so secrets (.env, *.pem, credentials) never land in the
   // picker for non-git workspaces.
   const WORKSPACE_FILE_CACHE_MAX_AGE_MS = 60_000
   const WORKSPACE_FILE_CACHE_MAX_ENTRIES = 16
