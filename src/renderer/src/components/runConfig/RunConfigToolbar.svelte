@@ -122,20 +122,24 @@
     return ids
   }
 
+  // Kills are independent of each other, so issue them together rather than
+  // paying one IPC round-trip per process — "Stop all" on a config with several
+  // running processes otherwise takes N sequential round-trips.
+  async function killAll(ids: string[]): Promise<void> {
+    await Promise.all(
+      ids.map(async (id) => {
+        await window.api.killPty(id)
+        running.delete(id)
+      }),
+    )
+  }
+
   async function handleStop(): Promise<void> {
-    const ids = [...running.keys()]
-    for (const id of ids) {
-      await window.api.killPty(id)
-      running.delete(id)
-    }
+    await killAll([...running.keys()])
   }
 
   async function stopItem(configDir: string, name: string): Promise<void> {
-    const ids = getRunningIdsFor(configDir, name)
-    for (const id of ids) {
-      await window.api.killPty(id)
-      running.delete(id)
-    }
+    await killAll(getRunningIdsFor(configDir, name))
   }
 
   let totalRunningCount = $derived(running.size)

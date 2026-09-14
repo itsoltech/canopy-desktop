@@ -6,6 +6,7 @@ import { ResultAsync, errAsync, okAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
 import type { RemoteServerError } from './errors'
 import { RemoteClientHost } from './RemoteClientHost'
+import { isAllowedUpgrade } from './upgradeGuard'
 import type { HostSignal } from '../../renderer-shared/remote/signalingProtocol'
 
 const MAX_MESSAGE_BYTES = 256 * 1024 // 256 KB — SDP offers can be a few KB; signaling messages are tiny
@@ -129,12 +130,14 @@ export class SignalingServer {
      */
     preferredPort?: number
     /**
-     * Host/IP to bind to. Defaults to `0.0.0.0` (all interfaces). When the
-     * user picks a specific network interface in Settings, the caller passes
-     * that interface's IPv4 address here so the server is only reachable on
-     * that one adapter — narrowing the LAN exposure surface.
+     * Host/IP to bind to. Required, with no default: when the user picks a
+     * specific network interface in Settings the caller passes that interface's
+     * IPv4 address so the server is only reachable on that one adapter, and
+     * `0.0.0.0` (all interfaces) has to be asked for by name. An optional
+     * parameter here would let a future caller widen the LAN exposure surface
+     * by omission rather than by choice.
      */
-    bindHost?: string
+    bindHost: string
   }): ResultAsync<{ port: number }, RemoteServerError> {
     if (this.server) {
       return errAsync({ _tag: 'AlreadyRunning' })
@@ -143,7 +146,7 @@ export class SignalingServer {
     this.bundleHost = new RemoteClientHost(opts.bundleRoot)
     this.handlers = opts.handlers
     const preferredPort = opts.preferredPort && opts.preferredPort > 0 ? opts.preferredPort : 0
-    const bindHost = opts.bindHost ?? '0.0.0.0'
+    const bindHost = opts.bindHost
 
     return fromExternalCall(
       (async () => {
@@ -206,7 +209,13 @@ export class SignalingServer {
         path: '/signaling',
         maxPayload: MAX_MESSAGE_BYTES,
       })
-      wss.on('connection', (ws, req) => this.handleWsConnection(ws, req))
+      wss.on('connection', (ws, req) => {
+        if (!isAllowedUpgrade({ host: req.headers.host, origin: req.headers.origin })) {
+          ws.close(1008, 'origin not allowed')
+          return
+        }
+        this.handleWsConnection(ws, req)
+      })
 
       const cleanup = (): void => {
         try {

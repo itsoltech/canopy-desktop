@@ -102,12 +102,9 @@ export class RepoConfigManager {
    * a config or unbind a credential the repository still uses.
    */
   async exists(repoRoot: string): Promise<boolean> {
-    try {
-      await access(configPath(repoRoot))
-      return true
-    } catch (error) {
-      return (error as NodeJS.ErrnoException)?.code !== 'ENOENT'
-    }
+    const reached = await fromExternalCall(access(configPath(repoRoot)), (error) => error)
+    if (reached.isOk()) return true
+    return (reached.error as NodeJS.ErrnoException)?.code !== 'ENOENT'
   }
 
   load(repoRoot: string): ResultAsync<RepoConfig, TaskTrackerError> {
