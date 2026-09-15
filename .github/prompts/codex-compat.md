@@ -64,12 +64,11 @@ Focus on changes in `codex-rs/hooks/`, `codex-rs/config/`, `codex-rs/cli/`, and 
 - `src/renderer/src/lib/agents/agentState.svelte.ts` — agent state handling, extra data merging
 - `src/main/agents/types.ts` — AgentType union, NormalizedEventName, AgentAdapter interface
 
-**Then discover more** — search broadly for additional references:
+**Then discover more** — search broadly for additional references using the `Grep` tool (not `grep`
+via Bash, which also walks `node_modules/` and buries real hits):
 
-```bash
-grep -r "codex" --include="*.ts" --include="*.svelte" --include="*.yml" --include="*.json" -l .
-grep -r "openai" --include="*.ts" --include="*.json" -l .
-```
+- pattern `codex`, glob `**/*.{ts,svelte,yml,json}`
+- pattern `openai`, glob `**/*.{ts,json}`
 
 ### 4. Apply changes
 
