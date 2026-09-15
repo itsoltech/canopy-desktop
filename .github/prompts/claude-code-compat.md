@@ -14,11 +14,13 @@ The workflow checks out `ref: next` and assembles the prompt with `cat`, so the 
 is `next`'s and is missing every note below. The checkout is worth nothing on its own; the re-read is
 the part that pays.
 
-**3. `gh api` against `marckrenn/claude-code-changelog` is denied. Do not probe it.** Twelve
+**3. `gh api` against `marckrenn/claude-code-changelog` is denied. Do not probe it.** Thirteen
 consecutive runs have confirmed it, against every shape of path, flag and quoting. The rule in
 `.github/workflows/claude-code-compat.yml` ends mid-token and matches nothing; the mechanism is
-settled and is written up in step 2. `WebFetch` and `WebSearch` are denied too — eleven consecutive —
-so probe `WebFetch` **once**, if at all, and commit to the result. Your diff sources are the release
+settled and is written up in step 2. If an attempt comes back as "contains multiple operations"
+rather than "requires approval", that is a shell-form error and **not** a reason to retry it
+pipe-free — the pipe is never the cause. `WebFetch` and `WebSearch` are denied too — twelve
+consecutive — so probe `WebFetch` **once**, if at all, and commit to the result. Your diff sources are the release
 notes pasted below, `node_modules/@anthropic-ai/claude-agent-sdk`, and Canopy's own files.
 
 This block is at the top because the previous six revisions of it were not. Runs read top-to-bottom,
@@ -272,6 +274,27 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > job once PR 350 merges. But it is a structural change rather than another paragraph, and the file's
 > own diagnosis is that paragraphs are the wrong instrument: **the budget is not what fails; the
 > ordering is.**
+>
+> Re-probed again on v2.1.270 → v2.1.272, thirteen consecutive runs, **three** probes plus one
+> multi-operation rejection, all four pre-checkout. **This is the run that tests the previous one's
+> structural fix, and the result is that a structural fix on this branch is still no fix at all.** The
+> "Read this before issuing any command" block landed here one run ago; the prompt this run was handed
+> was `cat`'d from `next`, so it opened with `## ITSOL Powers requirements`, reached the `gh api`
+> examples in step 2 with no top block anywhere in sight, and behaved exactly like the five runs the
+> hoist was written to prevent. The hoist was the right change and it cannot work until PR 350 merges —
+> which is this file's own argument, now demonstrated rather than asserted. Until then step 0 is
+> reachable only by a run that already knows to go looking for it.
+>
+> **The one new and cheap lesson is about the multi-operation rejection specifically.** This run's
+> opening `gh api` carried a `|` inside its `--jq` string, came back as "contains multiple operations",
+> and the natural next move — re-issue it pipe-free — is exactly the dead end recorded above as an
+> earlier misdiagnosis. It cost one probe to re-derive. The v2.1.267 → v2.1.268 note already separates
+> the two rejection messages, but separating them is not enough, because a multi-operation rejection on
+> a `gh api` command actively _seeds_ the pipe hypothesis: it is the only evidence in front of you and
+> it is genuinely about the pipe. So make it concrete rather than descriptive. **If a `gh api` attempt
+> is rejected as multi-operation, do not re-issue it without the pipe — go straight to the bare
+> `releases/latest` control and stop on its result.** That turns a two-probe sequence into one. This
+> run did converge on that control unprompted, but on its third try rather than its first.
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
@@ -292,14 +315,14 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > fix and the merge as what retires it.
 
 > **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
-> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, twelve denied so
-> far, the last eleven consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
+> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, thirteen denied so
+> far, the last twelve consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
 > v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
 > use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
 > v2.1.252 → v2.1.257, v2.1.257 → v2.1.258, v2.1.258 → v2.1.259, v2.1.259 → v2.1.260,
 > v2.1.260 → v2.1.261 and v2.1.261 → v2.1.263 runs all hit the same denial on the first call, as did
 > v2.1.263 → v2.1.266, v2.1.266 → v2.1.267, v2.1.267 → v2.1.268, v2.1.268 → v2.1.269 and
-> v2.1.269 → v2.1.270 — eleven consecutive. That is enough
+> v2.1.269 → v2.1.270 and v2.1.270 → v2.1.272 — twelve consecutive. That is enough
 > that the one success is the outlier; budget for the denial and treat a working fetch as a windfall. The v2.1.260 → v2.1.261 run confirmed
 > `WebSearch` is denied alongside it a second time, so the pair travel together and one probe answers
 > for both. Do not assume either answer from this file. Issue one fetch, record which way it went in
