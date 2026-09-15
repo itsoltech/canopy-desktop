@@ -1198,6 +1198,100 @@ so neither `meta/prompt-stats.md` nor the official `CHANGELOG.md` was reachable.
 visible entry forces a code change; the unread system file is where a next run with a working diff
 route should look first.
 
+**2.1.271 answers the question the 2.1.270 note left open, and the answer is that the file did not
+survive.** 2.1.270 added a ~4.6k-token system prompt file against a changelog naming only a
+permission bugfix, and that note closed by pointing a next run at it. 2.1.271 removes a prompt file
+and cuts the system half by roughly twice that. Prompt tokens go −8,130 (−28.7%) with one file
+removed (−6.7%): 8,130 ÷ 0.287 puts the total at ~28.3k before and ~20.2k after, and 1 ÷ 0.067 gives
+15 files before against 14 after. Both "before" figures reproduce the 2.1.270 note's ~28.3k and 15
+exactly, which is the continuity check that the series is still being read correctly. Splitting by
+the given mix — 53.7%/46.3% tools/system before, 79.2%/20.8% after — gives system ~13.1k → ~4.2k and
+tools ~15.2k → ~16.0k, so **system −8.9k (−68%) and tools +0.8k (+5%)**. Carrying the 0.1% rounding
+band puts the tools delta between +760 and +808: real, and small. The system half is now smaller than
+at any point this range has tracked — ~4.2k against the ~8.5k the 2.1.270 note derived for 2.1.269 —
+so 2.1.271 did not merely reverse 2.1.270, it went well past it.
+
+**2.1.272's changelog says "Bug fixes and reliability improvements" and its prompt numbers say a new
+tool.** Prompt tokens +1,061 (+5.3%) with one file added (+7.1%): 1,061 ÷ 0.053 puts the total at
+~20.0k before, which sits inside the rounding band around the ~20.2k derived above (5.3% ± 0.05%
+admits 19.8k–20.2k), and 1 ÷ 0.071 gives 14 files before against 15 after — both matching 2.1.271's
+"after", so the two releases chain cleanly. Total after is ~21.3k. Splitting by the given mix —
+79.2%/20.8% before, 80.2%/19.8% after — gives tools ~16.0k → ~17.0k and system ~4.20k → ~4.21k, so
+**tools +1,053 (+6.6%) and system flat**; the system delta's rounding band is −12 to +29, which is
+noise. A single added file worth ~1.05k tokens landing entirely on the tools side is a tool
+description. This is the 2.1.270 mismatch inverted, and the inversion is the part that matters: there
+the unexplained file was system-kind and so could not force a change here, and this one is tools-kind,
+which is the half that can.
+
+**So the unknown-tool check was run against every path in Canopy that keys off a tool name, and it
+comes back clean.** There are five, and none of them enumerate:
+
+- `summarizeToolInput` (`src/main/agents/utils.ts:31`) matches input _shape_, not name — `command`,
+  `file_path`, `questions[0].question`, `query`, `url`, `pattern`, `prompt`, `description`, `skill`,
+  then a fallback returning the first non-empty string value. A tool nobody has heard of still
+  summarizes as long as its input carries one string.
+- `claudeAdapter.normalizeEvent` passes `tool_name` straight through as `string | undefined`. No
+  union, no lookup table.
+- `formatNotification` uses it as a string and already falls back to "A tool requires your approval".
+- `toNotchStatus` keys off the _normalized event_, so `BeforeToolUse` → `toolCalling` regardless of
+  which tool raised it.
+- `EVENT_MAP` is keyed on hook event names, which tool additions do not touch.
+
+**One naming trap, recorded because it costs a search every time.**
+`src/renderer/src/lib/stores/toolView.svelte.ts`, `tools.svelte.ts` and
+`mobile/src/constants/tool-icons.ts` all say "tool" and none of them mean a CLI tool call — they mean
+Canopy's own agent tools (`claude`, `codex`, `gemini`, `opencode`, `shell`, `browser`). A grep for
+tool-name impact lands there first and it is the wrong layer. `resolveToolIcon` has a `default` arm
+regardless.
+
+**2.1.271's per-command `allowed_domains` names two tool names Canopy has never seen, which is the
+same result from the other direction.** The entry scopes sandboxed network access for Bash, PowerShell
+and Monitor. `Grep` for `PowerShell` and `Monitor` across `src/` returns Electron's `powerMonitor`, a
+PTY comment and an onboarding install hint — there is no tool registry to extend, because there is no
+tool registry. And for Bash the new field rides alongside `command` in `tool_input`, which
+`summarizeToolInput` tests first, so a sandboxed permission request still summarizes as the command
+rather than the domain list.
+
+**2.1.271's `/config` mouse support works in Canopy's agent panes unchanged, and the check is worth
+keeping because this is the class that usually breaks.** A CLI that enables mouse tracking (DECSET
+1000/1002/1003/1006) takes the wheel away from the terminal's own scrollback, so any app-level `wheel`
+listener calling `preventDefault` unconditionally would swallow the new clicks and scrolls. Canopy has
+none: `Grep` for `wheel|onWheel|mouseEvents` across `src/renderer/src/lib/terminal/` finds no wheel
+listener, and the agent-pane `new Terminal({...})` (`TerminalInstance.svelte:472`) sets only
+`fontSize`, `fontFamily`, `cursorBlink`, `allowProposedApi`, `theme`, `scrollback`, `linkHandler` and
+the Windows `conpty` backend — nothing touching mouse reporting. xterm.js's native handling applies,
+so the feature arrives for free. The other two `new Terminal` sites
+(`RemoteTerminalView.svelte:356`, `CreateWorktreeModal.svelte:179`) host different surfaces and were
+not part of this check.
+
+**The one 2.1.271 fix that reaches a Canopy-configurable surface is the `ANTHROPIC_UNIX_SOCKET` one,
+and it needs nothing from us.** Org policy was being fetched through, and rejected by, third-party
+local proxies set that way; 2.1.271 treats them like other custom gateways again. That variable is
+reachable from Canopy: `claudeAdapter.buildEnvVars` passes arbitrary `claude.customEnv` keys through,
+and `ANTHROPIC_UNIX_SOCKET` is not in `BLOCKED_ENV_VARS` (`src/main/security/envBlocklist.ts`), which
+blocks proxy and CA-bundle overrides but not this one. So a profile can set it and the fix applies —
+subject to the asymmetry this file already records twice: panes run the user's own `claude` from
+`PATH`, so the fix lands only when they update their own install, and the pin in this repo governs
+only the SDK's vendored CLI.
+
+**The rest of 2.1.271's visible list has no Canopy surface.** Remote-session fast mode and
+`claude self-hosted-runner --drain-marker-file` concern deployments Canopy does not run;
+`--accept-command` for `claude plugin install`/`update` and `omitClaudeMd` in agent frontmatter
+concern surfaces Canopy does not drive — a `Grep` for `plugin install`, `--agents` and `omitClaudeMd`
+across `src/main/` returns nothing, because Canopy writes agent _settings_ via `--settings` in
+`setupSettings` and manages _skills_ under `src/main/skills/`, not subagent definitions. The
+`modelPricing` multiplier, the managed-`mcp.json` handling and the Bedrock/Vertex/Foundry spinner tip
+are display or policy changes with no field Canopy reads; `normalizeStatus` takes `cost.total_cost_usd`
+as given.
+
+**84 of 2.1.271's 96 CLI changelog entries were not readable this run**, against 12 visible. 2.1.272
+shows a single entry with no truncation marker, but its prompt numbers describe a tool description its
+changelog does not mention, so "reliability improvements" should not be read as "nothing shipped".
+Both diff routes were denied again: `gh api` against the changelog repo by the allowlist defect
+described in `.github/prompts/claude-code-compat.md` — the thirteenth consecutive run — and `WebFetch`
+on its first call, the twelfth consecutive. The tool-name, terminal and env checks above were done
+against Canopy's own files precisely because the diff was out of reach.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
