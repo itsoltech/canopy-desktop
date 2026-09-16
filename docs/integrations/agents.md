@@ -1292,6 +1292,99 @@ described in `.github/prompts/claude-code-compat.md` — the thirteenth consecut
 on its first call, the twelfth consecutive. The tool-name, terminal and env checks above were done
 against Canopy's own files precisely because the diff was out of reach.
 
+**2.1.273 adds a second consecutive tools-kind prompt file, and the system half has now been flat for
+three releases.** Prompt tokens +1,357 (+6.4%) with one file added (+6.7%): 1,357 ÷ 0.064 puts the
+total at ~21.2k before and ~22.6k after, and 1 ÷ 0.067 gives 15 files before against 16 after. Both
+"before" figures reproduce the 2.1.272 note's ~21.3k and 15 exactly, so the chain from 2.1.271 holds
+for a third link. Splitting by the given mix — 80.2%/19.8% tools/system before, 81.4%/18.6% after —
+gives tools ~17.0k → ~18.4k and system ~4.20k → ~4.20k, so **tools +1,359 (+8.0%) and system flat**;
+the system delta's rounding band is −38 to +34, which is noise. That is the 2.1.272 shape repeated: a
+single added file landing entirely on the tools side is a tool description, and tools is the half that
+can force changes here. The 2.1.272 note's unknown-tool audit enumerated all five Canopy paths that
+key off a tool name and found none of them enumerate — `summarizeToolInput` matches input _shape_,
+`normalizeEvent` passes `tool_name` through as `string | undefined`, `formatNotification` falls back,
+`toNotchStatus` keys off the normalized event, and `EVENT_MAP` keys off hook events. None of those five
+changed in this range, so the audit still holds and 2.1.273's new tool needs nothing from Canopy.
+
+**The `.git/info/exclude` fix is the most Canopy-shaped entry in this release, and Canopy's main
+worktree-removal path is immune by construction — but a second path is not.** 2.1.273 fixes a
+long-running session recreating a stub `.git/info/exclude` after the repository's `.git` directory was
+removed or moved away. On Canopy that would mean a `claude` pane cwd'd in a worktree resurrecting a
+`.git` directory under a tree Canopy had just removed, which is precisely the "broken .git link —
+the classic field ghost" debris `handlers.ts:2025` already classifies. It cannot happen on the path
+users actually take: `worktree:removeWithBranch` calls `ptyManager.killUnderPathAndWait(worktree.path)`
+and `disposeWatchersUnderPathAndWait` (`handlers.ts:1998-1999`) **before** the first
+`GitRepository.worktreeRemove`, and `killUnderPathAndWait` waits for full process exit, so no session
+survives into the removal to recreate anything. The ordering was added for Windows file handles; it
+happens to close this too.
+
+The gap is `git:worktreeRemove` (`handlers.ts:1881-1889`), which calls `GitRepository.worktreeRemove`
+directly with no PTY teardown and no watcher disposal. It is not dead code — it is bridged as
+`gitWorktreeRemove` (`src/preload/index.ts:877`) and typed in `src/preload/index.d.ts:765`, so it is a
+fully reachable renderer API. Nothing calls it today: every real caller
+(`WorktreeSection.svelte:99`, `ProjectTreeSection.svelte:174`, `CommandPalette.svelte:494`,
+`HostRpcServer.ts:272`) uses `worktreeRemoveWithBranch`, and `CommandPalette.svelte:461` uses the
+string `'git:worktreeRemove'` only as a command _id_. So this is latent rather than live, and worth
+recording rather than fixing blind: the two handlers have diverged into a guarded and an unguarded
+removal, and the unguarded one is the one a new call site would find first by name.
+
+**The new MCP-disconnect notification reaches Canopy and is then deliberately dropped.** 2.1.273 adds
+a notification when an MCP server disconnects mid-session and automatic reconnection gives up. Canopy
+subscribes to `Notification` (`claude.ts:26`), maps it to the normalized `'Notification'`
+(`claude.ts:49`) and captures `raw.message` as `event.message` (`claude.ts:125`) — and then surfaces
+none of it: `formatNotification` returns `null` for anything that is not `PermissionRequest`
+(`claude.ts:251`) and `toNotchStatus` ends in `.otherwise(() => null)` (`claude.ts:276`). A user whose
+MCP server dies mid-session sees the CLI's own in-pane message and gets no OS notification and no notch
+status change. That is Canopy's existing policy rather than a regression, and it also answers the
+2.1.269 note's amplification concern for this entry from the other direction: the un-deduplicated
+per-event `Notification` path cannot be amplified by a new notification class that never gets past the
+`PermissionRequest` gate.
+
+**Both of 2.1.273's new configuration surfaces are reachable from a Canopy profile and neither needs a
+change.** `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1` opts into five new `x-claude-code-*` request headers for
+LLM gateways. It rides the same route as the 2.1.271 `ANTHROPIC_UNIX_SOCKET` finding:
+`claudeAdapter.buildEnvVars` forwards arbitrary `claude.customEnv` keys, and `BLOCKED_ENV_VARS`
+(`src/main/security/envBlocklist.ts`) contains no `CLAUDE_CODE`-prefixed entry at all — it blocks
+system paths, linkers, runtimes, proxies and CA bundles — so a profile can set it and the headers
+apply. Separately, the Bash-permission-checker fix concerns
+`permissions.blockReadsOutsideWorkingDirectories`, which Canopy never writes itself: `setupSettings`
+emits only `hooks` plus an optional `statusLine` (`claude.ts:90-97`). But it is settable, via the
+`claude.settingsJson` profile field that `tabCommands.ts:115-120` parses into `settingsOverrides` and
+the adapter spreads at `claude.ts:91`. Worth noting that the spread order makes this safe in one
+direction: `overrides` is spread _before_ `hooks`, so a profile can add a `permissions` block but
+cannot clobber Canopy's hook wiring.
+
+**The macOS `Read` fix names a hazard class Canopy has already been bitten by and already handles.**
+2.1.273 stops `Read` refusing a dragged-in screenshot, or any file the system reports under a second
+path, with "symlink resolution changed after permission was checked" — a realpath-based TOCTOU guard
+that was too strict on a platform where benign second paths are routine. Canopy's own path gates are
+the same shape and get it right, deliberately: `handlers.ts:1394-1396` carries the comment that the
+workspace lookup must use the raw renderer-sent path "not the realpath-normalized `resolved`, which
+would miss symlinked / `/var`→`/private/var` roots and silently stop cache updates". That is the split
+that matters — realpath for the authorization gate, raw path for identity — and the gates themselves
+realpath **both** sides rather than comparing a resolved path against an unresolved one
+(`handlers.ts:1330-1331`, `3049-3050`, `5433`/`5445`). No change needed, and the in-code comment is
+the reason: this class was found on Canopy's side before upstream hit it on theirs.
+
+**One naming collision to record before a future run conflates the two.** 2.1.273 adds forking a
+session started with `claude --remote-control` or `/remote-control` into a background local session.
+Canopy has a prominent "remote-control" feature of its own — `src/main/remote/RemoteSessionService.ts`
+is the "state machine + lifecycle owner for the WebRTC remote-control feature", with
+`RemoteControlPrefs.svelte` and `HostRpcServer.ts` alongside it — and it is unrelated: it is Canopy's
+mobile client driving the desktop, not the Claude app driving a CLI session. No Canopy code passes
+`--remote-control` to the CLI. This is the same trap as the "tool" naming note above, where
+`toolView.svelte.ts` and friends mean Canopy's own agent tools rather than CLI tool calls: a grep for
+this entry lands in `src/main/remote/` first and that is the wrong layer.
+
+**52 of 2.1.273's 64 CLI changelog entries were not readable this run**, against 12 visible. Both diff
+routes were denied again: `gh api` against the changelog repo by the allowlist defect described in
+`.github/prompts/claude-code-compat.md` — the fourteenth consecutive run — and `WebFetch` on its first
+and only call, the thirteenth consecutive. Every check above was therefore made against Canopy's own
+files and the vendored SDK, and the vendored copy remains a lower bound: `npm ci` runs on `next`, so
+`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json` reports CLI `2.1.207` regardless of what
+this branch pins. Its `HookEvent` union already lists 30 events against the 18 in `CLAUDE_HOOK_EVENTS`,
+so Canopy's subscription is a deliberate subset and an absent name there proves nothing.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
