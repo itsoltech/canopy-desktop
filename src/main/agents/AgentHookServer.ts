@@ -151,12 +151,15 @@ export class AgentHookRouter {
       if (is.dev) console.log(`[agent-hook] ${eventName}${toolName}`)
 
       if (is.dev) {
+        // Log field NAMES only. The values are arbitrary agent payloads — a Bash tool_input
+        // routinely carries `curl -H "Authorization: Bearer ..."`, an exported env var, or a
+        // clone URL with an embedded token, so dumping them verbatim writes live secrets to
+        // stdout (and into any terminal scrollback or CI log capturing it).
         const skip = new Set(['hook_event_name', 'tool_name'])
-        for (const [k, v] of Object.entries(event)) {
-          if (skip.has(k) || v === undefined || v === null) continue
-          const str = typeof v === 'string' ? v : JSON.stringify(v)
-          console.log(`[agent-hook]   ${k}: ${str}`)
-        }
+        const fields = Object.entries(event)
+          .filter(([k, v]) => !skip.has(k) && v !== undefined && v !== null)
+          .map(([k]) => k)
+        if (fields.length > 0) console.log(`[agent-hook]   fields: ${fields.join(', ')}`)
       }
 
       response = session.onHookEvent(event)

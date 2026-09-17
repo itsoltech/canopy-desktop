@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
 
@@ -7,14 +7,20 @@
   let version = $state('')
   let homepage = $state('')
   let licenseText = $state('')
+  let previouslyFocused: HTMLElement | null = null
 
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     const info = await window.api.getAboutInfo()
     version = info.version
     homepage = info.homepage
     licenseText = info.license
   })
+
+  // Restoring via onDestroy rather than an onMount cleanup: this onMount is async, so Svelte
+  // never invokes a returned teardown.
+  onDestroy(() => previouslyFocused?.focus?.())
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
