@@ -75,6 +75,20 @@ function generateCommitMessageInner(
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
           env,
+          // This is Canopy's only non-interactive CLI turn, and without this it
+          // inherits the user's entire MCP fleet: omitting `settingSources`
+          // loads all filesystem settings, so project `.mcp.json`, user
+          // settings, plugins and agent frontmatter all contribute servers.
+          // The turn is one structured-output call over a truncated diff
+          // against a fixed schema — it can never call an MCP tool — but the
+          // CLI still connects them before the first turn, and nothing here
+          // bounds that: `git:generateCommitMessage` awaits this with no
+          // timeout, `query()` gets no `maxTurns` or abort signal, and
+          // `unwrapOr(null)` only catches a throw, not a hang. 2.1.274 added
+          // CLAUDE_CODE_MCP_STARTUP_WAIT_MS to cap the wait, but the executable
+          // is whatever `claude` resolves to on PATH and may predate it, so
+          // drop the servers instead of timing them out.
+          strictMcpConfig: true,
         },
       })
 
