@@ -35,7 +35,11 @@ const notchApi = {
 }
 
 if (process.contextIsolated) {
-  contextBridge.exposeInMainWorld('notchApi', notchApi)
+  try {
+    contextBridge.exposeInMainWorld('notchApi', notchApi)
+  } catch (error) {
+    console.error(error)
+  }
 } else {
   // SECURITY: refuse to expose the bridge directly on `window` — context
   // isolation is required to keep the IPC surface out of page-script reach.
