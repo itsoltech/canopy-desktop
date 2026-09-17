@@ -325,6 +325,28 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 > loop is the obvious shape and is rejected whole. Use `&&`-chained literal calls with `echo` labels
 > instead; `npm view` is allowlisted and chains fine, two calls cover nine packages. Worth naming
 > because it reads like a permission problem and is not one.
+>
+> **Correction, from v2.1.273 → v2.1.274: "contains multiple operations" _is_ allowlist evidence, and
+> it names the denied component.** Two earlier notes above treat it as purely a shell-form error and
+> conclude that only "requires approval" is evidence about the rule. That is wrong, and it is wrong in
+> the expensive direction — it is what makes a run re-issue a denied `gh api` without its pipe. Read the
+> message: the full text is "This Bash command contains multiple operations. The following part requires
+> approval: `<component>`", and `<component>` is the exact token that failed the allowlist. When that
+> token is `gh api …`, **you already have your denial** and there is nothing left to probe. This run saw
+> it name `gh api …` on one attempt and `curl …` on another, while `echo && npm view && echo && npm view`
+> (four operations) and `gh pr view … | wc -c` (a pipe) both ran without complaint. **Compounds and
+> pipes are fine when every component is allowlisted**; the message appears only when one is not.
+>
+> So the taxonomy is three-way, not two-way:
+>
+> | Message                                                                | Means                                      | Evidence about the allowlist? |
+> | ---------------------------------------------------------------------- | ------------------------------------------ | ----------------------------- |
+> | "contains multiple operations … following part requires approval: `X`" | `X` is not allowlisted                     | **Yes — `X` is the denial**   |
+> | "This command requires approval"                                       | the whole command is not allowlisted       | Yes                           |
+> | `Contains simple_expansion` / `Contains command_substitution`          | shell form refused (`$var`, `$(…)`, loops) | No — rewrite without it       |
+>
+> Only the third is a shell-form error, and it names no component. The first two are the same finding
+> reported at different granularity.
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
