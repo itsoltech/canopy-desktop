@@ -20,8 +20,12 @@ consecutive runs have confirmed it, against every shape of path, flag and quotin
 settled and is written up in step 2. If an attempt comes back as "contains multiple operations"
 rather than "requires approval", that is a shell-form error and **not** a reason to retry it
 pipe-free — the pipe is never the cause. `WebFetch` and `WebSearch` are denied too — twelve
-consecutive — so probe `WebFetch` **once**, if at all, and commit to the result. Your diff sources are the release
-notes pasted below, `node_modules/@anthropic-ai/claude-agent-sdk`, and Canopy's own files.
+consecutive — so probe `WebFetch` **once**, if at all, and commit to the result. **`curl` is denied as
+well**, and it is worth naming separately because it is the obvious second move once `gh api` fails and
+nothing above rules it out: `curl` is not in `--allowedTools` under any prefix, so reaching the same
+`api.github.com` path by a different client changes nothing. The v2.1.273 → v2.1.274 run spent a turn
+on it. Your diff sources are the release notes pasted below,
+`node_modules/@anthropic-ai/claude-agent-sdk`, and Canopy's own files.
 
 This block is at the top because the previous six revisions of it were not. Runs read top-to-bottom,
 reach `FROM_VERSION`/`TO_VERSION` in the header, and take the compare call as the obvious opening
@@ -435,6 +439,22 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 > `grep -oE` are denied, so context around a match cannot be pulled out — and the binary is minified
 > JavaScript, so a single matching "line" from `strings` can be tens of kilobytes. Count with `-c` and
 > match on names; do not try to recover JSON field shapes this way.
+>
+> **Which text tools work on `sdk.d.ts`, since reading it is the whole point of this block.** `grep -n`
+> and `sed -n 'A,Bp'` both run, and between them they answer most questions: grep for the member name
+> to get a line number, then `sed` a window around it to read the doc comment. **`awk` is denied** — it
+> is the natural reach for "which `type` declaration does line N belong to", and it does not run. Use
+> the `Grep` **tool** with pattern `^(export )?(declare )?(type|interface) \w+` and `-n` instead: that
+> returns every declaration start with its line number in one call, and the one immediately below your
+> target line is the type your member sits in. The v2.1.273 → v2.1.274 run needed exactly this to
+> confirm `strictMcpConfig` (line 1919) is a member of `Options` (line 1282, running to `OutputFormat`
+> at 2016) rather than of some neighbouring interface, which is what made the change safe to apply.
+>
+> **The doc comments state defaults that no release note ever restates, and that is their real value.**
+> The same run's finding turned on `settingSources` being documented as "When omitted, all sources are
+> loaded (matches CLI defaults)" — a sentence that exists only here, and that converts "Canopy does not
+> configure X" into "Canopy inherits all of X". When a release note mentions a setting Canopy appears
+> not to use, read the option's comment before concluding it has no surface.
 
 > **When the diff is unreachable, spend the turns on Canopy's side of the boundary instead.** Several
 > runs in a row have treated a denied diff as the limit of what the run could establish, and reported
@@ -471,6 +491,24 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 > Canopy's own dependencies are a legitimate source of truth about Canopy: when an entry describes how
 > a terminal, an editor or a protocol behaves, the library implementing it is usually vendored in
 > `node_modules/` and can settle the question without any network access.
+>
+> **A third shape, and the cheapest of the three: a new knob that _bounds_ something is telling you the
+> thing was previously unbounded.** The two notes above start from a quantity or from a literal. The
+> v2.1.273 → v2.1.274 run started from `CLAUDE_CODE_MCP_STARTUP_WAIT_MS`, "bound how long the first
+> non-interactive turn waits for connecting MCP servers". The useful question is never "should Canopy
+> set this variable" — it is **"which Canopy call site is exposed to the thing this bounds, and does
+> Canopy bound it itself?"** Canopy has exactly one non-interactive turn, `commitMessageGenerator.ts`,
+> and the answer to the second half was no: no timeout on the IPC handler, no `maxTurns`, no abort
+> signal, and a `.unwrapOr(null)` that only converts a throw. A release note that adds a limit is
+> pointing at code that has none.
+>
+> **And the fix for such a finding is usually an _older_ option, not the new one.** Canopy runs whatever
+> `claude` resolves to on the user's `PATH`, so any change that only works at `TO_VERSION` protects the
+> subset of users who have already upgraded. Before adopting the new knob, check whether a
+> long-standing option removes the cause instead of bounding the symptom — here `strictMcpConfig`,
+> present in the vendored `0.3.207` types, drops the MCP servers entirely and needs no version floor.
+> `claude.ts:195-198` already encodes this instinct for `--system-prompt-snapshot`; it generalises to
+> every compat change this workflow makes.
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
