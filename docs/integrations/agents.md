@@ -1385,6 +1385,93 @@ files and the vendored SDK, and the vendored copy remains a lower bound: `npm ci
 this branch pins. Its `HookEvent` union already lists 30 events against the 18 in `CLAUDE_HOOK_EVENTS`,
 so Canopy's subscription is a deliberate subset and an absent name there proves nothing.
 
+**2.1.274 is the first release in this range where the tools half _fell_, and it fell by half.** Prompt
+tokens −4,669 (−20.7%) with four files removed (−25.0%): 4,669 ÷ 0.207 puts the total at ~22.6k before
+and ~17.9k after, and 4 ÷ 0.25 gives 16 files before against 12 after. Both "before" figures reproduce
+the 2.1.273 note's ~22.6k and 16 exactly, so the chain from 2.1.271 holds for a fourth link. Splitting
+by the given mix — 81.4%/18.6% tools/system before, 52.8%/47.2% after — gives tools ~18.4k → ~9.4k and
+system ~4.20k → ~8.44k, so **tools −8,900 (−48%) and system +4,250 (+101%)**. Carrying the 0.1% rounding
+through both ends widens those to −8,822…−9,010 and +4,190…+4,303, which is nowhere near noise in
+either direction. Every previous note in this range was written about tools _growing_ by one file at a
+time; four files leaving at once, with the system half absorbing about half the loss, reads as
+consolidation of tool descriptions into system text rather than as tools being retired. That is a
+guess. The diff that would settle it was denied, and it should not be presented as more than a guess.
+
+**What can be settled is that the direction is the safe one for Canopy, and why.** The five paths that
+key off a tool — enumerated in the 2.1.272 note and unchanged since — are `summarizeToolInput`
+(`utils.ts:31`), `normalizeEvent` (`claude.ts:120`), `formatNotification` (`claude.ts:252`),
+`toNotchStatus` (`claude.ts:259`) and `EVENT_MAP` (`claude.ts:36`). Only the first reads tool _input_,
+and it matches on field names — `command`, `file_path`, `questions`, `query`, `url`, `pattern`,
+`prompt`, `description`, `skill` — which live in a tool's JSON schema rather than in the prose whose
+token count moved. A description rewrite cannot touch them. And when a shape does go unrecognised the
+function does not fail: `utils.ts:66-71` falls through to the first non-empty string value in the
+input, then to `''`, so an unknown tool degrades to a worse summary rather than to a crash. The
+asymmetry worth recording for the next run is that **tool removal is cheaper for Canopy than tool
+addition** — a tool that stops existing simply stops producing hook events, while a new one arrives at
+`summarizeToolInput` with a shape nobody has matched.
+
+**`CLAUDE_CODE_MCP_STARTUP_WAIT_MS` names a wait Canopy's one non-interactive turn was fully exposed to,
+and the fix is not the new variable.** 2.1.274 adds it to bound how long the first non-interactive turn
+waits for connecting MCP servers, `0` meaning don't wait. Canopy has exactly one such turn:
+`commitMessageGenerator.ts` calls `query()` for the "generate commit message" button. That call omitted
+`settingSources`, and the SDK's own types are explicit about what that means — "When omitted, all
+sources are loaded (matches CLI defaults)" (`sdk.d.ts:1866`) — so it inherited project `.mcp.json`, user
+settings, plugins and agent frontmatter MCP servers, the exact set `strictMcpConfig` exists to suppress
+(`sdk.d.ts:1913-1919`). The turn is a single structured-output call over a diff truncated to 15,000
+characters against a fixed two-field schema; it can never call an MCP tool. Nothing on Canopy's side
+bounded the wait either: `handlers.ts:2220-2225` awaits the generator from an IPC handler with no
+timeout, `query()` is given no `maxTurns` and no abort signal, and `.unwrapOr(null)` converts a throw
+rather than a hang — so the button had no failure path at all, only a longer spinner.
+
+The fix applied is `strictMcpConfig: true` rather than `CLAUDE_CODE_MCP_STARTUP_WAIT_MS=0`, for the
+reason `claude.ts:195-198` already gives about `--system-prompt-snapshot`: the executable is whatever
+`claude` resolves to on the user's `PATH` (`commitMessageGenerator.ts:13-26`), which can predate the
+release that introduced the knob. `strictMcpConfig` is present in the vendored `0.3.207` types, so it
+holds across every CLI a user might have, and it removes the servers instead of timing them out.
+Nothing is lost by it: `Grep` for `mcp`/`MCP` across `src/` returns no matches, so Canopy configures no
+MCP servers anywhere and none of them were reachable from this prompt regardless.
+
+**The `tool_use_id` retry-loop fix closes a hole Canopy had no way to report.** Before 2.1.274 a
+corrupted transcript could leave a session retrying an "unexpected tool_use_id" 400 indefinitely; the
+CLI now self-heals where it can and otherwise ends with a clear error and a `/rewind` hint. A pane stuck
+that way emitted no further hook events, so Canopy's notch held whatever `toNotchStatus` last set —
+`thinking` after an `AfterToolUse`, most likely — forever, with no `StopFailure` and no `SessionEnd` to
+move it. The new terminal error produces one of those, which `claude.ts:274-275` already maps to `error`
+or `ended`. Upstream fix, no Canopy change, and worth naming because the symptom was a notch that looked
+healthy rather than an error badge.
+
+**The three remaining user-visible entries all land on the in-pane text surface Canopy deliberately
+ignores.** The critical-memory warning, the 403 `insufficient_scope` message that now lists missing
+permissions and links to `/mcp`, and the click-to-expand for collapsed teammate and agent messages in
+fullscreen are all CLI TUI output, rendered into the pane's xterm like any other bytes. If any of them
+also raises a `Notification` hook, it reaches `normalizeEvent` and stops there for the reason the 2.1.273
+MCP-disconnect note gives: `formatNotification` returns `null` for anything that is not
+`PermissionRequest` (`claude.ts:251`) and `toNotchStatus` ends in `.otherwise(() => null)`
+(`claude.ts:276`). That is policy, not a gap, and this release adds three more items to the same
+deliberately-dropped class rather than changing it.
+
+**The MCP transport fixes and the OTel additions have no Canopy surface, by two different routes.** The
+legacy HTTP+SSE 422 fallback, the Streamable HTTP call timing out at ~5 minutes despite a longer
+per-server setting, and prompts/resources not refreshing on undeclared `listChanged` notifications all
+concern servers Canopy never configures — they reach a pane only through the user's own settings, and
+after this run's change they cannot reach the commit-message path at all. The `effort` span attribute,
+the `claude_code.managed_settings_resolved` event and `OTEL_LOG_MANAGED_SETTINGS=1` are the other route:
+`Grep` for `OTEL`/`OTLP`/`TELEMETRY` across `src/` returns no matches, so Canopy sets none of them, and
+a user who wants them sets them through `claude.customEnv` exactly as the 2.1.273 `CLAUDE_CODE_GATEWAY_HINT_HEADERS`
+note describes — `BLOCKED_ENV_VARS` still carries no `OTEL`- or `CLAUDE_CODE`-prefixed entry. The Claude
+apps gateway items (`store.connect_timeout_seconds`, the `enduser.sub` telemetry field, the 256-request
+replica warning) concern a server component Canopy does not run.
+
+**96 of 2.1.274's 108 CLI changelog entries were not readable this run**, against 12 visible — the
+largest truncation the range has recorded, and the one release where that matters most, because the
+prompt numbers say the tools half was rewritten and the 96 hidden entries are where any tool-schema
+change would be named. Both diff routes were denied again: `gh api` against the changelog repo by the
+allowlist defect described in `.github/prompts/claude-code-compat.md` — the fifteenth consecutive run —
+and `WebFetch` on its first and only call, the fourteenth consecutive. The vendored SDK remains a lower
+bound at CLI `2.1.207` for the reason the 2.1.273 note gives, so it cannot confirm a 2.1.274 schema
+either. Treat the tool-shape conclusion above as resting on Canopy's fallback behaviour rather than on
+having read the tool definitions.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
