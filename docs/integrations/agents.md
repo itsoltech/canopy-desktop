@@ -1564,6 +1564,88 @@ still a lower bound for the reason the 2.1.273 note gives, so its silence on `sy
 nothing. Given the size of 2.1.275 — bundle +488.8 kB, the largest in this range — treat the coverage
 above as resting on 11 entries and on Canopy's own files, not on having read the release.
 
+**2.1.277's logout fix names Canopy's exact shape, and `commitMessageGenerator.ts` is the call site.**
+The entry reads "Fixed being unexpectedly logged out when an older Claude Code build (for example an
+IDE extension's bundled CLI) runs on the same machine as the current one". Canopy is that example.
+`commitMessageGenerator.ts:75` passes `pathToClaudeCodeExecutable: claudePath`, and
+`resolveClaudeExecutable()` at `:13-26` returns `undefined` whenever `which`/`where claude` fails —
+a case `sdk.d.ts:1688` documents as "Uses the built-in executable if not specified", which is the
+259 MB `claude` binary shipped in `node_modules/@anthropic-ai/claude-agent-sdk-{platform}/`. So a
+user with Claude Code installed somewhere the login shell's `PATH` does not reach gets Canopy
+running a **bundled CLI of whatever version Canopy pins** against the same machine credential state
+their own install uses. On `next` that pin is still `0.3.207` — CLI 2.1.207, seventy releases back.
+
+The second-order version is worse and is specific to Canopy: agent panes run the `PATH` `claude`,
+while commit-message generation runs the bundled one. Both live in the same app, on the same
+machine, against the same credentials, so generating a commit message could log out the agent panes
+sitting next to it. **The bump in this increment is the mitigation** — it moves the bundled fallback
+to 2.1.277, which carries the fix. Which side of the skew the fix actually lives on (the newer build
+becoming tolerant, or the older one no longer clobbering) is not established, because the diff was
+denied and only the first reading is fully repaired by bumping. Treat the bump as removing Canopy
+from the population of offenders, not as proof that no user can still be logged out.
+
+**The `-p`/SDK hang fix retires part of a hazard this repository already documents in code.**
+`commitMessageGenerator.ts:78-91` argues, correctly, that "`git:generateCommitMessage` awaits this
+with no timeout, `query()` gets no `maxTurns` or abort signal, and `unwrapOr(null)` only catches a
+throw, not a hang". 2.1.277's "Fixed `claude -p` and Agent SDK sessions that could hang with no
+result after an internal error; they now report the error and exit with code 1" converts one class
+of that hang into a throw — which `fromExternalCall` at `:67` already catches and `.unwrapOr(null)`
+at `:157` already degrades to a null commit message. No code change is needed: that error path was
+always correct, it simply had nothing to catch. The comment stays accurate as written, because every
+clause in it is a statement about Canopy's code rather than the CLI's and all of them still hold,
+and because the caveat it ends on still governs — the executable is whatever `claude` resolves to on
+`PATH`, so users below 2.1.277 keep the old hang. The MCP-connect hang the comment is actually about
+is a different class and is untouched; `strictMcpConfig: true` at `:91` remains the fix for that one.
+
+**Canopy uses `--resume`, so the empty-text-block fix lands on a live path.** `claude.ts:237-239` is
+`buildResumeArgs(id) => ['--resume', id]`. 2.1.277 fixes "conversations failing **every** request
+with 'text content blocks must be non-empty' when an earlier assistant turn held an empty text block
+beside other content, **including after `--resume`**". The failure mode is a session that is
+permanently unusable rather than intermittently degraded, and Canopy can neither detect nor repair
+it — it surfaces as `IdleFailure` on the tab, which reads as an agent crash rather than as a
+poisoned transcript. Nothing to change, since panes run the `PATH` binary and the fix arrives when
+the user upgrades. Recorded because the symptom looks like a Canopy resume bug and is not one.
+
+**AGENTS.md now means something to Claude Code, which makes Canopy's setup prompt more right than it
+was and leaves one silent failure.** 2.1.277 reads `AGENTS.md` for project instructions in a project
+with **no** `CLAUDE.md`. Canopy's own repository is unaffected: it has both, and `CLAUDE.md` wins.
+`agentPrompt.ts:6` — the one-shot prompt a user pastes to persist Canopy's branch/PR conventions —
+already said to add the section to "your agent instructions file (CLAUDE.md, AGENTS.md, or the
+equivalent for your tooling)", deliberately agent-agnostic because Codex and OpenCode read
+`AGENTS.md`. Before this release an agent that chose `AGENTS.md` was certainly ignored by Claude
+Code; now it is read, so the release improves the existing wording rather than breaking it. What
+survives is the both-files case: the prompt hands the agent a free choice between two files, only
+one of which is loaded when both exist, and an agent that picks the unread one writes conventions
+that are then silently skipped in every later task. **Changed** — the parenthetical now says to write
+to the file the tooling actually loads and that the others are ignored. The edit is agent-agnostic
+on purpose: naming `CLAUDE.md` as the winner would be correct for the Claude adapter and wrong for
+the other three.
+
+**Second consecutive release whose entire prompt-token increment is one new tools-kind file — but
+unlike 2.1.276, this one is backed by real bundle growth.** Files +1 (+7.7%) gives 1 ÷ 0.077 = 13
+before and 14 after, continuing the 2.1.276 note's 13 for a seventh link. Tokens +556 (+3.9%) put
+the total at ~14.3k before and ~14.8k after; splitting by the given mix (70.9%/29.1% → 72.0%/28.0%)
+gives **tools ~10.1k → ~10.7k (+557) and system ~4.15k → ~4.15k**. Carrying the 0.1% rounding
+through both ends leaves tools at +281…+833 — sign safe — and system at −105…+132, which straddles
+zero, so system is flat _within rounding_ rather than measurably unchanged. The whole increment is
+the tools half, exactly as in 2.1.276. The bundle is what differs: 2.1.276 grew +0.1 kB against +440
+tokens, which that note flagged as fitting a re-extraction of existing text better than new text,
+whereas this release grows **+653.2 kB (+1.3%)** — so this one is more plausibly a genuinely new
+tool. The changelog does not name it, 75 of 87 entries being unreadable, but the consequence is the
+one already established and re-confirmed by reading the function this run: `summarizeToolInput`
+(`utils.ts:31`) matches input _shape_, not name, and ends in the generic first-non-empty-string
+fallback at `utils.ts:69-73`, so an unrecognised tool degrades gracefully instead of throwing.
+
+**12 of 2.1.277's 87 CLI changelog entries were readable**, against 75 behind the truncation. Both
+diff routes were denied again: `gh api` against the changelog repo on two attempts — the seventeenth
+consecutive run, still the mid-token allowlist defect described in
+`.github/prompts/claude-code-compat.md` — and `WebFetch` on its first and only call, the sixteenth.
+The vendored SDK under `node_modules` is still `0.3.207`, since the workflow checks out `next` and
+runs `npm ci` there, and it remains a lower bound for the reason the 2.1.273 note gives. Its
+`sdk.d.ts` still earned its keep: the `pathToClaudeCodeExecutable` doc comment at line 1688 is what
+turns the logout entry from a general warning into a claim about one specific Canopy line, and that
+sentence appears in no release note.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
