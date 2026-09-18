@@ -3,7 +3,7 @@
 // `.canopy/config.json` instead of copying its values, so later config edits take effect without
 // regenerating anything.
 export function buildAgentSetupPrompt(): string {
-  return `Add a "Canopy project conventions" section to your agent instructions file (CLAUDE.md, AGENTS.md, or the equivalent for your tooling) containing the rules below, then follow them in every task in this repository.
+  return `Add a "Canopy project conventions" section to your agent instructions file (CLAUDE.md, AGENTS.md, or the equivalent for your tooling — if this repository has more than one, write to the file your tooling actually loads, because the others are silently ignored) containing the rules below, then follow them in every task in this repository.
 
 1. The single source of truth for branch and pull-request conventions is \`.canopy/config.json\` at the repository root (each git worktree carries its own copy — use the one in the worktree you are working in). Re-read that file every time before creating a branch or a PR. Do NOT copy its concrete values into your instructions — reference the file, so configuration changes apply immediately.
 2. Branch names: render \`branchTemplate.template\` (placeholders: {branchType}, {taskKey}, {taskTitle} slugified to lowercase-with-dashes). Map the task type to {branchType} via \`branchTemplate.typeMapping\`.
