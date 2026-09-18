@@ -1472,6 +1472,98 @@ bound at CLI `2.1.207` for the reason the 2.1.273 note gives, so it cannot confi
 either. Treat the tool-shape conclusion above as resting on Canopy's fallback behaviour rather than on
 having read the tool definitions.
 
+**2.1.275 breaks every request from a pane or commit-message turn that sets a base URL, and 2.1.276 is
+the fix.** The regression is a 400 `Input tag 'advisor_20260301'` on every request when
+`ANTHROPIC_BASE_URL` points at a proxy or gateway; it shipped in 2.1.275 and was fixed 5h55m later in
+2.1.276. It reaches Canopy without anyone exporting the variable, because `claude.baseUrl` is a
+first-class profile field (`ClaudeProfileForm.svelte`) written into the environment at two places:
+`claude.ts:212` for panes and `commitMessageGenerator.ts:133` for the SDK turn. The two halves need
+different fixes for the reason the 2.1.265 note gives. Panes spawn the user's own binary from `PATH`, so
+the pin cannot help them and a user on 2.1.275 is fixed by updating; the commit-message turn runs the
+CLI the SDK vendors whenever `which claude` fails (`pathToClaudeCodeExecutable` is then `undefined`), so
+there the pin decides. `package.json` moves `0.3.274` → `0.3.276` and deliberately steps over `0.3.275`,
+the same manoeuvre the 2.1.265 note describes. **Note for the next run: `0.3.275` must never be pinned,
+even transiently, and a range that floats onto it is equally broken.**
+
+**2.1.275's send-now key works in Canopy panes by its chord and cannot work by its named shortcut, and
+the cause is xterm.js rather than Canopy.** The release adds "ctrl+enter, or ctrl+x ctrl+s" to interrupt
+a turn and flush queued messages. `ctrl+x ctrl+s` arrives intact: the two bytes are `0x18` and `0x13`,
+Canopy's `attachCustomKeyEventHandler` (`TerminalInstance.svelte:585-614`) claims only Ctrl+V, Ctrl+C
+with a selection, Shift+Enter, Cmd+Backspace and Ctrl+Z, and `MainLayout.svelte`'s window handler
+(`handleKeydown`, line 440) dispatches on `k p n b , i l o t w d`, the arrows, `1`–`9` and `[ ]` — no `x`
+and no `s`, and on macOS its modifier is `metaKey`, so Ctrl chords never reach it at all. `ctrl+enter`
+cannot arrive at all, and not because anything intercepts it: xterm.js's `evaluateKeyboardEvent` encodes
+Enter as `case 13: o.key = e.altKey ? ESC+CR : CR`, consulting **only** `altKey`, so Ctrl+Enter emits a
+bare `\r` byte-identical to Enter. No `modifyOtherKeys` or Kitty-protocol string exists anywhere in
+`@xterm/xterm/lib/xterm.js`, so there is no mode that would disambiguate it.
+
+**Remapping Ctrl+Enter to the chord was considered and rejected.** The handler already precedents it —
+Shift+Enter writes `\x1b\r` at `TerminalInstance.svelte:598-602` — so writing `\x18\x13` would be a
+three-line change. It is wrong on two counts. The same pane hosts Codex, Gemini and OpenCode behind the
+same `isAiTool` flag that gates the Ctrl+Z block, and `\x18\x13` means nothing to them; and panes run
+whatever `claude` is on `PATH`, so on any binary older than 2.1.275 the bytes land in the prompt as raw
+input. Document the working chord instead. This is the `--system-prompt-snapshot` rule from
+`claude.ts:195-198` applied to a keybinding rather than a flag.
+
+**`syncClaudeAiSkills` and `syncClaudeAiPlugins` make the doc's "never an interactive subscription
+login" claim wrong, and that is the finding.** 2.1.275 syncs the skills and plugins enabled on a
+claude.ai account into terminal sessions signed in with it, defaulting on. The `promptCacheTtl` and
+2.1.248 notes above both assert Canopy authenticates "with `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` or
+the Bedrock/Vertex/Foundry flags, never an interactive subscription login". That is conditional, not
+categorical: `claude.ts:211` is `if (apiKey) env.ANTHROPIC_API_KEY = apiKey`, and the profile field is
+optional — its help text says it "falls back to `ANTHROPIC_API_KEY` env variable". A profile with no key
+and no inherited variable runs under the user's own `claude` credentials, which is exactly the signed-in
+case this release changes. Such panes now perform an account fetch at startup and can surface skills and
+plugins nobody configured in Canopy. Users who want the old behaviour set `syncClaudeAiSkills: false` /
+`syncClaudeAiPlugins: false` through the profile's Settings JSON field, the same route the
+`promptCacheTtl` note describes; `BLOCKED_ENV_VARS` is not involved, since these are settings keys
+rather than environment variables.
+
+**The same release puts an unbounded network wait on the one call site that already had no bound, and
+this run could not establish whether any option removes it.** `commitMessageGenerator.ts` still omits
+`settingSources`, which `sdk.d.ts:1866` documents as "when omitted, all sources are loaded (matches CLI
+defaults)" — the sentence that drove the 2.1.274 `strictMcpConfig` change. The turn is still awaited with
+no timeout, no `maxTurns` and no abort signal, and `unwrapOr(null)` still converts only a throw. Two
+levers exist at the vendored `0.3.207` and so need no version floor — `settingSources: []` and the
+`skills` option at `sdk.d.ts:1870-1884` — but neither is obviously the right one: the opt-out is itself a
+settings key, so `settingSources: []` plausibly disables the opt-out rather than the sync, and `skills`
+is documented as "a context filter, not a sandbox", which would hide synced skills after paying for them
+rather than before. Settling this needs the 2.1.275 diff, which was denied. **No change made — recorded
+as a known exposure for the next run rather than guessed at.**
+
+**2.1.275 reverses 2.1.274's system-half growth without giving back its tools-half loss, which
+falsifies the 2.1.274 note's guess.** Prompt tokens −3,929 (−22.0%) with files unchanged (+0.0%):
+3,929 ÷ 0.220 puts the total at ~17.9k before and ~13.9k after, reproducing the 2.1.274 note's ~17.9k
+and holding the chain from 2.1.271 for a fifth link, at 12 files throughout. Splitting by the given mix
+— 52.8%/47.2% tools/system before, 70.0%/30.0% after — gives tools ~9.43k → ~9.75k and system ~8.43k →
+~4.18k, so **tools +321 (+3.4%) and system −4,250 (−50%)**. Carrying the 0.1% rounding through both ends
+leaves tools at +258…+387 and system at −4,160…−4,343, so both signs are safe. The 2.1.274 note read
+that release's −8,900 tools / +4,250 system as "consolidation of tool descriptions into system text",
+flagged as a guess. It does not survive: system has returned to ~4.18k against its ~4.20k value before
+2.1.274, while tools stayed near ~9.4–9.8k instead of returning to ~18.4k. Had the text been moved,
+unwinding the system half would have restored the tools half with it. The better reading is two
+independent edits — a real ~8.9k cut to tool descriptions in 2.1.274 that has held, and a transient
+~4.25k of system text added there and removed here.
+
+**2.1.276 ships a prompt file its changelog does not mention, and it is on the expensive side.** The
+release lists exactly one entry, the proxy fix above, yet prompt files go +1 (+8.3%) and tokens +440
+(+3.1%). 1 ÷ 0.083 gives 12 before and 13 after, matching 2.1.275's 12; the token split moves
+70.0%/30.0% → 70.9%/29.1%, which against a ~13.9k → ~14.4k total puts **tools +437 and system +3**. So
+the whole increment is one new tools-kind file. That is the direction the 2.1.274 note calls costlier
+for Canopy — "tool removal is cheaper than tool addition — a new one arrives at `summarizeToolInput`
+with a shape nobody has matched" — though the degradation is still the graceful one at `utils.ts:66-71`.
+One thing does not add up and is left open rather than explained away: the bundle grew only +0.1 kB,
+far less than ~440 tokens of new description, which fits an existing string newly extracted into its own
+prompt file better than genuinely new text. The diff that would name the tool was denied.
+
+**84 of 2.1.275's 95 CLI changelog entries were not readable this run**, against 11 visible; 2.1.276's
+single entry was complete. Both diff routes were denied again: `gh api` against the changelog repo by
+the allowlist defect described in `.github/prompts/claude-code-compat.md` — the sixteenth consecutive
+run — and `WebFetch` on its first and only call, the fifteenth. The vendored SDK is still `0.3.207` and
+still a lower bound for the reason the 2.1.273 note gives, so its silence on `syncClaudeAiSkills` says
+nothing. Given the size of 2.1.275 — bundle +488.8 kB, the largest in this range — treat the coverage
+above as resting on 11 entries and on Canopy's own files, not on having read the release.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
