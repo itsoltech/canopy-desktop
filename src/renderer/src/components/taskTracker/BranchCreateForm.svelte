@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { X, ExternalLink, ArrowLeft, RotateCcw } from '@lucide/svelte'
+  import { X, ExternalLink, ArrowLeft, RotateCcw, LoaderCircle } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
   import { getPref, setPref } from '../../lib/stores/preferences.svelte'
@@ -546,5 +546,21 @@
         {/if}
       </button>
     </div>
+  </div>
+{:else}
+  <!-- init() makes three IPC round-trips; without this branch the dialog opens
+       completely blank — no title, no close button — until they resolve. -->
+  <div class="flex items-center gap-2 px-4 pt-3.5 pb-2.5 border-b border-border-subtle">
+    <button class={iconBtnCls} onclick={onBack} aria-label="Back">
+      <ArrowLeft size={16} />
+    </button>
+    <h3 class="m-0 text-lg font-semibold text-text flex-1">Create Branch</h3>
+    <button class={iconBtnCls} onclick={() => closeDialog()} aria-label="Close">
+      <X size={16} />
+    </button>
+  </div>
+  <div class="flex items-center justify-center gap-2 p-8" role="status">
+    <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none text-text-muted" />
+    <span class="text-sm text-text-muted">Loading branch options…</span>
   </div>
 {/if}

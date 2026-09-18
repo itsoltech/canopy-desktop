@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { showPreferences, showAbout } from '../lib/stores/dialogs.svelte'
 
   let open = $state(false)
   let buttonEl: HTMLButtonElement | undefined = $state()
+  let menuEl: HTMLDivElement | undefined = $state()
   let dropdownTop = $state(0)
   let dropdownLeft = $state(0)
 
@@ -17,11 +19,52 @@
 
   function close(): void {
     open = false
+    // Return focus to the trigger so keyboard users are not dumped at the top
+    // of the document when the menu unmounts.
+    buttonEl?.focus()
   }
 
   function handleAction(action: () => void): void {
     close()
     action()
+  }
+
+  // Pull focus into the menu on open so arrow keys have a starting point.
+  $effect(() => {
+    if (!open) return
+    void tick().then(() => {
+      menuEl?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    })
+  })
+
+  function items(): HTMLElement[] {
+    return Array.from(menuEl?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+  }
+
+  function focusByOffset(offset: number): void {
+    const list = items()
+    if (list.length === 0) return
+    const current = document.activeElement as HTMLElement | null
+    const idx = current ? list.indexOf(current) : -1
+    list[(idx + offset + list.length) % list.length]?.focus()
+  }
+
+  // Arrow/Home/End roving focus, matching WelcomeContextMenu's menu semantics.
+  function handleMenuKeydown(e: KeyboardEvent): void {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      focusByOffset(1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      focusByOffset(-1)
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      items()[0]?.focus()
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      const list = items()
+      list[list.length - 1]?.focus()
+    }
   }
 
   function handleWindowKeydown(e: KeyboardEvent): void {
@@ -63,10 +106,13 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fixed inset-0 z-overlay" use:portal onclick={close}>
     <div
+      bind:this={menuEl}
       class="fixed min-w-55 p-1 bg-bg-overlay border border-border rounded-lg shadow-popover z-popover"
       style="top: {dropdownTop}px; left: {dropdownLeft}px;"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={handleMenuKeydown}
       role="menu"
+      tabindex="-1"
       aria-label="Application menu"
     >
       <button

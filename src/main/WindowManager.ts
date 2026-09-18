@@ -337,6 +337,14 @@ export class WindowManager {
       watchers = new Map()
       this.gitWatchers.set(wcId, watchers)
     }
+    // `git:watch` disposes the previous watcher, then awaits `start()` before
+    // registering here. Two concurrent calls for the same repo therefore both
+    // pass the dispose step while the map is still empty, and the slower one
+    // would silently overwrite — orphaning the first watcher's native
+    // @parcel/watcher subscription for the life of the window. Stop whatever we
+    // displace so the OS handle is always released.
+    const previous = watchers.get(repoRoot)
+    if (previous && previous !== watcher) void previous.stop()
     watchers.set(repoRoot, watcher)
   }
 
@@ -397,6 +405,10 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    // Same concurrent-start race as setGitWatcher: release the displaced
+    // watcher's native subscription instead of dropping the reference.
+    const previous = this.fileWatchers.get(wcId)
+    if (previous && previous !== watcher) void previous.stop()
     this.fileWatchers.set(wcId, watcher)
   }
 
