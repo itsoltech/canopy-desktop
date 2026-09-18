@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -40,6 +41,17 @@
   let linkTab = $state<'existing' | 'newTask'>('existing')
 
   let dialogEl: HTMLDivElement | undefined = $state()
+
+  // Focus containment (same pattern as CreateTaskPRModal/ProjectTrackerModal):
+  // focus moves into the dialog on mount — the Tab trap below already wraps at
+  // the boundaries — and the opener gets focus back on close.
+  let previouslyFocused: HTMLElement | null = null
+
+  onMount(() => {
+    previouslyFocused = document.activeElement as HTMLElement | null
+    dialogEl?.focus()
+  })
+  onDestroy(() => previouslyFocused?.focus?.())
   let sendingTaskKey = $state('')
   let sendStatus = $state('')
   let sendError = $state('')
@@ -271,6 +283,7 @@
     role="dialog"
     aria-modal="true"
     aria-label="Task Picker"
+    tabindex="-1"
   >
     {#if selectedTask}
       <BranchCreateForm
