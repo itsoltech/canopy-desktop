@@ -347,6 +347,26 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 >
 > Only the third is a shell-form error, and it names no component. The first two are the same finding
 > reported at different granularity.
+>
+> **v2.1.274 → v2.1.276 confirms that correction held, and spent four probes anyway.** The run's very
+> first batch got "contains multiple operations … requires approval: `gh api …`", which under the table
+> above is already a complete denial; it then spent three more. All four were pre-read-of-this-file, and
+> the fourth was post-checkout — the same gap five earlier runs describe. Nothing new about the rule.
+> **The table is right and it only helps a run that has read it, which is the file's standing problem
+> rather than a new one.** Sixteen consecutive runs; `WebFetch` denied on its first and only call,
+> fifteen consecutive.
+>
+> **Three small tool facts nobody had recorded, all cheap and all reusable.** `jq` **runs** — which
+> matters because §3's own verification step tells you to check the lockfile with it, and no run had
+> confirmed it. `node -p` is **denied**, so it is not a substitute for reading a vendored
+> `package.json`; use the `Grep` tool on the file instead. And pipes and `&&` chains run fine whenever
+> every component is allowlisted, exactly as the table predicts: `git diff | grep | grep -vc` worked as
+> a one-line check that a hand-edited lockfile touched only `version`, `resolved` and `integrity`.
+>
+> **Write long commit bodies with `git commit -F -` and a quoted heredoc.** The `simple_expansion`
+> row above rules out `$var`, and `-m` with embedded newlines is awkward, which leaves the multi-
+> paragraph commit messages this branch's convention calls for with no obvious route. `git commit -F -
+<<'EOF' … EOF` runs — the quoted delimiter is what keeps it out of the expansion rejection.
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
