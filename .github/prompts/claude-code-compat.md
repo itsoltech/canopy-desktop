@@ -363,6 +363,27 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 > every component is allowlisted, exactly as the table predicts: `git diff | grep | grep -vc` worked as
 > a one-line check that a hand-edited lockfile touched only `version`, `resolved` and `integrity`.
 >
+> **v2.1.276 → v2.1.277 reproduced all three rejection messages and added nothing to the taxonomy,
+> which is the first time the table has been merely confirmed rather than corrected.** `gh api …
+compare/…` returned "This command requires approval" twice and "contains multiple operations …
+> `gh api …`" once — seventeen consecutive runs — and `WebFetch` was denied on its first and only
+> call, sixteen consecutive. The `simple_expansion` row earned its place immediately: the nine
+> `npm view … dist.integrity` calls were first written as the `for p in …; do … done` loop the row
+> predicts, and were refused whole. **The `&&`-chained rewrite works and can be cheaper than the row
+> suggests** — dropping the `echo` labels and reading the nine hashes off by position takes two tool
+> calls for nine packages and is unambiguous, since `npm view … dist.integrity` prints one bare line.
+>
+> **Three more tool facts, all about reading `sdk.d.ts` and all cheap.** `grep -n -A N` **runs**, so
+> the grep-then-`sed` two-step this file prescribes collapses to one call — but **`-A` is the wrong
+> direction for this file**: TypeScript JSDoc sits _above_ the member it documents, so `grep -n -A 6
+pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and reads as though the
+> member is undocumented. Use `-B`, or keep the `sed -n 'A,Bp'` window, which is what actually
+> recovered "Uses the built-in executable if not specified". `ls -la` **runs** on `node_modules`, and
+> it is the one-call answer to "does the SDK ship its own binary" — a question two findings in this
+> range turn on. And `git log -1 --format='%B' <sha>` **runs**, which matters because this branch
+> carries two reverted `fix(ci)` workflow commits: reading `d3f34b5`'s body is how a run learns in one
+> call that the `RELEASE_TOKEN` block below is why, instead of attempting the same fix a third time.
+>
 > **Write long commit bodies with `git commit -F -` and a quoted heredoc.** The `simple_expansion`
 > row above rules out `$var`, and `-m` with embedded newlines is awkward, which leaves the multi-
 > paragraph commit messages this branch's convention calls for with no obvious route. `git commit -F -
@@ -551,6 +572,30 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 > present in the vendored `0.3.207` types, drops the MCP servers entirely and needs no version floor.
 > `claude.ts:195-198` already encodes this instinct for `--system-prompt-snapshot`; it generalises to
 > every compat change this workflow makes.
+>
+> **A fourth shape, and the one that produced v2.1.276 → v2.1.277's load-bearing finding: an entry
+> that describes a _population_ rather than a quantity, a literal or a knob. Ask whether Canopy is a
+> member of it.** The entry was "Fixed being unexpectedly logged out when an older Claude Code build
+> (for example an IDE extension's bundled CLI) runs on the same machine as the current one". It names
+> no number to trace, no string to grep and no option to set — it names a _class of program_, and the
+> whole finding is the membership test. Canopy passes it twice over: the SDK ships a per-platform
+> `claude` binary (`node_modules/@anthropic-ai/claude-agent-sdk-{platform}/claude`, 259 MB, confirmed
+> with one `ls -la`), `commitMessageGenerator.ts:75` leaves `pathToClaudeCodeExecutable` undefined
+> whenever `which claude` fails, and `sdk.d.ts:1688` documents that as "Uses the built-in executable
+> if not specified". So Canopy is the bundled CLI in the entry, and — because agent panes run the
+> `PATH` binary while commit-message generation runs the bundled one — it is _also_ the current build
+> the entry contrasts it with, inside one app against one credential store.
+>
+> Two things generalise. **Membership is usually settled by a default, not by code Canopy wrote**: the
+> exposure here exists precisely because Canopy passes nothing, which is invisible to any `Grep` for a
+> feature name and visible only in the option's doc comment. The note above about doc comments stating
+> defaults no release note restates is the same instrument pointed at a different question — not "what
+> is this option's default" but "what happens when Canopy declines to set it". And **when the entry is
+> a fix rather than a feature, the version floor argument runs backwards.** The standing rule is that
+> a change gated on `TO_VERSION` only protects users who have upgraded, so prefer an older option.
+> Here the bundled binary is the one thing in this repository whose version Canopy _does_ control, so
+> bumping the SDK is not a version floor imposed on users — it is the entire fix, and it is available
+> at exactly one place in the diff this workflow already edits every run.
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
