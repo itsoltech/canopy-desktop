@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import type { PtyManager } from './pty/PtyManager'
 import type { GitWatcher } from './git/GitWatcher'
 import type { FileTreeWatcher } from './fileWatcher/FileTreeWatcher'
+import { fileWatcherErrorMessage } from './fileWatcher/errors'
 import type { AgentSessionManager } from './agents/AgentSessionManager'
 import type { BrowserManager } from './browser/BrowserManager'
 import type { TerminalStreamService } from './pty/TerminalStreamService'
@@ -407,7 +408,13 @@ export class WindowManager {
   disposeFileWatcher(wcId: number): void {
     const watcher = this.fileWatchers.get(wcId)
     if (watcher) {
-      void watcher.stop()
+      // stop() returns a typed Result; a failed native unsubscribe can hold a
+      // directory handle open, so surface it instead of discarding it.
+      void watcher
+        .stop()
+        .mapErr((error) =>
+          console.warn('[WindowManager] file watcher stop failed:', fileWatcherErrorMessage(error)),
+        )
       this.fileWatchers.delete(wcId)
     }
   }

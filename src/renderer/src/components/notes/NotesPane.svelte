@@ -11,6 +11,8 @@
     type NoteScope,
   } from '../../lib/stores/notes.svelte'
 
+  const PREVIEW_PARSE_DEBOUNCE_MS = 150
+
   const turndown = new TurndownService({
     headingStyle: 'atx',
     codeBlockStyle: 'fenced',
@@ -43,11 +45,17 @@
       previewHtml = ''
       return
     }
-    Promise.resolve(marked.parse(raw)).then((html) => {
-      // Drop stale results from earlier, slower parses.
-      if (gen !== parseGen) return
-      previewHtml = DOMPurify.sanitize(html)
-    })
+    // Debounced: parsing + sanitizing the whole note costs O(length) per run,
+    // and `content` changes on every keystroke. Coalesce bursts of typing into
+    // a single parse instead of one per character.
+    const timer = setTimeout(() => {
+      Promise.resolve(marked.parse(raw)).then((html) => {
+        // Drop stale results from earlier, slower parses.
+        if (gen !== parseGen) return
+        previewHtml = DOMPurify.sanitize(html)
+      })
+    }, PREVIEW_PARSE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
   })
 
   function setScope(next: NoteScope): void {
