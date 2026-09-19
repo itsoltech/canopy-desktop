@@ -182,13 +182,24 @@ export class AgentSessionManager extends EventEmitter {
     }
 
     const settingsPath = join(this.hooksDir, `session-${hookSessionId}.json`)
-    const settingsSetup = adapter.setupSettings(
-      settingsPath,
-      worktreePath,
-      hookScriptPath,
-      statusLineScriptPath,
-      settingsOverrides,
-    )
+    // `setupSettings` writes to disk and can throw (ENOSPC, EACCES, read-only resource dir in a
+    // packaged app). The hook session is already registered with the router at this point, but
+    // `this.sessions` — the only map `destroySession` consults — is not populated until below, so
+    // an escaping throw would strand the router entry and keep the shared hook HTTP server open
+    // for the rest of the process lifetime. Unregister before rethrowing.
+    let settingsSetup: ReturnType<typeof adapter.setupSettings>
+    try {
+      settingsSetup = adapter.setupSettings(
+        settingsPath,
+        worktreePath,
+        hookScriptPath,
+        statusLineScriptPath,
+        settingsOverrides,
+      )
+    } catch (err) {
+      this.router.removeSession(hookSessionId)
+      throw err
+    }
 
     const session: AgentSession = {
       agentType: adapter.agentType,

@@ -13,6 +13,7 @@
     setActiveTask,
   } from '../../lib/stores/taskTracker.svelte'
   import { statusChipClass } from '../../lib/taskTracker/statusChip'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
   import { Pencil, Plus, X } from '@lucide/svelte'
   import { taskDisplayKey } from '../../lib/taskTracker/taskFilterPrefs'
@@ -150,7 +151,7 @@
       }
       step = 'pickBase'
     } catch (e) {
-      errorMessage = e instanceof Error ? e.message : String(e)
+      errorMessage = ipcErrorMessage(e)
       step = 'error'
     }
   })
@@ -416,7 +417,7 @@
         finishCreation()
       }
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err)
+      errorMessage = ipcErrorMessage(err)
       step = 'error'
     }
   }
@@ -451,7 +452,7 @@
         finishCreation()
       }
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err)
+      errorMessage = ipcErrorMessage(err)
       step = 'error'
     }
   }
@@ -476,7 +477,7 @@
         finishCreation()
       }
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err)
+      errorMessage = ipcErrorMessage(err)
       step = 'error'
     }
   }
@@ -502,7 +503,7 @@
         finishCreation()
       }
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err)
+      errorMessage = ipcErrorMessage(err)
       step = 'error'
     }
   }
@@ -546,7 +547,7 @@
           })
           onClose()
         } catch (err) {
-          errorMessage = err instanceof Error ? err.message : String(err)
+          errorMessage = ipcErrorMessage(err)
           step = 'error'
         }
       },
