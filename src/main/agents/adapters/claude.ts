@@ -28,6 +28,8 @@ const CLAUDE_HOOK_EVENTS = [
   'TeammateIdle',
   'PreCompact',
   'PostCompact',
+  'PreModelSwitch',
+  'PostModelSwitch',
   'SessionEnd',
 ]
 
@@ -48,6 +50,12 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
   TaskCompleted: 'TaskCompleted',
   TeammateIdle: 'TeammateIdle',
   SessionEnd: 'SessionEnd',
+  // Model switches carry `model` but no session-status meaning, so they stay
+  // unnamed and are consumed only for that payload — same as Gemini's
+  // BeforeModel/AfterModel. `toNotchStatus` returns null for 'Unknown', which
+  // keeps a switch from overwriting the pane's thinking/toolCalling status.
+  PreModelSwitch: 'Unknown',
+  PostModelSwitch: 'Unknown',
 }
 
 const INTERNAL_BLOCKED = new Set([
@@ -178,11 +186,16 @@ export const claudeAdapter: AgentAdapter = {
     const permMode = prefs.get('claude.permissionMode')
     const effort = prefs.get('claude.effortLevel')
     const appendPrompt = prefs.get('claude.appendSystemPrompt')
+    const promptSnapshot = prefs.get('claude.systemPromptSnapshot')
 
     if (model) args.push('--model', model)
     if (permMode) args.push('--permission-mode', permMode)
     if (effort) args.push('--effort', effort)
     if (appendPrompt) args.push('--append-system-prompt', appendPrompt)
+    // Only ever emit the documented 'off' value. Anything else (including the
+    // implicit default) omits the flag, so panes running a CLI older than
+    // 2.1.267 — which does not know the flag — start normally.
+    if (promptSnapshot === 'off') args.push('--system-prompt-snapshot', 'off')
 
     return args
   },
