@@ -1646,6 +1646,90 @@ runs `npm ci` there, and it remains a lower bound for the reason the 2.1.273 not
 turns the logout entry from a general warning into a claim about one specific Canopy line, and that
 sentence appears in no release note.
 
+**2.1.278 changes what auto mode costs, and the first thing to record is the near-miss.** Grepping
+`src/` for `'auto'` returns it twice in the renderer and both hits read, at a glance, as a Claude
+**model** option — which would put Canopy's own UI directly in the release's population. Both are
+`claude.permissionMode`: `ClaudeProfileForm.svelte:73` and `AiSetupStep.svelte:48` are the
+Default/Plan/Auto/Accept-edits/Bypass select. Both **Model** fields are free-text `<input>`s whose
+placeholders read "sonnet, opus, haiku, fable, or model ID" and "sonnet, opus, haiku, or model ID";
+neither offers `auto`. This is the 2.1.273 naming-collision note reproduced on a different axis, and
+it is worth one paragraph because the grep alone would have supported a finding that reading the two
+files removes.
+
+**So whether a Canopy pane is in auto mode at all is settled by a default Canopy does not set.**
+`claude.ts:182` is `if (model) args.push('--model', model)`, so an empty Model field means no
+`--model` flag and whatever the CLI itself defaults to. The field is unvalidated, so a user _can_
+type `auto`, but Canopy neither offers it nor documents it. Whether the CLI's own default is auto is
+**not established here** — the entry's documentation link is unreachable (`WebFetch` denied) and the
+vendored SDK is 2.1.207, which the 2.1.273 note fixes as a lower bound. This is the 2.1.277
+membership instrument pointed at a question this run cannot close, and the honest answer is that the
+size of the affected Canopy population is unknown rather than zero.
+
+**The provider half needs no such hedge, and Canopy is squarely inside it.** The entry names "Claude
+API and Enterprise users, and on Bedrock, Vertex, Foundry and gateways". `claude.ts:200-202` and
+`commitMessageGenerator.ts:134-136` set `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and
+`CLAUDE_CODE_USE_FOUNDRY` from `claude.provider`, a first-class profile field — so three of the four
+named surfaces are ones Canopy opts users into deliberately. That makes this the second release in
+this range where a Claude Code default flips for precisely the configuration Canopy selects; 2.1.239's
+fullscreen-renderer offer, extended to the same three providers, was the first.
+
+**Nothing changes, and the reasons are three.** The direction is favourable: the server-side
+classifier "does not charge for classifier overhead", so the default flip makes auto mode cheaper
+rather than more expensive. The opt-out is already reachable: `CLAUDE_CODE_AUTO_MODE_SERVER=0`
+appears in neither `BLOCKED_ENV_VARS` (`envBlocklist.ts:6-67`) nor `INTERNAL_BLOCKED`
+(`claude.ts:53-58`), so `claude.customEnv` carries it today — the same disposition as 2.1.273's
+`CLAUDE_CODE_GATEWAY_HINT_HEADERS` and 2.1.271's `ANTHROPIC_UNIX_SOCKET`, and it does not belong in
+the blocklist, which covers linkers, proxies and CA bundles that could subvert an agent rather than
+feature toggles. And the standing version-floor rule applies with unusual force: setting the variable
+would impose a 2.1.278 floor on users in order to opt them _out_ of the cheaper behaviour.
+
+**The commit-message turn is outside the population, and it is the first of five findings on that
+call site to come back negative.** `commitMessageGenerator.ts:74` pins `model: 'haiku'`, so that turn
+is not in auto mode on any provider and neither entry can reach it. Four earlier findings in this
+range landed on `generateCommitMessage()` — 2.1.237, 2.1.266, 2.1.268 and 2.1.275 — and this one does
+not. The shape is the mirror image of 2.1.274's `settingSources` finding and worth keeping as such:
+there, an **omission** meant "inherit every default"; here, an **explicit value** means "opt out of
+the default before it changes". When a release changes a default, the call sites that pin the setting
+are the ones to clear first.
+
+**The `/status` row is not a surface Canopy reads.** `normalizeStatus` (`claude.ts:135-173`) consumes
+the statusLine payload — `version`, `model`, `context_window`, `cost`, `rate_limits` — while
+`/status` is the interactive TUI command, a different surface. That is read off the entry's wording
+rather than verified, and deliberately so: the vendored 0.3.207 types are a lower bound, so an
+auto-mode field being absent there would prove nothing. If the CLI also added one to the **statusLine**
+payload, Canopy would silently drop it, which is exactly the standing shape of the two fields left
+unwired since 2.1.251 — `rate_limits.spend_limit` and `prompt_cache`, still unwired at 2.1.278. The
+"warns on billed fallback" text is in-pane TUI output and reaches the user through the PTY unchanged.
+
+**A third consecutive tools-only increment — and the first where the unannounced prompt file is
+evidence rather than a gap.** Files +1 (+7.1%) gives 1 ÷ 0.071 = 14 before and 15 after, continuing
+the 2.1.277 note's 14 for an eighth link. Tokens +685 (+4.6%) put the total at ~14.9k before and
+~15.6k after, reproducing that note's ~14.8k. Splitting by the given mix (72.0%/28.0% → 73.2%/26.8%)
+gives **tools ~10.7k → ~11.4k (+680) and system ~4.17k → ~4.17k (+5)**; carrying the 0.1% rounding
+through both ends leaves tools at +429…+931 — sign safe — and system at −99…+109, straddling zero. So
+the whole increment is the tools half for the third release running.
+
+What is new is that **this release's changelog is complete**: two entries, no "… +N more" marker, the
+first such release since 2.1.263. For 2.1.272, 2.1.276 and 2.1.277 the sentence "the changelog does
+not name the new file" was ambiguous between _not announced_ and _announced behind the truncation_.
+Here it is unambiguous. The bundle grew **+11.7 kB (+0.0%)** against 685 tokens of prompt text — call
+it ~2.7 kB — which places this much nearer 2.1.276's re-extraction end than 2.1.277's +653.2 kB
+new-tool end. The obvious candidate, the auto-mode classifier prompt extracted for the local billed
+fallback path, **does not fit cleanly**: the arithmetic puts the growth on the _tools_ side and a
+model-selection classifier is not a tool description. Left unresolved rather than guessed;
+`meta/prompt-stats.md` names individual prompt files and would settle it, and is behind the same
+denied `gh api` rule as everything else. The consequence for Canopy is unchanged — `summarizeToolInput`
+(`utils.ts:31`) matches input _shape_, not name, with the generic fallback at `utils.ts:69-73` — but
+the unmatched-shape candidate set has now grown four times running, counting 2.1.274's rewrite of
+roughly half the tools prompt.
+
+**Both of 2.1.278's CLI changelog entries were readable**, the first complete changelog in this range
+since 2.1.263, so nothing is hidden behind truncation this increment. Both diff routes were denied
+again all the same: `gh api` against the changelog repo on five attempts — the eighteenth consecutive
+run, still the mid-token allowlist defect described in `.github/prompts/claude-code-compat.md` — and
+`WebFetch` on its first and only call, the seventeenth. The vendored SDK under `node_modules` is still
+`0.3.207`, since the workflow checks out `next` and runs `npm ci` there.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
