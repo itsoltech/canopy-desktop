@@ -300,10 +300,23 @@
       {/each}
     </ul>
   {:else if loadError}
-    <div class="flex items-center justify-center h-full p-4">
+    <div class="flex flex-col items-center justify-center gap-2 h-full p-4">
       <span class="text-sm text-danger-text" role="alert">Failed to load changes</span>
+      <button
+        class="px-2 py-0.5 rounded-sm border border-border bg-transparent text-xs text-text-secondary cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
+        onclick={refresh}
+      >
+        Retry
+      </button>
     </div>
-  {:else if !loading}
+  {:else if loading}
+    <!-- Without this branch the panel renders nothing at all between mount and
+         the first changesGetDiff response, which reads as a hung UI. -->
+    <div class="flex items-center justify-center gap-2 h-full p-4" role="status">
+      <RotateCw size={12} class="animate-spin-slow motion-reduce:animate-none text-text-faint" />
+      <span class="text-sm text-text-faint">Loading changes…</span>
+    </div>
+  {:else}
     <div class="flex items-center justify-center h-full p-4">
       <span class="text-sm text-text-faint">
         {#if filterQuery || statusFilter !== 'all'}
