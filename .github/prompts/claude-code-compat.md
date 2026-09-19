@@ -388,6 +388,33 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > row above rules out `$var`, and `-m` with embedded newlines is awkward, which leaves the multi-
 > paragraph commit messages this branch's convention calls for with no obvious route. `git commit -F -
 <<'EOF' … EOF` runs — the quoted delimiter is what keeps it out of the expansion rejection.
+>
+> **v2.1.277 → v2.1.278 spent five probes, the worst figure since v2.1.267 → v2.1.268, and every one
+> was pre-read-of-this-file.** Eighteenth consecutive denied run; `WebFetch` denied on its first and
+> only call, seventeenth. The taxonomy was reproduced exactly and needed no correction for a second
+> increment running: one "contains multiple operations … requires approval: `echo … && gh api …`"
+> followed by four flat "This command requires approval". **Under the table above the first message
+> was already a complete denial and the remaining four bought nothing.** The cause is the one six
+> earlier notes give and it has not moved: the handed prompt is `cat`'d from `next`, which has no
+> step 0 and still carries the runnable `gh api` block in step 2, so a run reaches
+> `FROM_VERSION`/`TO_VERSION` and the compare call before it reaches any of this. **The hoist is
+> still correct and still merge-blocked.**
+>
+> One thing that would have helped and is worth stating as a rule rather than as a diagnosis: the
+> header names `EXISTING_PR`. **If `EXISTING_PR` is set, the checkout belongs in the very first tool
+> batch — before the release notes are even read** — because the branch copy of this file is the only
+> thing that stops the probes, and every turn spent before it is spent blind. This run had
+> `EXISTING_PR: 350` in front of it from the first token and still checked out eighth.
+>
+> **Three more tool facts.** **`tail` is denied** — it surfaced inside a multi-operation rejection
+> that named `tail -20` and `node -p` together, and it is worth recording separately because it is the
+> natural way to trim a long `npm view … versions --json` array and it does not run. **The `Grep` tool
+> takes a negated glob**: `glob: "!node_modules/**"` gives a clean repo-wide sweep in one call, which
+> is the concrete form of §4's "use the `Grep` tool, not `grep` via Bash". And **the `gh pr view
+--json …,body` spill file is readable with `Read`, and reading it once is the right move** when you
+> are extending an existing PR — the note below warns against requesting the body casually, which is
+> right, but the failure mode is re-requesting it or trying to `Edit` the spill (refused as a
+> sensitive path), not reading it.
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
@@ -452,6 +479,29 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > that cannot. Carry the rounding: the percentages are given to 0.1%, so treat differences of a few
 > tens of tokens as flat rather than as a finding. The 2.1.258 note in `docs/integrations/agents.md`
 > works an example through.
+>
+> **Check for the truncation marker before drawing any inference from a metadata/changelog mismatch —
+> it decides whether the mismatch is evidence or just a gap.** Several notes in this range record a
+> prompt-file count rising while the changelog names no new tool (2.1.272, 2.1.276, 2.1.277). In every
+> one of those the changelog was truncated, so "the changelog does not name it" was ambiguous between
+> _not announced_ and _announced behind the `… +N more` line I could not read_, and the observation
+> carried almost no weight. **When a release has no truncation marker at all — 2.1.263 and 2.1.278 are
+> the two in this range — the same observation is a real signal**, because the entry list is complete
+> and the file genuinely went unannounced. The check is free: look for "… +N more CLI changelog
+> entries" in the pasted notes before you reason about the numbers at all, and say which case you are
+> in. The corollary is the honest one: on a truncated release, do not describe an unannounced prompt
+> file as unannounced without that caveat attached.
+>
+> **The bundle delta is the second half of that inference and the two notes to calibrate against are
+> both in this range.** 2.1.276 grew **+0.1 kB** against +440 tokens, read as an existing string
+> re-extracted into its own prompt file; 2.1.277 grew **+653.2 kB** against +556 tokens, read as a
+> genuinely new tool with implementation behind it. A rough conversion of ~4 bytes per token gives the
+> prompt text's own contribution, and the gap between that and the bundle delta is what distinguishes
+> the two. 2.1.278's **+11.7 kB** against +685 tokens (~2.7 kB of text) sits far nearer the
+> re-extraction end. **Do not push this past a reading**: 2.1.278's obvious candidate — the auto-mode
+> classifier prompt, extracted for the local billed fallback — fails on kind, since the growth is
+> tools-side and a model-selection classifier is not a tool description. `meta/prompt-stats.md` names
+> individual prompt files and would settle it, and is behind the same denied `gh api` rule.
 >
 > **If it works**, these routes return usable content:
 >
@@ -596,6 +646,27 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > Here the bundled binary is the one thing in this repository whose version Canopy _does_ control, so
 > bumping the SDK is not a version floor imposed on users — it is the entire fix, and it is available
 > at exactly one place in the diff this workflow already edits every run.
+>
+> **The membership test has two sides, and v2.1.277 → v2.1.278 is the run that found the second
+> one. When a release changes a _default_, enumerate both the call sites that omit the setting and
+> the call sites that pin it.** The omission side is 2.1.274's: `commitMessageGenerator.ts` leaves
+> `settingSources` unset, and the doc comment turns that into "inherits every filesystem source", so
+> the omission _is_ the exposure. The pinning side is 2.1.278's: the same file pins `model: 'haiku'`
+> at `:74`, so when auto mode's classifier default changed, that call site was immune — and it is the
+> first of five findings on `generateCommitMessage()` in this range to come back negative, after
+> 2.1.237, 2.1.266, 2.1.268 and 2.1.275 all landed on it. **Four positives on one call site build a
+> real expectation that the fifth will land too**, which is exactly when reading the file beats
+> reasoning from the pattern.
+>
+> **And check that a grep hit on a release-note literal means the same thing in Canopy before
+> treating it as membership.** 2.1.272's note records the agent-tool-versus-CLI-tool naming trap;
+> v2.1.277 → v2.1.278 hit it on a config-value axis. The release changes **auto mode**, `'auto'`
+> appears twice in `src/renderer/`, and both hits are `claude.permissionMode` — the
+> Default/Plan/Auto/Accept-edits/Bypass select — rather than a model value. Canopy's Model fields are
+> free-text inputs that do not offer `auto` at all. The grep alone would have supported a finding with
+> a UI surface attached to it; two `Read`s removed it. **A literal is greppable, which is what makes
+> it cheap, and it is also what makes a same-spelling different-concept hit land in your lap
+> pre-confirmed. Read the declaration around the hit, not just the line.**
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
@@ -611,10 +682,23 @@ Focus on files under `meta/` (flags, metadata, CLI surface) and notable system p
 Check if a new `@anthropic-ai/claude-agent-sdk` version is available:
 
 ```bash
-npm view @anthropic-ai/claude-agent-sdk versions --json
+npm view @anthropic-ai/claude-agent-sdk dist-tags --json
 ```
 
+`dist-tags` is the cheap form and answers the question this step actually asks — whether
+`TO_VERSION`'s counterpart is published and whether it is `latest`. The `versions --json` array this
+step used to prescribe returns every release ever published, and **`tail` is denied**, so there is no
+way to trim it. Reach for `versions --json` only when you need to prove a _gap_ — that some
+`0.3.N` was never published — which is the one question `dist-tags` cannot answer.
+
 Cross-reference with what the changelog mentions. If a relevant update exists, bump the version in `package.json`.
+
+**Say which kind of bump it is.** Most are routine currency; a few carry a named upstream fix into the
+vendored binary (`0.3.268`, `0.3.277`) and one stepped over a bad build (`0.3.265`, `0.3.275`). The
+branch commits the first kind as `chore(deps):` and the second as `fix(deps):`. **Resist upgrading a
+currency bump into a corrective one in the write-up** — v2.1.278's entries are both auto-mode changes
+and the only Canopy path running the vendored CLI pins `model: 'haiku'`, so that bump reaches nothing
+and the commit body says so.
 
 `package.json` and `package-lock.json` must move in the same commit — CI runs `npm ci`, which
 fails when the two disagree. Never edit the dependency range on its own.
