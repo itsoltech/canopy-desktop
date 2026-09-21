@@ -251,6 +251,7 @@
           class:pl-2.5={!isVisibleFile}
           role="button"
           tabindex="0"
+          title={file.path}
           onclick={() => handleClick(file)}
           onkeydown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {

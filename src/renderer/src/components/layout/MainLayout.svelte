@@ -432,6 +432,7 @@
     if (path) {
       openTool(toolId, path, { profileId: opts?.profileId }).catch((err) => {
         console.error(`Failed to launch tool '${toolId}':`, err)
+        addToast(`Failed to launch ${toolId}`, 'danger')
       })
     }
   }
@@ -520,6 +521,7 @@
       } else {
         openTool(getPref('newTab.toolId', 'shell'), path).catch((err) => {
           console.error('Failed to open new tab:', err)
+          addToast('Failed to open new tab', 'danger')
         })
       }
     }
@@ -554,20 +556,27 @@
     // Cmd+1-9: switch to tab by index
     if (path && e.key >= '1' && e.key <= '9') {
       e.preventDefault()
-      switchTabByIndex(path, parseInt(e.key) - 1).catch((err) =>
-        console.error('switchTabByIndex failed:', err),
-      )
+      switchTabByIndex(path, parseInt(e.key) - 1).catch((err) => {
+        console.error('switchTabByIndex failed:', err)
+        addToast('Failed to switch tab', 'danger')
+      })
     }
 
     // Cmd+Shift+[ and Cmd+Shift+]
     if (e.key === '[' && e.shiftKey && path) {
       e.preventDefault()
-      prevTab(path).catch((err) => console.error('prevTab failed:', err))
+      prevTab(path).catch((err) => {
+        console.error('prevTab failed:', err)
+        addToast('Failed to switch tab', 'danger')
+      })
     }
 
     if (e.key === ']' && e.shiftKey && path) {
       e.preventDefault()
-      nextTab(path).catch((err) => console.error('nextTab failed:', err))
+      nextTab(path).catch((err) => {
+        console.error('nextTab failed:', err)
+        addToast('Failed to switch tab', 'danger')
+      })
     }
   }
 </script>

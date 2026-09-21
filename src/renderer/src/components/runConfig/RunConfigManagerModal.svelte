@@ -118,10 +118,15 @@
       if (focusable.length === 0) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
+      // onMount focuses the container itself, and querySelectorAll never returns
+      // it, so `first`/`last` alone miss that state: Shift+Tab as the first
+      // keystroke fell through to the native tab order and walked out of the
+      // dialog, behind the scrim.
+      const active = document.activeElement
+      if (event.shiftKey && (active === first || active === modalEl)) {
         event.preventDefault()
         last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && active === last) {
         event.preventDefault()
         first.focus()
       }
