@@ -1751,6 +1751,15 @@ body-bearing keys. Both guards are order-sensitive and the reasons are in the co
 pattern, and **above** `description` because the release's fourth shape is a Write carrying a stray
 `description` that should still summarize as its path.
 
+**What the guard trades, stated plainly.** An input carrying _only_ a body key — `{file_text}` with no
+path of any spelling — now falls through to `''` where it previously returned 80 characters of the
+body, so the notch renders `Write: ` with a dangling colon. That is the exact symptom of the
+long-standing array-only finding, and the same two-line `Array.isArray`/empty-result branch closes
+both. The trade is the right way round — a dangling colon is a cosmetic defect, a file body in a
+notification is a disclosure — but it is a trade, not a clean win, and it is not hypothetical for long
+if upstream keeps loosening tool schemas. A Write with a body and no target should not survive
+validation even after 2.1.280, which is why this is recorded rather than fixed here.
+
 **This is the shape the 2.1.270 note predicted from the other end.** That note recorded the standing
 check as "an unknown tool degrades to a generic summary", and the 2.1.272 audit enumerated the five
 Canopy paths that key off a tool name. Both framed the risk as _new tools_. The actual break came from
