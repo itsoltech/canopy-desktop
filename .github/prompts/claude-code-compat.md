@@ -415,6 +415,44 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > are extending an existing PR — the note below warns against requesting the body casually, which is
 > right, but the failure mode is re-requesting it or trying to `Edit` the spill (refused as a
 > sensitive path), not reading it.
+>
+> **v2.1.278 → v2.1.280 spent seven `gh api` probes — the worst figure this file has recorded — and
+> the shape of the waste is new even though the cause is not.** Nineteenth consecutive denied run;
+> `WebFetch` denied on its first and only probe, eighteenth. Six earlier notes blame the same thing and
+> it has not moved: the handed prompt is `next`'s, so the run met step 2's runnable compare call before
+> any of this. What is different is that these were not one probe repeated. After the first two
+> denials the run started **differential-diagnosing the rule** — is it the `...` in the compare ref, is
+> it the `--jq`, is it the quoting? — and spent three more calls on `releases/tags/{tag}` and a bare
+> `releases` to isolate it. That produced a clean confirmation of the mid-token diagnosis from a path
+> with no dots, no flags and no quoting, and the confirmation **was already written down**, which is
+> the whole point. **The rule for the next run is therefore narrower than "do not probe": once any
+> `gh api` call against the changelog repo is denied, you have the answer for _every_ shape of that
+> command — do not vary the path, the flags or the quoting to find out which part failed.** The
+> mechanism is the allowlist prefix, and it cannot discriminate between paths.
+>
+> **Backticks in a `git commit -m` body produce the taxonomy table's _first_ message, not its third,
+> and that makes the table actively misleading here.** Writing a commit body in this repository's
+> markdown-ish house style — "a model sends `path`, `file_text` or a stray `description`" — came back
+> as "contains multiple operations. The following parts require approval: `path`, `pattern`,
+> `description`". Under the table above that message means "`path` is not allowlisted", which sends a
+> run hunting for a missing `Bash(...)` rule that does not exist. The real cause is that the harness
+> parses backticks as command substitution, resolves each to a bare command name, and then reports
+> those names as un-allowlisted components. **Any word you wrap in backticks inside a `-m` body
+> becomes a command the harness tries to authorise.** Two fixes, both already available: drop the
+> backticks (plain quotes or bare words read fine in `git log`), or use the `git commit -F - <<'EOF'`
+> quoted heredoc the note above prescribes, whose quoted delimiter suppresses the substitution. The
+> heredoc is the better default for the multi-paragraph bodies this branch's convention wants; the
+> backtick trap is the reason to reach for it even when `-m` would otherwise do.
+>
+> **Delegating the fetch was tried a second time and failed the same way, which closes the question.**
+> The note below records the v2.1.259 → v2.1.260 run handing it to `claude-code-guide`. This run
+> handed it to a different agent type — `itsolpowers:itsol-current-tech-context`, whose declared tool
+> list includes `WebFetch` and `WebSearch` — and the subagent was refused on `WebFetch`, `WebSearch`,
+> `curl` **and** `gh api`, then correctly stopped rather than reconstructing the release from model
+> memory. Two agent types, two runs, identical refusal: **the permission decision is the session's and
+> a subagent's declared tools do not widen it.** Do not spend a third delegation on reach. It cost one
+> agent and ~16k tokens to learn nothing new, which is the cheap version of this mistake, but it is
+> still the third route this file now rules out alongside `curl` and self-written scripts.
 
 > **Nothing in this file reaches the job that needs it until PR 350 merges — which is why each run
 > rediscovers the blockers above from scratch.** The workflow checks out `ref: next` and then builds
