@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -24,6 +25,7 @@
   import { statusChipClass } from '../../lib/taskTracker/statusChip'
   import { taskDisplayKey } from '../../lib/taskTracker/taskFilterPrefs'
   import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
   import type { TrackerProviderKind, TrackerTaskLite } from '../../lib/taskTracker/types'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import TaskListPicker from './TaskListPicker.svelte'
@@ -40,6 +42,9 @@
   let linkTab = $state<'existing' | 'newTask'>('existing')
 
   let dialogEl: HTMLDivElement | undefined = $state()
+  // Returns focus to whatever opened the picker when it is dismissed. Cleared
+  // before sending a task to an agent, since that path focuses the agent tab.
+  let restoreFocus: (() => void) | null = null
   let sendingTaskKey = $state('')
   let sendStatus = $state('')
   let sendError = $state('')
@@ -158,6 +163,11 @@
     closeDialog()
   }
 
+  onMount(() => {
+    restoreFocus = captureFocusReturn()
+    return () => restoreFocus?.()
+  })
+
   async function confirmLink(): Promise<void> {
     if (!selectedLinkTask) return
     await linkTask($state.snapshot(selectedLinkTask) as TrackerTaskLite)
@@ -250,6 +260,7 @@
     }
 
     addToast('Task sent to agent')
+    restoreFocus = null
     closeDialog()
   }
 </script>

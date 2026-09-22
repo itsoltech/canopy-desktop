@@ -36,6 +36,7 @@ import { FileTreeWatcher } from '../fileWatcher/FileTreeWatcher'
 import { DEFAULT_IGNORE_PATTERNS } from '../fileWatcher/defaults'
 import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
+import { parseWorktreeSetupActions } from '../worktree/parseSetupActions'
 import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/worktreeRemoval'
 import { comparableWorkspacePath } from '../db/workspacePaths'
 
@@ -47,7 +48,6 @@ const TRUSTED_WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir.trustedResolved'
 export interface IpcCommandBridge {
   grantAttachPath(webContentsId: number, targetPath: string): void
 }
-import type { WorktreeSetupAction } from '../db/types'
 import { generateCommitMessage } from '../ai/commitMessageGenerator'
 import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
 import type { RepoConfigManager } from '../taskTracker/RepoConfigManager'
@@ -4949,10 +4949,8 @@ export function registerIpcHandlers(
       const configJson = preferencesStore.get(`workspace:${payload.workspaceId}:worktreeSetup`)
       if (!configJson) return { success: true, errors: [] }
 
-      let actions: WorktreeSetupAction[]
-      try {
-        actions = JSON.parse(configJson) as WorktreeSetupAction[]
-      } catch {
+      const actions = parseWorktreeSetupActions(configJson)
+      if (!actions) {
         return { success: false, errors: ['Invalid worktree setup config'] }
       }
 
