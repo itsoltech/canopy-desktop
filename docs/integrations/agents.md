@@ -1730,6 +1730,129 @@ run, still the mid-token allowlist defect described in `.github/prompts/claude-c
 `WebFetch` on its first and only call, the seventeenth. The vendored SDK under `node_modules` is still
 `0.3.207`, since the workflow checks out `next` and runs `npm ci` there.
 
+**2.1.280's Write-validation fix is the first entry in this range to force a code change by making a
+malformed tool input _legal_, and what it reached was an OS notification.** The entry reads "Fixed
+`Write` calls failing validation when a model sends `path`, `file_text`, `file_content` or a stray
+`description` instead of `file_path` and `content`". Before this release those shapes were rejected
+upstream; from 2.1.280 they validate, so `PreToolUse` delivers them — and `summarizeToolInput`
+(`utils.ts:31-76` as it stood) had a branch for `file_path` and none for `path`, `file_text` or
+`file_content`. A Write arriving as `{path, file_text}` fell through every named branch to the generic
+first-string fallback at the bottom, which returns whichever string key comes first **in object
+order**. For `{file_text, path}` that is the file body, truncated to 80 characters.
+
+**That fallback is not a display-only path.** `summarizeToolInput` feeds `toNotchStatus`
+(`claude.ts:245-264`) for the `toolCalling` and `waitingPermission` details, and `formatNotification`
+(`claude.ts:237-243`) for the body of the macOS "Claude Code — Permission Required" notification. So a
+Write of a `.env`, a key file or any secret-bearing file could have put its first 80 characters into a
+system notification — rendered by the OS, outside Canopy's control, and on macOS persisted to
+Notification Centre. The fix adds `path` as a `file_path` alias and makes the fallback skip
+body-bearing keys. Both guards are order-sensitive and the reasons are in the code: `path` sits
+**below** the `pattern` branch because Grep and Glob send `{pattern, path}` and their summary is the
+pattern, and **above** `description` because the release's fourth shape is a Write carrying a stray
+`description` that should still summarize as its path.
+
+**This is the shape the 2.1.270 note predicted from the other end.** That note recorded the standing
+check as "an unknown tool degrades to a generic summary", and the 2.1.272 audit enumerated the five
+Canopy paths that key off a tool name. Both framed the risk as _new tools_. The actual break came from
+an existing tool with a **new input spelling**, which no tool-name audit would have caught — the
+function matches input shape, not name, and that is exactly why it was exposed. Worth keeping as the
+counterexample: a release that loosens a tool's schema is as much a Canopy event as one that adds a
+tool.
+
+**Opus 5.5 becomes the default Opus model and Canopy's Model field is free text, so no app code
+changes — but Canopy's own CI is squarely in the population.** `ClaudeProfileForm.svelte` keeps an
+unvalidated `<input>` and `claude.ts:182` is `if (model) args.push('--model', model)`, so an empty
+field means no flag and whatever the CLI defaults to; no model list is hardcoded anywhere in `src/`.
+What does hardcode one is `.github/workflows/`: nine workflows pass `--model opus[1m]`, `--model
+haiku` or both in `claude_args`, and `opus[1m]` now resolves to `claude-opus-5-5` at $4/$20 per Mtok
+with $0.20/Mtok cache reads. That is a per-run cost change to this repository's own automation with no
+file to edit — the alias is doing what it is for. Recorded rather than changed, and noted here because
+a future run comparing workflow costs across this range will otherwise look for a commit that does not
+exist. `normalizeStatus` (`claude.ts:135-173`) reads `context_window_size` from the payload rather than
+assuming it, so a 1M-context default needs nothing, and `AgentInspector.svelte` colours on percentage.
+
+**The auto-mode retry fixes land on a permission mode Canopy offers by name, and Canopy's hook server
+is the quiet beneficiary.** `ClaudeProfileForm.svelte:73` puts `auto` in the Default/Plan/Auto/Accept-
+edits/Bypass select, so `--permission-mode auto` is one click away — the same population the 2.1.278
+note established. Two of this release's fixes bound a loop: a declined safety review is now denied once
+"noting that retrying won't help", and a silent check backs off with the turn stopping after ten in a
+row. The un-bounded version of that loop did not just burn tokens in the pane. Every retry raises
+`PreToolUse`/`PostToolUse`, and each of those is an HTTP POST to `AgentHookServer` on `127.0.0.1`,
+normalized and pushed to the renderer as a status change — so a wedged auto-mode turn presented in
+Canopy as a notch flickering between `toolCalling` and `thinking` indefinitely, with no terminal state.
+It now reaches `Stop` and settles on `idle`. Nothing to change; worth recording because the symptom is
+one a user would have reported as a Canopy bug.
+
+**`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` is reachable from a profile today and cannot reach the
+commit-message turn at all.** The new variable lifts the 2,048-character cap on MCP tool descriptions
+and server instructions. It appears in neither `BLOCKED_ENV_VARS` (`envBlocklist.ts:6-67`) nor
+`INTERNAL_BLOCKED` (`claude.ts:53-58`), so `claude.customEnv` carries it — the same disposition as
+2.1.278's `CLAUDE_CODE_AUTO_MODE_SERVER`, 2.1.273's `CLAUDE_CODE_GATEWAY_HINT_HEADERS` and 2.1.271's
+`ANTHROPIC_UNIX_SOCKET`, and for the same reason: the blocklist covers linkers, proxies and CA bundles
+that could subvert an agent, not feature toggles, and wiring a first-class field would impose a
+2.1.280 floor. The second half is the sharper one. `commitMessageGenerator.ts:91` sets
+`strictMcpConfig: true`, so that turn has **no MCP servers at all** and a cap on MCP descriptions is
+unreachable there by construction. That makes six consecutive negatives on `generateCommitMessage()`
+after four straight hits earlier in the range — and this one is negative _because of a change this
+branch itself made_ at 2.1.274, to stop the turn waiting on the user's MCP fleet. A mitigation landed
+for one reason has now closed a second, unrelated surface.
+
+**The symlink fix is a genuine behaviour change for a path shape Canopy produces, and the right
+response is still to change nothing.** From 2.1.280 a write through a symlinked path is judged by
+where it **lands** rather than by its in-tree spelling, and `acceptEdits`, allow rules and auto mode no
+longer approve one landing outside. Canopy hands the CLI a worktree path it created, and those paths
+sit wherever the user pointed them — on macOS anything under `/tmp` or `/var` is reached through a
+symlink before the user does anything unusual. So a user in `acceptEdits` or `auto` whose worktree is
+behind a symlink can see per-edit prompts return on 2.1.280 where there were none on 2.1.279.
+**Resolving the cwd with `realpath` before spawning would be the wrong fix**, and not marginally:
+`handlers.ts:2063-2075` validates removal against `git worktree list` output by path comparison, and
+`index.ts:339` builds its dedupe set from `gitInfo.worktrees.map((wt) => wt.path)` — both compare
+against git's own spelling, so substituting a resolved path would break worktree removal and tab
+dedupe to suppress a prompt that is, on its merits, correct. Canopy's own setup runner is already
+strict here for its own writes (`WorktreeSetupRunner.ts:14,32-47` resolves realpaths and refuses a
+destination that crosses a symlink), which is the same judgement the CLI has now adopted. Support
+answer, not a code change.
+
+**Three more entries reach a Canopy surface and need nothing from it.** The `hook_execution_complete`
+OpenTelemetry event gains hook output sizes and a count of oversized outputs spilled to a file — the
+nearest miss in the release, since Canopy is a hook consumer, but it is OTel telemetry rather than hook
+payload, and Canopy's hooks are observational: `canopy-agent-hook.sh` POSTs to `127.0.0.1` and returns
+nothing, so its output size is ~0 and it can never be the oversized one. The `y`/`n` change — a stray
+`n` no longer closes dialogs, a stray `y` no longer confirms them, with `keybindings.json` offered to
+restore them — would break any caller that auto-confirms by writing bytes to the PTY; grepping `src/`
+for programmatic `y`/`n`/CR writes returns nothing, so every one of those keystrokes is a user's own
+and passes through unchanged. And Ctrl+C or Ctrl+D pressed twice in `/model`, `/config`, `/permissions`
+and eleven other dialogs no longer quits the CLI, which in a Canopy pane had meant an unexplained
+`SessionEnd`; that arrives through the user's own `claude` on `PATH`, so the SDK pin in `package.json`
+does not deliver it — the standing asymmetry the 2.1.268 and 2.1.269 notes both record.
+
+**This is the largest release in the range on every axis the metadata carries, and the first in four
+where both prompt halves grew.** Files +4 (+26.7%) gives 4 ÷ 0.267 = 14.98, so **15 before and 19
+after** — the band is 14.95–15.01, so 15 is exact — continuing the 2.1.278 note's 15 for a ninth link.
+Tokens +10,204 (+65.2%) put the total at **~15.65k before and ~25.85k after**, reproducing that note's
+~15.6k. Splitting by the given mix (73.2%/26.8% → 67.3%/32.7%) gives **tools ~11.46k → ~17.40k
+(+5,944) and system ~4.19k → ~8.45k (+4,260)**; carrying the 0.1% rounding through both ends leaves
+tools at +5,907…+5,982 and system at +4,232…+4,288, so both signs are safe by a wide margin. Three
+consecutive tools-only increments (2.1.276, 2.1.277, 2.1.278) end here. The bundle corroborates it
+rather than merely permitting it: **+1,120.3 kB (+2.2%)** puts the total at ~50.9 MB (band 49.8–52.1 MB),
+and at the ~4 bytes/token conversion the 2.1.277 note calibrates, 10,204 tokens of prompt text is only
+~41 kB of that. The remaining ~1.08 MB is implementation, which places this far past 2.1.277's
++653.2 kB "genuinely new tool" end — four new prompt files with real code behind them, built in the
+2d 19h 27m since 2.1.278, the longest gap in this range.
+
+**102 of 2.1.280's 114 CLI changelog entries were not readable this run**, against 12 visible — a new
+high for hidden entries in this range, past 2.1.274's 96, and the largest entry count of any release
+here. Everything above is drawn from the 12 visible entries and Canopy's own files; the other 102 are
+unrecoverable for this run and no claim here should be read as covering them. Both diff routes were
+denied again: `gh api` against the changelog repo on four attempts — the nineteenth consecutive run,
+still the mid-token allowlist defect described in `.github/prompts/claude-code-compat.md` — and
+`WebFetch` on its first and only call, the eighteenth. Delegating the fetch was tried a second time
+and failed a second time, which settles it: a subagent hit the identical refusal on `WebFetch`,
+`WebSearch`, `curl` **and** `gh api`, confirming from a second agent type what the v2.1.259 → v2.1.260
+run found with `claude-code-guide` — the permission decision is the session's, not the agent's. The
+vendored SDK under `node_modules` is still `0.3.207`, since the workflow checks out `next` and runs
+`npm ci` there.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
