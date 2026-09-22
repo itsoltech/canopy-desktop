@@ -28,6 +28,21 @@ export function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 3) + '...' : text
 }
 
+// Keys whose value is a file's *body* rather than a description of it. Claude
+// Code 2.1.280 made `file_text`/`file_content` accepted aliases for Write's
+// `content`, so a Write that names its target `path` instead of `file_path`
+// now validates upstream and reaches PreToolUse in that shape. Without this
+// guard the loop below would pick whichever body key came first and put 80
+// characters of file contents in a notch detail or an OS notification.
+const BODY_KEYS = new Set([
+  'content',
+  'file_text',
+  'file_content',
+  'old_string',
+  'new_string',
+  'new_source',
+])
+
 export function summarizeToolInput(input?: Record<string, unknown>): string {
   if (!input) return ''
 
@@ -56,6 +71,12 @@ export function summarizeToolInput(input?: Record<string, unknown>): string {
     }
     return truncate(summary, 80)
   }
+  // Must stay below the `pattern` branch: Grep and Glob send `{pattern, path}`
+  // and their summary is the pattern. Above `description`, so a Write carrying
+  // both a `path` alias and a stray `description` still summarizes as the path.
+  if (typeof input.path === 'string') {
+    return input.path
+  }
   if (typeof input.prompt === 'string') {
     return truncate(input.prompt, 80)
   }
@@ -66,7 +87,8 @@ export function summarizeToolInput(input?: Record<string, unknown>): string {
     return input.skill
   }
 
-  for (const val of Object.values(input)) {
+  for (const [key, val] of Object.entries(input)) {
+    if (BODY_KEYS.has(key)) continue
     if (typeof val === 'string' && val.length > 0) {
       return truncate(val, 80)
     }
