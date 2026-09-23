@@ -317,6 +317,21 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
     .otherwise(() => {})
 }
 
+const TASK_STATUSES = ['pending', 'in_progress', 'completed', 'deleted'] as const
+
+/**
+ * Tool input arrives from an agent hook payload, so it is untrusted: validate
+ * before writing into `TaskRecord` rather than asserting. A bad `status` would
+ * otherwise land an arbitrary string in a field the UI branches on.
+ */
+function isTaskStatus(value: unknown): value is TaskRecord['status'] {
+  return typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value)
+}
+
+function asOptionalString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
 function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEvent): void {
   const toolName = event.toolName
   if (!toolName) return
@@ -332,9 +347,9 @@ function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEven
         ...session.tasks,
         {
           id,
-          subject: (input.subject as string) ?? '',
+          subject: asOptionalString(input.subject) ?? '',
           status: 'pending' as const,
-          activeForm: (input.activeForm as string) ?? null,
+          activeForm: asOptionalString(input.activeForm),
           owner: null,
         },
       ]
@@ -360,11 +375,11 @@ function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEven
       const taskId = String(input.taskId ?? '')
       const existing = session.tasks.find((t) => t.id === taskId)
       if (existing) {
-        if (input.status) existing.status = input.status as TaskRecord['status']
-        if (input.subject) existing.subject = input.subject as string
-        if (input.owner !== undefined) existing.owner = (input.owner as string) ?? null
-        if (input.activeForm !== undefined)
-          existing.activeForm = (input.activeForm as string) ?? null
+        const subject = asOptionalString(input.subject)
+        if (isTaskStatus(input.status)) existing.status = input.status
+        if (subject) existing.subject = subject
+        if (input.owner !== undefined) existing.owner = asOptionalString(input.owner)
+        if (input.activeForm !== undefined) existing.activeForm = asOptionalString(input.activeForm)
         session.tasks = [...session.tasks]
       }
     })

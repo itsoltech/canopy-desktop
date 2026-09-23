@@ -357,14 +357,14 @@
     return window.api.onShowOnboarding(async (data) => {
       const { initOnboarding, onboardingState } = await import('../../lib/stores/onboarding.svelte')
       await initOnboarding(data.mode, data.fromVersion)
-      if (onboardingState.mode === 'none' && data.fromVersion) {
-        // No onboarding steps to show, fall back to changelog
-        showChangelog(data.fromVersion)
-      } else if (onboardingState.mode === 'first-launch') {
-        showOnboardingWizard()
-      } else if (onboardingState.mode === 'upgrade') {
-        showFeatureOnboarding(data.fromVersion ?? '')
-      }
+      match(onboardingState.mode)
+        .with('none', () => {
+          // No onboarding steps to show, fall back to changelog
+          if (data.fromVersion) showChangelog(data.fromVersion)
+        })
+        .with('first-launch', () => showOnboardingWizard())
+        .with('upgrade', () => showFeatureOnboarding(data.fromVersion ?? ''))
+        .exhaustive()
     })
   })
 
