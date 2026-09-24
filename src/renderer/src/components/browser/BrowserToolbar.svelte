@@ -105,6 +105,14 @@
   }
 </script>
 
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key !== 'Escape') return
+    if (captureDropdownOpen) closeDropdown()
+    if (deviceDropdownOpen) deviceDropdownOpen = false
+  }}
+/>
+
 <div class="flex items-center gap-1 h-9 px-1.5 bg-bg-input border-b border-active flex-shrink-0">
   <div class="flex items-center gap-0.5 flex-shrink-0">
     <button
@@ -185,6 +193,8 @@
           onclick={() => (captureDropdownOpen ? closeDropdown() : openDropdown())}
           title={hasAiSessions ? 'Capture to AI agent' : 'No AI sessions open'}
           aria-label={hasAiSessions ? 'Capture to AI agent' : 'No AI sessions open'}
+          aria-haspopup="menu"
+          aria-expanded={captureDropdownOpen}
         >
           <Crosshair size={14} />
         </button>
@@ -229,6 +239,8 @@
         onclick={() => (deviceDropdownOpen = !deviceDropdownOpen)}
         title="Responsive mode"
         aria-label="Responsive mode"
+        aria-haspopup="menu"
+        aria-expanded={deviceDropdownOpen}
       >
         <Smartphone size={14} />
       </button>
