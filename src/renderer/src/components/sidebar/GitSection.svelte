@@ -182,7 +182,7 @@
   <div class="flex flex-col">
     <button
       class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-      disabled={!workspaceState.isDirty || loading === 'commit'}
+      disabled={!workspaceState.isDirty || loading !== null}
       onclick={doCommit}
       title={workspaceState.isDirty ? 'Commit staged changes' : 'Nothing to commit'}
     >
@@ -215,7 +215,7 @@
 
     <button
       class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-      disabled={loading === 'push'}
+      disabled={loading !== null}
       onclick={doPush}
       title="Push to remote"
     >
@@ -240,7 +240,7 @@
     </button>
     <button
       class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-      disabled={loading === 'pull'}
+      disabled={loading !== null}
       onclick={doPull}
       title="Pull from remote"
     >
@@ -265,7 +265,7 @@
     </button>
     <button
       class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-      disabled={loading === 'fetch'}
+      disabled={loading !== null}
       onclick={doFetch}
       title="Fetch from remote"
     >
@@ -291,7 +291,7 @@
 
     <button
       class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-      disabled={!workspaceState.isDirty || loading === 'stash'}
+      disabled={!workspaceState.isDirty || loading !== null}
       onclick={doStash}
       title={workspaceState.isDirty ? 'Stash changes' : 'Nothing to stash'}
     >
@@ -310,7 +310,7 @@
     </button>
     <button
       class="group flex items-center gap-2.5 w-full h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left transition-colors duration-fast enabled:hover:bg-hover disabled:text-text-faint disabled:cursor-default"
-      disabled={loading === 'stashPop'}
+      disabled={loading !== null}
       onclick={doStashPop}
       title="Pop stashed changes"
     >

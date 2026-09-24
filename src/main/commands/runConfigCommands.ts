@@ -100,6 +100,10 @@ export class RunConfigCommandService {
           cwd,
           env,
         })
+        // Track the hook PTY too: disposeWindow only kills sessions it knows
+        // about, so an untracked pre_run survives a window close until its own
+        // 30s timeout fires.
+        this.deps.windowManager.trackPtySession(sender.id, preSession.id)
         let preOutput = ''
         preSession.pty.onData((data) => {
           preOutput += data
@@ -113,6 +117,7 @@ export class RunConfigCommandService {
             if (!done) {
               done = true
               this.deps.ptyManager.kill(preSession.id)
+              this.deps.windowManager.untrackPtySession(sender.id, preSession.id)
               reject(new Error(`pre_run "${config.pre_run}" timed out after 30s`))
             }
           }, PRE_RUN_TIMEOUT)
@@ -121,6 +126,7 @@ export class RunConfigCommandService {
             done = true
             clearTimeout(timer)
             this.deps.ptyManager.kill(preSession.id)
+            this.deps.windowManager.untrackPtySession(sender.id, preSession.id)
             if (exitCode !== 0) {
               const lastLines = preOutput.trim().split('\n').slice(-5).join('\n')
               reject(
@@ -166,12 +172,16 @@ export class RunConfigCommandService {
             cwd,
             env,
           })
+          // cleanup() above already untracked the main session, so post_run
+          // needs its own tracking to stay reachable from disposeWindow.
+          this.deps.windowManager.trackPtySession(senderId, postSession.id)
           const POST_RUN_TIMEOUT = 30_000
           let postDone = false
           const postTimer = setTimeout(() => {
             if (!postDone) {
               postDone = true
               this.deps.ptyManager.kill(postSession.id)
+              this.deps.windowManager.untrackPtySession(senderId, postSession.id)
               if (!sender.isDestroyed()) {
                 sender.send('runConfig:postRunResult', {
                   success: false,
@@ -194,6 +204,7 @@ export class RunConfigCommandService {
               )
             }
             this.deps.ptyManager.kill(postSession.id)
+            this.deps.windowManager.untrackPtySession(senderId, postSession.id)
           })
         }
       })
