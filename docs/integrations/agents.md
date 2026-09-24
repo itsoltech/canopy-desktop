@@ -159,7 +159,7 @@ The fields below describe the keys stored inside each profile's `prefs_json` (no
 | `baseUrl`                              | Claude   | `ANTHROPIC_BASE_URL` env var                                                                                   |
 | `provider`                             | Claude   | Sets `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY`                                                              |
 | `customEnv`                            | Claude   | JSON object of additional env vars                                                                             |
-| `settingsJson`                         | Claude   | Merged into per-session `settings.json`                                                                        |
+| `settingsJson`                         | Claude   | Merged into per-session `settings.json`; a boolean `attribution` is rewritten to its object form               |
 | `model`                                | Codex    | `--model` argument                                                                                             |
 | `approvalMode`                         | Codex    | `--ask-for-approval` argument                                                                                  |
 | `sandbox`                              | Codex    | `--sandbox` argument                                                                                           |
@@ -1861,6 +1861,106 @@ and failed a second time, which settles it: a subagent hit the identical refusal
 run found with `claude-code-guide` — the permission decision is the session's, not the agent's. The
 vendored SDK under `node_modules` is still `0.3.207`, since the workflow checks out `next` and runs
 `npm ci` there.
+
+**2.1.281 makes a settings value legal that older CLIs reject, and Canopy writes profile settings into
+the one file where that costs its own hooks.** The entry reads "Added `"attribution": false` in
+settings.json to hide all commit and PR attribution; older CLI versions skip a settings file that
+holds it, so keep the object form in files shared across versions". Canopy's per-session file is
+shared across versions in exactly that sense: `setupSettings` writes it without knowing which `claude`
+will read it — the user's `PATH` binary — and spreads the profile's Settings JSON into the same object
+as the hooks and status line. So a user who copies the 2.1.281 docs into a profile's Settings JSON
+while their `claude` is older loses every Canopy hook and the status line for that profile's panes: no
+notch status, no permission notification, no context or cost in the Agent Inspector, and nothing in
+Canopy to say why. The form's help text promises the opposite — "Hooks and status line are always
+preserved" (`ClaudeProfileForm.svelte:210`).
+
+**The fix rewrites a boolean `attribution` before the file is written, using 2.1.281's own mapping
+rather than a guess at it.** The 2.1.281 binary's settings schema is a `union([boolean, object])`
+followed by a transform: `true` becomes `{}` and `false` becomes
+`{ commit: '', pr: '', sessionUrl: false }`. `desugarAttribution` in `claude.ts` applies the same
+mapping, so a 2.1.281+ CLI parses the object it would have built itself and an older one reads a form
+it already accepts. `true` is rewritten as well, because the schema's error text — "Expected false,
+true, or an object" — shows the whole boolean is new in 2.1.281, not only `false`. The vendored
+`0.3.207` types declare all three members (`sdk.d.ts:4867-4880`), so the object form is understood at
+least as far back as 2.1.207. `claude.test.ts`, the first test file under `src/main/agents/`, pins the
+mapping, pass-through of an object, the absence of the key when unset, and that Canopy's `Stop` hook
+and status line survive next to a rewritten value. **It covers the one value upstream documents as
+valid on new CLIs and invalid on old ones; it is not a general guard.** Any other override an older
+CLI rejects still takes the hooks with it. That is pre-existing and not curable here, since
+`--settings` takes one file and the hooks have to share it with whatever the profile adds.
+
+**The SDK bump is corrective for the commit-message turn, by the same membership test.**
+`commitMessageGenerator.ts` omits `settingSources`, which the vendored `sdk.d.ts:1861-1870` documents
+as loading every filesystem source — `~/.claude/settings.json` included, a file shared by every CLI
+version a user runs. When `which claude` fails, the turn runs the bundled binary; at `0.3.280` that is
+2.1.280, which would skip a user settings file holding the boolean, and every `env`, `apiKeyHelper`
+or provider setting in it with it. `0.3.281` bundles 2.1.281, which parses it. When `claude` is on
+`PATH` the turn runs the user's binary and the pin decides nothing — the asymmetry the 2.1.277 note
+records.
+
+**The CLI running this job was 2.1.281 itself, on disk, and that makes a denied diff readable for
+every question that is about a string.** It sits at `~/.local/share/claude/versions/2.1.281`. `ls`
+outside the working directory is denied, but the `Glob` tool finds it, and the `Grep` tool reads the
+minified bundle with `-o` and a context window of about 300 characters. That is how the mapping above
+was read, and it settles three things the vendored SDK could only bound from below:
+
+- **The hook-event array names 33 events.** Canopy subscribes to 18, all still present. The 15 it does
+  not subscribe to are the 14 recorded earlier plus `DirectoryAdded`, new since 2.1.207. This is the
+  first current count in this range rather than a floor.
+- **Every flag Canopy emits is still defined**: `--settings`, `--model`, `--permission-mode`,
+  `--effort`, `--append-system-prompt`, `--system-prompt-snapshot` and `--resume`.
+- **Every hook-payload and status-line field Canopy reads by name is still present**: `error_details`,
+  `compact_summary`, `notification_type`, `task_subject`, `task_description`, `teammate_name`,
+  `team_name`, `permission_mode`, `agent_type`, `used_percentage`, `context_window_size`,
+  `total_cost_usd`, `total_duration_ms`, `total_lines_added`, `total_lines_removed` and
+  `display_name`. Presence rules out a removal or a rename; it does not prove the shape is unchanged.
+
+The binary does not embed the changelog — three phrases from this release's visible entries return
+no match — so it cannot recover hidden entries. It tests Canopy's contract; it does not say what
+changed.
+
+**The two new prompt files describe tools Canopy already summarizes.** They are the Bash ("executes
+a given bash command") and Agent ("launch a new agent") tool descriptions. Both tools keep their
+names, and `summarizeToolInput` reaches Bash through `command` and Agent through `prompt`, so no branch
+needs to move. That is the check the 2.1.280 note asks for, since a new input spelling is what broke
+that function last time.
+
+**Two visible fixes land on standing findings and need nothing from Canopy.** The crash that "could
+end a session while an API request was being retried" has the stale-notch shape: if a process dies
+without `SessionEnd`, its pane keeps reading `thinking`, because only `destroySession` evicts the
+notch entry. That makes it a fifth upstream route to that backstop gap, fixed upstream and arriving
+through the user's own binary. The turn that "could retry indefinitely, ignoring --max-turns" points
+at the commit-message turn, which passes no `maxTurns` — but that turn is one structured-output call
+against a two-field schema, where output-limit truncation is implausible, and the bundled binary now
+carries the fix regardless.
+
+**Nothing else visible reaches Canopy.** The four gateway entries configure a Claude apps gateway,
+which Canopy neither writes nor selects (`claude.provider` offers Bedrock, Vertex and Foundry).
+URL-mode elicitation opens its browser flow from the CLI process, and the commit-message turn has no
+MCP servers to elicit from (`strictMcpConfig: true`). `claude plugin validate` has nothing of
+Canopy's to check — the repository ships no `.claude-plugin/` or `.mcp.json`. The fullscreen list
+scrollbar relies on the same mouse tracking the 2.1.271 note found working in Canopy panes. The resume
+fix lands on `--resume` panes through the user's binary, and the stray "Response" removed from the
+hooks guidance changes no instruction.
+
+**Both prompt halves grew again, the system half by more.** Files +2 (+10.5%) gives 2 ÷ 0.105 =
+19.05, band 18.96–19.14, so **19 before and 21 after**, continuing the 2.1.280 note's 19 for a tenth
+link. Tokens +6,241 (+24.1%) put the total at **~25.90k before and ~32.14k after** (before band
+25.84k–25.95k, reproducing that note's ~25.85k). Splitting by the given mix (67.3%/32.7% →
+59.2%/40.8%) gives **tools ~17.43k → ~19.03k (+1,597) and system ~8.47k → ~13.11k (+4,644)**; carrying
+the rounding through both ends leaves tools at +1,564…+1,630 and system at +4,611…+4,677, so both
+signs are safe. The tools growth fits the two new tool-description files. **The system growth is
+unattributed**: the only named system change removes one word, and whatever explains +4.6k is behind
+the truncation marker. The bundle grew **+1,183.2 kB (+2.3%)** from ~51.4 MB (band 50.3–52.6 MB,
+overlapping the 2.1.280 note's 49.8–52.1 MB) — the largest delta in this range, of which ~25 kB is
+prompt text at ~4 bytes/token.
+
+**164 of 2.1.281's 176 CLI changelog entries were not readable this run**, against 12 visible — a
+new high, past 2.1.280's 102. `gh api` against the changelog repo was denied on two attempts — the
+twentieth consecutive run — and `WebFetch` on its first and only call, the nineteenth. The on-disk
+binary covers the part of that gap that is Canopy's contract (flags, hook events, payload and
+status-line field names, and the one schema the visible entries named) and nothing else; behaviour
+behind the hidden entries is still unread. The vendored SDK under `node_modules` is still `0.3.207`.
 
 ## Error states
 
