@@ -48,6 +48,8 @@ const BROWSER_PARTITION = 'persist:browser'
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
   private guestContents = new Map<number, WebContents>()
+  /** Guest webContents id → the window it attached to, for cross-window checks in setup(). */
+  private guestOwners = new Map<number, BrowserWindow>()
   private partitionReady = false
 
   /**
@@ -58,8 +60,10 @@ export class BrowserManager {
   trackWindow(win: BrowserWindow): void {
     win.webContents.on('did-attach-webview', (_event, guestWc) => {
       this.guestContents.set(guestWc.id, guestWc)
+      this.guestOwners.set(guestWc.id, win)
       guestWc.on('destroyed', () => {
         this.guestContents.delete(guestWc.id)
+        this.guestOwners.delete(guestWc.id)
       })
     })
 
@@ -113,6 +117,18 @@ export class BrowserManager {
     // only ever target a <webview> guest — never a main renderer or another
     // window's contents — so reject anything that isn't a webview guest.
     if (wc.getType() !== 'webview') return
+
+    // Guest ids are small sequential integers, so a compromised renderer can
+    // enumerate them and claim a guest belonging to a *different* window. The
+    // type check above does not catch that: every browser tab in every window
+    // is a webview guest. Without this check the caller could bind another
+    // window's tab to a browserId it controls and then reach it via
+    // fillCredential (isolated-world JS injection), setDeviceEmulation (CDP
+    // debugger attach) or openDevTools. Guests are recorded in `guestOwners`
+    // by trackWindow(), which runs for every managed window before any webview
+    // can attach, so a mismatch here is never legitimate.
+    const owner = this.guestOwners.get(wcId)
+    if (owner && owner !== win) return
 
     // Idempotency guard: the listeners wired up below are anonymous closures
     // that teardown() cannot selectively remove. If this exact guest is already

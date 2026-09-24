@@ -100,6 +100,18 @@
   let showOverflow = $state(false)
   let visibleCount = $state(0)
   let containerEl: HTMLDivElement | undefined = $state()
+  let overflowTriggerEl: HTMLButtonElement | undefined = $state()
+
+  // The overflow menu's click-away overlay is mouse-only, so without this a
+  // keyboard user could open the menu but not dismiss it. Attached to the
+  // trigger and to each menu item — i.e. every element that can hold focus
+  // while the menu is open.
+  function handleOverflowKeydown(e: KeyboardEvent): void {
+    if (e.key !== 'Escape' || !showOverflow) return
+    e.stopPropagation()
+    showOverflow = false
+    overflowTriggerEl?.focus()
+  }
 
   $effect(() => {
     if (!containerEl) return undefined
@@ -407,6 +419,7 @@
     {#if overflowTabs.length > 0}
       <div class="relative flex-shrink-0">
         <button
+          bind:this={overflowTriggerEl}
           class="flex items-center justify-center w-8 h-full border-0 bg-transparent text-text-secondary text-lg cursor-pointer hover:bg-hover hover:text-text"
           aria-label="Show more tabs"
           aria-haspopup="menu"
@@ -414,6 +427,7 @@
           onclick={() => {
             showOverflow = !showOverflow
           }}
+          onkeydown={handleOverflowKeydown}
         >
           &hellip;
         </button>
@@ -437,6 +451,7 @@
                   await switchTab(tab.id)
                   showOverflow = false
                 }}
+                onkeydown={handleOverflowKeydown}
               >
                 {getTabDisplayName(tab)}
               </button>
