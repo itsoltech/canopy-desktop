@@ -27,6 +27,12 @@ nothing above rules it out: `curl` is not in `--allowedTools` under any prefix, 
 on it. Your diff sources are the release notes pasted below,
 `node_modules/@anthropic-ai/claude-agent-sdk`, and Canopy's own files.
 
+**4. The `TO_VERSION` CLI is probably already on disk — look for it before reasoning from release
+notes alone.** The action installs the CLI it runs under `~/.local/share/claude/versions/<version>`,
+and on the v2.1.280 → v2.1.281 run that directory held `2.1.281`, `TO_VERSION` exactly. `ls` outside
+the working directory is denied; the `Glob` tool is not (pattern `*`, that directory as the path).
+"The CLI binary running this job" under step 2 says how to read it and what it can and cannot settle.
+
 This block is at the top because the previous six revisions of it were not. Runs read top-to-bottom,
 reach `FROM_VERSION`/`TO_VERSION` in the header, and take the compare call as the obvious opening
 move — which is why the probe budget kept failing while the warnings kept getting louder. The
@@ -344,9 +350,13 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 > | "contains multiple operations … following part requires approval: `X`" | `X` is not allowlisted                     | **Yes — `X` is the denial**   |
 > | "This command requires approval"                                       | the whole command is not allowlisted       | Yes                           |
 > | `Contains simple_expansion` / `Contains command_substitution`          | shell form refused (`$var`, `$(…)`, loops) | No — rewrite without it       |
+> | `Contains brace with quote character (expansion obfuscation)`          | a `{` next to a quote, even in a heredoc   | No — reword without it        |
 >
-> Only the third is a shell-form error, and it names no component. The first two are the same finding
-> reported at different granularity.
+> Only the last two are shell-form errors, and neither names a component. The first two are the same
+> finding reported at different granularity. The fourth row is from v2.1.280 → v2.1.281: a
+> `git commit -F -` body quoting a settings literal, `{ commit: '', pr: '' }`, was refused whole — the
+> quoted heredoc that neutralises backticks does not neutralise this. Describe the literal in words
+> ("an object whose commit and pr are empty strings") instead of retrying the same body.
 >
 > **v2.1.274 → v2.1.276 confirms that correction held, and spent four probes anyway.** The run's very
 > first batch got "contains multiple operations … requires approval: `gh api …`", which under the table
@@ -606,6 +616,36 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > loaded (matches CLI defaults)" — a sentence that exists only here, and that converts "Canopy does not
 > configure X" into "Canopy inherits all of X". When a release note mentions a setting Canopy appears
 > not to use, read the option's comment before concluding it has no surface.
+
+> **The CLI binary running this job is a better source than the vendored SDK, and it needs no network
+> either.** `anthropics/claude-code-action` installs the CLI it runs under
+> `~/.local/share/claude/versions/<version>`. The v2.1.280 → v2.1.281 run found `2.1.281` there —
+> `TO_VERSION` exactly, where `node_modules` still held `0.3.207`. Find it with the `Glob` tool
+> (pattern `*`, path that directory); `ls` on a path outside the working directory is denied. **Check
+> the version in the path before trusting what you read**: a job that starts after a newer release
+> carries that one, and anything read from it is then evidence about a later build, not a reading of
+> `TO_VERSION`.
+>
+> The `Grep` tool reads it. The file is a single-file executable with its JavaScript stored as text,
+> so `-o` with a context window returns the minified source around a literal. **Keep the window near
+> 300 characters** — a longer match comes back as "[Omitted long matching line]" — and walk forward
+> with a second search anchored on the tail of the first. `output_mode: count` answers presence
+> questions in one call. Three kinds of question it settles that nothing else here can:
+>
+> - **Settings schemas, including transforms and defaults.** 2.1.281's `attribution` schema — the
+>   `union([boolean, object])` and the transform that turns the new boolean into the object form —
+>   was read with `.{0,150}Empty string hides attribution.{0,150}` and two anchored follow-ups. That
+>   transform is the whole basis of the `claude.ts` fix it produced.
+> - **The current hook-event list**, as a literal array: `\["PreToolUse","PostToolUse".{0,300}`, then
+>   continue from its tail. It replaces the `HookEvent` union in the vendored `sdk.d.ts` as the answer
+>   to "is `CLAUDE_HOOK_EVENTS` complete", because it is `TO_VERSION`'s list rather than a floor.
+> - **Whether every flag and field name Canopy depends on still exists** — `"--system-prompt-snapshot`,
+>   `used_percentage`, `error_details` and the rest. Presence rules out a removal or a rename, not a
+>   change of shape.
+>
+> **It cannot recover the changelog.** Three phrases from 2.1.281's visible entries returned no match,
+> so the entries behind "… +N more" are not in the binary, and there is no previous build on disk to
+> diff against. Use it to test Canopy's contract, not to reconstruct what changed.
 
 > **When the diff is unreachable, spend the turns on Canopy's side of the boundary instead.** Several
 > runs in a row have treated a denied diff as the limit of what the run could establish, and reported
