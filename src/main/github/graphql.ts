@@ -8,6 +8,18 @@ interface GraphQLResponse<T> {
   errors?: Array<{ message: string }>
 }
 
+/**
+ * Strip the bearer token out of a response body before it becomes an error
+ * message. The body reaches `GitHubApiError.message`, which is persisted as
+ * credential-verification metadata, logged, and shown in the renderer.
+ * github.com does not echo request headers back, but a GitHub Enterprise
+ * instance or an intermediary proxy can, and the cost of being wrong is a
+ * plaintext PAT in a log. Mirrors `redactTeamCityToken` in `ci/teamcity.ts`.
+ */
+function redactToken(message: string, token: string): string {
+  return token ? message.replaceAll(token, '[redacted]') : message
+}
+
 export function graphqlFetch<T>(
   apiUrl: string,
   token: string,
@@ -49,7 +61,7 @@ export function graphqlFetch<T>(
         errAsync<T, GitHubError>({
           _tag: 'GitHubApiError',
           status: res.status,
-          message: body || res.statusText,
+          message: redactToken(body, token) || res.statusText,
         }),
       )
     }
@@ -66,7 +78,7 @@ export function graphqlFetch<T>(
         errAsync<T, GitHubError>({
           _tag: 'GitHubApiError',
           status: res.status,
-          message: body || res.statusText,
+          message: redactToken(body, token) || res.statusText,
         }),
       )
     }
