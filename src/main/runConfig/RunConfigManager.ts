@@ -14,6 +14,24 @@ function tomlPath(configDir: string): string {
   return join(configDir, CONFIG_DIR, CONFIG_FILE)
 }
 
+/**
+ * `.canopy/run.toml` is repo-committed and hand-editable, so a parsed entry is
+ * untrusted input rather than app-owned state. `name` and `command` are the
+ * required fields — `command` is what eventually gets spawned, so an entry
+ * missing it must be rejected at the parse boundary instead of failing deep in
+ * the run path.
+ */
+function isRunConfiguration(value: unknown): value is RunConfiguration {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Record<string, unknown>
+  return typeof candidate.name === 'string' && typeof candidate.command === 'string'
+}
+
+function parseConfigurations(parsed: Record<string, unknown>): RunConfiguration[] {
+  if (!Array.isArray(parsed.configurations)) return []
+  return parsed.configurations.filter(isRunConfiguration)
+}
+
 export class RunConfigManager {
   discover(repoRoot: string): ResultAsync<RunConfigSource[], RunConfigError> {
     return fromExternalCall(this.scanForConfigs(repoRoot), () => ({
@@ -30,10 +48,7 @@ export class RunConfigManager {
     })).andThen((raw) => {
       try {
         const parsed = parse(raw) as Record<string, unknown>
-        const configurations = Array.isArray(parsed.configurations)
-          ? (parsed.configurations as RunConfiguration[])
-          : []
-        return ok({ configurations })
+        return ok({ configurations: parseConfigurations(parsed) })
       } catch (e) {
         return err({
           _tag: 'RunConfigParseError' as const,
@@ -141,12 +156,13 @@ export class RunConfigManager {
         try {
           const raw = await readFile(filePath, 'utf-8')
           const parsed = parse(raw) as Record<string, unknown>
-          const configurations = Array.isArray(parsed.configurations)
-            ? (parsed.configurations as RunConfiguration[])
-            : []
           const configDir = dir
           const relativePath = relative(repoRoot, configDir) || '.'
-          sources.push({ configDir, relativePath, file: { configurations } })
+          sources.push({
+            configDir,
+            relativePath,
+            file: { configurations: parseConfigurations(parsed) },
+          })
         } catch {
           // No run.toml or unparseable — skip
         }

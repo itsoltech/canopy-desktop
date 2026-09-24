@@ -492,6 +492,16 @@
  * vestibular issues).
  */
 @media (prefers-reduced-motion: reduce) {
+  /* Tailwind's spin utilities. Most call sites pair these with
+   * `motion-reduce:animate-none`, but that has to be remembered at every
+   * loading spinner; covering the utilities here means a missed pairing
+   * can't reintroduce a continuous animation. These rules are unlayered,
+   * so they win over the `@layer utilities` definitions from Tailwind. */
+  .animate-spin,
+  .animate-spin-slow {
+    animation: none;
+  }
+
   [data-status='active'] .status-dot,
   [data-status='permission'] .status-dot {
     animation: none;
