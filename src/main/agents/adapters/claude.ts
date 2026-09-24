@@ -65,6 +65,19 @@ const INTERNAL_BLOCKED = new Set([
   'ELECTRON_RUN_AS_NODE',
 ])
 
+// Claude Code 2.1.281 accepts `attribution: true | false` as shorthand, but older
+// CLIs reject the boolean and skip the whole settings file. Profile overrides share
+// this file with Canopy's hooks and status line, so one `"attribution": false` read
+// by an older `claude` would silently drop both. Desugar it the way 2.1.281's own
+// parser does, so every version reads the object form it already accepts.
+function desugarAttribution(overrides: Record<string, unknown>): Record<string, unknown> {
+  if (typeof overrides.attribution !== 'boolean') return overrides
+  return {
+    ...overrides,
+    attribution: overrides.attribution ? {} : { commit: '', pr: '', sessionUrl: false },
+  }
+}
+
 export const claudeAdapter: AgentAdapter = {
   agentType: 'claude',
   toolId: 'claude',
@@ -88,7 +101,7 @@ export const claudeAdapter: AgentAdapter = {
     }
 
     const settings: Record<string, unknown> = {
-      ...(overrides ?? {}),
+      ...desugarAttribution(overrides ?? {}),
       hooks,
     }
 
