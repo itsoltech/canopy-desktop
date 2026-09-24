@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -58,6 +59,21 @@
   )
 
   let showsTaskList = $derived(mode === 'browse' || (linkTab === 'existing' && !selectedLinkTask))
+
+  onMount(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    // TaskListPicker autofocuses its own search box, but only in the views that
+    // render it — the "new task" link view focuses nothing, leaving the keyboard
+    // outside an open modal. Children mount first, so an existing focus wins.
+    if (dialogEl && !dialogEl.contains(document.activeElement)) {
+      dialogEl
+        .querySelector<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        )
+        ?.focus()
+    }
+    return () => previouslyFocused?.focus?.()
+  })
 
   function handleKeydown(e: KeyboardEvent): void {
     // When the branch-create sub-view is open, this window-level handler must not interfere.
