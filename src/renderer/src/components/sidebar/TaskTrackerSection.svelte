@@ -127,7 +127,7 @@
          switch passes through (the incoming project has no trackers yet), so leaving it
          row-height reintroduced the shift the others were matched to avoid. -->
     <div class="flex items-center gap-2.5 min-h-14 px-3 text-text-faint">
-      <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
+      <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none flex-shrink-0" />
       <span class="text-sm">Loading trackers…</span>
     </div>
   {:else if trackers.length > 0}
@@ -210,7 +210,7 @@
           </div>
         {:else if verifying && credentialsUnknown}
           <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
-            <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
+            <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none flex-shrink-0" />
             <span class="text-sm">Checking credentials…</span>
           </div>
         {/if}
@@ -218,7 +218,7 @@
         <!-- Tasks linked to the current worktree. -->
         {#if taskResolving}
           <div class="flex items-center gap-2.5 h-7 px-3 text-text-faint">
-            <LoaderCircle size={13} class="animate-spin flex-shrink-0" />
+            <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none flex-shrink-0" />
             <span class="text-sm">Resolving task…</span>
           </div>
         {:else if panelTasks.length > 0}
