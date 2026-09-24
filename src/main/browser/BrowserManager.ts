@@ -308,6 +308,17 @@ export class BrowserManager {
     })
   }
 
+  /**
+   * `browserId` is renderer-supplied and windows are not isolated from each
+   * other's ids, so a compromised renderer could otherwise drive DevTools,
+   * device emulation, or credential autofill against a webview owned by a
+   * different window. IPC handlers gate on this before acting; main-process
+   * callers (tab close, window teardown) are trusted and bypass it.
+   */
+  isOwnedBy(browserId: string, sender: WebContents): boolean {
+    return this.entries.get(browserId)?.sender === sender
+  }
+
   teardown(browserId: string): void {
     const entry = this.entries.get(browserId)
     if (entry) {
