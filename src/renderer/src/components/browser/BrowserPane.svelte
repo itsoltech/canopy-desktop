@@ -408,6 +408,12 @@
         icon.onmouseleave = () => { icon.style.background = 'color-mix(in srgb,currentColor 8%,transparent)'; icon.style.boxShadow = '0 0 0 1px oklch(0.6 0 0 / 0.2)' }
 
         icon.onclick = (e) => {
+          // SECURITY: only a real user gesture may open the account picker.
+          // This script runs in the page's main world, so page JS can call
+          // icon.click() directly; a synthetic event has isTrusted === false.
+          // Without this, a hostile page scripts its way through the picker to
+          // a fill it never asked the user for (see the matching guard below).
+          if (!e.isTrusted) return
           e.preventDefault(); e.stopPropagation()
           let existing = document.getElementById('__canopy_cred_picker')
           if (existing) { existing.remove(); return }
@@ -450,6 +456,12 @@
             btn.onmouseenter = () => { btn.style.background = 'oklch(1 0 0 / 0.06)' }
             btn.onmouseleave = () => { btn.style.background = 'none' }
             btn.onclick = (ev) => {
+              // SECURITY: '__CANOPY_FILL__' is an unauthenticated console channel —
+              // emitting it makes the host decrypt the password and write it into
+              // this page's DOM, where page scripts can read it back. Requiring a
+              // trusted event keeps a scripted btn.click() from spending a
+              // credential the user never selected.
+              if (!ev.isTrusted) return
               ev.preventDefault(); ev.stopPropagation()
               console.log('__CANOPY_FILL__:' + c.id)
               picker.remove()
