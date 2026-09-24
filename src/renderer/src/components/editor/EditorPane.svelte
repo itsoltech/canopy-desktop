@@ -17,6 +17,7 @@
     pendingEditorJumps,
   } from '../../lib/stores/tabs.svelte'
   import { dragState, clearDrag, setDropTarget } from '../../lib/stores/dragState.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { detectIndent, indentUnitString, type IndentInfo } from './cm/detectIndent'
   import { detectLanguageName } from './cm/language'
 
@@ -238,6 +239,18 @@
   }
 
   async function reloadAndDiscard(): Promise<void> {
+    // loadFile() overwrites the buffer and closes its CodeMirror state, taking
+    // the undo history with it, so unsaved edits are unrecoverable afterwards.
+    // Confirm first — every other destructive action in the app does.
+    if (dirty) {
+      const ok = await confirm({
+        title: 'Discard your changes?',
+        message: `Reloading "${activeFilePath}" from disk will discard your unsaved edits. This cannot be undone.`,
+        confirmLabel: 'Discard and reload',
+        destructive: true,
+      })
+      if (!ok) return
+    }
     await loadFile(activeFilePath)
   }
 
