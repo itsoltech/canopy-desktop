@@ -130,7 +130,7 @@ full-screen terminal navigation.
 | `remote.listenAllInterfaces` | `"true"` / `"false"`   | `"false"` | When `"true"`, trusted-device listen mode binds to `0.0.0.0` so known devices can reconnect through any active adapter. New QR pairing still asks for an explicit QR adapter and does not change this setting.                 |
 | `remote.trustedDevices`      | JSON array             | `[]`      | Managed by TrustedDeviceStore; device names can be edited and devices can be removed in Settings                                                                                                                               |
 
-Trusted devices can be viewed, renamed, and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
+Trusted devices can be viewed, renamed, and removed in Settings. A failed rename or removal is reported with an error toast. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
 
 ## Error states
 

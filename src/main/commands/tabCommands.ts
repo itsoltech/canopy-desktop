@@ -147,34 +147,42 @@ export class ToolSessionService {
     }
 
     let tmuxSessionName: string | undefined
-    const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
-    if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
-      tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
-      const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
-      await this.deps.tmuxManager.newSession({
-        name: tmuxSessionName,
+    let session: ReturnType<PtyManager['spawn']>
+    try {
+      const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
+      if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
+        tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
+        const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
+        await this.deps.tmuxManager.newSession({
+          name: tmuxSessionName,
+          cwd: payload.worktreePath,
+          shell: command,
+          shellArgs: args,
+          cols: payload.cols,
+          rows: payload.rows,
+          mouse: tmuxMouse,
+          env,
+        })
+        const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
+        command = attach.command
+        args = attach.args
+      }
+
+      session = this.deps.ptyManager.spawn({
+        command,
+        args,
         cwd: payload.worktreePath,
-        shell: command,
-        shellArgs: args,
         cols: payload.cols,
         rows: payload.rows,
-        mouse: tmuxMouse,
         env,
+        tmuxSessionName,
       })
-      const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
-      command = attach.command
-      args = attach.args
+    } catch (error) {
+      // The agent session is still keyed by its temp id, which nothing references once spawning
+      // fails — release its hook-router entry and settings files here.
+      if (agentTempId) this.deps.agentSessionManager.destroySession(agentTempId)
+      throw error
     }
-
-    const session = this.deps.ptyManager.spawn({
-      command,
-      args,
-      cwd: payload.worktreePath,
-      cols: payload.cols,
-      rows: payload.rows,
-      env,
-      tmuxSessionName,
-    })
 
     if (isAgent && agentTempId) {
       this.deps.agentSessionManager.rekey(agentTempId, session.id)

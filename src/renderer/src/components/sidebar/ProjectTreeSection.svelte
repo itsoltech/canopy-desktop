@@ -1,8 +1,9 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
-  import { untrack } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { ChevronRight, LoaderCircle, Square, Trash2, X } from '@lucide/svelte'
   import { fileManagerLabel } from '../../lib/platform'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
   import {
     projects,
     workspaceState,
@@ -258,6 +259,16 @@
 
   let ctxMenu = $state<WorktreeCtx | null>(null)
   let ctxMenuRequest = 0
+  let ctxMenuEl: HTMLDivElement | undefined = $state()
+  let restoreCtxFocus: (() => void) | null = null
+
+  // The menu is portalled to <body>: without moving focus into it, a keyboard-opened menu
+  // (Shift+F10 / Menu key) leaves every item unreachable without a pointer.
+  function openCtxMenu(menu: WorktreeCtx): void {
+    ctxMenu = menu
+    restoreCtxFocus = captureFocusReturn()
+    void tick().then(() => ctxMenuEl?.querySelector<HTMLElement>('[role="menuitem"]')?.focus())
+  }
 
   async function handleWorktreeContextMenu(
     e: MouseEvent,
@@ -272,7 +283,7 @@
     // prevents a slow result from updating a newer menu.
     const request = ++ctxMenuRequest
     const menu: WorktreeCtx = { x: e.clientX, y: e.clientY, project, wt, ci: undefined }
-    ctxMenu = menu
+    openCtxMenu(menu)
     if (!ciMenuEnabled || wt.branch === '(detached)') return
     let ci: WorktreeCtx['ci'] = null
     try {
@@ -296,6 +307,8 @@
   function closeCtxMenu(): void {
     ctxMenuRequest += 1
     ctxMenu = null
+    restoreCtxFocus?.()
+    restoreCtxFocus = null
   }
 
   function handleCtxKeydown(e: KeyboardEvent): void {
@@ -408,6 +421,7 @@
 {#if ctxMenu}
   <div class="fixed inset-0 z-overlay" use:portal onclick={closeCtxMenu}>
     <div
+      bind:this={ctxMenuEl}
       class="fixed min-w-45 bg-bg-overlay border border-border rounded-md shadow-ctx p-1 z-popover"
       style="left: {ctxMenu.x}px; top: {ctxMenu.y}px"
       role="menu"
@@ -527,7 +541,7 @@
           oncontextmenu={(e) => {
             if (!project.isGitRepo) {
               e.preventDefault()
-              ctxMenu = {
+              openCtxMenu({
                 x: e.clientX,
                 y: e.clientY,
                 project,
@@ -539,7 +553,7 @@
                   isBare: false,
                 },
                 ci: null,
-              }
+              })
             }
           }}
           aria-expanded={!collapsed}

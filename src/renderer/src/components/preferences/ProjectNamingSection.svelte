@@ -126,8 +126,22 @@
 
   // Delete the edited project's override (branch or PR part) — it falls back to the base template.
   async function removeOverride(type: Group, scope: string): Promise<void> {
+    if (scope === 'default' || !getRepoConfig()) return
+    // Persisted immediately and it also ends the edit, so Cancel can no longer restore it.
+    const ok = await confirm({
+      title: 'Remove project override',
+      message: `Remove the ${type === 'branch' ? 'branch' : 'PR'} template override for ${scope}?`,
+      details: `Deletes it from .canopy/config.json — ${scope} falls back to the base template.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
+    // Same as cancelEdit(): drop the editor's pending debounced save, or its unmount flush
+    // re-adds the override removed below.
+    editorRef?.discardPending()
+    // Read after the dialog: a debounced editor save may have landed while it was open.
     const cfg = getRepoConfig()
-    if (!cfg || scope === 'default') return
+    if (!cfg) return
     const updated = $state.snapshot(cfg) as typeof cfg
     const entry = updated!.projectOverrides[scope]
     if (entry) {

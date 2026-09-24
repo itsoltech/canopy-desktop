@@ -182,13 +182,21 @@ export class AgentSessionManager extends EventEmitter {
     }
 
     const settingsPath = join(this.hooksDir, `session-${hookSessionId}.json`)
-    const settingsSetup = adapter.setupSettings(
-      settingsPath,
-      worktreePath,
-      hookScriptPath,
-      statusLineScriptPath,
-      settingsOverrides,
-    )
+    let settingsSetup: SettingsSetup
+    try {
+      settingsSetup = adapter.setupSettings(
+        settingsPath,
+        worktreePath,
+        hookScriptPath,
+        statusLineScriptPath,
+        settingsOverrides,
+      )
+    } catch (error) {
+      // No session record exists yet for destroySession() to find — release the hook-router
+      // entry registered above, or the shared hook server can never go idle.
+      this.router.removeSession(hookSessionId)
+      throw error
+    }
 
     const session: AgentSession = {
       agentType: adapter.agentType,

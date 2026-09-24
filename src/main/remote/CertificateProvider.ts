@@ -3,8 +3,8 @@ import path from 'node:path'
 import selfsigned from 'selfsigned'
 
 /**
- * Lazy generator + file-system cache for a self-signed TLS certificate used
- * by the signaling server when `remote.useHttps` is enabled in preferences.
+ * Lazy generator + file-system cache for a self-signed TLS certificate meant
+ * for the signaling server.
  *
  * The cert is written to `<userData>/remote/cert.pem` + `key.pem` and reused
  * across app restarts. It is regenerated whenever the LAN IP changes (the
@@ -12,9 +12,10 @@ import selfsigned from 'selfsigned'
  * browsers show a hostname-mismatch warning on top of the self-signed
  * warning).
  *
- * Phase 13 creates the infrastructure. The `SignalingServer` still listens
- * on plain HTTP by default — HTTPS is only used when the preference toggle
- * is on.
+ * Phase 13 creates the infrastructure only. Nothing instantiates this class
+ * yet and there is no HTTPS preference: the `SignalingServer` always listens
+ * on plain HTTP, so pairing tokens and signaling traffic are unencrypted on
+ * the LAN (see docs/features/remote-control.md).
  */
 export class CertificateProvider {
   private certDir: string
