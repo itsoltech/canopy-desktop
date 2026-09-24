@@ -466,6 +466,19 @@ export class BrowserManager {
     return filePath
   }
 
+  /**
+   * True when `wcId` is the renderer that registered `browserId` via
+   * `browser:setup`. `browserId` comes from the untrusted renderer, so the
+   * privileged per-browser operations (teardown, DevTools, bounds, emulation,
+   * throttling) gate on this to stop one window acting on another window's
+   * webview — mirroring `WindowManager.ownsPtySession`.
+   */
+  ownsBrowser(wcId: number, browserId: string): boolean {
+    const entry = this.entries.get(browserId)
+    if (!entry || entry.sender.isDestroyed()) return false
+    return entry.sender.id === wcId
+  }
+
   teardownAllForWindow(win: BrowserWindow): void {
     // Run the full teardown (close DevTools, detach debugger, remove the
     // devToolsView) for each entry rather than just dropping the map key —

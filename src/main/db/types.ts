@@ -162,6 +162,22 @@ function safeJsonParse<T>(raw: string, fallback: T): T {
   }
 }
 
+const TOOL_CATEGORIES = new Set<string>([
+  'ai',
+  'git',
+  'system',
+  'shell',
+  'browser',
+] satisfies ToolCategory[])
+
+// `tool_definitions.category` is a plain TEXT column and `ToolRegistry.updateCustom`
+// writes an unvalidated string into it, so a stale or hand-edited row can hold a
+// value outside the union. Normalise on read rather than asserting, matching the
+// `'system'` default the registry already uses when inserting.
+function toToolCategory(raw: string): ToolCategory {
+  return TOOL_CATEGORIES.has(raw) ? (raw as ToolCategory) : 'system'
+}
+
 export function workspaceFromRow(row: WorkspaceRow): Workspace {
   return {
     id: row.id,
@@ -183,7 +199,7 @@ export function toolFromRow(row: ToolDefinitionRow): ToolDefinition {
     command: row.command,
     args: safeJsonParse<string[]>(row.args_json, []),
     icon: row.icon,
-    category: row.category as ToolCategory,
+    category: toToolCategory(row.category),
     isCustom: row.is_custom === 1,
   }
 }
