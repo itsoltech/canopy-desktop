@@ -122,6 +122,11 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // A genuinely new guest replaces the old entry below. Tear the old one down first:
+    // overwriting the map entry would otherwise orphan its embedded DevTools
+    // WebContentsView inside win.contentView and leave its debugger attached, since
+    // teardown() is the only path that removes and closes them.
+    if (existing) this.teardown(browserId)
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
