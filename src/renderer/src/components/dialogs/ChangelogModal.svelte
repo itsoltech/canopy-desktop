@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
 
@@ -15,7 +15,14 @@
   let loading = $state(true)
   let error = $state(false)
 
+  // Restore focus to the opener on close. Captured/restored via onDestroy rather
+  // than a returned cleanup because an async onMount returns a promise, which
+  // Svelte does not treat as a teardown function.
+  let previouslyFocused: HTMLElement | null = null
+  onDestroy(() => previouslyFocused?.focus?.())
+
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     const raw = await window.api.getChangelogSinceVersion(fromVersion)
     if (raw && raw.length > 0) {
