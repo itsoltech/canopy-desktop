@@ -2394,27 +2394,31 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('browser:teardown', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:teardown', (event, payload: { browserId: string }) => {
+    if (!browserManager.ownedBy(payload.browserId, event.sender)) return
     browserManager.teardown(payload.browserId)
   })
 
-  ipcMain.handle('browser:openDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:openDevTools', (event, payload: { browserId: string }) => {
+    if (!browserManager.ownedBy(payload.browserId, event.sender)) return
     browserManager.openDevTools(payload.browserId)
   })
 
-  ipcMain.handle('browser:closeDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:closeDevTools', (event, payload: { browserId: string }) => {
+    if (!browserManager.ownedBy(payload.browserId, event.sender)) return
     browserManager.closeDevTools(payload.browserId)
   })
 
   ipcMain.handle(
     'browser:setDevToolsBounds',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         bounds: { x: number; y: number; width: number; height: number }
       },
     ) => {
+      if (!browserManager.ownedBy(payload.browserId, event.sender)) return
       browserManager.setDevToolsBounds(payload.browserId, payload.bounds)
     },
   )
@@ -2422,12 +2426,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setDeviceEmulation',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null
       },
     ) => {
+      if (!browserManager.ownedBy(payload.browserId, event.sender)) return
       browserManager.setDeviceEmulation(payload.browserId, payload.device)
     },
   )
@@ -2435,12 +2440,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setBackgroundThrottling',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         allowed: boolean
       },
     ) => {
+      if (!browserManager.ownedBy(payload.browserId, event.sender)) return
       browserManager.setBackgroundThrottling(payload.browserId, payload.allowed)
     },
   )
@@ -2487,7 +2493,11 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'browser:fillCredential',
-    (_event, payload: { browserId: string; username: string; password: string }) => {
+    (event, payload: { browserId: string; username: string; password: string }) => {
+      // Ownership gate matters most here: without it any window could name a
+      // sibling window's browserId and have stored credentials typed into a
+      // page it does not own.
+      if (!browserManager.ownedBy(payload.browserId, event.sender)) return
       browserManager.fillCredential(payload.browserId, payload.username, payload.password)
     },
   )

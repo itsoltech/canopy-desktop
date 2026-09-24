@@ -1,24 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
+// Reference the main-process shape rather than re-declaring it: the inline copy
+// this replaces had already drifted (`status: string` instead of the
+// SessionStatusType union, and no `agentType`). Type-only, so nothing from main
+// is pulled into the preload bundle.
+import type { NotchOverlayState } from '../main/notch/types'
 
 const notchApi = {
-  onStateUpdate: (
-    callback: (state: {
-      sessions: Array<{
-        ptySessionId: string
-        windowId: number
-        workspaceName: string
-        branch: string | null
-        status: string
-        toolName?: string
-        detail?: string
-        title?: string
-      }>
-      notchWidth: number
-      notchHeight: number
-      peekSessionIds?: string[]
-    }) => void,
-  ) => {
+  onStateUpdate: (callback: (state: NotchOverlayState) => void) => {
     const handler = (_event: IpcRendererEvent, state: Parameters<typeof callback>[0]): void =>
       callback(state)
     ipcRenderer.on('notch:stateUpdate', handler)

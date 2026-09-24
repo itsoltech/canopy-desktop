@@ -88,10 +88,16 @@
   )
 
   $effect(() => {
+    const live = new Set(projects.map((p) => p.workspace.path))
     for (const p of projects) {
       if (!(p.workspace.path in collapseState)) {
         collapseState[p.workspace.path] = isCollapsed(p)
       }
+    }
+    // Drop entries for detached projects — without this the map keeps one key
+    // per workspace path ever seen for the lifetime of the window.
+    for (const key of Object.keys(collapseState)) {
+      if (!live.has(key)) delete collapseState[key]
     }
   })
 
