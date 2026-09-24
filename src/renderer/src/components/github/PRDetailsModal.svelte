@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
+  import { match } from 'ts-pattern'
   import { X, ExternalLink, Copy, GitPullRequest, LoaderCircle, RefreshCw } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -171,18 +172,29 @@
     }
     armed = null
     acting = kind
+    // Capture the narrowed PR so the match arms below keep it non-null.
+    const target = pr
     try {
-      if (kind === 'merge') {
-        await window.api.taskTrackerPRMerge(repoRoot, pr.number, mergeStrategy, deleteBranchAfter)
-        addToast(`PR #${pr.number} merged`)
-      } else if (kind === 'close') {
-        await window.api.taskTrackerPRClose(repoRoot, pr.number, deleteBranchAfter)
-        addToast(`PR #${pr.number} closed`)
-      } else {
-        await window.api.taskTrackerPRDeleteBranch(repoRoot, pr.headRefName)
-        addToast(`Remote branch ${pr.headRefName} deleted`)
-        remoteBranchAlive = false
-      }
+      await match(kind)
+        .with('merge', async () => {
+          await window.api.taskTrackerPRMerge(
+            repoRoot,
+            target.number,
+            mergeStrategy,
+            deleteBranchAfter,
+          )
+          addToast(`PR #${target.number} merged`)
+        })
+        .with('close', async () => {
+          await window.api.taskTrackerPRClose(repoRoot, target.number, deleteBranchAfter)
+          addToast(`PR #${target.number} closed`)
+        })
+        .with('delete', async () => {
+          await window.api.taskTrackerPRDeleteBranch(repoRoot, target.headRefName)
+          addToast(`Remote branch ${target.headRefName} deleted`)
+          remoteBranchAlive = false
+        })
+        .exhaustive()
       if (kind !== 'delete') invalidatePRFallback(repoRoot, branch)
       void loadBranchPRs(repoRoot, true)
       await load()

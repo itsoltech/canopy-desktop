@@ -14,6 +14,14 @@
   } = $props()
 </script>
 
+<!-- Escape gives keyboard users the dismiss path that the click-anywhere scrim
+     below only offers to pointer users. -->
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === 'Escape') onDismiss()
+  }}
+/>
+
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div

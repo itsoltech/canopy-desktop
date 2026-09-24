@@ -1,4 +1,4 @@
-import { match } from 'ts-pattern'
+import { match, P } from 'ts-pattern'
 import type { TrackerProviderKind } from './types'
 
 export interface NewTaskFieldVisibility {
@@ -20,13 +20,14 @@ export function visibleFields(provider: TrackerProviderKind): NewTaskFieldVisibi
       sprint: true,
       sprintLabel: 'Milestone',
     }))
-    .otherwise(() => ({
+    .with(P.union('jira', 'youtrack'), () => ({
       project: true,
       type: true,
       board: true,
       sprint: true,
       sprintLabel: 'Sprint',
     }))
+    .exhaustive()
 }
 
 export interface BoardLike {

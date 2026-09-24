@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { match } from 'ts-pattern'
-  import { RotateCw, Check, X } from '@lucide/svelte'
+  import { RotateCw, Check, X, LoaderCircle } from '@lucide/svelte'
   import { openDiffTab } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
@@ -270,7 +270,10 @@
               file.status,
             )}">{statusIcon(file.status)}</span
           >
-          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span
+            class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+            title={file.path}
+          >
             <span class="text-text-faint">{dirname(file.path)}</span><span class="text-text"
               >{basename(file.path)}</span
             >
@@ -312,6 +315,14 @@
           No uncommitted changes
         {/if}
       </span>
+    </div>
+  {:else}
+    <div class="flex items-center justify-center h-full p-4">
+      <LoaderCircle
+        size={14}
+        class="text-text-faint animate-spin-slow motion-reduce:animate-none"
+        aria-label="Loading changes"
+      />
     </div>
   {/if}
 </div>

@@ -7,6 +7,7 @@
   import { forceReload, getFiles, isLoading } from '../../lib/stores/quickOpenStore.svelte'
   import { FolderOpen } from '@lucide/svelte'
   import { getFileIcon } from '../../lib/fileIcons'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
   import FileIconDisplay from '../shared/FileIconDisplay.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
@@ -31,9 +32,16 @@
     fromMru: boolean
   }
 
+  // Returns focus to whatever opened the palette when it is dismissed without
+  // opening a file. Cleared in openSelected() so that focus stays on the newly
+  // opened editor rather than snapping back to the opener.
+  let restoreFocus: (() => void) | null = null
+
   onMount(() => {
+    restoreFocus = captureFocusReturn()
     inputEl?.focus()
     void forceReload(worktreePath)
+    return () => restoreFocus?.()
   })
 
   const matchedResults: Result[] = $derived.by(() => {
@@ -146,6 +154,7 @@
     const item = results[selectedIndex]
     if (!item || !worktreePath) return
     openFile(`${worktreePath}/${item.path}`, worktreePath)
+    restoreFocus = null
     onClose()
   }
 
