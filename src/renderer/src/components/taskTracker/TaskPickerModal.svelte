@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -40,6 +41,15 @@
   let linkTab = $state<'existing' | 'newTask'>('existing')
 
   let dialogEl: HTMLDivElement | undefined = $state()
+
+  // The Tab trap below keeps focus inside the dialog, but focus has to start here and return to
+  // the opener on close, or a keyboard user is dropped on <body> after picking a task.
+  onMount(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    dialogEl?.focus()
+    return () => previouslyFocused?.focus?.()
+  })
+
   let sendingTaskKey = $state('')
   let sendStatus = $state('')
   let sendError = $state('')
@@ -271,6 +281,7 @@
     role="dialog"
     aria-modal="true"
     aria-label="Task Picker"
+    tabindex="-1"
   >
     {#if selectedTask}
       <BranchCreateForm

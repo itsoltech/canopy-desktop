@@ -1,4 +1,4 @@
-import { onMount, tick } from 'svelte'
+import { onDestroy, onMount, tick } from 'svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
 import { addToast } from '../../lib/stores/toast.svelte'
@@ -139,7 +139,13 @@ export function createGitHubActionsCiConfiguratorState({
   const credentialUrl = $derived(repository ? githubActionsCredentialBaseUrl(repository) : '')
   const isInitialSetup = $derived(initialConfig === null)
 
+  // Restoring via onDestroy rather than an onMount cleanup: this onMount is async, so Svelte
+  // never invokes a returned teardown.
+  let previouslyFocused: HTMLElement | null = null
+  onDestroy(() => previouslyFocused?.focus?.())
+
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     if (!repoRoot) {
       repositoryResolving = false
