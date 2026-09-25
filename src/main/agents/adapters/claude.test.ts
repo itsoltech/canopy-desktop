@@ -53,3 +53,40 @@ describe('claudeAdapter.setupSettings', () => {
     expect(settings.statusLine).toEqual({ type: 'command', command: '/canopy/status.sh' })
   })
 })
+
+describe('claudeAdapter.normalizeEvent', () => {
+  // Shape of Claude Code 2.1.282's model-switch hook input: no top-level `model`.
+  const modelSwitch = {
+    session_id: 'session-1',
+    from_model: 'claude-opus-5-5',
+    to_model: 'claude-sonnet-5',
+    requested_model: 'sonnet',
+    source: 'command',
+  }
+
+  it('reads the model a PostModelSwitch landed on', () => {
+    const event = claudeAdapter.normalizeEvent({
+      ...modelSwitch,
+      hook_event_name: 'PostModelSwitch',
+    })
+    expect(event.model).toBe('claude-sonnet-5')
+  })
+
+  it('does not take the proposed model from PreModelSwitch', () => {
+    const event = claudeAdapter.normalizeEvent({
+      ...modelSwitch,
+      hook_event_name: 'PreModelSwitch',
+    })
+    expect(event.model).toBeUndefined()
+  })
+
+  it('reads model from SessionStart', () => {
+    const event = claudeAdapter.normalizeEvent({
+      hook_event_name: 'SessionStart',
+      session_id: 'session-1',
+      source: 'startup',
+      model: 'claude-opus-5-5',
+    })
+    expect(event.model).toBe('claude-opus-5-5')
+  })
+})
