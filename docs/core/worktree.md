@@ -143,6 +143,7 @@ Worktree setup actions are configured per workspace and stored in the preference
 6. Progress events include `{ actionIndex, totalActions, label, status, outputChunk?, error? }` where status is `running`, `done`, or `error`.
 7. The user can abort setup at any time by calling `window.api.abortWorktreeSetup()`, which triggers an AbortController. The currently running command's PTY is killed and the runner returns `{ success: false, errors: ['Setup aborted'] }`.
 8. If an individual action fails, its error is recorded but the runner continues with the remaining actions. The final result includes all errors.
+9. Closing the create-worktree dialog while the worktree is still being created does not cancel the creation — the worktree still appears in the sidebar — but its setup actions are skipped, and Canopy neither switches to it nor launches a tool there.
 
 ### Agent worktree status
 

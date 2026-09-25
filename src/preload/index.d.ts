@@ -6,6 +6,7 @@ import type {
   EditorFileLoadResult,
   EditorFileSaveResult,
   EditorFileSnapshot,
+  PaneSnapshot,
   RunConfigCommandResult,
   RunConfigProcessSnapshot,
   TabCloseAllPreflightResult,
@@ -1636,6 +1637,14 @@ interface TrackerComment {
   author: string
   body: string
   created: string
+}
+
+interface TrackerAttachment {
+  id: string
+  name: string
+  mimeType: string
+  size: number
+  url: string
 }
 
 interface TrackerSprint {

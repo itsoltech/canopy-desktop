@@ -85,6 +85,7 @@ export class RunConfigCommandService {
       // `.canopy/run.toml` can be committed, so treat env overrides as untrusted.
       const env = filterRunConfigEnv(config.env)
       const fullCommand = config.args ? `${config.command} ${config.args}` : config.command
+      const senderId = sender.id
 
       // Pre-run hook (30s timeout)
       if (config.pre_run) {
@@ -100,6 +101,8 @@ export class RunConfigCommandService {
           cwd,
           env,
         })
+        // Window-owned like the main process, so closing the window mid-hook kills it.
+        this.deps.windowManager.trackPtySession(senderId, preSession.id)
         let preOutput = ''
         preSession.pty.onData((data) => {
           preOutput += data
@@ -113,6 +116,7 @@ export class RunConfigCommandService {
             if (!done) {
               done = true
               this.deps.ptyManager.kill(preSession.id)
+              this.deps.windowManager.untrackPtySession(senderId, preSession.id)
               reject(new Error(`pre_run "${config.pre_run}" timed out after 30s`))
             }
           }, PRE_RUN_TIMEOUT)
@@ -121,6 +125,7 @@ export class RunConfigCommandService {
             done = true
             clearTimeout(timer)
             this.deps.ptyManager.kill(preSession.id)
+            this.deps.windowManager.untrackPtySession(senderId, preSession.id)
             if (exitCode !== 0) {
               const lastLines = preOutput.trim().split('\n').slice(-5).join('\n')
               reject(
@@ -131,6 +136,12 @@ export class RunConfigCommandService {
         })
       }
 
+      // A window closed while pre_run (or the awaits above) ran has already disposed its PTYs;
+      // a process spawned now could never be tracked and would outlive it until app quit.
+      if (sender.isDestroyed()) {
+        throw new Error(`Window closed before "${payload.name}" started`)
+      }
+
       // Run main command through shell so PATH is resolved
       const main = shellExecArgs(fullCommand)
       const session = this.deps.ptyManager.spawn({
@@ -139,7 +150,6 @@ export class RunConfigCommandService {
         cwd,
         env,
       })
-      const senderId = sender.id
       let cleanedUp = false
       const cleanup = (): void => {
         if (cleanedUp) return

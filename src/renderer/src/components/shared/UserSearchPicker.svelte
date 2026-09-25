@@ -132,6 +132,9 @@
         role="combobox"
         aria-expanded={open}
         aria-controls={id ? `${id}-listbox` : undefined}
+        aria-activedescendant={id && open && suggestions[focusedIndex]
+          ? `${id}-option-${focusedIndex}`
+          : undefined}
         onfocus={() => (open = true)}
         oninput={() => {
           open = true
@@ -163,6 +166,7 @@
           focusedIndex
             ? 'bg-hover'
             : ''}"
+          id={id ? `${id}-option-${i}` : undefined}
           role="option"
           aria-selected={i === focusedIndex}
           onmousedown={(e) => {

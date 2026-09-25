@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { Play, Square, Settings, ChevronDown } from '@lucide/svelte'
   import Tooltip from '../shared/Tooltip.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
@@ -18,6 +19,7 @@
 
   let dropdownOpen = $state(false)
   let triggerEl: HTMLButtonElement | undefined = $state()
+  let listEl: HTMLDivElement | undefined = $state()
   let dropdownTop = $state(0)
   let dropdownLeft = $state(0)
   let dropdownWidth = $state(0)
@@ -72,10 +74,20 @@
     dropdownLeft = rect.left
     dropdownWidth = rect.width
     dropdownOpen = true
+    // The list is portalled to <body>, far from the trigger in tab order — without moving focus
+    // into it, keyboard users can open it but never reach an option.
+    void tick().then(() =>
+      (
+        listEl?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]') ??
+        listEl?.querySelector<HTMLElement>('[role="option"]')
+      )?.focus(),
+    )
   }
 
   function closeDropdown(): void {
+    if (!dropdownOpen) return
     dropdownOpen = false
+    triggerEl?.focus()
   }
 
   function selectAndClose(configDir: string, name: string): void {
@@ -159,6 +171,8 @@
       bind:this={triggerEl}
       class="inline-flex items-center justify-between gap-1.5 h-6 px-2 max-w-[180px] border border-border rounded-md bg-bg-secondary text-text text-xs font-inherit cursor-pointer outline-none hover:bg-hover"
       title={activeLabel}
+      aria-haspopup="listbox"
+      aria-expanded={dropdownOpen}
       onclick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
     >
       <span class="overflow-hidden text-ellipsis whitespace-nowrap">{activeLabel}</span>
@@ -203,6 +217,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="fixed inset-0 z-[9998]" use:portal onclick={closeDropdown}>
       <div
+        bind:this={listEl}
         class="fixed bg-bg border border-border rounded-lg shadow-[0_8px_24px_oklch(0_0_0/0.3)] py-1 max-h-[60vh] overflow-y-auto min-w-[200px]"
         style="top: {dropdownTop}px; left: {dropdownLeft}px; min-width: {dropdownWidth}px;"
         onclick={(e) => e.stopPropagation()}

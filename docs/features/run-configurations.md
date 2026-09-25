@@ -78,7 +78,7 @@ Fields per configuration entry:
 
 1. User clicks Run on a configuration (sidebar, toolbar, or manager modal).
 2. The renderer checks the `max_instances` limit against the global running count for that config across all worktrees. If the limit is reached, a toast is shown: `"<name>" is already running (max N)`.
-3. If `pre_run` is set, Canopy spawns it in a PTY with a 30-second timeout. If the pre-run exits non-zero, execution aborts and the error includes the last 5 lines of output. If it times out, the PTY is killed and an error is raised.
+3. If `pre_run` is set, Canopy spawns it in a PTY with a 30-second timeout. If the pre-run exits non-zero, execution aborts and the error includes the last 5 lines of output. If it times out, the PTY is killed and an error is raised. The pre-run belongs to the window that started it: closing that window kills it, and the main command is not started.
 4. The main command (with args appended) is spawned through the shell so PATH resolution works. A WebSocket bridge is created for the terminal pane.
 5. The session is tracked in `runningProcesses` (keyed by session ID), filtered by the current worktree path.
 6. On process exit, the instance count is decremented and `pty:exit` is sent to the renderer.
