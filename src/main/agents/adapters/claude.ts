@@ -50,10 +50,10 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
   TaskCompleted: 'TaskCompleted',
   TeammateIdle: 'TeammateIdle',
   SessionEnd: 'SessionEnd',
-  // Model switches carry `model` but no session-status meaning, so they stay
-  // unnamed and are consumed only for that payload — same as Gemini's
-  // BeforeModel/AfterModel. `toNotchStatus` returns null for 'Unknown', which
-  // keeps a switch from overwriting the pane's thinking/toolCalling status.
+  // Model switches have no session-status meaning, so they stay unnamed and are
+  // consumed only for PostModelSwitch's `to_model` (see normalizeEvent) — same as
+  // Gemini's BeforeModel/AfterModel. `toNotchStatus` returns null for 'Unknown',
+  // which keeps a switch from overwriting the pane's thinking/toolCalling status.
   PreModelSwitch: 'Unknown',
   PostModelSwitch: 'Unknown',
 }
@@ -141,7 +141,10 @@ export const claudeAdapter: AgentAdapter = {
       agentId: raw.agent_id as string | undefined,
       agentSubtype: raw.agent_type as string | undefined,
       reason: raw.reason as string | undefined,
-      model: raw.model as string | undefined,
+      // Neither model-switch payload has a top-level `model` (2.1.282's hook schema).
+      // PostModelSwitch names the model it landed on `to_model`; PreModelSwitch's is
+      // only proposed, since a user's own hook can still refuse it, so it is not read.
+      model: (rawName === 'PostModelSwitch' ? raw.to_model : raw.model) as string | undefined,
       permissionMode: raw.permission_mode as string | undefined,
       compactSummary: raw.compact_summary as string | undefined,
       prompt: raw.prompt as string | undefined,
