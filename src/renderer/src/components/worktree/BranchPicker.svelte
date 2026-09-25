@@ -62,10 +62,21 @@
     return qi === q.length
   }
 
+  // Big repositories can carry thousands of remote-tracking refs: render a bounded page and let
+  // typing narrow it. A fully typed name stays reachable even when it sorts past the page.
+  const MAX_VISIBLE_BRANCHES = 200
+
   let allBranches = $derived([...branches.local, ...branches.remote])
-  let filteredBranches = $derived(
+  let matchingBranches = $derived(
     query ? allBranches.filter((b) => fuzzyMatch(b, query.toLowerCase())) : allBranches,
   )
+  let filteredBranches = $derived.by(() => {
+    const page = matchingBranches.slice(0, MAX_VISIBLE_BRANCHES)
+    const exact = query.trim()
+    if (page.length === matchingBranches.length || page.includes(exact)) return page
+    return matchingBranches.includes(exact) ? [exact, ...page.slice(0, -1)] : page
+  })
+  let hiddenBranchCount = $derived(matchingBranches.length - filteredBranches.length)
   let enterBranch = $derived(branchPickerEnterTarget(filteredBranches, selectedIdx))
   let offerExactRef = $derived(!!onResolveExact && shouldOfferExactRef(query, allBranches))
 
@@ -278,6 +289,11 @@
         {/each}
       {/if}
     </div>
+    {#if hiddenBranchCount > 0}
+      <p class="mt-1 mb-0 text-xs text-text-faint">
+        {hiddenBranchCount} more not shown — type to narrow the list
+      </p>
+    {/if}
     {#if offerExactRef}
       <button
         type="button"

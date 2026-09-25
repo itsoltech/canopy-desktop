@@ -122,6 +122,8 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // Never let one window's renderer re-bind a browserId another live window owns.
+    if (existing && !existing.sender.isDestroyed() && existing.sender.id !== sender.id) return
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
@@ -306,6 +308,15 @@ export class BrowserManager {
       ])
       menu.popup()
     })
+  }
+
+  /**
+   * `browserId` comes from the untrusted renderer: only the window whose
+   * renderer registered it via setup() may drive or tear it down.
+   */
+  isOwnedBy(browserId: string, senderId: number): boolean {
+    const entry = this.entries.get(browserId)
+    return !!entry && !entry.sender.isDestroyed() && entry.sender.id === senderId
   }
 
   teardown(browserId: string): void {

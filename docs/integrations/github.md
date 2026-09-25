@@ -32,7 +32,7 @@ Authentication uses a GitHub token obtained from a matching task tracker connect
 4. If no matching connection or token is found, the fetch silently returns (no error toast).
 5. `fetchOpenPRsForBranches()` runs a GraphQL search query: `repo:{owner}/{repo} is:pr is:open head:{branch1} head:{branch2} ...`, fetching up to 50 PRs.
 6. Each PR result includes: `number`, `title`, `state`, `url`, `headRefName`, `baseRefName`, `isDraft`, `reviewDecision` (APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null), and `checksState` (from `statusCheckRollup.state`: SUCCESS, FAILURE, PENDING, etc.).
-7. Results are stored in a reactive `branchPRs` map keyed by head branch name. The map is merged across repositories (multiple repos in the same workspace).
+7. Results are stored in a reactive `branchPRs` map keyed by repository and head branch name (`prKey`). Each load replaces that repository's entries — the query only returns open PRs, so PRs merged or closed since the previous fetch drop out — while entries for other repositories in the workspace are kept.
 8. Rate limit (403) and auth errors (401) show a toast notification. Other errors are silently ignored.
 
 ### Getting repository info
@@ -51,7 +51,7 @@ Authentication uses a GitHub token obtained from a matching task tracker connect
 
 - `loadBranchPRs(repoRoot)` is called when a workspace is activated or a branch changes.
 - `loadRepoInfo(repoRoot)` fetches repo metadata (default branch, repo ID).
-- `resetGitHubState()` clears all cached PR data and repo info (called on workspace switch).
+- `resetGitHubState()` clears all cached PR data and repo info.
 - The optional `gh`-CLI PR-summary fallback caches one lightweight request per repository and
   branch. Results expire after `PR_FALLBACK_TTL_MS` (30 seconds), while a per-repository/branch
   generation invalidates settled and in-flight requests after an in-app PR mutation.

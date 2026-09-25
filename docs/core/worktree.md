@@ -28,6 +28,8 @@ Agents (Claude, Gemini, OpenCode, Codex) can run in dedicated worktrees for isol
 ### Creating a worktree from an existing branch
 
 1. User selects "Existing branch" in the create-worktree modal and picks a local or remote branch.
+   The searchable branch list renders at most 200 matches; typing narrows it, a fully typed branch
+   name is always shown, and a hint states how many matches are hidden.
 2. Renderer calls `window.api.gitWorktreeCheckout(repoRoot, path, branch, createLocalTracking)`.
 3. For local branches, `GitRepository.worktreeAddCheckout()` runs `git worktree add <path> <branch>`.
 4. For remote branches (containing a `/`), if `createLocalTracking` is true, the method extracts the local name (everything after the first `/`), checks whether a local branch with that name already exists via `git branch --list`, and either checks it out or creates a tracking branch with `git worktree add -b <localName> <path> <remoteBranch>`.
