@@ -12,6 +12,7 @@ import {
   PR_FALLBACK_TTL_MS,
   getPRFallbackCacheSizes,
   getPRFallbackGeneration,
+  getPRForBranch,
   invalidatePRFallback,
   loadBranchPRs,
   loadPRFallbackSummary,
@@ -199,5 +200,51 @@ describe('GitHub PR fallback refresh', () => {
     await loadPRFallbackSummary('C:/repo', 'feature/a')
 
     expect(api.taskTrackerPRSummary).toHaveBeenLastCalledWith('C:/repo', 'feature/a', 1, true)
+  })
+})
+
+describe('branch PR map', () => {
+  const openPR = (number: number, headRefName: string): Record<string, unknown> => ({
+    number,
+    title: `PR ${number}`,
+    state: 'OPEN',
+    url: `https://github.com/owner/repo/pull/${number}`,
+    headRefName,
+    baseRefName: 'main',
+    isDraft: false,
+    reviewDecision: null,
+    checksState: null,
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetGitHubState()
+    api.githubFetchBranchPRs.mockResolvedValue({})
+  })
+
+  it('drops a PR that is no longer open when its repository reloads', async () => {
+    api.githubFetchBranchPRs
+      .mockResolvedValueOnce({ 'feature/a': openPR(7, 'feature/a') })
+      .mockResolvedValueOnce({})
+
+    await loadBranchPRs('C:/repo')
+    expect(getPRForBranch('C:/repo', 'feature/a')).toMatchObject({ number: 7 })
+
+    await loadBranchPRs('C:/repo', true)
+    expect(getPRForBranch('C:/repo', 'feature/a')).toBeUndefined()
+  })
+
+  it("keeps other repositories' PRs when one repository reloads", async () => {
+    api.githubFetchBranchPRs
+      .mockResolvedValueOnce({ main: openPR(1, 'main') })
+      .mockResolvedValueOnce({ main: openPR(2, 'main') })
+      .mockResolvedValueOnce({})
+
+    await loadBranchPRs('C:/one')
+    await loadBranchPRs('C:/two')
+    await loadBranchPRs('C:/one', true)
+
+    expect(getPRForBranch('C:/one', 'main')).toBeUndefined()
+    expect(getPRForBranch('C:/two', 'main')).toMatchObject({ number: 2 })
   })
 })

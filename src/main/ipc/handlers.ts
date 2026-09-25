@@ -2394,27 +2394,32 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('browser:teardown', (_event, payload: { browserId: string }) => {
+  // Follow-up browser:* calls act only on a browserId this window registered via browser:setup.
+  ipcMain.handle('browser:teardown', (event, payload: { browserId: string }) => {
+    if (!browserManager.isOwnedBy(payload.browserId, event.sender.id)) return
     browserManager.teardown(payload.browserId)
   })
 
-  ipcMain.handle('browser:openDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:openDevTools', (event, payload: { browserId: string }) => {
+    if (!browserManager.isOwnedBy(payload.browserId, event.sender.id)) return
     browserManager.openDevTools(payload.browserId)
   })
 
-  ipcMain.handle('browser:closeDevTools', (_event, payload: { browserId: string }) => {
+  ipcMain.handle('browser:closeDevTools', (event, payload: { browserId: string }) => {
+    if (!browserManager.isOwnedBy(payload.browserId, event.sender.id)) return
     browserManager.closeDevTools(payload.browserId)
   })
 
   ipcMain.handle(
     'browser:setDevToolsBounds',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         bounds: { x: number; y: number; width: number; height: number }
       },
     ) => {
+      if (!browserManager.isOwnedBy(payload.browserId, event.sender.id)) return
       browserManager.setDevToolsBounds(payload.browserId, payload.bounds)
     },
   )
@@ -2422,12 +2427,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setDeviceEmulation',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         device: { width: number; height: number; scaleFactor: number; mobile: boolean } | null
       },
     ) => {
+      if (!browserManager.isOwnedBy(payload.browserId, event.sender.id)) return
       browserManager.setDeviceEmulation(payload.browserId, payload.device)
     },
   )
@@ -2435,12 +2441,13 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'browser:setBackgroundThrottling',
     (
-      _event,
+      event,
       payload: {
         browserId: string
         allowed: boolean
       },
     ) => {
+      if (!browserManager.isOwnedBy(payload.browserId, event.sender.id)) return
       browserManager.setBackgroundThrottling(payload.browserId, payload.allowed)
     },
   )
@@ -2487,7 +2494,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'browser:fillCredential',
-    (_event, payload: { browserId: string; username: string; password: string }) => {
+    (event, payload: { browserId: string; username: string; password: string }) => {
+      if (!browserManager.isOwnedBy(payload.browserId, event.sender.id)) return
       browserManager.fillCredential(payload.browserId, payload.username, payload.password)
     },
   )
@@ -3218,6 +3226,16 @@ export function registerIpcHandlers(
     return mergeConfigs(global, repo)
   }
 
+  // Tracker channels take an optional renderer-supplied repoRoot that selects which
+  // .canopy/config.json is merged and where the GitHub remote is probed. The renderer is
+  // untrusted: confine it to this window's projects/worktrees like the git:* channels do.
+  async function authorizeOptionalRepoRoot(
+    event: IpcMainInvokeEvent,
+    repoRoot: string | undefined,
+  ): Promise<string | undefined> {
+    return repoRoot ? validateWorktreeScopedPathAccess(event.sender.id, repoRoot) : undefined
+  }
+
   async function authorizeRendererKeychainBinding(
     event: IpcMainInvokeEvent,
     payload: { provider: string; baseUrl: string; bindingKey?: string; repoRoot?: string },
@@ -3284,8 +3302,14 @@ export function registerIpcHandlers(
     return renderBranchName(branchTpl.template, variables)
   }
 
-  ipcMain.handle('tracker:resolvedConfig', async (_event, payload: { repoRoot?: string }) => {
-    return resolveEffectiveConfig(payload.repoRoot)
+  ipcMain.handle('tracker:resolvedConfig', async (event, payload: { repoRoot?: string }) => {
+    // Read op with a safe default: a repoRoot this window doesn't own (e.g. a project detached
+    // after the renderer last loaded it) resolves the global config only.
+    const repoRoot = await fromExternalCall(
+      authorizeOptionalRepoRoot(event, payload.repoRoot),
+      errorMessage,
+    )
+    return resolveEffectiveConfig(repoRoot.unwrapOr(undefined))
   })
 
   // --- Keychain ---
@@ -3549,8 +3573,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'taskTracker:fetchBoards',
-    async (_event, payload: { connectionId: string; repoRoot?: string }) => {
-      const result = await taskTrackerManager.fetchBoards(payload.connectionId, payload.repoRoot)
+    async (event, payload: { connectionId: string; repoRoot?: string }) => {
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const result = await taskTrackerManager.fetchBoards(payload.connectionId, repoRoot)
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
@@ -3585,11 +3610,11 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'taskTracker:fetchStatuses',
-    async (_event, payload: { connectionId: string; boardId?: string; repoRoot?: string }) => {
+    async (event, payload: { connectionId: string; boardId?: string; repoRoot?: string }) => {
       const result = await taskTrackerManager.fetchStatuses(
         payload.connectionId,
         payload.boardId,
-        payload.repoRoot,
+        await authorizeOptionalRepoRoot(event, payload.repoRoot),
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3598,7 +3623,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:fetchTasks',
     async (
-      _event,
+      event,
       payload: {
         connectionId: string
         statuses?: string[]
@@ -3608,7 +3633,11 @@ export function registerIpcHandlers(
       },
     ) => {
       const { connectionId, repoRoot, ...params } = payload
-      const result = await taskTrackerManager.fetchTasks(connectionId, params, repoRoot)
+      const result = await taskTrackerManager.fetchTasks(
+        connectionId,
+        params,
+        await authorizeOptionalRepoRoot(event, repoRoot),
+      )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
   )
@@ -3623,11 +3652,11 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'taskTracker:getCurrentSprint',
-    async (_event, payload: { connectionId: string; boardId?: string; repoRoot?: string }) => {
+    async (event, payload: { connectionId: string; boardId?: string; repoRoot?: string }) => {
       const result = await taskTrackerManager.getCurrentSprint(
         payload.connectionId,
         payload.boardId,
-        payload.repoRoot,
+        await authorizeOptionalRepoRoot(event, payload.repoRoot),
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3637,13 +3666,14 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchBoards',
-    async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+    async (event, payload: { repoRoot?: string; trackerId?: string }) => {
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) return []
       const result = await taskTrackerManager.fetchBoardsFromConfig(
         resolved.config,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return result.unwrapOr([])
     },
@@ -3651,14 +3681,15 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchStatuses',
-    async (_event, payload: { repoRoot?: string; trackerId?: string; boardId?: string }) => {
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+    async (event, payload: { repoRoot?: string; trackerId?: string; boardId?: string }) => {
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchStatusesFromConfig(
         resolved.config,
         payload.boardId,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3666,13 +3697,14 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchProjects',
-    async (_event, payload: { repoRoot?: string; trackerId?: string; all?: boolean }) => {
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+    async (event, payload: { repoRoot?: string; trackerId?: string; all?: boolean }) => {
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchProjectsFromConfig(
         resolved.config,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
         payload.all === true,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
@@ -3681,13 +3713,14 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchTaskTypes',
-    async (_event, payload: { repoRoot?: string; trackerId?: string }) => {
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+    async (event, payload: { repoRoot?: string; trackerId?: string }) => {
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchTaskTypesFromConfig(
         resolved.config,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3696,7 +3729,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:fetchTasks',
     async (
-      _event,
+      event,
       payload: {
         repoRoot?: string
         trackerId?: string
@@ -3706,7 +3739,8 @@ export function registerIpcHandlers(
         projectKey?: string
       },
     ) => {
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchTasksFromConfig(
         resolved.config,
@@ -3717,7 +3751,7 @@ export function registerIpcHandlers(
           projectKey: payload.projectKey,
         },
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3726,7 +3760,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:getCurrentUser',
     async (
-      _event,
+      event,
       payload: { repoRoot?: string; trackerId?: string },
     ): Promise<{ ok: true; value: string } | { ok: false; error: string }> => {
       // Envelope instead of a rejected promise: this call is the credential PROBE
@@ -3734,12 +3768,17 @@ export function registerIpcHandlers(
       // expected outcome — a rejection here made Electron print a full
       // "Error occurred in handler" stack to the console each time. The preload
       // bridge unwraps the envelope back into a throw for the renderer.
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await fromExternalCall(
+        authorizeOptionalRepoRoot(event, payload.repoRoot),
+        errorMessage,
+      )
+      if (repoRoot.isErr()) return { ok: false, error: repoRoot.error }
+      const resolved = await resolveEffectiveConfig(repoRoot.value)
       if (!resolved) return { ok: false, error: 'No tracker configured' }
       const result = await taskTrackerManager.getCurrentUserFromConfig(
         resolved.config,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot.value,
       )
       return result.match(
         (value) => ({ ok: true as const, value }),
@@ -3752,15 +3791,16 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchTaskComments',
-    async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
+    async (event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
       if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchTaskCommentsFromConfig(
         resolved.config,
         payload.taskKey,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3768,15 +3808,16 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchTransitions',
-    async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
+    async (event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
       if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchTransitionsFromConfig(
         resolved.config,
         payload.taskKey,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3785,7 +3826,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:applyTransition',
     async (
-      _event,
+      event,
       payload: {
         repoRoot?: string
         trackerId?: string
@@ -3813,7 +3854,8 @@ export function registerIpcHandlers(
       if (payload.comment !== undefined && typeof payload.comment !== 'string') {
         throw new Error('Invalid transition comment')
       }
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.applyTransitionFromConfig(
         resolved.config,
@@ -3821,7 +3863,7 @@ export function registerIpcHandlers(
         payload.transitionId,
         { fields: payload.fields, comment: payload.comment },
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3830,21 +3872,22 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:addComment',
     async (
-      _event,
+      event,
       payload: { repoRoot?: string; trackerId?: string; taskKey: string; body: string },
     ) => {
       if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
       if (!payload.body || typeof payload.body !== 'string' || !payload.body.trim()) {
         throw new Error('Comment body is required')
       }
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.addCommentFromConfig(
         resolved.config,
         payload.taskKey,
         payload.body,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3852,15 +3895,16 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchTaskAttachments',
-    async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
+    async (event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
       if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchTaskAttachmentsFromConfig(
         resolved.config,
         payload.taskKey,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3869,19 +3913,20 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:downloadAttachment',
     async (
-      _event,
+      event,
       payload: { repoRoot?: string; trackerId?: string; url: string; filename: string },
     ) => {
       if (!payload.url || !/^https?:\/\//.test(payload.url)) throw new Error('Invalid URL')
       if (!payload.filename || /[\0/\\]/.test(payload.filename)) throw new Error('Invalid filename')
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.downloadAttachmentFromConfig(
         resolved.config,
         payload.url,
         payload.filename,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3889,15 +3934,16 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:findTaskByKey',
-    async (_event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
+    async (event, payload: { repoRoot?: string; trackerId?: string; taskKey: string }) => {
       if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.findTaskByKeyFromConfig(
         resolved.config,
         payload.taskKey,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3912,19 +3958,20 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchAssignableUsers',
-    async (_event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
+    async (event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
       if (payload.projectKey !== undefined && typeof payload.projectKey !== 'string') {
         throw new Error('Invalid project key')
       }
       const projectKey = payload.projectKey ?? ''
       if (projectKey && !PROJECT_KEY_RE.test(projectKey)) throw new Error('Invalid project key')
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchAssignableUsersFromConfig(
         resolved.config,
         projectKey,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3932,7 +3979,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchSprints',
-    async (_event, payload: { repoRoot?: string; trackerId?: string; boardId: string }) => {
+    async (event, payload: { repoRoot?: string; trackerId?: string; boardId: string }) => {
       if (
         !payload.boardId ||
         typeof payload.boardId !== 'string' ||
@@ -3940,13 +3987,14 @@ export function registerIpcHandlers(
       ) {
         throw new Error('Invalid board id')
       }
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchSprintsFromConfig(
         resolved.config,
         payload.boardId,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3954,19 +4002,20 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'trackerConfig:fetchCreateTaskTypes',
-    async (_event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
+    async (event, payload: { repoRoot?: string; trackerId?: string; projectKey?: string }) => {
       if (payload.projectKey !== undefined && typeof payload.projectKey !== 'string') {
         throw new Error('Invalid project key')
       }
       const projectKey = payload.projectKey ?? ''
       if (projectKey && !PROJECT_KEY_RE.test(projectKey)) throw new Error('Invalid project key')
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.fetchCreateTaskTypesFromConfig(
         resolved.config,
         projectKey,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -3975,7 +4024,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'trackerConfig:createTask',
     async (
-      _event,
+      event,
       payload: {
         repoRoot?: string
         trackerId?: string
@@ -4031,7 +4080,8 @@ export function registerIpcHandlers(
           }
         }
       }
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const result = await taskTrackerManager.createTaskFromConfig(
         resolved.config,
@@ -4046,7 +4096,7 @@ export function registerIpcHandlers(
           attachments: payload.attachments,
         },
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -4054,12 +4104,12 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'taskTracker:fetchTaskComments',
-    async (_event, payload: { connectionId: string; taskKey: string; repoRoot?: string }) => {
+    async (event, payload: { connectionId: string; taskKey: string; repoRoot?: string }) => {
       if (!TASK_KEY_RE.test(payload.taskKey)) throw new Error('Invalid task key')
       const result = await taskTrackerManager.fetchTaskComments(
         payload.connectionId,
         payload.taskKey,
-        payload.repoRoot,
+        await authorizeOptionalRepoRoot(event, payload.repoRoot),
       )
       return unwrapOrThrow(result, taskTrackerErrorMessage)
     },
@@ -4312,7 +4362,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:resolveBranchType',
     async (
-      _event,
+      event,
       payload: {
         taskType: string
         taskKey?: string
@@ -4321,7 +4371,9 @@ export function registerIpcHandlers(
         repoRoot?: string
       },
     ) => {
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(
+        await authorizeOptionalRepoRoot(event, payload.repoRoot),
+      )
       let typeMapping: Record<string, string> | undefined
       let hasBranchType = false
 
@@ -4349,7 +4401,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:resolvePRPreview',
     async (
-      _event,
+      event,
       payload: {
         taskKey: string
         connectionId?: string
@@ -4362,7 +4414,9 @@ export function registerIpcHandlers(
         task = await taskTrackerManager.findTaskByKey(payload.taskKey).catch(() => null)
       }
 
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(
+        await authorizeOptionalRepoRoot(event, payload.repoRoot),
+      )
       const prTpl = resolved
         ? getPRTemplate(resolved.config, projectKeyOfTask(payload.taskKey))
         : {
@@ -4741,10 +4795,12 @@ export function registerIpcHandlers(
   const imageDataUrlCache = new Map<string, string>()
   ipcMain.handle(
     'taskTracker:imageAsDataUrl',
-    async (_event, payload: { repoRoot?: string; url: string; trackerId?: string }) => {
+    async (event, payload: { repoRoot?: string; url: string; trackerId?: string }) => {
       if (!payload.url || !/^https:\/\//.test(payload.url)) return null
       if (payload.trackerId !== undefined && typeof payload.trackerId !== 'string') return null
-      const cacheKey = `${payload.repoRoot ?? ''}::${payload.trackerId ?? ''}::${payload.url}`
+      // Authorize before the cache lookup so another window's cached entries stay unreachable.
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const cacheKey = `${repoRoot ?? ''}::${payload.trackerId ?? ''}::${payload.url}`
       const cached = imageDataUrlCache.get(cacheKey)
       if (cached) {
         // Refresh recency (Map iterates in insertion order — re-insert moves it to the back).
@@ -4752,13 +4808,13 @@ export function registerIpcHandlers(
         imageDataUrlCache.set(cacheKey, cached)
         return cached
       }
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) return null
       const result = await taskTrackerManager.fetchImageAsDataUrlFromConfig(
         resolved.config,
         payload.url,
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       const dataUrl = result.unwrapOr(null)
       if (dataUrl) {
@@ -4780,7 +4836,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'taskTracker:attachmentPreview',
     async (
-      _event,
+      event,
       payload: {
         repoRoot?: string
         trackerId?: string
@@ -4798,14 +4854,15 @@ export function registerIpcHandlers(
       ) {
         throw new Error('Invalid attachment id')
       }
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const attachments = unwrapOrThrow(
         await taskTrackerManager.fetchTaskAttachmentsFromConfig(
           resolved.config,
           payload.taskKey,
           payload.trackerId,
-          payload.repoRoot,
+          repoRoot,
         ),
         taskTrackerErrorMessage,
       )
@@ -4822,7 +4879,7 @@ export function registerIpcHandlers(
         attachment.url,
         attachment.name || 'attachment',
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       const localPath = unwrapOrThrow(result, taskTrackerErrorMessage)
       try {
@@ -4861,14 +4918,15 @@ export function registerIpcHandlers(
       }
       const win = BrowserWindow.fromWebContents(event.sender)
       if (!win || win.isDestroyed()) return null
-      const resolved = await resolveEffectiveConfig(payload.repoRoot)
+      const repoRoot = await authorizeOptionalRepoRoot(event, payload.repoRoot)
+      const resolved = await resolveEffectiveConfig(repoRoot)
       if (!resolved) throw new Error('No tracker configured')
       const attachments = unwrapOrThrow(
         await taskTrackerManager.fetchTaskAttachmentsFromConfig(
           resolved.config,
           payload.taskKey,
           payload.trackerId,
-          payload.repoRoot,
+          repoRoot,
         ),
         taskTrackerErrorMessage,
       )
@@ -4894,7 +4952,7 @@ export function registerIpcHandlers(
         attachment.url,
         attachment.name || 'attachment',
         payload.trackerId,
-        payload.repoRoot,
+        repoRoot,
       )
       const localPath = unwrapOrThrow(result, taskTrackerErrorMessage)
       // Stage in an app-owned mkdtemp directory NEXT TO the destination (same
