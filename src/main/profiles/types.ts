@@ -17,6 +17,7 @@ export interface ProfilePrefs {
   permissionMode?: string
   effortLevel?: string
   appendSystemPrompt?: string
+  systemPromptSnapshot?: string // 'off' to re-render the prompt every request
   baseUrl?: string
   provider?: string // 'bedrock' | 'vertex' | 'foundry'
 
