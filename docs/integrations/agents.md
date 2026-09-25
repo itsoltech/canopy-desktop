@@ -64,6 +64,9 @@ deliberately without a normalized name, because only their payload is wanted: Cl
 `PreModelSwitch`/`PostModelSwitch` (2.1.251+) and Gemini's `BeforeModel`/`AfterModel` all resolve to
 `Unknown`. `handleHookEvent` assigns `session.model` from any event that carries `model` before it
 branches on the event name, so a model switch updates the Agent Inspector without needing one.
+Claude Code's model-switch payloads have no top-level `model`: `PostModelSwitch` names the model it
+landed on `to_model`, which `normalizeEvent` maps to `model`, and `PreModelSwitch` is not read,
+because a user's own hook can still refuse the switch it proposes.
 
 ### Session state tracking
 
@@ -226,6 +229,19 @@ Linux the modifier for Canopy's own shortcuts is Ctrl, so Ctrl+W matches the glo
 tab if last)" binding in `MainLayout.svelte` and the pane closes instead of a word being deleted —
 Canopy's shortcuts are fixed, so there is no remap to work around it. On macOS the modifier is ⌘,
 Canopy ignores Ctrl+W, and the readline binding works as documented.
+
+**`maxProseWidth` keeps prose readable in wide panes.** Claude Code 2.1.282+ accepts `maxProseWidth`,
+a column count (integer, minimum 40) that caps the width of Claude's prose — paragraphs, headings,
+lists and blockquotes — while tables and code blocks keep the full width. Only the display wraps; the
+response text gains no line breaks. It reaches the CLI through the profile's Settings JSON field, for
+example `{ "maxProseWidth": 100 }`. A Canopy pane is as wide as its split, so a single pane on a wide
+monitor runs to hundreds of columns, and unset (the default) wraps prose at the full width the pane
+reports on resize. **Unlike 2.1.281's boolean `attribution`, it is safe on a profile whose `claude`
+is older.** A new key and a new type for an existing key fail differently: the 2.1.207 build vendored
+in `node_modules` and the 2.1.282 build both end their settings object in `.passthrough()`, so an
+older CLI keeps the unknown key and ignores it instead of skipping the file that carries Canopy's
+hooks. 2.1.282 itself declares the key with `.catch(undefined)`, so a value below 40 or of the wrong
+type is dropped on its own rather than invalidating the file.
 
 **Bedrock, Vertex and Foundry profiles now get the fullscreen renderer.** Claude Code 2.1.239
 extends its one-time fullscreen renderer offer to those providers, which were previously excluded,
@@ -1961,6 +1977,112 @@ twentieth consecutive run — and `WebFetch` on its first and only call, the nin
 binary covers the part of that gap that is Canopy's contract (flags, hook events, payload and
 status-line field names, and the one schema the visible entries named) and nothing else; behaviour
 behind the hidden entries is still unread. The vendored SDK under `node_modules` is still `0.3.207`.
+
+**2.1.282's effort fix is about a model switch, and following it into the build showed that Canopy's
+model-switch subscription had never read a model.** The entry reads "Fixed a failed turn ("Effort
+'xhigh' isn't available with thinking turned off") after a safety-related model switch in sessions
+with thinking off and effort above high". The switch is `switchModelsOnFlag` — "When safeguards flag
+a message, automatically switch to a different model to keep chatting". Canopy has subscribed to
+`PreModelSwitch` and `PostModelSwitch` since 2.1.251 (`ddbc639`) so the Agent Inspector can show the
+new model, and 2.1.282 fires `PostModelSwitch` from a state subscriber whenever the session's
+effective model changes. `source` comes from whichever caller recorded one, and is `"auto"` —
+"automatic fallback or other programmatic change" — otherwise. Whether the safeguards fallback
+itself changes the session model, rather than only the turn's, could not be traced through the
+minified query loop. Whatever fires it, the event's hook-input schema in the 2.1.282 build is
+`from_model`, `to_model` ("Resolved model id the session runs after the switch"), `requested_model`,
+`source`, `context_tokens` and cache-cost fields over the common base (`session_id`,
+`transcript_path`, `cwd`, `prompt_id`, `permission_mode`, `agent_id`, `agent_type`, `effort`), with
+**no top-level `model`**.
+`normalizeEvent` read `raw.model`, so every switch normalized to `model: undefined` and
+`handleHookEvent`'s `if (event.model)` skipped it. Nobody saw it because the status line always runs
+(`AgentSessionManager` passes the script unconditionally) and its next refresh writes
+`model.display_name` — so the display lagged until then rather than staying wrong.
+
+**The fix reads `to_model` from `PostModelSwitch` only.** `PreModelSwitch` carries the same fields,
+but its `to_model` is a proposal: a `PreModelSwitch` hook in the user's own settings can block the
+switch or ask first, and taking the model from it would show a switch that never happened.
+`claude.test.ts` pins both cases plus `SessionStart`, whose schema does carry `model`. The sources
+2.1.282 reports are `command` (`/model`, the `/config` Model row, fast mode), `picker`, `sdk`, `auto`
+and `resume` — the last fires when `--resume` restores a session's model, which Canopy issues on every
+layout restore.
+
+**The 2.1.281 contract check could not have caught this, because it tested names, not events.** It
+confirmed that every field Canopy reads "is still present", and `model` is present — in
+`SessionStart`. This run checked each field against the schema of the event Canopy reads it from.
+Everything else holds: `error`/`error_details` on `StopFailure`, `reason` on `SessionEnd`,
+`compact_summary` on `PostCompact`, `message`/`title`/`notification_type` on `Notification`,
+`task_id`/`task_subject` on `TaskCompleted`, `agent_id`/`agent_type` on `SubagentStart` and
+`SubagentStop`, `tool_name`/`tool_input`/`tool_response` on the tool events, `permission_mode` on the
+base, and on the status line `model.id`/`display_name`, `context_window.used_percentage` and
+`context_window_size`, the five `cost` fields and `version`. One field is now marked for removal:
+`team_name` on `TeammateIdle` and `TaskCompleted` is "@deprecated … will be removed in a future
+release". Canopy normalizes it into `teamName`, and nothing reads it.
+
+**The effort entry also reaches Canopy's own dropdown.** The profile's Effort level offers Extra high
+(`xhigh`) and Max (`max`) — the entry's "effort above high" — and 2.1.282's `--effort` still accepts
+exactly `low`, `medium`, `high`, `xhigh` and `max`. A profile that also turns thinking off, with
+`MAX_THINKING_TOKENS=0` in its env vars or `"alwaysThinkingEnabled": false` in Settings JSON, could
+fail turns after a safeguards switch on a CLI older than 2.1.282. The fix is in the user's binary.
+The error still exists for the cases it was meant for, and its advice — `/effort high`, or
+`--effort high` and the effortLevel setting, depending on how the session started — only sticks in a
+Canopy pane through the profile's Effort level field, because every spawn and resume re-emits
+`--effort` from it, as it does `--model`.
+
+**`maxProseWidth` is the one new setting, and the check it needed is which way an older CLI fails.**
+It is recorded under Configuration above: a new key passes through older CLIs, which is what makes
+it safe in the one settings file Canopy shares with its hooks. The same check was open to the 2.1.281
+run, which records "no pre-2.1.281 build is on the runner": the SDK vendored in `node_modules` ships
+a 2.1.207 `claude` binary that the `Grep` tool reads exactly like the current one.
+
+**The web-search fix names the configuration the Base URL field exists for.** Every request failed
+with a 400 "in conversations whose history holds web search results the API cannot decrypt (for
+example, from a turn answered through a third-party gateway)". Canopy's Base URL hint names Ollama,
+GLM, MinMax and "any OpenAI-compatible Anthropic proxy", and Canopy resumes panes with the profile's
+current settings, so a session that ran through a gateway and is resumed after the profile's Base
+URL changed builds exactly that history. The fix lands through the user's binary. The
+`redacted_thinking` fix may share that cause, but its entry does not say so.
+
+**The telemetry notice ranks Canopy's two env routes differently.** Its text says a project's
+settings files "can only turn telemetry off", and that the CLI uses a project's off switch "unless
+managed settings or a `--settings` file sets the same variable"; user settings do not override it.
+Canopy's per-session file is a `--settings` file, so telemetry variables in a profile's Settings
+JSON `env` still win over a worktree's off switch. The profile's env vars go into the process
+environment instead, which the text does not list as overriding it. A worktree whose own
+`.claude/settings.json` sets telemetry variables shows the notice in its panes.
+
+**Nothing else visible reaches Canopy.** `allowClaudeInChromeWithManagedMcp` is a managed setting
+for `claude --chrome`; Canopy writes no managed settings and never passes `--chrome`. The gateway's
+`store.readiness_grace_seconds` configures a Claude apps gateway, which Canopy neither writes nor
+selects. The `/feedback` drafts scrollbar relies on the mouse tracking the 2.1.271 note found working
+in Canopy panes. The resume re-send, immediate-slash-command, `--tools`, redacted-thinking and
+compaction-refusal fixes act inside the user's binary. Canopy emits no `--tools`, and the
+commit-message turn is never resumed.
+
+**Canopy's contract against the 2.1.282 build.** The hook-event array still names 33 events, the
+same set as 2.1.281, so Canopy's 18 are all present and nothing new is unsubscribed. Every flag
+Canopy emits is defined: `--settings <file-or-json>`, `--model <model>`, `--permission-mode <mode>`,
+`--effort <level>`, `--append-system-prompt <prompt>`, `--system-prompt-snapshot <on|off>` and
+`-r, --resume [value]`. The permission-mode list is `acceptEdits`, `auto`, `bypassPermissions`,
+`default`, `dontAsk` and `plan`, covering all four the profile offers.
+
+**Both prompt halves grew again, the system half by more.** Files +3 (+14.3%) gives 3 ÷ 0.143 =
+20.98, band 20.91–21.05, so **21 before and 24 after**, continuing the 2.1.281 note's 21 for an
+eleventh link. Tokens +6,946 (+21.6%) put the total at **~32.16k before and ~39.10k after** (before
+band 32.08k–32.23k, reproducing that note's ~32.14k). Splitting by the given mix (59.2%/40.8% →
+53.6%/46.4%) gives **tools ~19.04k → ~20.96k (+1,922) and system ~13.12k → ~18.14k (+5,024)**.
+Carrying the rounding through both ends leaves tools at +1,882…+1,962 and system at +4,984…+5,064,
+so both signs are safe. **All three new files and both halves' growth are unattributed**: no visible
+entry names a tool or a system-prompt change, and a truncation marker is present, so that silence is
+the ambiguous kind. The bundle grew **+368.6 kB (+0.7%)** from ~52.7 MB (band 49.1–56.7 MB,
+consistent with the ~52.6 MB after 2.1.281), of which ~28 kB is prompt text at ~4 bytes/token.
+
+**74 of 2.1.282's 86 CLI changelog entries were not readable this run**, against 12 visible. `WebFetch`
+was denied on its first and only call, the twentieth consecutive run. **`gh api` was not probed at
+all**, the first run recorded here to spend zero: the checkout and the branch copy of the compat
+prompt both came before any fetch. The 2.1.282 build was on the runner again at
+`~/.local/share/claude/versions/2.1.282`, and every schema claim above was read from it. It holds
+no changelog text, so behaviour behind the 74 hidden entries is still unread. The vendored SDK under
+`node_modules` is still `0.3.207`.
 
 ## Error states
 
