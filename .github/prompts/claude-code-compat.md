@@ -32,6 +32,7 @@ notes alone.** The action installs the CLI it runs under `~/.local/share/claude/
 and on the v2.1.280 → v2.1.281 run that directory held `2.1.281`, `TO_VERSION` exactly. `ls` outside
 the working directory is denied; the `Glob` tool is not (pattern `*`, that directory as the path).
 "The CLI binary running this job" under step 2 says how to read it and what it can and cannot settle.
+An older build ships inside the vendored SDK in `node_modules`; the same section says what it is for.
 
 This block is at the top because the previous six revisions of it were not. Runs read top-to-bottom,
 reach `FROM_VERSION`/`TO_VERSION` in the header, and take the compare call as the obvious opening
@@ -646,6 +647,29 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > **It cannot recover the changelog.** Three phrases from 2.1.281's visible entries returned no match,
 > so the entries behind "… +N more" are not in the binary, and there is no previous build on disk to
 > diff against. Use it to test Canopy's contract, not to reconstruct what changed.
+>
+> **Correction from v2.1.281 → v2.1.282: there _is_ an older build on disk, just not the previous
+> one.** The SDK vendored in `node_modules` ships its own `claude` binary
+> (`node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`; its version is `claudeCodeVersion`
+> in the SDK's `package.json` — 2.1.207 while `next` pins `^0.3.207`), and the `Grep` tool reads it
+> the same way. It cannot diff one release, but it answers "what does an _older_ CLI do with X",
+> which the 2.1.281 run recorded as unverifiable. The v2.1.282 run used both builds to show that each
+> ends its settings object in `.passthrough()`: a **new** settings key is ignored by older CLIs, while a
+> **new type for an existing key** (2.1.281's boolean `attribution`) is what makes them skip the file.
+>
+> **Check fields against the event that carries them, not against the whole binary.** The 2.1.281
+> contract check confirmed that every field name Canopy reads "is still present". `model` was present,
+> but only in `SessionStart`: the model-switch events carry `to_model`, and Canopy's
+> `PostModelSwitch` subscription had never read a model. The hook-input schemas are Zod objects that
+> can be read one event at a time, with the `Grep` tool, `-o`, and the pattern
+> `hook_event_name:[a-zA-Z$]{1,3}\("(StopFailure|SessionEnd)"\).{0,240}`, extended to whichever events
+> you need. The wrapper's minified name changes between builds, hence the character class. Status-line
+> fields are built in one object literal; anchor on `model:\{id:`.
+>
+> **Two more tool facts.** `npx vitest run <file>` is denied ("This command requires approval"), the
+> same as `npm test`, so a test added here has CI as its first run. And the top block of this file works
+> when it is reached: the v2.1.282 run checked out the branch and read this copy before any fetch, and
+> spent **zero** `gh api` probes — the first run recorded here to do so.
 
 > **When the diff is unreachable, spend the turns on Canopy's side of the boundary instead.** Several
 > runs in a row have treated a denied diff as the limit of what the run could establish, and reported
