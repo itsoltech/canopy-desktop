@@ -64,7 +64,9 @@ export function prefetchOnIdle(worktreePath: string): void {
   const schedule =
     typeof requestIdleCallback === 'function'
       ? requestIdleCallback
-      : (cb: () => void): number => setTimeout(cb, 500) as unknown as number
+      : // Node's `setTimeout` overload leaks into scope here; in the renderer the
+        // handle is a number, matching `requestIdleCallback`'s return type.
+        (cb: () => void): number => setTimeout(cb, 500) as unknown as number
   schedule(() => {
     void ensureLoaded(worktreePath)
   })

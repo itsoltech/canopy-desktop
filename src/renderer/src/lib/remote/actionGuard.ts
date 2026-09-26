@@ -137,7 +137,10 @@ async function confirmSessionGrant(method: RpcMethodName): Promise<boolean> {
 }
 
 function describeSessionGrant(method: RpcMethodName): string {
-  return match(method as string)
+  // Matched against `RpcMethodName` (not widened to `string`) so renaming or
+  // removing a method breaks the build here instead of silently degrading the
+  // consent copy to the generic `.otherwise` fallback.
+  return match(method)
     .with('pty.write', () => 'type into any terminal')
     .with('agent.sendInput', () => 'send prompts to any agent')
     .otherwise(() => `execute ${method}`)
@@ -168,7 +171,10 @@ async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promi
 
 function describeAction(method: RpcMethodName, params: unknown): string {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>
-  return match(method as string)
+  // Matched against `RpcMethodName` (not widened to `string`) so a renamed
+  // method fails to compile rather than falling through to `execute <method>`
+  // in the dialog the user reads before approving a destructive remote action.
+  return match(method)
     .with('tools.spawn', () => `spawn tool "${p.toolId}" in ${p.worktreePath}`)
     .with('tabs.close', () => `close tab ${p.tabId}`)
     .with('tabs.activate', () => `activate tab ${p.tabId}`)
