@@ -14,13 +14,15 @@ The workflow checks out `ref: next` and assembles the prompt with `cat`, so the 
 is `next`'s and is missing every note below. The checkout is worth nothing on its own; the re-read is
 the part that pays.
 
-**3. `gh api` against `marckrenn/claude-code-changelog` is denied. Do not probe it.** Thirteen
-consecutive runs have confirmed it, against every shape of path, flag and quoting. The rule in
+**3. `gh api` against `marckrenn/claude-code-changelog` is denied. Do not probe it.** Every run
+that probed it has been denied (twenty-one in a row as of v2.1.283), against every shape of path, flag
+and quoting. The rule in
 `.github/workflows/claude-code-compat.yml` ends mid-token and matches nothing; the mechanism is
 settled and is written up in step 2. If an attempt comes back as "contains multiple operations"
-rather than "requires approval", that is a shell-form error and **not** a reason to retry it
-pipe-free — the pipe is never the cause. `WebFetch` and `WebSearch` are denied too — twelve
-consecutive — so probe `WebFetch` **once**, if at all, and commit to the result. **`curl` is denied as
+rather than "requires approval", that is the same denial (the message names the component that
+failed) and **not** a reason to retry it pipe-free — the pipe is never the cause. `WebFetch` and
+`WebSearch` are denied too, twenty-one consecutive as of v2.1.283, so probe `WebFetch` **once**, if
+at all, and commit to the result. **`curl` is denied as
 well**, and it is worth naming separately because it is the obvious second move once `gh api` fails and
 nothing above rules it out: `curl` is not in `--allowedTools` under any prefix, so reaching the same
 `api.github.com` path by a different client changes nothing. The v2.1.273 → v2.1.274 run spent a turn
@@ -112,8 +114,9 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > does **not** help; that was an earlier misdiagnosis. `Bash(npm view:*)` and `Bash(gh pr view:*)`
 > are allowed in the same session because their prefixes end on a token boundary.
 >
-> Probe once with the `compare` call below. If it is denied, **stop probing** and use `WebFetch`
-> instead — see the next block. Do not represent release-notes-only analysis as a full diff review.
+> Do not probe it: the top of this file says why, and the runnable block this line once pointed at
+> has been removed. If a probe goes out anyway and is denied, stop there. `WebFetch` gets one call at
+> most (see the block on it below). Do not represent release-notes-only analysis as a full diff review.
 >
 > **The fix is to delete one character, not to widen the rule to all of GitHub.** Earlier revisions
 > of this note proposed `Bash(gh api:*)`; that works but gives away the repo scoping, and it is not
@@ -316,7 +319,10 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > same tool call as the second `gh api` attempt, so the branch was on disk before the denial came
 > back, and this file was the first `Read` after it. That closes the post-checkout-pre-read gap the
 > v2.1.263 → v2.1.266 and v2.1.268 → v2.1.269 notes each describe. **For any run that gets `next`'s
-> copy: put the checkout in your first batch, not in a batch of its own after the probes.**
+> copy: put the checkout in your first batch, not in a batch of its own after the probes.** This does
+> not contradict the v2.1.269 → v2.1.270 warning that batching makes a wasted probe easier to hit.
+> That warning is about pairing a probe with unrelated commands, and this advice is about moving the
+> checkout earlier. The best first batch holds the checkout and no probe at all.
 >
 > This run did still walk into the dead end the paragraph above names. Its first `gh api` carried a
 > `|` inside `--jq`, came back "contains multiple operations", and the next attempt was `compare`
@@ -484,14 +490,15 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > fix and the merge as what retires it.
 
 > **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
-> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, thirteen denied so
-> far, the last twelve consecutive. The v2.1.241 → v2.1.245 run used it successfully. The
+> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, twenty-two denied
+> so far, the last twenty-one consecutive (as of v2.1.283). The v2.1.241 → v2.1.245 run used it successfully. The
 > v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
 > use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
 > v2.1.252 → v2.1.257, v2.1.257 → v2.1.258, v2.1.258 → v2.1.259, v2.1.259 → v2.1.260,
 > v2.1.260 → v2.1.261 and v2.1.261 → v2.1.263 runs all hit the same denial on the first call, as did
 > v2.1.263 → v2.1.266, v2.1.266 → v2.1.267, v2.1.267 → v2.1.268, v2.1.268 → v2.1.269 and
-> v2.1.269 → v2.1.270 and v2.1.270 → v2.1.272 — twelve consecutive. That is enough
+> v2.1.269 → v2.1.270 and v2.1.270 → v2.1.272 — twelve consecutive then, and every run since has
+> matched it, twenty-one consecutive as of v2.1.283. That is enough
 > that the one success is the outlier; budget for the denial and treat a working fetch as a windfall. The v2.1.260 → v2.1.261 run confirmed
 > `WebSearch` is denied alongside it a second time, so the pair travel together and one probe answers
 > for both. Do not assume either answer from this file. Issue one fetch, record which way it went in
