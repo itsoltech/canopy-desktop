@@ -670,6 +670,25 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > same as `npm test`, so a test added here has CI as its first run. And the top block of this file works
 > when it is reached: the v2.1.282 run checked out the branch and read this copy before any fetch, and
 > spent **zero** `gh api` probes — the first run recorded here to do so.
+>
+> **Which input shape a hook receives can be read from the build, and it is the check to run whenever
+> a tool gains aliases.** The 2.1.280 note inferred that aliased `Write` input reached `PreToolUse`
+> raw, and nothing on the runner could test that then. The v2.1.282 → v2.1.283 run traced it in the
+> 2.1.283 build with anchors that survive minification. `coerceInput:` on a tool definition names the
+> function holding its alias lists. `coerceInputBeforePluginHooks` marks the one tool (`Write`) that
+> coerces early. `observableInput` is the validator's output, and it is what both hook runners
+> receive. The runners themselves are found by the literals `executePreToolHooks called for tool` and
+> `hook_event_name:"PostToolUse",tool_name:`. On 2.1.283, hooks see only coerced input. **Before calling
+> a loosened schema new, grep the same alias list in the vendored 2.1.207 build**: `TaskCreate` and
+> `TaskUpdate`'s aliases turned out to predate it. One dead end is recorded so it is not re-walked:
+> `/doctor prompt-audit`'s guide (`shared/prompt-audit.md`, bundled with the `claude-api` skill) is
+> not findable as text in the binary, so the audit cannot be applied from here.
+>
+> **v2.1.282 → v2.1.283 went back to two `gh api` probes, both before the checkout.** The second
+> was the pipe-free retry of a multi-operation rejection that the taxonomy table above says to skip.
+> The handed prompt was `next`'s again, with no top block, so this is the step-0 ordering failure,
+> not a new one. It was the twenty-first consecutive denied run, and `WebFetch` was denied on its first
+> and only call, also the twenty-first.
 
 > **When the diff is unreachable, spend the turns on Canopy's side of the boundary instead.** Several
 > runs in a row have treated a denied diff as the limit of what the run could establish, and reported
