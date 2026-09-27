@@ -187,7 +187,7 @@ Custom env vars are filtered against a blocklist (`BLOCKED_ENV_VARS` from `secur
 
 A few opt-in Claude Code variables are worth setting through `customEnv` when running many agent sessions at once (all pass the blocklist unchanged; none has a Canopy default):
 
-- `CLAUDE_CODE_TOOL_MEMORY_LIMIT` — caps Bash tool commands with a memory cgroup on Linux (Claude Code 2.1.233+). Canopy hosts several agent PTYs per workspace, so a runaway build in one session competes with every other pane; this bounds it instead of letting it stall the session.
+- `CLAUDE_CODE_TOOL_MEMORY_LIMIT` — caps Bash tool commands with a memory cgroup on Linux (Claude Code 2.1.233+). Canopy hosts several agent PTYs per workspace, so a runaway build in one session competes with every other pane; this bounds it instead of letting it stall the session. The 2.1.283 build parses the value as a size with an optional `k`, `m`, `g` or `t` unit in binary multiples, such as `4G` or `512MiB`. A bare number is bytes, and `none` turns the limit off.
 - `CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS` — WebFetch session URL cache TTL, default 15 minutes (Claude Code 2.1.233+).
 - `CLAUDE_CODE_SUBAGENT_MODEL` with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` (Claude Code 2.1.257+) — the second applies the first (or the main model) to _every_ subagent, ignoring per-spawn and agent-definition model overrides. Canopy already counts subagents per pane (`activeSubagents`, from `SubagentStart`/`SubagentStop`), and a workspace running several panes fans those out well past what one session would; forcing a cheap model on all of them is the one lever that a repository's own agent definitions cannot override. It is blunt for the same reason — a worktree that deliberately pins a strong model to one subagent loses that pin too.
 
@@ -268,9 +268,11 @@ applies once the user's `claude` binary is on 2.1.246 or later.
 **`promptCacheTtl` is worth raising for panes you leave parked.** Claude Code 2.1.243+ accepts
 `promptCacheTtl` and `subagentPromptCacheTtl`, which extend the prompt cache from the default 5
 minutes to 1 hour. Both reach the CLI through the profile's Settings JSON field. They were added for
-API-key and cloud-provider users, which is every Canopy pane — Canopy authenticates Claude Code with
-`ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` or the Bedrock/Vertex/Foundry flags, never an interactive
-subscription login. The usage pattern fits too: agent panes sit parked across worktrees and tabs and
+API-key and cloud-provider users, which covers every Canopy pane whose profile sets an API key, a Base
+URL or a Provider. `buildEnvVars` sets each of those only when the field is filled. A profile that
+leaves all three blank takes whatever key its env vars or the inherited login environment supply
+(`PtyManager.ts:57-58`), and with none it runs under the user's own `claude` login (see the 2.1.275
+note below). The usage pattern fits too: agent panes sit parked across worktrees and tabs and
 get returned to well after five minutes, so under the default TTL the cache has expired and each
 return re-writes the whole prefix.
 
@@ -322,8 +324,10 @@ adapter needs no change: the resulting traffic arrives as the `SubagentStart`, `
 
 **Two prompt-cache fixes in 2.1.248, only one of which reaches Canopy.** The headline one — a cache
 miss roughly once an hour, caused by tool definitions being re-rendered after an OAuth token refresh
-— does not apply to Canopy panes, which authenticate with `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`
-or the Bedrock/Vertex/Foundry flags and never hold an OAuth token to refresh. The second one does:
+— does not apply to panes whose profile sets an API key, a Base URL or a Provider, since those never
+hold an OAuth token to refresh. A profile that leaves all three blank, and gets no key from its env
+vars or the inherited login environment, runs under the user's own `claude` login and is affected like
+any terminal session. The second one does:
 on an account that had entered usage overage, the `ScheduleWakeup` tool definition differed between
 a session and its `--resume`, costing a full cache miss on the resumed session's first turn.
 `getResumeArgs` issues `--resume {agentSessionId}` on every layout restore, so that miss was paid
@@ -547,8 +551,9 @@ above.
 prompt deny automatically, while the active permission mode keeps deciding, for unattended headless
 hosts. Panes are the opposite of that: Canopy's whole permission path assumes a human answers. The
 adapter maps `PermissionRequest` to `waitingPermission` for the notch, raises an OS notification
-through `formatNotification`, and drives the `permission` badge that is never downgraded to `unread`
-at either tab or worktree level. Passing this flag would strand that machinery — the user would see
+through `formatNotification`, and drives the `permission` badge, which `setWorktreeBadge` never
+downgrades to `unread` (the tab-level `setBadge` has no such guard). Passing this flag would strand
+that machinery — the user would see
 silent tool failures instead of a prompt. It is recorded here so a later pass does not read it as an
 unadopted feature. The same reasoning rules it out of the `Permission mode` profile field, which
 selects `--permission-mode` values (`plan`, `auto`, `acceptEdits`, `bypassPermissions`); this flag is
@@ -1311,8 +1316,9 @@ against Canopy's own files precisely because the diff was out of reach.
 **2.1.273 adds a second consecutive tools-kind prompt file, and the system half has now been flat for
 three releases.** Prompt tokens +1,357 (+6.4%) with one file added (+6.7%): 1,357 ÷ 0.064 puts the
 total at ~21.2k before and ~22.6k after, and 1 ÷ 0.067 gives 15 files before against 16 after. Both
-"before" figures reproduce the 2.1.272 note's ~21.3k and 15 exactly, so the chain from 2.1.271 holds
-for a third link. Splitting by the given mix — 80.2%/19.8% tools/system before, 81.4%/18.6% after —
+"before" figures agree with the 2.1.272 note: 15 files exactly, and ~21.3k within rounding (6.4% ±
+0.05% admits 21.0k–21.4k), so the chain from 2.1.271 holds for a third link. Splitting by the given
+mix — 80.2%/19.8% tools/system before, 81.4%/18.6% after —
 gives tools ~17.0k → ~18.4k and system ~4.20k → ~4.20k, so **tools +1,359 (+8.0%) and system flat**;
 the system delta's rounding band is −38 to +34, which is noise. That is the 2.1.272 shape repeated: a
 single added file landing entirely on the tools side is a tool description, and tools is the half that
@@ -1323,16 +1329,17 @@ key off a tool name and found none of them enumerate — `summarizeToolInput` ma
 changed in this range, so the audit still holds and 2.1.273's new tool needs nothing from Canopy.
 
 **The `.git/info/exclude` fix is the most Canopy-shaped entry in this release, and Canopy's main
-worktree-removal path is immune by construction — but a second path is not.** 2.1.273 fixes a
+worktree-removal path is protected by its teardown order — but a second path is not.** 2.1.273 fixes a
 long-running session recreating a stub `.git/info/exclude` after the repository's `.git` directory was
 removed or moved away. On Canopy that would mean a `claude` pane cwd'd in a worktree resurrecting a
 `.git` directory under a tree Canopy had just removed, which is precisely the "broken .git link —
 the classic field ghost" debris `handlers.ts:2025` already classifies. It cannot happen on the path
 users actually take: `worktree:removeWithBranch` calls `ptyManager.killUnderPathAndWait(worktree.path)`
 and `disposeWatchersUnderPathAndWait` (`handlers.ts:1998-1999`) **before** the first
-`GitRepository.worktreeRemove`, and `killUnderPathAndWait` waits for full process exit, so no session
-survives into the removal to recreate anything. The ordering was added for Windows file handles; it
-happens to close this too.
+`GitRepository.worktreeRemove`, and `killUnderPathAndWait` waits for full process exit, bounded at
+4 s per session (the default at `PtyManager.ts:199`, enforced in `killSessionTreeAndWait`,
+`:222-241`), so no session that exits within the bound survives into the removal to recreate
+anything. The ordering was added for Windows file handles; it happens to close this too.
 
 The gap is `git:worktreeRemove` (`handlers.ts:1881-1889`), which calls `GitRepository.worktreeRemove`
 directly with no PTY teardown and no watcher disposal. It is not dead code — it is bridged as
@@ -1344,14 +1351,18 @@ string `'git:worktreeRemove'` only as a command _id_. So this is latent rather t
 recording rather than fixing blind: the two handlers have diverged into a guarded and an unguarded
 removal, and the unguarded one is the one a new call site would find first by name.
 
-**The new MCP-disconnect notification reaches Canopy and is then deliberately dropped.** 2.1.273 adds
-a notification when an MCP server disconnects mid-session and automatic reconnection gives up. Canopy
-subscribes to `Notification` (`claude.ts:26`), maps it to the normalized `'Notification'`
-(`claude.ts:49`) and captures `raw.message` as `event.message` (`claude.ts:125`) — and then surfaces
-none of it: `formatNotification` returns `null` for anything that is not `PermissionRequest`
-(`claude.ts:251`) and `toNotchStatus` ends in `.otherwise(() => null)` (`claude.ts:276`). A user whose
-MCP server dies mid-session sees the CLI's own in-pane message and gets no OS notification and no notch
-status change. That is Canopy's existing policy rather than a regression, and it also answers the
+**The new MCP-disconnect notification reaches Canopy and surfaces only in the Agent Inspector.**
+2.1.273 adds a notification when an MCP server disconnects mid-session and automatic reconnection
+gives up. Canopy subscribes to `Notification` (`claude.ts:26`), maps it to the normalized
+`'Notification'` (`claude.ts:49`) and captures `raw.message` as `event.message` (`claude.ts:138`).
+`AgentSessionManager` forwards every normalized event to the renderer over `agent:hookEvent`
+(`AgentSessionManager.ts:112`), and `handleHookEvent`'s `Notification` branch appends it to
+`session.notifications` (`agentState.svelte.ts:279`), which the Agent Inspector lists. Nothing else
+surfaces it: `formatNotification` returns `null` for anything that is not `PermissionRequest`
+(`claude.ts:267`) and `toNotchStatus` ends in `.otherwise(() => null)` (`claude.ts:292`). A user whose
+MCP server dies mid-session sees the CLI's own in-pane message and an Inspector entry, but no OS
+notification and no notch status change. That is Canopy's existing policy rather than a regression,
+and it also answers the
 2.1.269 note's amplification concern for this entry from the other direction: the un-deduplicated
 per-event `Notification` path cannot be amplified by a new notification class that never gets past the
 `PermissionRequest` gate.
@@ -1385,8 +1396,9 @@ the reason: this class was found on Canopy's side before upstream hit it on thei
 **One naming collision to record before a future run conflates the two.** 2.1.273 adds forking a
 session started with `claude --remote-control` or `/remote-control` into a background local session.
 Canopy has a prominent "remote-control" feature of its own — `src/main/remote/RemoteSessionService.ts`
-is the "state machine + lifecycle owner for the WebRTC remote-control feature", with
-`RemoteControlPrefs.svelte` and `HostRpcServer.ts` alongside it — and it is unrelated: it is Canopy's
+is the "state machine + lifecycle owner for the WebRTC remote-control feature", with its renderer side
+in `components/preferences/RemoteControlPrefs.svelte` and `lib/remote/HostRpcServer.ts` — and it is
+unrelated: it is Canopy's
 mobile client driving the desktop, not the Claude app driving a CLI session. No Canopy code passes
 `--remote-control` to the CLI. This is the same trap as the "tool" naming note above, where
 `toolView.svelte.ts` and friends mean Canopy's own agent tools rather than CLI tool calls: a grep for
@@ -2082,6 +2094,128 @@ all**, the first run recorded here to spend zero: the checkout and the branch co
 prompt both came before any fetch. The 2.1.282 build was on the runner again at
 `~/.local/share/claude/versions/2.1.282`, and every schema claim above was read from it. It holds
 no changelog text, so behaviour behind the 74 hidden entries is still unread. The vendored SDK under
+`node_modules` is still `0.3.207`.
+
+**2.1.283 hands hooks the coerced tool input, so the task list reads canonical fields.** `TaskCreate`
+and `TaskUpdate` each declare a `coerceInput` step that repairs loose model output before schema
+validation. `TaskUpdate` takes `id` or `task_id` as `taskId` and `active_form` as `activeForm`.
+`TaskCreate` takes `title` or `name` as `subject` and `content` as `description`, unwraps a `task`
+wrapper, and backfills whichever of `subject` and `description` is missing. `handleTaskToolUse` reads
+only the canonical names, so the question the 2.1.280 note asked of `Write` applies here: which shape
+reaches the hooks? In the 2.1.283 build the validator parses the coerced input, and the validated
+value is passed on as `observableInput`, which is what both `PreToolUse` and `PostToolUse` receive. An
+update the model sends as `task_id` still reaches Canopy as `taskId`. The alias lists predate this
+release (the 2.1.207 build vendored in `node_modules` already has them). `TaskUpdate`'s `status` still
+admits `deleted`, which `TaskRecord`, the Agent Inspector and the status bar already handle.
+
+The same ordering settles part of the 2.1.280 note. `Write`'s schema requires `file_path` and
+`content`, and its alias repair runs behind a feature flag that defaults to on. So on
+2.1.283 an aliased `Write` either reaches the hooks already rewritten to `file_path` and `content`, or
+fails validation before any hook fires. The `summarizeToolInput` guard stays as defence for whichever
+builds delivered the raw shape, which cannot be identified without those builds.
+
+**Two new managed settings can refuse a model Canopy names, and one of Canopy's two model sites is a
+pin.** `deniedModels` blocks named models outright. `availableModelsMatch: "exact"` makes each
+`availableModels` entry allow only the version it names, "so new releases stay blocked until listed".
+Canopy names a model in two places. The profile's Model field emits `--model` on every spawn and
+resume, and `commitMessageGenerator.ts:74` pins `model: 'haiku'`. Canopy writes no managed settings,
+so both matter only in an organization that does, and there the CLI enforces them:
+
+- A `/model` or SDK switch to a refused model fails with "Model '…' is not available. Your
+  organization restricts model selection."
+- A resumed session whose model is refused continues with "Session model … could not be restored
+  (not allowed by this account's model settings) — using … instead."
+- When no allowed model can serve as the default, the CLI refuses to start.
+
+What an explicit `--model` does at startup was not traced. Read with the release note, the pin is the
+exposed site: `haiku` is an alias, so under exact matching it stays allowed only while the version the
+user's `claude` resolves it to is listed. A new Haiku release can block it until an administrator
+lists the new id. `generateCommitMessage` fails soft either way. An error result leaves
+`structured_output` unset and a throw is caught by `.unwrapOr(null)`, so the user gets no suggestion
+rather than a hang. Nothing changes here, since the policy is the organization's to set. It is the
+first thing to check when commit messages stop generating on a managed machine.
+
+**The new gateway hint header is off by default for profiles that set a Base URL.** 2.1.283 adds
+`x-claude-code-prompt-id` to the gateway hint headers "so LLM gateways can group the requests that
+serve one user prompt", opted into with `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. In the build, the
+variable wins whenever it is set. Otherwise the headers are on for the first-party API at a
+first-party base URL and off on Bedrock, Vertex and Foundry. They sit behind a server-side flag that
+defaults to off for a first-party provider with a custom `ANTHROPIC_BASE_URL`, which is exactly what
+the Base URL field produces. A profile pointed at a gateway therefore sends them only if its env vars
+include `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. The variable passes `BLOCKED_ENV_VARS`, and
+`generateCommitMessage` forwards the same custom env. The commit-message request carries the headers
+too, as a separate CLI process with its own session ID.
+
+**Closing a pane is the kind of session end the stdio MCP fix covers; quitting is not.** 2.1.283
+fixes "stdio MCP servers being left running when the session ended while they were still starting",
+and Canopy ends Claude Code sessions itself by two routes. A pane, tab or window close goes through
+`PtyManager.kill`, which calls node-pty's `kill()`: a `SIGHUP` to the PTY's direct child. The CLI's
+own shutdown is then what stops its MCP servers. Closing a pane moments after spawning or restoring
+it is exactly this entry's case, and a `claude` older than 2.1.283 leaves the still-starting servers
+running. Quitting the app and removing a worktree use `terminateProcessTree` instead. It signals every
+descendant, MCP servers included (`SIGTERM`, then `SIGKILL` after 750 ms; `taskkill /T /F` on
+Windows), so no CLI version is exposed on that route. Tmux-backed panes, which only development
+builds offer (`TmuxManager.isAvailable`), differ on both routes. Closing one runs `tmux kill-session`,
+and quitting deliberately leaves its session, and the `claude` inside it, running. The fix arrives
+through the user's binary. The commit-message turn starts no MCP servers (`strictMcpConfig: true`).
+
+**`/doctor prompt-audit` is worth one run on this repository.** 2.1.283 adds it (also
+`/checkup prompt-audit`) to audit CLAUDE.md files, skills, agents and commands "for prompting patterns
+written for older models". Its scope covers this repository's `CLAUDE.md`, `AGENTS.md` and the five
+skills under `.claude/skills/`. It works from a guide bundled with the CLI, whose text did not turn up
+in the binary under any phrase tried, so this run could not apply it. Running the command in a pane
+on this repository is the check. One item it should surface already: `AGENTS.md` points at
+`@SPEC.md`, which `CLAUDE.md` says is never committed. That costs nothing in this repository today,
+because Claude Code loads `AGENTS.md` only where there is no `CLAUDE.md`.
+
+**Nothing else visible reaches Canopy.** Click-to-expand for truncated messages from "your other
+sessions" lands on sibling panes, which 2.1.248 made able to message each other. It needs the mouse
+tracking the 2.1.271 note found working in Canopy panes. Tool output in the `tool.output`
+OpenTelemetry event, the `plugin_errors` path for `--plugin-dir`, and the MCP progress fix have no
+Canopy surface, since Canopy sets no `OTEL_*` variable, passes no `--plugin-dir` and does not render
+progress. The gateway's `load_test_mode` and `mantle` upstream configure a Claude apps gateway, which
+Canopy neither writes nor selects.
+
+**Canopy's contract against the 2.1.283 build.** The hook-event array names the same 33 events as
+2.1.282, so Canopy's 18 are all present. Every field Canopy reads is still in the schema of the event
+it is read from:
+
+- `to_model` on `PostModelSwitch` and `model` on `SessionStart`.
+- `error` and `error_details` on `StopFailure`, and `reason` on `SessionEnd`.
+- `compact_summary` on `PostCompact`, and `message`, `title` and `notification_type` on
+  `Notification`.
+- `task_id`, `task_subject` and `task_description` on `TaskCompleted`, and `agent_id` and
+  `agent_type` on `SubagentStart` and `SubagentStop`.
+- `tool_name`, `tool_input` and `tool_response` on the tool events, and `permission_mode` on the base.
+
+The status line still builds `model.id` and `display_name`, `context_window.used_percentage` and
+`context_window_size`, the four `cost` fields `normalizeStatus` reads, `rate_limits` and `version`.
+Every flag Canopy emits is defined. The permission-mode list still covers all four the profile
+offers, and effort is still exactly `low`, `medium`, `high`, `xhigh` and `max`. Every input key
+`summarizeToolInput` and `handleTaskToolUse` read exists on its tool, including `AskUserQuestion`'s
+`questions[].question` and `TaskCreate`'s response `task.id`.
+
+**The system half gave back exactly what 2.1.280–2.1.282 added.** Files −3 (−12.5%) gives
+3 ÷ 0.125 = 24, band 23.90–24.10, so **24 before and 21 after**, continuing the 2.1.282 note's 24 for a
+twelfth link. Tokens −17,275 (−44.2%) put the total at **~39.08k before and ~21.81k after**. The
+before band is 39.04k–39.13k, which reproduces that note's ~39.10k. Splitting by the given mix
+(53.6%/46.4% → 80.7%/19.3%) gives **tools ~20.95k → ~17.60k (−3,349) and system ~18.13k → ~4.21k
+(−13,926)**. Carrying the rounding through both ends leaves tools at −3,392…−3,307 and system at
+−13,968…−13,883, so both signs are safe.
+
+The system figure is the finding. 2.1.280, 2.1.281 and 2.1.282 added +4,260, +4,644 and +5,024, which
+sum to 13,928, inside that band. The system half is back at the ~4.2k floor it reached at 2.1.271 and
+returned to at 2.1.275. The tools drop is unattributed, and since every tool input Canopy
+reads is present, it forces nothing. The bundle grew **+978.3 kB (+1.8%)** from ~54.3 MB (band
+52.9–55.9 MB, consistent with the ~53 MB after 2.1.282) while ~69 kB of prompt text left the
+extraction at ~4 bytes/token. So the prompt text either moved somewhere the extractor does not count,
+or was deleted while code grew by about a megabyte.
+
+**82 of 2.1.283's 94 CLI changelog entries were not readable this run**, against 12 visible. `gh api`
+was denied on two attempts, both issued before the branch checkout, and `WebFetch` on its first and
+only call, the twenty-first consecutive run. The 2.1.283 build was on the runner at
+`~/.local/share/claude/versions/2.1.283`, and every schema claim above was read from it. It holds no
+changelog text, so behaviour behind the 82 hidden entries is still unread. The vendored SDK under
 `node_modules` is still `0.3.207`.
 
 ## Error states
