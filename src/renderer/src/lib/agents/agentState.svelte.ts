@@ -428,6 +428,19 @@ export function handleStatusUpdate(ptySessionId: string, data: NormalizedStatusD
           session.extra.rateLimitSevenDayResetsAt = (sevenDay.resets_at as number) * 1000
         }
       }
+      // Claude apps gateway spend limit. The dollar amounts and period (2.1.284+)
+      // come only from a USD meter that is not dated to a different window, so
+      // each update replaces them rather than keeping an earlier window's.
+      const spendLimit = rateLimits.spend_limit as Record<string, unknown> | undefined
+      if (spendLimit) {
+        session.extra.rateLimitSpend = spendLimit.used_percentage as number | undefined
+        if (spendLimit.resets_at != null) {
+          session.extra.rateLimitSpendResetsAt = (spendLimit.resets_at as number) * 1000
+        }
+        session.extra.rateLimitSpendUsedUsd = spendLimit.used_usd as number | undefined
+        session.extra.rateLimitSpendLimitUsd = spendLimit.limit_usd as number | undefined
+        session.extra.rateLimitSpendPeriod = spendLimit.period as string | undefined
+      }
     }
   }
 }
