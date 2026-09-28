@@ -80,7 +80,7 @@ The renderer maintains per-session state in `agentSessions[ptySessionId]`:
 - `notifications`: Rolling buffer of 20 notification events.
 - `activeSubagents`: Tracked via `SubagentStart`/`SubagentStop` events where available. Claude emits both start and stop; Codex currently contributes stop metadata when provided by its hook payload.
 - `compactCount` / `toolCallCount`: Counters incremented on relevant events.
-- `extra`: Agent-specific data (Claude rate limits, Codex `cwd`/`transcriptPath`/`turnId`, OpenCode pending questions).
+- `extra`: Agent-specific data (Claude rate limits, including a Claude apps gateway spend limit, Codex `cwd`/`transcriptPath`/`turnId`, OpenCode pending questions).
 
 Runtime session state is not reset when tab snapshots are reapplied. `initAgentSession()` is
 idempotent for an existing PTY session and `paneFromSnapshot()` rekeys the renderer state when a
@@ -363,15 +363,17 @@ the new fields yet and nothing displays them. They are the missing input to the 
 tradeoff above: the decision to pay a 2x cache write turns on whether a parked pane will still be
 warm when it is returned to, which is exactly what staleness reports.
 
-**Two new status-line fields, neither displayed yet.** 2.1.251 adds `rate_limits.spend_limit`, for
-accounts behind a Claude apps gateway with spend limits, and a top-level `prompt_cache` object (hit
-ratio, misses, tokens re-cached, warm/cold). They reach Canopy differently. `normalizeStatus` passes
-`rate_limits` through whole, so `spend_limit` arrives in the renderer intact, but
-`handleStatusUpdate` flattens only `five_hour` and `seven_day` into the keys `ClaudeExtras` reads, so
-it is carried and ignored. `prompt_cache` is dropped earlier: `normalizeStatus` reads five named keys
-(`version`, `model`, `context_window`, `cost`, `rate_limits`) and discards the rest. Wiring either
-into the Agent Inspector needs the field shapes confirmed against a real 2.1.251 status line first —
-the release notes name the quantities but not the JSON keys.
+**Two new status-line fields, neither displayed when they arrived.** 2.1.251 adds
+`rate_limits.spend_limit`, for accounts behind a Claude apps gateway with spend limits, and a
+top-level `prompt_cache` object (hit ratio, misses, tokens re-cached, warm/cold). They reach Canopy
+differently. `normalizeStatus` passes `rate_limits` through whole, so `spend_limit` arrives in the
+renderer intact, but `handleStatusUpdate` flattened only `five_hour` and `seven_day` into the keys
+`ClaudeExtras` reads, so it was carried and ignored until the 2.1.284 increment. `prompt_cache` is
+dropped earlier: `normalizeStatus` reads five named keys (`version`, `model`, `context_window`,
+`cost`, `rate_limits`) and discards the rest. Wiring either into the Agent Inspector needed the field
+shapes confirmed first, because the release notes name the quantities but not the JSON keys. The
+2.1.284 build documents `spend_limit`'s keys, and the Agent Inspector shows it from that increment on
+(see the 2.1.284 note). `prompt_cache` is still dropped.
 
 **A fresh worktree had nowhere to keep "always allow", and every Canopy pane starts in one.** Claude
 Code 2.1.252 fixes project-level "always allow" not saving in a project that has no
@@ -2217,6 +2219,116 @@ only call, the twenty-first consecutive run. The 2.1.283 build was on the runner
 `~/.local/share/claude/versions/2.1.283`, and every schema claim above was read from it. It holds no
 changelog text, so behaviour behind the 82 hidden entries is still unread. The vendored SDK under
 `node_modules` is still `0.3.207`.
+
+**2.1.284 gives the gateway spend limit its dollar amounts, and the Agent Inspector now shows it.**
+The release adds `used_usd`, `limit_usd` and `period` to the status line's `rate_limits.spend_limit`.
+The 2.1.284 build carries a commented schema of the status-line object, the reference its status-line
+setup agent reads, and it settles every shape question the 2.1.251 note left open about
+`spend_limit`:
+
+- `used_percentage` is the share of the limit used, 0–100 and "above 100 once exceeded".
+- `resets_at` is Unix epoch seconds, the same unit as `five_hour` and `seven_day`.
+- `used_usd` is optional, "absent behind an older gateway or when no limit applies", and
+  `limit_usd` comes with it.
+- `period` is optional, one of `daily`, `weekly` or `monthly`.
+
+The builder adds `spend_limit` only under gateway auth with overage data. It attaches the dollar pair
+only when the gateway's meter is in USD and its reset time is either absent or equal to the overage
+window's. It emits `rate_limits` whenever any one of the three windows is present, so a gateway
+account can send a `rate_limits` that holds nothing but `spend_limit`. Canopy carried that object to
+the renderer and dropped it there, which left the Agent Inspector's Rate Limits section empty.
+
+`handleStatusUpdate` now flattens it into `rateLimitSpend`, `rateLimitSpendResetsAt`,
+`rateLimitSpendUsedUsd`, `rateLimitSpendLimitUsd` and `rateLimitSpendPeriod`. The dollar pair and the
+period are reassigned on every update that carries `spend_limit`, so an earlier window's figures
+cannot outlive it. A status line that drops the key, as the schema says happens once `resets_at` has
+passed, leaves the last row in place, as `five_hour` and `seven_day` already do.
+`ClaudeExtras` renders a row labelled by period: "Monthly spend", "Weekly spend", "Daily spend", or
+"Spend limit" when there is none. It reads "$271.40 / $500.00" when both amounts are present, and
+otherwise the remaining percentage, clamped at 0 once the limit is exceeded. The bar matches the 5h
+and 7d rows: its width is what remains, and its colour follows the used share.
+`agentState.svelte.test.ts` covers the flattening and the reassignment. `spend_limit` itself dates
+from 2.1.251, but no build between 2.1.251 and 2.1.283 was read, so whether those send the same two
+base keys is unverified.
+
+**The Sonnet default changes on the first-party API, not on any provider Canopy's profile
+offers.** The 2.1.284 model catalog resolves `sonnet` to `claude-sonnet-5-5` by default but keeps
+six per-provider overrides. `bedrock`, `vertex`, `foundry` and `mantle` resolve it to
+`claude-sonnet-4-5`, and `anthropic_aws` and `gateway` to `claude-sonnet-4-6`. A profile whose Model
+field says `sonnet` therefore changes model on the first-party API and on none of the Provider
+field's three choices. On the first-party API the status line reports a 1,000,000-token
+`context_window_size`, which the Agent Inspector already renders as "1M". Canopy holds no Claude
+price, model or context-window table, so
+the new pricing reaches `cost.total_cost_usd` through the CLI. The build's alias migration runs only
+on the first-party API and rewrites only the user settings file's `model`, and the mapping baked into
+the catalog is empty. It touches neither Canopy's `--model` flag nor its per-session `--settings`
+file. The commit-message turn's `haiku` pin still resolves to `claude-haiku-4-5`.
+
+**"Yes, but ask again next time" has nothing in Canopy to shift.** Canopy never answers a permission
+prompt. `PermissionRequest` sets the pane to waiting and raises the OS notification, and the user
+answers in the pane. Neither the desktop app nor the mobile remote maps a prompt option to a key.
+The remote's terminal screen sends only what the user types or pastes, so an inserted option changes
+nothing.
+
+**The stream fixes reach panes through the user's binary.** A damaged response stream is retried
+instead of showing a raw "JSON Parse error" or writing "undefined" into an answer. An overloaded or
+server error right after a thinking block is retried instead of ending the turn, which should mean
+fewer `StopFailure` events and so fewer error statuses in panes. The commit-message turn gets both
+fixes through the bundled binary when `claude` is not on `PATH`. It reads `structured_output` only
+from a success result, so before the fix both cases failed soft to no suggestion. "Prompt is too
+long" after compacting now triggers a second compaction. If that retry fires the compaction hooks,
+`compactCount` counts both, which matches what happened.
+
+**Nothing else visible reaches Canopy.** The effort-slider keybinding actions belong in the CLI's
+own `keybindings.json`, which Canopy does not write. `/rate-limit-options` and `/mcp reconnect all`
+are interactive commands, and the second only retries servers the user's own settings start. The
+remaining entries configure a Claude apps gateway: startup warnings for an `availableModels` policy,
+Google Cloud OTLP forwarding, and `private_key_jwt` identity-provider auth. Canopy neither writes nor
+selects a gateway.
+
+**Canopy's contract against the 2.1.284 build.** The hook-event array names the same 33 events the
+2.1.283 note records, so Canopy's 18 are all present. Every field Canopy reads is still in the schema
+of the event it is read from:
+
+- `to_model` on `PostModelSwitch` and `model` on `SessionStart`.
+- `error` and `error_details` on `StopFailure`, and `reason` on `SessionEnd`.
+- `compact_summary` on `PostCompact`, and `message`, `title` and `notification_type` on
+  `Notification`.
+- `task_id`, `task_subject` and `task_description` on `TaskCompleted`, and `agent_id` and
+  `agent_type` on `SubagentStart` and `SubagentStop`.
+- `tool_name`, `tool_input` and `tool_response` on the tool events, and `permission_mode` on the base.
+
+The status line still builds `model.id` and `display_name`, `context_window_size`, the four `cost`
+fields `normalizeStatus` reads, `rate_limits` and `version`. Every flag Canopy emits is defined,
+`--resume` as `-r, --resume [value]`. The permission-mode list still covers all four the profile
+offers, and effort is still exactly `low`, `medium`, `high`, `xhigh` and `max`. `TaskUpdate` still
+takes `taskId`, `subject` and `activeForm`, and its `status` still admits `deleted`.
+
+**The tools half grew by two files and the system half held.** Files +2 (+9.5%) gives
+2 ÷ 0.095 = 21.05, band 20.94–21.16, so **21 before and 23 after**, continuing the 2.1.283 note's 21
+for a thirteenth link. Tokens +2,882 (+13.2%) put the total at **~21.83k before and ~24.72k after**.
+The before band is 21.75k–21.92k, which reproduces that note's ~21.81k. Splitting by the given mix
+(80.7%/19.3% → 83.0%/17.0%) gives **tools ~17.62k → ~20.51k (+2,894) and system ~4.21k → ~4.20k
+(−12)**. Carrying the rounding through leaves the system change between −38 and +13, which is flat,
+so to within rounding the whole increment is tools-side. That averages ~1.45k tokens per new file if
+all of the growth is in them. The bundle grew **+669.5 kB (+1.2%)** from ~55.8 MB (band 53.6–58.2 MB,
+consistent with the ~55.3 MB after 2.1.283), of which ~12 kB is prompt text at ~4 bytes/token. That
+sits at the new-code end of the 2.1.276/2.1.277
+calibration, which reads as new tool descriptions with implementation behind them rather than
+re-extracted text.
+
+The two files are unattributed. `meta/prompt-stats.md` would name them and is behind the denied
+`gh api` rule, and no 2.1.283 build is on the runner to diff against. Two candidates are ruled out:
+`DesignSync` and `ReportFindings` both appear in the 2.1.207 build vendored in `node_modules`. Since
+every tool input Canopy reads is present, the growth forces nothing. A tool whose input has no key
+`summarizeToolInput` knows falls through to the first-string fallback, or to an empty summary.
+
+**88 of 2.1.284's 100 CLI changelog entries were not readable this run**, against 12 visible. `gh api`
+was not probed, because the branch copy of the compat prompt was read before any fetch. `WebFetch` was
+denied on its first and only call, the twenty-second consecutive run. The 2.1.284 build was on the
+runner at `~/.local/share/claude/versions/2.1.284`, and every schema claim above was read from it. It
+holds no changelog text, so behaviour behind the 88 hidden entries is still unread. The vendored SDK
+under `node_modules` is still `0.3.207`.
 
 ## Error states
 
