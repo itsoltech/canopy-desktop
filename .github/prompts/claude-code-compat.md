@@ -15,13 +15,13 @@ is `next`'s and is missing every note below. The checkout is worth nothing on it
 the part that pays.
 
 **3. `gh api` against `marckrenn/claude-code-changelog` is denied. Do not probe it.** Every run
-that probed it has been denied (twenty-one in a row as of v2.1.283), against every shape of path, flag
-and quoting. The rule in
+that probed it has been denied (twenty-one in a row as of v2.1.283; the v2.1.284 run did not probe),
+against every shape of path, flag and quoting. The rule in
 `.github/workflows/claude-code-compat.yml` ends mid-token and matches nothing; the mechanism is
 settled and is written up in step 2. If an attempt comes back as "contains multiple operations"
 rather than "requires approval", that is the same denial (the message names the component that
 failed) and **not** a reason to retry it pipe-free — the pipe is never the cause. `WebFetch` and
-`WebSearch` are denied too, twenty-one consecutive as of v2.1.283, so probe `WebFetch` **once**, if
+`WebSearch` are denied too, twenty-two consecutive as of v2.1.284, so probe `WebFetch` **once**, if
 at all, and commit to the result. **`curl` is denied as
 well**, and it is worth naming separately because it is the obvious second move once `gh api` fails and
 nothing above rules it out: `curl` is not in `--allowedTools` under any prefix, so reaching the same
@@ -490,15 +490,15 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > fix and the merge as what retires it.
 
 > **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
-> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, twenty-two denied
-> so far, the last twenty-one consecutive (as of v2.1.283). The v2.1.241 → v2.1.245 run used it successfully. The
+> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, twenty-three denied
+> so far, the last twenty-two consecutive (as of v2.1.284). The v2.1.241 → v2.1.245 run used it successfully. The
 > v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
 > use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
 > v2.1.252 → v2.1.257, v2.1.257 → v2.1.258, v2.1.258 → v2.1.259, v2.1.259 → v2.1.260,
 > v2.1.260 → v2.1.261 and v2.1.261 → v2.1.263 runs all hit the same denial on the first call, as did
 > v2.1.263 → v2.1.266, v2.1.266 → v2.1.267, v2.1.267 → v2.1.268, v2.1.268 → v2.1.269 and
 > v2.1.269 → v2.1.270 and v2.1.270 → v2.1.272 — twelve consecutive then, and every run since has
-> matched it, twenty-one consecutive as of v2.1.283. That is enough
+> matched it, twenty-two consecutive as of v2.1.284. That is enough
 > that the one success is the outlier; budget for the denial and treat a working fetch as a windfall. The v2.1.260 → v2.1.261 run confirmed
 > `WebSearch` is denied alongside it a second time, so the pair travel together and one probe answers
 > for both. Do not assume either answer from this file. Issue one fetch, record which way it went in
@@ -696,6 +696,25 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > The handed prompt was `next`'s again, with no top block, so this is the step-0 ordering failure,
 > not a new one. It was the twenty-first consecutive denied run, and `WebFetch` was denied on its first
 > and only call, also the twenty-first.
+>
+> **v2.1.283 → v2.1.284 spent zero `gh api` probes, the second run to do so after v2.1.282.** Its
+> first batch paired `git status` with `gh pr view 350 --json …,body`, and the spilled body's "Still
+> blocked" list names the dead rule, so the run knew before its first fetch. When the handed prompt is
+> `next`'s, the PR body is the one copy of the blockers you can read before step 0's checkout. It
+> does not replace the checkout and this file, which came next. `WebFetch` was denied on its first and
+> only call, the twenty-second consecutive run.
+>
+> **The build documents its own status-line object, and the comments settle what the minified builder
+> cannot.** The build embeds a commented schema of the status-line JSON as plain text; it is the
+> reference the status-line setup agent reads. The `Grep` tool with `-n` and the pattern
+> `^\s*"(rate_limits|spend_limit|used_percentage|resets_at|used_usd|limit_usd|period)":.{0,200}`
+> returns one field per line with its type, unit, optionality and allowed values. 2.1.284's
+> `spend_limit` was read this way: epoch-second `resets_at`, a percentage "above 100 once exceeded",
+> optional USD fields and a `daily`/`weekly`/`monthly` period. The builder, found with
+> `spend_limit:\{used_percentage`, then gives the conditions under which each field is attached. Read
+> both: the comment says what a field means, and the code says when it is sent. **The model catalog is
+> greppable the same way.** `sonnet:\{default:` returns each alias's default and its per-provider
+> overrides, which is how the 2.1.284 run showed the Sonnet 5.5 default is first-party only.
 
 > **When the diff is unreachable, spend the turns on Canopy's side of the boundary instead.** Several
 > runs in a row have treated a denied diff as the limit of what the run could establish, and reported
