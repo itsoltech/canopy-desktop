@@ -36,6 +36,18 @@ import type {
 
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
 
+// Legacy connection tokens live under this prefix (see addConnection). A connection's
+// `authPrefKey` is read back from importable preferences, so it must never name any other
+// key: PreferencesStore.get() transparently decrypts secrets such as agent API keys, and
+// set()/delete() would reach main-process-only state.
+const LEGACY_TOKEN_PREF_PREFIX = 'taskTracker.token.'
+
+/** The connection's token preference key, or null when it points outside the token namespace. */
+export function legacyTokenPrefKey(connection: TaskTrackerConnection): string | null {
+  const key: unknown = connection.authPrefKey
+  return typeof key === 'string' && key.startsWith(LEGACY_TOKEN_PREF_PREFIX) ? key : null
+}
+
 /**
  * Returns true when `url` targets the same origin as `baseUrl`. Uses `URL.origin`
  * rather than a string-prefix check so that a baseUrl of `https://jira.example.com`
@@ -594,7 +606,8 @@ export class TaskTrackerManager {
     dlErr: (reason: string) => TaskTrackerError,
   ): ResultAsync<string, TaskTrackerError> {
     const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
-    mkdirSync(dir, { recursive: true })
+    // Owner-only: authenticated tracker attachments land in the shared temp dir.
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
 
     const safeName = basename(filename.replace(/[/\\]/g, '_'))
     const filePath = join(dir, safeName)
@@ -635,8 +648,9 @@ export class TaskTrackerManager {
             cb(null, chunk)
           },
         })
-        return fromExternalCall(pipeline(nodeStream, capGuard, createWriteStream(filePath)), (e) =>
-          dlErr(errorMessage(e)),
+        return fromExternalCall(
+          pipeline(nodeStream, capGuard, createWriteStream(filePath, { mode: 0o600 })),
+          (e) => dlErr(errorMessage(e)),
         ).map(() => filePath)
       })
       .mapErr((error) => {
@@ -672,7 +686,8 @@ export class TaskTrackerManager {
   }
 
   private getToken(connection: TaskTrackerConnection): Result<string, TaskTrackerError> {
-    const token = this.preferencesStore.get(connection.authPrefKey)
+    const tokenKey = legacyTokenPrefKey(connection)
+    const token = tokenKey ? this.preferencesStore.get(tokenKey) : null
     if (!token) return err({ _tag: 'AuthTokenMissing', connectionName: connection.name })
     return ok(token)
   }
@@ -708,6 +723,16 @@ export class TaskTrackerManager {
           })
         }
         const { owner, repo, host } = parsed.value
+        // An empty baseUrl means github.com (as in GitHubService.findGitHubConnection): the
+        // repository's remote must never choose which host receives this connection's token.
+        if (!conn.baseUrl && host.toLowerCase() !== 'github.com') {
+          return errAsync<TaskTrackerConnection, TaskTrackerError>({
+            _tag: 'ProviderApiError',
+            status: 0,
+            message: 'Workspace remote is not on github.com',
+            provider: 'github',
+          })
+        }
         return okAsync({
           ...conn,
           projectKey: `${owner}/${repo}`,
@@ -721,7 +746,7 @@ export class TaskTrackerManager {
     token: string,
   ): TaskTrackerConnection {
     const id = crypto.randomUUID()
-    const authPrefKey = `taskTracker.token.${id}`
+    const authPrefKey = `${LEGACY_TOKEN_PREF_PREFIX}${id}`
 
     const newConn: TaskTrackerConnection = {
       ...connection,
@@ -748,10 +773,17 @@ export class TaskTrackerManager {
     if (idx < 0) return null
 
     const conn = connections[idx]
-    connections[idx] = { ...conn, ...updates }
+    // `updates` arrives over IPC, where the Omit<> type is not enforced: keep the identity
+    // fields pinned so a caller cannot repoint this connection at another stored secret.
+    connections[idx] = { ...conn, ...updates, id: conn.id, authPrefKey: conn.authPrefKey }
 
-    if (newToken) {
-      this.preferencesStore.set(conn.authPrefKey, newToken)
+    const tokenKey = legacyTokenPrefKey(conn)
+    if (tokenKey && newToken) {
+      this.preferencesStore.set(tokenKey, newToken)
+    } else if (tokenKey && updates.baseUrl !== undefined && updates.baseUrl !== conn.baseUrl) {
+      // The stored token was issued for the previous host; keeping it would send it to the
+      // new one on the next request.
+      this.preferencesStore.delete(tokenKey)
     }
 
     this.saveConnections(connections)
@@ -761,8 +793,9 @@ export class TaskTrackerManager {
   removeConnection(connectionId: string): void {
     const connections = this.getConnections()
     const conn = connections.find((c) => c.id === connectionId)
-    if (conn) {
-      this.preferencesStore.delete(conn.authPrefKey)
+    const tokenKey = conn ? legacyTokenPrefKey(conn) : null
+    if (tokenKey) {
+      this.preferencesStore.delete(tokenKey)
     }
     this.saveConnections(connections.filter((c) => c.id !== connectionId))
   }

@@ -131,6 +131,10 @@ export class RunConfigCommandService {
         })
       }
 
+      // pre_run can take up to 30s. If the window closed meanwhile, its PTYs were already
+      // disposed and this session would never be tracked or killed.
+      if (sender.isDestroyed()) throw new Error('Window closed before the run started')
+
       // Run main command through shell so PATH is resolved
       const main = shellExecArgs(fullCommand)
       const session = this.deps.ptyManager.spawn({

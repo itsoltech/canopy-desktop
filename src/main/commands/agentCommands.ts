@@ -4,6 +4,12 @@ import type { PtyManager } from '../pty/PtyManager'
 import type { WindowManager } from '../WindowManager'
 import type { AgentCommandResult } from './types'
 
+// Context text embeds third-party tracker/PR content. An ESC inside it could close the
+// bracketed paste early (`\x1b[201~`) and turn the rest into typed keystrokes — including a
+// CR that submits the agent's input. Keep tab and newline; drop every other C0/C1 control.
+// eslint-disable-next-line no-control-regex
+const PASTE_UNSAFE_CHARS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g
+
 interface AgentCommandServiceDeps {
   ptyManager: PtyManager
   agentSessionManager: AgentSessionManager
@@ -70,7 +76,8 @@ export class AgentCommandService {
     // is already sitting in the agent's input. Sent contexts stack in the input instead — the
     // user confirms explicitly in the agent panel. The newline INSIDE the paste is literal
     // (bracketed), separating this message from the next stacked one.
-    this.deps.ptyManager.write(sessionId, `\x1b[200~${text}\n\x1b[201~`)
+    const safeText = text.replace(PASTE_UNSAFE_CHARS, '')
+    this.deps.ptyManager.write(sessionId, `\x1b[200~${safeText}\n\x1b[201~`)
   }
 
   private contextText(payload: AgentContextPayload): string {

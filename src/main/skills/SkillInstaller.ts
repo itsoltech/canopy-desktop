@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { Readable } from 'stream'
-import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
+import { mkdtemp, readFile, stat, lstat, readdir, access, rm } from 'fs/promises'
 import { join, basename, resolve, normalize, extname, sep } from 'path'
 import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
@@ -18,6 +18,9 @@ interface SourceResolution {
   sourceType: 'github' | 'url' | 'local'
   sourceUri: string
 }
+
+/** Same bound as URL installs — skill files are small text documents. */
+const MAX_SKILL_FILE_BYTES = 5 * 1024 * 1024
 
 export class SkillInstaller {
   constructor(private store: SkillStore) {}
@@ -410,11 +413,7 @@ export class SkillInstaller {
       } catch {
         continue
       }
-      const readResult = await fromExternalCall(readFile(filePath, 'utf-8'), (e): SkillError => ({
-        _tag: 'FetchFailed',
-        source: sourceUri,
-        cause: e instanceof Error ? e.message : String(e),
-      }))
+      const readResult = await this.readSkillFile(filePath, sourceUri, sourceType)
       if (readResult.isErr()) return err(readResult.error)
       const fileName = basename(dir)
       return ok({ content: readResult.value, fileName, sourceType, sourceUri })
@@ -429,14 +428,7 @@ export class SkillInstaller {
     const allFiles = readdirResult.value
     const files = allFiles.filter((f) => f.endsWith('.md'))
     if (files.length > 0) {
-      const readResult = await fromExternalCall(
-        readFile(join(dir, files[0]), 'utf-8'),
-        (e): SkillError => ({
-          _tag: 'FetchFailed',
-          source: sourceUri,
-          cause: e instanceof Error ? e.message : String(e),
-        }),
-      )
+      const readResult = await this.readSkillFile(join(dir, files[0]), sourceUri, sourceType)
       if (readResult.isErr()) return err(readResult.error)
       const fileName = basename(dir)
       return ok({ content: readResult.value, fileName, sourceType, sourceUri })
@@ -447,5 +439,35 @@ export class SkillInstaller {
       source: sourceUri,
       reason: 'No skill file found in directory',
     })
+  }
+
+  /**
+   * Read one skill file. A cloned repository is untrusted and can commit symlinks, so GitHub
+   * sources use `lstat`: a link to e.g. ~/.ssh/id_ed25519 or /dev/zero is refused instead of
+   * followed. Every source must be a regular file within the size cap.
+   */
+  private async readSkillFile(
+    filePath: string,
+    sourceUri: string,
+    sourceType: 'github' | 'local',
+  ): Promise<Result<string, SkillError>> {
+    const toFetchError = (e: unknown): SkillError => ({
+      _tag: 'FetchFailed',
+      source: sourceUri,
+      cause: e instanceof Error ? e.message : String(e),
+    })
+    const statResult = await fromExternalCall(
+      sourceType === 'github' ? lstat(filePath) : stat(filePath),
+      toFetchError,
+    )
+    if (statResult.isErr()) return err(statResult.error)
+    if (!statResult.value.isFile() || statResult.value.size > MAX_SKILL_FILE_BYTES) {
+      return err({
+        _tag: 'InvalidSource',
+        source: sourceUri,
+        reason: 'Skill file must be a regular file of at most 5 MB',
+      })
+    }
+    return await fromExternalCall(readFile(filePath, 'utf-8'), toFetchError)
   }
 }

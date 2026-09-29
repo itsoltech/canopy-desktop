@@ -71,7 +71,7 @@ reconnect/listen flow after the operating system wakes.
 6. On success, the session transitions to `peerArrived`. The desktop renderer shows the accept/reject prompt with the device name and an 8-character fingerprint (hex prefix of the device ID).
 7. User clicks Accept (optionally checking "Remember this device").
 8. `acceptPendingDevice()` transitions to `paired`, sends `{ type: "accepted" }` to the peer, and starts the idle timeout (15 minutes). If "Remember" was checked, the device is persisted in the `TrustedDeviceStore`.
-9. The peer receives `accepted` and begins WebRTC offer/answer/ICE negotiation through the signaling WebSocket. The desktop renderer's `RemoteHostController` handles the SDP exchange.
+9. The peer receives `accepted` and begins WebRTC offer/answer/ICE negotiation through the signaling WebSocket. The desktop renderer's `RemoteHostController` handles the SDP exchange. Signaling is relayed in either direction only while the session is `paired` — before the user accepts, the peer's offer/ICE never reach the host renderer, so no data channel can open.
 
 ### Device pairing (trusted device)
 

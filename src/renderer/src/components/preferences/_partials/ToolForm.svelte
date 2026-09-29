@@ -42,7 +42,10 @@
     onSubmit()
   }}
   onkeydown={(e) => {
-    if (e.key === 'Escape') onCancel()
+    if (e.key !== 'Escape') return
+    // Cancel just this form — without stopPropagation the Settings modal closes too.
+    e.stopPropagation()
+    onCancel()
   }}
 >
   {#if mode === 'edit'}

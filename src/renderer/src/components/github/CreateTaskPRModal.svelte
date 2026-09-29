@@ -6,6 +6,7 @@
   import { invalidatePRFallback, loadBranchPRs } from '../../lib/stores/github.svelte'
   import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import UserSearchPicker from '../shared/UserSearchPicker.svelte'
 
@@ -134,22 +135,7 @@
       closeDialog()
       return
     }
-    if (e.key === 'Tab' && containerEl) {
-      const focusable = containerEl.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
+    if (e.key === 'Tab' && containerEl) cycleFocus(containerEl, e)
   }
 
   const inputCls =
@@ -212,7 +198,7 @@
     <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
       {#if loading}
         <div class="flex items-center justify-center gap-2 py-8 text-md text-text-muted">
-          <LoaderCircle size={16} class="animate-spin" />
+          <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
           <span>{task ? 'Rendering from the PR template…' : 'Preparing the form…'}</span>
         </div>
       {:else if loadError}
@@ -316,7 +302,7 @@
         disabled={creating || loading || !!loadError || !title.trim()}
       >
         {#if creating}
-          <LoaderCircle size={13} class="animate-spin" />
+          <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
           Creating…
         {:else}
           Create PR

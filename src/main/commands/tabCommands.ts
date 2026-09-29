@@ -147,34 +147,47 @@ export class ToolSessionService {
     }
 
     let tmuxSessionName: string | undefined
-    const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
-    if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
-      tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
-      const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
-      await this.deps.tmuxManager.newSession({
-        name: tmuxSessionName,
+    let session: ReturnType<PtyManager['spawn']>
+    try {
+      const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
+      if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
+        tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
+        const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
+        await this.deps.tmuxManager.newSession({
+          name: tmuxSessionName,
+          cwd: payload.worktreePath,
+          shell: command,
+          shellArgs: args,
+          cols: payload.cols,
+          rows: payload.rows,
+          mouse: tmuxMouse,
+          env,
+        })
+        const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
+        command = attach.command
+        args = attach.args
+      }
+
+      // The awaits above can outlive the window. A PTY spawned after disposeWindow ran is
+      // never tracked, so nothing would ever kill it.
+      if (sender.isDestroyed()) throw new Error('Window closed before the tool started')
+      session = this.deps.ptyManager.spawn({
+        command,
+        args,
         cwd: payload.worktreePath,
-        shell: command,
-        shellArgs: args,
         cols: payload.cols,
         rows: payload.rows,
-        mouse: tmuxMouse,
         env,
+        tmuxSessionName,
       })
-      const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
-      command = attach.command
-      args = attach.args
+    } catch (error) {
+      // createSession registered a hook route and wrote settings files; nothing else releases
+      // them when the spawn fails (e.g. the agent CLI is not installed).
+      if (agentTempId) this.deps.agentSessionManager.destroySession(agentTempId)
+      // Likewise a tmux session created above would keep the tool running with nothing attached.
+      if (tmuxSessionName) void this.deps.tmuxManager.killSession(tmuxSessionName).catch(() => {})
+      throw error
     }
-
-    const session = this.deps.ptyManager.spawn({
-      command,
-      args,
-      cwd: payload.worktreePath,
-      cols: payload.cols,
-      rows: payload.rows,
-      env,
-      tmuxSessionName,
-    })
 
     if (isAgent && agentTempId) {
       this.deps.agentSessionManager.rekey(agentTempId, session.id)
@@ -3478,17 +3491,31 @@ export class TabCommandService {
       }
     }
 
-    const [first, second] = await Promise.all([
+    const [first, second] = await Promise.allSettled([
       this.restoreSerializedSplitSnapshot(sender, worktreePath, node.first, options),
       this.restoreSerializedSplitSnapshot(sender, worktreePath, node.second, options),
     ])
+    if (first.status === 'rejected' || second.status === 'rejected') {
+      // With Promise.all a failed side dropped the other side's already-spawned panes, whose
+      // PTYs then kept running outside any tab until the window closed. Kill them first.
+      await this.cleanupPanes(
+        sender,
+        [first, second].flatMap((side) =>
+          side.status === 'fulfilled' ? allPaneSnapshots(side.value) : [],
+        ),
+      )
+      const failed = [first, second].find(
+        (side): side is PromiseRejectedResult => side.status === 'rejected',
+      )
+      throw failed?.reason
+    }
     return {
       type: 'split',
       id: splitId(),
       direction: node.type === 'hsplit' ? 'horizontal' : 'vertical',
       ratio: node.ratio,
-      first,
-      second,
+      first: first.value,
+      second: second.value,
     }
   }
 

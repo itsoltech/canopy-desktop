@@ -1,7 +1,7 @@
 import { ok, err, okAsync, type ResultAsync } from 'neverthrow'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { TaskTrackerConnection } from '../taskTracker/types'
-import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
+import { legacyTokenPrefKey, type TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
 import { GitRepository } from '../git/GitRepository'
 import { graphqlFetch } from './graphql'
 import { parseGitHubRemote } from './remoteUrl'
@@ -139,7 +139,8 @@ export class GitHubService {
       })
       if (!match) return null
 
-      const token = this.preferencesStore.get(match.authPrefKey)
+      const tokenKey = legacyTokenPrefKey(match)
+      const token = tokenKey ? this.preferencesStore.get(tokenKey) : null
       if (!token) return null
 
       return { connection: match, token, repo }

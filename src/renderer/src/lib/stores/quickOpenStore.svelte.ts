@@ -29,12 +29,24 @@ export async function ensureLoaded(worktreePath: string): Promise<string[]> {
   }
   try {
     const files = await window.api.quickOpenListFiles(worktreePath)
-    state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
+    storeResult(worktreePath, files)
     return files
   } catch {
-    state[worktreePath].loading = false
-    return state[worktreePath].files
+    return markFailed(worktreePath)
   }
+}
+
+// clearQuickOpenCache (worktree removed) can run while a listing is in flight: don't resurrect
+// the evicted entry, and don't dereference it on failure.
+function storeResult(worktreePath: string, files: string[]): void {
+  if (state[worktreePath]) state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
+}
+
+function markFailed(worktreePath: string): string[] {
+  const entry = state[worktreePath]
+  if (!entry) return []
+  entry.loading = false
+  return entry.files
 }
 
 export async function forceReload(worktreePath: string): Promise<string[]> {
@@ -46,11 +58,10 @@ export async function forceReload(worktreePath: string): Promise<string[]> {
   }
   try {
     const files = await window.api.quickOpenListFiles(worktreePath, true)
-    state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
+    storeResult(worktreePath, files)
     return files
   } catch {
-    state[worktreePath].loading = false
-    return state[worktreePath].files
+    return markFailed(worktreePath)
   }
 }
 

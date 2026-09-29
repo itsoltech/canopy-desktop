@@ -591,11 +591,18 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      if (step === 'setup') {
-        skipSetup()
-      } else {
-        onClose()
-      }
+      dismiss()
+    }
+  }
+
+  function dismiss(): void {
+    // Closing mid-create would not stop the creation: it would carry on unseen, run setup
+    // scripts and open a tool after the dialog is gone.
+    if (step === 'creating') return
+    if (step === 'setup') {
+      skipSetup()
+    } else {
+      onClose()
     }
   }
 
@@ -611,7 +618,7 @@
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
+  onmousedown={dismiss}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
@@ -1033,7 +1040,8 @@
           <div class="h-[220px] p-2 box-border" use:setupTerminalAction></div>
         </div>
         {#if setupErrors.length > 0}
-          {#each setupErrors as err (err)}
+          <!-- Keyed by index: two setup actions can fail with the same message. -->
+          {#each setupErrors as err, i (i)}
             <p class="mt-1.5 mb-0 text-sm text-danger-text">{err}</p>
           {/each}
         {/if}
@@ -1050,7 +1058,7 @@
         {#if setupErrors.length > 0}
           <div class="mt-2 flex flex-col gap-1 items-center">
             <p class="text-md text-warning-text m-0">Setup completed with warnings:</p>
-            {#each setupErrors as err (err)}
+            {#each setupErrors as err, i (i)}
               <p class="text-sm text-danger-text m-0">{err}</p>
             {/each}
           </div>

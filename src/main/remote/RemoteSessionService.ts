@@ -532,7 +532,9 @@ export class RemoteSessionService {
    * `hostWcId`; this method just guards on session state.
    */
   forwardSignalToPeer(msg: Record<string, unknown>): ResultAsync<void, RemoteServerError> {
-    if (this.status.kind !== 'peerArrived' && this.status.kind !== 'paired') {
+    // Only once the device is accepted: answering an offer earlier would open the RPC data
+    // channel to a peer the desktop user has not approved.
+    if (this.status.kind !== 'paired') {
       return errAsync({ _tag: 'NoPendingPeer' })
     }
     this.resetIdleTimer()
@@ -694,6 +696,11 @@ export class RemoteSessionService {
     // every window would give other tabs a chance to race-reply to SDP/ICE,
     // which would confuse the peer. The host window is the one that called
     // `remote:start` and owns the RTCPeerConnection.
+    //
+    // Until the user accepts the device (`paired`), the peer has only proven it holds the
+    // pairing token. Its offer/ICE must not reach the host renderer yet — the honest peer
+    // waits for `accepted` before sending an offer anyway.
+    if (this.status.kind !== 'paired') return
     if (this.hostWcId === null) return
     const wc = webContentsNs.fromId(this.hostWcId)
     if (!wc || wc.isDestroyed()) return

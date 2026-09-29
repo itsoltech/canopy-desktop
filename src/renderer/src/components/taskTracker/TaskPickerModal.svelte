@@ -24,6 +24,7 @@
   import { statusChipClass } from '../../lib/taskTracker/statusChip'
   import { taskDisplayKey } from '../../lib/taskTracker/taskFilterPrefs'
   import { unlockSizeOnResize } from '../../lib/actions/resizableDialog'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import type { TrackerProviderKind, TrackerTaskLite } from '../../lib/taskTracker/types'
   import BranchCreateForm from './BranchCreateForm.svelte'
   import TaskListPicker from './TaskListPicker.svelte'
@@ -69,20 +70,7 @@
       return
     }
     if (e.key === 'Tab' && dialogEl) {
-      const focusable = dialogEl.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !dialogEl.contains(active))) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault()
-        first.focus()
-      }
+      cycleFocus(dialogEl, e)
       return
     }
     if (e.key === 'Escape') {
@@ -91,7 +79,13 @@
       } else {
         closeDialog()
       }
-    } else if (e.key === 'Enter' && selectedLinkTask && !linking) {
+    } else if (
+      e.key === 'Enter' &&
+      selectedLinkTask &&
+      !linking &&
+      // Enter on a focused button (Cancel, ×) must run that button, not link the task.
+      !(e.target instanceof HTMLButtonElement)
+    ) {
       // The list's own inputs handle Enter before it bubbles here — this fires on the card.
       e.preventDefault()
       void confirmLink()
@@ -439,7 +433,7 @@
               {:else}
                 {#if hasActiveAgent}
                   <button
-                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
+                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 focus-visible:opacity-100 hover:bg-hover-strong hover:text-generate"
                     onclick={(e) => sendTaskToAgent($state.snapshot(task) as TrackerTaskLite, e)}
                     disabled={Boolean(sendingTaskKey)}
                     title="Send to agent"
@@ -453,7 +447,7 @@
                   </button>
                 {/if}
                 <button
-                  class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
+                  class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 focus-visible:opacity-100 hover:bg-hover-strong hover:text-generate"
                   onclick={(e) => {
                     e.stopPropagation()
                     void copyTaskToClipboard($state.snapshot(task) as TrackerTaskLite, e)

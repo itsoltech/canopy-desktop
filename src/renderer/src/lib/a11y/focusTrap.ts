@@ -12,10 +12,13 @@ export function cycleFocus(container: HTMLElement, e: KeyboardEvent): void {
   const first = focusable[0]
   const last = focusable[focusable.length - 1]
   const active = document.activeElement as HTMLElement | null
-  if (e.shiftKey && (active === first || !container.contains(active))) {
+  // Dialogs focus their own `tabindex="-1"` container on open. `contains()` is true for the
+  // container itself, so treat it as outside — otherwise Shift+Tab walks out of the dialog.
+  const outside = !active || active === container || !container.contains(active)
+  if (e.shiftKey && (active === first || outside)) {
     e.preventDefault()
     last.focus()
-  } else if (!e.shiftKey && (active === last || !container.contains(active))) {
+  } else if (!e.shiftKey && (active === last || outside)) {
     e.preventDefault()
     first.focus()
   }

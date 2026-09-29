@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { closeDialog, dialogState, showProjectCi } from './dialogs.svelte'
+import { closeDialog, confirm, confirmState, dialogState, showProjectCi } from './dialogs.svelte'
 
 describe('project CI dialog entry mode', () => {
   afterEach(() => closeDialog())
@@ -22,5 +22,19 @@ describe('project CI dialog entry mode', () => {
       repoRoot: 'C:/repo-b',
       mode: 'configuration',
     })
+  })
+})
+
+describe('confirm', () => {
+  it('cancels a pending confirmation that a newer one replaces', async () => {
+    const first = confirm({ title: 'Close tab?', message: 'This tab has a running process.' })
+    const second = confirm({ title: 'Remote action request', message: 'Remote device wants…' })
+
+    await expect(first).resolves.toBe(false)
+    expect(confirmState.current?.title).toBe('Remote action request')
+
+    confirmState.current?.onConfirm()
+    await expect(second).resolves.toBe(true)
+    expect(confirmState.current).toBeNull()
   })
 })

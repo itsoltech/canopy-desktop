@@ -19,7 +19,10 @@
   async function handleDismiss(): Promise<void> {
     if (submitting) return
     submitting = true
-    await finishOnboarding()
+    // Close even when saving fails — `submitting` would otherwise block every later dismiss.
+    await finishOnboarding().catch((err) => {
+      console.error('[onboarding] saving onboarding state failed:', err)
+    })
     closeDialog()
   }
 

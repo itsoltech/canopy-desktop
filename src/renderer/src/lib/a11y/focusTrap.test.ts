@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { captureFocusReturn } from './focusTrap'
+import { captureFocusReturn, cycleFocus } from './focusTrap'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -37,5 +37,21 @@ describe('captureFocusReturn', () => {
     restoreFocus()
 
     expect(opener.focus).not.toHaveBeenCalled()
+  })
+})
+
+describe('cycleFocus', () => {
+  it('wraps Shift+Tab from the focused dialog container to its last control', () => {
+    const first = { focus: vi.fn() }
+    const last = { focus: vi.fn() }
+    const container = { querySelectorAll: () => [first, last], contains: () => true }
+    vi.stubGlobal('document', { activeElement: container })
+    const event = { shiftKey: true, preventDefault: vi.fn() }
+
+    cycleFocus(container as unknown as HTMLElement, event as unknown as KeyboardEvent)
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(last.focus).toHaveBeenCalledOnce()
+    expect(first.focus).not.toHaveBeenCalled()
   })
 })

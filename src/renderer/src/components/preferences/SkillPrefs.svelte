@@ -76,6 +76,8 @@
     const ok = await confirm({
       title: 'Delete skill file',
       message: `Delete skill file "${name}" from disk? This cannot be undone.`,
+      // The same skill name can exist in several scopes — show exactly which file goes.
+      details: filePath,
       confirmLabel: 'Delete',
       destructive: true,
     })

@@ -95,6 +95,15 @@
       controller = new PeerController()
       controller.onPhaseChange = (p) => {
         phase = p
+        // Terminal phases dispose the peer's RPC. Stop pinging it and close the fullscreen
+        // terminal, which would otherwise cover the status screen with a frozen terminal
+        // whose keystrokes go nowhere.
+        if (p.kind === 'disconnected' || p.kind === 'error' || p.kind === 'rejected') {
+          stopPingLoop()
+          remoteApi = null
+          fullscreenSessionId = null
+          toolPickerOpen = false
+        }
       }
       controller.onApiReady = (api) => {
         remoteApi = api

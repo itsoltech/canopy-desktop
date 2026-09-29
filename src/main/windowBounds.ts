@@ -16,6 +16,27 @@ export interface WindowConfig {
   windowState?: WindowState
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+/** Shape check for window configs read back from preferences (restored at startup). */
+export function isRestorableWindowConfig(value: unknown): value is WindowConfig {
+  if (typeof value !== 'object' || value === null) return false
+  // Narrowed to a non-null object above; each field is checked before use.
+  const config = value as { paths?: unknown; activeWorktreePath?: unknown; bounds?: unknown }
+  if (!Array.isArray(config.paths) || !config.paths.every((p) => typeof p === 'string')) {
+    return false
+  }
+  if (config.activeWorktreePath !== undefined && typeof config.activeWorktreePath !== 'string') {
+    return false
+  }
+  if (config.bounds === undefined) return true
+  if (typeof config.bounds !== 'object' || config.bounds === null) return false
+  const { x, y, width, height } = config.bounds as Partial<Record<keyof WindowBounds, unknown>>
+  return [x, y, width, height].every(isFiniteNumber)
+}
+
 const MIN_WIDTH = 600
 const MIN_HEIGHT = 400
 const MIN_VISIBLE_PX = 100

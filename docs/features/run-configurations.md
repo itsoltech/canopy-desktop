@@ -64,7 +64,7 @@ Fields per configuration entry:
 2. A form collects name, command, args, cwd, env, max_instances, pre_run, and post_run.
 3. The renderer calls `runConfig:addConfig` with the target `configDir` and the new configuration object.
 4. `RunConfigManager.addConfiguration()` loads the existing file (or creates an empty one), checks for duplicate names, appends the entry, and writes the file back.
-5. If a configuration with the same name already exists, the call fails with `RunConfigValidationError`.
+5. If a configuration with the same name already exists, the call fails with `RunConfigValidationError`. If the existing `run.toml` cannot be parsed (syntax error, merge-conflict markers), the call fails with `RunConfigParseError` and the file is left untouched — only a missing file starts empty.
 6. The renderer re-discovers all configs to refresh the list.
 
 ### Editing and deleting
