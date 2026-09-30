@@ -2330,6 +2330,119 @@ runner at `~/.local/share/claude/versions/2.1.284`, and every schema claim above
 holds no changelog text, so behaviour behind the 88 hidden entries is still unread. The vendored SDK
 under `node_modules` is still `0.3.207`.
 
+**2.1.285's `allowedProviders` can refuse a profile at startup, and the Base URL field is the choice
+it constrains most.** The new setting is read from managed settings only (`managed-settings.json`,
+MDM or server-managed) and lists the API providers a machine may use. The 2.1.285 build knows eight
+names: `anthropic`, `customEndpoint`, `bedrock`, `vertex`, `foundry`, `anthropicAws`, `mantle` and
+`gateway`. A session on a provider the list leaves out "is refused at startup, at login, and when it
+next contacts the API, with a message naming what selected the provider and the entry that would
+allow it." Canopy's Claude profile reaches four of the names:
+
+- **Provider "Default (Anthropic)" with no Base URL** is `anthropic`.
+- **"AWS Bedrock", "Google Vertex AI" and "Microsoft Foundry"** set `CLAUDE_CODE_USE_BEDROCK`,
+  `CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_FOUNDRY`, which are `bedrock`, `vertex` and `foundry`.
+- **A Base URL** writes `ANTHROPIC_BASE_URL`, which the build classes as `customEndpoint`: "the
+  Anthropic API or a cloud provider's API sent to some other host". Listing `customEndpoint` is not
+  enough on its own, because the endpoint is "admitted only for the value pinned in the "env" block
+  of the same managed source".
+
+So under a list, a profile pointed at one of the proxies the Base URL field's help text names
+(Ollama, GLM, an Anthropic-compatible proxy) starts only if an administrator has pinned that exact
+URL. Otherwise the pane shows the CLI's refusal instead of a session. `generateCommitMessage` forwards
+the same provider and Base URL variables, so the commit-message turn is refused the same way and
+fails soft to no suggestion. The profile has no field for the other three names. Canopy writes no
+managed settings, so all of this matters only where an organization sets the list, and the policy is
+theirs to set. Nothing changes here. It is the first thing to check when a profile that works on one
+machine will not start on a managed one. The release also stops an unreadable managed settings file
+from blocking startup: when the OS denies the read, the CLI "now warns and starts without that
+file's policies", while other read errors and unparseable files still stop every session.
+
+**Two new variables reach panes through a profile's env vars, and Canopy sets neither.**
+
+- `CLAUDE_CODE_DISABLE_WEB_FETCH` turns off the WebFetch tool. In the build, the tool's `isEnabled()`
+  checks it first.
+- `CLAUDE_CODE_NONSTREAMING_TIMEOUT_RETRIES` caps how many times a timed-out non-streaming fallback
+  request is re-sent. The cap applies only when the variable is set, so leaving it unset keeps the
+  old retry behaviour.
+
+`BLOCKED_ENV_VARS` lists no `CLAUDE_*` or `ANTHROPIC_*` variable, so a profile's env vars pass both
+to panes, and `generateCommitMessage` forwards them to the commit-message turn.
+
+**The retry cap points at the one wait in Canopy that nothing bounds.** The 2.1.274 note's question
+applies: which Canopy call site is exposed to what the new knob bounds, and does Canopy bound it
+itself? The answer is again the commit-message turn. `git:generateCommitMessage` awaits `query()`
+with no timeout, no `maxTurns` and no abort signal. The commit dialog, opened from the Git sidebar or
+the command palette, keeps its AI Generate button disabled at "Generating..." until that promise
+settles. The user can still type a message meanwhile, but a result that arrives late replaces it,
+because `InputDialog` assigns any non-empty result to the field. 2.1.274's `strictMcpConfig: true`
+removed the MCP startup wait. A non-streaming fallback that keeps timing out and is re-sent is another way the same wait gets
+long. The cure that works on every CLI is the SDK's own `abortController` option, which the vendored
+`0.3.207` types already document, rather than this variable. How long a Generate may take is a
+product choice, so it is left for a maintainer.
+
+**`claude --desktop` is a flag Canopy never emits, and one it could use.** It opens the Claude Desktop
+app on the current directory, or on a session with `--continue` or `--resume <id>`. The build refuses
+it alongside `--bg`, `--background` or `--routine`, and alongside `--worktree` or `--tmux`.
+`buildCliArgs` and `buildResumeArgs` emit none of these. An "open in Claude Desktop" action would
+need the session ID, which every hook payload carries, and the Desktop app installed. It would also
+need a version check, because a CLI older than 2.1.285 fails at startup on the unknown flag, and the
+status line's `version` field is where Canopy already reads that. It is a candidate adoption, not a
+compatibility change.
+
+**Nothing else visible reaches Canopy.** `claude plugin configure`, `claude plugin install --config`
+with `<server>.<key>=<value>`, the `GIT_SSH` and `core.sshCommand` fix for plugin installs, and the
+letter-case fix for `claude plugin disable` and `enable` all act on plugins, and Canopy installs none.
+The artifact fix is for cloud sessions. The attachment retry is for Claude Code's Remote Control, not
+Canopy's own mobile remote. The `CLAUDE_CODE_FORK_SUBAGENT=1` fix applies to `claude -p`, and Canopy
+sets no such variable.
+
+**Canopy's contract against the 2.1.285 build.** The hook-event array names the same 33 events the
+2.1.284 note records, so Canopy's 18 are all present. Every field Canopy reads is still in the schema
+of the event it is read from:
+
+- `to_model` on `PostModelSwitch` and `model` on `SessionStart`.
+- `error` and `error_details` on `StopFailure`, and `reason` on `SessionEnd`.
+- `compact_summary` on `PostCompact`, and `message`, `title` and `notification_type` on
+  `Notification`.
+- `task_id`, `task_subject` and `task_description` on `TaskCompleted`, and `agent_id` and
+  `agent_type` on `SubagentStart` and `SubagentStop`.
+- `tool_name`, `tool_input` and `tool_response` on the tool events, and `permission_mode` on the base.
+
+The status line still builds `model.id` and `display_name`, the four `cost` fields `normalizeStatus`
+reads, `rate_limits` and `version`, and its commented schema still lists `context_window_size` and
+describes `spend_limit` exactly as the 2.1.284 note records. Every flag Canopy emits is defined,
+`--resume` as `-r, --resume [value]`. The permission-mode list still covers all four the profile
+offers, and effort is still exactly `low`, `medium`, `high`, `xhigh` and `max`. `TaskUpdate` still
+takes `taskId`, `subject` and `activeForm`, and its `status` still admits `deleted`.
+
+**Both halves grew, and the system half's step is one this range has taken three times before.**
+Files +5 (+21.7%) gives 5 ÷ 0.217 = 23.04, band 22.99–23.09, so **23 before and 28 after**,
+continuing the 2.1.284 note's 23 for a fourteenth link. Tokens +12,566 (+51.0%) put the total at
+**~24.64k before and ~37.21k after**. The before band is 24.62k–24.66k, which overlaps the
+24.63k–24.80k that the 2.1.284 note's figures allow. Splitting by the given mix (83.0%/17.0% →
+77.3%/22.7%) gives **tools ~20.45k → ~28.76k (+8,309) and system ~4.19k → ~8.45k (+4,257)**.
+Carrying the rounding through both ends leaves tools at +8,240…+8,379 and system at +4,217…+4,297,
+so both signs are safe.
+
+The system step has happened before, three times. 2.1.269 took the system half from ~4.2k to ~8.4k
+(+4.3k), 2.1.274 from ~4.20k to ~8.44k (+4,250), and 2.1.280 from ~4.19k to ~8.45k (+4,260). Each
+started at the same ~4.2k floor and added the same amount to within rounding. That reads as one block
+of about 4.25k tokens entering the extraction again, not as new instructions. `meta/prompt-stats.md`
+would confirm it by name. The tools half grew by more than 8k while the bundle shrank by **598.0 kB
+(−1.1%)** from ~54.4 MB (band 52.0–57.0 MB, consistent with the ~56.5 MB after 2.1.284). About 50 kB
+of prompt text arrived at ~4 bytes/token while ~600 kB of bundle left. That puts the release below
+the re-extraction end of the 2.1.276/2.1.277 calibration: prompt text with no net code behind it.
+With 124 entries unread, the bundle delta cannot be pinned on the prompt files, so the five files
+stay unattributed. Every tool input Canopy reads is present, so the growth forces nothing.
+
+**124 of 2.1.285's 136 CLI changelog entries were not readable this run**, against 12 visible.
+`gh api` was not probed, because the existing PR's description and the branch copy of the compat
+prompt were read before any fetch. `WebFetch` was denied on its first and only call, the
+twenty-third consecutive run on record. The 2.1.285 build was on the runner at
+`~/.local/share/claude/versions/2.1.285`, and every schema claim above was read from it. It holds no
+changelog text, so behaviour behind the 124 hidden entries is still unread. The vendored SDK under
+`node_modules` is still `0.3.207`.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
