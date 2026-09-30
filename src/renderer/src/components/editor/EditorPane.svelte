@@ -111,7 +111,13 @@
     })
   }
 
+  let loadSeq = 0
+
   async function loadFile(path: string): Promise<void> {
+    const seq = ++loadSeq
+    // A newer load, or a sub-tab switch that restored cached state, supersedes this request: its
+    // late result must not overwrite the active file's buffer (Save would then write it there).
+    const isCurrent = (): boolean => seq === loadSeq && path === activeFilePath
     loading = true
     error = null
     saveError = null
@@ -123,6 +129,7 @@
     externalChangeDetected = false
     try {
       const readResult = await loadEditorFile(paneId, path, MAX_EDIT_BYTES)
+      if (!isCurrent()) return
       if (!readResult.ok) {
         error = readResult.message
         return
@@ -151,9 +158,10 @@
       fileMtimeMs = readResult.mtimeMs
       dirty = false
     } catch (e) {
+      if (!isCurrent()) return
       error = e instanceof Error ? e.message : 'Failed to read file'
     } finally {
-      loading = false
+      if (isCurrent()) loading = false
     }
   }
 
@@ -656,7 +664,7 @@
     {:else if canEdit}
       <CodeMirrorEditor
         bind:this={editorRef}
-        initialValue={originalContent}
+        initialValue={editedContent}
         initialIndentUnit={indentUnitString(indentInfo)}
         filePath={activeFilePath}
         onChange={handleChange}
@@ -665,7 +673,7 @@
     {:else if content !== null}
       <CodeMirrorEditor
         bind:this={editorRef}
-        initialValue={originalContent}
+        initialValue={editedContent}
         initialIndentUnit={indentUnitString(indentInfo)}
         filePath={activeFilePath}
         readOnly={true}

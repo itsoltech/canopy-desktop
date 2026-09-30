@@ -15,4 +15,13 @@ describe('parseGitHubRemote', () => {
       repo: 'service.api',
     })
   })
+
+  it('drops embedded credentials from the invalid-remote error', () => {
+    const result = parseGitHubRemote('https://x-access-token:secret@example.com/group/sub/repo.git')
+
+    expect(result.isErr() && result.error).toEqual({
+      _tag: 'InvalidRemoteUrl',
+      url: 'https://example.com/group/sub/repo.git',
+    })
+  })
 })

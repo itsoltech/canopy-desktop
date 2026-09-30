@@ -176,12 +176,19 @@
 
   {#each envPairs as pair, i (pair.id)}
     <div class="flex items-center gap-1">
-      <input type="text" bind:value={pair.key} placeholder="KEY" class="flex-1 {envInputCls}" />
+      <input
+        type="text"
+        bind:value={pair.key}
+        placeholder="KEY"
+        aria-label="Environment variable name"
+        class="flex-1 {envInputCls}"
+      />
       <span class="text-text-muted text-sm">=</span>
       <input
         type="text"
         bind:value={pair.value}
         placeholder="value"
+        aria-label="Environment variable value"
         class="flex-[2] {envInputCls}"
       />
       <button

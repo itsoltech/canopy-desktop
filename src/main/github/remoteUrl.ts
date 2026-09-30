@@ -33,5 +33,10 @@ export function parseGitHubRemote(url: string): Result<RepoIdentifier, GitHubErr
       })
     }
   }
-  return err({ _tag: 'InvalidRemoteUrl', url })
+  // The error text is shown to the user, so drop `userinfo@` here too: a nested-path remote with
+  // an embedded token matches none of the patterns above.
+  return err({
+    _tag: 'InvalidRemoteUrl',
+    url: url.replace(/^([a-z][a-z\d+.-]*:\/\/)[^/@]*@/i, '$1'),
+  })
 }

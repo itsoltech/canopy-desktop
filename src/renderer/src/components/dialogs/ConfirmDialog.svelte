@@ -27,7 +27,10 @@
   onMount(() => {
     // Restore focus to the element that opened the dialog when it closes.
     const previouslyFocused = document.activeElement as HTMLElement | null
-    cancelBtn?.focus()
+    // Non-destructive dialogs start on Confirm so Enter keeps confirming; destructive ones start
+    // on Cancel so a stray Enter cannot confirm.
+    const initialFocus = destructive ? cancelBtn : confirmBtn
+    initialFocus?.focus()
     return () => previouslyFocused?.focus?.()
   })
 
@@ -46,11 +49,14 @@
     if (e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
-      // When destructive, only confirm if the confirm button is explicitly focused
-      if (destructive && document.activeElement !== confirmBtn) {
-        if (document.activeElement === cancelBtn) onCancel()
+      // Enter activates the focused button, as a native button would: a focused Cancel (the one
+      // assistive tech announces) must never confirm.
+      if (document.activeElement === cancelBtn) {
+        onCancel()
         return
       }
+      // When destructive, only confirm if the confirm button is explicitly focused
+      if (destructive && document.activeElement !== confirmBtn) return
       onConfirm()
     }
   }

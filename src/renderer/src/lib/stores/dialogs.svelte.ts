@@ -174,18 +174,36 @@ export const confirmState: {
   current: (ConfirmOptions & { onConfirm: () => void; onCancel: () => void }) | null
 } = $state({ current: null })
 
-export function confirm(opts: ConfirmOptions): Promise<boolean> {
+// Which confirmation is on screen. Plain (non-reactive) on purpose: `confirmState` stores a proxy,
+// so identity checks against the request would fail.
+let confirmSeq = 0
+let activeConfirmId = 0
+
+/**
+ * Only one confirmation renders at a time. A newer request resolves the one it replaces as
+ * cancelled (its caller would otherwise await forever), and an aborted `signal` (e.g. a timeout)
+ * resolves false and removes this dialog if it is still showing, so a late click cannot look like
+ * an approval that never took effect.
+ */
+export function confirm(opts: ConfirmOptions, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false)
+  confirmState.current?.onCancel()
+  const id = ++confirmSeq
   return new Promise((resolve) => {
+    const settle = (confirmed: boolean): void => {
+      signal?.removeEventListener('abort', onAbort)
+      if (activeConfirmId !== id) return
+      activeConfirmId = 0
+      confirmState.current = null
+      resolve(confirmed)
+    }
+    const onAbort = (): void => settle(false)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    activeConfirmId = id
     confirmState.current = {
       ...opts,
-      onConfirm: () => {
-        confirmState.current = null
-        resolve(true)
-      },
-      onCancel: () => {
-        confirmState.current = null
-        resolve(false)
-      },
+      onConfirm: () => settle(true),
+      onCancel: () => settle(false),
     }
   })
 }

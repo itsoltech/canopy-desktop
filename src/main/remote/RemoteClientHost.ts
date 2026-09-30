@@ -1,6 +1,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import { pipeline } from 'node:stream'
 import { match } from 'ts-pattern'
 
 const CSP_HEADER =
@@ -64,7 +65,15 @@ export class RemoteClientHost {
    * the caller should fall through to other routes.
    */
   async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
-    const url = new URL(req.url ?? '/', 'http://placeholder.invalid')
+    let url: URL
+    try {
+      url = new URL(req.url ?? '/', 'http://placeholder.invalid')
+    } catch {
+      // Raw request targets such as `//` are not parseable against the base URL.
+      res.writeHead(400)
+      res.end()
+      return true
+    }
     const pathname = url.pathname
 
     // Anything outside /remote/* is not ours
@@ -147,12 +156,11 @@ export class RemoteClientHost {
       return true
     }
 
-    const stream = fs.createReadStream(requested)
-    stream.on('error', () => {
-      // Connection may already be closed; just end quietly.
-      res.end()
+    // pipeline (unlike pipe) destroys the file stream when the client aborts mid-download, so a
+    // peer that reloads or locks its screen does not leak the read stream's file descriptor.
+    pipeline(fs.createReadStream(requested), res, () => {
+      // Connection may already be closed; pipeline has already destroyed both streams.
     })
-    stream.pipe(res)
     return true
   }
 }

@@ -45,7 +45,17 @@ export class AgentSessionManager extends EventEmitter {
   constructor() {
     super()
     this.hooksDir = join(app.getPath('userData'), 'canopy', 'agent-hooks')
-    mkdirSync(this.hooksDir, { recursive: true })
+    // Per-session settings written here carry profile overrides (settingsJson can hold tokens)
+    // and the user's merged Gemini settings, so keep the directory private to the current user.
+    mkdirSync(this.hooksDir, { recursive: true, mode: 0o700 })
+    if (process.platform !== 'win32') {
+      try {
+        // mkdirSync leaves an already-existing directory's mode untouched.
+        chmodSync(this.hooksDir, 0o700)
+      } catch {
+        // Best effort, like the hook-script chmods in createSession
+      }
+    }
 
     // Register built-in adapters
     registerAdapter(claudeAdapter)

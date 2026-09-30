@@ -618,6 +618,7 @@
       rows="2"
       autofocus
       placeholder="Add your instructions (optional) — paste an image to attach it"
+      aria-label="Instructions for agent"
       spellcheck="false"></textarea>
     {#if composeImageUrl}
       <div class="flex items-center gap-2">
@@ -931,6 +932,7 @@
           {/if}
         {:else}
           <CustomSelect
+            ariaLabel="Transition"
             value={selectedTransitionId}
             options={[
               { value: '', label: 'Select a transition…' },
@@ -958,6 +960,7 @@
                   {field.name}{field.required ? ' *' : ''}
                 </span>
                 <CustomSelect
+                  ariaLabel={field.name}
                   value={fieldValues[field.key] ?? ''}
                   options={[
                     { value: '', label: field.required ? 'Select…' : '(none)' },
@@ -989,6 +992,8 @@
                 placeholder={commentRequired
                   ? 'Required by the workflow'
                   : 'Optional — the workflow may still require one'}
+                aria-label="Transition comment"
+                aria-required={commentRequired}
                 spellcheck="false"></textarea>
             </div>
 
@@ -1059,6 +1064,7 @@
             bind:value={newComment}
             rows="1"
             placeholder="Add a comment…"
+            aria-label="Add a comment"
             spellcheck="false"></textarea>
           <button
             class="flex items-center justify-center size-7 rounded-md border-0 bg-accent-bg text-accent-text cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default shrink-0"

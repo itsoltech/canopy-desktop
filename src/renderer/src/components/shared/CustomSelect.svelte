@@ -26,6 +26,8 @@
     onchange?: (value: string) => void
     id?: string
     ariaDescribedby?: string
+    /** Accessible name when no associated <label> exists; the current value is appended. */
+    ariaLabel?: string
     maxWidth?: string
     /** Renders the trigger inert (e.g. a sprint select before a board is picked). */
     disabled?: boolean
@@ -40,6 +42,7 @@
     onchange,
     id,
     ariaDescribedby,
+    ariaLabel,
     maxWidth = 'none',
     disabled = false,
     placeholder = '',
@@ -194,6 +197,7 @@
   aria-haspopup="listbox"
   aria-expanded={open}
   aria-describedby={ariaDescribedby}
+  aria-label={ariaLabel ? `${ariaLabel}: ${selectedItem?.label ?? placeholder}` : undefined}
 >
   <span class="flex-1 truncate inline-flex items-center gap-1.5 min-w-0">
     {#if selectedItem?.icon}<img
@@ -233,6 +237,7 @@
       style="top: {top}px; left: {left}px; min-width: {width}px;"
       role="listbox"
       tabindex="0"
+      aria-label={ariaLabel}
       aria-activedescendant={focusedIndex >= 0 ? `cs-opt-${focusedIndex}` : undefined}
       onclick={(e) => e.stopPropagation()}
       onkeydown={handleListKeydown}

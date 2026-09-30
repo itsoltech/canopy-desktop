@@ -11,6 +11,7 @@
   } from '@lucide/svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { createLatestRequestGuard } from '../../lib/async/latestRequest'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import PullRequestActions from './PullRequestActions.svelte'
 
@@ -19,17 +20,24 @@
   // Number of files with uncommitted changes — shown on the Commit row and refreshed the same
   // way the changes panel refreshes (git metadata events + debounced filesystem events).
   let changeCount = $state(0)
+  // Switching worktrees while a slow status call is in flight must not show the old worktree's
+  // count against the new one.
+  const changeCountRequests = createLatestRequestGuard()
 
   async function refreshChangeCount(): Promise<void> {
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     if (!path) {
+      changeCountRequests.invalidate()
       changeCount = 0
       return
     }
+    const request = changeCountRequests.begin(path)
     try {
       const status = await window.api.fileTreeGetGitStatus(path, path)
+      if (!changeCountRequests.isLatest(request)) return
       changeCount = Object.keys(status.statuses).length
     } catch {
+      if (!changeCountRequests.isLatest(request)) return
       changeCount = 0
     }
   }

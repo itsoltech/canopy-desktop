@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { Readable } from 'stream'
-import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
+import { mkdtemp, readFile, stat, readdir, access, rm, realpath } from 'fs/promises'
 import { join, basename, resolve, normalize, extname, sep } from 'path'
 import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
@@ -254,7 +254,7 @@ export class SkillInstaller {
           reason: 'Subpath escapes repository root',
         })
       }
-      return await this.readSkillDir(resolvedDir, `github:${ref}`, 'github')
+      return await this.readSkillDir(resolvedDir, `github:${ref}`, 'github', tmpDir)
     } finally {
       // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
@@ -397,10 +397,39 @@ export class SkillInstaller {
     return ok({ content: readResult.value, fileName, sourceType: 'local', sourceUri: resolved })
   }
 
+  /**
+   * Read one skill file. For a cloned repository (`containRoot` set) the file must resolve inside
+   * the clone: a repo can commit symlinks such as `SKILL.md -> ~/.ssh/id_rsa`, and the content
+   * would become a stored skill prompt deployed into agent command files.
+   */
+  private async readSkillFile(
+    filePath: string,
+    sourceUri: string,
+    containRoot?: string,
+  ): Promise<Result<string, SkillError>> {
+    if (containRoot) {
+      const realFile = await fromExternalCall(realpath(filePath), () => null).unwrapOr(null)
+      const realRoot = await fromExternalCall(realpath(containRoot), () => null).unwrapOr(null)
+      if (!realFile || !realRoot || !realFile.startsWith(realRoot + sep)) {
+        return err({
+          _tag: 'InvalidSource',
+          source: sourceUri,
+          reason: 'Skill file resolves outside the cloned repository',
+        })
+      }
+    }
+    return fromExternalCall(readFile(filePath, 'utf-8'), (e): SkillError => ({
+      _tag: 'FetchFailed',
+      source: sourceUri,
+      cause: e instanceof Error ? e.message : String(e),
+    }))
+  }
+
   private async readSkillDir(
     dir: string,
     sourceUri: string,
     sourceType: 'github' | 'local',
+    containRoot?: string,
   ): Promise<Result<SourceResolution, SkillError>> {
     const candidates = ['SKILL.md', 'canopy-skill.yaml', 'skill.md']
     for (const candidate of candidates) {
@@ -410,11 +439,7 @@ export class SkillInstaller {
       } catch {
         continue
       }
-      const readResult = await fromExternalCall(readFile(filePath, 'utf-8'), (e): SkillError => ({
-        _tag: 'FetchFailed',
-        source: sourceUri,
-        cause: e instanceof Error ? e.message : String(e),
-      }))
+      const readResult = await this.readSkillFile(filePath, sourceUri, containRoot)
       if (readResult.isErr()) return err(readResult.error)
       const fileName = basename(dir)
       return ok({ content: readResult.value, fileName, sourceType, sourceUri })
@@ -429,14 +454,7 @@ export class SkillInstaller {
     const allFiles = readdirResult.value
     const files = allFiles.filter((f) => f.endsWith('.md'))
     if (files.length > 0) {
-      const readResult = await fromExternalCall(
-        readFile(join(dir, files[0]), 'utf-8'),
-        (e): SkillError => ({
-          _tag: 'FetchFailed',
-          source: sourceUri,
-          cause: e instanceof Error ? e.message : String(e),
-        }),
-      )
+      const readResult = await this.readSkillFile(join(dir, files[0]), sourceUri, containRoot)
       if (readResult.isErr()) return err(readResult.error)
       const fileName = basename(dir)
       return ok({ content: readResult.value, fileName, sourceType, sourceUri })

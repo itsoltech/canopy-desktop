@@ -165,9 +165,9 @@
     } else {
       bodyTemplateInput = bodyTemplateInput + token
     }
-    // Discrete action — persist now (also flushes any pending keystroke save).
-    pendingSave = () => savePRField('bodyTemplate', bodyTemplateInput)
-    pendingField = 'bodyTemplate'
+    // Discrete action — persist now. debouncedSave first flushes a pending keystroke save for a
+    // different field; assigning pendingSave directly would silently drop that edit.
+    debouncedSave('bodyTemplate', () => savePRField('bodyTemplate', bodyTemplateInput))
     flushSave()
   }
 
@@ -219,8 +219,7 @@
     } else {
       titleTemplateInput = titleTemplateInput + token
     }
-    pendingSave = () => savePRField('titleTemplate', titleTemplateInput)
-    pendingField = 'titleTemplate'
+    debouncedSave('titleTemplate', () => savePRField('titleTemplate', titleTemplateInput))
     flushSave()
   }
 

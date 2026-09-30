@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BrowserManager, BROWSER_PARTITION } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -34,7 +34,7 @@ import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
-import { validateBounds, cascadeBounds } from './windowBounds'
+import { validateBounds, cascadeBounds, parseWindowConfigs } from './windowBounds'
 import { TelemetryManager } from './telemetry/TelemetryManager'
 import { RemoteSessionService } from './remote/RemoteSessionService'
 import { PerfHudService } from './perf/PerfHudService'
@@ -232,6 +232,15 @@ let notchOverlay: NotchOverlayManager | null = null
 let crashReporter: CrashReporter | null = null
 let ipcCommandBridge: IpcCommandBridge | null = null
 
+/**
+ * The overlay is disposed when the last app window closes (on macOS the app stays alive, and a
+ * live overlay would count as a window in `activate`'s "no windows" check). Bring it back when a
+ * window opens again; initialize() is a no-op when it already exists.
+ */
+function restoreNotchOverlay(): void {
+  if (preferencesStore.get('notch.enabled') === 'true') notchOverlay?.initialize()
+}
+
 function canCreateApplicationWindow(): boolean {
   return !windowManager.isQuitting && !database.isClosed()
 }
@@ -362,6 +371,7 @@ async function handleCanopyUrl(url: string): Promise<void> {
     if (response !== 0) return
 
     const win = windowManager.createWindow()
+    restoreNotchOverlay()
     win.once('ready-to-show', () => {
       ipcCommandBridge?.grantAttachPath(win.webContents.id, resolved)
       win.webContents.send('url:action', { action, path: resolved, tool, worktree })
@@ -432,6 +442,7 @@ function buildAppMenu(): void {
             windowManager.createWindow({
               bounds: cascadeBounds(windowManager.getLastFocusedBounds()),
             })
+            restoreNotchOverlay()
           },
         },
         { type: 'separator' },
@@ -696,6 +707,11 @@ app.whenReady().then(async () => {
   // Even if an attacker modifies webview attributes in the DOM, this handler
   // forces safe webPreferences and blocks non-http(s) sources.
   app.on('web-contents-created', (_event, contents) => {
+    // Deny guest popups until BrowserManager.setup() replaces this with its forwarding handler.
+    if (contents.getType() === 'webview') {
+      contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    }
+
     contents.on('will-attach-webview', (event, webPreferences, params) => {
       // Strip preload scripts — browser webviews must not have preload
       delete webPreferences.preload
@@ -704,6 +720,12 @@ app.whenReady().then(async () => {
       webPreferences.nodeIntegration = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      // Attribute-driven switches (`disablewebsecurity`, a different `partition`) must not
+      // weaken the guest either: it always runs in the isolated browser session.
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      webPreferences.nodeIntegrationInSubFrames = false
+      params.partition = BROWSER_PARTITION
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -1004,7 +1026,7 @@ app.whenReady().then(async () => {
 
     if (configsJson) {
       try {
-        windowConfigs = JSON.parse(configsJson) as WindowConfig[]
+        windowConfigs = parseWindowConfigs(JSON.parse(configsJson))
       } catch {
         // Invalid JSON
       }
@@ -1175,14 +1197,17 @@ app.whenReady().then(async () => {
       handleCanopyUrl(url)
     } else {
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
+      restoreNotchOverlay()
     }
   })
 
   app.on('activate', function () {
     if (!canCreateApplicationWindow()) return
 
-    if (BrowserWindow.getAllWindows().length === 0)
+    if (BrowserWindow.getAllWindows().length === 0) {
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
+      restoreNotchOverlay()
+    }
   })
 })
 

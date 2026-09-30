@@ -102,7 +102,10 @@ function editorFilesFromSnapshot(
   const previousByPath = new Map(previousFiles?.map((file) => [file.filePath, file]) ?? [])
   return snapshotFiles.map((file) => {
     const previous = previousByPath.get(file.filePath)
-    return previous ? { ...file, ...previous, filePath: file.filePath } : { ...file }
+    // Main owns editor file state (the renderer only sends patches), so its snapshot must win;
+    // the older local copy only fills keys the snapshot omits. The reverse order froze
+    // dirty/mtime/content at their first loaded values.
+    return previous ? { ...previous, ...file, filePath: file.filePath } : { ...file }
   })
 }
 

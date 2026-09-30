@@ -13,7 +13,14 @@
   let submitting = $state(false)
 
   onMount(() => {
+    // Restore focus to the opener when the dialog closes, like ConfirmDialog.
+    const previouslyFocused = document.activeElement
     containerEl?.focus()
+    return () => {
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus()
+      }
+    }
   })
 
   async function handleDismiss(): Promise<void> {

@@ -120,16 +120,17 @@ async function ensureSessionGrant(method: RpcMethodName): Promise<boolean> {
  */
 async function confirmSessionGrant(method: RpcMethodName): Promise<boolean> {
   const description = describeSessionGrant(method)
-  const result = await Promise.race([
-    confirm({
+  // The timeout signal also removes the dialog, so a late "Allow" is not mistaken for a grant.
+  const result = await confirm(
+    {
       title: 'Remote session access request',
       message: `Remote device wants to ${description} for this session.`,
       details: `Method: ${method}. Access lasts until the remote device disconnects.`,
       confirmLabel: 'Allow for session',
       destructive: true,
-    }),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
-  ])
+    },
+    AbortSignal.timeout(30_000),
+  )
   if (!result) {
     console.log(`[action-guard] rejected session grant "${method}"`)
   }
@@ -149,17 +150,18 @@ function describeSessionGrant(method: RpcMethodName): string {
  */
 async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promise<boolean> {
   const description = describeAction(method, params)
-  const result = await Promise.race([
-    confirm({
+  // Auto-reject after 30s if the desktop user ignores the prompt; the abort also removes the
+  // dialog, so a late "Allow" click is not mistaken for an approval.
+  const result = await confirm(
+    {
       title: 'Remote action request',
       message: `Remote device wants to: ${description}`,
       details: `Method: ${method}`,
       confirmLabel: 'Allow',
       destructive: DESTRUCTIVE_METHODS.has(method),
-    }),
-    // Auto-reject after 30s if the desktop user ignores the prompt
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
-  ])
+    },
+    AbortSignal.timeout(30_000),
+  )
   if (!result) {
     console.log(`[action-guard] rejected "${method}"`)
   }

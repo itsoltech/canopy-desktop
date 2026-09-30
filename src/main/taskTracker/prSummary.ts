@@ -3,6 +3,7 @@ import { err, ok, ResultAsync, type Result } from 'neverthrow'
 import { errorMessage } from '../errors'
 import { gitHubCliFailureReason, isMissingGitHubCli } from '../github/redactFailureReason'
 import type { TaskTrackerError } from './errors'
+import { getLoginEnv } from '../shell/loginEnv'
 
 export const PR_SUMMARY_FIELDS = 'number,state,isDraft'
 export const PR_SUMMARY_TIMEOUT_MS = 15_000
@@ -29,7 +30,9 @@ export type SummaryCommandRunner = (
 
 const runSummaryCommand: SummaryCommandRunner = (command, args, options) =>
   new Promise((resolve, reject) => {
-    execFile(command, args, options, (error, stdout, stderr) => {
+    // Login-shell env: a Finder-launched app's PATH lacks Homebrew, where gh usually lives.
+    const env = getLoginEnv() ?? process.env
+    execFile(command, args, { ...options, env }, (error, stdout, stderr) => {
       if (!error) {
         resolve({ stdout })
         return

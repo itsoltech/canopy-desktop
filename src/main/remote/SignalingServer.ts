@@ -197,7 +197,14 @@ export class SignalingServer {
     bindHost: string,
   ): Promise<{ server: http.Server; wss: WebSocketServer; port: number }> {
     return new Promise((resolve, reject) => {
-      const server = http.createServer((req, res) => this.handleHttpRequest(req, res))
+      const server = http.createServer((req, res) => {
+        // LAN peers reach this unauthenticated; a rejected handler must still answer the socket
+        // instead of surfacing as an unhandled rejection (a crash report in packaged builds).
+        this.handleHttpRequest(req, res).catch(() => {
+          if (!res.headersSent) res.writeHead(500)
+          res.end()
+        })
+      })
       // maxPayload enforces the per-frame size limit inside `ws` BEFORE our
       // handler runs. Without it the default 100 MB cap lets a LAN peer
       // allocate huge frames before we reject them at line 335.

@@ -55,7 +55,7 @@ Fields per configuration entry:
 3. `RunConfigManager.discover()` walks the directory tree, skipping paths in `SAFETY_IGNORE_PATTERNS` (node_modules, .git, etc.).
 4. For each `.canopy/run.toml` found, the file is parsed with `smol-toml`. Unparseable files are silently skipped.
 5. The renderer receives an array of `RunConfigSource` objects, each containing the absolute `configDir`, a human-readable `relativePath` (e.g. `packages/api`), and the parsed configurations.
-6. The store groups configurations by `relativePath` and renders them in the sidebar RUN section.
+6. The store groups configurations by `relativePath`; the sidebar RUN section and the titlebar toolbar both render from it. Discovery and the exit/post-run listeners run from the main layout, so the toolbar stays current while the RUN section is hidden.
 7. If no `.canopy/` directories are found, the sidebar section is empty.
 
 ### Adding a configuration

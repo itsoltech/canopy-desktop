@@ -95,6 +95,12 @@
       controller = new PeerController()
       controller.onPhaseChange = (p) => {
         phase = p
+        // The controller disposes its RPC on these phases; stop pinging (every 3 s, forever) and
+        // drop the dead API instead of handing it to the terminal views.
+        if (p.kind === 'disconnected' || p.kind === 'error' || p.kind === 'rejected') {
+          stopPingLoop()
+          remoteApi = null
+        }
       }
       controller.onApiReady = (api) => {
         remoteApi = api

@@ -13,6 +13,38 @@ function findWebContents(id: number): WebContents | undefined {
   return webContents.fromId(id) ?? webContents.getAllWebContents().find((wc) => wc.id === id)
 }
 
+// Favicon URLs are page-controlled and fetched by the main process, so bound both the wait and
+// the body size: a hostile page must not be able to stall or balloon the process that owns PTYs.
+const FAVICON_TIMEOUT_MS = 5_000
+const FAVICON_MAX_BYTES = 256 * 1024
+
+function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url)
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+async function readBodyCapped(response: Response, maxBytes: number): Promise<Buffer | null> {
+  const reader = response.body?.getReader()
+  if (!reader) return null
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      void reader.cancel()
+      return null
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks)
+}
+
 interface WebviewEntry {
   webContentsId: number
   win: BrowserWindow
@@ -43,7 +75,7 @@ const APP_SHORTCUTS = new Set([
   '9',
 ])
 
-const BROWSER_PARTITION = 'persist:browser'
+export const BROWSER_PARTITION = 'persist:browser'
 
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
@@ -122,6 +154,10 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // A re-mounted <webview> reuses its browserId with a new guest. The previous entry's DevTools
+    // view is bound to the old guest and cannot be reused, so release it instead of orphaning it
+    // in the window until close.
+    if (existing) this.teardown(browserId)
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
@@ -250,13 +286,15 @@ export class BrowserManager {
         })
         return
       }
+      if (!isHttpUrl(faviconUrl)) return
       wc.session
-        .fetch(faviconUrl)
+        .fetch(faviconUrl, { signal: AbortSignal.timeout(FAVICON_TIMEOUT_MS) })
         .then(async (response) => {
           if (!response.ok) return
-          const buffer = await response.arrayBuffer()
+          const buffer = await readBodyCapped(response, FAVICON_MAX_BYTES)
+          if (!buffer) return
           const contentType = response.headers.get('content-type') ?? 'image/x-icon'
-          const base64 = Buffer.from(buffer).toString('base64')
+          const base64 = buffer.toString('base64')
           this.sendToRenderer(browserId, 'browser:faviconChanged', {
             browserId,
             favicon: `data:${contentType};base64,${base64}`,
@@ -375,12 +413,21 @@ export class BrowserManager {
    * Fill credential into form fields using an isolated JS world (ID 999).
    * Page scripts cannot intercept values set from an isolated world.
    */
-  fillCredential(browserId: string, username: string, password: string): void {
+  fillCredential(browserId: string, domain: string, username: string, password: string): void {
     const entry = this.entries.get(browserId)
     if (!entry) return
 
     const wc = this.guestContents.get(entry.webContentsId) ?? findWebContents(entry.webContentsId)
     if (!wc || wc.isDestroyed()) return
+    // The credential was looked up for `domain` before an OS-auth prompt that can take seconds;
+    // the page may have navigated meanwhile. Never fill into a different host.
+    let currentHost: string
+    try {
+      currentHost = new URL(wc.getURL()).host
+    } catch {
+      return
+    }
+    if (currentHost !== domain) return
 
     const code = `
       (function() {

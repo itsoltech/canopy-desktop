@@ -16,6 +16,52 @@ export interface WindowConfig {
   windowState?: WindowState
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isWindowBounds(value: unknown): value is WindowBounds {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'x' in value &&
+    isFiniteNumber(value.x) &&
+    'y' in value &&
+    isFiniteNumber(value.y) &&
+    'width' in value &&
+    isFiniteNumber(value.width) &&
+    'height' in value &&
+    isFiniteNumber(value.height)
+  )
+}
+
+function isWindowState(value: unknown): value is WindowState {
+  return value === 'normal' || value === 'maximized' || value === 'fullscreen'
+}
+
+/**
+ * Parse the persisted `openWindowConfigs` preference. It is renderer-writable and restored before
+ * any window exists, so a malformed entry is dropped instead of throwing and leaving the app
+ * running with no window.
+ */
+export function parseWindowConfigs(value: unknown): WindowConfig[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry): WindowConfig[] => {
+    if (typeof entry !== 'object' || entry === null || !('paths' in entry)) return []
+    const { paths } = entry
+    if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string')) return []
+    const config: WindowConfig = { paths }
+    if ('activeWorktreePath' in entry && typeof entry.activeWorktreePath === 'string') {
+      config.activeWorktreePath = entry.activeWorktreePath
+    }
+    if ('bounds' in entry && isWindowBounds(entry.bounds)) config.bounds = entry.bounds
+    if ('windowState' in entry && isWindowState(entry.windowState)) {
+      config.windowState = entry.windowState
+    }
+    return [config]
+  })
+}
+
 const MIN_WIDTH = 600
 const MIN_HEIGHT = 400
 const MIN_VISIBLE_PX = 100

@@ -4,6 +4,12 @@ import type { PtyManager } from '../pty/PtyManager'
 import type { WindowManager } from '../WindowManager'
 import type { AgentCommandResult } from './types'
 
+// C0 controls except TAB and LF, plus DEL. Context text quotes tracker tickets and repository
+// content; an embedded ESC could close the bracketed paste early (`ESC[201~`) and turn the rest
+// into typed keystrokes, including a CR that submits the agent prompt.
+// eslint-disable-next-line no-control-regex
+const PASTE_UNSAFE_CONTROL_CHARS = /[\x00-\x08\x0b-\x1f\x7f]/g
+
 interface AgentCommandServiceDeps {
   ptyManager: PtyManager
   agentSessionManager: AgentSessionManager
@@ -75,6 +81,6 @@ export class AgentCommandService {
 
   private contextText(payload: AgentContextPayload): string {
     if (typeof payload.text !== 'string') throw new Error('Invalid agent context payload')
-    return payload.text
+    return payload.text.replace(PASTE_UNSAFE_CONTROL_CHARS, '')
   }
 }

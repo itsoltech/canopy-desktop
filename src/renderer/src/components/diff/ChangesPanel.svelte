@@ -27,17 +27,25 @@
   let filterQuery = $state('')
   let statusFilter = $state<'all' | 'added' | 'modified' | 'deleted'>('all')
 
+  // This panel stays mounted across worktree switches; only the latest refresh may land, or a
+  // slower response for the previous worktree replaces the current worktree's changes.
+  let refreshSeq = 0
+
   async function refresh(): Promise<void> {
+    const seq = ++refreshSeq
     loading = true
     loadError = false
     try {
-      diff = await window.api.changesGetDiff({ worktreePath })
+      const result = await window.api.changesGetDiff({ worktreePath })
+      if (seq !== refreshSeq) return
+      diff = result
     } catch (e) {
+      if (seq !== refreshSeq) return
       diff = null
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (seq === refreshSeq) loading = false
     }
   }
 

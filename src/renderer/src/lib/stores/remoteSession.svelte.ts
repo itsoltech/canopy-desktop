@@ -84,8 +84,15 @@ function applyStatus(status: RemoteSessionStatus): void {
   // via returnToListening); leaving a dangling RTCPeerConnection alive
   // would leak resources and run stale ICE timers into the void. A fresh
   // pair attempt later will rebuild the controller via the
-  // offer-arrived-first branch in `onSignal` below.
-  if (status.kind === 'idle' || status.kind === 'error' || status.kind === 'listening') {
+  // offer-arrived-first branch in `onSignal` below. `waiting` means no device
+  // is accepted (the user rejected the pending peer, or it left before
+  // approval), so a connection that peer negotiated must not outlive it.
+  if (
+    status.kind === 'idle' ||
+    status.kind === 'error' ||
+    status.kind === 'listening' ||
+    status.kind === 'waiting'
+  ) {
     teardownHostController()
   }
 

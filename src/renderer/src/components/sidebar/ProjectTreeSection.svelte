@@ -122,7 +122,9 @@
     // (see WorktreeSection for the same fix).
     for (const p of projects) void p.worktrees.length
     for (const p of projects) {
-      checkMergedStatus(p, ac.signal)
+      // One project's failure (e.g. its folder was removed) must not surface as an unhandled
+      // rejection; that project just keeps its previous merged badges.
+      checkMergedStatus(p, ac.signal).catch(() => {})
     }
     return () => ac.abort()
   })
@@ -423,7 +425,9 @@
         role="menuitem"
         onclick={ctxCopyPath}>Copy Path</button
       >
-      {#if ctxMenu.wt.branch !== '(detached)'}
+      <!-- Non-git projects open this menu with an empty branch and no repoRoot, so the branch,
+           worktree, and CI actions would copy '' or target another project's repo. -->
+      {#if ctxMenu.project.isGitRepo && ctxMenu.wt.branch && ctxMenu.wt.branch !== '(detached)'}
         <button
           class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
           role="menuitem"

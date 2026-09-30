@@ -32,8 +32,18 @@
   }
 
   onMount(() => {
+    // Same focus hand-back as CommandPalette: restore the opener when Quick Open closes.
+    const previouslyFocused = document.activeElement
     inputEl?.focus()
     void forceReload(worktreePath)
+    return () => {
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus()
+      }
+      // fuzzysort keeps a module-level prepared entry for every path ever searched (all
+      // worktrees, including removed ones) until cleanup(); release it when the picker closes.
+      fuzzysort.cleanup()
+    }
   })
 
   const matchedResults: Result[] = $derived.by(() => {

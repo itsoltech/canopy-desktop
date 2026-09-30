@@ -85,6 +85,7 @@
     spellcheck="false"
   />
   <CustomSelect
+    ariaLabel="Category"
     value={draft.category}
     options={categoryOptions}
     maxWidth="100%"

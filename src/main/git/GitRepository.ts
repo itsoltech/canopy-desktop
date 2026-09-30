@@ -34,6 +34,13 @@ function gitCall<T>(
 // binary or build artifact slips into a working copy before .gitignore catches
 // it. Above this, return an empty hunk list rather than block on a huge read.
 const UNTRACKED_MAX_BYTES = 5 * 1024 * 1024
+// The same read runs for every untracked file on each refresh, so also bound the total: a
+// worktree full of build artifacts must not stall the main thread (and every PTY) for seconds.
+const UNTRACKED_TOTAL_MAX_BYTES = 20 * 1024 * 1024
+
+function untrackedFileWithoutHunks(filePath: string): DiffFile {
+  return { path: filePath, status: 'added' as const, hunks: [], additions: 0, deletions: 0 }
+}
 
 // Sync read instead of fs.promises.readFile: this function is called in a
 // hot loop (ChangesPanel/DiffPane refresh on every files:changed event,
@@ -41,24 +48,25 @@ const UNTRACKED_MAX_BYTES = 5 * 1024 * 1024
 // FileHandle code path was the trigger for the FileHandle::CloseReq::Resolve
 // crash in #150. Untracked files in a working copy are typically small and
 // few, so a synchronous read is cheap and removes the crash surface.
-function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<DiffFile, GitError> {
+function buildUntrackedDiffFile(
+  repoRoot: string,
+  filePath: string,
+  budget: { remainingBytes: number } = { remainingBytes: UNTRACKED_TOTAL_MAX_BYTES },
+): Result<DiffFile, GitError> {
   const absPath = join(repoRoot, filePath)
   let content: string
   try {
     const sz = statSync(absPath).size
-    if (sz > UNTRACKED_MAX_BYTES) {
-      return ok({
-        path: filePath,
-        status: 'added' as const,
-        hunks: [],
-        additions: 0,
-        deletions: 0,
-      })
+    if (sz > UNTRACKED_MAX_BYTES || sz > budget.remainingBytes) {
+      return ok(untrackedFileWithoutHunks(filePath))
     }
+    budget.remainingBytes -= sz
     content = readFileSync(absPath, 'utf-8')
   } catch (e) {
     return err(gitErr('readFile', e))
   }
+  // Binary content split into per-line "changes" is useless to render and heavy to send over IPC.
+  if (content.slice(0, 8192).includes('\0')) return ok(untrackedFileWithoutHunks(filePath))
 
   const lines = content.split('\n')
   if (lines[lines.length - 1] === '') lines.pop()
@@ -597,8 +605,9 @@ export class GitRepository {
       untrackedFiles.andThen((files) => {
         if (files.length === 0) return okAsync<ParsedDiff, GitError>(parsed)
 
+        const budget = { remainingBytes: UNTRACKED_TOTAL_MAX_BYTES }
         const untrackedDiffFiles = files
-          .map((file) => buildUntrackedDiffFile(repoRoot, file).unwrapOr(null))
+          .map((file) => buildUntrackedDiffFile(repoRoot, file, budget).unwrapOr(null))
           .filter((f): f is DiffFile => f !== null)
 
         return okAsync<ParsedDiff, GitError>({

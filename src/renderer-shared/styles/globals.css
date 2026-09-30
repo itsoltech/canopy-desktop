@@ -519,4 +519,10 @@
   .keystroke-overlay.inferno {
     animation: none;
   }
+
+  /* Tailwind spinners, for the ones without a per-element `motion-reduce:animate-none`. */
+  .animate-spin,
+  .animate-spin-slow {
+    animation: none;
+  }
 }

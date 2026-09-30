@@ -54,7 +54,14 @@ export class AgentHookRouter {
   private async ensureServer(): Promise<number> {
     if (this.serverReady) return this.serverReady
 
-    const server = http.createServer((req, res) => this.handleRequest(req, res))
+    const server = http.createServer((req, res) => {
+      // Any local process can reach this port; a rejected handler must still answer the socket
+      // instead of surfacing as an unhandled rejection (a crash report in packaged builds).
+      this.handleRequest(req, res).catch(() => {
+        if (!res.headersSent) res.writeHead(500)
+        res.end()
+      })
+    })
     this.server = server
 
     this.serverReady = new Promise<number>((resolve, reject) => {
@@ -99,7 +106,15 @@ export class AgentHookRouter {
       return
     }
 
-    const sessionId = decodeURIComponent(match[1])
+    let sessionId: string
+    try {
+      sessionId = decodeURIComponent(match[1])
+    } catch {
+      // Malformed percent-encoding (e.g. `%zz`) arrives before the auth check.
+      res.writeHead(400)
+      res.end()
+      return
+    }
     const endpoint = match[2]
     const session = this.sessions.get(sessionId)
 
@@ -170,7 +185,9 @@ export class AgentHookRouter {
 
   private readBody(req: http.IncomingMessage): Promise<string> {
     return new Promise((resolve) => {
-      let data = ''
+      // Decode once at the end: per-chunk string concatenation corrupts a multibyte character
+      // that straddles a chunk boundary.
+      const chunks: Buffer[] = []
       let bytes = 0
       // Cap the wait so a slow/idle client cannot pin an HTTP socket and
       // accumulate one half-open connection per stalled request.
@@ -189,9 +206,9 @@ export class AgentHookRouter {
           finish('')
           return
         }
-        data += chunk
+        chunks.push(chunk)
       })
-      req.on('end', () => finish(data))
+      req.on('end', () => finish(Buffer.concat(chunks).toString('utf-8')))
       req.on('error', () => finish(''))
     })
   }

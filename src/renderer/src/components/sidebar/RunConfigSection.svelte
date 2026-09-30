@@ -1,17 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { Play, Plus, Square, X } from '@lucide/svelte'
   import Tooltip from '../shared/Tooltip.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import {
-    discoverConfigs,
     getGroupedConfigs,
     getRunningProcesses,
     executeRunConfig,
     deleteRunConfig,
-    initBackgroundListener,
-    cleanupBackgroundListener,
   } from '../../lib/stores/runConfig.svelte'
   import { showRunConfigManager } from '../../lib/stores/dialogs.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
@@ -20,16 +16,8 @@
   let grouped = $derived(getGroupedConfigs())
   let running = $derived(getRunningProcesses())
 
-  let repoRoot = $derived(workspaceState.repoRoot)
-
-  $effect(() => {
-    if (repoRoot) discoverConfigs()
-  })
-
-  onMount(() => {
-    initBackgroundListener()
-    return () => cleanupBackgroundListener()
-  })
+  // Discovery and the exit/post_run listeners are owned by MainLayout, which stays mounted while
+  // this section (and the titlebar toolbar that shares the store) can be hidden.
 
   async function handlePlay(configDir: string, name: string): Promise<void> {
     const result = await executeRunConfig(configDir, name)

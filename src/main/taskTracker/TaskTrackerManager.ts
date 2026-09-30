@@ -37,6 +37,16 @@ import type {
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
 
 /**
+ * Pref key holding a legacy connection's token. `taskTracker.connections` is renderer-writable
+ * (db:prefs:set, settings import), so a stored `authPrefKey` must never choose which preference
+ * gets decrypted: pointing it at another secret would send that secret to the record's baseUrl.
+ * addConnection has always stored the token under this id-derived key.
+ */
+export function legacyConnectionTokenKey(connectionId: string): string {
+  return `taskTracker.token.${connectionId}`
+}
+
+/**
  * Returns true when `url` targets the same origin as `baseUrl`. Uses `URL.origin`
  * rather than a string-prefix check so that a baseUrl of `https://jira.example.com`
  * does not also match `https://jira.example.com.evil.com/...`.
@@ -672,7 +682,7 @@ export class TaskTrackerManager {
   }
 
   private getToken(connection: TaskTrackerConnection): Result<string, TaskTrackerError> {
-    const token = this.preferencesStore.get(connection.authPrefKey)
+    const token = this.preferencesStore.get(legacyConnectionTokenKey(connection.id))
     if (!token) return err({ _tag: 'AuthTokenMissing', connectionName: connection.name })
     return ok(token)
   }
@@ -721,7 +731,7 @@ export class TaskTrackerManager {
     token: string,
   ): TaskTrackerConnection {
     const id = crypto.randomUUID()
-    const authPrefKey = `taskTracker.token.${id}`
+    const authPrefKey = legacyConnectionTokenKey(id)
 
     const newConn: TaskTrackerConnection = {
       ...connection,
@@ -748,10 +758,20 @@ export class TaskTrackerManager {
     if (idx < 0) return null
 
     const conn = connections[idx]
-    connections[idx] = { ...conn, ...updates }
+    // The payload comes from the renderer: copy only editable fields so it cannot rewrite `id`,
+    // `provider`, or `authPrefKey` on the stored record.
+    const { name, baseUrl, projectKey, boardId, username } = updates
+    connections[idx] = {
+      ...conn,
+      ...(name !== undefined ? { name } : {}),
+      ...(baseUrl !== undefined ? { baseUrl } : {}),
+      ...(projectKey !== undefined ? { projectKey } : {}),
+      ...(boardId !== undefined ? { boardId } : {}),
+      ...(username !== undefined ? { username } : {}),
+    }
 
     if (newToken) {
-      this.preferencesStore.set(conn.authPrefKey, newToken)
+      this.preferencesStore.set(legacyConnectionTokenKey(conn.id), newToken)
     }
 
     this.saveConnections(connections)
@@ -762,7 +782,7 @@ export class TaskTrackerManager {
     const connections = this.getConnections()
     const conn = connections.find((c) => c.id === connectionId)
     if (conn) {
-      this.preferencesStore.delete(conn.authPrefKey)
+      this.preferencesStore.delete(legacyConnectionTokenKey(conn.id))
     }
     this.saveConnections(connections.filter((c) => c.id !== connectionId))
   }

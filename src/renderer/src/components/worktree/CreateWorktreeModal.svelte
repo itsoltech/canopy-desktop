@@ -166,7 +166,13 @@
     refreshing = false
   }
 
+  // The create flows keep running after their awaits even if the dialog was dismissed mid-way
+  // (Escape or backdrop during "creating"). Once destroyed, nothing may register the setup
+  // listener, start setup, or navigate on the dialog's behalf.
+  let destroyed = false
+
   onDestroy(() => {
+    destroyed = true
     if (finishTimer) clearTimeout(finishTimer)
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
@@ -508,6 +514,7 @@
   }
 
   async function runSetup(): Promise<void> {
+    if (destroyed) return
     cleanupProgressListener = window.api.onWorktreeSetupProgress((data) => {
       setupLabel = data.label
       setupCurrent = data.actionIndex + 1
@@ -532,7 +539,7 @@
   }
 
   function finishCreation(): void {
-    if (step === 'done') return
+    if (destroyed || step === 'done') return
     step = 'done'
     if (finishTimer) clearTimeout(finishTimer)
     finishTimer = setTimeout(

@@ -1,5 +1,6 @@
 import { onMount, tick } from 'svelte'
 import { SvelteMap } from 'svelte/reactivity'
+import { match } from 'ts-pattern'
 import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
 import { addToast } from '../../lib/stores/toast.svelte'
 import { bumpCiCredentialTick, loadCiRepoConfig } from '../../lib/stores/ci.svelte'
@@ -157,22 +158,27 @@ export function createGitHubActionsCiConfiguratorState({
     let loadStoredConfiguration = false
     try {
       const lookup = await window.api.githubGetRepoIdentifier(repoRoot)
-      if (lookup.status === 'missing') {
-        repository = ''
-        repositoryResolutionIssue = 'No github.com origin remote was found for this workspace.'
-      } else if (lookup.status === 'error') {
-        repository = ''
-        repositoryResolutionIssue = `Could not resolve this workspace’s origin remote: ${lookup.message}`
-      } else if (lookup.identifier.host.toLowerCase() !== 'github.com') {
-        repository = ''
-        repositoryResolutionIssue = `GitHub Actions currently supports github.com origins only; this workspace uses ${lookup.identifier.host}.`
-      } else {
-        const { identifier } = lookup
-        // Setup and credentials follow the local origin. adapterForConfig later
-        // requires the saved value to equal origin, so a rewrite is warned below.
-        repository = `${identifier.owner}/${identifier.repo}`.toLowerCase()
-        repositoryResolutionIssue = ''
-      }
+      match(lookup)
+        .with({ status: 'missing' }, () => {
+          repository = ''
+          repositoryResolutionIssue = 'No github.com origin remote was found for this workspace.'
+        })
+        .with({ status: 'error' }, ({ message }) => {
+          repository = ''
+          repositoryResolutionIssue = `Could not resolve this workspace’s origin remote: ${message}`
+        })
+        .with({ status: 'found' }, ({ identifier }) => {
+          if (identifier.host.toLowerCase() !== 'github.com') {
+            repository = ''
+            repositoryResolutionIssue = `GitHub Actions currently supports github.com origins only; this workspace uses ${identifier.host}.`
+            return
+          }
+          // Setup and credentials follow the local origin. adapterForConfig later
+          // requires the saved value to equal origin, so a rewrite is warned below.
+          repository = `${identifier.owner}/${identifier.repo}`.toLowerCase()
+          repositoryResolutionIssue = ''
+        })
+        .exhaustive()
       try {
         const storedCredential = credentialUrl
           ? await window.api.keychainGetCredentials('github-actions', credentialUrl)

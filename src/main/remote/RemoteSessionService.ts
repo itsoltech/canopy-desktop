@@ -690,6 +690,11 @@ export class RemoteSessionService {
   }
 
   private handlePeerSignal(msg: unknown): void {
+    // A peer that only holds a valid token (`peerArrived`) must not start the SDP/ICE exchange
+    // that opens the RPC data channels — the `accepted` frame is advisory for the peer, so the
+    // host enforces it here. Status becomes `paired` before `accepted` is sent (manual accept and
+    // trusted auto-accept alike), so legitimate peers never signal earlier than this.
+    if (this.status.kind !== 'paired') return
     // Peer signals are forwarded *only* to the host renderer. Broadcasting to
     // every window would give other tabs a chance to race-reply to SDP/ICE,
     // which would confuse the peer. The host window is the one that called

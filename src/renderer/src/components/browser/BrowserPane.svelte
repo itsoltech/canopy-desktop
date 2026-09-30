@@ -451,6 +451,8 @@
             btn.onmouseleave = () => { btn.style.background = 'none' }
             btn.onclick = (ev) => {
               ev.preventDefault(); ev.stopPropagation()
+              // Page scripts can call .click(); only a real user gesture may request a fill.
+              if (!ev.isTrusted) return
               console.log('__CANOPY_FILL__:' + c.id)
               picker.remove()
             }
@@ -487,8 +489,9 @@
     const domain = new URL(url).host
     const cred = await window.api.getCredentialDecrypted(credId, domain, 'autofill')
     if (!cred) return
-    // Fill via main process isolated world — page scripts cannot intercept
-    await window.api.fillBrowserCredential(browserId, cred.username, cred.password)
+    // Fill via main process isolated world — page scripts cannot intercept. Main re-checks that
+    // the guest is still on `domain`, since the OS-auth prompt above can outlast a navigation.
+    await window.api.fillBrowserCredential(browserId, domain, cred.username, cred.password)
   }
 
   /** Inject early capture script — stores credentials on form submit/button click */

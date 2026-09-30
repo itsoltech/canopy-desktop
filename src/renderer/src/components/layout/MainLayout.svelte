@@ -100,13 +100,26 @@
   import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
   import { initSkillStore, destroySkillStore } from '../../lib/stores/skills.svelte'
   import { initProfileStore, destroyProfileStore } from '../../lib/stores/profiles.svelte'
+  import {
+    discoverConfigs,
+    initBackgroundListener,
+    cleanupBackgroundListener,
+  } from '../../lib/stores/runConfig.svelte'
   import { isMacPlatform } from '../../lib/platform'
+
+  // Run configs back both the sidebar RUN section and the titlebar toolbar, and either may be
+  // hidden (the section is off by default). Discovery and the exit/post_run listeners live here,
+  // or the toolbar shows no configs and exited runs stay "running".
+  $effect(() => {
+    if (workspaceState.repoRoot) void discoverConfigs()
+  })
 
   onMount(() => {
     let disposed = false
     initToolStore()
     initSkillStore()
     initProfileStore()
+    initBackgroundListener()
     const stopWorkspaceStateSubscription = initWorkspaceStateSubscription()
     const stopRemoteListeners = initRemoteSessionListeners()
     window.api
@@ -127,6 +140,7 @@
       stopRemoteListeners()
       destroyToolStore()
       destroyProfileStore()
+      cleanupBackgroundListener()
     }
   })
 
@@ -357,14 +371,14 @@
     return window.api.onShowOnboarding(async (data) => {
       const { initOnboarding, onboardingState } = await import('../../lib/stores/onboarding.svelte')
       await initOnboarding(data.mode, data.fromVersion)
-      if (onboardingState.mode === 'none' && data.fromVersion) {
-        // No onboarding steps to show, fall back to changelog
-        showChangelog(data.fromVersion)
-      } else if (onboardingState.mode === 'first-launch') {
-        showOnboardingWizard()
-      } else if (onboardingState.mode === 'upgrade') {
-        showFeatureOnboarding(data.fromVersion ?? '')
-      }
+      match(onboardingState.mode)
+        .with('none', () => {
+          // No onboarding steps to show, fall back to changelog
+          if (data.fromVersion) showChangelog(data.fromVersion)
+        })
+        .with('first-launch', () => showOnboardingWizard())
+        .with('upgrade', () => showFeatureOnboarding(data.fromVersion ?? ''))
+        .exhaustive()
     })
   })
 
@@ -559,13 +573,14 @@
       )
     }
 
-    // Cmd+Shift+[ and Cmd+Shift+]
-    if (e.key === '[' && e.shiftKey && path) {
+    // Cmd+Shift+[ and Cmd+Shift+]. With Shift held most layouts report the shifted character
+    // ('{' / '}'), so accept both forms or the shortcut never matches.
+    if ((e.key === '[' || e.key === '{') && e.shiftKey && path) {
       e.preventDefault()
       prevTab(path).catch((err) => console.error('prevTab failed:', err))
     }
 
-    if (e.key === ']' && e.shiftKey && path) {
+    if ((e.key === ']' || e.key === '}') && e.shiftKey && path) {
       e.preventDefault()
       nextTab(path).catch((err) => console.error('nextTab failed:', err))
     }

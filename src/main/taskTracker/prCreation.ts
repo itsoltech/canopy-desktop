@@ -8,6 +8,7 @@ import { GitRepository } from '../git/GitRepository'
 import { fromExternalCall } from '../errors'
 import { gitHubCliFailureReason, isMissingGitHubCli } from '../github/redactFailureReason'
 import { isSafeGitRefName } from '../../renderer-shared/gitRef'
+import { getLoginEnv } from '../shell/loginEnv'
 
 const execFileAsync = promisify(execFile)
 export const PR_COMMAND_TIMEOUT_MS = 30_000
@@ -36,6 +37,8 @@ const runGhCommand: PRCommandRunner = (repoRoot, args, extraOptions = {}) => {
   return execFileAsync('gh', args, {
     ...commandOptions(repoRoot),
     ...extraOptions,
+    // Login-shell env: a Finder-launched app's PATH lacks Homebrew, where gh usually lives.
+    env: getLoginEnv() ?? process.env,
   }) as Promise<{ stdout: string; stderr: string }>
 }
 

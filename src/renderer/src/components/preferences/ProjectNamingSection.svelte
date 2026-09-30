@@ -128,6 +128,16 @@
   async function removeOverride(type: Group, scope: string): Promise<void> {
     const cfg = getRepoConfig()
     if (!cfg || scope === 'default') return
+    // The delete is saved straight to the git-tracked .canopy/config.json, and editing Cancel
+    // cannot undo it — confirm like resetToBuiltIn does.
+    const ok = await confirm({
+      title: 'Remove project override',
+      message: `Remove the ${type === 'branch' ? 'branch' : 'PR'} template override for ${scope}?`,
+      details: 'Removes the override from .canopy/config.json — the base template will apply.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     const updated = $state.snapshot(cfg) as typeof cfg
     const entry = updated!.projectOverrides[scope]
     if (entry) {

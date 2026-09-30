@@ -1,5 +1,13 @@
 import { match, P } from 'ts-pattern'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, rmdirSync } from 'fs'
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  rmdirSync,
+  lstatSync,
+} from 'fs'
 import { join } from 'path'
 import type {
   AgentAdapter,
@@ -53,6 +61,14 @@ interface WorktreeRef {
 }
 const worktreeRefs = new Map<string, WorktreeRef>()
 
+function isSymlink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink()
+  } catch {
+    return false // missing is fine: setup creates it
+  }
+}
+
 export const codexAdapter: AgentAdapter = {
   agentType: 'codex',
   toolId: 'codex',
@@ -69,6 +85,13 @@ export const codexAdapter: AgentAdapter = {
   ): SettingsSetup {
     const codexDir = join(worktreePath, '.codex')
     const hooksPath = join(codexDir, 'hooks.json')
+
+    // A cloned repo can commit `.codex` or `.codex/hooks.json` as a symlink (e.g. to ~/.zshrc);
+    // the writes below would clobber the target until cleanup restores it (never, after a crash).
+    // Run Codex without Canopy hooks instead.
+    if (isSymlink(codexDir) || isSymlink(hooksPath)) {
+      return { args: [], cleanup: () => {} }
+    }
 
     let ref = worktreeRefs.get(worktreePath)
     if (!ref) {
@@ -87,16 +110,19 @@ export const codexAdapter: AgentAdapter = {
       // Ensure .codex/ is gitignored so hooks.json (containing local paths) isn't committed
       let addedGitignore = false
       const gitignorePath = join(worktreePath, '.gitignore')
-      try {
-        const content = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
-        const lines = content.split('\n')
-        if (!lines.some((l) => l.trim() === CODEX_GITIGNORE_ENTRY || l.trim() === '.codex')) {
-          const suffix = content.length > 0 && !content.endsWith('\n') ? '\n' : ''
-          writeFileSync(gitignorePath, content + suffix + CODEX_GITIGNORE_ENTRY + '\n', 'utf-8')
-          addedGitignore = true
+      // Same symlink concern as hooks.json: never append through a repo-supplied link.
+      if (!isSymlink(gitignorePath)) {
+        try {
+          const content = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
+          const lines = content.split('\n')
+          if (!lines.some((l) => l.trim() === CODEX_GITIGNORE_ENTRY || l.trim() === '.codex')) {
+            const suffix = content.length > 0 && !content.endsWith('\n') ? '\n' : ''
+            writeFileSync(gitignorePath, content + suffix + CODEX_GITIGNORE_ENTRY + '\n', 'utf-8')
+            addedGitignore = true
+          }
+        } catch {
+          /* gitignore may be unwritable */
         }
-      } catch {
-        /* gitignore may be unwritable */
       }
 
       ref = { count: 0, original, createdDir, addedGitignore }

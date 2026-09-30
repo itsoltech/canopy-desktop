@@ -1,5 +1,6 @@
 import { BrowserWindow, type WebContents } from 'electron'
 import { randomUUID } from 'crypto'
+import { match } from 'ts-pattern'
 import { resolveShell, type PtyManager } from '../pty/PtyManager'
 import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import type { PreferencesStore } from '../db/PreferencesStore'
@@ -75,6 +76,14 @@ function validateTmuxName(name: string): void {
   }
 }
 
+// Agent CLIs receive the resume id as an argv value (`--resume <id>`). Saved layouts reach here
+// from the renderer, so anything that could parse as a flag (a leading `-`) must be rejected.
+function validateResumeSessionId(id: string): void {
+  if (!/^[A-Za-z0-9][\w.:-]{0,127}$/.test(id)) {
+    throw new Error('Invalid agent resume session id')
+  }
+}
+
 export class ToolSessionService {
   constructor(private deps: ToolSessionServiceDeps) {}
 
@@ -86,6 +95,7 @@ export class ToolSessionService {
 
     const tool = this.deps.toolRegistry.get(payload.toolId)
     if (!tool) throw new Error(`Unknown tool: ${payload.toolId}`)
+    if (payload.resumeSessionId) validateResumeSessionId(payload.resumeSessionId)
 
     let command = this.deps.toolRegistry.resolveCommand(tool)
     const isShell = tool.id === 'shell' || tool.command === 'shell'
@@ -147,34 +157,43 @@ export class ToolSessionService {
     }
 
     let tmuxSessionName: string | undefined
-    const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
-    if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
-      tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
-      const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
-      await this.deps.tmuxManager.newSession({
-        name: tmuxSessionName,
+    let session: ReturnType<PtyManager['spawn']>
+    try {
+      const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
+      if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
+        tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
+        const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
+        await this.deps.tmuxManager.newSession({
+          name: tmuxSessionName,
+          cwd: payload.worktreePath,
+          shell: command,
+          shellArgs: args,
+          cols: payload.cols,
+          rows: payload.rows,
+          mouse: tmuxMouse,
+          env,
+        })
+        const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
+        command = attach.command
+        args = attach.args
+      }
+
+      session = this.deps.ptyManager.spawn({
+        command,
+        args,
         cwd: payload.worktreePath,
-        shell: command,
-        shellArgs: args,
         cols: payload.cols,
         rows: payload.rows,
-        mouse: tmuxMouse,
         env,
+        tmuxSessionName,
       })
-      const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
-      command = attach.command
-      args = attach.args
+    } catch (error) {
+      // createSession above registered a hook route (with its auth token) and wrote settings
+      // files; a failed spawn (missing cwd or binary) must release them instead of leaking one
+      // set per retry.
+      if (agentTempId) this.deps.agentSessionManager.destroySession(agentTempId)
+      throw error
     }
-
-    const session = this.deps.ptyManager.spawn({
-      command,
-      args,
-      cwd: payload.worktreePath,
-      cols: payload.cols,
-      rows: payload.rows,
-      env,
-      tmuxSessionName,
-    })
 
     if (isAgent && agentTempId) {
       this.deps.agentSessionManager.rekey(agentTempId, session.id)
@@ -992,10 +1011,12 @@ function navigatePaneSnapshot(
     if (rect.paneId === fromPaneId) return false
     const centerX = rect.x + rect.w / 2
     const centerY = rect.y + rect.h / 2
-    if (direction === 'right') return centerX > sourceCenterX + eps
-    if (direction === 'left') return centerX < sourceCenterX - eps
-    if (direction === 'down') return centerY > sourceCenterY + eps
-    return centerY < sourceCenterY - eps
+    return match(direction)
+      .with('right', () => centerX > sourceCenterX + eps)
+      .with('left', () => centerX < sourceCenterX - eps)
+      .with('down', () => centerY > sourceCenterY + eps)
+      .with('up', () => centerY < sourceCenterY - eps)
+      .exhaustive()
   })
 
   if (candidates.length === 0) return null

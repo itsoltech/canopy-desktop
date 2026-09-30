@@ -457,6 +457,7 @@
               >
                 <span class={labelCls}>Project</span>
                 <CustomSelect
+                  ariaLabel="Project"
                   value={projectKey}
                   options={projects.map((p) => ({
                     value: p.key,
@@ -474,6 +475,7 @@
               >
                 <span class={labelCls}>Type</span>
                 <CustomSelect
+                  ariaLabel="Type"
                   value={typeName}
                   options={buildTypeOptions(types, icons)}
                   onchange={(v) => (typeName = v)}
@@ -562,6 +564,7 @@
           <div class="flex flex-col gap-1">
             <span class={labelCls}>Assignee</span>
             <CustomSelect
+              ariaLabel="Assignee"
               value={assigneeId}
               options={buildAssigneeOptions(users, icons)}
               onchange={(v) => (assigneeId = v)}
@@ -579,6 +582,7 @@
                   >Board</span
                 >
                 <CustomSelect
+                  ariaLabel="Board"
                   value={boardId}
                   options={[
                     { value: '', label: 'No board' },
@@ -599,6 +603,7 @@
                 <span class={labelCls}>{fields.sprintLabel}</span>
                 {#if !boardId && fields.board}
                   <CustomSelect
+                    ariaLabel={fields.sprintLabel}
                     value=""
                     options={[{ value: '', label: 'Select a board first' }]}
                     maxWidth="none"
@@ -606,6 +611,7 @@
                   />
                 {:else if loadingSprints}
                   <CustomSelect
+                    ariaLabel={fields.sprintLabel}
                     value=""
                     options={[{ value: '', label: 'Loading…' }]}
                     maxWidth="none"
@@ -613,6 +619,7 @@
                   />
                 {:else if sprints.length === 0}
                   <CustomSelect
+                    ariaLabel={fields.sprintLabel}
                     value=""
                     options={[{ value: '', label: 'No ' + fields.sprintLabel.toLowerCase() + 's' }]}
                     maxWidth="none"
@@ -620,6 +627,7 @@
                   />
                 {:else}
                   <CustomSelect
+                    ariaLabel={fields.sprintLabel}
                     value={sprintId}
                     options={buildSprintOptions(
                       sprints,

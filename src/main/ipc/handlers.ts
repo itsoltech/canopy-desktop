@@ -40,6 +40,9 @@ import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/work
 import { comparableWorkspacePath } from '../db/workspacePaths'
 
 const execFileAsync = promisify(execFile)
+// gh is usually installed via Homebrew/Scoop; launched from Finder, process.env.PATH lacks those
+// dirs, so run it with the login-shell environment like PTYs and tools.
+const ghEnv = (): NodeJS.ProcessEnv => getLoginEnv() ?? process.env
 const PR_DETAILS_TIMEOUT_MS = 30_000
 const WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir'
 const TRUSTED_WORKTREE_BASE_DIR_PREF_KEY = 'worktrees.baseDir.trustedResolved'
@@ -1464,6 +1467,12 @@ export function registerIpcHandlers(
     return result
   }
 
+  // Rapid worktree switching issues overlapping files:watch calls, and each awaits its native
+  // subscription before registering. Only the latest request per window may register; a slower,
+  // superseded start is stopped instead of replacing the newer watcher with a stale root.
+  const latestFileWatchRequest = new Map<number, number>()
+  let fileWatchRequestSeq = 0
+
   ipcMain.handle('files:watch', async (event, payload: { repoRoot: string }) => {
     if (typeof payload?.repoRoot !== 'string' || !path.isAbsolute(payload.repoRoot)) {
       throw new Error('Invalid repoRoot: must be an absolute path string')
@@ -1472,6 +1481,8 @@ export function registerIpcHandlers(
     const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
 
     const senderId = event.sender.id
+    const requestId = ++fileWatchRequestSeq
+    latestFileWatchRequest.set(senderId, requestId)
 
     // Only one watcher per window — dispose any previous one first
     windowManager.disposeFileWatcher(senderId)
@@ -1483,6 +1494,11 @@ export function registerIpcHandlers(
     })
 
     const result = await watcher.start()
+    if (latestFileWatchRequest.get(senderId) !== requestId) {
+      void watcher.stop()
+      return
+    }
+    latestFileWatchRequest.delete(senderId)
     if (result.isErr()) {
       throw new Error(fileWatcherErrorMessage(result.error))
     }
@@ -1490,6 +1506,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('files:unwatch', (event) => {
+    latestFileWatchRequest.delete(event.sender.id)
     windowManager.disposeFileWatcher(event.sender.id)
   })
 
@@ -2139,7 +2156,12 @@ export function registerIpcHandlers(
     'git:statusPorcelain',
     async (event, payload: { repoRoot: string; worktreePath?: string }) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      return GitRepository.getStatusPorcelain(resolvedRepo, payload.worktreePath).unwrapOr('')
+      // worktreePath becomes git's cwd (and its local config is honored), so scope it too.
+      const resolvedWorktree =
+        payload.worktreePath === undefined
+          ? undefined
+          : await validateWorktreeScopedPathAccess(event.sender.id, payload.worktreePath)
+      return GitRepository.getStatusPorcelain(resolvedRepo, resolvedWorktree).unwrapOr('')
     },
   )
 
@@ -2263,7 +2285,7 @@ export function registerIpcHandlers(
       if (payload.draft) args.push('--draft')
 
       try {
-        const { stdout } = await execFileAsync('gh', args, { cwd: resolvedRepo })
+        const { stdout } = await execFileAsync('gh', args, { cwd: resolvedRepo, env: ghEnv() })
         return { url: stdout.trim() }
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -2290,7 +2312,7 @@ export function registerIpcHandlers(
       const { stdout } = await execFileAsync(
         'gh',
         ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-        { cwd: resolvedRepo },
+        { cwd: resolvedRepo, env: ghEnv() },
       )
       return stdout.trim() || 'main'
     } catch (err) {
@@ -2487,8 +2509,17 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'browser:fillCredential',
-    (_event, payload: { browserId: string; username: string; password: string }) => {
-      browserManager.fillCredential(payload.browserId, payload.username, payload.password)
+    (
+      _event,
+      payload: { browserId: string; domain: string; username: string; password: string },
+    ) => {
+      if (typeof payload?.domain !== 'string' || !payload.domain) return
+      browserManager.fillCredential(
+        payload.browserId,
+        payload.domain,
+        payload.username,
+        payload.password,
+      )
     },
   )
 
@@ -2727,7 +2758,11 @@ export function registerIpcHandlers(
     // the last await between validatePathAccess and the fd trio. Operating on
     // the realpath'd target prevents a symlink swap between validation and
     // open from redirecting the read outside the workspace.
-    const size = fs.statSync(resolved).size
+    const stat = fs.statSync(resolved)
+    // openSync on a FIFO (or socket/device) inside the workspace would block the whole main
+    // process until a writer appears; only regular files are readable here.
+    if (!stat.isFile()) throw new Error('Not a regular file')
+    const size = stat.size
     const readSize = Math.min(size, maxBytes)
 
     // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle
@@ -4474,6 +4509,7 @@ export function registerIpcHandlers(
         try {
           const { stdout } = await execFileAsync('gh', args, {
             cwd: resolvedRepo,
+            env: ghEnv(),
             maxBuffer: 1024 * 1024,
           })
           return stdout.trim()
@@ -4563,7 +4599,7 @@ export function registerIpcHandlers(
         const { stdout } = await execFileAsync(
           'gh',
           ['pr', 'view', payload.branch, '--json', 'url', '--jq', '.url'],
-          { cwd: resolvedRepo },
+          { cwd: resolvedRepo, env: ghEnv() },
         )
         return stdout.trim() || null
       } catch {
@@ -4627,6 +4663,7 @@ export function registerIpcHandlers(
           ],
           {
             cwd: resolvedRepo,
+            env: ghEnv(),
             maxBuffer: 4 * 1024 * 1024,
             timeout: PR_DETAILS_TIMEOUT_MS,
           },
@@ -4965,6 +5002,9 @@ export function registerIpcHandlers(
       const sender = event.sender
       const controller = new AbortController()
       setupAbortControllers.set(sender.id, controller)
+      // Setup scripts must not keep running for a window that no longer exists.
+      const abortOnDestroyed = (): void => controller.abort()
+      sender.once('destroyed', abortOnDestroyed)
 
       try {
         return await runWorktreeSetup(
@@ -4982,7 +5022,12 @@ export function registerIpcHandlers(
           controller.signal,
         )
       } finally {
-        setupAbortControllers.delete(sender.id)
+        sender.removeListener('destroyed', abortOnDestroyed)
+        // A run that finishes after a newer one started (close the dialog, reopen, run again)
+        // must not drop the newer run's controller, or its abort would stop working.
+        if (setupAbortControllers.get(sender.id) === controller) {
+          setupAbortControllers.delete(sender.id)
+        }
       }
     },
   )
@@ -5391,8 +5436,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('skills:deleteFile', async (event, payload: { filePath: string }) => {
     const filePath = path.normalize(path.resolve(payload.filePath))
+    const skillFileExtensions = ['.md', '.mdc', '.yaml', '.yml']
     const ext = path.extname(filePath).toLowerCase()
-    if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
+    if (!skillFileExtensions.includes(ext)) {
       unwrapOrThrow(
         err({
           _tag: 'InvalidSource',
@@ -5441,6 +5487,20 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
       return { success: false }
+    }
+    // The extension check above ran on the requested path, but the unlink below removes the
+    // resolved file. A symlinked skill entry (e.g. committed in a cloned repo) pointing at
+    // ~/.bashrc or an SSH key would otherwise pass and delete its target. Only the extension is
+    // re-checked: agent dirs symlinked into a dotfiles repo legitimately resolve elsewhere.
+    if (!skillFileExtensions.includes(path.extname(resolvedTarget).toLowerCase())) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Skill file resolves to a file that is not a skill file',
+        } as SkillError),
+        skillErrorMessage,
+      )
     }
     const homeReal = await fs.promises.realpath(os.homedir()).catch(() => os.homedir())
     const withinHome = resolvedTarget === homeReal || resolvedTarget.startsWith(homeReal + path.sep)

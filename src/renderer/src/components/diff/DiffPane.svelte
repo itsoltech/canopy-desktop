@@ -44,18 +44,25 @@
   let commentFilePath = $state('')
   let commentLineNum = $state(0)
 
+  // git/file events and worktree switches start overlapping refreshes; only the latest may land,
+  // or a slower response (e.g. for the previous worktree) overwrites the current diff.
+  let refreshSeq = 0
+
   async function refresh(): Promise<void> {
+    const seq = ++refreshSeq
     loading = true
     loadError = false
     try {
       const result = await window.api.changesGetDiff({ worktreePath })
+      if (seq !== refreshSeq) return
       files = result.files
     } catch (e) {
+      if (seq !== refreshSeq) return
       files = []
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (seq === refreshSeq) loading = false
     }
   }
 
@@ -279,7 +286,9 @@
   function scrollToFocusedFile(): void {
     if (focusedFileIndex >= 0 && focusedFileIndex < files.length) {
       const file = files[focusedFileIndex]
-      const el = document.getElementById(`diff-file-${CSS.escape(file.path)}`)
+      // getElementById takes the raw id; CSS.escape is for selectors and broke every path with
+      // `/` or `.` in it.
+      const el = document.getElementById(`diff-file-${file.path}`)
       if (el && bodyEl) {
         suppressObserver = true
         workspaceState.diffVisibleFile = file.path
@@ -438,6 +447,7 @@
           class="bg-bg border border-border rounded-md text-text text-sm px-2 py-0.5 w-45 outline-none font-mono focus:border-accent"
           type="text"
           placeholder="Search in diff..."
+          aria-label="Search in diff"
           bind:value={searchQuery}
           onkeydown={(e) => {
             if (e.key === 'Escape') toggleSearch()
@@ -630,6 +640,7 @@
                           <textarea
                             class="w-full min-h-16 px-4 py-2.5 border-0 bg-bg-elevated text-text font-inherit text-sm leading-normal resize-none outline-none box-border placeholder:text-text-muted"
                             placeholder="Comment for agent — {file.path}:{getLineNum(change)}"
+                            aria-label="Comment for agent on {file.path} line {getLineNum(change)}"
                             bind:value={commentText}
                             onkeydown={(e) => {
                               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendComment()

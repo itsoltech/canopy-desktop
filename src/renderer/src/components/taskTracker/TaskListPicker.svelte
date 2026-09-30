@@ -297,6 +297,7 @@
         >Project</span
       >
       <CustomSelect
+        ariaLabel="Project"
         value={selectedProjectKey}
         options={projects.map((p) => ({
           value: p.key,

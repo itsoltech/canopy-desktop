@@ -39,6 +39,9 @@
 
   let containerEl: HTMLDivElement
   let termRef: Terminal | null = null
+  // Reactive mirror of `termRef !== null`. Effects that must re-run once the terminal exists read
+  // this: a bare `termRef` check returns before any dependency is tracked, so they never re-run.
+  let termReady = $state(false)
   let fitAddonRef: FitAddon | null = null
   let cleanupPtyDataSubscription: (() => void) | null = null
   let webglAddonRef: WebglAddon | null = null
@@ -149,7 +152,7 @@
 
   // React to preference changes for theme/font
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const themeName = prefs.theme || 'Default'
     const theme = getTheme(themeName)
     termRef.options.theme = theme
@@ -158,15 +161,19 @@
     }
   })
 
+  // A font change alters the cell size without resizing the container, so the ResizeObserver
+  // never fires: refit explicitly so cols/rows (and the PTY size) follow the new metrics.
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
     termRef.options.fontSize = size
+    requestAnimationFrame(() => fitAddonRef?.fit())
   })
 
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    requestAnimationFrame(() => fitAddonRef?.fit())
   })
 
   function shellEscape(path: string): string {
@@ -562,6 +569,7 @@
       // Defer initial fit to after browser layout is complete
       requestAnimationFrame(() => fitAddon.fit())
       termRef = term
+      termReady = true
 
       dataDisposable = term.onData((data) => {
         writeInput(data)
@@ -723,6 +731,7 @@
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
       termRef = null
+      termReady = false
       fitAddonRef = null
       if (resizeDebounceTimer !== null) clearTimeout(resizeDebounceTimer)
       if (resizeObserver) resizeObserver.disconnect()

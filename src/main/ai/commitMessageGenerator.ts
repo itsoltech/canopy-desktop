@@ -16,7 +16,8 @@ async function resolveClaudeExecutable(): Promise<string | undefined> {
   const env = getLoginEnv() ?? (process.env as Record<string, string>)
   return new Promise((resolve) => {
     execFile(cmd, ['claude'], { env }, (error, stdout) => {
-      const resolved = error ? '' : stdout.trim()
+      // `where` (Windows) lists every match, CRLF-separated; use the first one.
+      const resolved = error ? '' : stdout.trim().split(/\r?\n/)[0]
       // Only cache a successful lookup so `claude` installed later in the
       // session is still picked up instead of being pinned to "not found".
       if (resolved) cachedClaudePath = resolved

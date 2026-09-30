@@ -58,11 +58,19 @@
   let tmuxAvailable = $state(false)
 
   onMount(() => {
+    // Hand focus back to the opener (usually a terminal) on close; otherwise it falls to <body>
+    // and keystrokes go nowhere. Actions that focus a new target do so on a later frame and win.
+    const previouslyFocused = document.activeElement
     inputEl?.focus()
     window.api
       .tmuxIsAvailable()
       .then((v) => (tmuxAvailable = v))
       .catch(() => {})
+    return () => {
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus()
+      }
+    }
   })
 
   const isMac = navigator.userAgent.includes('Mac')

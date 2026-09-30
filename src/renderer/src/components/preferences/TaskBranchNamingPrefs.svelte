@@ -161,6 +161,7 @@
               type="text"
               value={typeMapping[t] ?? ''}
               placeholder={defaultBranchTypeFor(t)}
+              aria-label="Branch type for {t}"
               spellcheck="false"
               onchange={(e) => saveTypeMapping(t, (e.target as HTMLInputElement).value)}
             />
