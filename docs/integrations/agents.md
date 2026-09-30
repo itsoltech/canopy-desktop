@@ -2336,7 +2336,7 @@ MDM or server-managed) and lists the API providers a machine may use. The 2.1.28
 names: `anthropic`, `customEndpoint`, `bedrock`, `vertex`, `foundry`, `anthropicAws`, `mantle` and
 `gateway`. A session on a provider the list leaves out "is refused at startup, at login, and when it
 next contacts the API, with a message naming what selected the provider and the entry that would
-allow it." Canopy's Claude profile reaches four of the names:
+allow it." Canopy's Claude profile reaches five of the names:
 
 - **Provider "Default (Anthropic)" with no Base URL** is `anthropic`.
 - **"AWS Bedrock", "Google Vertex AI" and "Microsoft Foundry"** set `CLAUDE_CODE_USE_BEDROCK`,
@@ -2348,11 +2348,11 @@ allow it." Canopy's Claude profile reaches four of the names:
 
 So under a list, a profile pointed at one of the proxies the Base URL field's help text names
 (Ollama, GLM, an Anthropic-compatible proxy) starts only if an administrator has pinned that exact
-URL. Otherwise the pane shows the CLI's refusal instead of a session. `generateCommitMessage` forwards
-the same provider and Base URL variables, so the commit-message turn is refused the same way and
-fails soft to no suggestion. The profile has no field for the other three names. Canopy writes no
-managed settings, so all of this matters only where an organization sets the list, and the policy is
-theirs to set. Nothing changes here. It is the first thing to check when a profile that works on one
+URL. Otherwise the CLI refuses to start, with that message. `generateCommitMessage` forwards the
+same provider and Base URL variables, so the commit-message turn is refused the same way and fails
+soft to no suggestion. The profile has no field for the other three names, so a profile reaches them
+only through its custom env vars. Canopy writes no managed settings, so all of this matters only
+where an organization sets the list, and the policy is theirs to set. Nothing changes here. It is the first thing to check when a profile that works on one
 machine will not start on a managed one. The release also stops an unreadable managed settings file
 from blocking startup: when the OS denies the read, the CLI "now warns and starts without that
 file's policies", while other read errors and unparseable files still stop every session.
@@ -2375,19 +2375,24 @@ with no timeout, no `maxTurns` and no abort signal. The commit dialog, opened fr
 the command palette, keeps its AI Generate button disabled at "Generating..." until that promise
 settles. The user can still type a message meanwhile, but a result that arrives late replaces it,
 because `InputDialog` assigns any non-empty result to the field. 2.1.274's `strictMcpConfig: true`
-removed the MCP startup wait. A non-streaming fallback that keeps timing out and is re-sent is another way the same wait gets
-long. The cure that works on every CLI is the SDK's own `abortController` option, which the vendored
-`0.3.207` types already document, rather than this variable. How long a Generate may take is a
-product choice, so it is left for a maintainer.
+removed the MCP startup wait. A non-streaming fallback that keeps timing out and is re-sent is
+another way the same wait gets long. The cure that works on every CLI is the SDK's own
+`abortController` option, which the vendored `0.3.207` types already document, rather than this
+variable. How long a Generate may take is a product choice, so it is left for a maintainer.
 
-**`claude --desktop` is a flag Canopy never emits, and one it could use.** It opens the Claude Desktop
-app on the current directory, or on a session with `--continue` or `--resume <id>`. The build refuses
-it alongside `--bg`, `--background` or `--routine`, and alongside `--worktree` or `--tmux`.
-`buildCliArgs` and `buildResumeArgs` emit none of these. An "open in Claude Desktop" action would
-need the session ID, which every hook payload carries, and the Desktop app installed. It would also
-need a version check, because a CLI older than 2.1.285 fails at startup on the unknown flag, and the
-status line's `version` field is where Canopy already reads that. It is a candidate adoption, not a
-compatibility change.
+**`claude --desktop` is a flag Canopy never emits, and one it could use only with its own argument
+list.** It opens the Claude Desktop app on the current directory, or on a session with `--continue`
+or `--resume <id>`. The build accepts it alongside only those two and the debug and verbose flags.
+Any other supplied option is refused ("it can't be combined with …"), and so are non-interactive use
+(`--print`, `--sdk-url`, `--init-only` or redirected output), a prompt or piped input, a `cc://` URL
+and `claude ssh`. It "works on macOS and Windows (x64)" and "requires signing in with a Claude
+account". Every flag `buildCliArgs` emits, and the `--settings` file `setupSettings` adds, would be
+refused alongside it. So an "open in Claude Desktop" action would run
+`claude --desktop --resume <id>` and nothing else. The session ID is in every hook payload. The action
+would also need a version check, because a CLI older than 2.1.285 fails at startup on the unknown
+flag, and the status line's `version` field is where Canopy already reads that. Whether a profile
+that authenticates with an API key or a cloud provider passes the sign-in check was not traced. It is
+a candidate adoption, not a compatibility change.
 
 **Nothing else visible reaches Canopy.** `claude plugin configure`, `claude plugin install --config`
 with `<server>.<key>=<value>`, the `GIT_SSH` and `core.sshCommand` fix for plugin installs, and the
@@ -2424,10 +2429,11 @@ continuing the 2.1.284 note's 23 for a fourteenth link. Tokens +12,566 (+51.0%) 
 Carrying the rounding through both ends leaves tools at +8,240…+8,379 and system at +4,217…+4,297,
 so both signs are safe.
 
-The system step has happened before, three times. 2.1.269 took the system half from ~4.2k to ~8.4k
-(+4.3k), 2.1.274 from ~4.20k to ~8.44k (+4,250), and 2.1.280 from ~4.19k to ~8.45k (+4,260). Each
-started at the same ~4.2k floor and added the same amount to within rounding. That reads as one block
-of about 4.25k tokens entering the extraction again, not as new instructions. `meta/prompt-stats.md`
+The same step from the ~4.2k floor has happened three times before. 2.1.269 took the system half
+from ~4.2k to ~8.4k (+4.3k), 2.1.274 from ~4.20k to ~8.44k (+4,250), and 2.1.280 from ~4.19k to
+~8.45k (+4,260), each adding the same amount to within rounding. 2.1.281 and 2.1.282 grew the system
+half further, but from above the floor. That reads as one block of about 4.25k tokens entering the
+extraction again, not as new instructions. `meta/prompt-stats.md`
 would confirm it by name. The tools half grew by more than 8k while the bundle shrank by **598.0 kB
 (−1.1%)** from ~54.4 MB (band 52.0–57.0 MB, consistent with the ~56.5 MB after 2.1.284). About 50 kB
 of prompt text arrived at ~4 bytes/token while ~600 kB of bundle left. That puts the release below
