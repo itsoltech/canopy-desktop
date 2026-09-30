@@ -15,13 +15,13 @@ is `next`'s and is missing every note below. The checkout is worth nothing on it
 the part that pays.
 
 **3. `gh api` against `marckrenn/claude-code-changelog` is denied. Do not probe it.** Every run
-that probed it has been denied (twenty-one in a row as of v2.1.283; the v2.1.284 run did not probe),
+that probed it has been denied (twenty-one in a row as of v2.1.283; the v2.1.284 and v2.1.285 runs did not probe),
 against every shape of path, flag and quoting. The rule in
 `.github/workflows/claude-code-compat.yml` ends mid-token and matches nothing; the mechanism is
 settled and is written up in step 2. If an attempt comes back as "contains multiple operations"
 rather than "requires approval", that is the same denial (the message names the component that
 failed) and **not** a reason to retry it pipe-free — the pipe is never the cause. `WebFetch` and
-`WebSearch` are denied too, twenty-two consecutive as of v2.1.284, so probe `WebFetch` **once**, if
+`WebSearch` are denied too, twenty-three consecutive as of v2.1.285, so probe `WebFetch` **once**, if
 at all, and commit to the result. **`curl` is denied as
 well**, and it is worth naming separately because it is the obvious second move once `gh api` fails and
 nothing above rules it out: `curl` is not in `--allowedTools` under any prefix, so reaching the same
@@ -35,6 +35,17 @@ and on the v2.1.280 → v2.1.281 run that directory held `2.1.281`, `TO_VERSION`
 the working directory is denied; the `Glob` tool is not (pattern `*`, that directory as the path).
 "The CLI binary running this job" under step 2 says how to read it and what it can and cannot settle.
 An older build ships inside the vendored SDK in `node_modules`; the same section says what it is for.
+
+**5. Check whether an earlier run already started this increment, and push the description early.**
+The job has `timeout-minutes: 120`, and a run that stops inside the analysis step skips the tracker
+update, so the next run gets the same `FROM_VERSION`/`TO_VERSION`. The v2.1.285 retry found
+`ed6bcc0`, the `0.3.285` bump, on the branch tip, pushed at 07:14 UTC during the 06:17 run, with no
+documentation commit and a description still ending at v2.1.284, which fits a run that stopped
+inside the analysis step. Compare `git log -3 --oneline` after
+the checkout with the PR title's upper bound. If the branch is ahead, verify the commit that is there
+(`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
+the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
+then refine. `date -u` runs, so the budget is measurable.
 
 This block is at the top because the previous six revisions of it were not. Runs read top-to-bottom,
 reach `FROM_VERSION`/`TO_VERSION` in the header, and take the compare call as the obvious opening
@@ -490,15 +501,15 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > fix and the merge as what retires it.
 
 > **`WebFetch` availability varies between runs — probe once and then commit to what you observe.**
-> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, twenty-three denied
-> so far, the last twenty-two consecutive (as of v2.1.284). The v2.1.241 → v2.1.245 run used it successfully. The
+> It is not listed in `--allowedTools`, and it has gone both ways — one run allowed, twenty-four denied
+> so far, the last twenty-three consecutive (as of v2.1.285). The v2.1.241 → v2.1.245 run used it successfully. The
 > v2.1.245 → v2.1.246 run had `WebFetch` **and** `WebSearch` denied ("Claude requested permissions to
 > use WebFetch, but you haven't granted it yet") on every attempt, across two different URLs, and the
 > v2.1.252 → v2.1.257, v2.1.257 → v2.1.258, v2.1.258 → v2.1.259, v2.1.259 → v2.1.260,
 > v2.1.260 → v2.1.261 and v2.1.261 → v2.1.263 runs all hit the same denial on the first call, as did
 > v2.1.263 → v2.1.266, v2.1.266 → v2.1.267, v2.1.267 → v2.1.268, v2.1.268 → v2.1.269 and
 > v2.1.269 → v2.1.270 and v2.1.270 → v2.1.272 — twelve consecutive then, and every run since has
-> matched it, twenty-two consecutive as of v2.1.284. That is enough
+> matched it, twenty-three consecutive as of v2.1.285. That is enough
 > that the one success is the outlier; budget for the denial and treat a working fetch as a windfall. The v2.1.260 → v2.1.261 run confirmed
 > `WebSearch` is denied alongside it a second time, so the pair travel together and one probe answers
 > for both. Do not assume either answer from this file. Issue one fetch, record which way it went in
@@ -715,6 +726,25 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > both: the comment says what a field means, and the code says when it is sent. **The model catalog is
 > greppable the same way.** `sonnet:\{default:` returns each alias's default and its per-provider
 > overrides, which is how the 2.1.284 run showed the Sonnet 5.5 default is first-party only.
+>
+> **v2.1.284 → v2.1.285 also spent zero `gh api` probes**, the third run to do so. Its first batch
+> read the PR description, whose "Still blocked" list names the dead rule, and the checkout and this
+> file came next. `WebFetch` was denied on its first and only call, the twenty-third consecutive run
+> on record; the 06:17 run for the same release left no record of its probes. Three things are worth
+> keeping:
+>
+> - **A managed setting's `.describe()` text is its documentation, and the values it validates
+>   against sit in a literal array.** `allowedProviders` was read with
+>   `The API providers Claude Code may use on this machine.{0,280}`, walked forward four times. Its
+>   eight provider names came from grepping two adjacent names as an array literal
+>   (`"customEndpoint","bedrock"` finds it); the minified variable holding it changes between builds.
+> - **`npm view … dist-tags` can show `next` ahead of `latest`.** At 18:40 UTC `next` was `0.3.286`
+>   (CLI 2.1.286, published 17:17 UTC), while the changelog archive's latest release, and so
+>   `TO_VERSION`, was v2.1.285. The pin follows `latest` and `TO_VERSION`. Record `next` and leave it.
+> - **Before calling a system-half change new, grep `docs/integrations/agents.md` for the same
+>   delta.** 2.1.285's +4,257 matched the +4,250 and +4,260 steps of 2.1.274 and 2.1.280, and the
+>   +4.3k of 2.1.269, each from the same ~4.2k floor. One `Grep` turned a new-looking finding into a
+>   recurrence.
 
 > **When the diff is unreachable, spend the turns on Canopy's side of the boundary instead.** Several
 > runs in a row have treated a denied diff as the limit of what the run could establish, and reported
