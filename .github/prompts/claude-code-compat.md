@@ -75,13 +75,18 @@ twelve.
   announced Claude Mods and URL prompts from MCP servers, but every literal behind them
   (`dev-mods`, `allowManagedModsOnly`, `cc-plugin-mods-guide`, `elicitation_url_dialog`,
   `bareElicitationCapability`) is already in the 2.1.286 build. A diff of the text around each
-  occurrence flagged them as new only because neighbouring strings moved.
+  occurrence flagged them as new only because neighbouring strings moved. What was new was small:
+  `claude-mods` and `claude-code-tools` as reserved plugin names, and one auto-mode message.
 - **Keep the counting rules fixed so increments compare.** The v2.1.287 run counted the status line
   as the object literal enclosing `model:{id:` (54 keys), options as the first arguments of
   `.option("` and of `new <Option>("-` calls, and environment names as `CLAUDE_*` and
-  `ANTHROPIC_*` tokens after `process.env.`, `env.` or `["`, or as a whole quoted string (520 →
-  528). The v2.1.286 run's 84 status keys and 118 options used other rules, so compare a count
-  only with one taken the same way.
+  `ANTHROPIC_*` tokens after `process.env.`, `env.` or `["`, as a whole quoted string, or as a
+  typed-accessor key `NAME:()=>` (806 → 813). The v2.1.286 run's 84 status keys and 118 options
+  used other rules, so compare a count only with one taken the same way.
+- **Confirm each "new" name with a plain `grep -ac` in both builds.** A name can move between those
+  forms. Without the accessor form, the v2.1.287 run's first list called two 2.1.286 names new and
+  missed `CLAUDE_CODE_GZIP_REQUEST_BODY_BLOCKS`; its review caught the miss, and a plain count in
+  each build settled all three.
 
 If `npm ci` and `npm run …` run too, use them. `npm ci` after a hand-edited bump is CI's own check
 of the lockfile, and it puts the branch's SDK types in `node_modules` for the typecheck. From 2.1.286
