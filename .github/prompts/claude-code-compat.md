@@ -14,20 +14,25 @@ The workflow checks out `ref: next` and assembles the prompt with `cat`, so the 
 is `next`'s and is missing every note below. The checkout is worth nothing on its own; the re-read is
 the part that pays.
 
-**3. `gh api` against `marckrenn/claude-code-changelog` is denied. Do not probe it.** Every run
-that probed it has been denied (twenty-one in a row as of v2.1.283; the v2.1.284 and v2.1.285 runs did not probe),
-against every shape of path, flag and quoting. The rule in
-`.github/workflows/claude-code-compat.yml` ends mid-token and matches nothing; the mechanism is
-settled and is written up in step 2. If an attempt comes back as "contains multiple operations"
-rather than "requires approval", that is the same denial (the message names the component that
-failed) and **not** a reason to retry it pipe-free — the pipe is never the cause. `WebFetch` and
-`WebSearch` are denied too, twenty-three consecutive as of v2.1.285, so probe `WebFetch` **once**, if
-at all, and commit to the result. **`curl` is denied as
-well**, and it is worth naming separately because it is the obvious second move once `gh api` fails and
-nothing above rules it out: `curl` is not in `--allowedTools` under any prefix, so reaching the same
-`api.github.com` path by a different client changes nothing. The v2.1.273 → v2.1.274 run spent a turn
-on it. Your diff sources are the release notes pasted below,
-`node_modules/@anthropic-ai/claude-agent-sdk`, and Canopy's own files.
+**3. Probe `gh api` once, with the compare call, and commit to the result.** Under the workflow's
+`--allowedTools` it was denied on twenty-one consecutive runs that probed it (as of v2.1.283; the
+v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 run's session ran in auto mode instead, and
+`gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
+`npm ci`, `npm run lint`, `npm run typecheck`, `npm test` and `python3` all ran. Record which way
+the one probe went in the PR body. **If it runs, use point 6.**
+
+**If it is denied, everything below about the denial applies.** It was denied against every shape
+of path, flag and quoting. The rule in `.github/workflows/claude-code-compat.yml` ends mid-token and
+matches nothing; the mechanism is settled and is written up in step 2. If an attempt comes back as
+"contains multiple operations" rather than "requires approval", that is the same denial (the message
+names the component that failed) and **not** a reason to retry it pipe-free — the pipe is never the
+cause. `WebFetch` and `WebSearch` were denied too, twenty-three consecutive as of v2.1.285 (the
+v2.1.286 run did not need them), so probe `WebFetch` **once**, if at all, and commit to the result.
+**`curl` is denied as well**, and it is worth naming separately because it is the obvious second
+move once `gh api` fails and nothing above rules it out: `curl` is not in `--allowedTools` under any
+prefix, so reaching the same `api.github.com` path by a different client changes nothing. The
+v2.1.273 → v2.1.274 run spent a turn on it. Your diff sources are then the release notes pasted
+below, `node_modules/@anthropic-ai/claude-agent-sdk`, and Canopy's own files.
 
 **4. The `TO_VERSION` CLI is probably already on disk — look for it before reasoning from release
 notes alone.** The action installs the CLI it runs under `~/.local/share/claude/versions/<version>`,
@@ -46,6 +51,30 @@ the checkout with the PR title's upper bound. If the branch is ahead, verify the
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
+
+**6. When `gh api` runs, four sources make the increment's coverage complete.** The v2.1.286 run
+used all four and read every changelog entry, where earlier runs read twelve.
+
+- `gh api repos/marckrenn/claude-code-changelog/compare/{FROM_VERSION}...{TO_VERSION}` with
+  `--jq '.files[] | "\(.filename) (\(.status))"'` lists the archive's changes. Select `.patch` for
+  the `meta/` and `system-prompts/` files you need.
+- `gh api repos/anthropics/claude-code/contents/CHANGELOG.md --jq '.content' | base64 -d` is the
+  official changelog, with every entry the pasted notes hide behind "… +N more".
+- `contents/meta/prompt-stats.md?ref={TAG}` names every prompt entry. **Read it before attributing
+  any metadata step.** The ~4.25k system step at 2.1.269, 2.1.274, 2.1.280 and 2.1.285 was the
+  archive's duplicate `User Memory Project One 2` each time. Every `File Pattern Matching N` and
+  `Read Local File Content N` entry is the extractor nesting its own earlier output around an
+  unchanged base description.
+- `npm pack @anthropic-ai/claude-agent-sdk-linux-x64@0.3.{FROM}`, run in `/tmp`, gives the previous
+  build as `package/claude`, to diff against the `TO_VERSION` build from point 4. Compare hook
+  schemas by their ordered field keys and string literals, not by raw text: minified identifiers
+  are renamed between builds, so a text diff flags every event.
+
+If `npm ci` and `npm run …` run too, use them. `npm ci` after a hand-edited bump is CI's own check
+of the lockfile, and it puts the branch's SDK types in `node_modules` for the typecheck. From 2.1.286
+the CLI tells every run in this repository to run the `verify` skill before any commit that is not
+docs-only or tests-only, and that skill is `npm run lint` and `npm run typecheck`. If they are
+denied, say so in the PR body and leave CI as the first check.
 
 This block is at the top because the previous six revisions of it were not. Runs read top-to-bottom,
 reach `FROM_VERSION`/`TO_VERSION` in the header, and take the compare call as the obvious opening
@@ -118,6 +147,10 @@ Read the release notes provided below. For each version, identify:
 
 For deeper analysis, fetch diffs from the changelog repo yourself using the FROM_VERSION and TO_VERSION values from the prompt header:
 
+> **The v2.1.286 run's session was not held to this allowlist, and `gh api` against the changelog
+> repo ran.** Probe once, as point 3 of the top block says; this note applies when the probe is
+> denied.
+>
 > **Known blocker — these commands are currently denied.** The workflow allowlists
 > `Bash(gh api repos/marckrenn/claude-code-changelog/:*)`. That prefix ends mid-token, so no real
 > command matches it and every `gh api` call against the changelog repo is denied — `compare/`,
@@ -937,6 +970,10 @@ Be **proactive** — not just compatibility fixes but also:
 
 For each change, make a **targeted, minimal edit**. Do not reformat or restructure code beyond what the change requires.
 
+> **The v2.1.286 run could check its changes**: `npm ci`, `npm run lint`, `npm run typecheck` and
+> `npm test` all ran in its session (point 6 of the top block). The note below applies when they
+> are denied.
+>
 > **This workflow can change `src/**` but cannot check it.** `--allowedTools` grants `Write` and
 > `Edit` with no path restriction, and several runs in this range have used them on application code —
 > the hook-script stdin fix and the preferences-hint correction, among others. It grants no `npm run`
