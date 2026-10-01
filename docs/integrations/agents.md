@@ -2597,13 +2597,15 @@ Foundry, and a blank Model field selects Opus on two of them.** In the 2.1.286 b
 got a model's native 1M window only through a per-provider `native_1m_3p` entry in the model
 catalog, and only Sonnet 5 and Sonnet 5.5 had one. The 2.1.287 build drops the provider check: a
 catalog model marked `native_1m` gets 1M on every provider unless `CLAUDE_CODE_DISABLE_1M_CONTEXT`
-is set. Opus 4.7, 4.8, 5 and 5.5 and Fable 5 and 5.1 carry the mark. Opus 4.6, Sonnet 4.5 and
-Haiku 4.5 do not. The profile's provider select sets `CLAUDE_CODE_USE_BEDROCK`, `_VERTEX` or
-`_FOUNDRY`, and the build's alias table decides the rest:
+is set. The changelog names the Claude apps gateway as well, for which the profile has no provider
+option. Besides Sonnet 5 and 5.5, which had 1M on these providers already, Opus 4.7, 4.8, 5 and 5.5
+and Fable 5 and 5.1 carry the mark. Opus 4.6, Sonnet 4.5 and Haiku 4.5 do not. The profile's
+provider select sets `CLAUDE_CODE_USE_BEDROCK`, `_VERTEX` or `_FOUNDRY`, and the build's alias
+table decides the rest:
 
 - **Bedrock or Vertex, with a blank Model field or `opus`,** now runs Opus 5.5 at 1M. The build
   makes Opus the default model on those two providers, unless only `ANTHROPIC_DEFAULT_SONNET_MODEL`
-  is pinned, and resolves `opus` to Opus 5.5 there.
+  is pinned and no managed model allowlist is enforced, and resolves `opus` to Opus 5.5 there.
 - **Any of the three with `fable`** runs Fable 5.1 at 1M.
 - **Foundry with a blank field or `opus`, and `sonnet` on any of the three,** stay at 200K.
   Foundry's default is Sonnet, its `opus` is Opus 4.6, and `sonnet` is Sonnet 4.5 on all three.
@@ -2618,12 +2620,12 @@ passes both. The commit-message turn pins `haiku`, which stays at 200K.
 
 **The dangerous-`rm` fix closes a gap that panes in Bypass permissions or Auto mode were in.** The
 build marks a dangerous removal, such as `rm` on `/`, on the home directory or on a possibly-empty
-variable path, as `bypassImmune` and `autoModeDeny`. It still prompts under `bypassPermissions`,
-and auto mode denies it. Before 2.1.287, a command that also redirected output to a `~` or wildcard
-path lost that safeguard. The profile's permission-mode select offers "Bypass permissions" and
-"Auto", so a pane in either mode was exposed. The fix reaches panes only through the user's binary.
-The Agent Inspector shows the version a running pane reports, so that is where a user can check for
-2.1.287.
+variable path, as `bypassImmune` and `autoModeDeny`. It prompts even under `bypassPermissions` and
+in auto mode, and since 2.1.281 it denies the command if nobody answers within two minutes. Before
+2.1.287, a command that also redirected output to a `~` or wildcard path lost that safeguard. The
+profile's permission-mode select offers "Bypass permissions" and "Auto", so a pane in either mode
+was exposed. The fix reaches panes only through the user's binary. The Agent Inspector shows the
+version a running pane reports, so that is where a user can check for 2.1.287.
 
 **Waiting permission prompts now show oldest first, while Canopy's status names the newest.** When
 several prompts wait at once, as with parallel subagents, each fires `PermissionRequest`. The
@@ -2638,13 +2640,14 @@ resolves would fix this, and that is a design change left for a maintainer.
 module. The machinery the 2.1.287 entry announces is already in the 2.1.286 build: the per-session
 `dev-mods` folder that hot-reloads, the built-in `cc-plugin-mods-guide` plugin, the
 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` switch and the managed `allowModsToOverrideDenyRules` and
-`allowManagedModsOnly` settings. Canopy installs no plugins. The hooks and status line in its
-`--settings` file reach the CLI as before, as the contract diff below shows. A mod the user installs
-can rewrite a tool call, as a `PreToolUse` hook can. The URL prompts from MCP servers follow the
-same pattern: `elicitation_url_dialog`, `bareElicitationCapability` and the `elicitation_complete`
-system message are all in the 2.1.286 build. Canopy writes no MCP configuration, and the
-commit-message turn runs with `strictMcpConfig`, so a server that stops connecting is fixed in the
-user's own MCP config.
+`allowManagedModsOnly` settings. What is new in 2.1.287 is small: `claude-mods` and
+`claude-code-tools` join the reserved plugin names, and an auto-mode message now tells the model
+that "a hook (a PreToolUse hook, or a mod's)" rewrote a call. Canopy installs no plugins. The hooks
+and status line in its `--settings` file reach the CLI as before, as the contract diff below shows.
+The URL prompts from MCP servers follow the same pattern: `elicitation_url_dialog`,
+`bareElicitationCapability` and the `elicitation_complete` system message are all in the 2.1.286
+build. Canopy writes no MCP configuration, and the commit-message turn runs with `strictMcpConfig`,
+so a server that stops connecting is fixed in the user's own MCP config.
 
 **Four more entries name a population Canopy is in.** Each reaches panes through the user's binary.
 
@@ -2675,12 +2678,12 @@ identifiers normalized:
   `claude plugin marketplace` subcommands, and `--replace` on `claude plugin install`.
   `--client-data-url` moved from a listed `.option()` to a hidden one, which is why the changelog
   archive's CLI surface lists it as removed. Canopy emits none of these.
-- Eight environment variable names appear for the first time, and none disappeared:
+- Seven environment variable names appear for the first time, and none disappeared:
   `CLAUDE_CODE_CCR_EARLY_SKILLS_SYNC`, `CLAUDE_CODE_CCR_FOLD_FIRST_TURN_RESCAN`,
-  `CLAUDE_CODE_CCR_SKIP_FRESH_MIGRATIONS`, `CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF`,
-  `CLAUDE_CODE_GROWTHBOOK_KICK_FROM_INIT`, `CLAUDE_CODE_MCP_SERVE_TOOL_OUTPUT`,
-  `CLAUDE_CODE_POLL_EVENT_DECLARATIONS` and `CLAUDE_CODE_TRANSCRIPT_LOCAL_GC`. The changelog
-  documents none of them, and Canopy sets none.
+  `CLAUDE_CODE_CCR_SKIP_FRESH_MIGRATIONS`, `CLAUDE_CODE_GROWTHBOOK_KICK_FROM_INIT`,
+  `CLAUDE_CODE_GZIP_REQUEST_BODY_BLOCKS`, `CLAUDE_CODE_MCP_SERVE_TOOL_OUTPUT` and
+  `CLAUDE_CODE_POLL_EVENT_DECLARATIONS`. Each is absent from the 2.1.286 build by a plain count. The
+  changelog documents none of them, and Canopy sets none.
 
 **Nothing else visible reaches Canopy.** Canopy sets no `OTEL_*` variable, so `prompt_text` on the
 `user_prompt` event does not apply. It sets neither `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` nor
@@ -2688,8 +2691,12 @@ identifiers normalized:
 commit-message turn reads only the SDK's `result` message, so the heartbeat, partial-message,
 priority and fork-skill streaming fixes do not reach it. Canopy's terminals install no mouse
 handler, so the change to paste on button release applies only through xterm.js's mouse reporting
-in fullscreen panes. The `[Code Review]` entries are for Anthropic's managed Code Review, not this
-repository's `code-review.yml` workflow. The rest are for `claude agents`, screen reader mode,
+in fullscreen panes. Canopy's hook never returns an allow decision, and no workflow here allows the
+whole Bash tool, so the change that makes allow rules and allowing hooks prompt for shell writes to
+files the file tools refuse does not reach either. The `[Code Review]` entries are for Anthropic's
+managed Code Review, not this repository's `code-review.yml` workflow, and the self-hosted runner's
+built-in `gh api` is for Anthropic-managed git sessions, not the compat workflow's `gh api` rule.
+The rest are for `claude agents`, screen reader mode,
 `/ultrareview`, Remote Control, cloud sessions, VS Code and Claude Tag. The compat workflow is the
 one place in the repository the Bash permission prompt's new wording matters: a command the parser
 cannot check is now refused as "Part of this command (a variable) cannot be checked in advance"
