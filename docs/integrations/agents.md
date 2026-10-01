@@ -2592,6 +2592,131 @@ and the changelog archive's compare diff for the release were both reachable, an
 was on the runner to diff against, so this increment's coverage is complete. On this branch,
 `npm ci` now installs `0.3.286`, which vendors CLI 2.1.286.
 
+**2.1.287 gives Opus 4.7 and later, and Fable, a 1M context window by default on Bedrock, Vertex and
+Foundry, and a blank Model field selects Opus on two of them.** In the 2.1.286 build those providers
+got a model's native 1M window only through a per-provider `native_1m_3p` entry in the model
+catalog, and only Sonnet 5 and Sonnet 5.5 had one. The 2.1.287 build drops the provider check: a
+catalog model marked `native_1m` gets 1M on every provider unless `CLAUDE_CODE_DISABLE_1M_CONTEXT`
+is set. Opus 4.7, 4.8, 5 and 5.5 and Fable 5 and 5.1 carry the mark. Opus 4.6, Sonnet 4.5 and
+Haiku 4.5 do not. The profile's provider select sets `CLAUDE_CODE_USE_BEDROCK`, `_VERTEX` or
+`_FOUNDRY`, and the build's alias table decides the rest:
+
+- **Bedrock or Vertex, with a blank Model field or `opus`,** now runs Opus 5.5 at 1M. The build
+  makes Opus the default model on those two providers, unless only `ANTHROPIC_DEFAULT_SONNET_MODEL`
+  is pinned, and resolves `opus` to Opus 5.5 there.
+- **Any of the three with `fable`** runs Fable 5.1 at 1M.
+- **Foundry with a blank field or `opus`, and `sonnet` on any of the three,** stay at 200K.
+  Foundry's default is Sonnet, its `opus` is Opus 4.6, and `sonnet` is Sonnet 4.5 on all three.
+
+Canopy shows the window the status line reports. `normalizeStatus` reads `context_window_size` and
+`used_percentage`, the 2.1.287 builder still sends both, and the Agent Inspector already prints a
+size of one million or more as "1M". So nothing changes here, though the same usage now reads as a
+smaller percentage. A profile keeps the 200K window with `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` in its
+env vars. It can instead keep 1M and cap where compaction starts with
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, which the build checks before any default. `BLOCKED_ENV_VARS`
+passes both. The commit-message turn pins `haiku`, which stays at 200K.
+
+**The dangerous-`rm` fix closes a gap that panes in Bypass permissions or Auto mode were in.** The
+build marks a dangerous removal, such as `rm` on `/`, on the home directory or on a possibly-empty
+variable path, as `bypassImmune` and `autoModeDeny`. It still prompts under `bypassPermissions`,
+and auto mode denies it. Before 2.1.287, a command that also redirected output to a `~` or wildcard
+path lost that safeguard. The profile's permission-mode select offers "Bypass permissions" and
+"Auto", so a pane in either mode was exposed. The fix reaches panes only through the user's binary.
+The Agent Inspector shows the version a running pane reports, so that is where a user can check for
+2.1.287.
+
+**Waiting permission prompts now show oldest first, while Canopy's status names the newest.** When
+several prompts wait at once, as with parallel subagents, each fires `PermissionRequest`. The
+renderer keeps only the latest event's tool name for the pane's `waitingPermission` status, and the
+notch does the same. Until 2.1.286 the newest prompt also covered the others in the pane, so the two
+agreed. From 2.1.287 the pane shows the oldest first, except that a prompt with a countdown still
+opens on top. So the Agent Inspector and the notch can name a different tool from the one on
+screen. Each prompt still raises its own OS notification. Tracking each pending request until it
+resolves would fix this, and that is a design change left for a maintainer.
+
+**Claude Mods leave the settings Canopy injects alone.** A mod is a plugin with a function-hooks
+module. The machinery the 2.1.287 entry announces is already in the 2.1.286 build: the per-session
+`dev-mods` folder that hot-reloads, the built-in `cc-plugin-mods-guide` plugin, the
+`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` switch and the managed `allowModsToOverrideDenyRules` and
+`allowManagedModsOnly` settings. Canopy installs no plugins. The hooks and status line in its
+`--settings` file reach the CLI as before, as the contract diff below shows. A mod the user installs
+can rewrite a tool call, as a `PreToolUse` hook can. The URL prompts from MCP servers follow the
+same pattern: `elicitation_url_dialog`, `bareElicitationCapability` and the `elicitation_complete`
+system message are all in the 2.1.286 build. Canopy writes no MCP configuration, and the
+commit-message turn runs with `strictMcpConfig`, so a server that stops connecting is fixed in the
+user's own MCP config.
+
+**Four more entries name a population Canopy is in.** Each reaches panes through the user's binary.
+
+- **Resume and compaction.** A folder's `CLAUDE.md` was attached a second time after a resume or a
+  compaction. Canopy resumes with `--resume <agentSessionId>`, and its panes compact.
+- **Hook counts.** The transcript's "N hooks ran" summary counted Claude Code's internal callbacks,
+  so each configured hook showed as two. Canopy configures one command hook for each of 18 events.
+  The fix is cosmetic.
+- **Bedrock Guardrails.** A block that arrived mid-response, after the reply began with thinking,
+  ended the turn with an API error. That reaches Canopy as `StopFailure`, which the pane shows as
+  its error state. The turn now ends with the guardrail's message instead.
+- **Effort.** An automatic model switch after a flagged message now keeps the current effort level
+  instead of the new model's default, so a profile's Effort survives it.
+
+**Canopy's contract against 2.1.287, diffed against 2.1.286.** The 2.1.287 build was on the runner
+at `~/.local/share/claude/versions/2.1.287`, and
+`npm pack @anthropic-ai/claude-agent-sdk-linux-x64@0.3.286` supplied the 2.1.286 one. With minified
+identifiers normalized:
+
+- The hook-event array names the same 33 events in the same order, so Canopy's 18 are all present.
+- The input schemas of all 33 events are identical, compared by their ordered field keys and string
+  literals.
+- The status line is built in one 54-key object literal, identical in both builds. It still sends
+  `model.id` and `display_name`, `version`, the four `cost` fields `normalizeStatus` reads and
+  `rate_limits`. Its `context_window` comes from a helper that still returns
+  `context_window_size` and `used_percentage`.
+- The option tables differ only in plugin commands and one hidden flag. `--json` is new on the
+  `claude plugin marketplace` subcommands, and `--replace` on `claude plugin install`.
+  `--client-data-url` moved from a listed `.option()` to a hidden one, which is why the changelog
+  archive's CLI surface lists it as removed. Canopy emits none of these.
+- Eight environment variable names appear for the first time, and none disappeared:
+  `CLAUDE_CODE_CCR_EARLY_SKILLS_SYNC`, `CLAUDE_CODE_CCR_FOLD_FIRST_TURN_RESCAN`,
+  `CLAUDE_CODE_CCR_SKIP_FRESH_MIGRATIONS`, `CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF`,
+  `CLAUDE_CODE_GROWTHBOOK_KICK_FROM_INIT`, `CLAUDE_CODE_MCP_SERVE_TOOL_OUTPUT`,
+  `CLAUDE_CODE_POLL_EVENT_DECLARATIONS` and `CLAUDE_CODE_TRANSCRIPT_LOCAL_GC`. The changelog
+  documents none of them, and Canopy sets none.
+
+**Nothing else visible reaches Canopy.** Canopy sets no `OTEL_*` variable, so `prompt_text` on the
+`user_prompt` event does not apply. It sets neither `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` nor
+`ANTHROPIC_CUSTOM_HEADERS`, so a profile reaches those two fixes only through its env vars. The
+commit-message turn reads only the SDK's `result` message, so the heartbeat, partial-message,
+priority and fork-skill streaming fixes do not reach it. Canopy's terminals install no mouse
+handler, so the change to paste on button release applies only through xterm.js's mouse reporting
+in fullscreen panes. The `[Code Review]` entries are for Anthropic's managed Code Review, not this
+repository's `code-review.yml` workflow. The rest are for `claude agents`, screen reader mode,
+`/ultrareview`, Remote Control, cloud sessions, VS Code and Claude Tag. The compat workflow is the
+one place in the repository the Bash permission prompt's new wording matters: a command the parser
+cannot check is now refused as "Part of this command (a variable) cannot be checked in advance"
+instead of "Contains simple_expansion". `.github/prompts/claude-code-compat.md` records the new
+wording.
+
+**This release's prompt-file arithmetic is archive bookkeeping, as at 2.1.286.** The archive went
+from 27 to 14 prompt entries and from 31,350 to 23,022 tokens (−8,328, −26.6%). Its
+`meta/prompt-stats.md` names every change:
+
+- **System +4,253 is the duplicate returning.** `User Memory Project One 2` (4,253 tokens) is listed
+  again. Its arrivals are now 2.1.269, 2.1.274, 2.1.280, 2.1.285 and 2.1.287.
+- **Tools −12,581 is sixteen chained entries leaving and two duplicates returning.**
+  `File Pattern Matching 2` to `12` (−10,867) and `Read Local File Content 2` to `6` (−6,837) left,
+  and the title-case twins `Executes Given Bash Command Returns` (3,102) and
+  `Launch New Handle Complex Multi` (2,021) came back. −17,704 + 5,123 = −12,581.
+- **No tool's prompt text changed.** The Bash, Agent, Edit, Write and Grep diffs add one more
+  wrapper layer and rename the `${PATH}` and `${NUM}` placeholders to `${EXPR_N}`.
+
+The archive's bundle entry grew **+854.6 kB (+1.6%)** in KiB: 875,107 bytes, from 55,684,623 to
+56,559,730. No prompt text arrived, so none of that growth is prompt text.
+
+**All 106 of 2.1.287's CLI changelog entries were readable this run**, against 12 in the pasted
+release notes. The official `CHANGELOG.md`, the changelog archive's compare diff and both builds
+were reachable, so this increment's coverage is complete. On this branch, `npm ci` now installs
+`0.3.287`, which vendors CLI 2.1.287.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
