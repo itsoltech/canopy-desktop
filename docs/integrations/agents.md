@@ -2454,13 +2454,17 @@ this repository has one.** The guidance is new in the 2.1.286 build; 2.1.285 has
 skill named `verify` is loaded from a skills directory or a legacy commands directory (the build
 accepts `loadedFrom` values `skills` and `commands_DEPRECATED` only), the Bash tool's description
 gains one line: "Always run `/verify` right before the `commit` command (never for docs or tests)."
-The bundled `/commit` command's prompt can carry the same line. Bundled and plugin skills do not
-count for `verify`, nor for `simplify`, which joins the line under the same rule.
-`/code-review medium` joins it when any `code-review` skill is loaded and the
-`includeCodeReviewSuggestion` setting is true. `.claude/skills/verify/` qualifies, and nothing else
-under `.claude/` does. So every Claude Code 2.1.286 session in this repository, local or in CI, is
-told to run `npm run lint` and `npm run typecheck` before each commit that is not docs-only or
-tests-only. The compat workflow's own 2.1.286 run was given the line.
+The line sits in the description's git section, so it is absent when git instructions are off
+(`includeGitInstructions: false`, or `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS`), and it is behind a
+server-side rollout flag, `tengu_polished_tulip`, that defaults on. The bundled `/commit` command's
+prompt calls the same helper, but behind a function that returns false in this build, so only the
+Bash tool description carries the line. Bundled and plugin skills do not count for `verify`, nor for
+`simplify`, which joins the line under the same rule. `/code-review medium` joins it when any
+`code-review` skill is loaded and the `includeCodeReviewSuggestion` setting is true.
+`.claude/skills/verify/` qualifies, and nothing else under `.claude/` does. So by default every
+Claude Code 2.1.286 session in this repository, local or in CI, is told to run `npm run lint` and
+`npm run typecheck` before each commit that is not docs-only or tests-only. The compat workflow's
+own 2.1.286 run was given the line.
 
 - **Five of the six workflows that let Claude commit cannot run the skill under their allowlists.**
   `bug-auto-fix.yml` allows both commands. `auto-fix.yml` and `codebase-audit.yml` allow
@@ -2480,7 +2484,10 @@ tests-only. The compat workflow's own 2.1.286 run was given the line.
   the model to run it before each code commit in that workspace, or in every project when it is
   global. That is the CLI's intended reading of the name, so nothing changes here. Whether the
   panel should say so on install is a product decision.
-- **The commit-message turn is unaffected.** It asks for structured output and never commits.
+- **The commit-message turn can carry the line and has nothing to run it before.** It keeps the
+  default tools and loads every filesystem setting source, so its Bash description gains the line
+  when the user has such a skill. It is one structured-output call that never commits, so no change
+  in behaviour is expected.
 
 **Canopy's contract against 2.1.286 was diffed against 2.1.285, not just checked for presence.**
 The 2.1.286 build was on the runner at `~/.local/share/claude/versions/2.1.286`, and
@@ -2489,8 +2496,8 @@ first increment in the range with the previous build to compare against. With mi
 normalized:
 
 - The hook-event array names the same 33 events in the same order, so Canopy's 18 are all present.
-- The input schemas of 21 events are identical: Canopy's 18 plus `TaskCreated`, `PermissionDenied`
-  and `PostToolBatch`. So every field the 2.1.285 note lists is still in the event it is read from.
+- The input schemas of all 33 events are identical, compared by their ordered field keys and string
+  literals. So every field the 2.1.285 note lists is still in the event it is read from.
 - The status-line builder emits the same 84 keys in the same order, and its commented schema differs
   only in a sample version string.
 - The 118 `.option()` definitions are identical. The one option added is hidden: `--resolve-only`,
@@ -2544,8 +2551,8 @@ line number now open on the cursor's line. None of Canopy's ten letter-keyed glo
 `g`. The terminal's key handler takes only Ctrl+V and Ctrl+C with a selection (both off macOS),
 Shift+Enter, Cmd+Backspace and, in agent panes, Ctrl+Z. Canopy's terminals install no mouse or
 wheel handler, so the fullscreen lists' clickable "↑ N more" rows and scrollbar arrows depend only
-on xterm.js's mouse reporting. The send-now changes reach panes by the `ctrl+x ctrl+s` chord, not `ctrl+enter`
-(see the 2.1.275 note).
+on xterm.js's mouse reporting. The send-now changes reach panes by the `ctrl+x ctrl+s` chord, not
+`ctrl+enter` (see the 2.1.275 note).
 
 **Nothing else visible reaches Canopy.** Canopy emits no `--bare`, `--fallback-model`, `--worktree`
 or `--bg`, and runs neither `claude auth status` nor `claude remote-control`. Its own remote control
@@ -2560,10 +2567,10 @@ earlier notes recorded.** The archive went from 28 to 27 prompt entries and from
 tokens (−5,865, −15.8%). Its `meta/prompt-stats.md`, readable this run, names every change:
 
 - **System −4,253 is one duplicate leaving.** `User Memory Project One 2` (4,253 tokens) is
-  `User Memory Project One` (4,192) extracted a second time, inside an extra wrapper layer. It was
-  first listed at 2.1.285, and an entry of the same name was first listed at 2.1.269, 2.1.274 and
-  2.1.280 and was absent at 2.1.283. So the ~4.25k system step the 2.1.269, 2.1.274, 2.1.280 and
-  2.1.285 notes recorded was this duplicate each time, not new instructions.
+  `User Memory Project One` (4,192) extracted a second time, inside an extra wrapper layer. An entry
+  of that name, at ~4.25k tokens, was listed from 2.1.269, 2.1.274 and 2.1.280, was absent at
+  2.1.283, and was listed again at 2.1.285. So the ~4.25k system step the 2.1.269, 2.1.274, 2.1.280
+  and 2.1.285 notes recorded was this duplicate each time, not new instructions.
 - **Tools −1,612 is two duplicates leaving and two chained entries arriving.**
   `Executes Given Bash Command Returns` (3,102) and `Launch New Handle Complex Multi` (2,021) were
   title-case twins of entries that stay. `File Pattern Matching 12` (1,523) and
@@ -2571,13 +2578,14 @@ tokens (−5,865, −15.8%). Its `meta/prompt-stats.md`, readable this run, name
 - **The chained entries are the archive's extractor nesting its own output.** Each
   `File Pattern Matching N` and `Read Local File Content N` wraps the unchanged base description in
   layers of earlier extractions, and `File Pattern Matching 3` already held three layers when it was
-  first listed at 2.1.276. The base Glob and Read descriptions were last edited at 2.1.121 and 2.1.150.
+  first listed at 2.1.276. The base Glob and Read descriptions were last edited at 2.1.121 and
+  2.1.150.
   So the chained growth earlier notes counted carries no new tool text.
 - **No tool's prompt text changed.** The Edit, Write and Grep diffs add another nested layer, and the
   Bash and Agent diffs rename placeholders. Their input schemas are unchanged.
 
-The bundle grew **+375.9 kB (+0.7%)**, from 55,299,682 to 55,684,623 bytes. No prompt text arrived,
-so none of that growth is prompt text.
+The archive's bundle entry grew **+375.9 kB (+0.7%)** in its own units, which are KiB: 384,941
+bytes, from 55,299,682 to 55,684,623. No prompt text arrived, so none of that growth is prompt text.
 
 **All 88 of 2.1.286's CLI changelog entries were readable this run.** The official `CHANGELOG.md`
 and the changelog archive's compare diff for the release were both reachable, and the previous build

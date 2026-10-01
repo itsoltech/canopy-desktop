@@ -16,8 +16,8 @@ the part that pays.
 
 **3. Probe `gh api` once, with the compare call, and commit to the result.** Under the workflow's
 `--allowedTools` it was denied on twenty-one consecutive runs that probed it (as of v2.1.283; the
-v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 run's session ran in auto mode instead, and
-`gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
+v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 run's session ran in auto mode instead (an
+observation about that run; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
 `npm ci`, `npm run lint`, `npm run typecheck`, `npm test` and `python3` all ran. Record which way
 the one probe went in the PR body. **If it runs, use point 6.**
 
@@ -65,15 +65,16 @@ used all four and read every changelog entry, where earlier runs read twelve.
   archive's duplicate `User Memory Project One 2` each time. Every `File Pattern Matching N` and
   `Read Local File Content N` entry is the extractor nesting its own earlier output around an
   unchanged base description.
-- `npm pack @anthropic-ai/claude-agent-sdk-linux-x64@0.3.{FROM}`, run in `/tmp`, gives the previous
-  build as `package/claude`, to diff against the `TO_VERSION` build from point 4. Compare hook
+- `npm pack @anthropic-ai/claude-agent-sdk-linux-x64@0.3.<N>`, where `<N>` is `FROM_VERSION`'s patch
+  number, run in `/tmp`, gives the previous build as `package/claude`, to diff against the
+  `TO_VERSION` build from point 4. Compare hook
   schemas by their ordered field keys and string literals, not by raw text: minified identifiers
   are renamed between builds, so a text diff flags every event.
 
 If `npm ci` and `npm run …` run too, use them. `npm ci` after a hand-edited bump is CI's own check
 of the lockfile, and it puts the branch's SDK types in `node_modules` for the typecheck. From 2.1.286
-the CLI tells every run in this repository to run the `verify` skill before any commit that is not
-docs-only or tests-only, and that skill is `npm run lint` and `npm run typecheck`. If they are
+the CLI tells runs in this repository, by default, to run the `verify` skill before any commit that
+is not docs-only or tests-only, and that skill is `npm run lint` and `npm run typecheck`. If they are
 denied, say so in the PR body and leave CI as the first check.
 
 This block is at the top because the previous six revisions of it were not. Runs read top-to-bottom,
