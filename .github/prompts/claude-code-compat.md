@@ -16,8 +16,8 @@ the part that pays.
 
 **3. Probe `gh api` once, with the compare call, and commit to the result.** Under the workflow's
 `--allowedTools` it was denied on twenty-one consecutive runs that probed it (as of v2.1.283; the
-v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 run's session ran in auto mode instead (an
-observation about that run; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
+v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 and v2.1.287 runs' sessions ran in auto
+mode instead (an observation about those runs; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
 `npm ci`, `npm run lint`, `npm run typecheck`, `npm test` and `python3` all ran. Record which way
 the one probe went in the PR body. **If it runs, use point 6.**
 
@@ -52,8 +52,9 @@ the checkout with the PR title's upper bound. If the branch is ahead, verify the
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
 
-**6. When `gh api` runs, four sources make the increment's coverage complete.** The v2.1.286 run
-used all four and read every changelog entry, where earlier runs read twelve.
+**6. When `gh api` runs, four sources make the increment's coverage complete.** The v2.1.286 and
+v2.1.287 runs used all four and read every changelog entry (88 and 106), where earlier runs read
+twelve.
 
 - `gh api repos/marckrenn/claude-code-changelog/compare/{FROM_VERSION}...{TO_VERSION}` with
   `--jq '.files[] | "\(.filename) (\(.status))"'` lists the archive's changes. Select `.patch` for
@@ -70,6 +71,17 @@ used all four and read every changelog entry, where earlier runs read twelve.
   `TO_VERSION` build from point 4. Compare hook
   schemas by their ordered field keys and string literals, not by raw text: minified identifiers
   are renamed between builds, so a text diff flags every event.
+- **Count an announced feature's literals in the previous build before calling it new.** 2.1.287
+  announced Claude Mods and URL prompts from MCP servers, but every literal behind them
+  (`dev-mods`, `allowManagedModsOnly`, `cc-plugin-mods-guide`, `elicitation_url_dialog`,
+  `bareElicitationCapability`) is already in the 2.1.286 build. A diff of the text around each
+  occurrence flagged them as new only because neighbouring strings moved.
+- **Keep the counting rules fixed so increments compare.** The v2.1.287 run counted the status line
+  as the object literal enclosing `model:{id:` (54 keys), options as the first arguments of
+  `.option("` and of `new <Option>("-` calls, and environment names as `CLAUDE_*` and
+  `ANTHROPIC_*` tokens after `process.env.`, `env.` or `["`, or as a whole quoted string (520 →
+  528). The v2.1.286 run's 84 status keys and 118 options used other rules, so compare a count
+  only with one taken the same way.
 
 If `npm ci` and `npm run …` run too, use them. `npm ci` after a hand-edited bump is CI's own check
 of the lockfile, and it puts the branch's SDK types in `node_modules` for the typecheck. From 2.1.286
@@ -403,6 +415,15 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 > | "This command requires approval"                                       | the whole command is not allowlisted       | Yes                           |
 > | `Contains simple_expansion` / `Contains command_substitution`          | shell form refused (`$var`, `$(…)`, loops) | No — rewrite without it       |
 > | `Contains brace with quote character (expansion obfuscation)`          | a `{` next to a quote, even in a heredoc   | No — reword without it        |
+>
+> **From 2.1.287 the third row reads differently.** The CLI now words a refusal by node type as
+> "Part of this command (…) cannot be checked in advance", naming the node in plain words: "a
+> variable" for `simple_expansion`, "a variable in braces" for `expansion`, "the output of another
+> command" for `command_substitution`, "a for or select loop" for `for_statement` and "a
+> here-document" for `heredoc_redirect`. A type with no plain name reads "Part of this command
+> cannot be checked in advance". The fourth row's message and the other pre-parse checks, such as
+> "Contains control characters" and the zsh checks, are unchanged. Read either wording of the third
+> row the same way.
 >
 > Only the last two are shell-form errors, and neither names a component. The first two are the same
 > finding reported at different granularity. The fourth row is from v2.1.280 → v2.1.281: a
