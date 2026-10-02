@@ -156,7 +156,7 @@ function createFileTreeStore() {
     const dirsToRefresh = new SvelteSet<string>()
     for (const ev of events) {
       // Apply user ignore patterns here so the sidebar mirrors the filtered
-      // view from `fs:readDir`. The watcher itself emits everything that
+      // view from `fileTree:readDir`. The watcher itself emits everything that
       // isn't safety-filtered.
       if (isIgnoredByUser(ev.path, userPatterns)) continue
 

@@ -31,7 +31,7 @@ function mapEventType(type: watcher.Event['type']): FileChangeEvent['type'] {
 function toRelative(root: string, absPath: string): string {
   const rel = relative(root, absPath)
   // Normalize Windows backslashes to forward slashes so the renderer can
-  // split on '/' the same way as entries returned from fs:readDir.
+  // split on '/' the same way as entries returned from fileTree:readDir.
   return sep === '\\' ? rel.split(sep).join('/') : rel
 }
 

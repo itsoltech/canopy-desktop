@@ -1,20 +1,25 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { cycleFocus, captureFocusReturn } from '../../lib/a11y/focusTrap'
   import Markdown from '../shared/Markdown.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
   let version = $state('')
   let homepage = $state('')
   let licenseText = $state('')
+  let restoreFocus: (() => void) | null = null
 
   onMount(async () => {
+    restoreFocus = captureFocusReturn()
     containerEl?.focus()
     const info = await window.api.getAboutInfo()
     version = info.version
     homepage = info.homepage
     licenseText = info.license
   })
+
+  onDestroy(() => restoreFocus?.())
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
@@ -24,22 +29,7 @@
       return
     }
 
-    if (e.key === 'Tab' && containerEl) {
-      const focusable = containerEl.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
+    if (e.key === 'Tab' && containerEl) cycleFocus(containerEl, e)
   }
 
   function openHomepage(): void {
