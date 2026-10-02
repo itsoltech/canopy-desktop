@@ -591,12 +591,18 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      if (step === 'setup') {
-        skipSetup()
-      } else {
-        onClose()
-      }
+      requestDismiss()
     }
+  }
+
+  // Dismissing during 'creating' would unmount the dialog while worktreeCreate is still in
+  // flight, so the outcome — including a failure, which only sets step = 'error' — would
+  // never reach the user. Creation has no abort path, so ignore the request until it
+  // settles. 'setup' stays dismissable because skipSetup() genuinely aborts that step.
+  function requestDismiss(): void {
+    if (step === 'creating') return
+    if (step === 'setup') skipSetup()
+    else onClose()
   }
 
   const inputCls =
@@ -611,7 +617,7 @@
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
+  onmousedown={requestDismiss}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div

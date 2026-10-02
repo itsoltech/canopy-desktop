@@ -3088,14 +3088,6 @@ export function registerIpcHandlers(
     },
   )
 
-  ipcMain.handle('fs:createFile', async (event, payload: { filePath: string }): Promise<void> => {
-    await createFileTreeFile(event.sender.id, payload.filePath)
-  })
-
-  ipcMain.handle('fs:mkdir', async (event, payload: { dirPath: string }): Promise<void> => {
-    await createFileTreeDirectory(event.sender.id, payload.dirPath)
-  })
-
   ipcMain.handle(
     'dialog:confirmUnsavedChanges',
     async (event, payload: { filePaths: string[] }): Promise<'save' | 'discard' | 'cancel'> => {
