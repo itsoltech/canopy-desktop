@@ -75,6 +75,17 @@
     captureDropdownOpen = false
   }
 
+  /**
+   * Both dropdowns are dismissable only by clicking the backdrop or picking an
+   * item, so a keyboard user who opens one has no way out. Escape closes them.
+   */
+  function handleWindowKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape') return
+    if (!captureDropdownOpen && !deviceDropdownOpen) return
+    captureDropdownOpen = false
+    deviceDropdownOpen = false
+  }
+
   let inputValue = $state('')
   let urlInput: HTMLInputElement | undefined = $state()
 
@@ -104,6 +115,8 @@
     urlInput?.select()
   }
 </script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <div class="flex items-center gap-1 h-9 px-1.5 bg-bg-input border-b border-active flex-shrink-0">
   <div class="flex items-center gap-0.5 flex-shrink-0">

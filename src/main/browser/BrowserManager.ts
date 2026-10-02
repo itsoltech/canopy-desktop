@@ -122,6 +122,12 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // `browserId` is renderer-supplied and `entries` is global across every
+    // window, so a second renderer must not be able to re-bind an id another
+    // window already owns: that would orphan the previous entry's devToolsView
+    // (leaking it, since teardown() can no longer reach it) and redirect that
+    // browser's events to the claiming window.
+    if (existing && !existing.sender.isDestroyed() && existing.sender.id !== sender.id) return
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
@@ -306,6 +312,20 @@ export class BrowserManager {
       ])
       menu.popup()
     })
+  }
+
+  /**
+   * Whether the IPC sender `wcId` owns `browserId`.
+   *
+   * `browserId` arrives from the untrusted renderer and `entries` is shared by
+   * every window, so the privileged operations below (DevTools, CDP debugger
+   * attach, credential injection) must confirm the caller owns the target view
+   * before acting on it — the same rule the PTY channels enforce through
+   * `WindowManager.ownsPtySession`.
+   */
+  ownsBrowser(wcId: number, browserId: string): boolean {
+    const entry = this.entries.get(browserId)
+    return entry !== undefined && !entry.sender.isDestroyed() && entry.sender.id === wcId
   }
 
   teardown(browserId: string): void {

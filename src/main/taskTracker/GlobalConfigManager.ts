@@ -215,9 +215,15 @@ export class GlobalConfigManager {
           if (stored) this.preferencesStore.delete(conn.authPrefKey)
         }
       }
+
+      // Only record the migration as done once every step above succeeded.
+      // Setting the flag unconditionally would strand any legacy plaintext
+      // token whose keychain write failed (locked/unavailable keyring, DB
+      // error), because `migrateIfNeeded()` returns early on the flag and
+      // would never retry.
+      this.preferencesStore.set(MIGRATION_FLAG_KEY, '1')
     } catch (e) {
-      console.error('[GlobalConfigManager] Legacy migration failed:', e)
+      console.error('[GlobalConfigManager] Legacy migration failed, will retry next launch:', e)
     }
-    this.preferencesStore.set(MIGRATION_FLAG_KEY, '1')
   }
 }
