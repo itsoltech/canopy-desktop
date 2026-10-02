@@ -101,7 +101,9 @@
           >
             {config.name}
           </button>
-          <div class="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100">
+          <div
+            class="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+          >
             {#if runningCount > 0}
               <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
                 <button

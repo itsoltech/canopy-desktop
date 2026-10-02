@@ -30,6 +30,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
   import { addToast, showUrlToast } from '../../lib/stores/toast.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
@@ -226,10 +227,18 @@
     }
   }
 
-  function handleStarRemoveAll(): void {
+  async function handleStarRemoveAll(): Promise<void> {
     const url = session?.url
-    if (url) removeFavoritesByHost(url)
     starDropdownOpen = false
+    if (!url) return
+    // Bulk removal of persisted favorites has no undo — confirm first.
+    const ok = await confirm({
+      title: 'Remove favorites?',
+      message: `Remove all favorites for ${new URL(url).hostname}?`,
+      confirmLabel: 'Remove All',
+      destructive: true,
+    })
+    if (ok) removeFavoritesByHost(url)
   }
 
   function handleStarAddNew(): void {
@@ -408,6 +417,8 @@
         icon.onmouseleave = () => { icon.style.background = 'color-mix(in srgb,currentColor 8%,transparent)'; icon.style.boxShadow = '0 0 0 1px oklch(0.6 0 0 / 0.2)' }
 
         icon.onclick = (e) => {
+          // Only real user clicks: page scripts can call .click() on injected nodes.
+          if (!e.isTrusted) return
           e.preventDefault(); e.stopPropagation()
           let existing = document.getElementById('__canopy_cred_picker')
           if (existing) { existing.remove(); return }
@@ -450,6 +461,7 @@
             btn.onmouseenter = () => { btn.style.background = 'oklch(1 0 0 / 0.06)' }
             btn.onmouseleave = () => { btn.style.background = 'none' }
             btn.onclick = (ev) => {
+              if (!ev.isTrusted) return
               ev.preventDefault(); ev.stopPropagation()
               console.log('__CANOPY_FILL__:' + c.id)
               picker.remove()
@@ -786,6 +798,12 @@
     })
   `
 
+  // Page-controlled markup is written straight into the agent's PTY. Keep newlines and tabs but
+  // drop other control characters: a CR would submit the agent's input and ESC sequences act as
+  // keystrokes.
+  // eslint-disable-next-line no-control-regex
+  const PTY_UNSAFE_CHARS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g
+
   async function handleStartElementPick(): Promise<void> {
     const w = wv()
     if (!w) return
@@ -793,7 +811,7 @@
     try {
       const html = await w.executeJavaScript(ELEMENT_PICK_JS)
       pickMode = 'none'
-      if (html) sendToClaude('```html\n' + html + '\n```\n')
+      if (html) sendToClaude('```html\n' + String(html).replace(PTY_UNSAFE_CHARS, '') + '\n```\n')
     } catch {
       pickMode = 'none'
     }

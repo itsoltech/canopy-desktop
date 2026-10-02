@@ -17,8 +17,10 @@
   let portalEl: HTMLDivElement | null = null
   const delayedPortal = createDelayedAction(showPortal, 400)
 
+  // z-popover, not z-banner: tooltips inside a modal (e.g. CiJobPicker) must paint above the
+  // modal's z-overlay scrim, or they are never visible.
   const tooltipClasses =
-    'fixed max-w-[min(24rem,calc(100vw-8px))] px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-normal break-words pointer-events-none z-banner shadow-tooltip'
+    'fixed max-w-[min(24rem,calc(100vw-8px))] px-2 py-1 rounded-md bg-bg-elevated border border-border text-text text-xs whitespace-normal break-words pointer-events-none z-popover shadow-tooltip'
 
   function handleEnter(event: MouseEvent | FocusEvent): void {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()

@@ -175,6 +175,9 @@ export const confirmState: {
 } = $state({ current: null })
 
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
+  // One slot: a newer confirmation (e.g. a remote-control prompt) replaces the visible one.
+  // Settle the replaced prompt as cancelled so its caller doesn't wait forever.
+  confirmState.current?.onCancel()
   return new Promise((resolve) => {
     confirmState.current = {
       ...opts,

@@ -4,6 +4,7 @@ import { join } from 'path'
 import { writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import os from 'os'
+import { isFetchableFaviconUrl, MAX_FAVICON_BYTES, readCappedBody } from './favicon'
 
 /**
  * findWebContents() can return undefined for <webview> guest contents
@@ -43,7 +44,7 @@ const APP_SHORTCUTS = new Set([
   '9',
 ])
 
-const BROWSER_PARTITION = 'persist:browser'
+export const BROWSER_PARTITION = 'persist:browser'
 
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
@@ -122,6 +123,10 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // A new guest for a known browserId (e.g. the pane restored after a window reload, which
+    // runs no renderer teardown): release the old entry first, or its DevTools view stays
+    // attached to the window for the window's lifetime.
+    if (existing) this.teardown(browserId)
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
@@ -130,6 +135,12 @@ export class BrowserManager {
       devToolsMode: 'bottom',
     }
     this.entries.set(browserId, entry)
+
+    // Same for a guest destroyed without a renderer teardown — unless the id already belongs
+    // to a newer guest.
+    wc.once('destroyed', () => {
+      if (this.entries.get(browserId)?.webContentsId === wcId) this.teardown(browserId)
+    })
 
     // target="_blank" / window.open → forward URL to renderer so it can open a new browser tab
     // Throttled to prevent a malicious page from flooding the app via window.open() in a loop
@@ -243,7 +254,7 @@ export class BrowserManager {
     // Favicon: fetch via session.fetch to bypass CORS, send as data URL
     wc.on('page-favicon-updated', (_event, favicons) => {
       const faviconUrl = favicons[0]
-      if (!faviconUrl) {
+      if (!faviconUrl || !isFetchableFaviconUrl(faviconUrl)) {
         this.sendToRenderer(browserId, 'browser:faviconChanged', {
           browserId,
           favicon: null,
@@ -254,9 +265,12 @@ export class BrowserManager {
         .fetch(faviconUrl)
         .then(async (response) => {
           if (!response.ok) return
-          const buffer = await response.arrayBuffer()
+          // Page-controlled response: cap it so a huge or endless icon can't make the main
+          // process buffer it all.
+          const buffer = await readCappedBody(response, MAX_FAVICON_BYTES)
+          if (!buffer) return
           const contentType = response.headers.get('content-type') ?? 'image/x-icon'
-          const base64 = Buffer.from(buffer).toString('base64')
+          const base64 = buffer.toString('base64')
           this.sendToRenderer(browserId, 'browser:faviconChanged', {
             browserId,
             favicon: `data:${contentType};base64,${base64}`,

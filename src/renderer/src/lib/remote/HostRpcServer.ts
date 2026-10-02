@@ -10,7 +10,7 @@ import {
   tabsByWorktree,
   closeAllTabsForWorktree,
 } from '../stores/tabs.svelte'
-import { attachProject, selectWorktree, workspaceState } from '../stores/workspace.svelte'
+import { attachProject, projects, selectWorktree, workspaceState } from '../stores/workspace.svelte'
 import { removalNeedsForceConsent } from '../worktrees/removalGuard'
 import { allPanes } from '../stores/splitTree'
 import { substituteLocalhost } from '../../../../renderer-shared/url/localhostSubstitution'
@@ -240,6 +240,18 @@ export class HostRpcServer {
       const repoRoot = assertString(params, 'repoRoot', 'worktree.remove')
       const path = assertString(params, 'path', 'worktree.remove')
       const force = assertBoolean(params, 'force', 'worktree.remove')
+      // Only a known, non-main worktree of that repository. A path the removal handler would
+      // reject (main checkout, another project, arbitrary path) fails the preflight below the
+      // same way a broken checkout does — with `force` it would get its tabs and PTYs killed
+      // before the removal itself is refused.
+      const isRemovableWorktree = projects.some(
+        (project) =>
+          project.repoRoot === repoRoot &&
+          project.worktrees.some((worktree) => worktree.path === path && !worktree.isMain),
+      )
+      if (!isRemovableWorktree) {
+        throw new Error(`Not a removable worktree of ${repoRoot}: ${path}`)
+      }
       // Consent gate BEFORE any teardown: a dirty/submodule worktree needs --force,
       // and mobile must have collected that consent from its user (worktree.
       // prepareRemove). Rejecting here keeps the host's tabs, PTYs, and selection

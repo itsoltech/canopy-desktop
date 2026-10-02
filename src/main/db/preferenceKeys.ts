@@ -40,6 +40,10 @@ const NON_EXPORTABLE_PREFIXES = [
 
 const MAIN_PROCESS_ONLY_PREFIXES = ['credential.registry.', 'credential.bindings.']
 
+// Legacy tracker connections name the host and the preference each stored token is sent with;
+// a renderer able to rewrite them could redirect those tokens. The UI reads them via IPC.
+const MAIN_PROCESS_ONLY_KEYS = new Set(['taskTracker.connections'])
+
 export function isEncryptedPreferenceKey(key: string): boolean {
   if (ENCRYPTED_KEYS.has(key)) return true
   return ENCRYPTED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
@@ -54,6 +58,7 @@ export function isExportablePreferenceKey(key: string): boolean {
 export function isMainProcessOnlyPreferenceKey(key: string): boolean {
   return (
     isEncryptedPreferenceKey(key) ||
+    MAIN_PROCESS_ONLY_KEYS.has(key) ||
     MAIN_PROCESS_ONLY_PREFIXES.some((prefix) => key.startsWith(prefix))
   )
 }

@@ -38,9 +38,9 @@ The `BrowserManager` in the main process handles security enforcement (popup han
 ### Favicon detection
 
 1. When a page's favicon changes, the `page-favicon-updated` event fires with one or more favicon URLs.
-2. The main process fetches the first favicon URL using `session.fetch()` (bypassing CORS restrictions on the page's session).
+2. The main process fetches the first favicon URL using `session.fetch()` (bypassing CORS restrictions on the page's session). The URL is page-controlled, so only `http:`, `https:` and `data:` icons are fetched (`session.fetch()` would also read `file:` URLs), and the body is capped at 256 KB.
 3. The favicon is converted to a base64 data URL (`data:{contentType};base64,...`) and sent to the renderer via `browser:faviconChanged`.
-4. If favicon fetch fails or no favicon is available, `null` is sent.
+4. If favicon fetch fails, the URL is not fetchable, the icon exceeds the cap, or no favicon is available, `null` is sent.
 
 ### Keyboard shortcut interception
 
@@ -117,7 +117,7 @@ Users can bookmark pages as favorites. Favorites are stored in the `browser.favo
 
 - `addFavorite(fav)`: Adds or replaces a favorite by URL.
 - `removeFavorite(url)`: Removes a single favorite by exact URL.
-- `removeFavoritesByHost(url)`: Removes all favorites matching the URL's host.
+- `removeFavoritesByHost(url)`: Removes all favorites matching the URL's host. The star dropdown's "remove all" action asks for confirmation first.
 - `updateFavorite(oldUrl, updated)`: Replaces a favorite entry.
 - `reorderFavorites(fromIndex, toIndex)`: Moves a favorite to a new position in the list.
 - `isFavorite(url)`: Checks if any favorite shares the same host as the given URL.
@@ -151,11 +151,12 @@ When a browser tab is closed, the renderer calls `teardownBrowserWebview(browser
 
 ## Security and privacy
 
-- The browser runs in a dedicated Electron session partition (`persist:browser`), isolated from the app's main session. Cookies, storage, and cache are separate.
+- The browser runs in a dedicated Electron session partition (`persist:browser`), isolated from the app's main session. Cookies, storage, and cache are separate. The main process's `will-attach-webview` handler pins every `<webview>` to this partition and forces `webSecurity` on (and insecure content, Node integration in frames/workers, experimental and Blink features off), regardless of the element's attributes.
 - All permission requests (camera, microphone, geolocation, notifications, etc.) are denied via `setPermissionRequestHandler`.
 - Popups (`window.open()`, `target="_blank"`) are denied at the Electron level via `setWindowOpenHandler`. Valid HTTP(S) URLs are instead forwarded to the renderer, which opens them as a new browser pane tab in the same worktree. The `<webview>` has `allowpopups` set so the handler is actually invoked. Forwarding is throttled to one popup per 500ms per webview to prevent flooding from malicious pages.
 - Navigation is restricted to `http:` and `https:` protocols.
-- Credential autofill runs in isolated JavaScript world 999 to prevent page scripts from observing the injected values.
+- Credential autofill runs in isolated JavaScript world 999 to prevent page scripts from observing the injected values. The injected autofill icon and account picker ignore script-dispatched clicks (`isTrusted`), so page scripts cannot trigger a fill.
+- Select Element strips control characters (except newline and tab) from the page markup before writing it to an agent terminal, so page content cannot act as keystrokes.
 - The Chrome Debugger Protocol is attached only when device emulation is active and detached when emulation is cleared.
 
 ## Source files

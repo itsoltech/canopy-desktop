@@ -77,7 +77,10 @@
     install()
   }}
   onkeydown={(e) => {
-    if (e.key === 'Escape') cancel()
+    if (e.key !== 'Escape') return
+    // Cancel just this form — without stopPropagation the Settings modal closes too.
+    e.stopPropagation()
+    cancel()
   }}
 >
   <input

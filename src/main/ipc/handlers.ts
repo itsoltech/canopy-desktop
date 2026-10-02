@@ -2139,7 +2139,11 @@ export function registerIpcHandlers(
     'git:statusPorcelain',
     async (event, payload: { repoRoot: string; worktreePath?: string }) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      return GitRepository.getStatusPorcelain(resolvedRepo, payload.worktreePath).unwrapOr('')
+      // git runs with worktreePath as its working directory — scope it like repoRoot.
+      const resolvedWorktree = payload.worktreePath
+        ? await validateWorktreeScopedPathAccess(event.sender.id, payload.worktreePath)
+        : undefined
+      return GitRepository.getStatusPorcelain(resolvedRepo, resolvedWorktree).unwrapOr('')
     },
   )
 
@@ -5391,8 +5395,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('skills:deleteFile', async (event, payload: { filePath: string }) => {
     const filePath = path.normalize(path.resolve(payload.filePath))
+    const skillExtensions = ['.md', '.mdc', '.yaml', '.yml']
     const ext = path.extname(filePath).toLowerCase()
-    if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
+    if (!skillExtensions.includes(ext)) {
       unwrapOrThrow(
         err({
           _tag: 'InvalidSource',
@@ -5441,6 +5446,22 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
       return { success: false }
+    }
+    // The extension and skill-directory checks above ran on the lexical path, but the unlink
+    // below targets the realpath. A symlinked skill file (e.g. committed to a cloned repo)
+    // would otherwise delete whatever it points at, such as ~/.bashrc or an SSH key.
+    if (
+      !skillExtensions.includes(path.extname(resolvedTarget).toLowerCase()) ||
+      !skillDirPatterns.some((p) => p.test(resolvedTarget))
+    ) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Skill file resolves outside agent skill directories',
+        } as SkillError),
+        skillErrorMessage,
+      )
     }
     const homeReal = await fs.promises.realpath(os.homedir()).catch(() => os.homedir())
     const withinHome = resolvedTarget === homeReal || resolvedTarget.startsWith(homeReal + path.sep)

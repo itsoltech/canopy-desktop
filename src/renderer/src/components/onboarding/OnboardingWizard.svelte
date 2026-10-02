@@ -45,24 +45,30 @@
     prevStep()
   }
 
+  // Close even when persisting the onboarding state fails: `submitting` stays set, so every
+  // control (and Escape) would be a no-op and the wizard could never be dismissed.
+  function logFailure(err: unknown): void {
+    console.error('[onboarding] saving onboarding state failed:', err)
+  }
+
   async function handleSkip(): Promise<void> {
     if (submitting) return
     submitting = true
-    await skipOnboarding()
+    await skipOnboarding().catch(logFailure)
     closeDialog()
   }
 
   async function handleFinish(): Promise<void> {
     if (submitting) return
     submitting = true
-    await finishOnboarding()
+    await finishOnboarding().catch(logFailure)
     closeDialog()
   }
 
   async function handleOpenFolder(): Promise<void> {
     if (submitting) return
     submitting = true
-    await finishOnboarding()
+    await finishOnboarding().catch(logFailure)
     closeDialog()
     const path = await window.api.openFolder()
     if (path) openWorkspace(path)

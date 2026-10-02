@@ -10,7 +10,7 @@
   let channel = $derived(prefs['update.channel'] || 'stable')
   let checkFrequency = $derived(prefs['update.checkFrequency'] || 'daily')
 
-  let checkState: 'idle' | 'checking' | 'up-to-date' | 'error' = $state('idle')
+  let checkState: 'idle' | 'checking' | 'available' | 'up-to-date' | 'error' = $state('idle')
   let checkCleanup: (() => void) | null = $state(null)
   let dismissTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -34,7 +34,7 @@
     checkCleanup?.()
     checkState = 'checking'
 
-    const dismiss = (state: 'up-to-date' | 'error'): void => {
+    const dismiss = (state: 'available' | 'up-to-date' | 'error'): void => {
       checkState = state
       if (dismissTimer) clearTimeout(dismissTimer)
       dismissTimer = setTimeout(() => {
@@ -44,6 +44,8 @@
     }
 
     const offAvailable = window.api.onUpdateAvailable(() => {
+      // Leave 'checking' here too — otherwise the button stayed disabled on "Checking…".
+      dismiss('available')
       cleanup()
     })
     const offNotAvailable = window.api.onUpdateNotAvailable(() => {
@@ -133,7 +135,9 @@
           {checkState === 'checking' ? 'Checking…' : 'Check now'}
         </button>
         <span class="text-sm" role="status" aria-live="polite">
-          {#if checkState === 'up-to-date'}
+          {#if checkState === 'available'}
+            <span class="text-success">Update available</span>
+          {:else if checkState === 'up-to-date'}
             <span class="text-success">You're up to date</span>
           {:else if checkState === 'error'}
             <span class="text-danger">Check failed</span>

@@ -27,6 +27,20 @@ async function resolveClaudeExecutable(): Promise<string | undefined> {
 
 const MAX_DIFF_LENGTH = 15_000
 
+// The diff is untrusted input (it can come from a cloned repository), so a prompt injection in
+// it must not be able to act. Writing a commit message needs no tools; remove the ones with
+// side effects or network access even when the user's settings pre-approve them.
+const DISALLOWED_TOOLS = [
+  'Bash',
+  'Edit',
+  'Write',
+  'NotebookEdit',
+  'WebFetch',
+  'WebSearch',
+  'Task',
+  'Agent',
+]
+
 const PROMPT_TEMPLATE = `Generate a concise git commit message for this diff.
 Use conventional commits format (feat:, fix:, chore:, refactor:, docs:, test:, build:).
 First line (subject) under 72 chars. Add a body only if the change is complex.
@@ -74,6 +88,9 @@ function generateCommitMessageInner(
           model: 'haiku',
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+          disallowedTools: DISALLOWED_TOOLS,
+          // Ignore MCP servers from user/project settings — their tools are not needed here.
+          strictMcpConfig: true,
           env,
         },
       })

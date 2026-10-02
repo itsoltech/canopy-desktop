@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BROWSER_PARTITION, BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -34,7 +34,7 @@ import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
-import { validateBounds, cascadeBounds } from './windowBounds'
+import { validateBounds, cascadeBounds, isRestorableWindowConfig } from './windowBounds'
 import { TelemetryManager } from './telemetry/TelemetryManager'
 import { RemoteSessionService } from './remote/RemoteSessionService'
 import { PerfHudService } from './perf/PerfHudService'
@@ -343,8 +343,28 @@ async function handleCanopyUrl(url: string): Promise<void> {
       .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
       .find((win) => win !== null)
     if (existing) {
+      // Focusing an open workspace is harmless, but `tool` spawns a process (shell, agent or
+      // a custom command) — any web page can fire a canopy:// link, so ask first.
+      let confirmedTool = tool
+      if (tool) {
+        const { response } = await dialog.showMessageBox({
+          type: 'question',
+          buttons: ['Launch', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          message: 'Launch tool?',
+          detail: `An external application wants to launch "${tool}" in:\n${resolved}`,
+        })
+        if (response !== 0) confirmedTool = undefined
+        if (existing.isDestroyed()) return
+      }
       ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
-      existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
+      existing.webContents.send('url:action', {
+        action,
+        path: resolved,
+        tool: confirmedTool,
+        worktree,
+      })
       if (existing.isMinimized()) existing.restore()
       existing.focus()
       return
@@ -357,7 +377,9 @@ async function handleCanopyUrl(url: string): Promise<void> {
       defaultId: 1,
       cancelId: 1,
       message: 'Open workspace?',
-      detail: `An external application wants to open:\n${resolved}`,
+      detail: tool
+        ? `An external application wants to open:\n${resolved}\n\nand launch "${tool}" in it.`
+        : `An external application wants to open:\n${resolved}`,
     })
     if (response !== 0) return
 
@@ -704,6 +726,16 @@ app.whenReady().then(async () => {
       webPreferences.nodeIntegration = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      // Attributes like `partition`, `disablewebsecurity` and `blinkfeatures` are already
+      // folded into webPreferences here. Pin the guest to the isolated browser session (the
+      // default session is shared with the app UI) and undo any weakened web security.
+      webPreferences.partition = BROWSER_PARTITION
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      webPreferences.nodeIntegrationInSubFrames = false
+      webPreferences.nodeIntegrationInWorker = false
+      webPreferences.experimentalFeatures = false
+      delete webPreferences.enableBlinkFeatures
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -1004,7 +1036,10 @@ app.whenReady().then(async () => {
 
     if (configsJson) {
       try {
-        windowConfigs = JSON.parse(configsJson) as WindowConfig[]
+        const parsed: unknown = JSON.parse(configsJson)
+        // Valid JSON of the wrong shape (the key is renderer-writable) would throw below and
+        // abort startup before any window opens — on every launch. Keep only usable entries.
+        if (Array.isArray(parsed)) windowConfigs = parsed.filter(isRestorableWindowConfig)
       } catch {
         // Invalid JSON
       }

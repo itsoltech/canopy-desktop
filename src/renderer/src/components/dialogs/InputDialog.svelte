@@ -93,7 +93,9 @@
       return
     }
 
-    if (e.key === 'Enter') {
+    // Enter on a focused button (Cancel, AI Generate, the CustomCheckbox — also a <button>) must
+    // run that control, not submit the dialog.
+    if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) {
       if (multiline) {
         const mod = isMac ? e.metaKey : e.ctrlKey
         if (mod) {

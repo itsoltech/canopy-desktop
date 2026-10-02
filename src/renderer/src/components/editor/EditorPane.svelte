@@ -17,6 +17,7 @@
     pendingEditorJumps,
   } from '../../lib/stores/tabs.svelte'
   import { dragState, clearDrag, setDropTarget } from '../../lib/stores/dragState.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { detectIndent, indentUnitString, type IndentInfo } from './cm/detectIndent'
   import { detectLanguageName } from './cm/language'
 
@@ -238,6 +239,22 @@
   }
 
   async function reloadAndDiscard(): Promise<void> {
+    await loadFile(activeFilePath)
+  }
+
+  async function refreshFromDisk(): Promise<void> {
+    // Reloading replaces the buffer — a stray Refresh click must not drop unsaved edits.
+    if (
+      dirty &&
+      !(await confirm({
+        title: 'Discard unsaved changes?',
+        message: 'Reloading the file from disk discards your unsaved edits.',
+        confirmLabel: 'Discard & Reload',
+        destructive: true,
+      }))
+    ) {
+      return
+    }
     await loadFile(activeFilePath)
   }
 
@@ -580,7 +597,7 @@
       {/if}
       <button
         class="toolbar-btn"
-        onclick={() => loadFile(activeFilePath)}
+        onclick={refreshFromDisk}
         title="Refresh"
         aria-label="Refresh file"
       >

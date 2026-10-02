@@ -281,10 +281,11 @@ const extMap: Record<string, FileIconInfo> = {
 
 export function getFileIcon(filePath: string): FileIconInfo {
   const base = (filePath.split('/').pop() ?? filePath).toLowerCase()
-  const named = filenameMap[base]
-  if (named) return named
+  // Own keys only: a file named `constructor` or `__proto__` would otherwise resolve to an
+  // Object.prototype member instead of an icon.
+  if (Object.hasOwn(filenameMap, base)) return filenameMap[base]
   const dotIdx = base.lastIndexOf('.')
   if (dotIdx < 0) return DEFAULT_ICON
   const ext = base.slice(dotIdx + 1)
-  return extMap[ext] ?? DEFAULT_ICON
+  return Object.hasOwn(extMap, ext) ? extMap[ext] : DEFAULT_ICON
 }

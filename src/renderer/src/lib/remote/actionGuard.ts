@@ -5,7 +5,24 @@ import {
   type RpcMethodName,
 } from '../../../../renderer-shared/rpc/methodList'
 import { prefs } from '../stores/preferences.svelte'
-import { confirm } from '../stores/dialogs.svelte'
+import { confirm, confirmState, type ConfirmOptions } from '../stores/dialogs.svelte'
+
+const PROMPT_TIMEOUT_MS = 30_000
+
+/**
+ * `confirm` that auto-rejects after {@link PROMPT_TIMEOUT_MS}. The timeout cancels the dialog
+ * itself — racing a timer left it on screen, where a late "Allow" did nothing and the open
+ * confirmation kept blocking app shortcuts.
+ */
+function confirmWithTimeout(opts: ConfirmOptions): Promise<boolean> {
+  const answer = confirm(opts)
+  // confirm() installs its dialog synchronously (Promise executor), so this is ours.
+  const dialog = confirmState.current
+  const timer = setTimeout(() => {
+    if (confirmState.current === dialog) dialog?.onCancel()
+  }, PROMPT_TIMEOUT_MS)
+  return answer.finally(() => clearTimeout(timer))
+}
 
 export type ActionGuardProfile = 'none' | 'destructive' | 'full'
 
@@ -120,16 +137,13 @@ async function ensureSessionGrant(method: RpcMethodName): Promise<boolean> {
  */
 async function confirmSessionGrant(method: RpcMethodName): Promise<boolean> {
   const description = describeSessionGrant(method)
-  const result = await Promise.race([
-    confirm({
-      title: 'Remote session access request',
-      message: `Remote device wants to ${description} for this session.`,
-      details: `Method: ${method}. Access lasts until the remote device disconnects.`,
-      confirmLabel: 'Allow for session',
-      destructive: true,
-    }),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
-  ])
+  const result = await confirmWithTimeout({
+    title: 'Remote session access request',
+    message: `Remote device wants to ${description} for this session.`,
+    details: `Method: ${method}. Access lasts until the remote device disconnects.`,
+    confirmLabel: 'Allow for session',
+    destructive: true,
+  })
   if (!result) {
     console.log(`[action-guard] rejected session grant "${method}"`)
   }
@@ -149,17 +163,14 @@ function describeSessionGrant(method: RpcMethodName): string {
  */
 async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promise<boolean> {
   const description = describeAction(method, params)
-  const result = await Promise.race([
-    confirm({
-      title: 'Remote action request',
-      message: `Remote device wants to: ${description}`,
-      details: `Method: ${method}`,
-      confirmLabel: 'Allow',
-      destructive: DESTRUCTIVE_METHODS.has(method),
-    }),
-    // Auto-reject after 30s if the desktop user ignores the prompt
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
-  ])
+  // Auto-rejects after 30s if the desktop user ignores the prompt
+  const result = await confirmWithTimeout({
+    title: 'Remote action request',
+    message: `Remote device wants to: ${description}`,
+    details: `Method: ${method}`,
+    confirmLabel: 'Allow',
+    destructive: DESTRUCTIVE_METHODS.has(method),
+  })
   if (!result) {
     console.log(`[action-guard] rejected "${method}"`)
   }

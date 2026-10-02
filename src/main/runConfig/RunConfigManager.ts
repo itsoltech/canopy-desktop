@@ -70,7 +70,13 @@ export class RunConfigManager {
     configuration: RunConfiguration,
   ): ResultAsync<void, RunConfigError> {
     return this.loadFile(configDir)
-      .orElse(() => ok<RunConfigFile, RunConfigError>({ configurations: [] }))
+      .orElse((error) =>
+        // Only a missing file starts empty. Recovering from a parse error too would save a
+        // file holding just the new entry, wiping the user's other configurations.
+        error._tag === 'RunConfigNotFound'
+          ? ok<RunConfigFile, RunConfigError>({ configurations: [] })
+          : err<RunConfigFile, RunConfigError>(error),
+      )
       .andThen((file) => {
         const exists = file.configurations.some((c) => c.name === configuration.name)
         if (exists) {

@@ -3,6 +3,7 @@
   import { onMount } from 'svelte'
   import RunConfigForm from './RunConfigForm.svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import {
     addRunConfig,
     updateRunConfig,
@@ -84,21 +85,9 @@
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') closeDialog()
-    if (event.key === 'Tab' && modalEl) {
-      const focusable = modalEl.querySelectorAll<HTMLElement>(
-        'button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
+    // cycleFocus skips disabled controls (the form's Save button starts disabled) and handles
+    // focus on the dialog container itself — both let Tab escape the old inline trap.
+    if (event.key === 'Tab' && modalEl) cycleFocus(modalEl, event)
   }
 
   onMount(() => {

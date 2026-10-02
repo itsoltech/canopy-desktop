@@ -72,6 +72,8 @@
       commit(editValue)
     } else if (e.key === 'Escape') {
       e.preventDefault()
+      // Escape only abandons this edit; don't let it close the enclosing dialog.
+      e.stopPropagation()
       cancelNextBlur = true
       editing = false
       ;(e.currentTarget as HTMLInputElement).blur()

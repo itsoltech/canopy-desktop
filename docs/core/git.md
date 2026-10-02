@@ -103,7 +103,7 @@ lookup renders the error with a **Retry** action.
 1. User clicks the "Generate commit message" button in the changes panel.
 2. Renderer calls `window.api.gitGenerateCommitMessage(repoRoot)`.
 3. The main process reads the current diff (`git diff --cached` or `git diff` if none staged) and sends it to the AI model defined in preferences.
-4. The generation uses a specialized prompt (`src/main/ai/commitMessageGenerator.ts`) that enforces the Conventional Commits specification.
+4. The generation uses a specialized prompt (`src/main/ai/commitMessageGenerator.ts`) that enforces the Conventional Commits specification. The diff is untrusted input, so the agent runs without shell, file-writing, web or agent-spawning tools (`disallowedTools`) and ignores MCP servers from user or project settings (`strictMcpConfig`).
 5. The generated message is returned to the renderer and inserted into the commit message text area for the user to review.
 
 ### Push info

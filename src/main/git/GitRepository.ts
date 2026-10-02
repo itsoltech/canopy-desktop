@@ -7,6 +7,7 @@ import type { ParsedDiff, DiffFile } from './types'
 import { parseDiff } from './diffParser'
 import { fromExternalCall, errorMessage } from '../errors'
 import { hasRemoteName } from './remoteNames'
+import { parseBranchNames } from './branchNames'
 import { runGitProcess } from './GitProcessQueue'
 
 function validateRef(name: string): Result<string, GitError> {
@@ -373,7 +374,12 @@ export class GitRepository {
   ): ResultAsync<void, GitError> {
     return validateRef(remote)
       .andThen(() => validateRef(name))
-      .asyncAndThen(() => {
+      .asyncAndThen(() => this.hasRemote(repoRoot, remote))
+      .andThen((known) => {
+        // `remote` comes from the renderer, and git also accepts a URL here — the delete would
+        // then be pushed to an arbitrary host with the user's credentials. Require a configured
+        // remote name.
+        if (!known) return errAsync<never, GitError>({ _tag: 'InvalidRef', ref: remote })
         const git = simpleGit(repoRoot)
         return gitCall('push --delete', () => git.push(remote, name, { '--delete': null }))
       })
@@ -420,12 +426,7 @@ export class GitRepository {
       'branch --merged',
       () => git.raw(['branch', '--merged']),
       readKey(repoRoot, 'merged-branches'),
-    ).map((raw) =>
-      raw
-        .split('\n')
-        .map((line) => line.replace(/^\*?\s+/, '').trim())
-        .filter(Boolean),
-    )
+    ).map(parseBranchNames)
   }
 
   static worktreeAdd(
