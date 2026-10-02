@@ -14,6 +14,37 @@ function tomlPath(configDir: string): string {
   return join(configDir, CONFIG_DIR, CONFIG_FILE)
 }
 
+/**
+ * `.canopy/run.toml` is committed to the repo, so its contents arrive from
+ * whoever authored the checkout rather than from this app. Validate each entry
+ * instead of asserting the parsed TOML into `RunConfiguration[]` — an entry with
+ * a missing or non-string `command` would otherwise reach the executor and be
+ * spawned as `undefined`, and a malformed `env` would slip past the
+ * string-valued contract `filterRunConfigEnv` relies on.
+ */
+export function isRunConfiguration(value: unknown): value is RunConfiguration {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Record<string, unknown>
+
+  if (typeof candidate.name !== 'string' || typeof candidate.command !== 'string') return false
+
+  for (const key of ['args', 'cwd', 'pre_run', 'post_run'] as const) {
+    if (candidate[key] !== undefined && typeof candidate[key] !== 'string') return false
+  }
+
+  if (candidate.max_instances !== undefined && typeof candidate.max_instances !== 'number') {
+    return false
+  }
+
+  if (candidate.env !== undefined) {
+    if (typeof candidate.env !== 'object' || candidate.env === null || Array.isArray(candidate.env))
+      return false
+    if (!Object.values(candidate.env).every((v) => typeof v === 'string')) return false
+  }
+
+  return true
+}
+
 export class RunConfigManager {
   discover(repoRoot: string): ResultAsync<RunConfigSource[], RunConfigError> {
     return fromExternalCall(this.scanForConfigs(repoRoot), () => ({
@@ -31,7 +62,7 @@ export class RunConfigManager {
       try {
         const parsed = parse(raw) as Record<string, unknown>
         const configurations = Array.isArray(parsed.configurations)
-          ? (parsed.configurations as RunConfiguration[])
+          ? parsed.configurations.filter(isRunConfiguration)
           : []
         return ok({ configurations })
       } catch (e) {
