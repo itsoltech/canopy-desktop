@@ -17,8 +17,12 @@ export class ToolRegistry {
     return this.database.db
   }
 
+  private isValidId(id: string): boolean {
+    return !!id && !/[/\\]|\.\.|\0/.test(id)
+  }
+
   private validateId(id: string): void {
-    if (!id || /[/\\]|\.\.|\0/.test(id)) {
+    if (!this.isValidId(id)) {
       throw new Error('Invalid tool ID: contains path separators or traversal characters')
     }
   }
@@ -120,11 +124,7 @@ export class ToolRegistry {
     const SHELL_META = /[;|&$`<>%^!()\\"]/
     let count = 0
     for (const tool of tools) {
-      try {
-        this.validateId(tool.id)
-      } catch {
-        continue
-      }
+      if (!this.isValidId(tool.id)) continue
       if (!tool.command.trim()) continue
       if (/[/\\;|&$`<>%^!()"]/.test(tool.command)) continue
       if (tool.args?.some((arg) => SHELL_META.test(arg))) continue

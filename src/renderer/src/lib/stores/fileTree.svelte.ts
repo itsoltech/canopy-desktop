@@ -68,15 +68,20 @@ function createFileTreeStore() {
   // sync with gitFileStatus so FileTreeSection can check folder-has-changes
   // in O(1) instead of scanning the whole status map per directory render.
   const gitChangedDirs = new SvelteSet<string>()
+  // Dirs whose last read failed. Tracked separately from an empty entry list so
+  // an unreadable directory renders as an error instead of looking empty.
+  const dirLoadErrors = new SvelteSet<string>()
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
   async function expandDir(dirPath: string): Promise<void> {
     try {
       const entries = await window.api.fileTreeReadDir(dirPath)
       expandedDirs[dirPath] = entries
+      dirLoadErrors.delete(dirPath)
     } catch (e) {
       // Show empty rather than leaving in collapsed state
       expandedDirs[dirPath] = []
+      dirLoadErrors.add(dirPath)
       console.warn('fileTreeReadDir failed:', dirPath, e)
     }
   }
@@ -86,6 +91,7 @@ function createFileTreeStore() {
     for (const key of Object.keys(expandedDirs)) {
       if (key === dirPath || key.startsWith(prefix)) {
         delete expandedDirs[key]
+        dirLoadErrors.delete(key)
       }
     }
   }
@@ -200,6 +206,7 @@ function createFileTreeStore() {
     selectedFilePath = null
     gitFileStatus.clear()
     gitChangedDirs.clear()
+    dirLoadErrors.clear()
     rootPath = newRoot
   }
 
@@ -218,6 +225,9 @@ function createFileTreeStore() {
     },
     get gitChangedDirs() {
       return gitChangedDirs
+    },
+    get dirLoadErrors() {
+      return dirLoadErrors
     },
     expandDir,
     collapseDir,

@@ -317,6 +317,12 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
     .otherwise(() => {})
 }
 
+function isTaskStatus(value: unknown): value is TaskRecord['status'] {
+  return (
+    value === 'pending' || value === 'in_progress' || value === 'completed' || value === 'deleted'
+  )
+}
+
 function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEvent): void {
   const toolName = event.toolName
   if (!toolName) return
@@ -360,7 +366,10 @@ function handleTaskToolUse(session: AgentSessionState, event: NormalizedHookEven
       const taskId = String(input.taskId ?? '')
       const existing = session.tasks.find((t) => t.id === taskId)
       if (existing) {
-        if (input.status) existing.status = input.status as TaskRecord['status']
+        // `input` is unvalidated JSON from an external agent CLI. An unknown
+        // status would count toward `total` but never toward `done`, and the
+        // MAX_TASKS eviction only drops `completed`, so reject it outright.
+        if (isTaskStatus(input.status)) existing.status = input.status
         if (input.subject) existing.subject = input.subject as string
         if (input.owner !== undefined) existing.owner = (input.owner as string) ?? null
         if (input.activeForm !== undefined)

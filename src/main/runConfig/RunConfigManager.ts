@@ -3,6 +3,7 @@ import { join, relative } from 'path'
 import { ok, err, type ResultAsync } from 'neverthrow'
 import { parse, stringify } from 'smol-toml'
 import type { RunConfigFile, RunConfigSource, RunConfiguration } from './types'
+import { isRunConfiguration } from './types'
 import type { RunConfigError } from './errors'
 import { fromExternalCall } from '../errors'
 import { SAFETY_IGNORE_PATTERNS } from '../fileWatcher/defaults'
@@ -31,7 +32,7 @@ export class RunConfigManager {
       try {
         const parsed = parse(raw) as Record<string, unknown>
         const configurations = Array.isArray(parsed.configurations)
-          ? (parsed.configurations as RunConfiguration[])
+          ? parsed.configurations.filter(isRunConfiguration)
           : []
         return ok({ configurations })
       } catch (e) {
@@ -142,7 +143,7 @@ export class RunConfigManager {
           const raw = await readFile(filePath, 'utf-8')
           const parsed = parse(raw) as Record<string, unknown>
           const configurations = Array.isArray(parsed.configurations)
-            ? (parsed.configurations as RunConfiguration[])
+            ? parsed.configurations.filter(isRunConfiguration)
             : []
           const configDir = dir
           const relativePath = relative(repoRoot, configDir) || '.'

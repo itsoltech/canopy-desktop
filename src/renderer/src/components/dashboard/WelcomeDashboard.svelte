@@ -23,6 +23,9 @@
   const modKey = isMac ? '⌘' : 'Ctrl'
 
   let workspaces = $state<WorkspaceRow[]>([])
+  // Distinguishes "not loaded yet" from "genuinely no recent workspaces" so the
+  // empty state doesn't flash before the initial list resolves.
+  let loadingWorkspaces = $state(true)
   let filter = $state('')
   let selectedIndex = $state(0)
   let contextMenu = $state<{ x: number; y: number; workspace: WorkspaceRow } | null>(null)
@@ -57,6 +60,8 @@
       addToast(
         `Failed to load recent workspaces: ${err instanceof Error ? err.message : String(err)}`,
       )
+    } finally {
+      loadingWorkspaces = false
     }
 
     await tick()
@@ -268,7 +273,11 @@
 
 <div class="flex items-start justify-center h-full overflow-y-auto py-12 px-5">
   <div class="w-full max-w-160 flex flex-col gap-6">
-    {#if workspaces.length === 0}
+    {#if loadingWorkspaces}
+      <div class="flex items-center justify-center py-12">
+        <span class="text-sm text-text-faint" role="status">Loading recent projects…</span>
+      </div>
+    {:else if workspaces.length === 0}
       <WelcomeEmpty
         {modKey}
         onOpenFolder={handleOpenFolder}
