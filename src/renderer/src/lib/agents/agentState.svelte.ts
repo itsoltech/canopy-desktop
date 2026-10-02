@@ -17,6 +17,8 @@ export interface TaskRecord {
 }
 
 export interface NotificationRecord {
+  /** Stable list key — two hook events can arrive within the same millisecond. */
+  id: number
   title: string
   message: string
   type: string
@@ -62,6 +64,7 @@ export interface AgentSessionState {
 export type BadgeType = 'none' | 'unread' | 'permission'
 
 const MAX_NOTIFICATIONS = 20
+let notificationSeq = 0
 const MAX_TASKS = 50
 
 export const agentSessions: Record<string, AgentSessionState> = $state({})
@@ -280,6 +283,7 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
       session.notifications = [
         ...session.notifications.slice(-(MAX_NOTIFICATIONS - 1)),
         {
+          id: ++notificationSeq,
           title: event.title ?? '',
           message: event.message ?? '',
           type: event.notificationType ?? '',

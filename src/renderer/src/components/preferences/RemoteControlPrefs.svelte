@@ -148,7 +148,11 @@
       search="remote control enable signaling pair phone tablet"
       badge={{ text: 'Beta', tone: 'warning' }}
     >
-      <CustomCheckbox checked={enabled} onchange={toggleEnabled} />
+      <CustomCheckbox
+        checked={enabled}
+        onchange={toggleEnabled}
+        ariaLabel="Enable remote control"
+      />
     </PrefsRow>
     <PrefsRow
       label="Listen on"
@@ -168,7 +172,13 @@
     title="Action restrictions"
     description="What the paired device may do without per-action approval on this desktop"
   >
-    <div class="flex flex-col" class:opacity-50={!enabled} class:pointer-events-none={!enabled}>
+    <div
+      class="flex flex-col"
+      class:opacity-50={!enabled}
+      class:pointer-events-none={!enabled}
+      role="radiogroup"
+      aria-label="Action restrictions"
+    >
       <PrefsRow
         label="None"
         help="Paired device has full access without per-action prompts"
@@ -178,6 +188,7 @@
           checked={guardProfile === 'none'}
           onchange={() => setGuard('none')}
           disabled={!enabled}
+          ariaLabel="None"
         />
       </PrefsRow>
       <PrefsRow
@@ -190,6 +201,7 @@
           checked={guardProfile === 'destructive'}
           onchange={() => setGuard('destructive')}
           disabled={!enabled}
+          ariaLabel="Destructive only"
         />
       </PrefsRow>
       <PrefsRow
@@ -201,6 +213,7 @@
           checked={guardProfile === 'full'}
           onchange={() => setGuard('full')}
           disabled={!enabled}
+          ariaLabel="Full"
         />
       </PrefsRow>
     </div>

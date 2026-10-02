@@ -30,6 +30,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
   import { addToast, showUrlToast } from '../../lib/stores/toast.svelte'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
@@ -366,7 +367,7 @@
 
       if (pageHasPasswordField) {
         injectCredentialCapture()
-        if (hasCredentials) injectAutofillIcon(creds)
+        if (hasCredentials) injectAutofillIcon(creds, domain)
       }
 
       // Watch for dynamically added password fields (SPA login forms)
@@ -381,6 +382,7 @@
 
   function injectAutofillIcon(
     creds: Array<{ id: string; username: string; title?: string }>,
+    domain: string,
   ): void {
     const w = wv()
     if (!w) return
@@ -389,9 +391,12 @@
       creds.map((c) => ({ id: c.id, u: c.username, t: c.title || '' })),
     )
 
+    // The page can navigate between the credential lookup and this injection; checking the
+    // host inside the page keeps one site's saved usernames out of another site's DOM.
     w.executeJavaScript(
       `
       (function() {
+        if (location.host !== ${JSON.stringify(domain)}) return
         if (document.getElementById('__canopy_autofill_icon')) return
         const pw = document.querySelector('input[type="password"]')
         if (!pw) return
@@ -487,8 +492,8 @@
     const domain = new URL(url).host
     const cred = await window.api.getCredentialDecrypted(credId, domain, 'autofill')
     if (!cred) return
-    // Fill via main process isolated world — page scripts cannot intercept
-    await window.api.fillBrowserCredential(browserId, cred.username, cred.password)
+    // Fill via the main-process isolated world, which re-checks the page is still on `domain`
+    await window.api.fillBrowserCredential(browserId, cred.username, cred.password, domain)
   }
 
   /** Inject early capture script — stores credentials on form submit/button click */
@@ -551,16 +556,18 @@
     }
   }
 
-  function handleSaveCredential(): void {
+  async function handleSaveCredential(): Promise<void> {
     if (!savePrompt) return
-    window.api.saveCredential(
-      savePrompt.domain,
-      savePrompt.username,
-      savePrompt.password,
-      savePrompt.title,
-    )
+    const { domain, username, password, title } = savePrompt
     savePrompt = null
-    checkCredentials()
+    try {
+      await window.api.saveCredential(domain, username, password, title)
+    } catch (e) {
+      addToast(ipcErrorMessage(e, 'Failed to save the password'))
+      return
+    }
+    // After the save lands, so the autofill icon picks up the new credential.
+    void checkCredentials()
   }
 
   function handleDismissSavePrompt(): void {

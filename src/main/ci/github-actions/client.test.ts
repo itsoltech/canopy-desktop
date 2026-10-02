@@ -411,6 +411,59 @@ describe('GitHubActionsClient', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 
+  it('backs off by Retry-After rather than the primary-window reset sent on every response', async () => {
+    const now = 1_800_000_000_000
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 429,
+            headers: {
+              'retry-after': '60',
+              'x-ratelimit-remaining': '4321',
+              'x-ratelimit-reset': String(now / 1_000 + 3_000),
+            },
+          }),
+      ),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'secondary-with-reset', 'token')
+
+    const result = await client.listWorkflows()
+
+    expect(result.isErr() && result.error).toEqual({
+      _tag: 'CiRateLimited',
+      resetAt: now + 60_000,
+    })
+  })
+
+  it('ignores the primary-window reset while that window still has requests left', async () => {
+    const now = 1_800_000_000_000
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 429,
+            headers: {
+              'x-ratelimit-remaining': '4321',
+              'x-ratelimit-reset': String(now / 1_000 + 3_000),
+            },
+          }),
+      ),
+    )
+    const client = new GitHubActionsClient('itsoltech', 'secondary-without-retry-after', 'token')
+
+    const result = await client.listWorkflows()
+
+    expect(result.isErr() && result.error).toEqual({
+      _tag: 'CiRateLimited',
+      resetAt: now + 60_000,
+    })
+  })
+
   it('lets a replacement credential attempt a request during the previous token backoff', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -465,7 +518,7 @@ describe('GitHubActionsClient', () => {
   })
 
   it.each([
-    ['x-ratelimit-reset', { 'x-ratelimit-reset': '99999999999' }],
+    ['x-ratelimit-reset', { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '99999999999' }],
     ['numeric retry-after', { 'retry-after': '99999999999' }],
     ['HTTP-date retry-after', { 'retry-after': 'Fri, 31 Dec 9999 23:59:59 GMT' }],
   ])('clamps an absurd %s header to one hour', async (label, headers) => {

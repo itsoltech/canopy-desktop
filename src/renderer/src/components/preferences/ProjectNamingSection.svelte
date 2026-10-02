@@ -318,7 +318,7 @@
           type="button"
           class="shrink-0 flex items-center justify-center size-6 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text"
           onclick={() => startEdit(type, scope)}
-          aria-label="Edit"
+          aria-label={`Edit ${type === 'branch' ? 'branch' : 'PR'} template for ${label}`}
           title="Edit"
         >
           <Pencil size={12} />

@@ -238,6 +238,10 @@
   )
 
   let loadedForKey = $state('')
+  // Task the comment draft and agent compose box were typed for. They are dropped when another
+  // task shows up, or Send would post the old draft to the new task (kept across the credential
+  // re-check that clears loadedForKey for the same task).
+  let draftTaskKey = ''
 
   $effect(() => {
     const key = panel?.taskKey ?? ''
@@ -250,6 +254,11 @@
     }
     if (key && key !== loadedForKey) {
       loadedForKey = key
+      if (key !== draftTaskKey) {
+        draftTaskKey = key
+        newComment = ''
+        closeCompose()
+      }
       // Different task — the data on screen belongs to the previous one, drop it immediately.
       task = null
       transitions = []
@@ -266,6 +275,9 @@
       void refresh(key)
     } else if (!key) {
       loadedForKey = ''
+      draftTaskKey = ''
+      newComment = ''
+      closeCompose()
       task = null
       transitions = []
       comments = []

@@ -57,7 +57,11 @@
       help="Restore the previous workspace tabs and layout when the app starts"
       search="restore previous tabs layout"
     >
-      <CustomCheckbox checked={reopenLast} onchange={toggleReopen} />
+      <CustomCheckbox
+        checked={reopenLast}
+        onchange={toggleReopen}
+        ariaLabel="Reopen last workspace on startup"
+      />
     </PrefsRow>
 
     <PrefsRow
@@ -113,7 +117,11 @@
       help="Aggregates total CPU and resident memory across all Canopy processes (main, renderer, GPU, utility). Sampled once per second; the sampler stops entirely when this toggle is off."
       search="cpu ram performance hud monitoring memory"
     >
-      <CustomCheckbox checked={perfHudEnabled} onchange={togglePerfHud} />
+      <CustomCheckbox
+        checked={perfHudEnabled}
+        onchange={togglePerfHud}
+        ariaLabel="Show CPU and RAM usage"
+      />
     </PrefsRow>
   </PrefsSection>
 </div>

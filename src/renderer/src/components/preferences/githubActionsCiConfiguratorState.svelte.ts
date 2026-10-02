@@ -109,7 +109,9 @@ export function createGitHubActionsCiConfiguratorState({
       repositoryResolving ||
       !!repositoryResolutionIssue ||
       !repository ||
-      (hasToken && credentialRejected) ||
+      // A replacement typed into the initial-setup token field unblocks loading (ensureToken
+      // tests and stores it); only an untouched rejected token blocks it.
+      (hasToken && credentialRejected && token.trim().length === 0) ||
       (!hasToken && token.trim().length === 0),
   )
   const loadBlockedReason = $derived(
@@ -119,7 +121,7 @@ export function createGitHubActionsCiConfiguratorState({
         ? repositoryResolutionIssue
         : !repository
           ? 'No github.com origin remote was found for this workspace.'
-          : hasToken && credentialRejected
+          : hasToken && credentialRejected && token.trim().length === 0
             ? 'Update the rejected token in Personal credentials before loading workflows.'
             : !hasToken && token.trim().length === 0
               ? isInitialSetup

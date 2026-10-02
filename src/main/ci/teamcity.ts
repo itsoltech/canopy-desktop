@@ -74,7 +74,9 @@ function isRawBuild(value: unknown): value is RawBuild {
   }
   return (
     value.buildType === undefined ||
-    (isRecord(value.buildType) && hasOptionalString(value.buildType, 'id'))
+    (isRecord(value.buildType) &&
+      hasOptionalString(value.buildType, 'id') &&
+      hasOptionalString(value.buildType, 'name'))
   )
 }
 

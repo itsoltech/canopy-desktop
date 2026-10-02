@@ -15,6 +15,7 @@ import { removalNeedsForceConsent } from '../worktrees/removalGuard'
 import { allPanes } from '../stores/splitTree'
 import { substituteLocalhost } from '../../../../renderer-shared/url/localhostSubstitution'
 import { remoteSession } from '../stores/remoteSession.svelte'
+import { agentSessions } from '../agents/agentState.svelte'
 
 /**
  * Registers the Canopy host-side handlers for the RPC whitelist declared
@@ -119,6 +120,9 @@ export class HostRpcServer {
     this.register('agent.sendInput', async (params) => {
       const sessionId = assertString(params, 'sessionId', 'agent.sendInput')
       const text = assertString(params, 'text', 'agent.sendInput')
+      // The session grant for this method covers agent prompts only. Without the check a peer
+      // refused `pty.write` could still type and submit commands into a plain shell pane.
+      if (!agentSessions[sessionId]) throw new Error('agent.sendInput: not an agent session')
       // PTYs interpret Enter as carriage return (`\r`), NOT line feed
       // (`\n`). Shell, Claude CLI, Gemini — all of them treat `\n` as
       // a literal newline character inside the current input buffer

@@ -37,6 +37,12 @@ describe('renderTemplateExample', () => {
   it('leaves unknown fields untouched', () => {
     expect(renderTemplateExample('{nope}/{taskKey}', PR_EXAMPLE_VALUES)).toBe('{nope}/ISSUE-123')
   })
+
+  it('does not resolve placeholders named after Object.prototype members', () => {
+    expect(renderTemplateExample('{constructor}-{toString}', BRANCH_EXAMPLE_VALUES)).toBe(
+      '{constructor}-{toString}',
+    )
+  })
 })
 
 describe('default template presets', () => {

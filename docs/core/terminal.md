@@ -165,6 +165,9 @@ a replacement shell automatically.
 | `fontFamily`   | string                              | JetBrains Mono + fallbacks | Font family stack          |
 | `urlOpenMode`  | `"ask"` \| `"canopy"` \| `"system"` | `"ask"`                    | How to handle clicked URLs |
 
+Theme, font size and font family changes apply to open terminals immediately; a font change also
+refits the terminal to its pane, which resizes the PTY.
+
 ### Built-in themes
 
 Default, Dracula, Monokai, Solarized Dark, Solarized Light, Nord, One Dark, Gruvbox Dark, Tokyo Night, Catppuccin Mocha, GitHub Dark, Rosé Pine.

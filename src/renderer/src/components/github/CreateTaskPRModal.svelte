@@ -35,7 +35,13 @@
     previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
   })
-  onDestroy(() => previouslyFocused?.focus?.())
+  // Escape/backdrop/Cancel can close the dialog while a PR is being created; the request keeps
+  // going, and when it lands it must not close (or replace) a dialog the user opened since.
+  let destroyed = false
+  onDestroy(() => {
+    destroyed = true
+    previouslyFocused?.focus?.()
+  })
 
   let title = $state('')
   let body = $state('')
@@ -88,6 +94,10 @@
     // A linked task must have resolved before creating; a branch-level PR has no task at all.
     if (creating || !title.trim() || (task && !fullTask)) return
     creating = true
+    // Capture props up front — prop getters return undefined once this component unmounts, which
+    // used to open the details panel for branch "undefined".
+    const root = repoRoot
+    const forBranch = branch
     try {
       // $state values are proxies and fail Electron's structured clone ("An object could not be
       // cloned") — snapshot everything non-primitive before it crosses the IPC boundary.
@@ -107,12 +117,9 @@
         },
       )
       addToast(`PR created: ${result.title} → ${result.targetBranch}`)
-      // Capture props BEFORE closeDialog unmounts this component — prop getters return
-      // undefined afterwards, which used to open the details panel for branch "undefined".
-      const root = repoRoot
-      const forBranch = branch
       invalidatePRFallback(root, forBranch)
       void loadBranchPRs(root, true)
+      if (destroyed) return
       closeDialog()
       showPRDetails(root, forBranch)
     } catch (e) {

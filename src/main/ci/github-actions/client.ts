@@ -220,10 +220,8 @@ function rateLimitResetAt(response: Response): number | undefined {
   // GitHub's primary window is one hour and secondary limits are shorter, so clamp malformed or
   // proxy-rewritten headers rather than letting one response disable CI for the process lifetime.
   const ceiling = Date.now() + MAX_RATE_LIMIT_BACKOFF_MS
-  const resetSeconds = Number(response.headers.get('x-ratelimit-reset'))
-  if (Number.isFinite(resetSeconds) && resetSeconds > 0) {
-    return Math.min(resetSeconds * 1000, ceiling)
-  }
+  // GitHub sends `x-ratelimit-reset` (the primary window's reset) on every response, so it only
+  // dates the backoff once that window is exhausted; secondary limits carry `retry-after`.
   const retryAfter = response.headers.get('retry-after')
   if (retryAfter) {
     const seconds = Number(retryAfter)
@@ -232,6 +230,12 @@ function rateLimitResetAt(response: Response): number | undefined {
     }
     const date = Date.parse(retryAfter)
     if (!Number.isNaN(date)) return Math.min(date, ceiling)
+  }
+  if (response.headers.get('x-ratelimit-remaining') === '0') {
+    const resetSeconds = Number(response.headers.get('x-ratelimit-reset'))
+    if (Number.isFinite(resetSeconds) && resetSeconds > 0) {
+      return Math.min(resetSeconds * 1000, ceiling)
+    }
   }
   return undefined
 }

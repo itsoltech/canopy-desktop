@@ -18,10 +18,11 @@ function apiError(status: number, message: string): TaskTrackerError {
 }
 
 function apiUrlForConnection(connection: TaskTrackerConnection): string {
-  const baseUrl = connection.baseUrl || 'https://github.com'
-  const host = new URL(baseUrl).hostname
-  if (host === 'github.com') return 'https://api.github.com/graphql'
-  return `https://${host}/api/graphql`
+  const url = new URL(connection.baseUrl || 'https://github.com')
+  if (url.hostname === 'github.com') return 'https://api.github.com/graphql'
+  // `host` keeps a non-default port: the token belongs to the server the user configured,
+  // not to whatever listens on 443 of the same machine.
+  return `https://${url.host}/api/graphql`
 }
 
 function ownerRepo(connection: TaskTrackerConnection): { owner: string; repo: string } {
@@ -334,33 +335,39 @@ export const githubClient: TaskTrackerProviderClient = {
     }
     if (states.length === 0) states.push('OPEN')
 
-    const filterBy: Record<string, unknown> = {}
-    if (params.assignedToMe) {
-      filterBy.assignee = '*'
-    }
+    // IssueFilters.assignee takes a login; `*` would match issues assigned to anyone.
+    const viewerLogin: ResultAsync<string | null, TaskTrackerError> = params.assignedToMe
+      ? mapGitHubError(graphqlFetch<ViewerResponse>(apiUrl, token, '{ viewer { login } }')).map(
+          (data) => data.viewer.login,
+        )
+      : okAsync(null)
 
-    return mapGitHubError(
-      graphqlFetch<IssuesResponse>(apiUrl, token, ISSUES_QUERY, {
-        owner,
-        name: repo,
-        first: 100,
-        states,
-        filterBy: Object.keys(filterBy).length > 0 ? filterBy : undefined,
-      }),
-    ).map((data) =>
-      data.repository.issues.nodes.map((issue): TrackerTask => ({
-        key: `#${issue.number}`,
-        summary: issue.title,
-        description: issue.body ?? '',
-        status: issue.state.toLowerCase(),
-        priority: mapPriority(issue.labels.nodes),
-        type: mapTaskType(issue.labels.nodes),
-        assignee: issue.assignees.nodes[0]?.login,
-        sprintName: issue.milestone?.title,
-        sprintNumber: issue.milestone?.number,
-        url: issue.url,
-      })),
-    )
+    return viewerLogin
+      .andThen((login) =>
+        mapGitHubError(
+          graphqlFetch<IssuesResponse>(apiUrl, token, ISSUES_QUERY, {
+            owner,
+            name: repo,
+            first: 100,
+            states,
+            filterBy: login ? { assignee: login } : undefined,
+          }),
+        ),
+      )
+      .map((data) =>
+        data.repository.issues.nodes.map((issue): TrackerTask => ({
+          key: `#${issue.number}`,
+          summary: issue.title,
+          description: issue.body ?? '',
+          status: issue.state.toLowerCase(),
+          priority: mapPriority(issue.labels.nodes),
+          type: mapTaskType(issue.labels.nodes),
+          assignee: issue.assignees.nodes[0]?.login,
+          sprintName: issue.milestone?.title,
+          sprintNumber: issue.milestone?.number,
+          url: issue.url,
+        })),
+      )
   },
 
   getCurrentSprint(connection, token) {

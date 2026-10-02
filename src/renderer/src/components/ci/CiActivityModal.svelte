@@ -201,9 +201,13 @@
           <p class="m-0 text-xs text-text-faint break-words" title={error}>{error}</p>
         </div>
       {:else if activity}
-        {#if error}<p class="px-3 py-2 m-0 text-sm text-warning-text" title={error}>
-            Could not refresh; showing the last loaded history. {error}
-          </p>{/if}
+        <!-- Persistent live region, as in the GitHub history window: a background refresh failure
+             changes its contents instead of mounting the region together with its text. -->
+        <div role="status" class:sr-only={!error}>
+          {#if error}<p class="px-3 py-2 m-0 text-sm text-warning-text" title={error}>
+              Could not refresh; showing the last loaded history. {error}
+            </p>{/if}
+        </div>
         <span
           class="px-3 pt-1 pb-0.5 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
           >Running & queued</span

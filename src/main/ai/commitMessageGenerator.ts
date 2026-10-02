@@ -26,6 +26,8 @@ async function resolveClaudeExecutable(): Promise<string | undefined> {
 }
 
 const MAX_DIFF_LENGTH = 15_000
+/** A haiku commit message takes seconds; past this the CLI is stuck retrying an unreachable API. */
+const GENERATION_TIMEOUT_MS = 60_000
 
 const PROMPT_TEMPLATE = `Generate a concise git commit message for this diff.
 Use conventional commits format (feat:, fix:, chore:, refactor:, docs:, test:, build:).
@@ -67,6 +69,8 @@ function generateCommitMessageInner(
   return fromExternalCall(
     (async () => {
       const claudePath = await resolveClaudeExecutable()
+      const abortController = new AbortController()
+      const timeout = setTimeout(() => abortController.abort(), GENERATION_TIMEOUT_MS)
 
       const q = query({
         prompt,
@@ -75,18 +79,25 @@ function generateCommitMessageInner(
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
           env,
+          abortController,
         },
       })
 
-      let structuredOutput: CommitOutput | null = null
-      for await (const message of q) {
-        if (message.type === 'result' && (message as { subtype?: string }).subtype === 'success') {
-          structuredOutput = (message as Record<string, unknown>)
-            .structured_output as CommitOutput | null
+      const collect = async (): Promise<CommitOutput | null> => {
+        let structuredOutput: CommitOutput | null = null
+        for await (const message of q) {
+          if (
+            message.type === 'result' &&
+            (message as { subtype?: string }).subtype === 'success'
+          ) {
+            structuredOutput = (message as Record<string, unknown>)
+              .structured_output as CommitOutput | null
+          }
         }
+        return structuredOutput
       }
 
-      return structuredOutput
+      return await collect().finally(() => clearTimeout(timeout))
     })(),
     (e): AiError => ({
       _tag: 'AiRequestFailed',

@@ -134,6 +134,7 @@
       >
         <button
           class="flex items-center gap-2 flex-1 min-w-0 h-7 px-3 border-0 bg-transparent text-text text-sm font-inherit cursor-pointer text-left"
+          aria-current={wt.path === workspaceState.selectedWorktreePath ? 'true' : undefined}
           onclick={() => selectWorktree(wt.path)}
         >
           <span class="font-mono text-xs text-text-secondary w-2.5 flex-shrink-0"

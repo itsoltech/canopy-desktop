@@ -1,7 +1,6 @@
 <script lang="ts">
   import { Play, Square, Settings, ChevronDown } from '@lucide/svelte'
   import Tooltip from '../shared/Tooltip.svelte'
-  import { workspaceState } from '../../lib/stores/workspace.svelte'
   import {
     getSources,
     getSelectedConfig,
@@ -86,10 +85,7 @@
   async function runItem(configDir: string, name: string): Promise<void> {
     closeDropdown()
     const result = await executeRunConfig(configDir, name)
-    if (result) {
-      const worktreePath = workspaceState.selectedWorktreePath
-      if (worktreePath) openRunConfigTab(name, result.sessionId, worktreePath)
-    }
+    if (result) openRunConfigTab(name, result.sessionId, result.worktreePath)
   }
 
   function openManager(): void {
@@ -106,12 +102,7 @@
     const target = getActiveTarget()
     if (!target) return
     const result = await executeRunConfig(target.configDir, target.name)
-    if (result) {
-      const worktreePath = workspaceState.selectedWorktreePath
-      if (worktreePath) {
-        openRunConfigTab(target.name, result.sessionId, worktreePath)
-      }
-    }
+    if (result) openRunConfigTab(target.name, result.sessionId, result.worktreePath)
   }
 
   function getRunningIdsFor(configDir: string, name: string): string[] {

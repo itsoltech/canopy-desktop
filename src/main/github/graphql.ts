@@ -32,7 +32,11 @@ export function graphqlFetch<T>(
   ).andThen((res) => {
     if (res.status === 401 || res.status === 403) {
       const resetHeader = res.headers.get('x-ratelimit-reset')
-      if (resetHeader && res.status === 403) {
+      // x-ratelimit-reset rides on every GitHub response; only an exhausted window or a
+      // secondary limit (retry-after) makes a 403 a rate limit rather than e.g. SSO or scopes.
+      const rateLimited =
+        res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')
+      if (resetHeader && res.status === 403 && rateLimited) {
         return errAsync<T, GitHubError>({
           _tag: 'GitHubRateLimited',
           resetAt: parseInt(resetHeader, 10),

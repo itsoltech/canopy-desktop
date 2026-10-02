@@ -513,15 +513,7 @@ export class RemoteSessionService {
     // useful error instead of a generic "connection dropped" message.
     this.signalingServer.sendToPeer({ type: 'rejected', reason: 'user rejected' })
     this.signalingServer.closePeer('rejected by user')
-    const pairing = this.currentPairing
-    this.setStatus({
-      kind: 'waiting',
-      pairingUrl: pairing.pairingUrl,
-      hostname: pairing.hostname,
-      lanIp: pairing.lanIp,
-      port: pairing.port,
-      expiresAt: pairing.expiresAt,
-    })
+    this.returnToWaiting(this.currentPairing)
     return okAsync(undefined)
   }
 
@@ -706,16 +698,7 @@ export class RemoteSessionService {
     if (this.status.kind === 'peerArrived') {
       const pairing = this.currentPairing
       this.pendingDevice = null
-      if (pairing) {
-        this.setStatus({
-          kind: 'waiting',
-          pairingUrl: pairing.pairingUrl,
-          hostname: pairing.hostname,
-          lanIp: pairing.lanIp,
-          port: pairing.port,
-          expiresAt: pairing.expiresAt,
-        })
-      }
+      if (pairing) this.returnToWaiting(pairing)
     } else if (this.status.kind === 'paired') {
       // Phase 10: enter reconnect window instead of immediate teardown.
       // The peer side will retry the signaling WebSocket with the same
@@ -902,6 +885,25 @@ export class RemoteSessionService {
     const payload = this.status
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send(REMOTE_STATUS_CHANNEL, payload)
+    }
+  }
+
+  /**
+   * Back to the QR after a pending peer was rejected or dropped. The expiry timer does nothing
+   * while a peer is pending, so it may already have fired: re-arm it for the TTL that is left
+   * (expiring at once when none is). Otherwise the token stayed valid with no deadline.
+   */
+  private returnToWaiting(pairing: PairingUrlInfo): void {
+    this.setStatus({
+      kind: 'waiting',
+      pairingUrl: pairing.pairingUrl,
+      hostname: pairing.hostname,
+      lanIp: pairing.lanIp,
+      port: pairing.port,
+      expiresAt: pairing.expiresAt,
+    })
+    if (Number.isFinite(pairing.expiresAt)) {
+      this.scheduleExpiry(Math.max(0, pairing.expiresAt - Date.now()))
     }
   }
 

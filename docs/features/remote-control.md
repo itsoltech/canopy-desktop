@@ -59,7 +59,7 @@ reconnect/listen flow after the operating system wakes.
 5. The `SignalingServer` starts an HTTP server with a preferred port (persisted in `remote.lastPort` preference), bound only on the selected interface's IPv4 address. If the preferred port is taken, it falls back to an ephemeral port. Reusing the same port keeps the peer-client origin stable so that the peer's localStorage (device ID, trust flag) survives Canopy restarts when the selected adapter address is unchanged.
 6. The mobile-app QR payload is built as `http://<lan-ip>:<port>/remote/?v=<cache-buster>#t=<token>&h=<hostname>`.
 7. The session transitions to `waiting` state with a 10-minute expiry. The QR code is displayed in the Remote sidebar section.
-8. If no device connects within 10 minutes, the session auto-stops and returns to `idle`.
+8. If no device connects within 10 minutes, the session auto-stops and returns to `idle`. Rejecting a device, or a device dropping off before it is accepted, returns the session to `waiting` with the same deadline; once that deadline has passed the QR expires at once.
 
 ### Device pairing (new device)
 

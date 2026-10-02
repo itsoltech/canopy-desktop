@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { Readable } from 'stream'
-import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
+import { mkdtemp, readFile, realpath, stat, readdir, access, rm } from 'fs/promises'
 import { join, basename, resolve, normalize, extname, sep } from 'path'
 import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
@@ -338,9 +338,18 @@ export class SkillInstaller {
   }
 
   private async fetchFromLocal(localPath: string): Promise<Result<SourceResolution, SkillError>> {
-    const resolved = normalize(resolve(localPath))
-    const home = normalize(homedir()) + sep
-    const tmp = normalize(tmpdir()) + sep
+    // Check where the path really points: a symlink inside an allowed directory must not reach a
+    // file the allowlist below rejects (e.g. ~/notes/skill.md -> ~/.ssh/id_ed25519).
+    const realResult = await fromExternalCall(realpath(resolve(localPath)), () => null)
+    if (realResult.isErr()) {
+      return err({ _tag: 'InvalidSource', source: localPath, reason: 'Path does not exist' })
+    }
+    const resolved = normalize(realResult.value)
+    // Compare real paths on both sides (e.g. macOS tmpdir lives under the /var -> /private/var link).
+    const realRoot = async (dir: string): Promise<string> =>
+      (await fromExternalCall(realpath(dir), () => null)).unwrapOr(dir)
+    const home = normalize(await realRoot(homedir())) + sep
+    const tmp = normalize(await realRoot(tmpdir())) + sep
     if (!resolved.startsWith(home) && !resolved.startsWith(tmp)) {
       return err({
         _tag: 'InvalidSource',
@@ -378,7 +387,7 @@ export class SkillInstaller {
     }
 
     // Validate file extension for single files
-    const ext = extname(localPath).toLowerCase()
+    const ext = extname(resolved).toLowerCase()
     if (!['.md', '.yaml', '.yml', '.mdc'].includes(ext)) {
       return err({
         _tag: 'InvalidSource',

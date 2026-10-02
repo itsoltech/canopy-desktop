@@ -6,6 +6,9 @@
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'
+  import { highlightMatch } from './highlightMatch'
+  import { addToast } from '../../lib/stores/toast.svelte'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
 
   let {
     worktreePath,
@@ -103,7 +106,10 @@
   })
 
   onMount(() => {
-    const unsubGit = window.api.onGitChanged(() => {
+    const unsubGit = window.api.onGitChanged((info) => {
+      // One watcher per open repo broadcasts here; linked worktrees report their main repo root.
+      if (info.repoRoot !== worktreePath && !info.worktrees.some((w) => w.path === worktreePath))
+        return
       refresh().then(() => triggerPulse())
     })
 
@@ -211,26 +217,6 @@
   function lineMatchesSearch(content: string): boolean {
     if (!searchLower) return false
     return content.toLowerCase().includes(searchLower)
-  }
-
-  function highlightMatch(text: string): string {
-    if (!searchLower) return escapeHtml(text)
-    const escaped = escapeHtml(text)
-    const queryEscaped = escapeHtml(searchLower)
-    const regex = new RegExp(`(${escapeRegex(queryEscaped)})`, 'gi')
-    return escaped.replace(regex, '<mark class="search-highlight">$1</mark>')
-  }
-
-  function escapeHtml(str: string): string {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-  }
-
-  function escapeRegex(str: string): string {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   }
 
   function statusLabel(status: DiffFile['status']): string {
@@ -355,7 +341,13 @@
     ].join('\n')
 
     const sessionId = sessions[0].sessionId
-    await window.api.agentSendReviewContext({ text: message, worktreePath, sessionId })
+    try {
+      await window.api.agentSendReviewContext({ text: message, worktreePath, sessionId })
+    } catch (e) {
+      // Keep the comment box open so the text isn't lost.
+      addToast(ipcErrorMessage(e, 'Failed to send the comment to the agent'))
+      return
+    }
     focusSessionByPtyId(sessionId)
     window.dispatchEvent(
       new CustomEvent('canopy:focus-terminal', {
@@ -400,7 +392,12 @@
 
   async function copyDiff(file: DiffFile): Promise<void> {
     const text = buildUnifiedDiff(file)
-    await navigator.clipboard.writeText(text)
+    try {
+      await navigator.clipboard.writeText(text)
+      addToast('Copied diff to clipboard')
+    } catch {
+      addToast('Clipboard copy failed')
+    }
   }
 
   function toggleSearch(): void {
@@ -614,7 +611,7 @@
                             class="line-content flex-1 px-2 pl-1 whitespace-pre min-w-0 text-text"
                           >
                             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                            {@html highlightMatch(change.content)}
+                            {@html highlightMatch(change.content, searchLower)}
                           </span>
                         {:else}
                           <span

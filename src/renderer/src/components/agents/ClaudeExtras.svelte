@@ -55,7 +55,7 @@
         </div>
         <div class="h-1 rounded-xs bg-active overflow-hidden">
           <div
-            class="h-full rounded-xs transition-[width] duration-slow {rateLimitBarClass(
+            class="h-full rounded-xs transition-[width] duration-slow motion-reduce:transition-none {rateLimitBarClass(
               rateLimitFiveHour,
             )}"
             style="width: {Math.max(100 - rateLimitFiveHour, 0)}%"
@@ -76,7 +76,7 @@
         </div>
         <div class="h-1 rounded-xs bg-active overflow-hidden">
           <div
-            class="h-full rounded-xs transition-[width] duration-slow {rateLimitBarClass(
+            class="h-full rounded-xs transition-[width] duration-slow motion-reduce:transition-none {rateLimitBarClass(
               rateLimitSevenDay,
             )}"
             style="width: {Math.max(100 - rateLimitSevenDay, 0)}%"

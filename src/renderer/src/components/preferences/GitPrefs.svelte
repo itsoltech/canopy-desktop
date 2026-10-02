@@ -114,20 +114,30 @@
 
 <div class="flex flex-col gap-7">
   <PrefsSection title="Pull strategy" description="How local commits are integrated when pulling">
-    <PrefsRow
-      label="Rebase"
-      help="Replay local commits on top of upstream — keeps history linear"
-      search="git pull rebase linear history"
-    >
-      <CustomRadio checked={pullRebase} onchange={() => setPullStrategy(true)} />
-    </PrefsRow>
-    <PrefsRow
-      label="Merge"
-      help="Create a merge commit when histories diverge"
-      search="git pull merge commit"
-    >
-      <CustomRadio checked={!pullRebase} onchange={() => setPullStrategy(false)} />
-    </PrefsRow>
+    <div class="flex flex-col" role="radiogroup" aria-label="Pull strategy">
+      <PrefsRow
+        label="Rebase"
+        help="Replay local commits on top of upstream — keeps history linear"
+        search="git pull rebase linear history"
+      >
+        <CustomRadio
+          checked={pullRebase}
+          onchange={() => setPullStrategy(true)}
+          ariaLabel="Rebase"
+        />
+      </PrefsRow>
+      <PrefsRow
+        label="Merge"
+        help="Create a merge commit when histories diverge"
+        search="git pull merge commit"
+      >
+        <CustomRadio
+          checked={!pullRebase}
+          onchange={() => setPullStrategy(false)}
+          ariaLabel="Merge"
+        />
+      </PrefsRow>
+    </div>
   </PrefsSection>
 
   <PrefsSection title="Worktrees" description="Defaults for creating new git worktrees">

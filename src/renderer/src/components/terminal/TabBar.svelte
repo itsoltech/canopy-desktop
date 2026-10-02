@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match, P } from 'ts-pattern'
   import {
     tabsByWorktree,
     activeTabId,
@@ -41,15 +42,17 @@
   }
 
   function getTabBadge(tab: TabInfo): BadgeType {
-    // Show badge if ANY agent pane in this tab has a notification
+    // Show badge if ANY agent pane in this tab has a notification; a pane waiting for
+    // permission outranks unread activity in another pane of the same split.
     const panes = allPanes(tab.rootSplit)
+    let sawUnread = false
     for (const p of panes) {
       if (!agentSessions[p.sessionId]) continue
       const b = agentBadges[p.sessionId]
       if (b === 'permission') return 'permission'
-      if (b === 'unread') return 'unread'
+      if (b === 'unread') sawUnread = true
     }
-    return 'none'
+    return sawUnread ? 'unread' : 'none'
   }
 
   function getTabStatusDot(tab: TabInfo): { color: string; pulse: boolean; label: string } | null {
@@ -66,13 +69,18 @@
       const session = agentSessions[p.sessionId]
       if (!session) continue
 
-      const t = session.status.type
-      if (t === 'waitingPermission')
+      const status = session.status.type
+      if (status === 'waitingPermission')
         return { color: 'var(--color-warning)', pulse: true, label: 'Permission required' }
-      if (t === 'error') priority = Math.max(priority, 5)
-      else if (t === 'thinking' || t === 'toolCalling' || t === 'compacting' || t === 'starting')
-        priority = Math.max(priority, 4)
-      else if (t === 'idle' || t === 'ended') priority = Math.max(priority, 3)
+      priority = Math.max(
+        priority,
+        match(status)
+          .with('error', () => 5)
+          .with(P.union('thinking', 'toolCalling', 'compacting', 'starting'), () => 4)
+          .with(P.union('idle', 'ended'), () => 3)
+          .with('inactive', () => 0)
+          .exhaustive(),
+      )
     }
 
     if (priority === 5) return { color: 'var(--color-danger)', pulse: false, label: 'Agent error' }

@@ -40,7 +40,9 @@
     if (query.length === 0 || files.length === 0) return []
     const mru = getMru(worktreePath)
     const mruBoost: Record<string, number> = {}
-    mru.forEach((p, idx) => (mruBoost[p] = (mru.length - idx) * 0.5))
+    // fuzzysort 3 scores 0..1, so recency may only break near-ties: a boost of whole points let
+    // a weak scattered match on a recent file outrank an exact match.
+    mru.forEach((p, idx) => (mruBoost[p] = ((mru.length - idx) / mru.length) * 0.1))
     const matches = fuzzysort.go(query, files, { limit: MAX_RESULTS, threshold: -10000 })
     const scored = matches.map((m) => ({
       target: m.target,

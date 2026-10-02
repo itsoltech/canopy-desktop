@@ -79,6 +79,8 @@
 
   function cancelEdit(): void {
     editing = null
+    // Don't keep a typed token in renderer state once the form is gone.
+    formToken = ''
     testResult = ''
   }
 

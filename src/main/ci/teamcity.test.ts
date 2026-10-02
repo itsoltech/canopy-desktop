@@ -215,6 +215,34 @@ describe('fetchActivity', () => {
     ])
   })
 
+  it('rejects a build whose build-type name is not a string', async () => {
+    const response = (body: unknown): Response =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          response({
+            build: [{ id: 1, state: 'running', buildType: { id: 'Build', name: { text: 'x' } } }],
+          }),
+        )
+        .mockResolvedValueOnce(response({ build: [] }))
+        .mockResolvedValueOnce(response({ build: [] })),
+    )
+
+    const result = await fetchActivity('https://tc.example.com', 'token', PUBLIC_CONNECTION, [
+      'Build',
+    ])
+
+    if (result.isErr()) throw result.error
+    expect(result.value.running).toEqual([])
+    expect(result.value.partialErrors).toEqual([expect.stringContaining('Running builds:')])
+  })
+
   it('states one shared reason once when all three queries fail the same way', async () => {
     // A rejected token fails every slice identically. Joining the three sentences under a
     // wrapper that repeats the status put the same line in front of the user four times.

@@ -46,11 +46,13 @@
     if (e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
-      // When destructive, only confirm if the confirm button is explicitly focused
-      if (destructive && document.activeElement !== confirmBtn) {
-        if (document.activeElement === cancelBtn) onCancel()
+      // Enter activates the focused button: Cancel has focus on open, for every dialog.
+      if (document.activeElement === cancelBtn) {
+        onCancel()
         return
       }
+      // When destructive, only confirm if the confirm button is explicitly focused
+      if (destructive && document.activeElement !== confirmBtn) return
       onConfirm()
     }
   }
@@ -71,10 +73,16 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="confirm-dialog-title"
+    aria-describedby="confirm-dialog-message"
     onmousedown={(e) => e.stopPropagation()}
   >
     <h3 id="confirm-dialog-title" class="m-0 mb-2 text-base font-semibold text-text">{title}</h3>
-    <p class="m-0 mb-1 text-md text-text leading-normal whitespace-pre-wrap">{message}</p>
+    <p
+      id="confirm-dialog-message"
+      class="m-0 mb-1 text-md text-text leading-normal whitespace-pre-wrap"
+    >
+      {message}
+    </p>
     {#if details}
       <p class="m-0 mb-1 text-xs text-text-muted font-mono break-all">{details}</p>
     {/if}

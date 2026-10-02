@@ -10,6 +10,7 @@ import type { RepoIdentifier, BranchPRMap, GitHubPR, CreatePRInput, GitHubRepoIn
 
 const PR_SEARCH_QUERY = `
 query($q: String!) {
+  viewer { login }
   search(query: $q, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
@@ -20,6 +21,8 @@ query($q: String!) {
         headRefName
         baseRefName
         isDraft
+        isCrossRepository
+        headRepositoryOwner { login }
         reviewDecision
         commits(last: 1) {
           nodes {
@@ -59,6 +62,7 @@ query($owner: String!, $name: String!) {
 `
 
 interface SearchResponse {
+  viewer?: { login: string }
   search: {
     nodes: Array<{
       number?: number
@@ -68,6 +72,8 @@ interface SearchResponse {
       headRefName?: string
       baseRefName?: string
       isDraft?: boolean
+      isCrossRepository?: boolean
+      headRepositoryOwner?: { login: string } | null
       reviewDecision?: string | null
       commits?: { nodes: Array<{ commit: { statusCheckRollup: { state: string } | null } }> }
     }>
@@ -164,6 +170,11 @@ export class GitHubService {
       const map: BranchPRMap = {}
       for (const node of data.search.nodes) {
         if (!node.headRefName || !node.number) continue
+        // `head:main` also matches PRs from other people's forks with a branch of that name;
+        // only same-repo PRs and the viewer's own fork PRs belong to the local branch.
+        if (node.isCrossRepository && node.headRepositoryOwner?.login !== data.viewer?.login) {
+          continue
+        }
         const checksNode = node.commits?.nodes?.[0]?.commit?.statusCheckRollup
         map[node.headRefName] = {
           number: node.number,

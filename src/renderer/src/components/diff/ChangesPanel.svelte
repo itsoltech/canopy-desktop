@@ -27,28 +27,41 @@
   let filterQuery = $state('')
   let statusFilter = $state<'all' | 'added' | 'modified' | 'deleted'>('all')
 
+  // Watcher, stage and worktree-switch refreshes overlap; only the newest may write `diff`, or a
+  // slower reply for the previous worktree replaces the current list.
+  let refreshGeneration = 0
+
   async function refresh(): Promise<void> {
+    const generation = ++refreshGeneration
     loading = true
     loadError = false
     try {
-      diff = await window.api.changesGetDiff({ worktreePath })
+      const next = await window.api.changesGetDiff({ worktreePath })
+      if (generation !== refreshGeneration) return
+      diff = next
     } catch (e) {
+      if (generation !== refreshGeneration) return
       diff = null
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (generation === refreshGeneration) loading = false
     }
   }
 
-  // Re-fetch when worktreePath changes (branch switch, worktree switch)
+  // Re-fetch when worktreePath changes (branch switch, worktree switch). Drop the previous
+  // worktree's rows first: Stage/Revert on them would act on this worktree.
   $effect(() => {
     void worktreePath
+    diff = null
     refresh()
   })
 
   onMount(() => {
-    const unsubGit = window.api.onGitChanged(() => {
+    const unsubGit = window.api.onGitChanged((info) => {
+      // One watcher per open repo broadcasts here; linked worktrees report their main repo root.
+      if (info.repoRoot !== worktreePath && !info.worktrees.some((w) => w.path === worktreePath))
+        return
       refresh()
     })
 
@@ -146,6 +159,8 @@
 
   async function handleRevert(e: Event, path: string): Promise<void> {
     e.stopPropagation()
+    // Revert the worktree the row belongs to, even if the panel switched while confirming.
+    const wt = worktreePath
     const ok = await confirm({
       title: 'Revert File',
       message: `Revert all changes to "${path}"? This cannot be undone.`,
@@ -154,7 +169,7 @@
     })
     if (!ok) return
     try {
-      await window.api.changesRevertFile({ worktreePath, filePath: path })
+      await window.api.changesRevertFile({ worktreePath: wt, filePath: path })
       await refresh()
     } catch (err) {
       console.error('Failed to revert file:', err)

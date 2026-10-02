@@ -178,7 +178,7 @@ workflows.
 | `CiRefChanged`            | Require a fresh confirmation for the ref's new commit.                                                                         |
 | `CiDispatchCancelled`     | Keep the run form open; nothing was dispatched.                                                                                |
 | `CiDispatchAmbiguous`     | Do not retry; instruct the user to check repository Actions history.                                                           |
-| `CiRateLimited`           | Pause background work until the reported reset time.                                                                           |
+| `CiRateLimited`           | Pause background work until `retry-after`, or the window reset once `x-ratelimit-remaining` is 0.                              |
 | `CiApiError`              | Show the sanitized GitHub status and message.                                                                                  |
 
 An unknown GitHub run state is displayed as **Unknown** rather than inferred as success or

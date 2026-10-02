@@ -68,6 +68,8 @@
 
   function cancelEdit(): void {
     editingId = null
+    // Don't keep a typed token in renderer state once the form is gone.
+    editToken = ''
     testResult = ''
   }
 
@@ -165,6 +167,7 @@
     }
 
     editingId = null
+    editToken = ''
     addToast('Connection saved')
   }
 
@@ -315,6 +318,7 @@
                   : 'Credentials saved'}
               >
                 <Check size={12} />
+                <span class="sr-only">Credentials saved</span>
                 {#if creds.username}<span class="text-text-muted max-w-24 truncate"
                     >{creds.username}</span
                   >{/if}

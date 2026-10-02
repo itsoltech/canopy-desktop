@@ -455,8 +455,9 @@
                 class="flex flex-col gap-1"
                 class:col-span-2={!(fields.type && types.length > 0)}
               >
-                <span class={labelCls}>Project</span>
+                <label class={labelCls} for="new-task-project">Project</label>
                 <CustomSelect
+                  id="new-task-project"
                   value={projectKey}
                   options={projects.map((p) => ({
                     value: p.key,
@@ -472,8 +473,9 @@
                 class="flex flex-col gap-1"
                 class:col-span-2={!(fields.project && projects.length > 1)}
               >
-                <span class={labelCls}>Type</span>
+                <label class={labelCls} for="new-task-type">Type</label>
                 <CustomSelect
+                  id="new-task-type"
                   value={typeName}
                   options={buildTypeOptions(types, icons)}
                   onchange={(v) => (typeName = v)}
@@ -546,7 +548,7 @@
                     class="h-16 max-w-44 object-contain rounded-md border border-border-subtle bg-bg-input"
                   />
                   <button
-                    class="absolute -top-1.5 -right-1.5 flex items-center justify-center size-4 border border-border rounded-full bg-bg-overlay text-text-faint cursor-pointer p-0 leading-none opacity-0 transition-opacity duration-fast group-hover/img:opacity-100 hover:text-danger-text hover:border-danger-text"
+                    class="absolute -top-1.5 -right-1.5 flex items-center justify-center size-4 border border-border rounded-full bg-bg-overlay text-text-faint cursor-pointer p-0 leading-none opacity-0 transition-opacity duration-fast group-hover/img:opacity-100 focus-visible:opacity-100 hover:text-danger-text hover:border-danger-text"
                     onclick={() => pendingImages.splice(i, 1)}
                     aria-label={`Remove ${img.filename}`}>×</button
                   >
@@ -560,8 +562,9 @@
         </div>
         {#if users.length > 0}
           <div class="flex flex-col gap-1">
-            <span class={labelCls}>Assignee</span>
+            <label class={labelCls} for="new-task-assignee">Assignee</label>
             <CustomSelect
+              id="new-task-assignee"
               value={assigneeId}
               options={buildAssigneeOptions(users, icons)}
               onchange={(v) => (assigneeId = v)}
@@ -573,12 +576,14 @@
           <div class="grid grid-cols-2 gap-2.5">
             {#if fields.board && projectBoards.length > 0}
               <div class="flex flex-col gap-1" class:col-span-2={!fields.sprint}>
-                <span
+                <label
                   class="{labelCls} cursor-help"
+                  for="new-task-board"
                   title="Sprints live on agile boards (Jira/YouTrack) — pick the board to unlock the sprint list"
-                  >Board</span
+                  >Board</label
                 >
                 <CustomSelect
+                  id="new-task-board"
                   value={boardId}
                   options={[
                     { value: '', label: 'No board' },
@@ -596,9 +601,10 @@
                 class="flex flex-col gap-1"
                 class:col-span-2={!(fields.board && projectBoards.length > 0)}
               >
-                <span class={labelCls}>{fields.sprintLabel}</span>
+                <label class={labelCls} for="new-task-sprint">{fields.sprintLabel}</label>
                 {#if !boardId && fields.board}
                   <CustomSelect
+                    id="new-task-sprint"
                     value=""
                     options={[{ value: '', label: 'Select a board first' }]}
                     maxWidth="none"
@@ -606,6 +612,7 @@
                   />
                 {:else if loadingSprints}
                   <CustomSelect
+                    id="new-task-sprint"
                     value=""
                     options={[{ value: '', label: 'Loading…' }]}
                     maxWidth="none"
@@ -613,6 +620,7 @@
                   />
                 {:else if sprints.length === 0}
                   <CustomSelect
+                    id="new-task-sprint"
                     value=""
                     options={[{ value: '', label: 'No ' + fields.sprintLabel.toLowerCase() + 's' }]}
                     maxWidth="none"
@@ -620,6 +628,7 @@
                   />
                 {:else}
                   <CustomSelect
+                    id="new-task-sprint"
                     value={sprintId}
                     options={buildSprintOptions(
                       sprints,

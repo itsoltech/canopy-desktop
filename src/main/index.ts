@@ -481,7 +481,9 @@ function buildAppMenu(): void {
         {
           label: 'Privacy Policy',
           click: () => {
-            shell.openExternal('https://canopy.itsol.tech/privacy-policy')
+            shell
+              .openExternal('https://canopy.itsol.tech/privacy-policy')
+              .catch((e) => console.warn('[shell] openExternal failed:', e))
           },
         },
         {
@@ -865,11 +867,11 @@ app.whenReady().then(async () => {
 
   // Status-bar perf HUD (always available, gated by user preference in renderer)
   ipcMain.handle('perf:hud:start', (event) => {
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     perfHudService.subscribe(event.sender)
   })
   ipcMain.handle('perf:hud:stop', (event) => {
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     perfHudService.unsubscribe(event.sender)
   })
 
@@ -1145,14 +1147,16 @@ app.whenReady().then(async () => {
     notchOverlay.initialize()
   }
 
-  // Destroy notch overlay when all managed windows close so window-all-closed fires on Windows
+  // Destroy notch overlay when all managed windows close so window-all-closed fires on Windows.
+  // On macOS the app keeps running and nothing re-initializes the overlay when a window is
+  // reopened from the Dock, so keep it alive there.
   windowManager.onAllWindowsClosed(() => {
-    notchOverlay?.dispose()
+    if (windowManager.shouldQuitOnLastWindowClose()) notchOverlay?.dispose()
   })
 
   ipcMain.on('notch:setEnabled', (event, { enabled }: { enabled: boolean }) => {
     if (!notchOverlay) return
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     if (enabled) {
       notchOverlay.initialize()
     } else {
@@ -1181,7 +1185,9 @@ app.whenReady().then(async () => {
   app.on('activate', function () {
     if (!canCreateApplicationWindow()) return
 
-    if (BrowserWindow.getAllWindows().length === 0)
+    // Count managed windows only: the notch overlay is a BrowserWindow that stays alive on
+    // macOS after the last app window closes.
+    if (windowManager.size === 0)
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
   })
 })

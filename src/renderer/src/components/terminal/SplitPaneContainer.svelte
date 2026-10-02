@@ -54,10 +54,14 @@
   function handleDividerDrag(
     splitId: string,
     direction: 'vertical' | 'horizontal',
+    extent: number,
     deltaPx: number,
   ): void {
     if (!containerEl) return
-    const size = direction === 'vertical' ? containerEl.clientWidth : containerEl.clientHeight
+    // A split's ratio is relative to its own region; for a nested split that is only part of
+    // the container, so dividing by the container size made its divider lag the pointer.
+    const size =
+      (direction === 'vertical' ? containerEl.clientWidth : containerEl.clientHeight) * extent
     if (size <= 0) return
     const currentRatio = findSplitRatio(node, splitId)
     if (currentRatio === null) return
@@ -97,7 +101,7 @@
     >
       <SplitDivider
         direction={div.direction}
-        onDragDelta={(delta) => handleDividerDrag(div.splitId, div.direction, delta)}
+        onDragDelta={(delta) => handleDividerDrag(div.splitId, div.direction, div.extent, delta)}
       />
     </div>
   {/each}

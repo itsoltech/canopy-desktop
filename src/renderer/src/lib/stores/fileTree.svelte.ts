@@ -69,12 +69,18 @@ function createFileTreeStore() {
   // in O(1) instead of scanning the whole status map per directory render.
   const gitChangedDirs = new SvelteSet<string>()
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
+  // Bumped by reset(): a read still in flight for the previous root must not land in the new
+  // tree (relative git statuses would mark the wrong worktree's files).
+  let generation = 0
 
   async function expandDir(dirPath: string): Promise<void> {
+    const gen = generation
     try {
       const entries = await window.api.fileTreeReadDir(dirPath)
+      if (gen !== generation) return
       expandedDirs[dirPath] = entries
     } catch (e) {
+      if (gen !== generation) return
       // Show empty rather than leaving in collapsed state
       expandedDirs[dirPath] = []
       console.warn('fileTreeReadDir failed:', dirPath, e)
@@ -104,9 +110,11 @@ function createFileTreeStore() {
 
   async function refreshGitStatus(repoRoot: string): Promise<void> {
     if (!rootPath) return
+    const gen = generation
     try {
       const previousPaths = [...gitFileStatus.keys()]
       const nextStatus = await window.api.fileTreeGetGitStatus(repoRoot, rootPath)
+      if (gen !== generation) return
       // eslint-disable-next-line svelte/prefer-svelte-reactivity
       const affectedPaths = new Set<string>(nextStatus.affectedPaths)
 
@@ -196,6 +204,7 @@ function createFileTreeStore() {
   function reset(newRoot: string | null): void {
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = null
+    generation++
     expandedDirs = {}
     selectedFilePath = null
     gitFileStatus.clear()

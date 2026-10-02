@@ -6,6 +6,7 @@ import {
   createLeaf,
   allPanes,
   findLeaf,
+  findSplitRatio,
 } from './splitTree'
 import type { DropZone } from './dragState.svelte'
 import { recordFileOpen } from './quickOpenMru.svelte'
@@ -102,7 +103,10 @@ function editorFilesFromSnapshot(
   const previousByPath = new Map(previousFiles?.map((file) => [file.filePath, file]) ?? [])
   return snapshotFiles.map((file) => {
     const previous = previousByPath.get(file.filePath)
-    return previous ? { ...file, ...previous, filePath: file.filePath } : { ...file }
+    // Main owns editor file state: the snapshot wins, the previous copy only fills gaps.
+    // The reverse froze `dirty`/`currentContent` at the first load, so unsaved edits read
+    // as clean (no dirty dots, stale content restored on sub-tab switch).
+    return previous ? { ...previous, ...file, filePath: file.filePath } : { ...file }
   })
 }
 
@@ -1226,6 +1230,19 @@ export async function closePane(
   const pane = findLeaf(tab.rootSplit, paneId)
   if (!pane) return
 
+  // Cmd/Ctrl+W closes panes, not tabs, so it needs closeTab's unsaved-editor preflight too.
+  // Main checks each file's dirty flag itself, so a keystroke still in flight is covered.
+  if (pane.paneType === 'editor') {
+    for (const file of pane.editorFiles ?? []) {
+      const preflight = await window.api.tabPrepareCloseEditorFile(
+        worktreePath,
+        paneId,
+        file.filePath,
+      )
+      if (!(await handleClosePreflightFailure(preflight, 'Pane close cancelled.'))) return
+    }
+  }
+
   const { description } = await window.api.tabGetCloseWarning(worktreePath, {
     kind: 'pane',
     tabId,
@@ -1330,15 +1347,9 @@ async function updateSplitRatioInMain(
 
   const result = await window.api.tabUpdateSplitRatio(worktreePath, tabId, splitId, ratio)
   applyTabCommandResult(result)
-  if (
-    result.tabs.some(
-      (tab) =>
-        tab.id === tabId &&
-        tab.rootSplit.type === 'split' &&
-        tab.rootSplit.id === splitId &&
-        tab.rootSplit.ratio === ratio,
-    )
-  ) {
+  // Any split in the tree, not only the root: nested dividers were never scheduled for saving.
+  const updated = tabsByWorktree[worktreePath]?.find((tab) => tab.id === tabId)
+  if (updated && findSplitRatio(updated.rootSplit, splitId) === ratio) {
     scheduleSave(worktreePath)
   }
 }

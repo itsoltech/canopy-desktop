@@ -66,6 +66,13 @@
       }
     | undefined = $state()
   let lastLoadedPath: string | null = null
+  // Read flags from this pane's last disk load of each text file. Restored sub-tab state only
+  // carries content, so without them a truncated (read-only) file came back editable and could
+  // be saved over the full file.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const loadedFileMeta = new Map<string, { truncated: boolean; canWrite: boolean; size: number }>()
+  // Bumped by every load/restore so a read that resolves after a sub-tab switch is dropped.
+  let loadGeneration = 0
   let skipNextWatcherEvent = false
   let indentInfo: IndentInfo = $state({ type: 'space', size: 4 })
 
@@ -112,6 +119,7 @@
   }
 
   async function loadFile(path: string): Promise<void> {
+    const generation = ++loadGeneration
     loading = true
     error = null
     saveError = null
@@ -123,6 +131,9 @@
     externalChangeDetected = false
     try {
       const readResult = await loadEditorFile(paneId, path, MAX_EDIT_BYTES)
+      // The user switched sub-tabs while this read was in flight: applying it would show this
+      // file under the other tab and the next keystroke would overwrite that file's state.
+      if (generation !== loadGeneration) return
       if (!readResult.ok) {
         error = readResult.message
         return
@@ -131,6 +142,10 @@
       if (readResult.binary) {
         binary = true
         fileSize = readResult.size
+        // Keep the previous file's text from being persisted as this binary file's content.
+        editedContent = ''
+        originalContent = ''
+        loadedFileMeta.delete(path)
       } else {
         content = readResult.content
         editedContent = readResult.content
@@ -145,25 +160,31 @@
           editorRef.closeBuffer(path)
           editorRef.openBuffer(path, readResult.content, indentUnitString(indentInfo))
         }
+        loadedFileMeta.set(path, { truncated, canWrite: readResult.canWrite, size: fileSize })
       }
 
       canWrite = readResult.canWrite
       fileMtimeMs = readResult.mtimeMs
       dirty = false
     } catch (e) {
+      if (generation !== loadGeneration) return
       error = e instanceof Error ? e.message : 'Failed to read file'
     } finally {
-      loading = false
+      if (generation === loadGeneration) loading = false
     }
   }
 
-  function restoreFromState(state: {
-    originalContent?: string
-    currentContent?: string
-    fileMtimeMs?: number
-    fileLineEnding?: 'LF' | 'CRLF'
-    dirty?: boolean
-  }): void {
+  function restoreFromState(
+    state: {
+      originalContent?: string
+      currentContent?: string
+      fileMtimeMs?: number
+      fileLineEnding?: 'LF' | 'CRLF'
+      dirty?: boolean
+    },
+    meta: { truncated: boolean; canWrite: boolean; size: number } | undefined,
+  ): void {
+    loadGeneration++
     const orig = state.originalContent ?? state.currentContent ?? ''
     const cur = state.currentContent ?? orig
     content = orig
@@ -172,10 +193,11 @@
     fileMtimeMs = state.fileMtimeMs ?? 0
     fileLineEnding = state.fileLineEnding ?? 'LF'
     dirty = state.dirty ?? cur !== orig
-    fileSize = cur.length
+    // Without recorded flags this is a dirty buffer, which only an editable file can produce.
+    fileSize = meta?.size ?? cur.length
     binary = false
-    truncated = false
-    canWrite = true
+    truncated = meta?.truncated ?? false
+    canWrite = meta?.canWrite ?? true
     loading = false
     error = null
     indentInfo = detectIndent(cur)
@@ -221,6 +243,8 @@
       originalContent = editedContent
       fileMtimeMs = result.mtimeMs
       fileSize = result.size
+      const meta = loadedFileMeta.get(path)
+      if (meta) loadedFileMeta.set(path, { ...meta, size: result.size })
       dirty = false
       setTimeout(() => {
         skipNextWatcherEvent = false
@@ -449,8 +473,16 @@
     }
     lastLoadedPath = path
     const existingState = editorFiles.find((f) => f.filePath === path)
-    if (existingState?.currentContent !== undefined) {
-      restoreFromState(existingState)
+    const meta = loadedFileMeta.get(path)
+    // Restore only what can be restored faithfully — unsaved edits (same rule as
+    // restoreFromState), or a text file whose read flags this pane recorded. Anything else
+    // (binary, first open after remount) is re-read from disk.
+    const unsaved =
+      existingState?.dirty ??
+      existingState?.currentContent !==
+        (existingState?.originalContent ?? existingState?.currentContent)
+    if (existingState?.currentContent !== undefined && (unsaved || meta)) {
+      restoreFromState(existingState, meta)
     } else {
       void loadFile(path)
     }
@@ -654,9 +686,10 @@
     {:else if binary}
       <div class="status-message">Binary file ({formatSize(fileSize)})</div>
     {:else if canEdit}
+      <!-- editedContent: a remounted editor must show restored unsaved edits, not the disk text -->
       <CodeMirrorEditor
         bind:this={editorRef}
-        initialValue={originalContent}
+        initialValue={editedContent}
         initialIndentUnit={indentUnitString(indentInfo)}
         filePath={activeFilePath}
         onChange={handleChange}
@@ -665,7 +698,7 @@
     {:else if content !== null}
       <CodeMirrorEditor
         bind:this={editorRef}
-        initialValue={originalContent}
+        initialValue={editedContent}
         initialIndentUnit={indentUnitString(indentInfo)}
         filePath={activeFilePath}
         readOnly={true}

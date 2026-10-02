@@ -202,6 +202,7 @@
               class="flex-1 flex items-center gap-1.5 px-2 py-1 border-0 bg-transparent font-inherit text-md text-left cursor-pointer min-w-0"
               class:text-text={!active}
               class:text-accent-text={active}
+              aria-current={active ? 'true' : undefined}
               onclick={() => selectProfile(p.id)}
               title={p.name}
             >

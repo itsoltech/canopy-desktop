@@ -28,10 +28,14 @@
     onchange?.(String(clamp(n)))
   }
 
+  // Both keep editValue in step: the blur that follows (Tab away, or the focus change when a
+  // +/− button is pressed) commits editValue, which still held the value from focus time and
+  // undid the step.
   function increment(): void {
     const n = clamp(parseInt(String(value), 10) || 0)
     const next = clamp(n + step)
     editing = false
+    editValue = String(next)
     onchange?.(String(next))
   }
 
@@ -39,6 +43,7 @@
     const n = clamp(parseInt(String(value), 10) || 0)
     const next = clamp(n - step)
     editing = false
+    editValue = String(next)
     onchange?.(String(next))
   }
 
@@ -111,6 +116,10 @@
     class="w-10 text-center border-0 bg-transparent text-text text-md font-inherit outline-none py-1.5"
     type="text"
     inputmode="numeric"
+    role="spinbutton"
+    aria-valuemin={min}
+    aria-valuemax={max}
+    aria-valuenow={Number.isFinite(Number(value)) ? Number(value) : undefined}
     value={editing ? editValue : displayValue}
     onfocus={(e) => {
       editing = true

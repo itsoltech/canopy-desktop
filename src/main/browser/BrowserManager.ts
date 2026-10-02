@@ -372,10 +372,13 @@ export class BrowserManager {
   }
 
   /**
-   * Fill credential into form fields using an isolated JS world (ID 999).
-   * Page scripts cannot intercept values set from an isolated world.
+   * Fill credential into form fields using an isolated JS world (ID 999), which keeps the
+   * values out of page globals. The page's own input/change listeners still see the filled
+   * fields, so the fill is skipped unless the guest is still on the credential's host: the
+   * renderer resolves the credential (possibly behind an OS auth prompt) before this runs,
+   * and the page may have navigated or redirected in the meantime.
    */
-  fillCredential(browserId: string, username: string, password: string): void {
+  fillCredential(browserId: string, username: string, password: string, domain: string): void {
     const entry = this.entries.get(browserId)
     if (!entry) return
 
@@ -384,6 +387,7 @@ export class BrowserManager {
 
     const code = `
       (function() {
+        if (location.host !== ${JSON.stringify(domain)}) return
         const pw = document.querySelector('input[type="password"]')
         if (!pw) return
         const form = pw.closest('form') || pw.parentElement

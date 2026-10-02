@@ -125,6 +125,8 @@
 
   function cancel(): void {
     connectingId = null
+    // Don't keep a typed token in renderer state once the form is gone.
+    formToken = ''
     testResult = ''
   }
 
@@ -227,6 +229,7 @@
     }
     if (repoRoot) await loadRepoConfig(repoRoot)
     connectingId = null
+    formToken = ''
     addToast('Credentials saved')
   }
 
@@ -317,6 +320,7 @@
               title={creds.username ? `Connected (${creds.username})` : 'Connected'}
             >
               <Check size={12} />
+              <span class="sr-only">Connected</span>
               {#if creds.username}<span class="text-text-muted whitespace-nowrap"
                   >{creds.username}</span
                 >{/if}
@@ -379,6 +383,7 @@
                 ? (editingProjectsFor = null)
                 : startEditProjects(tracker.id)}
             aria-label="Select tracker projects for this repository"
+            aria-expanded={editingProjectsFor === tracker.id}
             title="Which tracker projects belong to this repository — filters the task pickers and decides which projects can get custom branch/PR naming overrides. None selected = all."
           >
             <FolderKanban size={13} />
