@@ -58,11 +58,14 @@
   let tmuxAvailable = $state(false)
 
   onMount(() => {
+    // Restore focus to the element that opened the palette when it closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     inputEl?.focus()
     window.api
       .tmuxIsAvailable()
       .then((v) => (tmuxAvailable = v))
       .catch(() => {})
+    return () => previouslyFocused?.focus?.()
   })
 
   const isMac = navigator.userAgent.includes('Mac')

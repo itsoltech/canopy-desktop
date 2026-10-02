@@ -3,8 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { match } from 'ts-pattern'
 
+// `base-uri` and `object-src` have no `default-src` fallback, so they must be
+// set explicitly — matching index.html and notch.html. Without `base-uri 'none'`
+// an injected <base> tag could re-point every relative script/resource URL in
+// the remote client, which is served over plain HTTP to LAN devices.
 const CSP_HEADER =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:"
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:; base-uri 'none'; object-src 'none'"
 
 function contentTypeFor(ext: string): string {
   return match(ext.toLowerCase())

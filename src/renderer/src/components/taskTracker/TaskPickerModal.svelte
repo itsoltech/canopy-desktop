@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { X, LoaderCircle, Copy, Send, Link2, Unlink } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
@@ -31,6 +32,13 @@
 
   let { connectionId, mode = 'browse' }: { connectionId: string; mode?: 'browse' | 'link' } =
     $props()
+
+  // Restore focus to the element that opened the dialog when it closes. Captured
+  // during init rather than in onMount because initial focus comes from the child
+  // TaskListPicker's `autofocusSearch`, and child onMount runs first — by the time
+  // a parent onMount ran, document.activeElement would already be the search input.
+  const previouslyFocused = document.activeElement as HTMLElement | null
+  onDestroy(() => previouslyFocused?.focus?.())
 
   // Browse mode: a picked task opens the branch-create sub-view.
   let selectedTask: TrackerTaskLite | null = $state(null)
