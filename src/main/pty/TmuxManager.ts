@@ -5,6 +5,7 @@ import os from 'os'
 import { randomUUID } from 'crypto'
 import { is } from '@electron-toolkit/utils'
 import { getLoginEnv } from '../shell/loginEnv'
+import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 
 export interface TmuxSessionInfo {
   name: string
@@ -103,7 +104,15 @@ export class TmuxManager {
     await this.exec(['set-option', '-g', 'mouse', opts.mouse ? 'on' : 'off']).catch(() => {})
     await this.exec(['set-option', '-g', 'set-titles-string', '#T']).catch(() => {})
     await this.exec(['set-option', '-g', 'set-titles', 'on']).catch(() => {})
-    const envArgs = Object.entries(opts.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+    // When tmux is enabled this — not PtyManager.spawn — is the boundary that
+    // starts the real shell (PtyManager only spawns `tmux attach-session`), so
+    // it needs the same defense-in-depth env filtering PtyManager applies:
+    // never let a caller-supplied variable override PATH, LD_PRELOAD,
+    // NODE_OPTIONS, GIT_SSH_COMMAND, … Keys are uppercased to match how
+    // BLOCKED_ENV_VARS is declared.
+    const envArgs = Object.entries(opts.env ?? {})
+      .filter(([k, v]) => typeof v === 'string' && !BLOCKED_ENV_VARS.has(k.toUpperCase()))
+      .flatMap(([k, v]) => ['-e', `${k}=${v}`])
     const args = [
       '-f',
       this.configPath,

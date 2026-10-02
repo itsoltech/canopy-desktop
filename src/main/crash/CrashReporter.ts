@@ -27,7 +27,7 @@ export class CrashReporter {
         const native = findRecentNativeCrash(NATIVE_CRASH_PROCESS_NAME, prevSentinelMs)
         this.writeCrashReport(this.buildUngracefulShutdownReport(native))
       }
-      writeFileSync(this.sentinelPath, String(process.pid))
+      writeFileSync(this.sentinelPath, String(process.pid), { mode: 0o600 })
     } catch {
       // Crash reporter must never throw
     }
@@ -208,7 +208,11 @@ export class CrashReporter {
   }
 
   private writeCrashReport(report: CrashReport): void {
-    writeFileSync(this.reportPath, JSON.stringify(this.toPublicCrashReport(report), null, 2))
+    // Owner-only: reports are sanitized but still carry stack traces and OS
+    // details we would rather not expose on a shared machine.
+    writeFileSync(this.reportPath, JSON.stringify(this.toPublicCrashReport(report), null, 2), {
+      mode: 0o600,
+    })
   }
 }
 

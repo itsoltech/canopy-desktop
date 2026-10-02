@@ -11,6 +11,7 @@
     executeRunConfig,
   } from '../../lib/stores/runConfig.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { openRunConfigTab } from '../../lib/stores/tabs.svelte'
 
@@ -90,7 +91,16 @@
       destructive: true,
     })
     if (confirmed) {
-      await deleteRunConfig(configDir, name)
+      try {
+        await deleteRunConfig(configDir, name)
+      } catch (e) {
+        // Without this the rejection is unhandled and the dialog looks like it
+        // silently did nothing. Delete can target a config that isn't the
+        // selected one, so `formError` (only rendered beside the form) would
+        // not always be visible — toast instead.
+        addToast(`Failed to delete "${name}": ${e instanceof Error ? e.message : String(e)}`)
+        return
+      }
       if (selectedKey?.configDir === configDir && selectedKey?.name === name) {
         selectedKey = null
         isNew = false
