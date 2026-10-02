@@ -157,6 +157,11 @@ export class NotchOverlayManager {
     this.overlayWindow.webContents.on('will-navigate', (event, url) => {
       if (url !== this.overlayWindow?.webContents.getURL()) event.preventDefault()
     })
+    // 3xx redirects fire `will-redirect` rather than `will-navigate`; block those
+    // too so the overlay can never be navigated off its bundled document.
+    this.overlayWindow.webContents.on('will-redirect', (event, url) => {
+      if (url !== this.overlayWindow?.webContents.getURL()) event.preventDefault()
+    })
     this.overlayWindow.setAlwaysOnTop(true, 'pop-up-menu')
     if (isMac) {
       this.overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
