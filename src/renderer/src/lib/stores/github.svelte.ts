@@ -174,11 +174,17 @@ export async function loadBranchPRs(repoRoot: string, force = false): Promise<vo
   try {
     const result = await window.api.githubFetchBranchPRs(repoRoot)
     lastFetchByRepo[repoRoot] = Date.now()
-    // Merge with existing PRs from other repos — scoped by repo so same-name branches don't collide.
+    // Scoped by repo so same-name branches don't collide. The fetch returns only this repo's OPEN
+    // PRs, so replace its scope rather than merging into it: merged/closed PRs and removed
+    // worktrees' branches must not linger as open (or accumulate) across reloads.
+    const scopePrefix = prKey(repoRoot, '')
     const scoped = Object.fromEntries(
       Object.entries(result).map(([branch, pr]) => [prKey(repoRoot, branch), pr]),
     )
-    branchPRs = { ...branchPRs, ...scoped }
+    const otherRepos = Object.fromEntries(
+      Object.entries(branchPRs).filter(([key]) => !key.startsWith(scopePrefix)),
+    )
+    branchPRs = { ...otherRepos, ...scoped }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (msg.includes('rate limit') || msg.includes('401') || msg.includes('403')) {

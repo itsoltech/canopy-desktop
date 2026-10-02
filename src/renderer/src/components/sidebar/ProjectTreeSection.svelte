@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
   import { SvelteSet } from 'svelte/reactivity'
   import { untrack } from 'svelte'
   import { ChevronRight, LoaderCircle, Square, Trash2, X } from '@lucide/svelte'
@@ -20,7 +21,7 @@
   import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
-  import { worktreeBadges } from '../../lib/agents/agentState.svelte'
+  import { worktreeBadges, type BadgeType } from '../../lib/agents/agentState.svelte'
   import { getWorktreeAgentStatus } from '../../lib/agents/worktreeStatus.svelte'
   import {
     formatPrBadge,
@@ -33,6 +34,15 @@
   function worktreeLabel(wt: { branch: string; path: string }): string {
     if (wt.branch !== '(detached)') return wt.branch
     return wt.path.split('/').pop() || wt.path
+  }
+
+  // The corner badge dot is colour-only, so its meaning must also reach the status label.
+  function worktreeBadgeSuffix(badge: BadgeType): string {
+    return match(badge)
+      .with('permission', () => ', permission required')
+      .with('unread', () => ', unread activity')
+      .with('none', () => '')
+      .exhaustive()
   }
 
   function isWorktreeActive(worktreePath: string): boolean {
@@ -607,8 +617,12 @@
                   class:inline-flex={agentStatus !== 'none'}
                   class:items-center={agentStatus !== 'none'}
                   class:justify-center={agentStatus !== 'none'}
-                  title={agentStatus !== 'none' ? `Agent: ${agentStatus}` : undefined}
-                  aria-label={agentStatus !== 'none' ? `Agent status: ${agentStatus}` : undefined}
+                  title={agentStatus !== 'none'
+                    ? `Agent: ${agentStatus}${worktreeBadgeSuffix(wtBadge)}`
+                    : undefined}
+                  aria-label={agentStatus !== 'none'
+                    ? `Agent status: ${agentStatus}${worktreeBadgeSuffix(wtBadge)}`
+                    : undefined}
                 >
                   {#if agentStatus !== 'none'}
                     <span

@@ -116,7 +116,7 @@
                     option,
                   ))}
               />
-              <span class="truncate">{option}</span>
+              <span class="truncate" title={option}>{option}</span>
             </label>
           {/each}
         </div>
