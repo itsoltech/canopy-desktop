@@ -132,7 +132,10 @@
     return branches.remote.find((r) => r.slice(r.indexOf('/') + 1) === name) ?? ''
   }
 
+  let previouslyFocused: HTMLElement | null = null
+
   onMount(async () => {
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     window.api.getHomedir().then((h) => (homedir = h))
     try {
@@ -171,6 +174,9 @@
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
     disposeSetupTerminal()
+    // Return focus to the control that opened the modal (onMount is async here, so a returned
+    // teardown would never run).
+    previouslyFocused?.focus?.()
   })
 
   function initSetupTerminal(container: HTMLDivElement): void {

@@ -103,6 +103,20 @@
     doRedraw()
   }
 
+  // redraw() re-runs the perfect-freehand outline algorithm for every committed stroke, and this
+  // effect is driven by liveStroke, which onPointerMove reassigns on every pointer event (up to
+  // 240 Hz on high-poll-rate mice). Coalesce invalidations to one redraw per animation frame so
+  // the cost scales with frames rather than with pointer events.
+  let redrawFrame: number | null = null
+
+  function scheduleRedraw(): void {
+    if (redrawFrame !== null) return
+    redrawFrame = requestAnimationFrame(() => {
+      redrawFrame = null
+      doRedraw()
+    })
+  }
+
   $effect(() => {
     void strokes.length
     void liveStroke
@@ -110,7 +124,7 @@
     void selectedIds.size
     void panX
     void panY
-    doRedraw()
+    scheduleRedraw()
   })
 
   onMount(() => {
@@ -123,6 +137,7 @@
   })
 
   onDestroy(() => {
+    if (redrawFrame !== null) cancelAnimationFrame(redrawFrame)
     if (currentKey) drawingsState[currentKey] = [...strokes]
   })
 

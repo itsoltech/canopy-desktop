@@ -752,6 +752,19 @@ export class TaskTrackerManager {
 
     if (newToken) {
       this.preferencesStore.set(conn.authPrefKey, newToken)
+    } else if (
+      updates.baseUrl !== undefined &&
+      updates.baseUrl !== conn.baseUrl &&
+      !isSameOriginAs(updates.baseUrl, conn.baseUrl)
+    ) {
+      // SECURITY: the stored secret is bound to the origin it was issued for, but it is keyed
+      // by authPrefKey (derived from the connection id, not the host). The renderer is the
+      // untrusted boundary and can repoint baseUrl at will, so carrying the token across an
+      // origin change would send a live tracker PAT to that origin on the very next request
+      // — and would also defeat the isSameOriginAs pinning on attachment downloads, which
+      // compares against this same baseUrl. Drop it and force re-entry. Unparseable URLs fail
+      // closed via isSameOriginAs returning false.
+      this.preferencesStore.delete(conn.authPrefKey)
     }
 
     this.saveConnections(connections)
