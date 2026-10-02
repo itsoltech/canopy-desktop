@@ -588,6 +588,12 @@
             {@const wtActive = isWorktreeActive(wt.path)}
             {@const agentStatus = getWorktreeAgentStatus(wt.path)}
             {@const wtBadge = worktreeBadges[wt.path] ?? 'none'}
+            {@const wtBadgeLabel =
+              wtBadge === 'permission'
+                ? 'needs permission'
+                : wtBadge === 'unread'
+                  ? 'new activity'
+                  : ''}
             {@const isRemoving = removingPaths.has(wt.path)}
             <li
               class="flex items-center mx-1 rounded-sm hover:bg-hover"
@@ -607,8 +613,12 @@
                   class:inline-flex={agentStatus !== 'none'}
                   class:items-center={agentStatus !== 'none'}
                   class:justify-center={agentStatus !== 'none'}
-                  title={agentStatus !== 'none' ? `Agent: ${agentStatus}` : undefined}
-                  aria-label={agentStatus !== 'none' ? `Agent status: ${agentStatus}` : undefined}
+                  title={agentStatus !== 'none'
+                    ? `Agent: ${agentStatus}${wtBadgeLabel ? ` — ${wtBadgeLabel}` : ''}`
+                    : undefined}
+                  aria-label={agentStatus !== 'none'
+                    ? `Agent status: ${agentStatus}${wtBadgeLabel ? `, ${wtBadgeLabel}` : ''}`
+                    : undefined}
                 >
                   {#if agentStatus !== 'none'}
                     <span

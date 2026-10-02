@@ -686,19 +686,15 @@
 
 <Toast />
 
-<main class="flex flex-row flex-1 min-h-0 overflow-hidden">
+<div class="flex flex-row flex-1 min-h-0 overflow-hidden">
   {#if startupRestoreState !== 'ready'}
-    <div
-      class="flex flex-1 min-w-0 flex-col items-center justify-center gap-3 bg-bg text-center"
-      role="status"
-      aria-live="polite"
-    >
+    <main class="flex flex-1 min-w-0 flex-col items-center justify-center gap-3 bg-bg text-center">
       <LoaderCircle size={18} class="animate-spin text-text-faint motion-reduce:animate-none" />
-      <div class="flex flex-col items-center gap-1">
+      <div class="flex flex-col items-center gap-1" role="status" aria-live="polite">
         <p class="m-0 text-sm font-medium text-text">{startupMessage.title}</p>
         <p class="m-0 text-xs text-text-faint">{startupMessage.description}</p>
       </div>
-    </div>
+    </main>
   {:else}
     {#if workspaceState.sidebarOpen && projects.length > 0}
       <Sidebar onLaunchTool={handleLaunchTool} width={sidebarWidth} />
@@ -713,7 +709,7 @@
       ></div>
     {/if}
 
-    <div class="flex-1 min-w-0 flex flex-col">
+    <main class="flex-1 min-w-0 flex flex-col">
       {#if workspaceState.selectedWorktreePath}
         <TabBar worktreePath={workspaceState.selectedWorktreePath} />
       {/if}
@@ -768,6 +764,6 @@
           />
         {/if}
       </div>
-    </div>
+    </main>
   {/if}
-</main>
+</div>

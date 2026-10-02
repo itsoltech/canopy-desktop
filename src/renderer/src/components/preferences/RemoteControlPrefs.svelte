@@ -14,13 +14,13 @@
     REMOTE_LISTEN_ALL_VALUE,
     type NetworkInterface,
   } from '../../lib/remote/interfaceOptions'
-
-  type GuardProfile = 'none' | 'destructive' | 'full'
+  import { getGuardProfile, type ActionGuardProfile } from '../../lib/remote/actionGuard'
 
   let enabled = $derived(prefs['remote.enabled'] === 'true')
-  let guardProfile: GuardProfile = $derived(
-    (prefs['remote.actionGuard'] as GuardProfile) ?? 'destructive',
-  )
+  // Read through the same validated accessor the guard itself uses, so an
+  // unrecognised stored value selects the radio that is actually in effect
+  // instead of leaving the group blank.
+  let guardProfile: ActionGuardProfile = $derived(getGuardProfile())
   let listenerInterface = $derived(prefs['remote.selectedInterface'] ?? '')
   let listenAllInterfaces = $derived(prefs['remote.listenAllInterfaces'] === 'true')
   let listenerValue = $derived(listenAllInterfaces ? REMOTE_LISTEN_ALL_VALUE : listenerInterface)
@@ -43,7 +43,7 @@
     setPref('remote.enabled', enabled ? 'false' : 'true')
   }
 
-  function setGuard(profile: GuardProfile): void {
+  function setGuard(profile: ActionGuardProfile): void {
     setPref('remote.actionGuard', profile)
   }
 
