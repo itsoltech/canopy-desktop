@@ -513,10 +513,13 @@
         {@const showIndicatorAfter =
           dragActive && dropIndex === idx + 1 && idx === editorFiles.length - 1}
         {#if showIndicatorBefore}<span class="sub-tab-drop-indicator"></span>{/if}
-        <button
+        <div
           class="sub-tab"
           class:active={isActive}
           class:dragging={draggingPath === file.filePath}
+          role="tab"
+          tabindex="0"
+          aria-selected={isActive}
           draggable="true"
           ondragstart={(e) => handleSubTabDragStart(e, file.filePath)}
           ondragover={(e) => handleSubTabDragOver(e, idx)}
@@ -529,28 +532,27 @@
             }
           }}
           onclick={() => handleSubTabClick(file.filePath)}
+          onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleSubTabClick(file.filePath)
+            }
+          }}
           oncontextmenu={(e) => handleSubTabDetach(e, file.filePath)}
           title={file.filePath + '\nMiddle-click: close · Drag to reorder · Drag out to new tab'}
         >
           {#if file.dirty}<span class="sub-tab-dirty" aria-label="Unsaved changes">●</span>{/if}
           <span class="sub-tab-name">{name}</span>
-          <span
+          <button
             class="sub-tab-close"
-            role="button"
-            tabindex="-1"
-            aria-label="Close file"
+            type="button"
+            aria-label="Close {name}"
             title="Close"
             onclick={(e) => handleSubTabClose(e, file.filePath)}
-            onkeydown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                void handleSubTabClose(e, file.filePath)
-              }
-            }}
           >
             <X size={11} />
-          </span>
-        </button>
+          </button>
+        </div>
         {#if showIndicatorAfter}<span class="sub-tab-drop-indicator"></span>{/if}
       {/each}
     </div>
@@ -790,6 +792,8 @@
     justify-content: center;
     width: 16px;
     height: 16px;
+    border: none;
+    padding: 0;
     border-radius: 3px;
     color: var(--color-text-faint);
     background: transparent;

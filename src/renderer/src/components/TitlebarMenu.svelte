@@ -1,22 +1,35 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { showPreferences, showAbout } from '../lib/stores/dialogs.svelte'
 
   let open = $state(false)
   let buttonEl: HTMLButtonElement | undefined = $state()
+  let menuEl: HTMLDivElement | undefined = $state()
   let dropdownTop = $state(0)
   let dropdownLeft = $state(0)
 
   function toggle(): void {
-    if (!open && buttonEl) {
+    if (open) {
+      close()
+      return
+    }
+    if (buttonEl) {
       const rect = buttonEl.getBoundingClientRect()
       dropdownTop = rect.bottom + 4
       dropdownLeft = rect.left
     }
-    open = !open
+    open = true
+    // Move focus into the menu so keyboard users land on the first item
+    // instead of having to tab past the rest of the document.
+    void tick().then(() => menuEl?.querySelector<HTMLElement>('[role="menuitem"]')?.focus())
   }
 
   function close(): void {
+    if (!open) return
     open = false
+    // Return focus to the trigger; otherwise dismissing the menu drops focus
+    // to <body> and the keyboard user loses their place.
+    buttonEl?.focus()
   }
 
   function handleAction(action: () => void): void {

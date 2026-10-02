@@ -1,6 +1,7 @@
 import type { PreferencesStore } from '../db/PreferencesStore'
 import { createHash } from 'crypto'
 import { err, ok, type Result } from 'neverthrow'
+import { match, P } from 'ts-pattern'
 import {
   CredentialRegistry,
   type CredentialAudience,
@@ -71,43 +72,42 @@ interface ProviderSpec {
 }
 
 function providerSpec(provider: string): ProviderSpec | null {
-  switch (provider) {
-    case 'jira':
-    case 'youtrack':
-      return {
-        service: provider,
-        authMethod: 'api-token',
-        intendedUse: 'tracker',
-        capabilities: ['issues.read', 'issues.write'],
-        readCapability: 'issues.read',
-      }
-    case 'github':
-      return {
-        service: 'github',
-        authMethod: 'pat',
-        intendedUse: 'tracker',
-        capabilities: ['issues.read', 'issues.write'],
-        readCapability: 'issues.read',
-      }
-    case 'github-actions':
-      return {
-        service: 'github',
-        authMethod: 'pat',
-        intendedUse: 'github-actions',
-        capabilities: ['actions.read', 'contents.read', 'actions.dispatch'],
-        readCapability: 'actions.read',
-      }
-    case 'teamcity':
-      return {
-        service: 'teamcity',
-        authMethod: 'access-token',
-        intendedUse: 'teamcity',
-        capabilities: ['builds.read', 'builds.trigger'],
-        readCapability: 'builds.read',
-      }
-    default:
-      return null
-  }
+  // `.otherwise` rather than `.exhaustive` because `provider` is a free-form
+  // string, not the provider literal union.
+  return match(provider)
+    .with(P.union('jira', 'youtrack'), (service) => ({
+      service,
+      authMethod: 'api-token',
+      intendedUse: 'tracker' as const,
+      capabilities: ['issues.read' as const, 'issues.write' as const],
+      readCapability: 'issues.read' as const,
+    }))
+    .with('github', () => ({
+      service: 'github' as const,
+      authMethod: 'pat',
+      intendedUse: 'tracker' as const,
+      capabilities: ['issues.read' as const, 'issues.write' as const],
+      readCapability: 'issues.read' as const,
+    }))
+    .with('github-actions', () => ({
+      service: 'github' as const,
+      authMethod: 'pat',
+      intendedUse: 'github-actions' as const,
+      capabilities: [
+        'actions.read' as const,
+        'contents.read' as const,
+        'actions.dispatch' as const,
+      ],
+      readCapability: 'actions.read' as const,
+    }))
+    .with('teamcity', () => ({
+      service: 'teamcity' as const,
+      authMethod: 'access-token',
+      intendedUse: 'teamcity' as const,
+      capabilities: ['builds.read' as const, 'builds.trigger' as const],
+      readCapability: 'builds.read' as const,
+    }))
+    .otherwise(() => null)
 }
 
 function audienceFor(provider: string, baseUrl: string): CredentialAudience {

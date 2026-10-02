@@ -409,11 +409,13 @@ function stopObservingRun(key: string): void {
 function reportRunConclusion(run: CiRun): void {
   const number = run.number ? ` #${run.number}` : ''
   const prefix = `${run.jobLabel}${number}`
-  if (run.conclusion === 'success') addToast(`${prefix}: workflow succeeded`, 'success')
-  else if (run.conclusion === 'failure') addToast(`${prefix}: workflow failed`, 'danger')
-  else if (run.conclusion === 'cancelled') addToast(`${prefix}: workflow cancelled`)
-  else if (run.conclusion === 'neutral') addToast(`${prefix}: workflow finished (neutral)`)
-  else addToast(`${prefix}: workflow finished with unknown status`)
+  match(run.conclusion)
+    .with('success', () => addToast(`${prefix}: workflow succeeded`, 'success'))
+    .with('failure', () => addToast(`${prefix}: workflow failed`, 'danger'))
+    .with('cancelled', () => addToast(`${prefix}: workflow cancelled`))
+    .with('neutral', () => addToast(`${prefix}: workflow finished (neutral)`))
+    .with('unknown', () => addToast(`${prefix}: workflow finished with unknown status`))
+    .exhaustive()
 }
 
 function observeRun(repoRoot: string, runId: string, label: string): void {

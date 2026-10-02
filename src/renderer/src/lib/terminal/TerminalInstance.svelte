@@ -173,13 +173,24 @@
     return "'" + path.replace(/'/g, "'\\''") + "'"
   }
 
+  /**
+   * Replay markers the perf harness reads back off `window`. They are
+   * diagnostics-only scratch state, deliberately not part of the preload API
+   * surface, so the cast is the only way to reach them from typed code.
+   */
+  interface PerfTerminalWindow {
+    __canopyTerminalMarkers?: Record<string, Record<string, true>>
+    __canopyTerminalTail?: Record<string, string>
+  }
+
+  function perfTerminalWindow(): PerfTerminalWindow {
+    return window as unknown as PerfTerminalWindow
+  }
+
   function recordPerfTerminalWrite(data: string): void {
     if (!window.api.perfDiagnostics) return
     const marker = 'CANOPY_REPLAY_DONE'
-    const w = window as unknown as {
-      __canopyTerminalMarkers?: Record<string, Record<string, true>>
-      __canopyTerminalTail?: Record<string, string>
-    }
+    const w = perfTerminalWindow()
     w.__canopyTerminalTail ??= {}
     const combined = (w.__canopyTerminalTail[sessionId] ?? '') + data
     if (combined.includes(marker)) {
@@ -192,10 +203,7 @@
 
   function cleanupPerfTerminalWriteState(): void {
     if (!window.api.perfDiagnostics) return
-    const w = window as unknown as {
-      __canopyTerminalMarkers?: Record<string, Record<string, true>>
-      __canopyTerminalTail?: Record<string, string>
-    }
+    const w = perfTerminalWindow()
     delete w.__canopyTerminalMarkers?.[sessionId]
     delete w.__canopyTerminalTail?.[sessionId]
   }

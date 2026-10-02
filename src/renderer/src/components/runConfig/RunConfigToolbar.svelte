@@ -75,7 +75,11 @@
   }
 
   function closeDropdown(): void {
+    if (!dropdownOpen) return
     dropdownOpen = false
+    // Return focus to the trigger; dismissing with Escape or an outside click
+    // otherwise unmounts the focused option and drops focus to <body>.
+    triggerEl?.focus()
   }
 
   function selectAndClose(configDir: string, name: string): void {
