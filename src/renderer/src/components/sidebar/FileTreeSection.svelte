@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { match } from 'ts-pattern'
   import { ChevronRight, Folder, FolderOpen, RotateCw, Plus } from '@lucide/svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
@@ -9,6 +10,7 @@
   import { fileManagerLabel } from '../../lib/platform'
   import { prompt, confirm } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
 
   let refreshing = $state(false)
 
@@ -30,6 +32,8 @@
   }
 
   let contextMenu: { x: number; y: number; path: string } | null = $state(null)
+  let contextMenuEl: HTMLDivElement | undefined = $state()
+  let restoreContextFocus: (() => void) | null = null
 
   $effect(() => {
     const wt = workspaceState.selectedWorktreePath
@@ -125,6 +129,11 @@
   function handleContextMenu(e: MouseEvent, absPath: string): void {
     e.preventDefault()
     contextMenu = { x: e.clientX, y: e.clientY, path: absPath }
+    // `autofocus` only fires while <body> has focus, so a menu opened from a focused row (right
+    // click, Shift+F10) kept focus on the row: the portalled items were unreachable by keyboard
+    // and the menu's Escape handler never received the key.
+    restoreContextFocus = captureFocusReturn()
+    void tick().then(() => contextMenuEl?.querySelector<HTMLElement>('[role="menuitem"]')?.focus())
   }
 
   function portal(node: HTMLElement): { destroy(): void } {
@@ -134,6 +143,8 @@
 
   function closeContextMenu(): void {
     contextMenu = null
+    restoreContextFocus?.()
+    restoreContextFocus = null
   }
 
   function contextRevealInFileManager(): void {
@@ -284,6 +295,7 @@
                 onclick={() => fileTree.toggleDir(absPath)}
                 oncontextmenu={(e) => handleContextMenu(e, absPath)}
                 title={entry.name}
+                aria-expanded={isExpanded}
               >
                 <span
                   class="inline-flex items-center justify-center size-3 flex-shrink-0 text-text-faint transition-transform duration-fast ease-std"
@@ -369,16 +381,15 @@
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
+      bind:this={contextMenuEl}
       class="fixed min-w-45 bg-bg-overlay border border-border rounded-md p-1 shadow-menu backdrop-blur-md z-popover"
       role="menu"
       style="left: {contextMenu.x}px; top: {contextMenu.y}px"
       onclick={(e) => e.stopPropagation()}
     >
-      <!-- eslint-disable-next-line svelte/no-autofocus -->
       <button
         class="block w-full px-2.5 py-1.5 text-sm text-text bg-transparent border-0 rounded-sm cursor-pointer text-left font-inherit transition-colors duration-fast hover:bg-hover"
         role="menuitem"
-        autofocus
         onclick={contextRevealInFileManager}
       >
         {fileManagerLabel()}

@@ -119,7 +119,19 @@
     return `${base} ${Date.now()}`
   }
 
+  async function confirmDiscardChanges(): Promise<boolean> {
+    if (!dirty) return true
+    return confirm({
+      title: 'Discard unsaved changes?',
+      message: 'You have unsaved changes in the current profile. Switch anyway?',
+      confirmLabel: 'Discard',
+      destructive: true,
+    })
+  }
+
   async function handleNew(): Promise<void> {
+    // Selecting the created profile re-seeds the draft, silently dropping unsaved edits.
+    if (!(await confirmDiscardChanges())) return
     saving = true
     try {
       const created = await saveProfile({
@@ -140,15 +152,7 @@
 
   async function selectProfile(id: string): Promise<void> {
     if (id === selectedId) return
-    if (dirty) {
-      const ok = await confirm({
-        title: 'Discard unsaved changes?',
-        message: 'You have unsaved changes in the current profile. Switch anyway?',
-        confirmLabel: 'Discard',
-        destructive: true,
-      })
-      if (!ok) return
-    }
+    if (!(await confirmDiscardChanges())) return
     selectedId = id
   }
 

@@ -88,6 +88,10 @@
   let progressState = $state(0)
   let progressValue = $state(0)
   let finishTimer: ReturnType<typeof setTimeout> | null = null
+  // An in-flight create keeps running after the dialog closes; its continuation must not run
+  // setup, select the worktree, open a tool or call onClose() — which would close whatever
+  // dialog the user opened since.
+  let destroyed = false
 
   let repoRoot = $derived(repoRootProp ?? workspaceState.repoRoot!)
   // Tracker config (.canopy/config.json) is resolved against the ACTIVE WORKTREE — that's where
@@ -167,6 +171,7 @@
   }
 
   onDestroy(() => {
+    destroyed = true
     if (finishTimer) clearTimeout(finishTimer)
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
@@ -508,6 +513,7 @@
   }
 
   async function runSetup(): Promise<void> {
+    if (destroyed) return
     cleanupProgressListener = window.api.onWorktreeSetupProgress((data) => {
       setupLabel = data.label
       setupCurrent = data.actionIndex + 1
@@ -532,7 +538,7 @@
   }
 
   function finishCreation(): void {
-    if (step === 'done') return
+    if (destroyed || step === 'done') return
     step = 'done'
     if (finishTimer) clearTimeout(finishTimer)
     finishTimer = setTimeout(

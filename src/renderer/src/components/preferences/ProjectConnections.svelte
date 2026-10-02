@@ -22,6 +22,7 @@
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import { trackerBindingKey } from '../../../../renderer-shared/credentialBindings'
   import { credentialRemovalMessage } from '../../lib/credentials/removal'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
 
   // Project connections = trackers configured in the repo's .canopy/config.json (active worktree).
   // Here you only CONNECT (authenticate) them — credentials are purpose-bound locally. Adding /
@@ -40,6 +41,8 @@
   let testing = $state(false)
   let testResult = $state<'success' | 'fail' | ''>('')
   let dialogEl = $state<HTMLElement>()
+  // Returns focus to the row button that opened the credential dialog once it closes.
+  let restoreConnectFocus: (() => void) | null = null
 
   let connectingCreds = $derived(connectingId ? trackerCreds[connectingId] : undefined)
 
@@ -114,6 +117,7 @@
     baseUrl: string
     projectKey?: string
   }): void {
+    restoreConnectFocus = captureFocusReturn()
     connectingId = t.id
     formProvider = t.provider as 'jira' | 'youtrack' | 'github'
     formBaseUrl = t.baseUrl
@@ -123,8 +127,14 @@
     testResult = ''
   }
 
-  function cancel(): void {
+  function closeConnectDialog(): void {
     connectingId = null
+    restoreConnectFocus?.()
+    restoreConnectFocus = null
+  }
+
+  function cancel(): void {
+    closeConnectDialog()
     testResult = ''
   }
 
@@ -226,7 +236,7 @@
       return
     }
     if (repoRoot) await loadRepoConfig(repoRoot)
-    connectingId = null
+    closeConnectDialog()
     addToast('Credentials saved')
   }
 

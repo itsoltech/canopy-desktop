@@ -78,4 +78,9 @@
   })
 </script>
 
-<div class="[&_svg]:block" bind:this={qrEl}></div>
+<div
+  class="[&_svg]:block"
+  role="img"
+  aria-label="QR code for pairing a remote device — scan it with the device's camera"
+  bind:this={qrEl}
+></div>

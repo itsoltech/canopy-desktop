@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { X, ExternalLink, ArrowLeft, RotateCcw } from '@lucide/svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, confirm } from '../../lib/stores/dialogs.svelte'
@@ -67,6 +67,12 @@
   let operationError = $state('')
   let createdWorktreePath = $state('')
   let contextSendFailed = $state(false)
+  // Back/Close unmount this form while confirmBranchCreation() is still running; its closeDialog()
+  // calls would otherwise close whichever dialog is open by the time it finishes.
+  let destroyed = false
+  onDestroy(() => {
+    destroyed = true
+  })
 
   let baseBranchGroups = $derived(
     [
@@ -185,7 +191,7 @@
         { reuseExistingAgent: true },
       )
       creatingWorktree = false
-      if (sent) closeDialog()
+      if (sent && !destroyed) closeDialog()
       return
     }
 
@@ -258,12 +264,12 @@
         await selectWorktree(created.worktreePath)
       }
 
-      closeDialog()
+      if (!destroyed) closeDialog()
     } catch (e) {
       creatingWorktree = false
       operationStatus = ''
       operationError = ''
-      closeDialog()
+      if (!destroyed) closeDialog()
       await new Promise((r) => setTimeout(r, 0))
       await confirm({
         title: 'Worktree Creation Failed',

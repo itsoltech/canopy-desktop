@@ -32,6 +32,7 @@
   import { addToast, showUrlToast } from '../../lib/stores/toast.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
 
   let {
@@ -204,6 +205,7 @@
   let favDropIndex: number | null = $state(null)
   let starDropdownOpen = $state(false)
   let favNameInputEl: HTMLInputElement | undefined = $state()
+  let favModalEl: HTMLDivElement | undefined = $state()
 
   // Focus the first input each time the favorites modal opens so Escape bubbles to the backdrop.
   $effect(() => {
@@ -316,6 +318,7 @@
     $state(null)
   let pageHasPasswordField = $state(false)
   let savePromptUsernameEl: HTMLInputElement | undefined = $state()
+  let saveModalEl: HTMLDivElement | undefined = $state()
 
   // Focus the first input each time the save-password modal opens so Escape bubbles to the backdrop.
   $effect(() => {
@@ -1216,9 +1219,12 @@
             e.stopPropagation()
             favModalOpen = false
           }
+          // aria-modal: Tab past the last button must not walk into the live <webview> behind it.
+          if (e.key === 'Tab' && favModalEl) cycleFocus(favModalEl, e)
         }}
       >
         <div
+          bind:this={favModalEl}
           class="fav-modal"
           role="dialog"
           aria-modal="true"
@@ -1323,9 +1329,11 @@
         e.stopPropagation()
         handleDismissSavePrompt()
       }
+      if (e.key === 'Tab' && saveModalEl) cycleFocus(saveModalEl, e)
     }}
   >
     <div
+      bind:this={saveModalEl}
       class="save-modal"
       role="dialog"
       aria-modal="true"
