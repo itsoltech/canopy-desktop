@@ -1,6 +1,7 @@
 import { errAsync, okAsync } from 'neverthrow'
 import type { ResultAsync } from 'neverthrow'
 import { fromExternalCall, errorMessage } from '../errors'
+import { redactSecret } from '../credentials/redactSecret'
 import type { GitHubError } from './errors'
 
 interface GraphQLResponse<T> {
@@ -49,7 +50,7 @@ export function graphqlFetch<T>(
         errAsync<T, GitHubError>({
           _tag: 'GitHubApiError',
           status: res.status,
-          message: body || res.statusText,
+          message: redactSecret(body || res.statusText, token),
         }),
       )
     }
@@ -66,7 +67,7 @@ export function graphqlFetch<T>(
         errAsync<T, GitHubError>({
           _tag: 'GitHubApiError',
           status: res.status,
-          message: body || res.statusText,
+          message: redactSecret(body || res.statusText, token),
         }),
       )
     }

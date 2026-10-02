@@ -1,6 +1,7 @@
 import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
 import { taskTrackerErrorMessage, type TaskTrackerError } from '../errors'
 import { fromExternalCall, errorMessage } from '../../errors'
+import { redactSecret } from '../../credentials/redactSecret'
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
@@ -34,8 +35,13 @@ function buildHeaders(token: string): HeadersInit {
   }
 }
 
-function apiError(status: number, message: string): TaskTrackerError {
-  return { _tag: 'ProviderApiError', status, message, provider: 'youtrack' }
+function apiError(status: number, message: string, token?: string): TaskTrackerError {
+  return {
+    _tag: 'ProviderApiError',
+    status,
+    message: redactSecret(message, token),
+    provider: 'youtrack',
+  }
 }
 
 /** YouTrack error bodies are JSON ({error, error_description}) — surface the sentences. */
@@ -64,15 +70,15 @@ function ytFetch<T>(
       redirect: 'error',
       signal: AbortSignal.timeout(15_000),
     }),
-    (e) => apiError(0, errorMessage(e)),
+    (e) => apiError(0, errorMessage(e), token),
   ).andThen((res) => {
     if (!res.ok) {
       return fromExternalCall(
         res.text().catch(() => ''),
-        (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((body) => errAsync(apiError(res.status, ytErrorText(body, res.statusText))))
+        (e) => apiError(res.status, errorMessage(e), token),
+      ).andThen((body) => errAsync(apiError(res.status, ytErrorText(body, res.statusText), token)))
     }
-    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e), token))
   })
 }
 
@@ -94,15 +100,15 @@ function ytPost<T>(
       redirect: 'error',
       signal: AbortSignal.timeout(15_000),
     }),
-    (e) => apiError(0, errorMessage(e)),
+    (e) => apiError(0, errorMessage(e), token),
   ).andThen((res) => {
     if (!res.ok) {
       return fromExternalCall(
         res.text().catch(() => ''),
-        (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((text) => errAsync(apiError(res.status, ytErrorText(text, res.statusText))))
+        (e) => apiError(res.status, errorMessage(e), token),
+      ).andThen((text) => errAsync(apiError(res.status, ytErrorText(text, res.statusText), token)))
     }
-    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e)))
+    return fromExternalCall(res.json() as Promise<T>, (e) => apiError(0, errorMessage(e), token))
   })
 }
 
@@ -133,14 +139,16 @@ function ytUploadAttachments(
       redirect: 'error',
       signal: AbortSignal.timeout(60_000),
     }),
-    (e) => apiError(0, errorMessage(e)),
+    (e) => apiError(0, errorMessage(e), token),
   )
     .andThen((res) => {
       if (!res.ok) {
         return fromExternalCall(
           res.text().catch(() => ''),
-          (e) => apiError(res.status, errorMessage(e)),
-        ).andThen((text) => errAsync(apiError(res.status, ytErrorText(text, res.statusText))))
+          (e) => apiError(res.status, errorMessage(e), token),
+        ).andThen((text) =>
+          errAsync(apiError(res.status, ytErrorText(text, res.statusText), token)),
+        )
       }
       return okAsync([] as string[])
     })
@@ -187,13 +195,13 @@ function ytSend(
       redirect: 'error',
       signal: AbortSignal.timeout(15_000),
     }),
-    (e) => apiError(0, errorMessage(e)),
+    (e) => apiError(0, errorMessage(e), token),
   ).andThen((res) => {
     if (!res.ok) {
       return fromExternalCall(
         res.text().catch(() => ''),
-        (e) => apiError(res.status, errorMessage(e)),
-      ).andThen((text) => errAsync(apiError(res.status, ytErrorText(text, res.statusText))))
+        (e) => apiError(res.status, errorMessage(e), token),
+      ).andThen((text) => errAsync(apiError(res.status, ytErrorText(text, res.statusText), token)))
     }
     return okAsync(undefined)
   })
@@ -400,7 +408,7 @@ export const youtrackClient: TaskTrackerProviderClient = {
         ? Promise.resolve(connection.projectKey)
         : projectFromBoard
 
-    return fromExternalCall(resolvedProject, (e) => apiError(0, errorMessage(e))).andThen(
+    return fromExternalCall(resolvedProject, (e) => apiError(0, errorMessage(e), token)).andThen(
       (projectKey) => {
         const queryParts: string[] = []
 

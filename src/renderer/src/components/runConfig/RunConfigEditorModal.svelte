@@ -10,6 +10,7 @@
     getSources,
   } from '../../lib/stores/runConfig.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
 
   let {
     configDir: initialConfigDir,
@@ -74,7 +75,7 @@
       }
       closeDialog()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      error = ipcErrorMessage(e)
     } finally {
       saving = false
     }

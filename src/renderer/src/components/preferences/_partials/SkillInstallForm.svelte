@@ -1,6 +1,7 @@
 <script lang="ts">
   import CustomCheckbox from '../../shared/CustomCheckbox.svelte'
   import CustomRadio from '../../shared/CustomRadio.svelte'
+  import { ipcErrorMessage } from '../../../lib/taskTracker/ipcErrorMessage'
 
   let {
     agentLabels,
@@ -58,7 +59,7 @@
       await onInstalled()
       onClose()
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      error = ipcErrorMessage(e)
     } finally {
       installing = false
     }

@@ -3,6 +3,7 @@
   import { openWorkspace } from '../../lib/stores/workspace.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import WelcomeEmpty from './_partials/WelcomeEmpty.svelte'
   import WelcomeContextMenu from './_partials/WelcomeContextMenu.svelte'
   import WelcomeRecents from './_partials/WelcomeRecents.svelte'
@@ -54,9 +55,7 @@
     try {
       workspaces = await window.api.listWorkspaces(20)
     } catch (err) {
-      addToast(
-        `Failed to load recent workspaces: ${err instanceof Error ? err.message : String(err)}`,
-      )
+      addToast(`Failed to load recent workspaces: ${ipcErrorMessage(err)}`)
     }
 
     await tick()
@@ -106,7 +105,7 @@
       const path = await window.api.confirmOpenPath(result.value)
       if (path) openWorkspace(path)
     } catch (err) {
-      addToast(`Failed to open path: ${err instanceof Error ? err.message : String(err)}`)
+      addToast(`Failed to open path: ${ipcErrorMessage(err)}`)
     }
   }
 

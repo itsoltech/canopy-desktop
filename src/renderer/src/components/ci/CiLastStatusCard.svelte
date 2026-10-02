@@ -48,7 +48,7 @@
     <span class="flex items-center gap-2 w-full min-w-0">
       <span
         class="flex-1 min-w-0 text-2xs font-semibold uppercase tracking-caps-tight text-text-faint truncate"
-        title={row.label}>{cardTitle} · {row.label}</span
+        title="{cardTitle} · {row.label}">{cardTitle} · {row.label}</span
       >
       {#if issue}
         <!-- Left in the accessible tree deliberately: it is two words, and the live region
