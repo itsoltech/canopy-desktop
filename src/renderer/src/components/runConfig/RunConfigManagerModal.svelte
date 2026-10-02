@@ -100,10 +100,11 @@
 
   async function handlePlay(configDir: string, name: string): Promise<void> {
     const result = await executeRunConfig(configDir, name)
-    if (result) {
-      const worktreePath = workspaceState.selectedWorktreePath
-      if (worktreePath) openRunConfigTab(name, result.sessionId, worktreePath)
-    }
+    // Keep the modal open on failure so the user can retry without reopening it;
+    // executeRunConfig already surfaces the error as a toast.
+    if (!result) return
+    const worktreePath = workspaceState.selectedWorktreePath
+    if (worktreePath) openRunConfigTab(name, result.sessionId, worktreePath)
     closeDialog()
   }
 

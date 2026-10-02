@@ -38,6 +38,7 @@
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -57,12 +58,19 @@
 
   let tmuxAvailable = $state(false)
 
+  // Returns focus to whatever opened the palette when it is dismissed without
+  // running a command. Cleared before a command runs so that focus stays
+  // wherever that command puts it.
+  let restoreFocus: (() => void) | null = null
+
   onMount(() => {
+    restoreFocus = captureFocusReturn()
     inputEl?.focus()
     window.api
       .tmuxIsAvailable()
       .then((v) => (tmuxAvailable = v))
       .catch(() => {})
+    return () => restoreFocus?.()
   })
 
   const isMac = navigator.userAgent.includes('Mac')
@@ -584,6 +592,7 @@
   function executeSelected(): void {
     const item = flatItems[selectedIndex]
     if (item && !item.disabled) {
+      restoreFocus = null
       onClose()
       item.action()
     }
@@ -720,6 +729,7 @@
                 data-palette-selected={isSelected}
                 onclick={() => {
                   if (!item.disabled) {
+                    restoreFocus = null
                     onClose()
                     item.action()
                   }

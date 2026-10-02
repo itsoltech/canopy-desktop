@@ -115,7 +115,11 @@ export function ciRunChip(row: { run: CiRun | null; error?: string }): CiChip {
       label: 'Neutral',
       cls: 'bg-active text-text-muted',
     }))
-    .otherwise(() => ({ label: 'Unknown', cls: 'bg-active text-text-muted' }))
+    .with({ conclusion: 'unknown' }, () => ({
+      label: 'Unknown',
+      cls: 'bg-active text-text-muted',
+    }))
+    .exhaustive()
 }
 
 /** Drives the faster poll interval — a queued or running build changes state soon. */
