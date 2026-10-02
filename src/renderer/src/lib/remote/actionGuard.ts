@@ -137,7 +137,11 @@ async function confirmSessionGrant(method: RpcMethodName): Promise<boolean> {
 }
 
 function describeSessionGrant(method: RpcMethodName): string {
-  return match(method as string)
+  // No `as string`: matching on the RpcMethodName union lets ts-pattern reject a
+  // typo'd literal at compile time. Cast to string and a misspelled method name
+  // silently falls through to `.otherwise()`, so the user approving an untrusted
+  // peer sees a bare method id instead of the plain-language description.
+  return match(method)
     .with('pty.write', () => 'type into any terminal')
     .with('agent.sendInput', () => 'send prompts to any agent')
     .otherwise(() => `execute ${method}`)
@@ -168,7 +172,9 @@ async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promi
 
 function describeAction(method: RpcMethodName, params: unknown): string {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>
-  return match(method as string)
+  // See describeSessionGrant: matching the union, not `string`, keeps these
+  // literals checked against RpcMethods.
+  return match(method)
     .with('tools.spawn', () => `spawn tool "${p.toolId}" in ${p.worktreePath}`)
     .with('tabs.close', () => `close tab ${p.tabId}`)
     .with('tabs.activate', () => `activate tab ${p.tabId}`)

@@ -308,6 +308,16 @@ export class BrowserManager {
     })
   }
 
+  /**
+   * `entries` is keyed by a renderer-supplied `browserId` and is shared across
+   * every window, so a browserId alone does not prove the caller may act on it.
+   * IPC handlers must gate privileged operations (DevTools, debugger attach,
+   * credential injection) on the calling WebContents actually owning the entry.
+   */
+  ownedBy(browserId: string, sender: WebContents): boolean {
+    return this.entries.get(browserId)?.sender === sender
+  }
+
   teardown(browserId: string): void {
     const entry = this.entries.get(browserId)
     if (entry) {

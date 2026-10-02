@@ -8,6 +8,16 @@ interface GraphQLResponse<T> {
   errors?: Array<{ message: string }>
 }
 
+/**
+ * `apiUrl` is derived from the repo's git remote host, so the responding server
+ * is not necessarily github.com. Scrub the bearer token out of any body we turn
+ * into an error message before it reaches the renderer — matches the redaction
+ * the TeamCity and GitHub Actions clients already apply on every error branch.
+ */
+function redactToken(message: string, token: string): string {
+  return token ? message.replaceAll(token, '[redacted]') : message
+}
+
 export function graphqlFetch<T>(
   apiUrl: string,
   token: string,
@@ -49,7 +59,7 @@ export function graphqlFetch<T>(
         errAsync<T, GitHubError>({
           _tag: 'GitHubApiError',
           status: res.status,
-          message: body || res.statusText,
+          message: redactToken(body || res.statusText, token),
         }),
       )
     }
@@ -66,7 +76,7 @@ export function graphqlFetch<T>(
         errAsync<T, GitHubError>({
           _tag: 'GitHubApiError',
           status: res.status,
-          message: body || res.statusText,
+          message: redactToken(body || res.statusText, token),
         }),
       )
     }
@@ -77,7 +87,10 @@ export function graphqlFetch<T>(
       message: errorMessage(e),
     })).andThen((json) => {
       if (json.errors?.length) {
-        return errAsync<T, GitHubError>({ _tag: 'GitHubGraphQLError', errors: json.errors })
+        return errAsync<T, GitHubError>({
+          _tag: 'GitHubGraphQLError',
+          errors: json.errors.map((e) => ({ message: redactToken(e.message, token) })),
+        })
       }
       if (!json.data) {
         return errAsync<T, GitHubError>({

@@ -23,6 +23,10 @@
   const modKey = isMac ? '⌘' : 'Ctrl'
 
   let workspaces = $state<WorkspaceRow[]>([])
+  // `workspaces` starts empty, so without this flag the first-run "no recent
+  // projects" screen renders while listWorkspaces is still in flight and then
+  // swaps to the recents list — wrong content plus a layout shift.
+  let loaded = $state(false)
   let filter = $state('')
   let selectedIndex = $state(0)
   let contextMenu = $state<{ x: number; y: number; workspace: WorkspaceRow } | null>(null)
@@ -57,6 +61,8 @@
       addToast(
         `Failed to load recent workspaces: ${err instanceof Error ? err.message : String(err)}`,
       )
+    } finally {
+      loaded = true
     }
 
     await tick()
@@ -268,7 +274,11 @@
 
 <div class="flex items-start justify-center h-full overflow-y-auto py-12 px-5">
   <div class="w-full max-w-160 flex flex-col gap-6">
-    {#if workspaces.length === 0}
+    {#if !loaded}
+      <!-- Hold the frame until the first read resolves rather than guessing
+           which of the two states below applies. -->
+      <div class="h-40" aria-hidden="true"></div>
+    {:else if workspaces.length === 0}
       <WelcomeEmpty
         {modKey}
         onOpenFolder={handleOpenFolder}
