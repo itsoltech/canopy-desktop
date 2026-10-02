@@ -58,11 +58,15 @@
   let tmuxAvailable = $state(false)
 
   onMount(() => {
+    // Restore focus to whatever opened the palette, so dismissing it returns
+    // the keyboard to the terminal/editor instead of dropping it on <body>.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     inputEl?.focus()
     window.api
       .tmuxIsAvailable()
       .then((v) => (tmuxAvailable = v))
       .catch(() => {})
+    return () => previouslyFocused?.focus?.()
   })
 
   const isMac = navigator.userAgent.includes('Mac')

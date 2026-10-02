@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
+  import { match } from 'ts-pattern'
   import { X, ExternalLink, Copy, GitPullRequest, LoaderCircle, RefreshCw } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -151,6 +152,18 @@
   let armed = $state<'merge' | 'close' | 'delete' | null>(null)
   let mergeStrategy = $state<'merge' | 'squash' | 'rebase'>('merge')
   let deleteBranchAfter = $state(false)
+
+  // The two-click arm/confirm state is otherwise conveyed only by the button's
+  // visible label, which screen readers do not reliably re-announce in place.
+  // Mirror it into a live region so the confirm step is not silent.
+  let armedLabel = $derived(
+    match(armed)
+      .with('merge', () => 'Merge armed. Activate the button again to confirm.')
+      .with('close', () => 'Close pull request armed. Activate the button again to confirm.')
+      .with('delete', () => 'Delete source branch armed. Activate the button again to confirm.')
+      .with(null, () => '')
+      .exhaustive(),
+  )
 
   let mergeBlockReason = $derived.by(() => {
     if (!pr || pr.state !== 'OPEN') return 'PR is not open'
@@ -432,6 +445,7 @@
               class={dangerBtnCls}
               onclick={() => runAction('close')}
               disabled={acting !== null || loading}
+              aria-pressed={armed === 'close'}
               title="Close this pull request without merging"
             >
               {#if acting === 'close'}
@@ -443,6 +457,7 @@
               class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border-0 bg-success-bg text-success-text text-sm font-inherit enabled:cursor-pointer enabled:hover:bg-success/30 disabled:opacity-50 disabled:cursor-default"
               onclick={() => runAction('merge')}
               disabled={!!mergeBlockReason || acting !== null || loading}
+              aria-pressed={armed === 'merge'}
               title={mergeBlockReason ?? 'Merge this pull request'}
             >
               {#if acting === 'merge'}
@@ -457,6 +472,7 @@
               class={dangerBtnCls}
               onclick={() => runAction('delete')}
               disabled={acting !== null || loading}
+              aria-pressed={armed === 'delete'}
               title={`Delete the remote branch ${pr.headRefName}`}
             >
               {#if acting === 'delete'}
@@ -469,6 +485,7 @@
         {#if mergeBlockReason && pr.state === 'OPEN'}
           <p class="m-0 text-xs text-text-faint">{mergeBlockReason}.</p>
         {/if}
+        <span class="sr-only" role="status" aria-live="polite">{armedLabel}</span>
       </div>
     {/if}
 

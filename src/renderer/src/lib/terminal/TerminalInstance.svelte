@@ -176,6 +176,9 @@
   function recordPerfTerminalWrite(data: string): void {
     if (!window.api.perfDiagnostics) return
     const marker = 'CANOPY_REPLAY_DONE'
+    // Perf-harness scratch space: the terminal-replay benchmark reads these two
+    // globals back out of the page. They are deliberately not on the Window
+    // type because nothing in the app should depend on them.
     const w = window as unknown as {
       __canopyTerminalMarkers?: Record<string, Record<string, true>>
       __canopyTerminalTail?: Record<string, string>
@@ -192,6 +195,7 @@
 
   function cleanupPerfTerminalWriteState(): void {
     if (!window.api.perfDiagnostics) return
+    // Same untyped perf-harness globals as recordPerfTerminalWrite above.
     const w = window as unknown as {
       __canopyTerminalMarkers?: Record<string, Record<string, true>>
       __canopyTerminalTail?: Record<string, string>

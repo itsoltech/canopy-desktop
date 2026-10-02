@@ -299,10 +299,14 @@
   }
 
   function handleCtxKeydown(e: KeyboardEvent): void {
-    if (ctxMenu && e.key === 'Escape') {
+    if (!ctxMenu) return
+    if (e.key === 'Escape') {
       e.preventDefault()
       closeCtxMenu()
     }
+    // Tab out of an open menu dismisses it (WAI-ARIA menu behaviour). Without
+    // this, focus walks into the page behind a menu that is still on screen.
+    if (e.key === 'Tab') closeCtxMenu()
   }
 
   async function ctxRevealInFileManager(): Promise<void> {

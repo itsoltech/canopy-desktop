@@ -364,7 +364,9 @@
     use:portal
     onclick={closeContextMenu}
     onkeydown={(e) => {
-      if (e.key === 'Escape') closeContextMenu()
+      // Tab dismisses an open menu (WAI-ARIA menu behaviour) so focus never
+      // walks into the page behind a menu that is still on screen.
+      if (e.key === 'Escape' || e.key === 'Tab') closeContextMenu()
     }}
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
