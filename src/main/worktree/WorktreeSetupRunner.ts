@@ -59,18 +59,27 @@ export interface SetupContext {
   newWorktreePath: string
 }
 
-function shellQuote(s: string): string {
-  if (process.platform === 'win32') {
-    return '"' + s.replace(/"/g, '\\"') + '"'
+function shellQuote(s: string, platform: NodeJS.Platform): string {
+  if (platform === 'win32') {
+    // Commands run under `powershell.exe -Command`, which expands `$name` and `$(...)` inside
+    // double quotes; single-quoted strings are literal, with a doubled quote escaping one.
+    // PowerShell also treats the typographic quotes ‘ ’ ‚ ‛ as single quotes.
+    return "'" + s.replace(/['\u2018\u2019\u201a\u201b]/g, (q) => q + q) + "'"
   }
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }
 
-function substituteVars(command: string, ctx: SetupContext): string {
+export function substituteVars(
+  command: string,
+  ctx: SetupContext,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  // Replacer functions, so a path containing `$&` or `$'` is inserted literally instead of
+  // being read as a replacement pattern.
   return command
-    .replace(/\$MAIN_WORKTREE/g, shellQuote(ctx.mainWorktreePath))
-    .replace(/\$NEW_WORKTREE/g, shellQuote(ctx.newWorktreePath))
-    .replace(/\$REPO_ROOT/g, shellQuote(ctx.repoRoot))
+    .replace(/\$MAIN_WORKTREE/g, () => shellQuote(ctx.mainWorktreePath, platform))
+    .replace(/\$NEW_WORKTREE/g, () => shellQuote(ctx.newWorktreePath, platform))
+    .replace(/\$REPO_ROOT/g, () => shellQuote(ctx.repoRoot, platform))
 }
 
 function getLabel(action: WorktreeSetupAction): string {

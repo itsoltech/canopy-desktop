@@ -109,6 +109,9 @@ tab and shows a native dialog:
 - **Don't Save** — discards changes and closes.
 - **Cancel** — leaves everything open.
 
+Closing a single editor pane (Cmd/Ctrl+W, or the pane's close control) asks
+the same question for each dirty file in that pane before the pane closes.
+
 ### Status bar
 
 The status bar below the editor shows:

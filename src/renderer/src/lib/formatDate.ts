@@ -20,3 +20,13 @@ export function formatDateTime(iso?: string | number | null): string {
   const d = new Date(iso as string | number)
   return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+/**
+ * SQLite `datetime('now')` text → epoch ms. It is UTC but written `YYYY-MM-DD HH:MM:SS` without a
+ * zone, which Date.parse reads as local time.
+ */
+export function parseSqliteUtc(value: string): number {
+  return Date.parse(
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(' ', 'T')}Z` : value,
+  )
+}

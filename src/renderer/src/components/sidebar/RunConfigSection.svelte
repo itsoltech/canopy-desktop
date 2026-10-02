@@ -16,14 +16,18 @@
   import { showRunConfigManager } from '../../lib/stores/dialogs.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { openRunConfigTab } from '../../lib/stores/tabs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
 
   let grouped = $derived(getGroupedConfigs())
   let running = $derived(getRunningProcesses())
 
   let repoRoot = $derived(workspaceState.repoRoot)
 
+  // Also for a project without a repo root: discovery then clears the previous project's list.
   $effect(() => {
-    if (repoRoot) discoverConfigs()
+    void repoRoot
+    discoverConfigs()
   })
 
   onMount(() => {
@@ -33,12 +37,7 @@
 
   async function handlePlay(configDir: string, name: string): Promise<void> {
     const result = await executeRunConfig(configDir, name)
-    if (result) {
-      const worktreePath = workspaceState.selectedWorktreePath
-      if (worktreePath) {
-        openRunConfigTab(name, result.sessionId, worktreePath)
-      }
-    }
+    if (result) openRunConfigTab(name, result.sessionId, result.worktreePath)
   }
 
   async function handleDelete(configDir: string, name: string): Promise<void> {
@@ -48,8 +47,11 @@
       confirmLabel: 'Delete',
       destructive: true,
     })
-    if (confirmed) {
+    if (!confirmed) return
+    try {
       await deleteRunConfig(configDir, name)
+    } catch (e) {
+      addToast(ipcErrorMessage(e, `Failed to delete "${name}"`))
     }
   }
 
@@ -65,8 +67,9 @@
     const ids = getRunningSessionIds(configDir, name)
     // Kill this run config's PTYs concurrently instead of awaiting each IPC
     // round-trip in series.
-    await Promise.all(ids.map((id) => window.api.killPty(id)))
+    const results = await Promise.allSettled(ids.map((id) => window.api.killPty(id)))
     for (const id of ids) running.delete(id)
+    if (results.some((r) => r.status === 'rejected')) addToast(`Failed to stop "${name}"`)
   }
 </script>
 

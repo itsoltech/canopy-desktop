@@ -9,6 +9,11 @@ import { fromExternalCall, errorMessage } from '../errors'
 import { hasRemoteName } from './remoteNames'
 import { runGitProcess } from './GitProcessQueue'
 
+// Git's default core.quotePath=true prints non-ASCII path bytes as octal escapes inside quotes
+// ("caf\303\251.txt"), which neither parseDiff's header match nor the untracked-file reader
+// understands; have the diff/listing commands print such paths verbatim.
+const VERBATIM_PATHS = { config: ['core.quotePath=false'] }
+
 function validateRef(name: string): Result<string, GitError> {
   if (name.startsWith('-')) return err({ _tag: 'InvalidRef', ref: name })
   return ok(name)
@@ -574,12 +579,13 @@ export class GitRepository {
   }
 
   static getDiffParsed(repoRoot: string): ResultAsync<ParsedDiff, GitError> {
-    const git = simpleGit(repoRoot)
+    const git = simpleGit(repoRoot, VERBATIM_PATHS)
 
     const trackedDiff = gitCall('diff', () => git.diff(['HEAD']), readKey(repoRoot, 'diff-head'))
       .orElse((e) => {
         if (e._tag === 'GitCommandFailed') {
-          return gitCall('diff', () => git.diff(), readKey(repoRoot, 'diff-working'))
+          // Own dedup key: getDiff's 'diff-working' runs with default path quoting.
+          return gitCall('diff', () => git.diff(), readKey(repoRoot, 'diff-working-verbatim'))
         }
         return okAsync<string, GitError>('')
       })
@@ -609,7 +615,7 @@ export class GitRepository {
   }
 
   static getFileDiff(repoRoot: string, filePath: string): ResultAsync<ParsedDiff, GitError> {
-    const git = simpleGit(repoRoot)
+    const git = simpleGit(repoRoot, VERBATIM_PATHS)
     return gitCall(
       'diff',
       () => git.diff(['HEAD', '--', filePath]),

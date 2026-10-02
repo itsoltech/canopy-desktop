@@ -30,7 +30,7 @@ Authentication uses a GitHub token obtained from a matching task tracker connect
 2. Requests are debounced at 30 seconds per repository. A forced refresh bypasses the debounce.
 3. `GitHubService.findGitHubConnection(repoRoot)` locates a task tracker connection with provider `github` whose `projectKey` matches `owner/repo`, or whose host matches and `projectKey` is empty.
 4. If no matching connection or token is found, the fetch silently returns (no error toast).
-5. `fetchOpenPRsForBranches()` runs a GraphQL search query: `repo:{owner}/{repo} is:pr is:open head:{branch1} head:{branch2} ...`, fetching up to 50 PRs.
+5. `fetchOpenPRsForBranches()` runs a GraphQL search query: `repo:{owner}/{repo} is:pr is:open head:{branch1} head:{branch2} ...`, fetching up to 50 PRs. `head:` matches branch names in forks too, so a cross-repository PR counts only when it comes from the token owner's own fork (`headRepositoryOwner` equals `viewer`); other contributors' fork PRs that reuse a local branch name such as `main` are ignored.
 6. Each PR result includes: `number`, `title`, `state`, `url`, `headRefName`, `baseRefName`, `isDraft`, `reviewDecision` (APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null), and `checksState` (from `statusCheckRollup.state`: SUCCESS, FAILURE, PENDING, etc.).
 7. Results are stored in a reactive `branchPRs` map keyed by head branch name. The map is merged across repositories (multiple repos in the same workspace).
 8. Rate limit (403) and auth errors (401) show a toast notification. Other errors are silently ignored.
@@ -67,9 +67,9 @@ The debounce interval is hardcoded at 30 seconds (`DEBOUNCE_MS`).
 | Error                | User sees                                      | Cause                                                                                      |
 | -------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `GitHubTokenMissing` | "GitHub token is not configured"               | No task tracker connection with provider `github` found, or connection has no stored token |
-| `GitHubApiError`     | "GitHub API error ({status}): {message}"       | Non-200 HTTP response from the GraphQL endpoint (auth failure, server error)               |
+| `GitHubApiError`     | "GitHub API error ({status}): {message}"       | Non-200 HTTP response (auth failure, a 403 that is not a rate limit, server error)         |
 | `GitHubGraphQLError` | "GitHub GraphQL error: {messages}"             | GraphQL response contains errors (invalid query, permission denied on a field)             |
-| `GitHubRateLimited`  | "GitHub rate limit exceeded, resets at {time}" | HTTP 403 with `x-ratelimit-reset` header. Displays reset time in local format              |
+| `GitHubRateLimited`  | "GitHub rate limit exceeded, resets at {time}" | HTTP 403 with `x-ratelimit-reset` plus `x-ratelimit-remaining: 0` or `retry-after`         |
 | `GitHubNetworkError` | "GitHub network error: {message}"              | DNS failure, timeout (15 seconds), or connection refused                                   |
 | `InvalidRemoteUrl`   | "Invalid GitHub remote URL: {url}"             | Remote URL does not match any supported GitHub URL pattern                                 |
 | `NoGitHubRemote`     | "No GitHub remote found in {repoRoot}"         | Could not read the `origin` remote URL from the git repository                             |

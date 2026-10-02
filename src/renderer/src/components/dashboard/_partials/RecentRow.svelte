@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { parseSqliteUtc } from '../../../lib/formatDate'
+
   interface WorkspaceRow {
     id: string
     path: string
@@ -24,7 +26,7 @@
 
   function relativeTime(dateStr: string | null): string {
     if (!dateStr) return ''
-    const diff = Date.now() - Date.parse(dateStr)
+    const diff = Date.now() - parseSqliteUtc(dateStr)
     const seconds = Math.floor(diff / 1000)
     if (seconds < 60) return 'just now'
     const minutes = Math.floor(seconds / 60)

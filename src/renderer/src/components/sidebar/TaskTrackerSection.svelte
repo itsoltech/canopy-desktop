@@ -17,6 +17,8 @@
   import { showProjectTracker, showTaskPicker } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { providerLabel } from '../../lib/taskTracker/providerLabel'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import TaskTrackerTaskRow from './_partials/TaskTrackerTaskRow.svelte'
 
@@ -86,8 +88,13 @@
   async function unlinkTask(taskKey: string): Promise<void> {
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     if (!path) return
-    await removeActiveTask(path, taskKey)
-    await resolvePanelTask(path, workspaceState.branch)
+    // Same feedback as unlinking from the task picker; this runs fire-and-forget from the row.
+    try {
+      await removeActiveTask(path, taskKey)
+      await resolvePanelTask(path, workspaceState.branch)
+    } catch (e) {
+      addToast(ipcErrorMessage(e, 'Failed to unlink task'))
+    }
   }
 
   // No task linked yet: open the task picker in LINK mode — picking a task attaches it to the

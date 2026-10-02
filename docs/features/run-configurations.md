@@ -76,10 +76,10 @@ Fields per configuration entry:
 
 ### Executing a configuration
 
-1. User clicks Run on a configuration (sidebar, toolbar, or manager modal).
+1. User clicks Run on a configuration (sidebar, toolbar, or manager modal). A second Run of the same configuration while the first is still starting (including its `pre_run`) is ignored.
 2. The renderer checks the `max_instances` limit against the global running count for that config across all worktrees. If the limit is reached, a toast is shown: `"<name>" is already running (max N)`.
 3. If `pre_run` is set, Canopy spawns it in a PTY with a 30-second timeout. If the pre-run exits non-zero, execution aborts and the error includes the last 5 lines of output. If it times out, the PTY is killed and an error is raised.
-4. The main command (with args appended) is spawned through the shell so PATH resolution works. A WebSocket bridge is created for the terminal pane.
+4. The main command (with args appended) is spawned through the shell so PATH resolution works. A WebSocket bridge is created for the terminal pane, which opens in the worktree the run was started in, even if another worktree was selected while `pre_run` ran.
 5. The session is tracked in `runningProcesses` (keyed by session ID), filtered by the current worktree path.
 6. On process exit, the instance count is decremented and `pty:exit` is sent to the renderer.
 7. If `post_run` is set, it runs after the main process exits (also with a 30-second timeout). The renderer receives `runConfig:postRunResult` with `success`, `command`, and `exitCode`. A toast confirms the outcome: `post_run "<command>" completed` or `post_run "<command>" failed (exit N)`.

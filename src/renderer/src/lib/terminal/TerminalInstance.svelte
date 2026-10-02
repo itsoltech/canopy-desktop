@@ -147,10 +147,12 @@
     }
   })
 
-  // React to preference changes for theme/font
+  // React to preference changes for theme/font. Read the prefs BEFORE the termRef guard:
+  // termRef is a plain let that is still null when these effects first run, and an effect that
+  // returns before reading any state never runs again — open terminals kept their old look.
   $effect(() => {
-    if (!termRef) return
     const themeName = prefs.theme || 'Default'
+    if (!termRef) return
     const theme = getTheme(themeName)
     termRef.options.theme = theme
     if (containerEl) {
@@ -158,15 +160,25 @@
     }
   })
 
+  // A new cell size leaves the container size unchanged, so the ResizeObserver won't refit.
+  function refitAfterFontChange(): void {
+    requestAnimationFrame(() => {
+      if (!disposed && containerEl?.clientWidth && containerEl.clientHeight) fitAddonRef?.fit()
+    })
+  }
+
   $effect(() => {
-    if (!termRef) return
     const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
+    if (!termRef || termRef.options.fontSize === size) return
     termRef.options.fontSize = size
+    refitAfterFontChange()
   })
 
   $effect(() => {
-    if (!termRef) return
-    termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    const family = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    if (!termRef || termRef.options.fontFamily === family) return
+    termRef.options.fontFamily = family
+    refitAfterFontChange()
   })
 
   function shellEscape(path: string): string {
@@ -574,13 +586,13 @@
 
       const isMac = navigator.userAgent.includes('Mac')
 
-      // Keystroke visualizer — capture keydown on container (avoids xterm API interference)
-      if (getPref('keystrokeVisualizer.enabled') === 'true') {
-        keystrokeHandler = (e: KeyboardEvent): void => {
-          setTimeout(() => recordKeyEvent(sessionId, e), 0)
-        }
-        containerEl.addEventListener('keydown', keystrokeHandler, true)
+      // Keystroke visualizer — capture keydown on container (avoids xterm API interference).
+      // Checked per key rather than once here, so enabling the overlay works in open terminals.
+      keystrokeHandler = (e: KeyboardEvent): void => {
+        if (getPref('keystrokeVisualizer.enabled') !== 'true') return
+        setTimeout(() => recordKeyEvent(sessionId, e), 0)
       }
+      containerEl.addEventListener('keydown', keystrokeHandler, true)
 
       term.attachCustomKeyEventHandler((event) => {
         if (event.type === 'keydown') {
@@ -678,7 +690,9 @@
       containerEl.addEventListener('pointerdown', reclaimPtyHandler)
       reclaimTextarea?.addEventListener('focus', reclaimPtyHandler)
 
-      term.focus()
+      // Only the store-focused pane: when a split tab first shows, every pane initializes and the
+      // last one would otherwise take keyboard focus while another pane is marked focused.
+      if (focused) term.focus()
     }
 
     function maybeInitTerminal(): void {

@@ -305,7 +305,9 @@ export class NotchOverlayManager {
       peekSessionIds,
     }
 
-    if (state.sessions.length > 0) {
+    // displayChangeHandler hides the overlay when the primary display loses its notch; don't
+    // bring it back on the next status change.
+    if (state.sessions.length > 0 && this.hasNotch()) {
       this.overlayWindow.showInactive()
     } else {
       this.overlayWindow.hide()

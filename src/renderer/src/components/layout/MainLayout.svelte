@@ -559,13 +559,13 @@
       )
     }
 
-    // Cmd+Shift+[ and Cmd+Shift+]
-    if (e.key === '[' && e.shiftKey && path) {
+    // Cmd+Shift+[ and Cmd+Shift+]. With Ctrl (Windows/Linux) Shift turns the key into { / }.
+    if ((e.key === '[' || e.key === '{') && e.shiftKey && path) {
       e.preventDefault()
       prevTab(path).catch((err) => console.error('prevTab failed:', err))
     }
 
-    if (e.key === ']' && e.shiftKey && path) {
+    if ((e.key === ']' || e.key === '}') && e.shiftKey && path) {
       e.preventDefault()
       nextTab(path).catch((err) => console.error('nextTab failed:', err))
     }

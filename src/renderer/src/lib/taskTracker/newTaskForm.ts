@@ -99,10 +99,17 @@ export function validateTitle(title: string): string | null {
   return null
 }
 
+const FOLDED_LETTERS: Record<string, string> = { ł: 'l', đ: 'd', ø: 'o', ß: 'ss', æ: 'ae', œ: 'oe' }
+
 /** Renderer-side twin of the main process's slugify — used only for the pre-create draft. */
 export function slugifyTitle(text: string, maxLength = 50): string {
+  // Fold accented letters to ASCII ("dodać" → "dodac") instead of dropping them: NFD splits off
+  // the diacritics, and letters such as ł or ß that don't decompose are mapped.
   return text
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[łđøßæœ]/g, (c) => FOLDED_LETTERS[c] ?? c)
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')

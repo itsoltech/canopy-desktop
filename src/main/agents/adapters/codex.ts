@@ -1,6 +1,15 @@
 import { match, P } from 'ts-pattern'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, rmdirSync } from 'fs'
-import { join } from 'path'
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  rmdirSync,
+  lstatSync,
+  realpathSync,
+} from 'fs'
+import { isAbsolute, join, relative, sep } from 'path'
 import type {
   AgentAdapter,
   NormalizedEventName,
@@ -53,6 +62,25 @@ interface WorktreeRef {
 }
 const worktreeRefs = new Map<string, WorktreeRef>()
 
+/**
+ * `.codex/`, `.codex/hooks.json` and `.gitignore` come from the repository, which may commit
+ * them as symlinks. True when writing `path` would land outside the worktree (or create the
+ * target of a dangling link), so a cloned repo can't redirect these writes onto other files.
+ */
+function escapesWorktree(worktreePath: string, path: string): boolean {
+  try {
+    if (!lstatSync(path).isSymbolicLink()) return false
+  } catch {
+    return false // missing: created inside an already-checked parent
+  }
+  try {
+    const rel = relative(realpathSync(worktreePath), realpathSync(path))
+    return rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)
+  } catch {
+    return true
+  }
+}
+
 export const codexAdapter: AgentAdapter = {
   agentType: 'codex',
   toolId: 'codex',
@@ -69,6 +97,9 @@ export const codexAdapter: AgentAdapter = {
   ): SettingsSetup {
     const codexDir = join(worktreePath, '.codex')
     const hooksPath = join(codexDir, 'hooks.json')
+    if (escapesWorktree(worktreePath, codexDir) || escapesWorktree(worktreePath, hooksPath)) {
+      throw new Error('.codex/hooks.json is a symlink pointing outside the worktree')
+    }
 
     let ref = worktreeRefs.get(worktreePath)
     if (!ref) {
@@ -87,16 +118,18 @@ export const codexAdapter: AgentAdapter = {
       // Ensure .codex/ is gitignored so hooks.json (containing local paths) isn't committed
       let addedGitignore = false
       const gitignorePath = join(worktreePath, '.gitignore')
-      try {
-        const content = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
-        const lines = content.split('\n')
-        if (!lines.some((l) => l.trim() === CODEX_GITIGNORE_ENTRY || l.trim() === '.codex')) {
-          const suffix = content.length > 0 && !content.endsWith('\n') ? '\n' : ''
-          writeFileSync(gitignorePath, content + suffix + CODEX_GITIGNORE_ENTRY + '\n', 'utf-8')
-          addedGitignore = true
+      if (!escapesWorktree(worktreePath, gitignorePath)) {
+        try {
+          const content = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
+          const lines = content.split('\n')
+          if (!lines.some((l) => l.trim() === CODEX_GITIGNORE_ENTRY || l.trim() === '.codex')) {
+            const suffix = content.length > 0 && !content.endsWith('\n') ? '\n' : ''
+            writeFileSync(gitignorePath, content + suffix + CODEX_GITIGNORE_ENTRY + '\n', 'utf-8')
+            addedGitignore = true
+          }
+        } catch {
+          /* gitignore may be unwritable */
         }
-      } catch {
-        /* gitignore may be unwritable */
       }
 
       ref = { count: 0, original, createdDir, addedGitignore }

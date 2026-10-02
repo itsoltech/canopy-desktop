@@ -274,6 +274,8 @@ export interface DividerRect {
   y: number
   w: number
   h: number
+  /** Fraction of the container the split's own region spans along its axis (its ratio's base). */
+  extent: number
 }
 
 export interface FlatLayout {
@@ -328,6 +330,7 @@ function buildLayoutInner(
       y,
       w: gapX,
       h,
+      extent: w,
     })
   } else {
     const splitPos = h * node.ratio
@@ -343,6 +346,7 @@ function buildLayoutInner(
       y: y + splitPos - gapY / 2,
       w,
       h: gapY,
+      extent: h,
     })
   }
 }

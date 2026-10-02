@@ -112,7 +112,7 @@
       help="Workspace-write sandbox + on-request approvals"
       search="codex full auto autonomous"
     >
-      <CustomCheckbox checked={fullAuto} onchange={toggleFullAuto} />
+      <CustomCheckbox checked={fullAuto} onchange={toggleFullAuto} ariaLabel="Full auto" />
     </PrefsRow>
 
     <PrefsRow
@@ -123,6 +123,7 @@
       <CustomCheckbox
         checked={dangerouslyBypassApprovalsAndSandbox}
         onchange={toggleDangerouslyBypassApprovalsAndSandbox}
+        ariaLabel="Bypass approvals and sandbox"
       />
     </PrefsRow>
 

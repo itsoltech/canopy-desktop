@@ -24,6 +24,11 @@ interface WindowCloseSnapshot {
   isLastWindow: boolean
 }
 
+/** openExternal rejects when the OS has no handler; unhandled, that is recorded as a crash. */
+function openExternalSafely(url: string): void {
+  shell.openExternal(url).catch((e) => console.warn('[shell] openExternal failed:', e))
+}
+
 export class WindowManager {
   private windows = new Map<number, BrowserWindow>()
   // Keyed by comparable form (separator- and, on win32, case-folded) so lookups can
@@ -194,7 +199,7 @@ export class WindowManager {
     })
 
     win.webContents.setWindowOpenHandler((details) => {
-      if (isSafeExternalUrl(details.url)) shell.openExternal(details.url)
+      if (isSafeExternalUrl(details.url)) openExternalSafely(details.url)
       return { action: 'deny' }
     })
 
@@ -208,7 +213,7 @@ export class WindowManager {
     win.webContents.on('will-navigate', (event, url) => {
       if (url === win.webContents.getURL()) return
       event.preventDefault()
-      if (isSafeExternalUrl(url)) shell.openExternal(url)
+      if (isSafeExternalUrl(url)) openExternalSafely(url)
     })
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

@@ -74,7 +74,7 @@ row would otherwise appear and vanish in ~300 ms.
 
 1. User opens the task list for a connected tracker.
 2. Canopy calls `fetchTasks` with optional filters: `statuses`, `assignedToMe`, `projectKey` (`boardId` remains as a legacy fallback).
-3. Jira queries via JQL (`project = KEY AND statusCategory != Done` for the selected project; `assignee = currentUser()` only in the legacy no-project fallback). YouTrack uses its query syntax (`for: me`, `project: {KEY}`). GitHub fetches issues via GraphQL with `IssueFilters`.
+3. Jira queries via JQL (`project = KEY AND statusCategory != Done` for the selected project; `assignee = currentUser()` only in the legacy no-project fallback). YouTrack uses its query syntax (`for: me`, `project: {KEY}`). GitHub fetches issues via GraphQL with `IssueFilters`; "assigned to me" first resolves the token owner's login (`viewer { login }`) and filters by it, because `assignee: "*"` would match issues assigned to anyone. GitHub Enterprise API requests keep the port of the configured base URL.
 4. Tasks are returned as `TrackerTask` objects with normalized fields: `key`, `summary`, `status`, `priority`, `type` (mapped from provider-specific values), `parentKey`, `sprintName`, `assignee`, and `url`.
 5. If no tasks match the filters, the UI shows an empty state.
 6. Jira and YouTrack fetch up to 200 tasks per request. GitHub fetches up to 100. Jira excludes issues in the "Done" status category by default.
@@ -202,7 +202,7 @@ Templates use `{placeholder}` syntax. Built-in placeholders:
 
 Legacy conditional markers (`{?varName}`/`{/varName}`) are stripped during rendering and their inner content is treated as normal text. Instead, a placeholder with no value renders to nothing **and removes its immediately preceding separator** (`/`, `-` or `_`), so empty fields never leave a dangling separator; duplicate slashes are then collapsed and leading/trailing separators trimmed.
 
-Templates must contain `{taskKey}`. The slugify function lowercases, strips non-alphanumeric characters, replaces spaces with hyphens, and caps at 50 characters. The result is sanitized as a valid Git branch name (no `..`, `~`, `^`, `:`, `?`, `*`, `[`, `]`, `\`, `@`, `#`, `{`, `}`, spaces).
+Templates must contain `{taskKey}`. The slugify function lowercases, folds accented letters to ASCII (`Dodać obsługę` → `dodac-obsluge`, `ß` → `ss`), strips the remaining non-alphanumeric characters, replaces spaces with hyphens, and caps at 50 characters. The result is sanitized as a valid Git branch name (no `..`, `~`, `^`, `:`, `?`, `*`, `[`, `]`, `\`, `@`, `#`, `{`, `}`, spaces).
 
 Default type mapping: `bug` to `fix`, `story`/`task`/`subtask`/`epic` to `feat`. Custom type mappings can override this at the base template or per project override; the settings editor lists the tracker's own task types.
 
@@ -231,7 +231,7 @@ hide **Create PR** until the retry succeeds; they are not treated as proof that 
 4. Canopy checks for an existing **open** PR on the branch using `gh pr list --state open --head`. If one exists, its URL is returned without creating a duplicate; merged/closed PRs do not block a new one.
 5. If no open PR exists, Canopy runs `gh pr create` with the (possibly user-edited) title, body, base branch, head branch, `--assignee` (the form's assignee, `@me` by default) and any `--reviewer` entries.
 6. PR title and body are rendered from the `prTemplate` config using `{taskKey}`, `{taskTitle}`, `{taskType}`, `{parentKey}`, `{boardKey}`, `{taskUrl}`, and `{taskDescription}` placeholders.
-7. The target branch is resolved from `targetRules`: if a rule matches the task's type, the rule's `targetPattern` is used (with placeholder substitution and optional lookup against existing branches). Otherwise, `defaultTargetBranch` is used.
+7. The target branch is resolved from `targetRules`: if a rule matches the task's type, the rule's `targetPattern` is used (with placeholder substitution and optional lookup against existing branches). Otherwise, `defaultTargetBranch` is used. The lookup uses bare branch names — remote-tracking names such as `origin/feat/GAKKO-20-login` count as `feat/GAKKO-20-login` — and prefers an exact match, then a branch containing the pattern as whole path segments (`feat/GAKKO-20` matches `feat/GAKKO-20-login` or `alice/feat/GAKKO-20`, not `feat/GAKKO-200`). A rule whose pattern uses `{parentKey}` falls back to `defaultTargetBranch` for a task without a parent.
 8. The source branch and resolved target branch are rejected if they start with `-`, so renderer-provided branch names or repository PR config cannot be interpreted as `gh` CLI flags.
 
 ### Sending task context to an AI agent

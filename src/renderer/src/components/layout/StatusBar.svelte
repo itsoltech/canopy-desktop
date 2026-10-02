@@ -409,5 +409,10 @@
         </button>
       </div>
     </div>
+    <!-- Always mounted, so screen readers announce when an agent starts waiting for permission
+         (the bell above only appears visually). -->
+    <span class="sr-only" role="status" aria-live="polite"
+      >{permissionSessionId ? 'Agent waiting for permission' : ''}</span
+    >
   </footer>
 {/if}

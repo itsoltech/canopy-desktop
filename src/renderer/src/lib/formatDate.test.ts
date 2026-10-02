@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { formatDate, formatDateTime } from './formatDate'
+import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest'
+import { formatDate, formatDateTime, parseSqliteUtc } from './formatDate'
 
 describe('formatDate', () => {
   it('formats an ISO timestamp as YYYY-MM-DD', () => {
@@ -27,5 +27,23 @@ describe('formatDateTime', () => {
   it('returns empty string for invalid input', () => {
     expect(formatDateTime('nope')).toBe('')
     expect(formatDateTime(undefined)).toBe('')
+  })
+})
+
+describe('parseSqliteUtc', () => {
+  beforeAll(() => {
+    // Any non-UTC zone exposes reading the zone-less SQLite text as local time.
+    vi.stubEnv('TZ', 'Europe/Warsaw')
+  })
+  afterAll(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("reads SQLite datetime('now') text as UTC", () => {
+    expect(parseSqliteUtc('2026-10-02 10:00:00')).toBe(Date.UTC(2026, 9, 2, 10, 0, 0))
+  })
+
+  it('passes ISO timestamps with a zone through unchanged', () => {
+    expect(parseSqliteUtc('2026-10-02T10:00:00.000Z')).toBe(Date.UTC(2026, 9, 2, 10, 0, 0))
   })
 })

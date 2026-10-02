@@ -794,7 +794,7 @@ export function registerIpcHandlers(
       // peer's screen.
       for (const w of BrowserWindow.getAllWindows()) {
         if (!w.isDestroyed()) {
-          w.webContents.send('pty:resized', payload)
+          w.webContents.send('pty:resized', { sessionId: payload.sessionId, cols, rows })
         }
       }
     },
@@ -1171,6 +1171,9 @@ export function registerIpcHandlers(
     const applyResult = await settingsExportService.applyImport(parsed)
     const counts = unwrapOrThrow(applyResult, settingsExportErrorMessage)
     credentialSessionCache.clear()
+    // The import rewrote `taskTracker.globalConfig` directly; without this the stale cached copy
+    // is served (and saved back over the imported one) until restart.
+    globalConfigManager.invalidate()
 
     await broadcastProfilesChanged()
     broadcastToolsChanged()
@@ -2487,8 +2490,17 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'browser:fillCredential',
-    (_event, payload: { browserId: string; username: string; password: string }) => {
-      browserManager.fillCredential(payload.browserId, payload.username, payload.password)
+    (
+      _event,
+      payload: { browserId: string; username: string; password: string; domain: string },
+    ) => {
+      if (typeof payload?.domain !== 'string' || !payload.domain) return
+      browserManager.fillCredential(
+        payload.browserId,
+        payload.username,
+        payload.password,
+        payload.domain,
+      )
     },
   )
 
@@ -3376,14 +3388,15 @@ export function registerIpcHandlers(
       const win = BrowserWindow.getAllWindows().find(
         (candidate) => candidate.webContents.id === event.sender.id,
       )
-      const action =
-        details.action === 'save-config'
-          ? 'Allow this repository to use TeamCity?'
-          : details.action === 'discover-build-types'
-            ? 'Allow TeamCity job discovery for this repository?'
-            : details.privateOrigin
-              ? 'Send this token to a private TeamCity server?'
-              : 'Send this token to this TeamCity server?'
+      const action = match(details.action)
+        .with('save-config', () => 'Allow this repository to use TeamCity?')
+        .with('discover-build-types', () => 'Allow TeamCity job discovery for this repository?')
+        .with('test-connection', () =>
+          details.privateOrigin
+            ? 'Send this token to a private TeamCity server?'
+            : 'Send this token to this TeamCity server?',
+        )
+        .exhaustive()
       const detail = [
         `Server: ${details.baseUrl}`,
         ...(details.repoRoot ? [`Repository: ${details.repoRoot}`] : []),
@@ -4426,7 +4439,12 @@ export function registerIpcHandlers(
 
     const branchResult = await GitRepository.listBranches(resolvedRepo)
     const branches = unwrapOrThrow(branchResult, gitErrorMessage)
-    const existingBranches = [...branches.local, ...branches.remote]
+    // Candidate PR bases are bare branch names: drop the remote from remote-tracking refs
+    // (`origin/feature/x` → `feature/x`), so a parent branch that only exists remotely resolves
+    // to a name `gh pr create --base` accepts.
+    const existingBranches = [
+      ...new Set([...branches.local, ...branches.remote.map((b) => b.slice(b.indexOf('/') + 1))]),
+    ]
 
     const prConfig = buildPRConfig(
       prTpl.titleTemplate,
@@ -4709,7 +4727,15 @@ export function registerIpcHandlers(
     if (!(bytes instanceof ArrayBuffer) || bytes.byteLength === 0) throw new Error('Invalid image')
     if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('Image too large (max 20 MB)')
     const dir = path.join(os.tmpdir(), 'canopy-agent-images')
-    await fs.promises.mkdir(dir, { recursive: true })
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 })
+    // The directory name is fixed and on Linux the temp dir is shared between users: refuse
+    // one that another user pre-created (or planted as a symlink) so they can neither read the
+    // images nor redirect the write, and keep it owner-only when an older version made it 0755.
+    const dirStat = await fs.promises.lstat(dir)
+    if (!dirStat.isDirectory() || (process.getuid && dirStat.uid !== process.getuid())) {
+      throw new Error('Image temp directory is not owned by the current user')
+    }
+    await fs.promises.chmod(dir, 0o700)
     // The images only need to survive until the agent has read them — cap the directory at the
     // newest few files so repeated sends can't grow the temp dir without bound.
     try {
@@ -4730,7 +4756,7 @@ export function registerIpcHandlers(
       // Best-effort cleanup — never fail the save over it.
     }
     const filePath = path.join(dir, `image-${Date.now()}.png`)
-    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)))
+    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)), { mode: 0o600 })
     return filePath
   })
 
@@ -4982,7 +5008,10 @@ export function registerIpcHandlers(
           controller.signal,
         )
       } finally {
-        setupAbortControllers.delete(sender.id)
+        // A newer setup in the same window may have replaced this entry; keep its controller.
+        if (setupAbortControllers.get(sender.id) === controller) {
+          setupAbortControllers.delete(sender.id)
+        }
       }
     },
   )

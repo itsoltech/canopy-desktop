@@ -95,6 +95,12 @@ export class GlobalConfigManager {
     this.cacheValid = true
   }
 
+  /** Drop the cached copy after the stored value was replaced elsewhere (settings import). */
+  invalidate(): void {
+    this.cached = null
+    this.cacheValid = false
+  }
+
   exists(): boolean {
     return this.load() !== null
   }

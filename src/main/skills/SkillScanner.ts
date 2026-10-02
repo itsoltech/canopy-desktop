@@ -5,6 +5,20 @@ import { is } from '@electron-toolkit/utils'
 import semver from 'semver'
 import { parseSkillContent } from './SkillParser'
 
+/** Skill prompts are small text; anything larger is not one. */
+const MAX_SKILL_FILE_BYTES = 5 * 1024 * 1024
+
+/**
+ * Project skill dirs come from the repository, so a committed entry may be a huge file or a
+ * symlink to a device such as /dev/zero — readFile would buffer either into the main process.
+ * Symlinks to regular files (e.g. dotfile-managed skills) are still read.
+ */
+async function readSkillFile(filePath: string): Promise<string | null> {
+  const fileStat = await stat(filePath)
+  if (!fileStat.isFile() || fileStat.size > MAX_SKILL_FILE_BYTES) return null
+  return readFile(filePath, 'utf-8')
+}
+
 interface ScanTarget {
   agent: 'claude' | 'gemini' | 'cursor' | 'opencode'
   /** Directories containing flat skill files (e.g. .cursor/rules/*.md) */
@@ -146,7 +160,8 @@ async function scanFlatDirectory(
       const filePath = join(dir, file)
       try {
         // Filesystem boundary: individual files may be unreadable
-        const content = await readFile(filePath, 'utf-8')
+        const content = await readSkillFile(filePath)
+        if (content === null) continue
         const id = basename(file, file.substring(file.lastIndexOf('.')))
         const parsed = parseSkillContent(content, filePath, id)
 
@@ -203,7 +218,8 @@ async function scanNestedDirectory(
           continue
         }
 
-        const content = await readFile(skillFile, 'utf-8')
+        const content = await readSkillFile(skillFile)
+        if (content === null) continue
         const parsed = parseSkillContent(content, skillFile, entry)
 
         if (parsed.isOk()) {

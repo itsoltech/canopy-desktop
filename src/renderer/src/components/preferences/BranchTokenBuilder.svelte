@@ -334,6 +334,7 @@
           class="text-xs px-1.5 py-0.5 border border-border rounded-sm bg-bg-input text-text-secondary font-mono cursor-pointer hover:bg-accent-bg hover:border-accent-muted hover:text-accent-text"
           class:opacity-35={used}
           class:!cursor-default={used}
+          aria-disabled={used}
           title={ph.description +
             ' (e.g. ' +
             ph.example +

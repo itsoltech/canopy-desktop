@@ -35,7 +35,10 @@ export const PR_EXAMPLE_VALUES: Record<string, string> = {
 
 /** Substitute {field} placeholders with sample values; unknown fields are left as-is. */
 export function renderTemplateExample(template: string, values: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (_m, k: string) => values[k] ?? `{${k}}`)
+  // Own keys only: `{constructor}` / `{toString}` would otherwise print Object.prototype members.
+  return template.replace(/\{(\w+)\}/g, (_m, k: string) =>
+    Object.hasOwn(values, k) ? values[k] : `{${k}}`,
+  )
 }
 
 /**

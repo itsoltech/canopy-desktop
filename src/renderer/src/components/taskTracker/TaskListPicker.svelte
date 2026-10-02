@@ -324,7 +324,7 @@
       <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
         >Status</span
       >
-      <div class="flex flex-wrap gap-1">
+      <div class="flex flex-wrap gap-1" role="group" aria-label="Status filter">
         {#each availableStatuses as status (status)}
           <button
             class="px-2 py-0.5 border rounded-xl text-xs font-inherit cursor-pointer transition-colors duration-fast {excludedStatuses.has(
@@ -332,6 +332,7 @@
             )
               ? 'bg-transparent border-border text-text-muted opacity-40 line-through hover:text-text-secondary'
               : `border-transparent ${statusChipClass(statusCategoryOf(status))}`}"
+            aria-pressed={!excludedStatuses.has(status)}
             onclick={() => toggleStatus(status)}
           >
             {status}
@@ -345,7 +346,7 @@
       <span class="text-2xs font-semibold uppercase tracking-caps-tight text-text-faint"
         >Sprint</span
       >
-      <div class="flex flex-wrap gap-1">
+      <div class="flex flex-wrap gap-1" role="group" aria-label="Sprint filter">
         {#each availableSprints as sprint (sprint)}
           <button
             class="px-2 py-0.5 border border-border rounded-xl bg-transparent text-text-muted text-xs font-inherit cursor-pointer transition-colors duration-fast hover:text-text-secondary"
@@ -354,6 +355,7 @@
             class:!text-accent-text={!excludedSprints.has(sprint)}
             class:!opacity-40={excludedSprints.has(sprint)}
             class:line-through={excludedSprints.has(sprint)}
+            aria-pressed={!excludedSprints.has(sprint)}
             onclick={() => toggleSprint(sprint)}
           >
             {sprint}

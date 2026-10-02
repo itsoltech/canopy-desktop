@@ -20,7 +20,12 @@
   // way the changes panel refreshes (git metadata events + debounced filesystem events).
   let changeCount = $state(0)
 
+  // Refreshes overlap (worktree switches, watcher bursts); only the newest may set the badge, or a
+  // slow reply for the previous worktree shows its count against this one.
+  let countGeneration = 0
+
   async function refreshChangeCount(): Promise<void> {
+    const generation = ++countGeneration
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     if (!path) {
       changeCount = 0
@@ -28,9 +33,9 @@
     }
     try {
       const status = await window.api.fileTreeGetGitStatus(path, path)
-      changeCount = Object.keys(status.statuses).length
+      if (generation === countGeneration) changeCount = Object.keys(status.statuses).length
     } catch {
-      changeCount = 0
+      if (generation === countGeneration) changeCount = 0
     }
   }
 

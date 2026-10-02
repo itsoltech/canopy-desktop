@@ -106,6 +106,17 @@ describe('repository-scoped CI status', () => {
     })
   })
 
+  it('shows the GitHub jobs failure without the IPC transport wrapper', async () => {
+    api.ciJobsStatus.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'ci:jobsStatus': Error: GitHub API error 502"),
+    )
+    const key = ciKey('ipc-wrapper-repo', 'next')
+
+    await refreshCiJobs('ipc-wrapper-repo', 'next')
+
+    expect(getCiJobsState(key).error).toBe('GitHub API error 502')
+  })
+
   it('keeps the previous polling error visible while a retry is in flight', async () => {
     api.ciJobsStatus.mockRejectedValueOnce(new Error('offline'))
     const retry = deferred<Awaited<ReturnType<typeof api.ciJobsStatus>>>()

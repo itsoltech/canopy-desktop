@@ -153,6 +153,11 @@ describe('slugifyTitle', () => {
   it('caps the length at 50 characters', () => {
     expect(slugifyTitle('x'.repeat(80)).length).toBe(50)
   })
+
+  it('folds accented letters to ASCII instead of dropping them', () => {
+    expect(slugifyTitle('Dodać obsługę żądań')).toBe('dodac-obsluge-zadan')
+    expect(slugifyTitle('Straße für Größe')).toBe('strasse-fur-grosse')
+  })
 })
 
 describe('branchTemplateFor', () => {

@@ -34,7 +34,7 @@ The overlay uses a separate BrowserWindow with its own preload script (`notch.js
 3. If the status is `ended`, the session is removed from the map.
 4. The manager checks whether the transition is "peek-worthy" (see below). If so, and if the session is not the focused agent pane in the focused window, the session ID is added to `pendingPeekIds`.
 5. `pushState()` sends the full session list plus notch dimensions to the overlay renderer via `notch:stateUpdate`.
-6. If sessions exist, the overlay window is shown (inactive). If the session list is empty, the overlay hides.
+6. If sessions exist and the primary display has a notch, the overlay window is shown (inactive). If the session list is empty, the overlay hides.
 
 ### Peek-worthy transitions
 
@@ -75,7 +75,9 @@ Per-row colors differ from the aggregate: `compacting` shows `#60a5fa` (blue) in
 
 ### Display changes
 
-The manager listens for `display-metrics-changed` events. If the display no longer has a notch (e.g. external monitor), the overlay hides. If the notch returns, the overlay repositions to the new center.
+The manager listens for `display-metrics-changed` events. If the display no longer has a notch (e.g. external monitor), the overlay hides and stays hidden through later status updates. If the notch returns, the overlay repositions to the new center.
+
+On Windows and Linux the overlay is destroyed when the last Canopy window closes, so the app can quit. On macOS the app keeps running without windows, so the overlay stays and keeps working when a window is reopened from the Dock.
 
 ## Configuration
 

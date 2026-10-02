@@ -430,7 +430,10 @@ export class SignalingServer {
 
       // Already paired — forward to orchestrator. The orchestrator validates
       // structure (offer/answer/ice/bye) and either replies via sendToPeer or
-      // forwards to the desktop renderer's RemoteHostController.
+      // forwards to the desktop renderer's RemoteHostController. A socket that
+      // was replaced or closed (it keeps emitting while CLOSING) is no longer
+      // the active peer and must not reach the host's RTCPeerConnection.
+      if (this.activePeer !== ws) return
       this.handlers?.onPeerSignal(parsed)
     })
 

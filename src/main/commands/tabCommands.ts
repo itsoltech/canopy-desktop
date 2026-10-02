@@ -1,5 +1,6 @@
 import { BrowserWindow, type WebContents } from 'electron'
 import { randomUUID } from 'crypto'
+import { match } from 'ts-pattern'
 import { resolveShell, type PtyManager } from '../pty/PtyManager'
 import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import type { PreferencesStore } from '../db/PreferencesStore'
@@ -992,10 +993,12 @@ function navigatePaneSnapshot(
     if (rect.paneId === fromPaneId) return false
     const centerX = rect.x + rect.w / 2
     const centerY = rect.y + rect.h / 2
-    if (direction === 'right') return centerX > sourceCenterX + eps
-    if (direction === 'left') return centerX < sourceCenterX - eps
-    if (direction === 'down') return centerY > sourceCenterY + eps
-    return centerY < sourceCenterY - eps
+    return match(direction)
+      .with('right', () => centerX > sourceCenterX + eps)
+      .with('left', () => centerX < sourceCenterX - eps)
+      .with('down', () => centerY > sourceCenterY + eps)
+      .with('up', () => centerY < sourceCenterY - eps)
+      .exhaustive()
   })
 
   if (candidates.length === 0) return null

@@ -809,7 +809,12 @@ interface CanopyAPI {
   saveBrowserCapture: (buffer: ArrayBuffer) => Promise<string>
 
   // Credential autofill (isolated world)
-  fillBrowserCredential: (browserId: string, username: string, password: string) => Promise<void>
+  fillBrowserCredential: (
+    browserId: string,
+    username: string,
+    password: string,
+    domain: string,
+  ) => Promise<void>
 
   // Credentials
   getCredentials: (

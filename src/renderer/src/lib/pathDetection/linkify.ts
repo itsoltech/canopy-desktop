@@ -26,6 +26,17 @@ function joinPath(cwd: string, relative: string): string {
   return `${cwdClean}/${relative}`
 }
 
+/** `raw` resolved inside `cwd`, or null when it points elsewhere (or at `cwd` itself). */
+function workspaceRelative(
+  raw: string,
+  cwd: string,
+  cwdPrefix: string,
+): { absolutePath: string; relative: string } | null {
+  const absolutePath = joinPath(cwd, raw)
+  if (!absolutePath.startsWith(cwdPrefix)) return null
+  return { absolutePath, relative: absolutePath.slice(cwdPrefix.length) }
+}
+
 export function detectPathsInText(
   text: string,
   cwd: string,
@@ -41,7 +52,8 @@ export function detectPathsInText(
 
   for (const m of text.matchAll(PATH_REGEX)) {
     if (m.index === undefined) continue
-    const raw = m[1]
+    let raw = m[1]
+    let fullMatch = m[0]
     const line = m[2] ? parseInt(m[2], 10) : undefined
     const column = m[3] ? parseInt(m[3], 10) : undefined
 
@@ -49,21 +61,23 @@ export function detectPathsInText(
     if (!raw.includes('/')) continue
     if (/^https?:\/\//.test(raw)) continue
 
-    const absolutePath = joinPath(cwd, raw)
     // Resolve to a workspace-relative path; reject anything outside cwd.
-    let relative: string
-    if (absolutePath.startsWith(cwdPrefix)) {
-      relative = absolutePath.slice(cwdPrefix.length)
-    } else if (absolutePath === cwd) {
-      continue
-    } else {
-      continue
+    let resolved = workspaceRelative(raw, cwd, cwdPrefix)
+    if ((!resolved || !knownFiles.has(resolved.relative)) && line === undefined) {
+      // Sentence punctuation right after a path ("Edited src/app.ts, done") is matched as part
+      // of it — retry without it. With no :line suffix the match is exactly `raw`.
+      const trimmed = raw.replace(/[.,;!?]+$/, '')
+      if (trimmed !== raw) {
+        raw = trimmed
+        fullMatch = trimmed
+        resolved = workspaceRelative(raw, cwd, cwdPrefix)
+      }
     }
 
     // Only accept real files tracked in the workspace.
-    if (!knownFiles.has(relative)) continue
+    if (!resolved || !knownFiles.has(resolved.relative)) continue
+    const { absolutePath } = resolved
 
-    const fullMatch = m[0]
     matches.push({
       start: m.index,
       end: m.index + fullMatch.length,

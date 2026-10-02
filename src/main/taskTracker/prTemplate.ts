@@ -37,6 +37,8 @@ export function resolveTargetBranch(
   )
 
   if (!matchingRule) return defaultBranch
+  // A task without a parent would leave a dangling `feature/` — not a branch to target.
+  if (matchingRule.targetPattern.includes('{parentKey}') && !task.parentKey) return defaultBranch
 
   const target = matchingRule.targetPattern
     .replace(/\{parentKey\}/g, task.parentKey ?? '')
@@ -45,11 +47,25 @@ export function resolveTargetBranch(
 
   // If target references a branch pattern, try to find it in existing branches
   if (existingBranches && target.includes('/')) {
-    const found = existingBranches.find((b) => b.includes(target) || target.includes(b))
+    const found = findExistingBranch(target, existingBranches)
     if (found) return found
   }
 
   return target || defaultBranch
+}
+
+/**
+ * An exact branch, else one containing the target as whole path segments (`feature/ABC-10-login`,
+ * `alice/feature/ABC-10`), so `feature/ABC-10` resolves to neither `feature/ABC-1` nor
+ * `feature/ABC-100`.
+ */
+function findExistingBranch(target: string, existingBranches: string[]): string | undefined {
+  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const segmentAligned = new RegExp(`(?:^|/)${escaped}(?:$|[-_./])`)
+  return (
+    existingBranches.find((b) => b === target) ??
+    existingBranches.find((b) => segmentAligned.test(b))
+  )
 }
 
 export function renderPR(

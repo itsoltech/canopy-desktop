@@ -40,8 +40,14 @@
       error = 'Viewport name already exists'
       return
     }
-    if (width < 1 || height < 1) {
-      error = 'Width and height must be positive'
+    // A cleared number field binds as null, and device emulation needs whole-pixel sizes and a
+    // positive scale — otherwise the viewport is saved but silently fails to apply.
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+      error = 'Width and height must be positive whole numbers'
+      return
+    }
+    if (!Number.isFinite(scale) || scale <= 0) {
+      error = 'Scale must be a positive number'
       return
     }
 

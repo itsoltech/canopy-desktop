@@ -65,7 +65,7 @@ export async function refreshCi(repoRoot: string, branch: string): Promise<void>
       response: {
         configured: true,
         rows: [],
-        error: e instanceof Error ? e.message : 'Failed to load CI status',
+        error: ipcErrorMessage(e, 'Failed to load CI status'),
       },
     })
   }
@@ -110,7 +110,7 @@ export async function refreshCiJobs(repoRoot: string, branch: string): Promise<v
       loading: false,
       settled: true,
       rows: [],
-      error: error instanceof Error ? error.message : 'Failed to load CI status',
+      error: ipcErrorMessage(error, 'Failed to load CI status'),
     })
   }
 }
@@ -185,7 +185,7 @@ export async function loadCiRepoConfig(repoRoot: string): Promise<void> {
       hasToken: false,
       credentialApprovalRequired: false,
       authenticationState: 'unknown',
-      error: e instanceof Error ? e.message : "Could not read this repository's CI configuration",
+      error: ipcErrorMessage(e, "Could not read this repository's CI configuration"),
     }
   }
 }
@@ -389,7 +389,7 @@ export async function triggerCiBuild(
     // to the caller so it lands in the dialog's own live region instead.
     return {
       code: 'CiApiError',
-      message: e instanceof Error ? e.message : 'Failed to trigger build',
+      message: ipcErrorMessage(e, 'Failed to trigger build'),
     }
   }
   // Show the queued build in the row right away instead of waiting for the next poll.
