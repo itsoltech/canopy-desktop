@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { X, RotateCcw, Plus } from '@lucide/svelte'
   import { getPref, setPref, prefs } from '../../lib/stores/preferences.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import PrefsRow from './_partials/PrefsRow.svelte'
 
@@ -58,6 +59,20 @@
   }
 
   async function resetDefaults(): Promise<void> {
+    // This list is the only copy of the user's custom patterns — replacing it is
+    // not undoable, and the button is a single click. Confirm first, but stay
+    // quiet when there is nothing of theirs to lose.
+    const isPristine =
+      patterns.length === defaults.length && patterns.every((p, i) => p === defaults[i])
+    if (!isPristine) {
+      const ok = await confirm({
+        title: 'Reset to defaults',
+        message: 'Discard your custom ignore patterns and restore the built-in list?',
+        confirmLabel: 'Reset',
+        destructive: true,
+      })
+      if (!ok) return
+    }
     await persist([...defaults])
   }
 

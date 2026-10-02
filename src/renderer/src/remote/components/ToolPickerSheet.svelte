@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
+
   interface Tool {
     id: string
     name: string
@@ -18,11 +20,41 @@
   } = $props()
 
   let availableTools = $derived(tools.filter((t) => t.available))
+  let sheetEl: HTMLElement | undefined = $state()
+
+  // The sheet announces aria-modal, so it has to behave like one: pull focus in
+  // on open, keep Tab inside, and hand focus back on close. Kept local rather
+  // than importing lib/a11y/focusTrap — the remote app is a separate bundle and
+  // does not reach into the main renderer's lib.
+  onMount(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    sheetEl?.querySelector<HTMLElement>('button')?.focus()
+    return () => {
+      if (previouslyFocused?.isConnected) previouslyFocused.focus()
+    }
+  })
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
       onClose()
+      return
+    }
+    if (e.key !== 'Tab' || !sheetEl) return
+    const focusable = sheetEl.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const active = document.activeElement
+    const outside = !sheetEl.contains(active)
+    if (e.shiftKey && (active === first || outside)) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && (active === last || outside)) {
+      e.preventDefault()
+      first.focus()
     }
   }
 </script>
@@ -42,6 +74,7 @@
   role="dialog"
   aria-modal="true"
   aria-labelledby="tool-sheet-title"
+  bind:this={sheetEl}
   onclick={(e) => e.stopPropagation()}
 >
   <header

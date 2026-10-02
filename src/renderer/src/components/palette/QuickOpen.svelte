@@ -211,7 +211,13 @@
         bind:value={query}
         class="flex-1 bg-transparent border-0 outline-none text-text text-lg font-inherit"
         type="text"
+        role="combobox"
         aria-label="Search files"
+        aria-controls="quick-open-listbox"
+        aria-expanded={results.length > 0}
+        aria-activedescendant={results.length > 0 && selectedIndex >= 0
+          ? `quick-open-option-${selectedIndex}`
+          : undefined}
         placeholder={loading && files.length === 0 ? 'Indexing files…' : 'Search files by name'}
         spellcheck="false"
         autocomplete="off"
@@ -228,7 +234,12 @@
       </span>
     </div>
 
-    <div class="flex-1 overflow-y-auto p-1" bind:this={listEl} role="listbox">
+    <div
+      class="flex-1 overflow-y-auto p-1"
+      bind:this={listEl}
+      id="quick-open-listbox"
+      role="listbox"
+    >
       {#each results as r, idx (r.path)}
         {@const selected = idx === selectedIndex}
         {@const dir = dirname(r.path)}
@@ -238,6 +249,7 @@
           class="flex items-center gap-2.5 w-full px-2.5 py-1.5 bg-transparent border-0 rounded-md text-text cursor-pointer text-left"
           class:!bg-accent-bg={selected}
           data-idx={idx}
+          id={`quick-open-option-${idx}`}
           onclick={() => openAt(idx)}
           onmouseenter={() => (selectedIndex = idx)}
           role="option"
