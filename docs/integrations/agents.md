@@ -2724,6 +2724,169 @@ release notes. The official `CHANGELOG.md`, the changelog archive's compare diff
 were reachable, so this increment's coverage is complete. On this branch, `npm ci` now installs
 `0.3.287`, which vendors CLI 2.1.287.
 
+**2.1.288 retries a structured-output request that a gateway rejects, and the commit-message turn
+is one.** `generateCommitMessage` passes `outputFormat: { type: 'json_schema' }`, and both builds
+send that schema natively as `output_config.format` when four things hold. The provider must be
+first-party, Anthropic on AWS or Google Cloud, Foundry or Mantle. Experimental betas must be on.
+The model must not be listed as lacking structured outputs, and a model missing from that list
+counts as supporting them. The model must not be Opus 4.1. A Base URL leaves the provider
+first-party, so a gateway behind the Base URL receives the native format. Bedrock and Vertex never
+do. In both builds the result's `structured_output`, the field `generateCommitMessage` reads, is
+taken from the CLI's `StructuredOutput` tool.
+
+- **2.1.287 had no fallback.** A gateway that refused `output_config.format` failed the request,
+  so `generateCommitMessage` returned `null` and AI Generate filled in nothing.
+- **2.1.288 retries once.** A 400 whose message contains "output_config.format: Extra inputs are
+  not permitted", or the code `structured_outputs_unsupported`, marks the model unsupported and
+  repeats the request without `output_config.format`. The mark is kept in process memory, and
+  each commit-message turn is a new process, so every turn behind such a gateway spends one
+  rejected request first. A gateway that words its refusal differently still fails the turn.
+- **`CLAUDE_CODE_DISABLE_STRUCTURED_OUTPUTS` (new in 2.1.288) skips the native format.** On older
+  CLIs, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` does the same, and it turns off other betas with it.
+  `BLOCKED_ENV_VARS` passes both.
+- **The changelog names only the side queries.** Session titles, memory recall and prompt hooks
+  get the same retry. The main-query retry is in the build but unannounced.
+- **A profile's settings do not reach the commit-message turn.** `generateCommitMessage` reads
+  `claude.apiKey`, `claude.baseUrl`, `claude.provider` and `claude.customEnv` from the global
+  preferences, not from a profile. Since profiles arrived, nothing writes those four keys: the
+  onboarding step writes only `claude.model` and `claude.permissionMode`, and `ensureDefaults()`
+  only reads them. So the turn reaches a gateway through values saved before the migration, the
+  app's own environment, or the `env` block of a Claude settings file, since it loads every
+  filesystem setting source. A Base URL or env var set in a profile never applies to it.
+- **The bundled CLI gets the retry from this branch's bump to `0.3.288`.** That CLI runs the turn
+  when `claude` is not on `PATH`.
+
+**A pane behind such a gateway can now get a generated title.** The changelog's session titles come
+from a structured-output helper call, `generate_session_title`. Claude Code's
+`terminalTitleFromRename` setting documents auto-generated titles in the terminal tab, and Canopy
+names a pane after its terminal title (`onTitleChange` → `updatePaneTitle`). So a pane whose profile
+points at such a gateway can now show a generated title once the user's `claude` is 2.1.288. The
+terminal-title code was not traced to that helper. A profile that only wants the native format off
+sets `CLAUDE_CODE_DISABLE_STRUCTURED_OUTPUTS=1` in its env vars.
+
+**The rest of the entries that reach Canopy do so through the user's binary.**
+
+- **Dangerous `rm` in `bash -c`.** A dangerous `rm`, such as one on `/` or the home directory,
+  inside a `bash -c` or `sh -c` script ran without a prompt under Bypass permissions or a shell
+  allow rule. The profile's permission-mode select offers Bypass permissions, so panes in that mode
+  were exposed. The build adds an undocumented opt-out, `CLAUDE_CODE_DISABLE_INLINE_SHELL_RM_PROMPT`,
+  beside the existing `CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT` and
+  `CLAUDE_CODE_DISABLE_SUBSTITUTION_RM_PROMPT`. Canopy sets none of them.
+- **Resume.** Four resume fixes apply to Canopy's `--resume <agentSessionId>`. Restored tabs
+  resume their panes that way, so a pane started on 2.1.286 and resumed after an upgrade is the
+  fourth case:
+  - context a compaction had just restored was dropped;
+  - the last response of a turn was sometimes not saved;
+  - a transcript the same session was rewriting loaded cut short;
+  - the model's earlier thinking was dropped from conversations started on 2.1.286 or earlier.
+- **Hooks.** A `PreToolUse` or `PermissionRequest` hook whose matching failed, or whose tool input
+  could not be serialized to JSON, was skipped and the call ran. Now the call is blocked. Canopy
+  registers both events with an empty matcher in every pane, so such a call is now blocked instead
+  of running without Canopy seeing it. `idle_prompt` notifications no longer fire while background
+  agents run. Canopy appends every `Notification` event to the pane's 20-entry buffer, so those
+  entries stop appearing there.
+- **Zero-usage gateways.** A long conversation behind a gateway that reports zero token usage now
+  auto-compacts instead of failing with "Prompt is too long". The status-line helper behind
+  `context_window_size` and `used_percentage` is unchanged, so the Agent Inspector's context row
+  reads the same.
+- **Background commands.** The time limit now applies only to unattended sessions. A pane is an
+  interactive terminal session, so commands an agent backgrounds there are no longer cut off. The
+  commit-message turn is an Agent SDK session and keeps the limit.
+- **Several CLIs at once.** A laptop waking from sleep opened a second `awsAuthRefresh` or
+  `gcpAuthRefresh` sign-in while another Claude Code process was signing in; Canopy runs one per
+  pane. A message from one session to another was reported as delivered when the receiver held
+  it, and Canopy's panes are such sessions.
+- **Bedrock and Windows.** A Stop during Bedrock credential lookup could move the session to a
+  fallback model, and auto mode on Bedrock switched to the local classifier for the rest of the
+  session after a request to an older model. On Windows the keyboard stopped working after Claude
+  Code restarted itself, as on the first sign-in to a Claude apps gateway or after `/tui`.
+- **The `claude` on `PATH`.** The npm auto-updater reported success when only the placeholder
+  `claude` stub was installed. Canopy runs whatever `claude` resolves to, in panes and for the
+  commit-message turn.
+
+**The new keys reach the CLI from a pane.** Ctrl+F (find a session by name) and Alt+↑/↓ (jump
+between groups) in the agents view, and Up on an empty prompt to restore a draft cleared with
+Ctrl+C, all pass through. Canopy's global shortcuts all need Cmd on macOS or Ctrl elsewhere, none is
+`f`, and pane navigation adds Alt to that modifier. The terminal's key handler takes only the keys
+listed in the 2.1.286 note. One case differs: on Windows and Linux, Ctrl+C with a selection copies,
+so no draft is cleared.
+
+**`modelSettings.<model>.autoCompactWindow` is new and safe on older CLIs.** `/autocompact` now saves
+the window per model there, as a token count from 100,000 to 1,000,000 or `"auto"`. Within one
+settings file it overrides the top-level `autoCompactWindow`, which stays a number. It reaches the
+CLI through a profile's Settings JSON. The SDK's generated settings types give each `modelSettings`
+entry an open index signature in both `0.3.287` and `0.3.288`, so an older CLI ignores the key
+instead of skipping the file that carries Canopy's hooks. No other SDK type changed beyond an
+optional `tag` on informational system messages and two doc comments.
+
+**A host-declared worktree fence exists and is not adopted.** The 2.1.288 build reads two
+undocumented variables, `CLAUDE_CODE_HOST_WORKTREE` (a path) and `CLAUDE_CODE_HOST_WORKTREE_FENCE`
+(a JSON array of paths). File tools then refuse to write in a fence path except inside the
+worktree. Canopy spawns panes in worktrees it creates, so a fence on the main checkout would fit it.
+The changelog does not mention them, and the build strips both from the environment of sessions it
+spawns. Its refusal message points to the background-session setting `worktree.bgIsolation`, so
+whether the fence applies to an interactive pane was not traced.
+
+**Canopy's contract against 2.1.288, diffed against 2.1.287.** The 2.1.288 build was on the runner
+at `~/.local/share/claude/versions/2.1.288`, and
+`npm pack @anthropic-ai/claude-agent-sdk-linux-x64@0.3.287` supplied the 2.1.287 one. With minified
+identifiers normalized:
+
+- The hook-event array names the same 33 events in the same order, so Canopy's 18 are all present.
+  One more array starts with `"PreToolUse","PostToolUse"`. It belongs to cloud-session turn
+  handoff, which abandons a handoff when a carried write would fire a hook, and a local pane does
+  not reach it.
+- The input schemas of all 33 events are identical, and so are their shared base fields and the
+  13 `error` values `StopFailure` can carry.
+- The status-line object literal is identical apart from the version string, build time and
+  commit SHA it embeds. Its context-window helper still returns `context_window_size` and
+  `used_percentage`, and the `spend_limit` builder is unchanged.
+- The option definitions are identical. The one changed `new …("-` string is the built-in
+  `gh api`'s `--jq` error message, not an option.
+- Nine environment variable names appear for the first time, and none disappeared:
+  `CLAUDE_AX_ANNOUNCEMENT_HOLD_MS`, `CLAUDE_AX_REWRITE_HELD_ANNOUNCEMENT`,
+  `CLAUDE_CODE_CONFIG_WATCH_EVENTS`, `CLAUDE_CODE_DISABLE_INLINE_SHELL_RM_PROMPT`,
+  `CLAUDE_CODE_DISABLE_STRUCTURED_OUTPUTS`, `CLAUDE_CODE_GROWTHBOOK_KICK_ON_WARM_CACHE`,
+  `CLAUDE_CODE_GZIP_DATADOG_LOGS`, `CLAUDE_CODE_HOST_WORKTREE` and
+  `CLAUDE_CODE_HOST_WORKTREE_FENCE`. Each is absent from the 2.1.287 build by a plain count. Only
+  `CLAUDE_CODE_DISABLE_STRUCTURED_OUTPUTS` is in the changelog, and Canopy sets none.
+
+**Nothing else visible reaches Canopy.** Canopy sets no `OTEL_*` variable, installs no plugins or
+mods, writes no MCP or LSP configuration, and runs neither `claude purge` nor `claude mcp serve`.
+The fix that loads path-scoped `.claude/rules` and nested `CLAUDE.md` files on Write and Edit
+reaches panes in a user's repository through their binary; this repository has neither. The auto-mode classifier change concerns `ANTHROPIC_DEFAULT_SONNET_MODEL`
+pins, which a profile reaches only through its env vars. `--max-findings` belongs to the bundled
+`/code-review` skill, and `code-review.yml` runs its own prompt instead. As at 2.1.287, the
+self-hosted runner's built-in `gh api` is for Anthropic-managed sessions. The remaining entries are
+for sandboxing, Claude in Chrome, screen reader mode, Remote Control, cloud sessions, VS Code and
+Claude Tag. The compat workflow is the one place here where a CLI string matters: a command the
+parser cannot check is now refused as "A variable in this command can't be checked before it runs"
+instead of "Part of this command (a variable) cannot be checked in advance".
+`.github/prompts/claude-code-compat.md` records the new wording.
+
+**This release's prompt-file arithmetic is archive bookkeeping again.** The archive went from 14 to
+15 prompt entries and from 23,022 to 28,280 tokens (+5,258, +22.8%). Its `meta/prompt-stats.md`
+names every change:
+
+- **System +4,642 is a third copy of one prompt.** `User Memory Project One 3` (4,642 tokens) is
+  `User Memory Project One` extracted again. It has no prose line that `User Memory Project One 2`
+  lacks, and it differs from the base only in placeholder names. The base file is byte-identical
+  between the two tags.
+- **Tools +616 is two title-case duplicates growing.** `Executes Given Bash Command Returns` went
+  from 3,102 to 3,488 tokens and `Launch New Handle Complex Multi` from 2,021 to 2,251.
+- **No tool's prompt text changed.** The Bash, Agent, Edit, Write and Grep diffs each add one more
+  wrapper layer. The release notes' "adds a tool that executes a user-provided bash command" and
+  "added a command to launch a new agent" summarize those wrappers, not new tools. The model list
+  grew by `claude-device`, a remote-devices tool identifier rather than a model.
+
+The archive's bundle entry grew **+456.8 kB (+0.8%)** in KiB: 467,718 bytes, from 56,559,730 to
+57,027,448. No prompt text arrived, so none of that growth is prompt text.
+
+**All 89 of 2.1.288's CLI changelog entries were readable this run**, against 12 in the pasted
+release notes. The official `CHANGELOG.md`, the changelog archive's compare diff and both builds
+were reachable, so this increment's coverage is complete. On this branch, `npm ci` now installs
+`0.3.288`, which vendors CLI 2.1.288.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
