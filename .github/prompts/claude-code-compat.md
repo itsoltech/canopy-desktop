@@ -16,7 +16,7 @@ the part that pays.
 
 **3. Probe `gh api` once, with the compare call, and commit to the result.** Under the workflow's
 `--allowedTools` it was denied on twenty-one consecutive runs that probed it (as of v2.1.283; the
-v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 and v2.1.287 runs' sessions ran in auto
+v2.1.284 and v2.1.285 runs did not probe). The v2.1.286, v2.1.287 and v2.1.288 runs' sessions ran in auto
 mode instead (an observation about those runs; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
 `npm ci`, `npm run lint`, `npm run typecheck`, `npm test` and `python3` all ran. Record which way
 the one probe went in the PR body. **If it runs, use point 6.**
@@ -52,9 +52,9 @@ the checkout with the PR title's upper bound. If the branch is ahead, verify the
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
 
-**6. When `gh api` runs, four sources make the increment's coverage complete.** The v2.1.286 and
-v2.1.287 runs used all four and read every changelog entry (88 and 106), where earlier runs read
-twelve.
+**6. When `gh api` runs, four sources make the increment's coverage complete.** The v2.1.286,
+v2.1.287 and v2.1.288 runs used all four and read every changelog entry (88, 106 and 89), where
+earlier runs read twelve.
 
 - `gh api repos/marckrenn/claude-code-changelog/compare/{FROM_VERSION}...{TO_VERSION}` with
   `--jq '.files[] | "\(.filename) (\(.status))"'` lists the archive's changes. Select `.patch` for
@@ -83,6 +83,22 @@ twelve.
   `ANTHROPIC_*` tokens after `process.env.`, `env.` or `["`, as a whole quoted string, or as a
   typed-accessor key `NAME:()=>` (806 → 813). The v2.1.286 run's 84 status keys and 118 options
   used other rules, so compare a count only with one taken the same way.
+- **The v2.1.288 run could not reproduce 54 or 813 from that description**, so it compared
+  normalized text and name sets rather than totals. Its rules are exact enough to reuse. Status
+  keys are identifiers followed by `:` after a `{` or `,`, outside strings: 53 in both builds.
+  Options are 174 `.option("` calls (117 distinct) and 93 `new <X>("-` calls (89 distinct).
+  Environment names are the union of `process.env.NAME` or `env.NAME`, `["NAME"]`, a whole quoted
+  `"NAME"` and `{NAME:()=>` or `,NAME:()=>`: 822 → 831. Report the set difference; a total only
+  compares with another taken by the same rule.
+- **A fix the changelog scopes narrowly can ship a wider one.** 2.1.288 names structured-output
+  retries for session titles, memory recall and prompt hooks only. The build's log line
+  `rejected output_config.format; latching unsupported` also covers the main query, which is the
+  path Canopy's commit-message turn takes. Count a fix's log or telemetry literal in both builds,
+  then read every site that uses it.
+- **Minified names repeat across chunks.** `function q0(` first matched a config helper, not the
+  error test the retry calls. Pick the definition whose body fits the call site, not the first
+  match. `python3` ran in the v2.1.286 to v2.1.288 sessions, and a short script normalizing
+  identifiers outside strings to one token diffed schemas, the status line and functions directly.
 - **Confirm each "new" name with a plain `grep -ac` in both builds.** A name can move between those
   forms. Without the accessor form, the v2.1.287 run's first list called two 2.1.286 names new and
   missed `CLAUDE_CODE_GZIP_REQUEST_BODY_BLOCKS`; its review caught the miss, and a plain count in
@@ -429,6 +445,12 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 > cannot be checked in advance". The fourth row's message and the other pre-parse checks, such as
 > "Contains control characters" and the zsh checks, are unchanged. Read either wording of the third
 > row the same way.
+>
+> **From 2.1.288 it is shorter again.** The node name leads: "A variable in this command can't be
+> checked before it runs", and a type with no plain name reads "This command can't be checked
+> before it runs". Some names changed too: `command_substitution` is now "A nested command" and
+> `subshell` "A group in parentheses". "Part of this command" no longer occurs in the 2.1.288 build.
+> All three wordings mean the same thing.
 >
 > Only the last two are shell-form errors, and neither names a component. The first two are the same
 > finding reported at different granularity. The fourth row is from v2.1.280 → v2.1.281: a
