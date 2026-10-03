@@ -73,7 +73,8 @@ export const sectionMeta: Record<string, SectionMeta> = {
   Claude: {
     icon: Sparkles,
     description: 'Claude Code integration',
-    keywords: 'claude anthropic api key model permission effort plan auto bypass bedrock vertex',
+    keywords:
+      'claude anthropic api key model permission effort plan auto bypass bedrock vertex system prompt snapshot',
   },
   Gemini: {
     icon: Gem,
