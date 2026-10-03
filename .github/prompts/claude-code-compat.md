@@ -83,13 +83,13 @@ earlier runs read twelve.
   `ANTHROPIC_*` tokens after `process.env.`, `env.` or `["`, as a whole quoted string, or as a
   typed-accessor key `NAME:()=>` (806 → 813). The v2.1.286 run's 84 status keys and 118 options
   used other rules, so compare a count only with one taken the same way.
-- **The v2.1.288 run could not reproduce 54 or 813 from that description**, so it compared
-  normalized text and name sets rather than totals. Its rules are exact enough to reuse. Status
-  keys are identifiers followed by `:` after a `{` or `,`, outside strings: 53 in both builds.
-  Options are 174 `.option("` calls (117 distinct) and 93 `new <X>("-` calls (89 distinct).
-  Environment names are the union of `process.env.NAME` or `env.NAME`, `["NAME"]`, a whole quoted
-  `"NAME"` and `{NAME:()=>` or `,NAME:()=>`: 822 → 831. Report the set difference; a total only
-  compares with another taken by the same rule.
+- **The v2.1.288 run's totals by those rules.** Environment names went 813 → 822. That rule
+  leaves out the nine prefix fragments that end in `_`, such as `CLAUDE_CODE_` and `CLAUDE_BG_`.
+  The run's first count kept them and read 822 → 831; its review caught the difference. Status keys
+  came to 53 in both builds, counted as identifiers followed by `:` after a `{` or `,`, outside
+  strings; the 2.1.287 run's 54 was not reproduced. Options were 174 `.option("` calls (117
+  distinct) and 93 `new <X>("-` calls (89 distinct) in both builds. Report the set difference too;
+  a total compares only with another taken by the same rule.
 - **A fix the changelog scopes narrowly can ship a wider one.** 2.1.288 names structured-output
   retries for session titles, memory recall and prompt hooks only. The build's log line
   `rejected output_config.format; latching unsupported` also covers the main query, which is the
