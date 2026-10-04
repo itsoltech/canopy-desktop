@@ -16,9 +16,9 @@ the part that pays.
 
 **3. Probe `gh api` once, with the compare call, and commit to the result.** Under the workflow's
 `--allowedTools` it was denied on twenty-one consecutive runs that probed it (as of v2.1.283; the
-v2.1.284 and v2.1.285 runs did not probe). The v2.1.286, v2.1.287 and v2.1.288 runs' sessions ran in auto
+v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 to v2.1.289 runs' sessions ran in auto
 mode instead (an observation about those runs; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
-`npm ci`, `npm run lint`, `npm run typecheck`, `npm test` and `python3` all ran. Record which way
+`npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `python3` and `node` all ran. Record which way
 the one probe went in the PR body. **If it runs, use point 6.**
 
 **If it is denied, everything below about the denial applies.** It was denied against every shape
@@ -52,9 +52,9 @@ the checkout with the PR title's upper bound. If the branch is ahead, verify the
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
 
-**6. When `gh api` runs, four sources make the increment's coverage complete.** The v2.1.286,
-v2.1.287 and v2.1.288 runs used all four and read every changelog entry (88, 106 and 89), where
-earlier runs read twelve.
+**6. When `gh api` runs, four sources make the increment's coverage complete.** The v2.1.286 to
+v2.1.289 runs used all four and read every changelog entry (88, 106, 89 and 27), where earlier
+runs read twelve.
 
 - `gh api repos/marckrenn/claude-code-changelog/compare/{FROM_VERSION}...{TO_VERSION}` with
   `--jq '.files[] | "\(.filename) (\(.status))"'` lists the archive's changes. Select `.patch` for
@@ -90,6 +90,22 @@ earlier runs read twelve.
   strings; the 2.1.287 run's 54 was not reproduced. Options were 174 `.option("` calls (117
   distinct) and 93 `new <X>("-` calls (89 distinct) in both builds. Report the set difference too;
   a total compares only with another taken by the same rule.
+- **The v2.1.289 run reproduced every total, and all were unchanged.** Environment names 822 →
+  822, the same set; status keys 53; options 174 (117) and 93 (89). "A whole quoted string"
+  means double quotes only: adding single-quoted strings gives 824, picking up `CLAUDE_AGENT` and
+  `CLAUDE_IN_CHROME_MCP_SERVER_NAME`.
+- **Diff the whole build by its string literals, not by its text.** The JavaScript is about
+  2,170 chunks. Each starts with `// @bun @bytecode` and the `(c) Anthropic PBC` banner, and ends
+  in a NUL byte. Cut at the NUL, every chunk tokenizes cleanly with `node_modules/acorn`
+  (`acorn.tokenizer(src, { ecmaVersion: 'latest', sourceType: 'module' })`). Counting string and
+  template literals per build and diffing the counts gave 133 added and 25 removed for 2.1.289,
+  once build stamps and `/$bunfs/root/…-xxxxxxxx` chunk names were dropped. That list matched the
+  announced entries and surfaced an unannounced `find` hardening; a change that adds no string
+  stays invisible to it. A statement diff of the normalized binary gave 325k noisy lines, and a
+  regex quote-matcher 56k false literals.
+- **Diff the SDK tarballs before reading them.** `diff -rq` over the `npm pack`ed `0.3.288` and
+  `0.3.289` packages showed every `.d.ts` byte-identical, which settles the type question in one
+  call.
 - **A fix the changelog scopes narrowly can ship a wider one.** 2.1.288 names structured-output
   retries for session titles, memory recall and prompt hooks only. The build's log line
   `rejected output_config.format; latching unsupported` also covers the main query, which is the
@@ -450,7 +466,9 @@ dist.integrity` calls the §3 lockfile edit needs, where a `for p in "" -darwin-
 > checked before it runs", and a type with no plain name reads "This command can't be checked
 > before it runs". Some names changed too: `command_substitution` is now "A nested command" and
 > `subshell` "A group in parentheses". "Part of this command" no longer occurs in the 2.1.288 build.
-> All three wordings mean the same thing.
+> All three wordings mean the same thing. 2.1.289 keeps the 2.1.288 wording, with the same 19
+> occurrences in each build. Its one new Bash refusal, "find option '…' is read differently by
+> different versions of find", applies only under a `Bash(find:*)` rule, which no workflow here has.
 >
 > Only the last two are shell-form errors, and neither names a component. The first two are the same
 > finding reported at different granularity. The fourth row is from v2.1.280 → v2.1.281: a
