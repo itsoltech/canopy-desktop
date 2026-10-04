@@ -2895,6 +2895,106 @@ release notes. The official `CHANGELOG.md`, the changelog archive's compare diff
 were reachable, so this increment's coverage is complete. On this branch, `npm ci` now installs
 `0.3.288`, which vendors CLI 2.1.288.
 
+**2.1.289 changes nothing Canopy depends on.** Most of its 27 entries are about plugins and mods,
+and Canopy installs neither. `agent.spawn` for teammates, one agent ID across plugin hook events,
+and idle and waiting states in `$.agent.list()` are additions to the mods API. The command hooks
+Canopy registers are unchanged. The `SubagentStart` payload builder and its one call site are
+identical in both builds after normalization, and so is the `Stop` runner that builds
+`SubagentStop`. So `activeSubagents` still pairs the two events by the same `agent_id`, and
+`TeammateIdle`'s schema is unchanged too.
+
+**The Read deny fix reaches panes only through permission rules Canopy does not write.** When a
+session has a Read deny rule, either a bare `Read` or a path-scoped one, the 2.1.289 build resolves
+where an @-mentioned path lands through symlinks before attaching it:
+
+- **A denied landing is dropped.** A landing a rule denies is not attached, and the build records
+  it as `denied_at_landing`.
+- **An unresolved landing is named, not attached.** The model is told the paths "could not be
+  examined and were not attached" and to read them with its file tools.
+- **Changed and IDE files get the same check.** It now also guards the note about a file that
+  changed on disk since it was read, and a file or selection the IDE reports. A pane meets the
+  first when Canopy's editor saves a file the agent has read.
+
+A session without such a rule skips the resolution, as before. A profile's Settings JSON or the
+user's own settings can hold the rule, and panes reach the fix through the user's binary. The
+@-mention extractor is unchanged. So is the choice between attaching and only naming a mention,
+which is the host's `disableFileMentions` launch option. The commit-message turn loads every
+filesystem setting source, so it meets the check only if one of them holds a Read deny rule and its
+diff contains an @-mention. Whether the turn processes @-mentions in its prompt was not traced.
+
+**The rest of the entries that reach Canopy do so through the user's binary.**
+
+- **Sandbox auto-allow.** Two fixes stop Bash deny and ask rules from being skipped under the
+  sandbox's auto-allow, when a command follows an environment variable prefix with an expanded
+  value or a bare assignment. Canopy does not configure the sandbox; a profile's Settings JSON can.
+- **Mods.** A deny or ask rule on part of a compound command now holds over a user-installed mod's
+  approval on managed machines. That applies only with a mod the user installed.
+- **Code blocks.** The terminal froze on short code blocks with many unclosed `<script>` tags or
+  deeply nested `${`. The CLI highlights code with highlight.js, and 2.1.289 bounds the work
+  ("highlighting this text takes more work than its length allows"). Canopy's own markdown
+  (`Markdown.svelte` and the notes pane) renders fenced code as plain `<pre><code>`. CodeMirror
+  highlights only files open in the editor, so Canopy's renderer does not meet that input.
+- **Row overdraw.** Text with a tab, a stray escape and a C1 control, or a short text with a tab
+  and CRLF line endings, drew over the rows below it. That is the CLI's own layout, drawn into the
+  pane's terminal.
+
+The `[VSCode]` revert of 2.1.288's `claude auth status` change does not apply, since Canopy never
+runs that command.
+
+**One unannounced change hardens `find` under a `Bash(find:*)` prefix rule.** The build refuses to
+auto-allow a `find` whose option BSD and GNU find read differently, such as `-df`. The refusal
+reads "find option '-df' is read differently by different versions of find — could hide a
+following action". It also treats `-D`, `-f` and combined leading flags as options that take a
+value. Behind `tengu_warm_sunrise`, a rollout flag that is on by default, `find -rm` now counts as a
+modifying action. No workflow in this repository allows `find`, and Canopy writes no Bash rules.
+The other new flag, `tengu_fresh_heron`, gates the late loading of plugin hook modules. The Bash
+refusal wording recorded at 2.1.288 is unchanged: each build holds the same 19 occurrences.
+
+**Canopy's contract against 2.1.289, diffed against 2.1.288.** The 2.1.289 build was on the runner
+at `~/.local/share/claude/versions/2.1.289`, and
+`npm pack @anthropic-ai/claude-agent-sdk-linux-x64@0.3.288` supplied the 2.1.288 one. With minified
+identifiers normalized:
+
+- The hook-event array names the same 33 events in the same order, so Canopy's 18 are all present.
+  Each build holds seven arrays that start with `"PreToolUse","PostToolUse"`, six of them
+  distinct, and the two sets are equal.
+- The input schemas of all 33 events and their shared base fields are identical.
+- The status-line object literal has the same 53 keys. It differs only in the version string, build
+  time and commit SHA it embeds. The context-window helper and the `spend_limit` builder are
+  unchanged.
+- The option definitions are identical: 174 `.option("` calls (117 distinct) and 93
+  `new …("-` calls (89 distinct) in each build.
+- The environment variable names are the same 822, by the 2.1.287 run's rule. None was added or
+  removed.
+- The SDK's type declarations are byte-identical between `0.3.288` and `0.3.289`. Its JavaScript
+  adds one control request, `ui_read_selection`. Only a UI host set through the undeclared
+  `setUiHost()` answers it, and Canopy never calls that method.
+
+Each build's JavaScript is about 2,170 chunks, each ending in a NUL byte. Tokenized one by one, and
+leaving out build stamps and chunk names, the two builds differ by 133 new string literals and 25
+removed ones. Those not covered above belong to plugins, mods, the `claude plugin` commands, the
+highlighter's bound and error reporting.
+
+**This release's prompt-file arithmetic is archive bookkeeping again.** The archive went from 15 to
+16 prompt entries and from 28,280 to 33,311 tokens (+5,031, +17.8%). Its `meta/prompt-stats.md`
+names every change:
+
+- **System +5,031 is a fourth copy of one prompt.** `User Memory Project One 4` (5,031 tokens) is
+  `User Memory Project One 3` with one more wrapper layer. With placeholder numbers normalized, the
+  wrapper is all it adds. The base file is byte-identical between the two tags.
+- **Tools are flat at 15,193 tokens.** The Bash, Agent, Edit, Write and Grep diffs each add one
+  more wrapper layer, and no tool's prompt text changed.
+- **The model list shrank from 181 to 179.** The two entries that left, `claude-code-user` and
+  `claude-lsremote-`, are identifiers rather than models.
+
+The archive's bundle entry grew **+131.9 kB (+0.2%)** in KiB: 135,081 bytes, from 57,027,448 to
+57,162,529. No prompt text arrived, so none of that growth is prompt text.
+
+**All 27 of 2.1.289's CLI changelog entries were readable this run**, against 12 in the pasted
+release notes. The official `CHANGELOG.md`, the changelog archive's compare diff and both builds
+were reachable, so this increment's coverage is complete. On this branch, `npm ci` now installs
+`0.3.289`, which vendors CLI 2.1.289.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
