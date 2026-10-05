@@ -19,7 +19,7 @@ Agents (Claude, Gemini, OpenCode, Codex) can run in dedicated worktrees for isol
 ### Creating a worktree with a new branch
 
 1. User opens the create-worktree modal and selects "New branch".
-2. User enters a branch name and selects a base branch.
+2. User enters a branch name and selects a base branch. The dialog checks the name against git's ref-name rules (spaces, `..`, `~^:?*[\`, leading `-` or `/`, trailing `/` or `.`, `//`, `@{`, `.lock` components) and against branches that already exist or are checked out, before enabling creation.
 3. Renderer calls `window.api.gitWorktreeAdd(repoRoot, path, branch, baseBranch)`.
 4. `GitRepository.worktreeAdd()` validates both ref names (rejects names starting with `-`), then runs `git worktree add -b <branch> <path> <baseBranch>`.
 5. The git watcher detects changes in `.git/worktrees/` and fires `git:changed` with `worktrees: true`, updating the sidebar.

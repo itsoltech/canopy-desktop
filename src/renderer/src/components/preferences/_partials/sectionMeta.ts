@@ -47,7 +47,7 @@ export const sectionMeta: Record<string, SectionMeta> = {
   },
   Shortcuts: {
     icon: Keyboard,
-    description: 'Customize keyboard shortcuts',
+    description: 'Keyboard shortcut reference',
     keywords: 'shortcuts hotkeys keybindings keyboard',
   },
   Notch: {

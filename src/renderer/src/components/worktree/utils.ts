@@ -53,3 +53,24 @@ export function branchPickerEnterTarget(
 ): string | null {
   return filteredRefs[selectedIndex] ?? null
 }
+
+/**
+ * Validation message for a branch the worktree dialog is about to create, or null when it can be
+ * created. Beyond the common mistakes it applies git's full ref-name rules, so names like
+ * `feature/` or `my?branch` are caught here instead of failing `git worktree add`.
+ */
+export function newBranchNameError(
+  name: string,
+  checkedOutBranches: Set<string>,
+  localBranches: string[],
+): string | null {
+  if (!name) return null
+  if (/\s/.test(name)) return 'No spaces allowed'
+  if (name.includes('..')) return 'Cannot contain ..'
+  if (/[~^:\\]/.test(name)) return 'Invalid characters'
+  if (name.startsWith('-')) return 'Cannot start with -'
+  if (!isSafeGitRefName(name)) return 'Invalid branch name'
+  if (checkedOutBranches.has(name)) return 'Branch is already checked out in an existing worktree'
+  if (localBranches.includes(name)) return 'Branch already exists'
+  return null
+}

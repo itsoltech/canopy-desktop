@@ -33,7 +33,7 @@ Export is a merge-friendly operation: import upserts rows by natural key (`key` 
 5. Validation checks `version === 1`, required top-level shapes, and per-row types. Unknown agent types, empty names, and missing required fields cause the entire import to abort before any write.
 6. On validation success, a single `database.db.transaction(…)` runs:
    - `PreferencesStore.setMany` upserts every preference; non-exportable keys in the file are silently skipped; encrypted keys are re-encrypted with this machine's `safeStorage`.
-   - `ProfileStore.upsertForImport` upserts by `(agent_type, name)`. Existing rows are updated in place (id and `created_at` preserved). New rows get a fresh UUID. `is_default` is preserved from the existing row.
+   - `ProfileStore.upsertForImport` upserts by `(agent_type, name)`. Existing rows are updated in place (id and `created_at` preserved). New rows get a fresh UUID. `is_default` is preserved from the existing row, and so is the stored API key when the imported profile carries none (an export from a profile without a key must not wipe the local one).
    - `CredentialStore.upsertForImport` upserts by `(domain, username)` and re-encrypts passwords.
    - `ToolRegistry.upsertCustomForImport` upserts by `id` with `is_custom = 1`; shell-metacharacter validation from `addCustom` still applies.
 7. After the transaction commits, the main process broadcasts `profile:changed` and `tools:changed` to every window. The renderer's preferences store re-invokes `loadPrefs()` from the handler for immediate feedback.

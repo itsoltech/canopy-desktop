@@ -16,14 +16,20 @@ export function renderPRBody(template: string, task: TrackerTask): string {
 
 function replacePlaceholders(template: string, task: TrackerTask): string {
   // Tasks can arrive partially hydrated over IPC — never inject "undefined" into a PR.
-  return template
-    .replace(/\{taskKey\}/g, task.key ?? '')
-    .replace(/\{taskTitle\}/g, task.summary ?? '')
-    .replace(/\{taskType\}/g, task.type ?? '')
-    .replace(/\{parentKey\}/g, task.parentKey ?? '')
-    .replace(/\{boardKey\}/g, task.key?.split('-')[0] ?? '')
-    .replace(/\{taskUrl\}/g, task.url ?? '')
-    .replace(/\{taskDescription\}/g, task.description ?? '')
+  const values: Record<string, string> = {
+    taskKey: task.key ?? '',
+    taskTitle: task.summary ?? '',
+    taskType: task.type ?? '',
+    parentKey: task.parentKey ?? '',
+    boardKey: task.key?.split('-')[0] ?? '',
+    taskUrl: task.url ?? '',
+    taskDescription: task.description ?? '',
+  }
+  // One pass with a function replacer: tracker text is inserted literally (no `$&`/`$$`
+  // patterns) and is never re-scanned for placeholders by a later substitution.
+  return template.replace(/\{(\w+)\}/g, (token, name: string) =>
+    Object.hasOwn(values, name) ? values[name] : token,
+  )
 }
 
 export function resolveTargetBranch(

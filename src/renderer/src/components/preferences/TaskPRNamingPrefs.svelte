@@ -165,10 +165,10 @@
     } else {
       bodyTemplateInput = bodyTemplateInput + token
     }
-    // Discrete action — persist now (also flushes any pending keystroke save).
-    pendingSave = () => savePRField('bodyTemplate', bodyTemplateInput)
-    pendingField = 'bodyTemplate'
-    flushSave()
+    // Through debouncedSave like a keystroke: it first flushes a pending save of ANOTHER field
+    // (overwriting pendingSave dropped that edit). Saving this one immediately as well would
+    // snapshot the config before that flushed save is applied and write the other field back.
+    debouncedSave('bodyTemplate', () => savePRField('bodyTemplate', bodyTemplateInput))
   }
 
   // Recognized {placeholder} tokens render highlighted in a mirrored backdrop behind the
@@ -219,9 +219,7 @@
     } else {
       titleTemplateInput = titleTemplateInput + token
     }
-    pendingSave = () => savePRField('titleTemplate', titleTemplateInput)
-    pendingField = 'titleTemplate'
-    flushSave()
+    debouncedSave('titleTemplate', () => savePRField('titleTemplate', titleTemplateInput))
   }
 
   function syncBodyScroll(): void {

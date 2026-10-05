@@ -156,7 +156,9 @@ The signaling server shuts down when the session is explicitly stopped or when t
 
 Pairing tokens are 32 random bytes (hex-encoded, 64 characters). Token comparison uses Node.js `timingSafeEqual` to prevent timing attacks. Tokens are single-use per session.
 
-WebSocket messages are capped at 256 KB per frame. Oversized frames cause immediate disconnection (close code 1009).
+WebSocket messages are capped at 256 KB per frame. Oversized frames cause immediate disconnection (close code 1009). An HTTP request whose target is not a valid URL path is answered with `400`.
+
+Desktop prompts for peer actions (spawning tools, attaching folders, creating or removing worktrees, closing tabs, killing processes) show every peer-supplied value quoted and escaped on one line, capped at 160 characters, so a value cannot add wording of its own to the prompt. A forced worktree removal is named as such, because `force` skips the host's uncommitted-changes check. An approval that arrives after the peer's session ended is dropped instead of executed.
 
 The remote-client SPA is served with a Content-Security-Policy header (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:`) and `X-Frame-Options: DENY`.
 

@@ -52,7 +52,8 @@ The peek is suppressed if the session is currently the focused agent pane in the
 2. The overlay expands vertically to show a scrollable list of sessions (max 12 visible rows, each 48px tall).
 3. During a peek, hovering locks the peek and prevents auto-collapse so the user can interact.
 4. When the mouse leaves, a 300ms delay starts before collapsing. Mouse ignore is re-enabled.
-5. Users with `prefers-reduced-motion` see no animations (transitions are set to `0s`).
+5. When the last session ends while the overlay is hovered, the island unmounts without a mouseleave, so the renderer resets the hover/expanded/peek state and re-enables mouse ignore itself; the next session's overlay starts collapsed and click-through.
+6. Users with `prefers-reduced-motion` see no animations (transitions are set to `0s`).
 
 ### Clicking a session row
 

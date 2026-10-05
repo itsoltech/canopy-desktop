@@ -230,7 +230,7 @@ hide **Create PR** until the retry succeeds; they are not treated as proof that 
 3. Canopy checks that the GitHub CLI (`gh`) is installed. If not, the operation fails with a `PRCreationFailed` error.
 4. Canopy checks for an existing **open** PR on the branch using `gh pr list --state open --head`. If one exists, its URL is returned without creating a duplicate; merged/closed PRs do not block a new one.
 5. If no open PR exists, Canopy runs `gh pr create` with the (possibly user-edited) title, body, base branch, head branch, `--assignee` (the form's assignee, `@me` by default) and any `--reviewer` entries.
-6. PR title and body are rendered from the `prTemplate` config using `{taskKey}`, `{taskTitle}`, `{taskType}`, `{parentKey}`, `{boardKey}`, `{taskUrl}`, and `{taskDescription}` placeholders.
+6. PR title and body are rendered from the `prTemplate` config using `{taskKey}`, `{taskTitle}`, `{taskType}`, `{parentKey}`, `{boardKey}`, `{taskUrl}`, and `{taskDescription}` placeholders. Substitution is a single pass that inserts tracker text literally: `$&`, `$$` and similar sequences in a summary or description are kept as written, and `{placeholder}` text inside a substituted value is not expanded again.
 7. The target branch is resolved from `targetRules`: if a rule matches the task's type, the rule's `targetPattern` is used (with placeholder substitution and optional lookup against existing branches). Otherwise, `defaultTargetBranch` is used.
 8. The source branch and resolved target branch are rejected if they start with `-`, so renderer-provided branch names or repository PR config cannot be interpreted as `gh` CLI flags.
 

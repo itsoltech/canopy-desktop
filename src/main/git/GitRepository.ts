@@ -398,14 +398,18 @@ export class GitRepository {
         const remote = remoteRaw.trim()
         if (!remote) return okAsync<GitPushInfo | null, GitError>(null)
 
-        return gitCall(
-          'rev-list',
-          () => git.raw(['rev-list', '--count', `${remote}/${branch}..HEAD`]),
-          readKey(repoRoot, 'push-info-count', remote, branch),
-        ).map((countRaw) => {
-          const commitCount = parseInt(countRaw.trim(), 10) || 0
-          return { branch, remote, commitCount }
-        })
+        // The remote name comes from the repository's own .git/config, which a cloned repo
+        // controls; a value like `--output=<dir>` would otherwise become a rev-list option.
+        return validateRef(remote).asyncAndThen(() =>
+          gitCall(
+            'rev-list',
+            () => git.raw(['rev-list', '--count', `${remote}/${branch}..HEAD`]),
+            readKey(repoRoot, 'push-info-count', remote, branch),
+          ).map((countRaw) => {
+            const commitCount = parseInt(countRaw.trim(), 10) || 0
+            return { branch, remote, commitCount }
+          }),
+        )
       })
     })
   }

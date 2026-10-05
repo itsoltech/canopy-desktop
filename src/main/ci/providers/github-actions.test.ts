@@ -70,6 +70,28 @@ describe('GitHubActionsAdapter', () => {
     expect(result.isErr()).toBe(true)
   })
 
+  it('opens a run listed for a configured workflow whose path casing differs', async () => {
+    const run = {
+      id: 12,
+      run_number: 3,
+      status: 'completed',
+      conclusion: 'success',
+      path: '.github/workflows/Release.yml@refs/heads/next',
+      head_branch: 'next',
+    }
+    const client = fakeClient({
+      listRepositoryRuns: vi.fn(() => okAsync({ runs: [run], totalCount: 1 })),
+      getRun: vi.fn(() => okAsync(run)),
+    })
+    const adapter = new GitHubActionsAdapter(CONFIG, client)
+
+    const status = await adapter.status({ name: 'next', kind: 'branch' })
+    const opened = await adapter.run('12')
+
+    expect(status.isOk() && status.value[0]?.run).toMatchObject({ runId: '12' })
+    expect(opened.isOk() && opened.value).toMatchObject({ runId: '12', jobLabel: 'Release' })
+  })
+
   it('rejects public workflow data when GitHub rejects the stored identity', async () => {
     const client = fakeClient()
     vi.mocked(client.verifyAuthentication).mockReturnValue(

@@ -325,6 +325,11 @@ export class HostRpcServer {
       if (!allowed) {
         throw new Error(`Action "${method}" was rejected on desktop`)
       }
+      // The desktop prompt can stay open for up to 30s; an "Allow" that lands after the peer
+      // disconnected must not act on behalf of a session that no longer exists.
+      if (this.disposed) {
+        throw new Error(`Action "${method}" was dropped: the remote session ended`)
+      }
       return handler(params as RpcMethods[M]['params'])
     })
   }

@@ -166,7 +166,25 @@ type DialogState =
   | RunConfigManagerState
   | CrashReportState
 
-export const dialogState: { current: DialogState } = $state({ current: { type: 'none' } })
+const dialogSlot: { current: DialogState } = $state({ current: { type: 'none' } })
+
+// Resolver of the prompt() whose input dialog currently holds the slot.
+let pendingPromptResolve: ((result: PromptResult | null) => void) | null = null
+
+export const dialogState: { current: DialogState } = {
+  get current(): DialogState {
+    return dialogSlot.current
+  },
+  set current(next: DialogState) {
+    // All dialogs share one slot. Whatever replaces an open prompt (another prompt, any
+    // show*() helper, closeDialog) unmounts its InputDialog without onSubmit/onCancel —
+    // settle the caller's promise instead of leaving it pending forever.
+    const resolve = pendingPromptResolve
+    pendingPromptResolve = null
+    dialogSlot.current = next
+    resolve?.(null)
+  },
+}
 
 // Confirmations render ABOVE whatever dialog is open (separate stacked state), so asking for a
 // confirmation inside a modal (e.g. the Project tracker dialog) doesn't replace and close it.
@@ -192,20 +210,22 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
 
 export function prompt(opts: PromptOptions): Promise<PromptResult | null> {
   return new Promise((resolve) => {
+    const settle = (result: PromptResult | null): void => {
+      // Superseded prompts were already settled with null by the slot setter.
+      if (pendingPromptResolve !== resolve) return
+      pendingPromptResolve = null
+      dialogState.current = { type: 'none' }
+      resolve(result)
+    }
     dialogState.current = {
       type: 'input',
       props: {
         ...opts,
-        onSubmit: (result: PromptResult) => {
-          dialogState.current = { type: 'none' }
-          resolve(result)
-        },
-        onCancel: () => {
-          dialogState.current = { type: 'none' }
-          resolve(null)
-        },
+        onSubmit: (result: PromptResult) => settle(result),
+        onCancel: () => settle(null),
       },
     }
+    pendingPromptResolve = resolve
   })
 }
 

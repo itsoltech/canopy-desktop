@@ -12,6 +12,8 @@ import { SkillStore } from './SkillStore'
 import { getTransformer } from './SkillTransformer'
 import { isPublicHttpUrl } from '../security/validateUrl'
 
+const GITHUB_CLONE_TIMEOUT_MS = 120_000
+
 interface SourceResolution {
   content: string
   fileName: string
@@ -226,6 +228,12 @@ export class SkillInstaller {
           execFile(
             'git',
             ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            // A private/missing repo makes git ask for credentials and a stalled connection
+            // never ends; either would leave the install request pending forever.
+            {
+              timeout: GITHUB_CLONE_TIMEOUT_MS,
+              env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+            },
             (error) => {
               if (error) reject(error)
               else resolve()

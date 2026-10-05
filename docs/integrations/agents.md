@@ -65,7 +65,7 @@ Events that do not map to a known name are normalized as `Unknown`.
 
 The renderer maintains per-session state in `agentSessions[ptySessionId]`:
 
-- `status`: Discriminated union with types `inactive`, `starting`, `idle`, `thinking`, `compacting`, `toolCalling`, `waitingPermission`, `error`, `ended`.
+- `status`: Discriminated union with types `inactive`, `starting`, `idle`, `thinking`, `compacting`, `toolCalling`, `waitingPermission`, `error`, `ended`. A finished or failed tool call (`AfterToolUse` / `AfterToolUseFailure`) returns a `toolCalling` or `waitingPermission` session to `thinking`, matching the main-process mapping used by the notch.
 - `model` / `modelId`: Model name and ID (updated from status line data or hook events).
 - `contextPercent` / `contextSize`: Context window usage. Claude provides this via the status line. Gemini calculates it from `AfterModel.usageMetadata.totalTokenCount` divided by a lookup table of model context limits (`resources/gemini-models.json`).
 - `costUsd` / `durationMs` / `linesAdded` / `linesRemoved`: Cost tracking (Claude only via status line).
@@ -124,7 +124,7 @@ On session destroy, the adapter's `cleanup()` function removes temporary setting
 
 ### Profiles
 
-Each agent can have multiple named **profiles**, each holding a complete configuration snapshot (model, API key, base URL, provider, env vars, settings JSON override). Profiles let users switch between providers — e.g. a `Default` profile using Anthropic, an `Ollama` profile pointing at a local endpoint, a `GLM` or `MinMax` profile targeting alternative gateways — without rewriting global preferences each time.
+Each agent can have multiple named **profiles**, each holding a complete configuration snapshot (model, API key, base URL, provider, env vars, settings JSON override). Profiles let users switch between providers — e.g. a `Default` profile using Anthropic, an `Ollama` profile pointing at a local endpoint, a `GLM` or `MinMax` profile targeting alternative gateways — without rewriting global preferences each time. Saving a profile whose settings JSON override is not a JSON object is refused with a toast — main would otherwise ignore the unparseable override at launch without any message.
 
 **Launching a profile.** The Tools sidebar renders each AI agent as a collapsible group when it has two or more profiles. Expanding the group lists the profiles; clicking one spawns the agent using that profile's configuration. When an agent has only a single profile (typically the `Default`), it renders as a flat launcher with no chevron — one click launches directly. If `profileId` is omitted from the tab command payload, the spawn handler falls back to reading global preferences (legacy behaviour).
 

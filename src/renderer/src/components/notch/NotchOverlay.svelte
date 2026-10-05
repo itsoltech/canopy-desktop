@@ -36,6 +36,22 @@
     return window.notchApi.onStateUpdate((s: NotchState) => {
       state = s
 
+      // The island unmounts with the last session (main hides the window), so a hover in
+      // progress never gets its mouseleave: reset it, or the overlay reappears expanded,
+      // suppresses peeks and keeps capturing clicks meant for what lies under it.
+      if (s.sessions.length === 0) {
+        if (collapseTimer) clearTimeout(collapseTimer)
+        if (peekTimer) clearTimeout(peekTimer)
+        collapseTimer = null
+        peekTimer = null
+        isHovered = false
+        isExpanded = false
+        peekLocked = false
+        peekSessionIds.clear()
+        window.notchApi.setMouseIgnore(true)
+        return
+      }
+
       if (s.peekSessionIds && s.peekSessionIds.length > 0 && !isHovered) {
         for (const id of s.peekSessionIds) peekSessionIds.add(id)
 

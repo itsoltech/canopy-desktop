@@ -3,6 +3,7 @@
   import { LoaderCircle, Plus, X } from '@lucide/svelte'
   import { getPref } from '../../lib/stores/preferences.svelte'
   import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
+  import { uniqueAttachmentName } from '../../lib/taskTracker/attachmentNames'
   import type { TrackerProviderKind, TrackerTaskLite } from '../../lib/taskTracker/types'
   import {
     branchTemplateFor,
@@ -114,7 +115,10 @@
       }
       const ext = (f.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '')
       const fallback = `image-${pendingImages.length + 1}.${ext}`
-      const filename = (f.name || fallback).replace(/[^\w.\- ()[\]]/g, '-').slice(0, 200)
+      const filename = uniqueAttachmentName(
+        (f.name || fallback).replace(/[^\w.\- ()[\]]/g, '-').slice(0, 200),
+        pendingImages.map((p) => p.filename),
+      )
       pendingImages.push({
         filename,
         mimeType: f.type,
@@ -288,6 +292,9 @@
   async function loadProjectMeta(currentUserName = ''): Promise<void> {
     const seq = ++metaSeq
     projectMetaError = ''
+    // Types are project-scoped and re-picked below — never submit the previous project's type
+    // while this project's list is loading (an empty pick keeps Create disabled meanwhile).
+    typeName = ''
     try {
       const [typeList, userList] = await Promise.all([
         // No .catch — a failure (expired credentials, permissions) must surface, not silently
@@ -313,6 +320,9 @@
       if (seq !== metaSeq) return
       types = []
       users = []
+      // With the lists empty the form stays submittable; the previous project's assignee must
+      // not ride along into this one.
+      assigneeId = ''
       projectMetaError = ipcErrorMessage(e, 'Failed to load task types and assignees')
     }
   }

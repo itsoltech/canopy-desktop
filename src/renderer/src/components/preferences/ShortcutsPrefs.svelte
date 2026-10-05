@@ -45,7 +45,7 @@
         { keys: isMac ? ['⌘', 'D'] : ['Ctrl', 'D'], action: 'Split pane vertical' },
         { keys: isMac ? ['⌘', '⇧', 'D'] : ['Ctrl', 'Shift', 'D'], action: 'Split pane horizontal' },
         {
-          keys: isMac ? ['⌘', '⌥', '←→'] : ['Ctrl', 'Alt', '←→'],
+          keys: isMac ? ['⌘', '⌥', '←↑↓→'] : ['Ctrl', 'Alt', '←↑↓→'],
           action: 'Move focus between panes',
         },
       ],

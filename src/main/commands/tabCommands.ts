@@ -648,6 +648,9 @@ function splitDepth(split: SplitSnapshot): number {
 
 const MAX_SPLIT_DEPTH = 4
 const MAX_CLOSED_TABS = 20
+// Pane titles come from terminal output (OSC 0/2), which any program — or a `cat`-ed file —
+// controls; xterm accepts payloads of megabytes, and every title lands in tab state broadcasts.
+const MAX_PANE_TITLE_LENGTH = 256
 const AI_TOOL_IDS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 const NO_SPLIT_TOOLS = new Set(['claude', 'codex', 'opencode', 'gemini'])
 
@@ -2035,6 +2038,9 @@ export class TabCommandService {
   updatePaneTitle(sender: WebContents, payload: UpdatePaneTitlePayload): TabCommandResult {
     this.trackSender(sender)
     this.assertSenderOwnsWorktree(sender, payload.worktreePath)
+    // A non-string would fail snapshot validation on every later command for this worktree.
+    if (typeof payload.title !== 'string') throw new Error('Invalid pane title')
+    const title = payload.title.slice(0, MAX_PANE_TITLE_LENGTH)
     const tabs = this.getCommandTabs(sender.id, payload)
     const activeId = this.getCommandActiveTabId(sender.id, payload)
     const tabIndex = tabs.findIndex((tab) =>
@@ -2052,7 +2058,7 @@ export class TabCommandService {
       ...tab,
       rootSplit: updatePaneSnapshot(tab.rootSplit, pane.id, (previous) => ({
         ...previous,
-        title: payload.title,
+        title,
       })),
     }
     const result = {

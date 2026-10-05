@@ -950,6 +950,14 @@
       })
     }
 
+    // `did-navigate-in-page` also fires for sub-frames (embedded widgets, OAuth iframes); only
+    // the top-level document's URL belongs in the address bar and the restored tab URL.
+    const onDidNavigateInPage = (e: Event): void => {
+      // Electron's DidNavigateInPageEvent carries isMainFrame; the DOM Event type lacks it.
+      if ((e as Event & { isMainFrame?: boolean }).isMainFrame === false) return
+      onDidNavigate(e)
+    }
+
     const onTitleUpdated = (e: Event): void => {
       const title = (e as CustomEvent).title ?? w.getTitle()
       handleBrowserTitleChanged(browserId, title)
@@ -1040,7 +1048,7 @@
 
     w.addEventListener('dom-ready', onDomReady)
     w.addEventListener('did-navigate', onDidNavigate)
-    w.addEventListener('did-navigate-in-page', onDidNavigate)
+    w.addEventListener('did-navigate-in-page', onDidNavigateInPage)
     w.addEventListener('page-title-updated', onTitleUpdated)
     w.addEventListener('did-start-loading', onStartLoading)
     w.addEventListener('did-stop-loading', onStopLoading)
@@ -1051,7 +1059,7 @@
     return () => {
       w.removeEventListener('dom-ready', onDomReady)
       w.removeEventListener('did-navigate', onDidNavigate)
-      w.removeEventListener('did-navigate-in-page', onDidNavigate)
+      w.removeEventListener('did-navigate-in-page', onDidNavigateInPage)
       w.removeEventListener('page-title-updated', onTitleUpdated)
       w.removeEventListener('did-start-loading', onStartLoading)
       w.removeEventListener('did-stop-loading', onStopLoading)

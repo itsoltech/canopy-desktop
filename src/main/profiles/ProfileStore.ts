@@ -306,7 +306,14 @@ export class ProfileStore {
 
       const existing = findStmt.get(p.agentType, trimmed) as ProfileRow | undefined
       if (existing) {
-        updateStmt.run(prefsJson, apiKeyEnc, p.sortIndex ?? existing.sort_index, existing.id)
+        // An export from a profile without a key (e.g. a teammate's) must not wipe the key
+        // stored locally under the same name — every install has "Default" profiles.
+        updateStmt.run(
+          prefsJson,
+          apiKeyEnc ?? existing.api_key_enc,
+          p.sortIndex ?? existing.sort_index,
+          existing.id,
+        )
       } else {
         insertStmt.run(
           randomUUID(),

@@ -6,6 +6,7 @@
   import { getProfilesByAgent, saveProfile, deleteProfile } from '../../lib/stores/profiles.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
+  import { settingsJsonError } from './_partials/profileSettingsJson'
 
   type FormProps = {
     prefs: ProfilePrefs
@@ -86,6 +87,11 @@
     if (!selected) return
     if (!draftName.trim()) {
       addToast('Profile name is required')
+      return
+    }
+    const overrideError = settingsJsonError(draftPrefs.settingsJson)
+    if (overrideError) {
+      addToast(overrideError)
       return
     }
     saving = true

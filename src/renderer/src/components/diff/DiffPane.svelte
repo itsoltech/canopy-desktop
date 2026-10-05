@@ -5,6 +5,7 @@
   import { Search, RotateCw, ChevronRight, Copy } from '@lucide/svelte'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { createLatestRequestGuard } from '../../lib/async/latestRequest'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'
 
   let {
@@ -44,18 +45,25 @@
   let commentFilePath = $state('')
   let commentLineNum = $state(0)
 
+  // Worktree switches, git events and the file watcher can overlap refreshes; only the latest
+  // one for the current worktree may land, or a slow reply shows another worktree's diff.
+  const diffRequests = createLatestRequestGuard()
+
   async function refresh(): Promise<void> {
+    const request = diffRequests.begin(worktreePath)
     loading = true
     loadError = false
     try {
-      const result = await window.api.changesGetDiff({ worktreePath })
+      const result = await window.api.changesGetDiff({ worktreePath: request.scope })
+      if (!diffRequests.isCurrent(request, worktreePath)) return
       files = result.files
     } catch (e) {
+      if (!diffRequests.isCurrent(request, worktreePath)) return
       files = []
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (diffRequests.isLatest(request)) loading = false
     }
   }
 

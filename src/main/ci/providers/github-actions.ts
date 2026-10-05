@@ -370,8 +370,11 @@ export class GitHubActionsAdapter implements CiProviderAdapter {
   run(runId: string): ResultAsync<CiRun, CiError> {
     return this.authenticated(() =>
       this.client.getRun(runId).andThen((raw: GitHubWorkflowRun) => {
-        const path = raw.path?.split('@')[0]
-        const configured = this.config.workflows.find((workflow) => workflow.path === path)
+        const path = raw.path?.split('@')[0]?.toLowerCase()
+        // Case-insensitive like the status/activity matching, so every listed run can be opened.
+        const configured = this.config.workflows.find(
+          (workflow) => workflow.path.toLowerCase() === path,
+        )
         return configured
           ? ok(mapGitHubRun(raw, configured.path, configured.label))
           : err(apiError(`Run ${runId} does not belong to a configured workflow`))

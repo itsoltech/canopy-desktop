@@ -158,6 +158,17 @@ interface NormalizedHookEvent {
   [key: string]: unknown
 }
 
+/**
+ * A finished (or failed/denied) tool call hands control back to the model — the same mapping
+ * main uses for the notch. Without it a session kept showing "needs permission", the highest
+ * worktree priority, while the agent was already working on.
+ */
+function leaveToolStatus(session: AgentSessionState): void {
+  if (session.status.type === 'toolCalling' || session.status.type === 'waitingPermission') {
+    session.status = { type: 'thinking' }
+  }
+}
+
 export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent): void {
   const session = agentSessions[ptySessionId]
   if (!session) return
@@ -230,9 +241,11 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
       session.toolCallCount++
       delete session.extra.pendingQuestion
       handleTaskToolUse(session, event)
+      leaveToolStatus(session)
     })
     .with('AfterToolUseFailure', () => {
       session.toolCallCount++
+      leaveToolStatus(session)
     })
     .with('Idle', () => {
       session.status = { type: 'idle' }

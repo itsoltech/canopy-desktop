@@ -170,7 +170,7 @@ export class AgentHookRouter {
 
   private readBody(req: http.IncomingMessage): Promise<string> {
     return new Promise((resolve) => {
-      let data = ''
+      const chunks: Buffer[] = []
       let bytes = 0
       // Cap the wait so a slow/idle client cannot pin an HTTP socket and
       // accumulate one half-open connection per stalled request.
@@ -189,9 +189,11 @@ export class AgentHookRouter {
           finish('')
           return
         }
-        data += chunk
+        chunks.push(chunk)
       })
-      req.on('end', () => finish(data))
+      // Decode once at the end: a multi-byte UTF-8 character can straddle two chunks, and
+      // decoding each chunk separately turns it into U+FFFD replacement characters.
+      req.on('end', () => finish(Buffer.concat(chunks).toString('utf8')))
       req.on('error', () => finish(''))
     })
   }

@@ -102,13 +102,15 @@ The file path is always `<dir>/.canopy/run.toml` and is not configurable. Discov
 | -------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `RunConfigNotFound`        | "Run config not found: \<path\>"                     | The `.canopy/run.toml` file does not exist at the expected path, or a named configuration was not found during update/delete |
 | `RunConfigParseError`      | "Invalid run config at \<path\>: \<reason\>"         | The TOML file has syntax errors that `smol-toml` cannot parse                                                                |
-| `RunConfigWriteError`      | "Failed to write run config at \<path\>: \<reason\>" | File system error writing the TOML (permissions, disk full)                                                                  |
-| `RunConfigValidationError` | "Invalid configuration \"\<name\>\": \<reason\>"     | Duplicate name on add, or other validation failure                                                                           |
+| `RunConfigWriteError`      | "Failed to write run config at \<path\>: \<reason\>" | File system error writing the TOML (permissions, disk full), or `.canopy/` / `run.toml` resolving outside the project        |
+| `RunConfigValidationError` | "Invalid configuration \"\<name\>\": \<reason\>"     | Duplicate name on add or on rename onto another configuration's name, or other validation failure                            |
 | `RunConfigExecutionError`  | "Failed to execute \"\<name\>\": \<reason\>"         | PTY spawn failure, pre_run failure, or timeout                                                                               |
 
 ## Security and privacy
 
 Run configuration files can be committed with the repository, so their `env` table is treated as untrusted input. Before spawning `pre_run`, the main command, or `post_run`, Canopy filters environment overrides through the shared `BLOCKED_ENV_VARS` list. Blocked keys such as `PATH`, `HOME`, dynamic linker variables, runtime option hooks (`NODE_OPTIONS`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`), Git/SSH helpers, proxy/TLS variables, and compiler flags are ignored so a cloned `.canopy/run.toml` cannot hijack the child shell or runtime. Non-string TOML values are also ignored.
+
+Saving from the editor refuses to write when `.canopy/` or `run.toml` is a symlink that resolves outside the project directory, so a repository cannot point the editor at another file on disk (for example a user config) and have it overwritten with run configurations. Symlinks that stay inside the project keep working.
 
 Filtered variables fall back to the inherited login environment used by `PtyManager.spawn`; the run does not fail just because a blocked override was present.
 

@@ -37,6 +37,7 @@ import { DEFAULT_IGNORE_PATTERNS } from '../fileWatcher/defaults'
 import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/worktreeRemoval'
+import { parsePorcelainEntry } from '../git/porcelainStatus'
 import { comparableWorkspacePath } from '../db/workspacePaths'
 
 const execFileAsync = promisify(execFile)
@@ -103,6 +104,7 @@ import {
   closePullRequest,
   deleteRemoteBranch,
   remoteBranchExists,
+  PR_COMMAND_TIMEOUT_MS,
 } from '../taskTracker/prCreation'
 import {
   formatTaskContext,
@@ -113,11 +115,7 @@ import { getBranchTemplate, getPRTemplate, projectKeyOfTask } from '../taskTrack
 import type { GitHubService } from '../github/GitHubService'
 import { gitHubErrorMessage } from '../github/errors'
 import { parseGitHubRemote } from '../github/remoteUrl'
-import {
-  gitHubCliFailureReason,
-  isMissingGitHubCli,
-  redactGitHubFailureReason,
-} from '../github/redactFailureReason'
+import { gitHubCliFailureReason, isMissingGitHubCli } from '../github/redactFailureReason'
 import { hasSupportedGitHubRemote } from '../github/supportedRemote'
 import type { RemoteSessionService } from '../remote/RemoteSessionService'
 import { remoteServerErrorMessage } from '../remote/errors'
@@ -133,7 +131,7 @@ import type { SkillError } from '../skills/errors'
 import { getTransformer } from '../skills/SkillTransformer'
 import { scanSkills } from '../skills/SkillScanner'
 import type { SkillAgentTarget } from '../skills/types'
-import { isSkillAgentTarget } from '../skills/types'
+import { isSkillAgentTarget, skillInstallOptionsError } from '../skills/types'
 import type { ProfileStore } from '../profiles/ProfileStore'
 import { profileErrorMessage } from '../profiles/errors'
 import { KNOWN_AGENT_TYPES, type ProfileInput } from '../profiles/types'
@@ -2263,7 +2261,10 @@ export function registerIpcHandlers(
       if (payload.draft) args.push('--draft')
 
       try {
-        const { stdout } = await execFileAsync('gh', args, { cwd: resolvedRepo })
+        const { stdout } = await execFileAsync('gh', args, {
+          cwd: resolvedRepo,
+          timeout: PR_COMMAND_TIMEOUT_MS,
+        })
         return { url: stdout.trim() }
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -2274,7 +2275,8 @@ export function registerIpcHandlers(
         // `gh pr create` prints the push remote on failure, and for a
         // token-authenticated remote that is https://x-access-token:<token>@… —
         // re-raising the execFile error verbatim would hand it to the renderer.
-        throw new Error(redactGitHubFailureReason(errorMessage(err)))
+        // The shared formatter redacts it and reports a timeout as such.
+        throw new Error(gitHubCliFailureReason(err, PR_COMMAND_TIMEOUT_MS))
       }
     },
   )
@@ -2290,7 +2292,7 @@ export function registerIpcHandlers(
       const { stdout } = await execFileAsync(
         'gh',
         ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-        { cwd: resolvedRepo },
+        { cwd: resolvedRepo, timeout: PR_COMMAND_TIMEOUT_MS },
       )
       return stdout.trim() || 'main'
     } catch (err) {
@@ -2684,12 +2686,15 @@ export function registerIpcHandlers(
     }
 
     for (const line of porcelain.split('\n')) {
-      if (line.length < 4) continue
-      const xy = line.substring(0, 2)
-      const filePath = line.substring(3)
+      // Quoted paths (spaces, non-ASCII) and renames must key by the plain working-tree path
+      // the file tree looks up.
+      const entry = parsePorcelainEntry(line)
+      if (!entry) continue
+      const { xy } = entry
       const status = xy[0] !== ' ' && xy[0] !== '?' ? xy[0] : xy[1]
-      statuses[filePath] = status === '?' ? '?' : status
-      for (const part of filePath.split(' -> ')) collectPath(part)
+      statuses[entry.path] = status === '?' ? '?' : status
+      collectPath(entry.path)
+      if (entry.origPath) collectPath(entry.origPath)
     }
 
     return {
@@ -4475,6 +4480,7 @@ export function registerIpcHandlers(
           const { stdout } = await execFileAsync('gh', args, {
             cwd: resolvedRepo,
             maxBuffer: 1024 * 1024,
+            timeout: PR_COMMAND_TIMEOUT_MS,
           })
           return stdout.trim()
         } catch {
@@ -4563,7 +4569,7 @@ export function registerIpcHandlers(
         const { stdout } = await execFileAsync(
           'gh',
           ['pr', 'view', payload.branch, '--json', 'url', '--jq', '.url'],
-          { cwd: resolvedRepo },
+          { cwd: resolvedRepo, timeout: PR_COMMAND_TIMEOUT_MS },
         )
         return stdout.trim() || null
       } catch {
@@ -5289,6 +5295,8 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('skills:install', async (event, payload: SkillInstallOptions) => {
+    const invalid = skillInstallOptionsError(payload)
+    if (invalid) throw new Error(invalid)
     // The deploy target comes from the untrusted renderer; confine it to one of
     // this window's attached workspaces before writing skill files into it.
     if (payload.workspacePath) await validatePathAccess(event.sender.id, payload.workspacePath)

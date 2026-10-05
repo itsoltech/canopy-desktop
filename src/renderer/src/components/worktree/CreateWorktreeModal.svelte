@@ -27,7 +27,7 @@
   import { prStateChip } from '../../lib/github/prState'
   import { loadPRFallbackSummary } from '../../lib/stores/github.svelte'
   import BranchPicker from './BranchPicker.svelte'
-  import { isRemoteOnly } from './utils'
+  import { isRemoteOnly, newBranchNameError } from './utils'
 
   let {
     onClose,
@@ -207,31 +207,13 @@
     }
   }
 
-  let branchNameError = $derived.by(() => {
-    if (!newBranchName) return null
-    if (/\s/.test(newBranchName)) return 'No spaces allowed'
-    if (/\.\./.test(newBranchName)) return 'Cannot contain ..'
-    if (/[~^:\\]/.test(newBranchName)) return 'Invalid characters'
-    if (newBranchName.startsWith('-')) return 'Cannot start with -'
-    if (worktreeBranches.has(newBranchName)) {
-      return 'Branch is already checked out in an existing worktree'
-    }
-    if (branches.local.includes(newBranchName)) return 'Branch already exists'
-    return null
-  })
+  let branchNameError = $derived(
+    newBranchNameError(newBranchName, worktreeBranches, branches.local),
+  )
 
-  let taskBranchNameError = $derived.by(() => {
-    if (!taskBranchName) return null
-    if (/\s/.test(taskBranchName)) return 'No spaces allowed'
-    if (/\.\./.test(taskBranchName)) return 'Cannot contain ..'
-    if (/[~^:\\]/.test(taskBranchName)) return 'Invalid characters'
-    if (taskBranchName.startsWith('-')) return 'Cannot start with -'
-    if (worktreeBranches.has(taskBranchName)) {
-      return 'Branch is already checked out in an existing worktree'
-    }
-    if (branches.local.includes(taskBranchName)) return 'Branch already exists'
-    return null
-  })
+  let taskBranchNameError = $derived(
+    newBranchNameError(taskBranchName, worktreeBranches, branches.local),
+  )
 
   // Branches already checked out by this project's worktrees — git refuses to check them out
   // twice, so creation is blocked up front.

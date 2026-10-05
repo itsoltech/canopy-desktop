@@ -456,16 +456,18 @@
 
     if (!mod) return
 
-    // Cmd+K: toggle command palette
+    // Cmd+K: toggle command palette (replacing Quick Open rather than stacking on it)
     if (e.key === 'k' || e.key === 'K') {
       e.preventDefault()
+      quickOpenOpen = false
       paletteOpen = !paletteOpen
       return
     }
 
-    // Cmd+P: toggle quick open (file picker)
+    // Cmd+P: toggle quick open (file picker), replacing the palette rather than stacking on it
     if ((e.key === 'p' || e.key === 'P') && !e.shiftKey) {
       e.preventDefault()
+      paletteOpen = false
       quickOpenOpen = !quickOpenOpen
       return
     }
@@ -477,12 +479,13 @@
       return
     }
 
-    // Don't process other shortcuts while palette is open
-    if (paletteOpen) return
+    // Don't process other shortcuts while the palette or Quick Open is open — they would act on
+    // the panes hidden behind the overlay (e.g. Cmd+W closing the focused terminal).
+    if (paletteOpen || quickOpenOpen) return
 
     const path = workspaceState.selectedWorktreePath
 
-    if (e.key === 'b') {
+    if ((e.key === 'b' || e.key === 'B') && !e.shiftKey) {
       e.preventDefault()
       toggleSidebar()
     }
@@ -500,13 +503,13 @@
     }
 
     // Cmd+L: focus browser URL bar (when active tab is browser)
-    if (e.key === 'l' && activeTab?.toolId === 'browser') {
+    if ((e.key === 'l' || e.key === 'L') && !e.shiftKey && activeTab?.toolId === 'browser') {
       e.preventDefault()
       window.dispatchEvent(new CustomEvent('canopy:focus-url-bar'))
       return
     }
 
-    if (e.key === 'o') {
+    if ((e.key === 'o' || e.key === 'O') && !e.shiftKey) {
       e.preventDefault()
       window.api.openFolder().then((p) => {
         if (p) attachProject(p)
@@ -525,7 +528,7 @@
     }
 
     // Cmd+W: close focused pane (or tab if last pane)
-    if (e.key === 'w' && path) {
+    if ((e.key === 'w' || e.key === 'W') && !e.shiftKey && path) {
       e.preventDefault()
       closeFocusedPane(path)
     }
@@ -591,7 +594,10 @@
 {/if}
 
 {#if dialogState.current.type === 'input'}
-  <InputDialog {...dialogState.current.props} />
+  <!-- Keyed so a prompt replacing another remounts with its own initial value. -->
+  {#key dialogState.current}
+    <InputDialog {...dialogState.current.props} />
+  {/key}
 {:else if dialogState.current.type === 'createWorktree'}
   <!-- Keyed by dialog identity: re-showing the dialog must remount the modal with a
        clean slate — an {:else if} on `type` alone keeps the old instance alive, so a

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   branchPickerEnterTarget,
   initialBranchListOpen,
+  newBranchNameError,
   shouldOfferExactRef,
   shouldReopenBranchList,
 } from './utils'
@@ -60,5 +61,44 @@ describe('branchPickerEnterTarget', () => {
     expect(branchPickerEnterTarget(['release/archive/1.0', 'release/1.0'], 0)).toBe(
       'release/archive/1.0',
     )
+  })
+})
+
+describe('newBranchNameError', () => {
+  const checkedOut = new Set(['main'])
+  const local = ['main', 'feature/existing']
+
+  it('accepts a valid new branch name and an empty field', () => {
+    expect(newBranchNameError('feature/login-fix', checkedOut, local)).toBeNull()
+    expect(newBranchNameError('', checkedOut, local)).toBeNull()
+  })
+
+  it.each([
+    'feature/',
+    '/feature',
+    'feature//login',
+    'my?branch',
+    'wip*',
+    'fix[1]',
+    'release.',
+    'topic.lock',
+    'feature/.hidden',
+    'a@{b}',
+    '@',
+  ])('rejects %s, which git refuses as a ref name', (name) => {
+    expect(newBranchNameError(name, checkedOut, local)).toEqual(expect.any(String))
+  })
+
+  it('keeps the specific messages for the common mistakes', () => {
+    expect(newBranchNameError('my branch', checkedOut, local)).toBe('No spaces allowed')
+    expect(newBranchNameError('a..b', checkedOut, local)).toBe('Cannot contain ..')
+    expect(newBranchNameError('-x', checkedOut, local)).toBe('Cannot start with -')
+  })
+
+  it('reports branches that are checked out or already exist', () => {
+    expect(newBranchNameError('main', checkedOut, local)).toBe(
+      'Branch is already checked out in an existing worktree',
+    )
+    expect(newBranchNameError('feature/existing', checkedOut, local)).toBe('Branch already exists')
   })
 })

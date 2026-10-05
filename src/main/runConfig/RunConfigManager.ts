@@ -1,5 +1,5 @@
-import { readFile, writeFile, mkdir, readdir } from 'fs/promises'
-import { join, relative } from 'path'
+import { readFile, writeFile, mkdir, readdir, lstat, realpath } from 'fs/promises'
+import { isAbsolute, join, relative, sep } from 'path'
 import { ok, err, type ResultAsync } from 'neverthrow'
 import { parse, stringify } from 'smol-toml'
 import type { RunConfigFile, RunConfigSource, RunConfiguration } from './types'
@@ -12,6 +12,11 @@ const CONFIG_FILE = 'run.toml'
 
 function tomlPath(configDir: string): string {
   return join(configDir, CONFIG_DIR, CONFIG_FILE)
+}
+
+function isInside(root: string, target: string): boolean {
+  const rel = relative(root, target)
+  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
 
 export class RunConfigManager {
@@ -48,7 +53,21 @@ export class RunConfigManager {
     const path = tomlPath(configDir)
     return fromExternalCall(
       (async () => {
-        await mkdir(join(configDir, CONFIG_DIR), { recursive: true })
+        const dir = join(configDir, CONFIG_DIR)
+        await mkdir(dir, { recursive: true })
+        // `.canopy/` and `run.toml` are committed repo content, so a cloned repo can ship them
+        // as symlinks — and mkdir/writeFile follow links. Refuse writes landing outside the project.
+        const root = await realpath(configDir)
+        if (!isInside(root, await realpath(dir))) {
+          throw new Error(`${CONFIG_DIR} resolves outside the project`)
+        }
+        const existing = await lstat(path).catch(() => null)
+        if (existing?.isSymbolicLink()) {
+          const target = await realpath(path).catch(() => null)
+          if (!target || !isInside(root, target)) {
+            throw new Error(`${CONFIG_FILE} links outside the project`)
+          }
+        }
         await writeFile(
           path,
           // smol-toml's stringify() accepts an untyped Record; bridge RunConfigFile
@@ -96,6 +115,18 @@ export class RunConfigManager {
         return err({
           _tag: 'RunConfigNotFound' as const,
           path: tomlPath(configDir),
+        })
+      }
+      // A rename onto another entry's name would leave two configurations sharing it — run and
+      // delete match by name, so deleting either would silently remove both.
+      const nameTaken = file.configurations.some(
+        (c, i) => i !== idx && c.name === configuration.name,
+      )
+      if (configuration.name !== oldName && nameTaken) {
+        return err({
+          _tag: 'RunConfigValidationError' as const,
+          name: configuration.name,
+          reason: 'Configuration with this name already exists',
         })
       }
       file.configurations[idx] = configuration

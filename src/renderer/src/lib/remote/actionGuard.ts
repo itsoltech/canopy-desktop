@@ -166,20 +166,44 @@ async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promi
   return result
 }
 
+const MAX_SHOWN_VALUE_LENGTH = 160
+
+/**
+ * Renders a peer-supplied value for the consent prompt: quoted and escaped onto one line, so a
+ * value cannot add lines or wording of its own to the dialog, and capped in length.
+ */
+function shown(value: unknown): string {
+  if (typeof value === 'number') return String(value)
+  if (typeof value !== 'string') return '(invalid)'
+  const clipped =
+    value.length > MAX_SHOWN_VALUE_LENGTH ? `${value.slice(0, MAX_SHOWN_VALUE_LENGTH)}…` : value
+  return JSON.stringify(clipped)
+}
+
 function describeAction(method: RpcMethodName, params: unknown): string {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>
-  return match(method as string)
-    .with('tools.spawn', () => `spawn tool "${p.toolId}" in ${p.worktreePath}`)
-    .with('tabs.close', () => `close tab ${p.tabId}`)
-    .with('tabs.activate', () => `activate tab ${p.tabId}`)
-    .with('pty.write', () => `write to terminal ${p.sessionId}`)
-    .with('pty.kill', () => `kill terminal process ${p.sessionId}`)
-    .with('agent.sendInput', () => `send prompt to agent ${p.sessionId}`)
-    .with('workspace.selectWorktree', () => `switch worktree to ${p.worktreePath}`)
-    .with('browser.openExternal', () => `open URL externally: ${p.url}`)
-    .with('worktree.add', () => `create worktree "${p.branch}" at ${p.path}`)
-    .with('worktree.addCheckout', () => `check out worktree "${p.branch}" at ${p.path}`)
-    .with('worktree.remove', () => `remove the worktree at ${p.path}`)
-    .with('project.attach', () => `attach project folder ${p.path}`)
-    .otherwise(() => `execute ${method}`)
+  return (
+    match(method as string)
+      .with('tools.spawn', () => `spawn tool ${shown(p.toolId)} in ${shown(p.worktreePath)}`)
+      .with('tabs.close', () => `close tab ${shown(p.tabId)}`)
+      .with('tabs.activate', () => `activate tab ${shown(p.tabId)}`)
+      .with('pty.write', () => `write to terminal ${shown(p.sessionId)}`)
+      .with('pty.kill', () => `kill terminal process ${shown(p.sessionId)}`)
+      .with('agent.sendInput', () => `send prompt to agent ${shown(p.sessionId)}`)
+      .with('workspace.selectWorktree', () => `switch worktree to ${shown(p.worktreePath)}`)
+      .with('browser.openExternal', () => `open URL externally: ${shown(p.url)}`)
+      .with('worktree.add', () => `create worktree ${shown(p.branch)} at ${shown(p.path)}`)
+      .with(
+        'worktree.addCheckout',
+        () => `check out worktree ${shown(p.branch)} at ${shown(p.path)}`,
+      )
+      // `force` skips the host's dirty/submodule consent gate, so the prompt must say so.
+      .with('worktree.remove', () =>
+        p.force === true
+          ? `FORCE-remove the worktree at ${shown(p.path)} — uncommitted changes in it will be lost`
+          : `remove the worktree at ${shown(p.path)}`,
+      )
+      .with('project.attach', () => `attach project folder ${shown(p.path)}`)
+      .otherwise(() => `execute ${method}`)
+  )
 }
