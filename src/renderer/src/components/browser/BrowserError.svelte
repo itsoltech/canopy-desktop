@@ -19,11 +19,15 @@
 <div
   class="absolute inset-0 flex items-center justify-center bg-scrim cursor-pointer z-pane-divider"
   onclick={onDismiss}
+  onkeydown={(e) => {
+    if (e.key === 'Escape') onDismiss()
+  }}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="flex flex-col items-center gap-2 max-w-100 p-6 text-center cursor-default"
+    role="alert"
     onclick={(e) => e.stopPropagation()}
   >
     <div class="text-lg font-semibold text-text">Page failed to load</div>

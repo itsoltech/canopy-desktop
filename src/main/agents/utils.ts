@@ -24,6 +24,16 @@ export function deepMerge(
   return out
 }
 
+// Agent CLIs report session ids as UUIDs (Claude, Codex, Gemini) or `ses_…`
+// (OpenCode). The id is persisted with the layout and passed back to the CLI
+// as an argument (`--resume <id>`), so anything else, notably a value starting
+// with `-` that the CLI would parse as an option, is not a session id.
+const AGENT_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
+
+export function isAgentSessionId(value: unknown): value is string {
+  return typeof value === 'string' && AGENT_SESSION_ID_RE.test(value)
+}
+
 export function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 3) + '...' : text
 }

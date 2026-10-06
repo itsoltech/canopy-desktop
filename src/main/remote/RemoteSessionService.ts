@@ -694,6 +694,12 @@ export class RemoteSessionService {
     // every window would give other tabs a chance to race-reply to SDP/ICE,
     // which would confuse the peer. The host window is the one that called
     // `remote:start` and owns the RTCPeerConnection.
+    //
+    // A valid pairing token only gets the peer to `peerArrived`; the desktop
+    // accept prompt (or trusted-device auto-accept) is what moves the session
+    // to `paired`. Forwarding earlier would let a peer that skips waiting for
+    // `accepted` open the data channels before, or despite, the user's choice.
+    if (this.status.kind !== 'paired') return
     if (this.hostWcId === null) return
     const wc = webContentsNs.fromId(this.hostWcId)
     if (!wc || wc.isDestroyed()) return

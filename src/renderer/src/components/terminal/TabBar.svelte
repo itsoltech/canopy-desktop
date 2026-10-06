@@ -11,6 +11,7 @@
     type TabInfo,
   } from '../../lib/stores/tabs.svelte'
   import { allPanes, findLeaf } from '../../lib/stores/splitTree'
+  import { splitTabStrip } from '../../lib/terminal/tabStrip'
   import { agentBadges, agentSessions, type BadgeType } from '../../lib/agents/agentState.svelte'
   import { browserSessions } from '../../lib/browser/browserState.svelte'
   import {
@@ -113,12 +114,9 @@
     return () => observer.disconnect()
   })
 
-  let visibleTabs = $derived(
-    visibleCount > 0 && tabs.length > visibleCount ? tabs.slice(0, visibleCount) : tabs,
-  )
-  let overflowTabs = $derived(
-    visibleCount > 0 && tabs.length > visibleCount ? tabs.slice(visibleCount) : [],
-  )
+  let tabStrip = $derived(splitTabStrip(tabs, visibleCount, currentActiveId))
+  let visibleTabs = $derived(tabStrip.visible)
+  let overflowTabs = $derived(tabStrip.overflow)
 
   function handleMiddleClick(e: MouseEvent, tabId: string): void {
     if (e.button === 1) {

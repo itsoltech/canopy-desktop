@@ -13,6 +13,7 @@ import { claudeAdapter } from './adapters/claude'
 import { geminiAdapter } from './adapters/gemini'
 import { opencodeAdapter } from './adapters/opencode'
 import { codexAdapter } from './adapters/codex'
+import { isAgentSessionId } from './utils'
 
 interface AgentSession {
   agentType: AgentType
@@ -230,12 +231,14 @@ export class AgentSessionManager extends EventEmitter {
 
   /** Get resume args for the agent */
   getResumeArgs(toolId: string, resumeSessionId: string): string[] {
+    if (!isAgentSessionId(resumeSessionId)) return []
     const adapter = getAdapter(toolId)
     return adapter?.buildResumeArgs?.(resumeSessionId) ?? []
   }
 
   updateAgentSessionId(ptySessionId: string, agentSessionId: string): void {
-    if (!agentSessionId) return
+    // Hook payloads are only cast, not validated, by the adapters.
+    if (!isAgentSessionId(agentSessionId)) return
     const session = this.sessions.get(ptySessionId)
     if (!session) return
     session.agentSessionId = agentSessionId

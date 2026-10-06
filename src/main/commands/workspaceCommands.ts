@@ -376,7 +376,15 @@ export class WorkspaceCommandService {
       snapshot,
     )
 
+    // Register before the async start so an overlapping start for the same repo
+    // (or window teardown) disposes this watcher; one replaced while starting
+    // stops itself instead of leaking a native subscription.
+    this.deps.windowManager.setGitWatcher(sender.id, repoRoot, watcher)
     const startResult = await watcher.start()
+    if (this.deps.windowManager.getGitWatcher(sender.id, repoRoot) !== watcher) {
+      void watcher.stop()
+      return
+    }
     if (startResult.isErr()) {
       const message = gitErrorMessage(startResult.error)
       console.warn(message)
@@ -386,7 +394,6 @@ export class WorkspaceCommandService {
         paths: [repoRoot],
       })
     }
-    this.deps.windowManager.setGitWatcher(sender.id, repoRoot, watcher)
   }
 
   private collectRestoredLayouts(

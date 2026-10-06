@@ -253,6 +253,8 @@
           tabindex="0"
           onclick={() => handleClick(file)}
           onkeydown={(e) => {
+            // Enter/Space on the nested Stage/Revert buttons must activate them, not open the row.
+            if (e.target !== e.currentTarget) return
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               handleClick(file)

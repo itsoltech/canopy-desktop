@@ -95,6 +95,9 @@
       controller = new PeerController()
       controller.onPhaseChange = (p) => {
         phase = p
+        // The RPC is gone once the connection drops; keep the page from
+        // pinging a disposed channel every 3 s until it is closed.
+        if (p.kind !== 'negotiating' && p.kind !== 'connected') stopPingLoop()
       }
       controller.onApiReady = (api) => {
         remoteApi = api
@@ -415,6 +418,7 @@
                   type="button"
                   class="row"
                   class:active={project.id === selectedProjectId}
+                  aria-current={project.id === selectedProjectId ? 'true' : undefined}
                   onclick={() => selectProject(project.id)}
                 >
                   <span class="row-main">
@@ -441,6 +445,7 @@
                   type="button"
                   class="row row-compact"
                   class:active={wt.path === selectedWorktreePath}
+                  aria-current={wt.path === selectedWorktreePath ? 'true' : undefined}
                   onclick={() => selectWorktreeRow(wt.path)}
                 >
                   <span class="row-main">

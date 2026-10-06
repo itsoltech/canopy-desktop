@@ -10,11 +10,20 @@ const config: RepoConfig = {
 const api = {
   repoConfigLoad: vi.fn(),
   trackerResolvedConfig: vi.fn(),
+  getPref: vi.fn(),
+  setPref: vi.fn(),
 }
 
 vi.stubGlobal('window', { api })
 
-import { getRepoConfig, getRepoConfigLoadError, loadRepoConfig } from './taskTracker.svelte'
+import {
+  getActiveTasks,
+  getRepoConfig,
+  getRepoConfigLoadError,
+  loadActiveTask,
+  loadRepoConfig,
+  setActiveTask,
+} from './taskTracker.svelte'
 
 describe('loadRepoConfig', () => {
   beforeEach(() => {
@@ -42,5 +51,24 @@ describe('loadRepoConfig', () => {
 
     expect(getRepoConfig()).toBeNull()
     expect(getRepoConfigLoadError()).toBeNull()
+  })
+})
+
+describe('setActiveTask', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    api.setPref.mockResolvedValue(undefined)
+  })
+
+  it('links a task to a new worktree without replacing the selected worktree tasks', async () => {
+    const current = { taskKey: 'CUR-1', summary: 'Current work', connectionId: 'jira' }
+    const created = { taskKey: 'NEW-2', summary: 'New work', connectionId: 'jira' }
+    api.getPref.mockResolvedValueOnce(JSON.stringify([current]))
+    await loadActiveTask('/repo/current')
+
+    await setActiveTask('/repo/new', created)
+
+    expect(getActiveTasks()).toEqual([current])
+    expect(api.setPref).toHaveBeenCalledWith('activeTask./repo/new', JSON.stringify([created]))
   })
 })

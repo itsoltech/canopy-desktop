@@ -68,7 +68,7 @@ reconnect/listen flow after the operating system wakes.
 3. The signaling server validates the message format and forwards it to `RemoteSessionService.handlePairAttempt()`.
 4. The service performs constant-time comparison of the token. If invalid, the peer receives `{ type: "rejected", reason: "invalid token" }` and the WebSocket closes.
 5. Single-device policy: if another device is already paired (or pending), the attempt is rejected with "another device is already paired." An exception is made for same-device refresh (matching `deviceId`), which is allowed through to prevent stale-session lockouts.
-6. On success, the session transitions to `peerArrived`. The desktop renderer shows the accept/reject prompt with the device name and an 8-character fingerprint (hex prefix of the device ID).
+6. On success, the session transitions to `peerArrived`. The desktop renderer shows the accept/reject prompt with the device name and an 8-character fingerprint (hex prefix of the device ID). Until the session is `paired`, signaling frames from the peer (offer, ICE, bye) are dropped instead of being forwarded to the desktop renderer, so a peer cannot start WebRTC negotiation before, or despite, the user's choice.
 7. User clicks Accept (optionally checking "Remember this device").
 8. `acceptPendingDevice()` transitions to `paired`, sends `{ type: "accepted" }` to the peer, and starts the idle timeout (15 minutes). If "Remember" was checked, the device is persisted in the `TrustedDeviceStore`.
 9. The peer receives `accepted` and begins WebRTC offer/answer/ICE negotiation through the signaling WebSocket. The desktop renderer's `RemoteHostController` handles the SDP exchange.

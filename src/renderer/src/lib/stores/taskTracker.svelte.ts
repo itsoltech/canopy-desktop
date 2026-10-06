@@ -337,10 +337,13 @@ async function persistActiveTasks(worktreePath: string): Promise<void> {
   )
 }
 
-/** Replace the linked tasks with a single one — used right after creating a worktree from a task. */
+/**
+ * Link a single task to a worktree — used right after creating a worktree from a task. Only the
+ * pref is written: `activeTasks` mirrors the selected worktree, which is still the previous one
+ * here, and selecting the new worktree loads its tasks.
+ */
 export async function setActiveTask(worktreePath: string, task: ActiveTaskContext): Promise<void> {
-  activeTasks = [task]
-  await persistActiveTasks(worktreePath)
+  await setPref(activeTaskKey(worktreePath), JSON.stringify([task]))
 }
 
 /** Link an additional task to the worktree (no-op when already linked). */

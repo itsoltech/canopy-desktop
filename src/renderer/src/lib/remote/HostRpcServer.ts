@@ -149,7 +149,11 @@ export class HostRpcServer {
     // peer's xterm stays at the PTY's original dimensions and cursor
     // positioning escape sequences land in the wrong column after a
     // host resize.
+    // Only sessions the peer streams: `pty:resized` covers every PTY in the app,
+    // and relaying all of them would hand the peer the ids of terminals it was
+    // never shown (hidden split panes, other worktrees).
     this.unsubPtyResized = window.api.onPtyResized((sessionId, cols, rows) => {
+      if (!forwarder.isSubscribed(sessionId)) return
       this.rpc.emit(`pty.resized.${sessionId}`, { cols, rows })
     })
 
@@ -165,6 +169,10 @@ export class HostRpcServer {
         return
       }
       forwarder.subscribe(sessionId)
+      // Resizes are relayed only once subscribed: send the current size so one that happened
+      // between the peer's getDimensions call and this subscription is not lost.
+      const dims = await window.api.getPtyDimensions(sessionId).catch(() => null)
+      if (dims) this.rpc.emit(`pty.resized.${sessionId}`, dims)
     })
 
     this.register('pty.unsubscribe', (params) => {

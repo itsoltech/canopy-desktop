@@ -173,7 +173,10 @@ export function initRemoteSessionListeners(): () => void {
       ensureHostController()
     }
     const ctl = ensureHostController()
-    void ctl.handleSignal(msg)
+    // A malformed SDP from the peer rejects in setRemoteDescription/createAnswer.
+    ctl.handleSignal(msg).catch((e) => {
+      console.warn('[remote] failed to handle peer signal:', e)
+    })
   })
 
   return () => {

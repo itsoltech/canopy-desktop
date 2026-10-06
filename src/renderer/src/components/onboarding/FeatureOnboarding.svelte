@@ -13,7 +13,10 @@
   let submitting = $state(false)
 
   onMount(() => {
+    // Restore focus to the opener when the dialog closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
+    return () => previouslyFocused?.focus?.()
   })
 
   async function handleDismiss(): Promise<void> {

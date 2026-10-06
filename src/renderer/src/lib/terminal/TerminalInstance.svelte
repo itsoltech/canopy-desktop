@@ -574,13 +574,14 @@
 
       const isMac = navigator.userAgent.includes('Mac')
 
-      // Keystroke visualizer — capture keydown on container (avoids xterm API interference)
-      if (getPref('keystrokeVisualizer.enabled') === 'true') {
-        keystrokeHandler = (e: KeyboardEvent): void => {
-          setTimeout(() => recordKeyEvent(sessionId, e), 0)
-        }
-        containerEl.addEventListener('keydown', keystrokeHandler, true)
+      // Keystroke visualizer — capture keydown on container (avoids xterm API interference).
+      // The pref is read per key, not once here, so toggling the overlay in Preferences also
+      // applies to terminals that are already open.
+      keystrokeHandler = (e: KeyboardEvent): void => {
+        if (getPref('keystrokeVisualizer.enabled') !== 'true') return
+        setTimeout(() => recordKeyEvent(sessionId, e), 0)
       }
+      containerEl.addEventListener('keydown', keystrokeHandler, true)
 
       term.attachCustomKeyEventHandler((event) => {
         if (event.type === 'keydown') {

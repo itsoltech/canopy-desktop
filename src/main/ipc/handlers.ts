@@ -37,6 +37,7 @@ import { DEFAULT_IGNORE_PATTERNS } from '../fileWatcher/defaults'
 import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/worktreeRemoval'
+import { validateFilePath } from '../git/repoFilePath'
 import { comparableWorkspacePath } from '../db/workspacePaths'
 
 const execFileAsync = promisify(execFile)
@@ -1416,13 +1417,20 @@ export function registerIpcHandlers(
       },
       payload.snapshot,
     )
+    // Register before the async start: an overlapping git:watch (or window
+    // teardown) then disposes this watcher instead of being overwritten by it
+    // later, and a watcher replaced while starting stops itself.
+    windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
     const startResult = await watcher.start()
+    if (windowManager.getGitWatcher(senderId, payload.repoRoot) !== watcher) {
+      void watcher.stop()
+      return
+    }
     if (startResult.isErr()) {
       // Log but don't throw — git watching is best-effort, the renderer
       // can still query git state on demand if the watcher fails to start.
       console.warn(gitErrorMessage(startResult.error))
     }
-    windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
   })
 
   ipcMain.handle('git:unwatch', (event, payload?: { repoRoot?: string }) => {
@@ -1482,11 +1490,18 @@ export function registerIpcHandlers(
       }
     })
 
+    // Register before the async start (see git:watch): an overlapping
+    // files:watch disposes this watcher instead of being overwritten by it.
+    windowManager.setFileWatcher(senderId, watcher)
     const result = await watcher.start()
+    if (windowManager.getFileWatcher(senderId) !== watcher) {
+      void watcher.stop()
+      return
+    }
     if (result.isErr()) {
+      windowManager.disposeFileWatcher(senderId)
       throw new Error(fileWatcherErrorMessage(result.error))
     }
-    windowManager.setFileWatcher(senderId, watcher)
   })
 
   ipcMain.handle('files:unwatch', (event) => {
@@ -2148,12 +2163,6 @@ export function registerIpcHandlers(
     const result = await GitRepository.getDiffParsed(resolvedRepo)
     return result.unwrapOr({ files: [] })
   })
-
-  function validateFilePath(filePath: string): void {
-    if (filePath.startsWith('-')) throw new Error('Invalid file path: must not start with -')
-    if (filePath.startsWith('/')) throw new Error('Invalid file path: must be relative')
-    if (filePath.includes('..')) throw new Error('Invalid file path: must not contain ..')
-  }
 
   ipcMain.handle('changes:getDiff', async (event, payload: { worktreePath: string }) => {
     const resolvedWorktree = await validateWorktreeScopedPathAccess(

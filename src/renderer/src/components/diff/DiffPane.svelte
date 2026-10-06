@@ -35,8 +35,9 @@
   let justRefreshed = $state(false)
   let pulseTimer: ReturnType<typeof setTimeout> | null = null
 
-  // Hover state for copy button
+  // Hover / keyboard-focus state for the copy button
   let hoveredFilePath = $state<string | null>(null)
+  let focusedHeaderPath = $state<string | null>(null)
 
   // Comment state
   let commentKey = $state<string | null>(null)
@@ -438,13 +439,14 @@
           class="bg-bg border border-border rounded-md text-text text-sm px-2 py-0.5 w-45 outline-none font-mono focus:border-accent"
           type="text"
           placeholder="Search in diff..."
+          aria-label="Search in diff"
           bind:value={searchQuery}
           onkeydown={(e) => {
             if (e.key === 'Escape') toggleSearch()
           }}
         />
         {#if searchQuery}
-          <span class="text-xs text-text-muted whitespace-nowrap"
+          <span class="text-xs text-text-muted whitespace-nowrap" role="status"
             >{matchCount} match{matchCount !== 1 ? 'es' : ''}</span
           >
         {/if}
@@ -501,9 +503,17 @@
               aria-expanded={!collapsedFiles.has(file.path)}
               onclick={() => toggleCollapse(file.path)}
               onkeydown={(e) => {
+                // Enter/Space on the nested Copy button must copy, not toggle the file.
+                if (e.target !== e.currentTarget) return
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   toggleCollapse(file.path)
+                }
+              }}
+              onfocusin={() => (focusedHeaderPath = file.path)}
+              onfocusout={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                  focusedHeaderPath = null
                 }
               }}
             >
@@ -540,7 +550,7 @@
                 <span class="text-diff-add-fg">+{file.additions}</span>
                 <span class="text-diff-delete-fg">&minus;{file.deletions}</span>
               </span>
-              {#if hoveredFilePath === file.path}
+              {#if hoveredFilePath === file.path || focusedHeaderPath === file.path}
                 <button
                   class="bg-transparent border border-border text-text-muted cursor-pointer px-1.5 py-0.5 rounded-md flex-shrink-0 flex items-center justify-center hover:text-text hover:bg-active"
                   title="Copy diff"
@@ -582,7 +592,7 @@
                       >
                         {#if hasAgent}
                           <button
-                            class="comment-trigger absolute left-px top-1/2 -translate-y-1/2 w-5.5 h-5.5 rounded-lg border-0 bg-accent text-bg text-base font-bold leading-none cursor-pointer opacity-0 z-10 flex items-center justify-center transition-opacity duration-fast motion-reduce:transition-none hover:brightness-110 active:brightness-85"
+                            class="comment-trigger absolute left-px top-1/2 -translate-y-1/2 w-5.5 h-5.5 rounded-lg border-0 bg-accent text-bg text-base font-bold leading-none cursor-pointer opacity-0 focus-visible:opacity-100 z-10 flex items-center justify-center transition-opacity duration-fast motion-reduce:transition-none hover:brightness-110 active:brightness-85"
                             title="Add review comment"
                             aria-label="Add review comment"
                             onclick={() =>

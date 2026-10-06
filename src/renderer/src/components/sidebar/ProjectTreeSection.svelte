@@ -122,7 +122,10 @@
     // (see WorktreeSection for the same fix).
     for (const p of projects) void p.worktrees.length
     for (const p of projects) {
-      checkMergedStatus(p, ac.signal)
+      // The main handler throws when `git branch --merged` fails; keep the previous badges.
+      checkMergedStatus(p, ac.signal).catch((e) => {
+        console.warn(`[sidebar] merged-branch check failed for ${p.workspace.path}:`, e)
+      })
     }
     return () => ac.abort()
   })

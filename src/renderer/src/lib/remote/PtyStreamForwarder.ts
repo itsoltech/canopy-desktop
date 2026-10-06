@@ -47,6 +47,11 @@ export class PtyStreamForwarder {
       .catch(() => undefined)
   }
 
+  /** Whether the peer currently wants this session streamed (`pty.subscribe`). */
+  isSubscribed(sessionId: string): boolean {
+    return this.desiredSessions.has(sessionId)
+  }
+
   subscribe(sessionId: string): void {
     this.desiredSessions.add(sessionId)
     if (this.terminalStreamPaused) return

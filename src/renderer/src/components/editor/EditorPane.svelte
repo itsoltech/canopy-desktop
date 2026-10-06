@@ -205,10 +205,11 @@
     if (!dirty || !canEdit) return
     saveError = null
     const path = activeFilePath
+    const saved = editedContent
     skipNextWatcherEvent = true
     let result: Awaited<ReturnType<typeof saveEditorFile>>
     try {
-      result = await saveEditorFile(paneId, path, editedContent, fileLineEnding, fileMtimeMs)
+      result = await saveEditorFile(paneId, path, saved, fileLineEnding, fileMtimeMs)
     } catch (e) {
       // Only reached on true IPC failures (e.g. access denied from
       // validatePathAccess). Expected outcomes (stale writes, write errors)
@@ -218,13 +219,17 @@
       return
     }
     if (result.ok) {
-      originalContent = editedContent
-      fileMtimeMs = result.mtimeMs
-      fileSize = result.size
-      dirty = false
       setTimeout(() => {
         skipNextWatcherEvent = false
       }, 1500)
+      // The write is async: the user may have switched sub-tabs (main already recorded the saved
+      // file's state) or kept typing, and those keystrokes are not on disk yet.
+      if (activeFilePath !== path) return
+      originalContent = saved
+      fileMtimeMs = result.mtimeMs
+      fileSize = result.size
+      dirty = editedContent !== saved
+      if (dirty) updateEditorFileState(paneId, path, { dirty, currentContent: editedContent })
       return
     }
     skipNextWatcherEvent = false

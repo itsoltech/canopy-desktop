@@ -1,6 +1,6 @@
 import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
-import { readFileSync, statSync } from 'fs'
+import { lstatSync, readFileSync } from 'fs'
 import { join } from 'path'
 import type { GitError } from './errors'
 import type { ParsedDiff, DiffFile } from './types'
@@ -41,12 +41,16 @@ const UNTRACKED_MAX_BYTES = 5 * 1024 * 1024
 // FileHandle code path was the trigger for the FileHandle::CloseReq::Resolve
 // crash in #150. Untracked files in a working copy are typically small and
 // few, so a synchronous read is cheap and removes the crash surface.
+//
+// lstat, not stat: only regular files are read. An untracked symlink (to a file
+// outside the repo, or to /dev/zero, whose stat size of 0 passes the cap and
+// whose read never ends) or a FIFO/device is listed without content.
 function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<DiffFile, GitError> {
   const absPath = join(repoRoot, filePath)
   let content: string
   try {
-    const sz = statSync(absPath).size
-    if (sz > UNTRACKED_MAX_BYTES) {
+    const stats = lstatSync(absPath)
+    if (!stats.isFile() || stats.size > UNTRACKED_MAX_BYTES) {
       return ok({
         path: filePath,
         status: 'added' as const,

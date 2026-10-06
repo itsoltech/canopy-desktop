@@ -19,8 +19,9 @@ function apiError(status: number, message: string): TaskTrackerError {
 
 function apiUrlForConnection(connection: TaskTrackerConnection): string {
   const baseUrl = connection.baseUrl || 'https://github.com'
-  const host = new URL(baseUrl).hostname
-  if (host === 'github.com') return 'https://api.github.com/graphql'
+  const { hostname, host } = new URL(baseUrl)
+  if (hostname === 'github.com') return 'https://api.github.com/graphql'
+  // `host` keeps a non-default port: the stored token is bound to that exact host.
   return `https://${host}/api/graphql`
 }
 
@@ -213,11 +214,13 @@ query($owner: String!, $name: String!, $first: Int!, $states: [IssueState!], $fi
 }
 `
 
+// `last`, not `first`: a thread longer than 50 comments keeps its newest ones (the task context
+// uses the most recent), still returned in ascending order.
 const COMMENTS_QUERY = `
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     issue(number: $number) {
-      comments(first: 50, orderBy: {field: UPDATED_AT, direction: ASC}) {
+      comments(last: 50, orderBy: {field: UPDATED_AT, direction: ASC}) {
         nodes {
           id, body
           author { login }

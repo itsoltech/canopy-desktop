@@ -166,6 +166,7 @@
         class:border-r={showPreview}
         class:border-border={showPreview}
         spellcheck="false"
+        aria-label="Notes (markdown source)"
         placeholder="# Notes — markdown supported. Lives only in memory (no file)."
         value={content}
         oninput={onInput}></textarea>
@@ -173,6 +174,9 @@
         <div
           class="markdown-body overflow-auto px-4 py-3 text-md leading-snug outline-none cursor-text empty:before:content-edit-hint empty:before:text-text-muted empty:before:italic"
           contenteditable="true"
+          role="textbox"
+          aria-multiline="true"
+          aria-label="Notes (rendered preview, editable)"
           bind:this={previewEl}
           oninput={onPreviewInput}
           onpaste={onPreviewPaste}
