@@ -16,7 +16,7 @@ the part that pays.
 
 **3. Probe `gh api` once, with the compare call, and commit to the result.** Under the workflow's
 `--allowedTools` it was denied on twenty-one consecutive runs that probed it (as of v2.1.283; the
-v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 to v2.1.289 runs' sessions ran in auto
+v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 to v2.1.291 runs' sessions ran in auto
 mode instead (an observation about those runs; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
 `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `python3` and `node` all ran. Record which way
 the one probe went in the PR body. **If it runs, use point 6.**
@@ -94,6 +94,13 @@ runs read twelve.
   822, the same set; status keys 53; options 174 (117) and 93 (89). "A whole quoted string"
   means double quotes only: adding single-quoted strings gives 824, picking up `CLAUDE_AGENT` and
   `CLAUDE_IN_CHROME_MCP_SERVER_NAME`.
+- **The v2.1.291 run's reimplementation read 820 for the same 2.1.289 build, so write the rule
+  down as code.** Its regex was
+  `(?:process\.env\.|env\.|\[")((?:CLAUDE|ANTHROPIC)_[A-Z0-9_]*)|"((?:CLAUDE|ANTHROPIC)_[A-Z0-9_]*)"|\b((?:CLAUDE|ANTHROPIC)_[A-Z0-9_]*):\(\)=>`,
+  dropping names that end in `_`. By it, 2.1.289 → 2.1.291 went 820 → 840, all 20 added and none
+  removed. The status line (53 keys) and the options (174 and 117; 93 and 89 → 94 and 90) did
+  reproduce. Paste the exact pattern into the PR body each run, so the next run reproduces the
+  count instead of a near-miss of it.
 - **Diff the whole build by its string literals, not by its text.** The JavaScript is about
   2,170 chunks. Each starts with `// @bun @bytecode` and the `(c) Anthropic PBC` banner, and ends
   in a NUL byte. Cut at the NUL, every chunk tokenizes cleanly with `node_modules/acorn`
@@ -102,7 +109,13 @@ runs read twelve.
   once build stamps and `/$bunfs/root/…-xxxxxxxx` chunk names were dropped. That list matched the
   announced entries and surfaced an unannounced `find` hardening; a change that adds no string
   stays invisible to it. A statement diff of the normalized binary gave 325k noisy lines, and a
-  regex quote-matcher 56k false literals.
+  regex quote-matcher 56k false literals. The v2.1.291 run cut each chunk from its `// @bun`
+  marker to the next NUL, and four chunks per build then failed to tokenize; say so when it
+  happens. A 2.1.290-sized release (2,201 added literals) is too large to read string by string,
+  so triage it by keyword and name the keywords in the PR body.
+- **Search the extracted JavaScript with Python, not `grep -ao '.{0,6000}'`.** On the 42 MB text
+  that grep ran past the 120 s tool timeout. A `bytes.find` and a slice return the same window at
+  once.
 - **Diff the SDK tarballs before reading them.** `diff -rq` over the `npm pack`ed `0.3.288` and
   `0.3.289` packages showed every `.d.ts` byte-identical, which settles the type question in one
   call.
@@ -111,6 +124,17 @@ runs read twelve.
   `rejected output_config.format; latching unsupported` also covers the main query, which is the
   path Canopy's commit-message turn takes. Count a fix's log or telemetry literal in both builds,
   then read every site that uses it.
+- **A fix scoped to someone else's copy of a defect points at Canopy's copy.** 2.1.290 fixed
+  unquoted hook script paths for async plugin hooks only. Canopy's own synchronous hooks had the
+  same unquoted path, and the CLI's fix could never reach them. When an entry names a defect class
+  (an unquoted path, a lost result, an unbounded wait), read the fix's guard in the build, and then
+  check whether Canopy has the defect outside that guard. Both of 2.1.290's Canopy fixes came from
+  this check.
+- **The SDK turns a late CLI error into a thrown stream.** From `0.3.207` to `0.3.291`,
+  `Query.readMessages` queues a `result` message first. On a non-zero exit after an `is_error`
+  result, it then errors the stream with "Claude Code returned an error result". A consumer that
+  reads a value from the result and lets the loop throw loses that value. Check every new
+  `is_error` or exit-code entry against `commitMessageGenerator.ts`'s `orElse`.
 - **Minified names repeat across chunks.** `function q0(` first matched a config helper, not the
   error test the retry calls. Pick the definition whose body fits the call site, not the first
   match. `python3` ran in the v2.1.286 to v2.1.288 sessions, and a short script normalizing
