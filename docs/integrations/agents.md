@@ -28,7 +28,7 @@ Session state is tracked in the renderer via `agentSessions`, a reactive record 
 
 ### Agent-specific setup
 
-**Claude Code:** Writes a temporary `settings.json` at `{userData}/canopy/agent-hooks/session-{uuid}.json` with hooks for 18 event types and an optional `statusLine` command. Passes `--settings {path}` to the CLI. Supports `--model`, `--permission-mode`, `--effort`, `--append-system-prompt` from preferences. Env vars: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, provider flags (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`), and arbitrary custom env vars (with blocklist filtering).
+**Claude Code:** Writes a temporary `settings.json` at `{userData}/canopy/agent-hooks/session-{uuid}.json` with hooks for 18 event types and an optional `statusLine` command. Each command is its script's path in double quotes, because the CLI runs it through a shell, so a path with a space stays one word. Passes `--settings {path}` to the CLI. Supports `--model`, `--permission-mode`, `--effort`, `--append-system-prompt` from preferences. Env vars: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, provider flags (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`), and arbitrary custom env vars (with blocklist filtering).
 
 **Codex:** Writes hooks to `.codex/hooks.json` inside the worktree directory. Adds `.codex/` to `.gitignore` if not already present. Uses refcounting for concurrent sessions sharing the same worktree. On cleanup, restores the original `hooks.json` content (or removes the file/directory if Canopy created it). Passes `--enable hooks` plus `--model`, `--ask-for-approval`, `--sandbox`, `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`, `--profile` from preferences. Observes prompt, tool, compact, subagent-stop, and idle lifecycle hooks without returning hook decisions. Env vars: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, custom env.
 
@@ -2994,6 +2994,178 @@ The archive's bundle entry grew **+131.9 kB (+0.2%)** in KiB: 135,081 bytes, fro
 release notes. The official `CHANGELOG.md`, the changelog archive's compare diff and both builds
 were reachable, so this increment's coverage is complete. On this branch, `npm ci` now installs
 `0.3.289`, which vendors CLI 2.1.289.
+
+**2.1.290 names two defects Canopy shared, and Canopy now fixes both on every CLI version.** Of its
+190 entries, two describe a population Canopy belongs to, and in both cases the CLI's own fix does
+not reach Canopy's copy. 2.1.291 has two entries, both regression fixes.
+
+**Hook and status-line commands are now quoted script paths.** 2.1.290 fixed "Claude replying in
+an endless loop when a plugin's async Stop hook passes an unquoted script path under a folder with
+a space, such as Application Support". Canopy wrote exactly such a command: the bare path of
+`canopy-agent-hook.sh`, and of `canopy-agent-statusline.sh` for the status line.
+
+- **How the CLI runs them.** The 2.1.291 build spawns a command hook as
+  `spawn(command, [], { shell })`, with Git Bash on Windows and `/bin/sh -c` elsewhere. A path with
+  a space is therefore split into two words. On Windows the CLI first parses the command's first
+  word, honouring quotes. When that word ends in `.sh`, it runs `bash <command>`. The parse is the
+  same in the 2.1.207, 2.1.289 and 2.1.291 builds.
+- **Who met it.** The packaged script lives under `process.resourcesPath`. A per-user Windows
+  install puts that under the profile folder, such as
+  `C:/Users/Jan Kowalski/AppData/Local/Programs/canopy/`. There every hook exited 127, and the
+  status line never ran. The pane showed no agent status, no permission notification and no
+  context or cost, and the SessionStart context naming the workspace never reached the model.
+  A dev checkout under a folder with a space failed the same way. An apostrophe in a folder name
+  failed as a shell syntax error.
+- **Why the CLI's fix misses it.** 2.1.290's new notice, " hook needs quotes around a path with a
+  space", is raised only for `asyncRewake` hooks that exit 2 because an interpreter could not open
+  the script. Canopy's hooks are synchronous and exit 127, a non-blocking error.
+- **The fix.** `shellQuote()` in `claude.ts` wraps both paths in double quotes and escapes `"`, `$`,
+  backtick and backslash. On Windows the first-word parse then sees `.sh` and runs
+  `bash "<path>"`. `claude.test.ts` checks the written commands, and runs them through `/bin/sh`
+  from a folder whose name holds a space, an apostrophe, a double quote, `$`, a backtick and a
+  backslash.
+- **Not changed.** The Codex and Gemini adapters write the same bare path for their own CLIs, which
+  run `.cmd` wrappers through the system shell on Windows. They belong to their own compatibility
+  workflows.
+
+**AI Generate keeps a message the CLI delivered before a late error.** 2.1.290 fixed "headless
+`--json-schema` runs exiting non-zero with `is_error: true` on a `success` result when the
+connection dropped after the structured output was already delivered". The commit-message turn is
+such a run, since the SDK passes `outputFormat` to the CLI as `--json-schema`.
+
+- **What 2.1.289 sends.** The result builder's `success` variant carries `is_error` from the
+  turn's trailing API error and `structured_output` from the last structured output. Both survive
+  together.
+- **What 2.1.290 changes.** A new guard clears that trailing error when four things hold: it is
+  `server_error`, the turn completed, and the message before it is all tool results from a
+  turn-ending tool with no error. The structured output is such a tool. The build logs the skip
+  as `tengu_trailing_api_error_notice_skipped`, which is absent from 2.1.289.
+- **What the SDK does with the old shape.** From `0.3.207` to `0.3.291`, `Query.readMessages`
+  queues the result first. When the CLI then exits non-zero after an `is_error` result, it errors
+  the stream with "Claude Code returned an error result: …".
+- **What Canopy did.** `generateCommitMessage` read `structured_output` from the result, then lost
+  it to that rejection. `fromExternalCall` turned the rejection into `AiRequestFailed`, and
+  `unwrapOr(null)` returned null, so AI Generate produced nothing for a message already written.
+- **The fix.** The turn runs whatever `claude` resolves to on `PATH`, so a fix only inside 2.1.290
+  would protect upgraded users only. `structuredOutput` now lives outside the stream loop, and an
+  `orElse` returns it when the stream fails after it. The CLI validated it against `OUTPUT_SCHEMA`
+  before setting it. A failure before any output still returns null.
+  `commitMessageGenerator.test.ts` replays the 2.1.289 sequence through a mocked `query()`.
+
+**Entries that reach panes through the user's binary.**
+
+- **Plan mode on resume.** 2.1.290 restores plan mode on `--resume`, but only when no permission
+  mode was given on invocation. The build passes `startupModePinned:
+permissionModeSuppliedOnInvocation || …` to the restore. Canopy appends the profile's
+  `--permission-mode` after `--resume`, so a resumed pane returns to plan mode only when its
+  profile leaves Permission Mode empty.
+- **Proxies and gateways.** Requests no longer fail behind a proxy that rejects one of Claude
+  Code's beta headers with a status other than 400. That covers profiles with a Base URL, in panes
+  and in the commit-message turn.
+- **Sleep and filters.** A response interrupted by computer sleep is no longer treated as a
+  stalled stream on Bedrock, Vertex, Foundry and custom gateways, all providers a profile can
+  select. A reply stopped by the output content filter is retried once.
+- **Pastes.** Two overlapping pastes, and a large expanded paste holding decomposed accents as
+  macOS file names do, were partly sent as typed text. Both arrive through the pane's terminal.
+- **Teammates.** An in-process teammate's `agent_id` in the Agent tool's result is now its agent
+  ID, and `teammate_id` keeps `name@team`. Canopy reads `agent_id` only from hook payloads, whose
+  shared base schema is unchanged, and never parses the Agent tool's result. `TeammateIdle` no
+  longer fires from a teammate's subagents or forks. Canopy subscribes to it, but the renderer has
+  no handler for it, so the change only saves hook runs.
+- **WebFetch.** WebFetch gains an `offset` number field. `summarizeToolInput` summarizes WebFetch by
+  its `url`, so the notch and notifications are unaffected.
+- **Background agents.** Permission prompts from background agents now show the Ctrl+X Ctrl+K
+  chord that stops them all. On Linux and Windows, Canopy's window-level shortcut handler toggles
+  the command palette on Ctrl+K (`MainLayout.svelte`). Whether xterm.js passes the key to the CLI
+  first was not traced.
+- **Attachments.** `CLAUDE_CODE_DISABLE_ATTACHMENTS` can no longer be set by a repository's
+  `.claude/settings.json`. Canopy does not set it. Whether a profile's Settings JSON, which reaches
+  the CLI through `--settings`, still can was not traced.
+- **2.1.291.** It fixes a 2.1.288 regression that lost a session's last messages on quit. Canopy
+  ends a pane by killing its PTY, and the process tree on app quit. Whether that counts as quitting
+  in the entry's sense was not traced. Its other entry concerns cloud sessions only.
+
+**Two unannounced changes, from the build.**
+
+- **An opt-out for idle compaction.** `sdk.d.ts` adds an `idleCompaction` setting: "Set to false to
+  stop Claude Code from compacting a long conversation while the session is idle". The build also
+  adds `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`. Idle compaction itself is already in 2.1.289, behind
+  the server flag `tengu_sunny_locket`, which defaults to off. When the flag is on, it fires only
+  in these conditions:
+  - the prompt cache has a 1-hour TTL;
+  - the context holds at least 200k tokens (the variable can lower that to 100k);
+  - the session has been idle for 90% of the TTL.
+
+  It runs the same compaction as `/compact` with trigger `auto`, which runs the `PreCompact`
+  hooks, and then appends "Compacted while idle, before the prompt cache expired". No `Stop` hook
+  was found on that path. Canopy maps `PreCompact` to "compacting" and `PostCompact` to
+  "thinking", so after an idle compaction a pane can keep reading "thinking".
+
+- **A proactivity level.** A hidden `--proactivity <level>` option arrives, shown in help only when
+  a check passes. `CLAUDE_CODE_DISABLE_PROACTIVITY` turns off the selector behind
+  `tengu_proactivity_selector`, which defaults to on. A new system-prompt text tells the model the
+  user "has set how much initiative they want you to take in this session" and that this "does not
+  override plan mode, the current permission mode". Canopy passes neither.
+
+**Canopy's contract against 2.1.291, diffed against 2.1.289.** The 2.1.291 build was on the runner
+at `~/.local/share/claude/versions/2.1.291`. `npm pack` of
+`@anthropic-ai/claude-agent-sdk-linux-x64` supplied 2.1.289 and 2.1.290. With minified identifiers
+normalized:
+
+- **Hook events.** The hook-event array names the same 33 events in the same order, so Canopy's 18
+  are all present. 2.1.290 adds an eighth array that starts with `"PreToolUse","PostToolUse"`. It
+  is a `Set` of tool-related events in a tracing module, not a list of hooks.
+- **Schemas and status line.** The input schemas of all 33 events and their shared base are
+  identical. The status-line object has the same 53 keys and differs only in its version string,
+  build time and commit SHA.
+- **Options.** There are 174 `.option("` calls (117 distinct) in each build. The `new …("-` calls
+  go from 93 (89 distinct) to 94 (90 distinct); the one added is `--proactivity <level>`.
+- **Environment.** By this run's implementation of the 2.1.287 rule, names go from 820 to 840. The
+  2.1.289 run counted 822 for the same build, so compare counts only within one run. The 20 added
+  names are:
+  - documented: `CLAUDE_CODE_WEB_SEARCH_REFILLS_PER_HOUR`;
+  - covered above: `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`, `CLAUDE_CODE_DISABLE_PROACTIVITY` and
+    four `CLAUDE_CODE_RELAUNCH_PROACTIVITY_*` names;
+  - `CLAUDE_CODE_SUBAGENT_PROMPT_SNAPSHOT`, which turns the system-prompt snapshot on for
+    subagents;
+  - `CLAUDE_CODE_HOSTED_DESKTOP`, `CLAUDE_CODE_REMOTE_SDK_URL`,
+    `CLAUDE_CODE_REMOTE_TOOLS_HOST_ALLOWS_UNATTENDED`, `CLAUDE_CODE_REMOVE_PROMPT_STRINGS`,
+    `CLAUDE_CODE_RESUME_TOLERATES_CONTEXT_SEEDS` and `CLAUDE_CODE_SILENT_TURN_REMINDER_SECONDS`;
+  - six codenames.
+
+  None was removed, and 2.1.291 adds none.
+
+- **SDK.** `sdk.d.ts` adds only the `idleCompaction` setting and reworded doc comments. The
+  comments cover `user_message_uuid`, `resume_reason`, and `disableClaudeAiConnectors`, which now
+  also blocks a `claudeai-proxy` server passed explicitly.
+
+The JavaScript went from 2,174 to 2,239 chunks. Each chunk was tokenized with `acorn`, leaving out
+build stamps and chunk names. 2.1.290 adds 2,201 string literals and removes 375; 2.1.291 adds one
+and removes nine. The 2.1.290 list was triaged by keyword, not read string by string: hooks, plan
+mode, resume, idle, transcript, permission and quoting. Four chunks per build did not tokenize, so a
+change confined to them would not show. 2.1.291's changes are these:
+
+- the removal of 2.1.290's wait for transcript loads during a rewrite ("Transcript rewrite stopped
+  waiting for …");
+- one new rollout flag, `tengu_enchanted_willow`, which sets an interval of at least 15 seconds for
+  pushing session cost in a remote-session path.
+
+**The prompt-file arithmetic is archive bookkeeping, twice.** The archive went from 16 to 17 to 18
+prompt entries, and from 33,311 to 38,731 to 44,540 tokens. Its `meta/prompt-stats.md` names every
+change:
+
+- **System +5,420 and +5,809 are a fifth and a sixth copy of one prompt.** These are `User Memory
+Project One 5` and `6`. Each adds 940 characters and 389 tokens to the copy before it, the same
+  step as copies 3 and 4. The base file is unchanged between the tags.
+- **Tools are flat at 15,193 tokens.** The Edit, Write, Grep, Bash and Agent files grew in
+  characters only, by one more wrapper layer each.
+
+The archive's bundle entry grew +1,212.8 kB for 2.1.290 and shrank 4.6 kB for 2.1.291.
+
+**All 190 of 2.1.290's CLI changelog entries and both of 2.1.291's were readable this run**,
+against 12 in the pasted release notes. The official `CHANGELOG.md`, the changelog archive's compare
+diff and all three builds were reachable. On this branch, `npm ci` now installs `0.3.291`, which
+vendors CLI 2.1.291.
 
 ## Error states
 
