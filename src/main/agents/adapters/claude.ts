@@ -78,6 +78,15 @@ function desugarAttribution(overrides: Record<string, unknown>): Record<string, 
   }
 }
 
+// Claude Code runs every command hook and the status line through a shell (Git Bash on
+// Windows, `/bin/sh -c` elsewhere), so a bare script path splits at a space, as it does
+// for a per-user Windows install under a profile folder such as C:/Users/Jan Kowalski.
+// Double-quote it and escape what a double-quoted word still expands. On Windows the CLI
+// reads the quoted first word, sees `.sh` and runs `bash "<path>"` (2.1.207 to 2.1.291).
+function shellQuote(path: string): string {
+  return `"${path.replace(/["$`\\]/g, '\\$&')}"`
+}
+
 export const claudeAdapter: AgentAdapter = {
   agentType: 'claude',
   toolId: 'claude',
@@ -96,8 +105,9 @@ export const claudeAdapter: AgentAdapter = {
       string,
       Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>
     > = {}
+    const hookCommand = shellQuote(hookScriptPath)
     for (const event of CLAUDE_HOOK_EVENTS) {
-      hooks[event] = [{ matcher: '', hooks: [{ type: 'command', command: hookScriptPath }] }]
+      hooks[event] = [{ matcher: '', hooks: [{ type: 'command', command: hookCommand }] }]
     }
 
     const settings: Record<string, unknown> = {
@@ -106,7 +116,7 @@ export const claudeAdapter: AgentAdapter = {
     }
 
     if (statusLineScriptPath) {
-      settings.statusLine = { type: 'command', command: statusLineScriptPath }
+      settings.statusLine = { type: 'command', command: shellQuote(statusLineScriptPath) }
     }
 
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8')
