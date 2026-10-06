@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from 'fs'
+import { execFileSync } from 'child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -15,17 +16,49 @@ describe('claudeAdapter.setupSettings', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  function writtenSettings(overrides?: Record<string, unknown>): Record<string, unknown> {
+  function writtenSettings(
+    overrides?: Record<string, unknown>,
+    hookScriptPath = '/canopy/hook.sh',
+    statusLineScriptPath = '/canopy/status.sh',
+  ): Record<string, unknown> {
     const settingsPath = join(dir, 'settings.json')
-    claudeAdapter.setupSettings(
-      settingsPath,
-      dir,
-      '/canopy/hook.sh',
-      '/canopy/status.sh',
-      overrides,
-    )
+    claudeAdapter.setupSettings(settingsPath, dir, hookScriptPath, statusLineScriptPath, overrides)
     return JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>
   }
+
+  // Every hook command, then the status line command.
+  function commands(settings: Record<string, unknown>): string[] {
+    const hooks = settings.hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>
+    const statusLine = settings.statusLine as { command: string }
+    return [
+      ...Object.values(hooks).map((entries) => entries[0].hooks[0].command),
+      statusLine.command,
+    ]
+  }
+
+  // Claude Code runs both through a shell (Git Bash on Windows), which splits an unquoted
+  // path at a space. A per-user Windows install lives under the profile folder.
+  it('quotes script paths so a space in them survives the shell', () => {
+    const script =
+      'C:/Users/Jan Kowalski/AppData/Local/Programs/canopy/resources/app.asar.unpacked/resources/canopy-agent-hook.sh'
+    for (const command of commands(writtenSettings(undefined, script, script))) {
+      expect(command).toBe(`"${script}"`)
+    }
+  })
+
+  // Claude Code spawns hook and status line commands with `shell: true`, i.e. `/bin/sh -c`.
+  it.skipIf(process.platform === 'win32')(
+    'writes commands that /bin/sh runs as the script, whatever its path holds',
+    () => {
+      const scriptDir = join(dir, `Jan Kowalski's $HOME "x" \`y\` \\z`)
+      mkdirSync(scriptDir)
+      const script = join(scriptDir, 'hook.sh')
+      writeFileSync(script, '#!/bin/sh\necho ran\n', { mode: 0o755 })
+      for (const command of commands(writtenSettings(undefined, script, script))) {
+        expect(execFileSync('/bin/sh', ['-c', command], { encoding: 'utf-8' })).toBe('ran\n')
+      }
+    },
+  )
 
   // Same mapping as Claude Code 2.1.281's parser; older CLIs skip a file holding the boolean.
   it.each([
@@ -48,9 +81,9 @@ describe('claudeAdapter.setupSettings', () => {
     const settings = writtenSettings({ attribution: false, hooks: { Stop: [] } })
     const hooks = settings.hooks as Record<string, unknown>
     expect(hooks.Stop).toEqual([
-      { matcher: '', hooks: [{ type: 'command', command: '/canopy/hook.sh' }] },
+      { matcher: '', hooks: [{ type: 'command', command: '"/canopy/hook.sh"' }] },
     ])
-    expect(settings.statusLine).toEqual({ type: 'command', command: '/canopy/status.sh' })
+    expect(settings.statusLine).toEqual({ type: 'command', command: '"/canopy/status.sh"' })
   })
 })
 
