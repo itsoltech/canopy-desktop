@@ -3,6 +3,11 @@
   import { toastState, dismissToast } from '../../lib/stores/toast.svelte'
   import { openTool } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { updateState } from '../../lib/stores/updateState.svelte'
+
+  // UpdateBanner occupies the same bottom-right slot and paints above the toast, so stack the
+  // toast over the banner while it is shown.
+  let updateBannerVisible = $derived(updateState.status !== 'idle' && !updateState.dismissed)
 
   function openInBrowser(): void {
     const path = workspaceState.selectedWorktreePath
@@ -36,7 +41,9 @@
 
 {#if toastState.visible}
   <div
-    class="fixed bottom-4 right-4 flex items-center gap-2.5 px-2.5 py-2 border rounded-lg shadow-popover z-banner animate-slide-in-up motion-reduce:animate-none {toastState.kind ===
+    class="fixed {updateBannerVisible
+      ? 'bottom-[4.5rem]'
+      : 'bottom-4'} right-4 flex items-center gap-2.5 px-2.5 py-2 border rounded-lg shadow-popover z-banner animate-slide-in-up motion-reduce:animate-none {toastState.kind ===
     'success'
       ? 'bg-success-bg border-success-text'
       : toastState.kind === 'danger'

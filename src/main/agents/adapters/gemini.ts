@@ -84,6 +84,8 @@ const INTERNAL_BLOCKED = new Set([
   'CANOPY_HOOK_PATH',
   'CANOPY_HOOK_TOKEN',
   'ELECTRON_RUN_AS_NODE',
+  // Points at the per-session home that carries Canopy's hooks (see setupSettings).
+  'GEMINI_CLI_HOME',
 ])
 
 export const geminiAdapter: AgentAdapter = {

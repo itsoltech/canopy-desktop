@@ -104,7 +104,6 @@ interface TmuxBrowserState {
 
 interface RemoteAcceptDeviceState {
   type: 'remoteAcceptDevice'
-  deviceId: string
   deviceName: string
   fingerprint: string
 }
@@ -294,14 +293,9 @@ export function showTmuxBrowser(): void {
   dialogState.current = { type: 'tmuxBrowser' }
 }
 
-export function showRemoteAcceptDevice(device: {
-  deviceId: string
-  deviceName: string
-  fingerprint: string
-}): void {
+export function showRemoteAcceptDevice(device: { deviceName: string; fingerprint: string }): void {
   dialogState.current = {
     type: 'remoteAcceptDevice',
-    deviceId: device.deviceId,
     deviceName: device.deviceName,
     fingerprint: device.fingerprint,
   }

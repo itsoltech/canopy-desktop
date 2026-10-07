@@ -36,5 +36,5 @@
       </button>
     </Tooltip>
   </span>
-  <CustomSelect {value} {options} {groups} {onchange} />
+  <CustomSelect {value} {options} {groups} {onchange} ariaLabel={label} />
 </label>

@@ -82,6 +82,7 @@
   let results: Record<string, DepStatus> = $state({})
   let platform = $state('')
   let checking = $state(true)
+  let checkFailed = $state(false)
   let copiedCmd: string | null = $state(null)
   let copyTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -89,10 +90,15 @@
 
   async function runCheck(): Promise<void> {
     checking = true
+    checkFailed = false
     try {
       const data = await window.api.checkDependencies([...onboardingState.selectedTools])
       results = data.results
       platform = data.platform
+    } catch (e) {
+      // Without results the step would otherwise keep its spinner and offer no retry.
+      console.error('[onboarding] dependency check failed:', e)
+      checkFailed = true
     } finally {
       // Always clear the loading flag so a rejected IPC call doesn't leave the
       // step stuck on its spinner with no way to proceed.
@@ -129,7 +135,8 @@
     aria-live="polite"
     aria-busy={checking}
   >
-    {#if checking}Checking installed tools...{:else if allFound}All selected tools are installed.{:else}{missingCount}
+    {#if checking}Checking installed tools...{:else if checkFailed && !hasResults}Could not check
+      the installed tools.{:else if allFound}All selected tools are installed.{:else}{missingCount}
       missing -- install now or skip and do it later.{/if}
   </p>
 
@@ -210,6 +217,14 @@
         Re-check
       </button>
     {/if}
+  {:else if checkFailed && !checking}
+    <button
+      class="flex items-center gap-1.5 px-4 py-1.5 border border-border rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
+      onclick={runCheck}
+    >
+      <RefreshCw size={14} />
+      Retry
+    </button>
   {:else}
     <div class="p-6 flex justify-center">
       <RefreshCw

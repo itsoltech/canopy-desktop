@@ -486,6 +486,7 @@
         {#if projectMetaError}
           <div
             class="flex items-center gap-2 rounded-lg border border-experimental-border bg-experimental-bg px-3 py-2"
+            role="alert"
           >
             <span class="flex-1 min-w-0 text-xs text-text-secondary leading-snug break-words"
               >{projectMetaError}</span
@@ -555,7 +556,7 @@
             </div>
           {/if}
           {#if imageError}
-            <p class="m-0 text-sm text-danger-text">{imageError}</p>
+            <p class="m-0 text-sm text-danger-text" role="alert">{imageError}</p>
           {/if}
         </div>
         {#if users.length > 0}
@@ -680,7 +681,10 @@
         </div>
       {/if}
       {#if submitError}
-        <p class="m-0 px-2.5 py-2 rounded-md bg-danger-bg text-sm text-danger-text break-words">
+        <p
+          class="m-0 px-2.5 py-2 rounded-md bg-danger-bg text-sm text-danger-text break-words"
+          role="alert"
+        >
           {submitError}
         </p>
       {/if}

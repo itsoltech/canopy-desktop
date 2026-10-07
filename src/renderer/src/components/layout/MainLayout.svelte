@@ -645,7 +645,6 @@
   <TmuxSessionBrowser />
 {:else if dialogState.current.type === 'remoteAcceptDevice'}
   <RemoteAcceptDeviceModal
-    deviceId={dialogState.current.deviceId}
     deviceName={dialogState.current.deviceName}
     fingerprint={dialogState.current.fingerprint}
   />

@@ -61,4 +61,12 @@ describe('branchPickerEnterTarget', () => {
       'release/archive/1.0',
     )
   })
+
+  it('has no target while the option list is collapsed', () => {
+    // After a pick the input holds 'feat/foo' and the hidden list re-filters to its fuzzy
+    // matches; the stale highlighted index would otherwise name a sibling ref.
+    expect(branchPickerEnterTarget(['feat/foo', 'feat/foo-2', 'origin/feat/foo'], 2, false)).toBe(
+      null,
+    )
+  })
 })

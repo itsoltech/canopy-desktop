@@ -1,6 +1,8 @@
 const REDACTED = '[redacted]'
 const DEFAULT_MAX_CHARS = 4000
-const USER_PATH_PATTERN = /(?:[A-Z]:\\Users\\[^\\\s]+\\|\/(?:Users|home)\/[^/\s]+\/)/gi
+// Windows profile folders may contain spaces ("C:\Users\John Smith\"), so that segment runs to
+// the next separator. POSIX user names cannot, and stopping at whitespace there keeps prose intact.
+const USER_PATH_PATTERN = /(?:[A-Z]:[\\/]Users[\\/][^\\/\r\n]+[\\/]|\/(?:Users|home)\/[^/\s]+\/)/gi
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"'`]+/gi
 const SECRET_KEY_VALUE_PATTERN =
   /(["'`]?)(\b(?:x-api-key|api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|client[-_]?secret|session[-_]?id|session|cookie|token|secret|password|passwd)\b)\1(\s*[:=]\s*)(["'`]?)([^\s,;'"`<>)\]}]+)\4/gi

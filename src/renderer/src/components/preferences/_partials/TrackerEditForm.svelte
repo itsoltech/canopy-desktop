@@ -65,6 +65,7 @@
       </span>
     {:else}
       <CustomSelect
+        ariaLabel="Provider"
         value={provider}
         options={[
           { value: 'jira', label: 'Jira' },

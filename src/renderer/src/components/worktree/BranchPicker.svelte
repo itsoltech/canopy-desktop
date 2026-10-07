@@ -66,7 +66,6 @@
   let filteredBranches = $derived(
     query ? allBranches.filter((b) => fuzzyMatch(b, query.toLowerCase())) : allBranches,
   )
-  let enterBranch = $derived(branchPickerEnterTarget(filteredBranches, selectedIdx))
   let offerExactRef = $derived(!!onResolveExact && shouldOfferExactRef(query, allBranches))
 
   $effect(() => {
@@ -78,6 +77,9 @@
   // Combobox mode: the list collapses after a pick and reopens when the user edits the input.
   let listOpen = $state(
     initialBranchListOpen(startCollapsed, collapseConfirmedSelection, selectedBranch, query),
+  )
+  let enterBranch = $derived(
+    branchPickerEnterTarget(filteredBranches, selectedIdx, !fillQueryOnPick || listOpen),
   )
   let reopenArmed = false
 
@@ -152,6 +154,10 @@
       e.preventDefault()
       pick(enterBranch)
       onCommit?.()
+    } else if (e.key === 'Enter' && fillQueryOnPick && !listOpen && selectedBranch) {
+      // Collapsed after a pick: confirm the branch shown in the input instead of re-picking.
+      e.preventDefault()
+      if (query === selectedBranch) onCommit?.()
     } else if (e.key === 'Enter' && onResolveExact && offerExactRef) {
       e.preventDefault()
       void resolveExact()

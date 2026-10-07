@@ -439,6 +439,7 @@
       <div class="flex items-center gap-2.5">
         <span class="text-sm text-text-muted w-[50px] flex-shrink-0">Type</span>
         <CustomSelect
+          ariaLabel="Branch type"
           value={selectedBranchType}
           options={branchTypeOptions.map((o) => ({ value: o, label: o }))}
           onchange={(v) => {
@@ -453,6 +454,7 @@
       <div class="flex items-center gap-2.5">
         <span class="text-sm text-text-muted w-[50px] flex-shrink-0">Base</span>
         <CustomSelect
+          ariaLabel="Base branch"
           value={selectedBaseBranch}
           groups={baseBranchGroups}
           onchange={(v) => {
@@ -513,6 +515,7 @@
       <div class="flex items-center gap-2.5">
         <span class="text-sm text-text-muted w-[50px] flex-shrink-0">Agent</span>
         <CustomSelect
+          ariaLabel="Agent"
           value={selectedAgentId}
           options={[
             { value: '', label: 'None' },

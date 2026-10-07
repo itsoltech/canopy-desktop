@@ -217,11 +217,6 @@
     }
   })
 
-  // ===== layout visibility (drill-down on mobile, side-by-side on desktop) =====
-
-  let showSidebar = $derived(isDesktop || selectedProjectId === null)
-  let showMainPane = $derived(isDesktop || selectedProjectId !== null)
-
   // ===== derived selection =====
 
   let selectedProject = $derived(
@@ -229,6 +224,14 @@
       ? (mirrorState.projects.find((p) => p.id === selectedProjectId) ?? null)
       : null,
   )
+
+  // ===== layout visibility (drill-down on mobile, side-by-side on desktop) =====
+
+  // Keyed on the resolved project, not its id: when the host closes the selected project the
+  // id outlives it, and on mobile that hid the sidebar while the Back button (which needs a
+  // project) was hidden too, leaving no way back.
+  let showSidebar = $derived(isDesktop || selectedProject === null)
+  let showMainPane = $derived(isDesktop || selectedProject !== null)
   let selectedTabs = $derived(
     selectedWorktreePath !== null ? (mirrorState.tabsByWorktree[selectedWorktreePath] ?? []) : [],
   )

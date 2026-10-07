@@ -168,6 +168,9 @@ export function createCiSectionState() {
   // fetch is in flight.
   $effect(() => {
     void repoRoot
+    // Also drop the previous repo's in-flight response: the new repo may not poll (no config or
+    // token yet), so nothing else would bump the sequence before it lands.
+    activitySeq++
     activity = null
     activityLoaded = false
     activityError = ''

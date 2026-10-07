@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { closeDialog, confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { onMount, tick } from 'svelte'
+  import { closeDialog, confirm, prompt, showTmuxBrowser } from '../../lib/stores/dialogs.svelte'
   import { updateTmuxSessionName } from '../../lib/stores/tabs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
 
   interface TmuxSession {
@@ -26,6 +27,10 @@
       error = err instanceof Error ? err.message : 'Failed to list sessions'
     }
     loading = false
+    // Reloading swaps the list for "Loading…", which drops focus from a row button to <body>,
+    // where this dialog's Escape and Tab handling no longer receives keys.
+    await tick()
+    if (containerEl && !containerEl.contains(document.activeElement)) containerEl.focus()
   }
 
   onMount(() => {
@@ -84,6 +89,8 @@
 
   async function renameSession(name: string): Promise<void> {
     if (busy) return
+    // The prompt takes the single dialog slot, which unmounts this browser. Finish the rename,
+    // report a failure as a toast (this instance's error banner is gone), then reopen the browser.
     const result = await prompt({
       title: 'Rename tmux session',
       placeholder: 'New session name',
@@ -91,17 +98,14 @@
       submitLabel: 'Rename',
     })
     if (result) {
-      busy = true
       try {
         await window.api.tmuxRenameSession(name, result.value)
         updateTmuxSessionName(name, result.value)
-        await refresh()
       } catch (err) {
-        error = err instanceof Error ? err.message : 'Failed to rename session'
-      } finally {
-        busy = false
+        addToast(err instanceof Error ? err.message : 'Failed to rename session', 'danger')
       }
     }
+    showTmuxBrowser()
   }
 
   function handleKeydown(e: KeyboardEvent): void {

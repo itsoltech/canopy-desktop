@@ -177,7 +177,10 @@ export class WorkspaceCommandService {
   async selectWorktree(sender: WebContents, worktreePath: string): Promise<WorkspaceCommandResult> {
     this.trackSender(sender)
     if (!this.getProjectForWorktree(sender.id, worktreePath)) {
-      await this.refreshProjectForPath(sender.id, worktreePath)
+      // A worktree created since the last refresh is not cached yet. Re-read the attached
+      // repositories (git lists every worktree from any of them) rather than running git in the
+      // renderer-supplied path, which could be any repository on disk.
+      await this.refreshAttachedProjects(sender.id)
     }
     if (!this.getProjectForWorktree(sender.id, worktreePath)) {
       throw new Error(`Worktree is not attached to this window: ${worktreePath}`)
@@ -506,11 +509,14 @@ export class WorkspaceCommandService {
     throw new Error('Project path was not selected through an allowed main-process flow')
   }
 
-  private async refreshProjectForPath(webContentsId: number, worktreePath: string): Promise<void> {
-    const info = await GitRepository.detect(worktreePath).unwrapOr(defaultGitInfo)
-    if (!info.repoRoot) return
-    this.updateProjectGitInfo(webContentsId, info.repoRoot, info)
-    this.updateGitStatusCache(webContentsId, info)
+  private async refreshAttachedProjects(webContentsId: number): Promise<void> {
+    for (const project of [...this.getProjects(webContentsId)]) {
+      if (!project.isGitRepo || !project.repoRoot) continue
+      const info = await GitRepository.detect(project.repoRoot).unwrapOr(defaultGitInfo)
+      if (!info.repoRoot) continue
+      this.updateProjectGitInfo(webContentsId, info.repoRoot, info)
+      this.updateGitStatusCache(webContentsId, info)
+    }
   }
 
   private async refreshSelectedWorktreeStatus(

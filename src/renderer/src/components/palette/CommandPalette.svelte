@@ -93,8 +93,8 @@
         category: 'Tools',
         disabled: !available || !path,
         description: !available ? 'Not found in PATH' : undefined,
-        action: () => {
-          if (path && available) openTool(tool.id, path)
+        action: async () => {
+          if (path && available) await openTool(tool.id, path)
         },
       })
     }
@@ -583,10 +583,16 @@
 
   function executeSelected(): void {
     const item = flatItems[selectedIndex]
-    if (item && !item.disabled) {
-      onClose()
-      item.action()
-    }
+    if (item && !item.disabled) runItem(item)
+  }
+
+  // The palette is gone by the time an async action fails, so report it instead of dropping
+  // the rejection. The action itself still starts synchronously, right after onClose().
+  function runItem(item: PaletteItem): void {
+    onClose()
+    void Promise.resolve(item.action()).catch((e: unknown) => {
+      addToast(e instanceof Error ? e.message : `${item.label} failed`, 'danger')
+    })
   }
 
   function handleKeydown(e: KeyboardEvent): void {
@@ -719,10 +725,7 @@
                 class:cursor-default={item.disabled}
                 data-palette-selected={isSelected}
                 onclick={() => {
-                  if (!item.disabled) {
-                    onClose()
-                    item.action()
-                  }
+                  if (!item.disabled) runItem(item)
                 }}
                 onpointerenter={() => {
                   if (!item.disabled) selectedIndex = flatIndex(gi, ii)

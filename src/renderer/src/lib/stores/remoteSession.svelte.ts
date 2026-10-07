@@ -94,7 +94,6 @@ function applyStatus(status: RemoteSessionStatus): void {
   // away or the user is focused elsewhere.
   if (status.kind === 'peerArrived' && dialogState.current.type !== 'remoteAcceptDevice') {
     showRemoteAcceptDevice({
-      deviceId: status.device.deviceId,
       deviceName: status.device.deviceName,
       fingerprint: status.device.fingerprint,
     })

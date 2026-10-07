@@ -387,6 +387,7 @@
       {#if addingOverrideFor === type}
         <div class="flex items-center gap-2 mt-1">
           <CustomSelect
+            ariaLabel="Project to override"
             value=""
             options={addable.map((p) => ({
               value: p.key,

@@ -25,6 +25,8 @@
     groups?: OptionGroup[]
     onchange?: (value: string) => void
     id?: string
+    /** Accessible name for selects without an associated <label>; the trigger reads it with the current choice. */
+    ariaLabel?: string
     ariaDescribedby?: string
     maxWidth?: string
     /** Renders the trigger inert (e.g. a sprint select before a board is picked). */
@@ -39,6 +41,7 @@
     groups,
     onchange,
     id,
+    ariaLabel,
     ariaDescribedby,
     maxWidth = 'none',
     disabled = false,
@@ -92,6 +95,12 @@
   const selectedItem = $derived(
     flatItems.find((i) => i.type === 'option' && i.value === value) ?? null,
   )
+  // aria-label replaces the button's content as its name, so carry the current choice along.
+  const triggerLabel = $derived.by(() => {
+    if (!ariaLabel) return undefined
+    const current = selectedItem?.label ?? placeholder
+    return current ? `${ariaLabel}: ${current}` : ariaLabel
+  })
 
   function portal(node: HTMLElement): { destroy(): void } {
     document.body.appendChild(node)
@@ -193,6 +202,7 @@
   onkeydown={handleTriggerKeydown}
   aria-haspopup="listbox"
   aria-expanded={open}
+  aria-label={triggerLabel}
   aria-describedby={ariaDescribedby}
 >
   <span class="flex-1 truncate inline-flex items-center gap-1.5 min-w-0">
@@ -232,6 +242,7 @@
       class="fixed p-1 bg-bg-overlay border border-border rounded-lg shadow-popover max-h-50 overflow-y-auto outline-none z-popover"
       style="top: {top}px; left: {left}px; min-width: {width}px;"
       role="listbox"
+      aria-label={ariaLabel}
       tabindex="0"
       aria-activedescendant={focusedIndex >= 0 ? `cs-opt-${focusedIndex}` : undefined}
       onclick={(e) => e.stopPropagation()}

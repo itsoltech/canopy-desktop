@@ -18,6 +18,7 @@
       Server
     </span>
     <CustomSelect
+      ariaLabel="Server"
       value={state.selectedServer}
       options={state.serverOptions}
       onchange={state.selectServer}

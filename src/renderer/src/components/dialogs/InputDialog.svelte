@@ -132,6 +132,7 @@
           bind:value
           class="w-full border border-border rounded-md bg-bg-input text-text text-md font-inherit px-3 py-2 outline-none transition-colors duration-fast box-border resize-y min-h-20 focus:border-focus-ring placeholder:text-text-faint"
           {placeholder}
+          aria-labelledby="input-dialog-title"
           rows="4"
           spellcheck="false"
           aria-invalid={!!error}
@@ -143,6 +144,7 @@
           class="w-full h-9 border border-border rounded-md bg-bg-input text-text text-md font-inherit px-3 outline-none transition-colors duration-fast box-border focus:border-focus-ring placeholder:text-text-faint"
           type="text"
           {placeholder}
+          aria-labelledby="input-dialog-title"
           spellcheck="false"
           autocomplete="off"
           aria-invalid={!!error}

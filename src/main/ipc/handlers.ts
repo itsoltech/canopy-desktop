@@ -1112,6 +1112,9 @@ export function registerIpcHandlers(
     const json = JSON.stringify(file, null, 2)
 
     try {
+      // `mode` applies only when writeFile creates the file. Overwriting an earlier export keeps
+      // its old permission bits, so tighten them before the decrypted secrets are written.
+      await fs.promises.chmod(saveResult.filePath, 0o600).catch(() => undefined)
       await fs.promises.writeFile(saveResult.filePath, json, { encoding: 'utf8', mode: 0o600 })
     } catch (e) {
       throw new Error(
@@ -5185,6 +5188,12 @@ export function registerIpcHandlers(
       payload as Record<string, unknown>,
     )
     return unwrapOrThrow(result, remoteServerErrorMessage)
+  })
+
+  ipcMain.handle('remote:noteActivity', (event) => {
+    // Remote actions run over the WebRTC data channel, so only the host window sees them.
+    if (event.sender.id !== remoteSessionService.currentHostWcId) return
+    remoteSessionService.resetIdleTimer()
   })
 
   ipcMain.handle('remote:listTrustedDevices', () => {

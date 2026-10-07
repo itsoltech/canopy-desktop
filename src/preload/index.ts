@@ -1808,6 +1808,9 @@ const api = {
       ipcRenderer.invoke('remote:acceptDevice', { remember }) as Promise<void>,
     rejectDevice: () => ipcRenderer.invoke('remote:rejectDevice') as Promise<void>,
     sendSignal: (msg: unknown) => ipcRenderer.invoke('remote:sendSignal', msg) as Promise<void>,
+    // Remote actions travel over the WebRTC data channel and never reach main; the host window
+    // reports them so the idle timeout does not end a session that is in use.
+    noteActivity: () => ipcRenderer.invoke('remote:noteActivity') as Promise<void>,
     listTrustedDevices: () =>
       ipcRenderer.invoke('remote:listTrustedDevices') as Promise<
         Array<{

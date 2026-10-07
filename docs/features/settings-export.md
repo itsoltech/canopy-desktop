@@ -21,7 +21,7 @@ Export is a merge-friendly operation: import upserts rows by natural key (`key` 
 2. A confirmation dialog warns that the file will contain plaintext API keys and tokens. The user either confirms or cancels.
 3. On confirm, the main process presents a native Save dialog (`dialog.showSaveDialog`) pre-filled with `canopy-settings-YYYY-MM-DD.json`.
 4. `SettingsExportService.buildExport()` reads every exportable preference (decrypting encrypted keys with `safeStorage`), every agent profile (with decrypted `apiKey`), every credential (with decrypted password), and every `is_custom = 1` tool definition.
-5. The result is serialized to pretty-printed JSON and written with `fs.promises.writeFile` using mode `0o600` (Unix-only: owner read/write). On Windows NTFS the mode is advisory; users must manage file permissions themselves.
+5. The result is serialized to pretty-printed JSON and written with `fs.promises.writeFile` using mode `0o600` (Unix-only: owner read/write). When the export overwrites an existing file, its mode is tightened to `0o600` before the secrets are written, since `writeFile` applies `mode` only to newly created files. On Windows NTFS the mode is advisory; users must manage file permissions themselves.
 6. A toast confirms the file path. No settings are modified during export.
 
 ### Import

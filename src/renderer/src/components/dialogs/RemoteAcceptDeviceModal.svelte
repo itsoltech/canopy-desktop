@@ -4,11 +4,9 @@
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
 
   let {
-    deviceId,
     deviceName,
     fingerprint,
   }: {
-    deviceId: string
     deviceName: string
     fingerprint: string
   } = $props()
@@ -23,8 +21,6 @@
   let actionError: string | null = $state(null)
   let countdown: ReturnType<typeof setInterval> | null = null
   let previouslyFocused: HTMLElement | null = null
-
-  const devLogId = deviceId
 
   onMount(() => {
     // Restore focus to the opener when the dialog closes.
@@ -51,7 +47,8 @@
       await window.api.remote.acceptDevice(remember)
       closeDialog()
     } catch (e) {
-      console.error('[remote] accept failed:', devLogId, e)
+      // The full device id authenticates trusted reconnects; log only its fingerprint.
+      console.error('[remote] accept failed:', fingerprint, e)
       actionError = e instanceof Error ? e.message : String(e)
       busy = false
     }
@@ -103,7 +100,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={dialogEl}
-    class="w-[420px] bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
+    class="w-[420px] max-w-[92vw] bg-bg-overlay border border-border rounded-[10px] shadow-modal p-5"
     role="dialog"
     aria-modal="true"
     aria-labelledby="remote-accept-title"
@@ -119,10 +116,12 @@
     <div
       class="px-3 py-2.5 bg-bg-input border border-border-subtle rounded-lg flex flex-col gap-1.5 mb-3"
     >
-      <div class="flex justify-between text-sm">
+      <div class="flex justify-between gap-3 text-sm">
         <span class="text-text-muted uppercase tracking-[0.3px] text-2xs font-semibold">Device</span
         >
-        <span class="text-text">{deviceName}</span>
+        <span class="text-text min-w-0 text-right break-all line-clamp-2" title={deviceName}
+          >{deviceName}</span
+        >
       </div>
       <div class="flex justify-between text-sm">
         <span class="text-text-muted uppercase tracking-[0.3px] text-2xs font-semibold"

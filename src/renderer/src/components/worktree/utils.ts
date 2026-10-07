@@ -46,10 +46,15 @@ export function shouldOfferExactRef(query: string, loadedRefs: string[]): boolea
   return isSafeGitRefName(exactName) && !loadedRefs.includes(exactName)
 }
 
-/** Enter activates the option exposed through the listbox's aria-activedescendant. */
+/**
+ * Enter activates the option exposed through the listbox's aria-activedescendant. A collapsed
+ * list exposes none: its index points into results the user cannot see.
+ */
 export function branchPickerEnterTarget(
   filteredRefs: string[],
   selectedIndex: number,
+  listVisible = true,
 ): string | null {
+  if (!listVisible) return null
   return filteredRefs[selectedIndex] ?? null
 }

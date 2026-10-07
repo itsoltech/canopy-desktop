@@ -469,6 +469,7 @@
               {#if sendStatus || sendError}
                 <div
                   class="flex items-start gap-2 px-2.5 py-2 rounded-md text-xs leading-snug"
+                  role={sendError ? 'alert' : undefined}
                   class:bg-danger-bg={sendError}
                   class:text-danger-text={sendError}
                   class:bg-bg-input={!sendError}

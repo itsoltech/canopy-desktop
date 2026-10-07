@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, type Component } from 'svelte'
+  import { tick, untrack, type Component } from 'svelte'
   import { Plus, Trash2 } from '@lucide/svelte'
   import type { AgentType } from '../../../../main/agents/types'
   import type { AgentProfileMasked, ProfilePrefs } from '../../../../main/profiles/types'
@@ -46,8 +46,17 @@
   let saving = $state(false)
   let dirty = $state(false)
 
+  // A profile-list broadcast (a save in another window, a settings import, this panel's own save)
+  // replaces every profile object. While the draft has unsaved edits, only switching to another
+  // profile may replace it.
+  let draftProfileId: string | null = null
+
   $effect(() => {
-    if (!selected) {
+    const profile = selected
+    const profileId = profile?.id ?? null
+    if (profileId === draftProfileId && untrack(() => dirty)) return
+    draftProfileId = profileId
+    if (!profile) {
       draftName = ''
       draftPrefs = {}
       draftApiKey = ''
@@ -55,8 +64,8 @@
       dirty = false
       return
     }
-    draftName = selected.name
-    draftPrefs = { ...selected.prefs }
+    draftName = profile.name
+    draftPrefs = { ...profile.prefs }
     draftApiKey = ''
     draftApiKeyTouched = false
     dirty = false

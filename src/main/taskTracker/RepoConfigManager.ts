@@ -1,6 +1,17 @@
 import { randomUUID } from 'crypto'
-import { access, link, mkdir, open, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
-import { join } from 'path'
+import {
+  access,
+  link,
+  mkdir,
+  open,
+  readdir,
+  realpath,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from 'fs/promises'
+import { isAbsolute, join, relative, sep } from 'path'
 import { setTimeout as delay } from 'timers/promises'
 import { ok, err, type ResultAsync } from 'neverthrow'
 import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types'
@@ -54,6 +65,16 @@ function configDir(repoRoot: string): string {
 
 function configPath(repoRoot: string): string {
   return join(repoRoot, CONFIG_DIR, CONFIG_FILE)
+}
+
+// `.canopy/` is committed repo content, so a cloned repo can ship it as a symlink, and mkdir plus
+// the temp-file write and rename follow it. Refuse a config directory outside the repository.
+async function assertConfigDirInsideRepo(repoRoot: string, dir: string): Promise<void> {
+  const [root, resolved] = await Promise.all([realpath(repoRoot), realpath(dir)])
+  const rel = relative(root, resolved)
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error(`${CONFIG_DIR} resolves outside the repository`)
+  }
 }
 
 function isTransientRenameError(error: unknown): boolean {
@@ -202,6 +223,7 @@ export class RepoConfigManager {
         const serialized = serializeConfig(config)
         const dir = configDir(repoRoot)
         await mkdir(dir, { recursive: true })
+        await assertConfigDirInsideRepo(repoRoot, dir)
         // A hard kill cannot run `finally`; remove old orphaned publications on a later save.
         // The age threshold avoids racing another live Canopy process writing the same repo.
         await cleanupStaleConfigTemps(dir)
@@ -240,6 +262,7 @@ export class RepoConfigManager {
         const serialized = serializeConfig(config)
         const dir = configDir(repoRoot)
         await mkdir(dir, { recursive: true })
+        await assertConfigDirInsideRepo(repoRoot, dir)
         await cleanupStaleConfigTemps(dir)
         const temporary = join(dir, `.${CONFIG_FILE}.${randomUUID()}.tmp`)
         try {

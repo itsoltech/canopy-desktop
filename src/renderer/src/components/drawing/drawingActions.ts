@@ -70,11 +70,18 @@ export async function sendToAgent(
     return
   }
 
-  await switchTab(result.tabId)
+  try {
+    await switchTab(result.tabId)
 
-  // OS pasteboard write is async on macOS; fast follow-up Ctrl+V can race it
-  await new Promise((resolve) => setTimeout(resolve, 250))
-  await window.api.agentSendDrawing({ sessionId: result.pane.sessionId })
+    // OS pasteboard write is async on macOS; fast follow-up Ctrl+V can race it
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await window.api.agentSendDrawing({ sessionId: result.pane.sessionId })
+  } catch (err) {
+    // Without this the button just resets, which reads as if the drawing was sent.
+    console.error('[drawing] send to agent failed:', err)
+    addToast(`Could not send the drawing to ${result.pane.toolName}`, 'danger')
+    return
+  }
   addToast(`Sent to ${result.pane.toolName}`)
 }
 

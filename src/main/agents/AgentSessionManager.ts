@@ -45,7 +45,11 @@ export class AgentSessionManager extends EventEmitter {
   constructor() {
     super()
     this.hooksDir = join(app.getPath('userData'), 'canopy', 'agent-hooks')
-    mkdirSync(this.hooksDir, { recursive: true })
+    // Per-session settings written here can carry API keys (a Claude `env` override, a copy of
+    // the user's Gemini settings). Keep the directory private even when userData is not;
+    // chmod also tightens a directory created by an earlier version.
+    mkdirSync(this.hooksDir, { recursive: true, mode: 0o700 })
+    chmodSync(this.hooksDir, 0o700)
 
     // Register built-in adapters
     registerAdapter(claudeAdapter)

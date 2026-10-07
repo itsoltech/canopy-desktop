@@ -44,6 +44,17 @@ const pendingGrants = new Map<RpcMethodName, Promise<boolean>>()
 let sessionGeneration = 0
 
 /**
+ * Calls with no effect on the host: the keepalive ping (every 3 s), a size query, and stopping a
+ * stream the peer already receives. Even the `'full'` profile runs them unprompted; otherwise
+ * the keepalive alone would open a confirm dialog every few seconds.
+ */
+const NON_ACTION_METHODS: ReadonlySet<RpcMethodName> = new Set<RpcMethodName>([
+  'diag.ping',
+  'pty.getDimensions',
+  'pty.unsubscribe',
+])
+
+/**
  * Decides whether a method call coming from the remote peer needs host
  * user confirmation before it runs.
  */
@@ -57,6 +68,7 @@ export async function checkAction(method: RpcMethodName, params: unknown): Promi
       return Promise.resolve(true)
     })
     .with('full', () => {
+      if (NON_ACTION_METHODS.has(method)) return Promise.resolve(true)
       if (SESSION_GRANTABLE_METHODS.has(method)) return ensureSessionGrant(method)
       return confirmFromDesktop(method, params)
     })

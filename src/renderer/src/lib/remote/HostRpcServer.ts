@@ -16,6 +16,9 @@ import { allPanes } from '../stores/splitTree'
 import { substituteLocalhost } from '../../../../renderer-shared/url/localhostSubstitution'
 import { remoteSession } from '../stores/remoteSession.svelte'
 
+/** Remote actions reset main's session idle timeout; report them at most this often. */
+const ACTIVITY_REPORT_INTERVAL_MS = 30_000
+
 /**
  * Registers the Canopy host-side handlers for the RPC whitelist declared
  * in `renderer-shared/rpc/methodList.ts`. One instance is created per peer
@@ -38,6 +41,7 @@ export class HostRpcServer {
    *  `registerAllHandlers()` and invoked in `dispose()` so we don't leak
    *  IPC listeners when a peer disconnects. */
   private unsubPtyResized: (() => void) | null = null
+  private lastActivityReportAt = 0
 
   constructor(private rpc: DataChannelRpc) {}
 
@@ -325,8 +329,22 @@ export class HostRpcServer {
       if (!allowed) {
         throw new Error(`Action "${method}" was rejected on desktop`)
       }
+      this.reportActivity(method)
       return handler(params as RpcMethods[M]['params'])
     })
+  }
+
+  /**
+   * Remote actions never pass through main, so main's idle timeout would otherwise end a session
+   * that is in use. The 3 s keepalive ping is not user activity: counting it would keep an
+   * unattended session open for as long as the peer's page stays open.
+   */
+  private reportActivity(method: RpcMethodName): void {
+    if (method === 'diag.ping') return
+    const now = Date.now()
+    if (now - this.lastActivityReportAt < ACTIVITY_REPORT_INTERVAL_MS) return
+    this.lastActivityReportAt = now
+    window.api.remote.noteActivity().catch(() => {})
   }
 }
 

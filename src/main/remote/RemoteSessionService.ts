@@ -12,6 +12,7 @@ import {
   type PairMessage,
 } from './SignalingServer'
 import { selectPrimaryInterface } from './discovery'
+import { sanitizeDeviceName } from './deviceName'
 import type { RemoteServerError } from './errors'
 import type { PendingDevice, RemoteSessionStatus, PairingUrlInfo } from './types'
 import { TrustedDeviceStore } from './TrustedDeviceStore'
@@ -138,9 +139,25 @@ export class RemoteSessionService {
     return this.trustedDevices.list()
   }
 
-  /** Remove a single trusted device by its ID. */
+  /**
+   * Remove a single trusted device by its ID. Removal revokes access now, not only future
+   * auto-accepts, so a live session of that device ends too. Closing the socket alone is not
+   * enough: inside the reconnect window the same deviceId would be re-admitted as a refresh.
+   */
   removeTrustedDevice(deviceId: string): void {
     this.trustedDevices.remove(deviceId)
+    const connected = this.status.kind === 'paired' || this.status.kind === 'reconnecting'
+    if (connected && deviceId === this.lastPairedDeviceId) {
+      this.signalingServer.closePeer('device removed')
+      if (this.canReturnToListening()) {
+        this.returnToListening()
+      } else {
+        this.stop().match(
+          () => {},
+          () => {},
+        )
+      }
+    }
     if (this.trustedDevices.list().length === 0) {
       this.clearListenRetryTimer()
     }
@@ -473,7 +490,6 @@ export class RemoteSessionService {
     // Clear the pairing expiry — once paired, only idle timeout applies.
     this.clearExpiryTimer()
     this.clearReaperTimer()
-    this.resetIdleTimer()
     if (remember) {
       this.trustedDevices.add({
         deviceId: device.deviceId,
@@ -492,6 +508,8 @@ export class RemoteSessionService {
       deviceName: device.deviceName,
       connectedAt: Date.now(),
     })
+    // Only after `paired`: resetIdleTimer arms nothing in any other state.
+    this.resetIdleTimer()
     // Green-light the WebRTC offer/answer exchange on the peer side. Before
     // this, the remote peer is waiting on `accepted` before creating data
     // channels and building its SDP offer.
@@ -615,11 +633,7 @@ export class RemoteSessionService {
       return { ok: false, reason: 'another device is already paired' }
     }
 
-    const deviceName =
-      trustedDevice?.name ??
-      (typeof msg.deviceName === 'string' && msg.deviceName.length > 0
-        ? msg.deviceName
-        : 'Remote device')
+    const deviceName = trustedDevice?.name ?? sanitizeDeviceName(msg.deviceName) ?? 'Remote device'
     const device: PendingDevice = {
       deviceId: incomingDeviceId ?? randomBytes(8).toString('hex'),
       deviceName,
@@ -655,7 +669,6 @@ export class RemoteSessionService {
       this.lastPairedDeviceId = device.deviceId
       this.clearExpiryTimer()
       this.clearReaperTimer()
-      this.resetIdleTimer()
       const pairing = this.resolveAndStorePairingLanIp(this.currentPairing, context.localAddress)
       this.setStatus({
         kind: 'paired',
@@ -665,6 +678,7 @@ export class RemoteSessionService {
         deviceName: device.deviceName,
         connectedAt: Date.now(),
       })
+      this.resetIdleTimer()
       // Don't call `sendToPeer({type:'accepted'})` here — the active-peer
       // slot in SignalingServer is set AFTER this handler returns, so
       // sendToPeer would fire into a null/stale socket. Instead we set
@@ -763,9 +777,10 @@ export class RemoteSessionService {
   }
 
   /**
-   * Called from the IPC signal handler whenever any message flows through
-   * the session. Resets the idle timeout so interactive sessions don't
-   * expire while the user is actively chatting with an agent.
+   * Called when the session is used: signaling frames, and remote actions that the host window
+   * reports over `remote:noteActivity` (they travel on the WebRTC data channel and never reach
+   * main otherwise). Resets the idle timeout so interactive sessions don't expire while the user
+   * is actively chatting with an agent.
    */
   resetIdleTimer(): void {
     this.clearIdleTimer()

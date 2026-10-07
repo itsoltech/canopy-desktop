@@ -68,7 +68,7 @@ reconnect/listen flow after the operating system wakes.
 3. The signaling server validates the message format and forwards it to `RemoteSessionService.handlePairAttempt()`.
 4. The service performs constant-time comparison of the token. If invalid, the peer receives `{ type: "rejected", reason: "invalid token" }` and the WebSocket closes.
 5. Single-device policy: if another device is already paired (or pending), the attempt is rejected with "another device is already paired." An exception is made for same-device refresh (matching `deviceId`), which is allowed through to prevent stale-session lockouts.
-6. On success, the session transitions to `peerArrived`. The desktop renderer shows the accept/reject prompt with the device name and an 8-character fingerprint (hex prefix of the device ID).
+6. On success, the session transitions to `peerArrived`. The desktop renderer shows the accept/reject prompt with the device name and an 8-character fingerprint (hex prefix of the device ID). The peer-supplied device name is cleaned before it is shown or remembered: control and bidirectional-override characters are removed and it is capped at 64 characters. The accept prompt itself is given only the fingerprint, not the full device ID (the bearer credential for trusted reconnects), so it cannot log it.
 7. User clicks Accept (optionally checking "Remember this device").
 8. `acceptPendingDevice()` transitions to `paired`, sends `{ type: "accepted" }` to the peer, and starts the idle timeout (15 minutes). If "Remember" was checked, the device is persisted in the `TrustedDeviceStore`.
 9. The peer receives `accepted` and begins WebRTC offer/answer/ICE negotiation through the signaling WebSocket. The desktop renderer's `RemoteHostController` handles the SDP exchange.
@@ -99,7 +99,7 @@ reconnect/listen flow after the operating system wakes.
 
 ### Idle timeout
 
-While paired, an idle timer of 15 minutes runs. Each signaling message (SDP, ICE, or data-channel relay) resets the timer. If no activity occurs for 15 minutes, the same listen-mode calculus from the disconnect reaper applies: when eligible, the session drops back to `listening` and keeps the port bound for trusted reconnects; otherwise it fully tears down to `idle`. QR expiry (the 10-minute `waiting` deadline) follows the same rule — it drops back to `listening` when eligible.
+While paired, an idle timer of 15 minutes runs, starting when the device is accepted. Each signaling message (SDP, ICE) resets the timer, and so does each remote action. Remote actions travel over the WebRTC data channel and never reach the main process, so the host window reports them through `remote:noteActivity` (at most every 30 seconds; only the host window's reports count). The 3-second keepalive ping is not activity, so an unattended session still idles out. If no activity occurs for 15 minutes, the same listen-mode calculus from the disconnect reaper applies: when eligible, the session drops back to `listening` and keeps the port bound for trusted reconnects; otherwise it fully tears down to `idle`. QR expiry (the 10-minute `waiting` deadline) follows the same rule — it drops back to `listening` when eligible.
 
 ### Mobile terminal text selection
 
@@ -130,7 +130,7 @@ full-screen terminal navigation.
 | `remote.listenAllInterfaces` | `"true"` / `"false"`   | `"false"` | When `"true"`, trusted-device listen mode binds to `0.0.0.0` so known devices can reconnect through any active adapter. New QR pairing still asks for an explicit QR adapter and does not change this setting.                 |
 | `remote.trustedDevices`      | JSON array             | `[]`      | Managed by TrustedDeviceStore; device names can be edited and devices can be removed in Settings                                                                                                                               |
 
-Trusted devices can be viewed, renamed, and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`.
+Trusted devices can be viewed, renamed, and removed in Settings. Each entry stores `deviceId`, `name`, `addedAt`, and `lastSeen`. Removing the device that is currently connected (paired or inside its reconnect window) also ends that session: the peer WebSocket is closed and the service drops back to `listening` when other trusted devices remain, otherwise to `idle`, so the removed device cannot slip back in as a same-device refresh.
 
 ## Error states
 

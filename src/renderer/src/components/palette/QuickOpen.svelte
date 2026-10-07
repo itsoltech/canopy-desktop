@@ -34,6 +34,9 @@
   onMount(() => {
     inputEl?.focus()
     void forceReload(worktreePath)
+    // fuzzysort keeps a module-level prepared copy of every path it has searched, cleared only
+    // by cleanup(). Quick Open is its only user, so drop the cache when it closes.
+    return () => fuzzysort.cleanup()
   })
 
   const matchedResults: Result[] = $derived.by(() => {

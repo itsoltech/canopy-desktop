@@ -281,6 +281,11 @@ exclusive same-directory hard link. A stale UI or another Canopy process therefo
 a config that appeared after the initial load, and interruption cannot expose partial JSON at the
 destination.
 
+Save and Initialize refuse to write when `.canopy` resolves outside the repository, for example
+when a cloned repository commits it as a symlink to another directory; the write fails with
+`ConfigWriteError` before any file is created there. A `.canopy` link that stays inside the
+repository keeps working.
+
 A hard process kill can leave the hidden temporary sibling behind. A later save in that repository
 removes matching files older than 24 hours; they contain only the same non-secret repository config
 that was being saved and can also be deleted manually once no Canopy instance is writing the repo.

@@ -7,6 +7,11 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'
 
+  // Jumps between files scroll from script, which the global reduced-motion CSS cannot reach.
+  function fileJumpScrollBehavior(): 'auto' | 'smooth' {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+  }
+
   let {
     worktreePath,
     active,
@@ -91,7 +96,7 @@
         workspaceState.diffScrollTarget = null
         workspaceState.diffVisibleFile = filePath
         const top = el.offsetTop - bodyEl.offsetTop
-        bodyEl.scrollTo({ top, left: 0, behavior: 'smooth' })
+        bodyEl.scrollTo({ top, left: 0, behavior: fileJumpScrollBehavior() })
         // Fallback in case scrollTo is a no-op (already at position)
         if (suppressTimer != null) clearTimeout(suppressTimer)
         suppressTimer = setTimeout(() => {
@@ -284,7 +289,7 @@
         suppressObserver = true
         workspaceState.diffVisibleFile = file.path
         const top = el.offsetTop - bodyEl.offsetTop
-        bodyEl.scrollTo({ top, left: 0, behavior: 'smooth' })
+        bodyEl.scrollTo({ top, left: 0, behavior: fileJumpScrollBehavior() })
         // Fallback in case scrollTo is a no-op (already at position)
         if (suppressTimer != null) clearTimeout(suppressTimer)
         suppressTimer = setTimeout(() => {

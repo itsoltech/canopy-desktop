@@ -608,7 +608,7 @@
   {/if}
 
   {#if saveError}
-    <div class="error-banner">
+    <div class="error-banner" role="alert">
       <span>{saveError}</span>
       <button
         class="dismiss-btn"

@@ -412,6 +412,7 @@
         {#if pr.state === 'OPEN'}
           <div class="flex items-center gap-2 flex-wrap">
             <CustomSelect
+              ariaLabel="Merge strategy"
               value={mergeStrategy}
               options={[
                 { value: 'merge', label: 'Merge commit' },

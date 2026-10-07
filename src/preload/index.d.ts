@@ -1464,6 +1464,7 @@ interface RemoteAPI {
   acceptDevice: (remember: boolean) => Promise<void>
   rejectDevice: () => Promise<void>
   sendSignal: (msg: unknown) => Promise<void>
+  noteActivity: () => Promise<void>
   listTrustedDevices: () => Promise<RemoteTrustedDevice[]>
   removeTrustedDevice: (deviceId: string) => Promise<void>
   renameTrustedDevice: (deviceId: string, name: string) => Promise<void>

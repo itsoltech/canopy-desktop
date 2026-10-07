@@ -166,7 +166,12 @@
     refreshing = false
   }
 
+  // Set once the modal unmounts, so a creation that completes afterwards never schedules the
+  // auto-close, which would close whichever dialog is open by then.
+  let destroyed = false
+
   onDestroy(() => {
+    destroyed = true
     if (finishTimer) clearTimeout(finishTimer)
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
@@ -532,7 +537,7 @@
   }
 
   function finishCreation(): void {
-    if (step === 'done') return
+    if (destroyed || step === 'done') return
     step = 'done'
     if (finishTimer) clearTimeout(finishTimer)
     finishTimer = setTimeout(
@@ -591,12 +596,15 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      if (step === 'setup') {
-        skipSetup()
-      } else {
-        onClose()
-      }
+      dismiss()
     }
+  }
+
+  // While git creates the worktree there is nothing to cancel (the step shows no Cancel button);
+  // closing then would leave setup and the auto-close running against an unmounted modal.
+  function dismiss(): void {
+    if (step === 'setup') skipSetup()
+    else if (step !== 'creating') onClose()
   }
 
   const inputCls =
@@ -611,7 +619,7 @@
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
+  onmousedown={dismiss}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div

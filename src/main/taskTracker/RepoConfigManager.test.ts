@@ -9,6 +9,7 @@ const link = vi.fn()
 const open = vi.fn()
 const mkdir = vi.fn()
 const readdir = vi.fn()
+const realpath = vi.fn(async (path: string) => path)
 const rename = vi.fn()
 const stat = vi.fn()
 const unlink = vi.fn()
@@ -22,6 +23,7 @@ vi.mock('fs/promises', () => ({
   writeFile: (...args: unknown[]) => writeFile(...args),
   mkdir: (...args: unknown[]) => mkdir(...args),
   readdir: (...args: unknown[]) => readdir(...args),
+  realpath: (path: string) => realpath(path),
   rename: (...args: unknown[]) => rename(...args),
   stat: (...args: unknown[]) => stat(...args),
   unlink: (...args: unknown[]) => unlink(...args),
@@ -104,6 +106,7 @@ describe('RepoConfigManager.exists', () => {
 describe('RepoConfigManager.save', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    realpath.mockImplementation(async (path: string) => path)
     mkdir.mockResolvedValue(undefined)
     readdir.mockResolvedValue([])
     writeFile.mockResolvedValue(undefined)
@@ -211,6 +214,30 @@ describe('RepoConfigManager.save', () => {
     expect(unlink).toHaveBeenCalledWith(join('/repo', '.canopy', orphan))
   })
 
+  it('refuses a .canopy directory that links outside the repository', async () => {
+    realpath.mockImplementation(async (path: string) =>
+      path === join('/repo', '.canopy') ? '/home/user/.config/other-app' : path,
+    )
+
+    const result = await new RepoConfigManager().save('/repo', defaultConfig())
+
+    expect(result.isErr() && result.error).toMatchObject({ _tag: 'ConfigWriteError' })
+    expect(readdir).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(rename).not.toHaveBeenCalled()
+  })
+
+  it('still saves through a .canopy link that stays inside the repository', async () => {
+    realpath.mockImplementation(async (path: string) =>
+      path === join('/repo', '.canopy') ? join('/repo', 'config', 'canopy') : path,
+    )
+
+    const result = await new RepoConfigManager().save('/repo', defaultConfig())
+
+    expect(result.isOk()).toBe(true)
+    expect(rename).toHaveBeenCalledOnce()
+  })
+
   it('leaves fresh temporary files owned by another live save alone', async () => {
     const active = '.config.json.active.tmp'
     readdir.mockResolvedValueOnce([{ name: active, isFile: () => true }])
@@ -226,6 +253,7 @@ describe('RepoConfigManager.save', () => {
 describe('RepoConfigManager.init', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    realpath.mockImplementation(async (path: string) => path)
     mkdir.mockResolvedValue(undefined)
     link.mockResolvedValue(undefined)
     unlink.mockResolvedValue(undefined)
@@ -262,6 +290,18 @@ describe('RepoConfigManager.init', () => {
     expect(link).toHaveBeenCalledWith(temporary, join('/repo', '.canopy', 'config.json'))
     expect(unlink).toHaveBeenCalledWith(temporary)
     expect(rename).not.toHaveBeenCalled()
+  })
+
+  it('refuses a .canopy directory that links outside the repository', async () => {
+    realpath.mockImplementation(async (path: string) =>
+      path === join('/repo', '.canopy') ? '/home/user/.config/other-app' : path,
+    )
+
+    const result = await new RepoConfigManager().init('/repo')
+
+    expect(result.isErr() && result.error).toMatchObject({ _tag: 'ConfigWriteError' })
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(link).not.toHaveBeenCalled()
   })
 
   it('removes a partial temporary file when its write fails', async () => {

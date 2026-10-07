@@ -931,6 +931,7 @@
           {/if}
         {:else}
           <CustomSelect
+            ariaLabel="Transition"
             value={selectedTransitionId}
             options={[
               { value: '', label: 'Select a transition…' },
@@ -958,6 +959,7 @@
                   {field.name}{field.required ? ' *' : ''}
                 </span>
                 <CustomSelect
+                  ariaLabel={field.name}
                   value={fieldValues[field.key] ?? ''}
                   options={[
                     { value: '', label: field.required ? 'Select…' : '(none)' },
@@ -985,6 +987,8 @@
               <textarea
                 class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring resize-y min-h-12 placeholder:text-text-faint"
                 bind:value={transitionComment}
+                aria-label="Comment"
+                aria-required={commentRequired}
                 rows="2"
                 placeholder={commentRequired
                   ? 'Required by the workflow'
@@ -1057,6 +1061,7 @@
           <textarea
             class="flex-1 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring resize-y min-h-9 placeholder:text-text-faint"
             bind:value={newComment}
+            aria-label="Add a comment"
             rows="1"
             placeholder="Add a comment…"
             spellcheck="false"></textarea>
