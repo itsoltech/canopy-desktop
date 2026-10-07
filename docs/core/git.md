@@ -102,7 +102,7 @@ lookup renders the error with a **Retry** action.
 
 1. User clicks the "Generate commit message" button in the changes panel.
 2. Renderer calls `window.api.gitGenerateCommitMessage(repoRoot)`.
-3. The main process reads the current diff (`git diff --cached` or `git diff` if none staged) and sends it to the AI model defined in preferences.
+3. The main process reads the current diff (`git diff --cached` or `git diff` if none staged) and sends it in one Claude Code turn on the `haiku` model alias. The turn runs the `claude` found on `PATH`, or the CLI bundled with the Agent SDK when there is none. From Claude Code 2.1.293 the alias means Claude Haiku 5.5 on the Anthropic API, including behind a custom base URL, and Claude Haiku 4.5 on Bedrock, Vertex and Foundry. `ANTHROPIC_DEFAULT_HAIKU_MODEL`, set in the `env` block of the user's Claude Code settings, pins the alias to another model.
 4. The generation uses a specialized prompt (`src/main/ai/commitMessageGenerator.ts`) that enforces the Conventional Commits specification.
 5. The generated message is returned to the renderer and inserted into the commit message text area for the user to review.
 
