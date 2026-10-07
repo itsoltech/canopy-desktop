@@ -1997,7 +1997,7 @@ model-switch subscription had never read a model.** The entry reads "Fixed a fai
 'xhigh' isn't available with thinking turned off") after a safety-related model switch in sessions
 with thinking off and effort above high". The switch is `switchModelsOnFlag` — "When safeguards flag
 a message, automatically switch to a different model to keep chatting". Canopy has subscribed to
-`PreModelSwitch` and `PostModelSwitch` since 2.1.251 (`ddbc639`) so the Agent Inspector can show the
+`PreModelSwitch` and `PostModelSwitch` since 2.1.251 (`8c745d4`) so the Agent Inspector can show the
 new model, and 2.1.282 fires `PostModelSwitch` from a state subscriber whenever the session's
 effective model changes. `source` comes from whichever caller recorded one, and is `"auto"` —
 "automatic fallback or other programmatic change" — otherwise. Whether the safeguards fallback
@@ -3289,6 +3289,127 @@ commit, `4f5f34d`, lists all 16 files.
 **All 92 of 2.1.292's CLI changelog entries were readable this run**, against 12 in the pasted
 release notes. The official `CHANGELOG.md`, the changelog archive's compare diff and both builds
 were reachable. On this branch, `npm ci` now installs `0.3.292`, which vendors CLI 2.1.292.
+
+**2.1.293 moves the commit-message turn's `haiku` pin to a new model, and the turn works on it.**
+2.1.293 "Added Claude Haiku 5.5 (`claude-haiku-5-5`), now the default Haiku model on the Anthropic
+API". `commitMessageGenerator.ts:79` pins `model: 'haiku'`. The 2.1.278 note says a pin opts out of
+a default. An alias pin opts out of the default model, but it still follows the alias's own target,
+and this release moves that target.
+
+- **What the alias resolves to.** The build's model catalog changes `haiku` from
+  `{default:"claude-haiku-4-5"}` to `default:"claude-haiku-5-5"`. Seven per-provider overrides keep
+  `claude-haiku-4-5`: `bedrock`, `vertex`, `foundry`, `mantle`, `anthropic_aws`,
+  `anthropic_google_cloud` and `gateway`. The provider comes from the `CLAUDE_CODE_USE_*` flags and
+  three gateway checks: a gateway sign-in, a gateway server process and a host policy. A plain
+  `ANTHROPIC_BASE_URL` triggers none of them. So a proxy counts as first-party and receives
+  `claude-haiku-5-5`.
+- **Which binary runs it.** The turn runs the `claude` on `PATH`, so it moves to Haiku 5.5 when the
+  user updates their CLI. With no `claude` on `PATH`, it runs the SDK's bundled CLI, and the
+  `0.3.293` bump moves that one to 2.1.293.
+- **The turn works on Haiku 5.5.** The probe ran `generateCommitMessageInner`'s exact `query()`
+  options on the bundled 2.1.293. It ran on this runner, through the workflow's custom endpoint.
+  The turn returned `structured_output` with a subject and an empty body. `modelUsage` named
+  `claude-haiku-5-5`, provider `firstParty`, a 1,000,000-token window and 210 thinking tokens. The
+  turn took 4.9 s and cost $0.0083. With `ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-4-5`, the same
+  turn ran on `claude-haiku-4-5`, with a 200K window, in 7.0 s for $0.0636. That is one run each,
+  not a benchmark.
+- **Price.** Each request in the probe was about 60K tokens, most of it Claude Code's own system
+  prompt and tools. The 15,000-character diff cap adds at most a few thousand. Haiku 5.5 costs
+  $0.10/$0.50 per Mtok up to 100K prompt tokens and $0.50/$2.50 above, both below Haiku 4.5's $1/$5.
+
+**Three things can now stop the turn, and each fails soft.** A turn without `structured_output` ends
+as `null`, so the user gets no suggestion.
+
+- **A proxy without Haiku 5.5.** A Base URL proxy that does not route `claude-haiku-5-5` now refuses
+  the turn. An example is an LLM gateway with a fixed model list. The workflow's own endpoint served
+  it, so the three workflows here that pass `--model haiku` keep working. 2.1.287 added a retry on
+  the previous model of a tier when the API refuses a model. Whether it covers a proxy's
+  model-not-found reply was not traced. `ANTHROPIC_DEFAULT_HAIKU_MODEL` pins the alias. For panes it
+  can go in a profile's env vars. The commit-message turn reads no profile, so there it has to be in
+  the `env` block of the user's Claude Code settings. The turn loads those because it omits
+  `settingSources`.
+- **Exact model allow-lists.** The 2.1.283 note predicted this case. Under
+  `availableModelsMatch: "exact"`, an `availableModels` list that names `claude-haiku-4-5` and not
+  `claude-haiku-5-5` now refuses the turn until an administrator lists the new ID.
+- **Safety classifiers.** Haiku 5.5 runs classifiers that can end a request with
+  `stop_reason: "refusal"`, and the API offers no server-side fallback for this model. Haiku 4.5 had
+  neither. A refused turn returns no structured output. How an SDK run reports a refusal was not
+  traced.
+
+Panes change too. A profile whose Model field says `haiku` now runs Haiku 5.5 on the first-party
+API. The status line reports the 1M window, which the Agent Inspector prints as "1M". Canopy holds
+no model, price or window table, so no Canopy code changes.
+
+**The rest of the entries that reach Canopy do so through the user's binary.**
+
+- **Bracketed paste.** 2.1.293 "Fixed pasted text that begins and ends with the same words sometimes
+  being sent to Claude as if it had been typed". Canopy sends text into panes as bracketed pastes in
+  two places: the agent-context command (`agentCommands.ts:73`) and `wrapAsBracketedPaste`
+  (`paste.ts:44`). The fix is in the CLI's paste tracking, and both writers keep their markers.
+- **Windows process IDs.** Stopping a status line, hook or shell command could terminate an
+  unrelated process that had been given the same process ID. Canopy's hook and status-line scripts
+  are such commands, so the fix protects whatever else runs beside a pane.
+- **Bypass consent.** `claude agents` now asks for bypass consent first when consent was saved only
+  in `.claude/settings.local.json` or a `--settings` file. Canopy's per-session file is a
+  `--settings` file. Canopy writes no `skipDangerousModePermissionPrompt` there, but a profile's
+  Settings JSON can.
+- **Startup.** Team and Enterprise policy now loads earlier, with a retry after 3 s. The SDK adds two
+  startup failure reasons for it, `org_config_required_unavailable` and `org_config_refused`. The
+  commit-message turn reads only the result message, so a refused start still gives no suggestion.
+- **Rules.** Path-scoped rules and nested `CLAUDE.md` files now load when Claude reads a file with
+  `cat`, `head`, `tail`, `sed -n` or `grep` in Bash. That reaches panes and this repository's
+  workflows.
+- **Not used by Canopy.** `subagentStatusLine` gains `agentType`, and Canopy writes only
+  `statusLine`. Mods gain `isDeferred`. `claude logs`, `stop`, `kill`, `rm`, `purge` and
+  `claude daemon` get fixes, and Canopy runs none of these commands.
+
+**Canopy's contract against 2.1.293, diffed against 2.1.292.** The 2.1.293 build was on the runner
+at `~/.local/share/claude/versions/2.1.293`, byte-identical to the `claude` in `0.3.293`.
+`npm pack @anthropic-ai/claude-agent-sdk-linux-x64@0.3.292` supplied 2.1.292. With minified
+identifiers normalized:
+
+- **Hook events and schemas.** The hook-event array names the same 33 events in the same order, and
+  the input schemas of all 33 are identical. A ninth array now starts with
+  `"PreToolUse","PostToolUse"`. It belongs to the claude.ai Projects tool. When a hook or a path
+  rule could match, that tool keeps a path as typed instead of matching a listed name after Unicode
+  normalization. Canopy's panes do not run inside a claude.ai Project.
+- **Status line.** The object has the same 53 keys. Only the build stamps inside it differ.
+- **Options.** The 175 `.option("` calls (118 distinct) and 94 `new …("-` calls (90 distinct) are
+  unchanged.
+- **Environment.** By the compat prompt's regex, names go from 845 to 847, and none was removed. The
+  two added are `CLAUDE_BG_CARRIED_PROMPTS_SHA256` and `CLAUDE_CODE_DESKTOP_SKILL_SWITCHES`.
+- **SDK.** `sdk-tools.d.ts` is identical. `sdk.d.ts` adds `subagent_type` to background-task
+  entries, the two startup failure reasons above, and a reworded `syncClaudeAiSkills` comment.
+  Canopy reads none of them.
+
+The JavaScript went from 2,263 to 2,277 chunks. Each was tokenized with `acorn`, leaving out build
+stamps and chunk names: 2.1.293 adds 1,331 string literals and removes 214. The list was triaged by
+keyword: hooks, status line, settings, permission, haiku, model, effort, terminal, paste,
+background, queued, refusal, compaction, MCP, skills and environment names. The Haiku 5.5 IDs, such
+as `us.anthropic.claude-haiku-5-5` and `VERTEX_REGION_CLAUDE_HAIKU_5_5`, and the `←` literals, such as
+`tengu_left_arrow_carries_queued`, match announced entries. Four chunks per build did not tokenize.
+
+**The prompt-file arithmetic is archive bookkeeping.** The archive went from 19 to 20 prompt
+entries, and from 50,738 to 52,675 tokens (+1,937, +3.8%). Its `meta/prompt-stats.md` names every
+change:
+
+- **System +6,587 is an eighth copy of one prompt**, `User Memory Project One 8`.
+- **Tools −4,650 is the archive's own reshuffle.** It dropped its duplicate entries for the Bash
+  (3,488 tokens) and Agent (2,251) descriptions. It added nested `File Pattern Matching 2` (324) and
+  `Read Local File Content 2` (765). The tool-description diffs rename placeholders, such as
+  `${EXPR_1}` to `${PATH}`, and remove wrapper layers. No description text changed.
+- **The model list grew from 182 to 184.** `haiku-5-5`, `claude-artifacts` and `claude-prod`
+  arrived, and the prefix `claude-haiku-` left.
+
+The archive's bundle entry grew **+456.9 kB (+0.8%)** in KiB: 467,855 bytes, from 58,988,049 to
+59,455,904. The archive's `v2.1.292` tag still sits on the first commit of its series. So a compare
+from `v2.1.292` to `v2.1.293` lists 19 files from 19 commits, and 8 of those commits are 2.1.292's.
+`v2.1.293` sits on its series' last commit. Comparing 2.1.292's last commit, `4f5f34d`, with
+`v2.1.293` lists 2.1.293's 18 files from 11 commits.
+
+**All 56 of 2.1.293's CLI changelog entries were readable this run**, against 12 in the pasted
+release notes. The official `CHANGELOG.md`, the changelog archive's compare diff and both builds
+were reachable. On this branch, `npm ci` now installs `0.3.293`, which vendors CLI 2.1.293.
 
 ## Error states
 
