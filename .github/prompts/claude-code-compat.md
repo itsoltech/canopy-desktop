@@ -16,7 +16,7 @@ the part that pays.
 
 **3. Probe `gh api` once, with the compare call, and commit to the result.** Under the workflow's
 `--allowedTools` it was denied on twenty-one consecutive runs that probed it (as of v2.1.283; the
-v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 to v2.1.292 runs' sessions ran in auto
+v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 to v2.1.293 runs' sessions ran in auto
 mode instead (an observation about those runs; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
 `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `python3` and `node` all ran. Record which way
 the one probe went in the PR body. **If it runs, use point 6.**
@@ -44,7 +44,7 @@ An older build ships inside the vendored SDK in `node_modules`; the same section
 **5. Check whether an earlier run already started this increment, and push the description early.**
 The job has `timeout-minutes: 120`, and a run that stops inside the analysis step skips the tracker
 update, so the next run gets the same `FROM_VERSION`/`TO_VERSION`. The v2.1.285 retry found
-`ed6bcc0`, the `0.3.285` bump, on the branch tip, pushed at 07:14 UTC during the 06:17 run, with no
+`29b53f5`, the `0.3.285` bump, on the branch tip, pushed at 07:14 UTC during the 06:17 run, with no
 documentation commit and a description still ending at v2.1.284, which fits a run that stopped
 inside the analysis step. Compare `git log -3 --oneline` after
 the checkout with the PR title's upper bound. If the branch is ahead, verify the commit that is there
@@ -53,7 +53,7 @@ the rest so a timeout cannot strand it: commit and push the documentation, run `
 then refine. `date -u` runs, so the budget is measurable.
 
 **6. When `gh api` runs, four sources make the increment's coverage complete.** The v2.1.286 to
-v2.1.292 runs used all four and read every changelog entry (88, 106, 89, 27, 190 + 2 and 92),
+v2.1.293 runs used all four and read every changelog entry (88, 106, 89, 27, 190 + 2, 92 and 56),
 where earlier runs read twelve.
 
 - `gh api repos/marckrenn/claude-code-changelog/compare/{FROM_VERSION}...{TO_VERSION}` with
@@ -65,6 +65,10 @@ where earlier runs read twelve.
   the tag compare listed one file, `cc-prompt.md`. `commits?since=` lists the series; comparing
   `v2.1.291` with its last commit (`4f5f34d`) gave all 16 files. Read `ahead_by` and the file count
   before taking a compare as complete.
+- **Check where the `FROM_VERSION` tag sits too.** A tag on its series' first commit also widens
+  the next compare. `v2.1.292` still sits there, so `compare/v2.1.292...v2.1.293` listed 19 files
+  from 19 commits, and 8 of those commits were 2.1.292's. Comparing 2.1.292's last commit,
+  `4f5f34d`, with `v2.1.293` gave 2.1.293's own 18 files from 11 commits.
 - `gh api repos/anthropics/claude-code/contents/CHANGELOG.md --jq '.content' | base64 -d` is the
   official changelog, with every entry the pasted notes hide behind "… +N more".
 - `contents/meta/prompt-stats.md?ref={TAG}` names every prompt entry. **Read it before attributing
@@ -111,6 +115,28 @@ where earlier runs read twelve.
   2.1.292: five added, none removed. Status keys stayed 53, the `.option("` calls went 174 (117) →
   175 (118), and the `new <X>("-` calls stayed 94 (90). All eight `["PreToolUse","PostToolUse"`
   arrays and all 33 event schemas were identical.
+- **The v2.1.293 run's totals.** Environment names went 845 → 847, none removed. Status keys stayed
+  53, and the options stayed 175 (118) and 94 (90). The 33 event schemas were identical. The
+  `["PreToolUse","PostToolUse"` arrays went from 8 to 9; the new one is the claude.ai Projects
+  tool's check before a Unicode name match. This run's script used `acorn`'s tokenizer with bracket
+  matching over the tokens. It took each schema as the object around
+  `hook_event_name : <name> ( "<Event>" )`, and it replaced every identifier with `_` except object
+  keys and property names.
+- **An alias change is settled by one headless call through the workflow's own endpoint.**
+  `claude -p --model haiku --output-format json`, with the prompt on stdin, returns `modelUsage`
+  keyed by the resolved ID, with `provider` and `canonicalModel`. Pass the prompt on stdin because
+  `--tools` is variadic and swallows a trailing prompt. To test the commit-message turn itself, run
+  its exact `query()` options from `node_modules` after `npm ci`, with
+  `pathToClaudeCodeExecutable: undefined`. That runs the bundled CLI, which is the binary the bump
+  moves. Both calls cost under a cent on Haiku 5.5. Before reasoning about an alias, read the
+  catalog entry (`haiku:\{default:`) and the provider function (anchor `return"gateway";return`). A
+  plain `ANTHROPIC_BASE_URL` reads as `firstParty`.
+- **A maintainer's force-push rewrites every hash the description cites.** PR 350's head was
+  force-pushed at 2026-10-07 07:18 UTC, after the v2.1.292 description was written, and none of
+  its 19 cited hashes survived. `gh api repos/{REPO}/commits/{SHA}` still returns an orphaned
+  commit's subject. Match it against `git log origin/next..origin/chore/claude-code-compat`. The
+  timeline's `head_ref_force_pushed` events show when this happened. The workflow's clone is
+  shallow, so run `git fetch --unshallow origin` before `git merge-base`.
 - **Diff the whole build by its string literals, not by its text.** The JavaScript is about
   2,170 chunks. Each starts with `// @bun @bytecode` and the `(c) Anthropic PBC` banner, and ends
   in a NUL byte. Cut at the NUL, every chunk tokenizes cleanly with `node_modules/acorn`
@@ -288,7 +314,7 @@ For deeper analysis, fetch diffs from the changelog repo yourself using the FROM
 > that surfaced it.
 >
 > **This has now been tested twice and the second test added nothing. Do not test it a third time.**
-> The first attempt is on this branch as `7ec6632`, reverted by `3446ad4`. The v2.1.260 → v2.1.261 run
+> The first attempt is on this branch as `ad4d668`, reverted by `32a396a`. The v2.1.260 → v2.1.261 run
 > repeated it anyway — committed the one-character fix to all three workflows, pushed, and got
 > `refusing to allow a Personal Access Token to create or update workflow
 .github/workflows/claude-code-compat.yml without workflow scope`. It reasoned that an inherited
@@ -560,7 +586,7 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > recovered "Uses the built-in executable if not specified". `ls -la` **runs** on `node_modules`, and
 > it is the one-call answer to "does the SDK ship its own binary" — a question two findings in this
 > range turn on. And `git log -1 --format='%B' <sha>` **runs**, which matters because this branch
-> carries two reverted `fix(ci)` workflow commits: reading `d3f34b5`'s body is how a run learns in one
+> carries two reverted `fix(ci)` workflow commits: reading `cd741aa`'s body is how a run learns in one
 > call that the `RELEASE_TOKEN` block below is why, instead of attempting the same fix a third time.
 >
 > **Write long commit bodies with `git commit -F -` and a quoted heredoc.** The `simple_expansion`
