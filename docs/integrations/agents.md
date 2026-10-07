@@ -3313,8 +3313,8 @@ and this release moves that target.
   turn took 4.9 s and cost $0.0083. With `ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-4-5`, the same
   turn ran on `claude-haiku-4-5`, with a 200K window, in 7.0 s for $0.0636. That is one run each,
   not a benchmark.
-- **Price.** Each request in the probe was about 60K tokens, most of it Claude Code's own system
-  prompt and tools. The 15,000-character diff cap adds at most a few thousand. Haiku 5.5 costs
+- **Price.** Each request in these runs was a little over 50K tokens, most of it Claude Code's own
+  system prompt and tools. The 15,000-character diff cap adds at most a few thousand. Haiku 5.5 costs
   $0.10/$0.50 per Mtok up to 100K prompt tokens and $0.50/$2.50 above, both below Haiku 4.5's $1/$5.
 
 **Three things can now stop the turn, and each fails soft.** A turn without `structured_output` ends
@@ -3331,10 +3331,11 @@ as `null`, so the user gets no suggestion.
 - **Exact model allow-lists.** The 2.1.283 note predicted this case. Under
   `availableModelsMatch: "exact"`, an `availableModels` list that names `claude-haiku-4-5` and not
   `claude-haiku-5-5` now refuses the turn until an administrator lists the new ID.
-- **Safety classifiers.** Haiku 5.5 runs classifiers that can end a request with
-  `stop_reason: "refusal"`, and the API offers no server-side fallback for this model. Haiku 4.5 had
-  neither. A refused turn returns no structured output. How an SDK run reports a refusal was not
-  traced.
+- **Safety classifiers.** Anthropic's model documentation, not the changelog or the build, says
+  Haiku 5.5 runs safety classifiers that can end a request with `stop_reason: "refusal"`. It also
+  says these refusals are new for code coming from Haiku 4.5, and that the API has no server-side
+  fallback for this model. A refused turn returns no structured output. How an SDK run reports a
+  refusal was not traced.
 
 Panes change too. A profile whose Model field says `haiku` now runs Haiku 5.5 on the first-party
 API. The status line reports the 1M window, which the Agent Inspector prints as "1M". Canopy holds
@@ -3379,11 +3380,11 @@ identifiers normalized:
 - **Environment.** By the compat prompt's regex, names go from 845 to 847, and none was removed. The
   two added are `CLAUDE_BG_CARRIED_PROMPTS_SHA256` and `CLAUDE_CODE_DESKTOP_SKILL_SWITCHES`.
 - **SDK.** `sdk-tools.d.ts` is identical. `sdk.d.ts` adds `subagent_type` to background-task
-  entries, the two startup failure reasons above, and a reworded `syncClaudeAiSkills` comment.
-  Canopy reads none of them.
+  entries and the two startup failure reasons above. It also rewords two comments: the one on
+  `syncClaudeAiSkills`, and the one on the background-task level signal. Canopy reads none of them.
 
 The JavaScript went from 2,263 to 2,277 chunks. Each was tokenized with `acorn`, leaving out build
-stamps and chunk names: 2.1.293 adds 1,331 string literals and removes 214. The list was triaged by
+stamps and chunk names: 2.1.293 adds 1,331 string and template literals and removes 214. The list was triaged by
 keyword: hooks, status line, settings, permission, haiku, model, effort, terminal, paste,
 background, queued, refusal, compaction, MCP, skills and environment names. The Haiku 5.5 IDs, such
 as `us.anthropic.claude-haiku-5-5` and `VERTEX_REGION_CLAUDE_HAIKU_5_5`, and the `←` literals, such as
@@ -3396,8 +3397,9 @@ change:
 - **System +6,587 is an eighth copy of one prompt**, `User Memory Project One 8`.
 - **Tools −4,650 is the archive's own reshuffle.** It dropped its duplicate entries for the Bash
   (3,488 tokens) and Agent (2,251) descriptions. It added nested `File Pattern Matching 2` (324) and
-  `Read Local File Content 2` (765). The tool-description diffs rename placeholders, such as
-  `${EXPR_1}` to `${PATH}`, and remove wrapper layers. No description text changed.
+  `Read Local File Content 2` (765). The tool-description diffs add duplicate reference blocks,
+  rename placeholders such as `${EXPR_1}` to `${PATH}`, and remove wrapper layers. The entries that
+  remain keep their token counts.
 - **The model list grew from 182 to 184.** `haiku-5-5`, `claude-artifacts` and `claude-prod`
   arrived, and the prefix `claude-haiku-` left.
 
