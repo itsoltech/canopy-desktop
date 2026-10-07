@@ -156,8 +156,11 @@ where earlier runs read twelve.
 - **When a tool accepts a new alias or drops a stray field, trace it to the hook in three
   searches.** A tool attaches its repair either as a property, `coerceInput:<fn>`, or as a method,
   `coerceInput(e){…}`; search both. The 2.1.292 Write, Grep and WebFetch repairs use the method
-  form, which a search for `coerceInput:` alone misses. A repair is kept only when its result passes the tool's
-  schema (`function pH(e,n){return n!==null&&e.safeParse(n.input).success?n:null}` in 2.1.292).
+  form, which a search for `coerceInput:` alone misses. Those three keep a repair only when its
+  result passes the tool's schema
+  (`function pH(e,n){return n!==null&&e.safeParse(n.input).success?n:null}` in 2.1.292). Read, Edit
+  and Bash attach theirs as a property, without that check; the validator then rejects a repaired
+  input that still fails.
   Then anchor on `{observableInput:`: the settings `PreToolUse` runner and the permission check,
   whose input `PermissionRequest` receives, both take that variable. If they still do, a new alias
   cannot reach `summarizeToolInput` raw, and the check is done.
