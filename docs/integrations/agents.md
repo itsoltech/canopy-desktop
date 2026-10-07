@@ -3167,6 +3167,125 @@ against 12 in the pasted release notes. The official `CHANGELOG.md`, the changel
 diff and all three builds were reachable. On this branch, `npm ci` now installs `0.3.291`, which
 vendors CLI 2.1.291.
 
+**2.1.292 changes nothing Canopy depends on, and the entries nearest to it check out against the
+build.** 48 of its 92 entries concern plugins and mods (23), cloud sessions and routines (12),
+Claude Tag (8), the Code Review product (3) or Remote Control (2), and Canopy uses none of them. Of
+the rest, the ones that touch a Canopy path leave it unchanged, and the others reach panes through
+the user's binary.
+
+**Repaired tool inputs reach hooks already repaired.** 2.1.292 says "Grep accepts `file_path` for
+`path`, and Write, WebFetch and Read ignore a few stray parameters instead of failing the call".
+`summarizeToolInput` checks `command` and `file_path` before `pattern` and `url`. A raw Write
+carrying the text-editor verb `command: "create"` would read "Write: create", and a raw Grep with
+`file_path` would lose its pattern. Neither shape reaches it:
+
+- **What each tool repairs.** Write drops `command` when it is `"create"`, behind the rollout flag
+  `tengu_noble_mountain`, which defaults to on. Grep moves `file_path` to `path`, or drops it when it
+  repeats `path`. Read drops a stray `description`. WebFetch drops `text_content_token_limit`,
+  `html_extraction_method` and `web_fetch_pdf_extract_text`, which belong to the API's server-side
+  fetch tool. A repair is kept only when its result passes the tool's schema.
+- **What hooks receive.** The build validates the repaired input and hands the result to
+  `PreToolUse` as `observableInput`, as the 2.1.283 trace found. The permission check takes the same
+  input, so `PermissionRequest` gets it too. The notch and the permission notification therefore see
+  `file_path` and `path`.
+- **Mods.** The fix for "plugin `tool.call` hooks seeing some tool calls before misnamed parameters
+  were repaired" gives mods the repaired input as well. Canopy registers command hooks only.
+
+**The Agent tool's new `effort` changes no summary and no hook.** The field is the enum
+`"low" | "medium" | "high" | "xhigh" | "max"`. `summarizeToolInput` reads the Agent tool's `prompt`
+before any other string, and the `SubagentStart` schema is unchanged. The field's description tells
+the model to set it "ONLY when the user, or instructions such as CLAUDE.md or a skill, explicitly
+ask". Six workflows here pass `--effort max`, and no prompt, skill or instruction file asks for a
+per-call effort, so their subagents are unchanged.
+
+**SDK and `-p` runs now wait for background commands.** 2.1.292 fixed "one-shot `claude -p` and
+Agent SDK runs stopping a background command 5 seconds after the final result". The build now holds
+a headless session open while a background shell runs, behind `tengu_tidy_sloth`, which defaults to
+on. `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, 600,000 ms by default, still caps the wait, except that a
+shell with its own deadline is held until that deadline. The commit-message turn is an SDK run, but
+it meets this only if the model starts a background command. It passes no `canUseTool`, so Bash runs
+there only under an allow rule from the user's settings, which the turn loads. If that happens, the
+turn can now run up to ten minutes past its result, and nothing in Canopy bounds it.
+
+**The rest of the entries that reach Canopy do so through the user's binary.**
+
+- **SDK startup.** The first turn of an SDK session no longer waits for HTTP and SSE MCP servers to
+  answer `resources/list`. The commit-message turn sets `strictMcpConfig`, so it connects none.
+- **Hook output.** `<system-reminder>` tags in a hook's output are escaped: the build replaces a `<`
+  that opens or closes such a tag with `&lt;`. Canopy's SessionStart context names the workspace,
+  branch and project root, and holds no such tag.
+- **Links.** Usage-limit messages now write their claude.ai links with `https://`. Canopy's
+  `WebLinksAddon` matches only `https?://` URLs, and its file-path provider links only tracked
+  files, so the bare `claude.ai/settings/usage` text was never a link in a pane. From 2.1.292 it
+  opens through `openTerminalUrl`.
+- **iTerm2.** Fullscreen mode no longer sends a full-screen clear on every resize and Ctrl+L when
+  iTerm2 is detected. The check, the same in the 2.1.291 and 2.1.292 builds, is
+  `TERM_PROGRAM === "iTerm.app"`, a set `ITERM_SESSION_ID`, or a detected terminal named
+  `iTerm.app`. `PtyManager` sets `TERM_PROGRAM` to `canopy` but passes `ITERM_SESSION_ID` through
+  from Canopy's own environment. So a Canopy started from an iTerm2 session, as `npm run dev` there
+  is, opens panes that read as iTerm2, and older CLIs still clear them on every resize.
+- **Plan mode.** Resuming from the `claude --resume` picker or with `/resume` now restores plan
+  mode. Canopy resumes with `--resume <id>`, the path 2.1.290 covered. The Agent Inspector reads the
+  mode only from `SessionStart`; whether the `SessionStart` that `/resume` fires carries the restored
+  mode was not traced.
+- **Proxies.** `NO_PROXY` is now honoured for Claude Code's own requests (sign-in, policy, feedback
+  and artifacts) when `HTTPS_PROXY` is set.
+- **MCP.** Local (stdio) servers negotiate protocol version 2026-07-28 by default, and a tool name
+  over 128 characters no longer fails every request. Canopy writes no MCP servers.
+- **Input.** The fixes for overlapping pastes, vim motions, typing while a footer row is selected,
+  and Ctrl+C draft recovery all arrive through the pane's terminal.
+- **Names.** Agent names are capped at 256 characters, and a longer skill `name` is ignored. Canopy
+  writes no agent definitions.
+- **Retries.** `CLAUDE_CODE_OVERLOADED_RETRY_BASE_DELAY_MS` lengthens the base delay of the 529
+  backoff. Canopy sets none of the new variables; a profile's custom environment can.
+
+**Canopy's contract against 2.1.292, diffed against 2.1.291.** The 2.1.292 build was on the runner
+at `~/.local/share/claude/versions/2.1.292`, byte-identical to the `claude` in `0.3.292`.
+`npm pack @anthropic-ai/claude-agent-sdk-linux-x64@0.3.291` supplied 2.1.291. With minified
+identifiers normalized:
+
+- **Hook events and schemas.** The hook-event array names the same 33 events in the same order, so
+  Canopy's 18 are all present. The eight arrays that start with `"PreToolUse","PostToolUse"` are
+  identical, and so are the input schemas of all 33 events.
+- **Status line.** The object has the same 53 keys.
+- **Options.** The `.option("` calls go from 174 (117 distinct) to 175 (118); the one added is
+  `--marketplace <source>`. The 94 `new …("-` calls (90 distinct) are unchanged.
+- **Environment.** By the compat prompt's regex, names go from 840 to 845, and none was removed. The
+  five added are `CLAUDE_CODE_OVERLOADED_RETRY_BASE_DELAY_MS`, `CLAUDE_CODE_HOST_SKILL_CATALOG`,
+  `CLAUDE_CODE_MANAGED_CONFIG_PREFETCH`, `CLAUDE_CODE_ARTIFACT_VERSIONS` and
+  `CLAUDE_CODE_ARTIFACT_PREVIEW_EMULATOR`.
+- **SDK.** `sdk-tools.d.ts` adds the Agent tool's `effort` and rewords
+  `backgroundEndsWithFinalResponse` for headless sessions. `sdk.d.ts` adds `agent_id` to subagent
+  messages, and `run_id` and `parent_task_id` to task events. The commit-message turn reads only the
+  `result` message.
+
+The JavaScript went from 2,239 to 2,263 chunks. Each was tokenized with `acorn`, leaving out build
+stamps and chunk names: 2.1.292 adds 1,180 string literals and removes 174. The list was triaged by
+keyword, not read string by string: hooks, tool input, coercion, background, headless, resume, plan
+mode, permission, iTerm, links, MCP, `system-reminder` and effort. Four chunks per build did not
+tokenize, so a change confined to them would not show.
+
+**The prompt-file arithmetic is archive bookkeeping again.** The archive went from 18 to 19 prompt
+entries, and from 44,540 to 50,738 tokens (+6,198, +13.9%). Its `meta/prompt-stats.md` names every
+change:
+
+- **System +6,198 is a seventh copy of one prompt.** `User Memory Project One 7` adds 940
+  characters and 389 tokens to copy 6, the same step as copies 3 to 6.
+- **Tools are flat at 15,193 tokens.** The Edit, Write, Grep, Bash and Agent files grew in
+  characters only, by one more wrapper layer each. The Agent tool's new field is in its schema, not
+  its prompt.
+- **The model list grew from 181 to 182.** `claude-preview-` and `claude-publish-` arrived and
+  `claude-code-user` left; all three are identifiers rather than models.
+
+The archive's bundle entry grew **+574.5 kB (+1.0%)** in KiB: 588,293 bytes, from 58,399,756 to
+58,988,049. The archive's `v2.1.292` tag sits on the first commit of the 2.1.292 series, so a
+compare against the tag lists only `cc-prompt.md`. Comparing `v2.1.291` with the series' last
+commit, `4f5f34d`, lists all 16 files.
+
+**All 92 of 2.1.292's CLI changelog entries were readable this run**, against 12 in the pasted
+release notes. The official `CHANGELOG.md`, the changelog archive's compare diff and both builds
+were reachable. On this branch, `npm ci` now installs `0.3.292`, which vendors CLI 2.1.292.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
