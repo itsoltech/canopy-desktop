@@ -3168,10 +3168,10 @@ diff and all three builds were reachable. On this branch, `npm ci` now installs 
 vendors CLI 2.1.291.
 
 **2.1.292 changes nothing Canopy depends on, and the entries nearest to it check out against the
-build.** 48 of its 92 entries concern plugins and mods (23), cloud sessions and routines (12),
-Claude Tag (8), the Code Review product (3) or Remote Control (2), and Canopy uses none of them. Of
-the rest, the ones that touch a Canopy path leave it unchanged, and the others reach panes through
-the user's binary.
+build.** About half of its 92 entries, 48 by this count, concern plugins and mods (23), cloud
+sessions and routines (12), Claude Tag (8), the Code Review product (3) or Remote Control (2).
+Canopy uses none of them. Of the rest, the ones that touch a Canopy path leave it unchanged, and
+the others reach panes through the user's binary.
 
 **Repaired tool inputs reach hooks already repaired.** 2.1.292 says "Grep accepts `file_path` for
 `path`, and Write, WebFetch and Read ignore a few stray parameters instead of failing the call".
@@ -3179,11 +3179,13 @@ the user's binary.
 carrying the text-editor verb `command: "create"` would read "Write: create", and a raw Grep with
 `file_path` would lose its pattern. Neither shape reaches it:
 
-- **What each tool repairs.** Write drops `command` when it is `"create"`, behind the rollout flag
-  `tengu_noble_mountain`, which defaults to on. Grep moves `file_path` to `path`, or drops it when it
-  repeats `path`. Read drops a stray `description`. WebFetch drops `text_content_token_limit`,
-  `html_extraction_method` and `web_fetch_pdf_extract_text`, which belong to the API's server-side
-  fetch tool. A repair is kept only when its result passes the tool's schema.
+- **What each tool repairs.** Write now also drops `command` when it is `"create"`, behind
+  `tengu_noble_mountain`, the rollout flag that already gated its earlier repairs and defaults to
+  on. Grep moves `file_path` to `path`, or drops it when it repeats `path`. Read drops a stray
+  `description`. WebFetch drops `text_content_token_limit`, `html_extraction_method` and
+  `web_fetch_pdf_extract_text`, which belong to the API's server-side fetch tool. Write, Grep and
+  WebFetch keep a repair only when its result passes the tool's schema. Read applies its repair
+  as is, so a result that still fails the schema fails the call.
 - **What hooks receive.** The build validates the repaired input and hands the result to
   `PreToolUse` as `observableInput`, as the 2.1.283 trace found. The permission check takes the same
   input, so `PermissionRequest` gets it too. The notch and the permission notification therefore see
@@ -3201,8 +3203,9 @@ per-call effort, so their subagents are unchanged.
 **SDK and `-p` runs now wait for background commands.** 2.1.292 fixed "one-shot `claude -p` and
 Agent SDK runs stopping a background command 5 seconds after the final result". The build now holds
 a headless session open while a background shell runs, behind `tengu_tidy_sloth`, which defaults to
-on. `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, 600,000 ms by default, still caps the wait, except that a
-shell with its own deadline is held until that deadline. The commit-message turn is an SDK run, but
+on. `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, 600,000 ms by default, still caps the wait, but not
+while a shell's own deadline, plus five seconds, is still ahead. The commit-message turn is an SDK
+run, but
 it meets this only if the model starts a background command. It passes no `canUseTool`, so Bash runs
 there only under an allow rule from the user's settings, which the turn loads. If that happens, the
 turn can now run up to ten minutes past its result, and nothing in Canopy bounds it.
@@ -3255,9 +3258,10 @@ identifiers normalized:
   `CLAUDE_CODE_MANAGED_CONFIG_PREFETCH`, `CLAUDE_CODE_ARTIFACT_VERSIONS` and
   `CLAUDE_CODE_ARTIFACT_PREVIEW_EMULATOR`.
 - **SDK.** `sdk-tools.d.ts` adds the Agent tool's `effort` and rewords
-  `backgroundEndsWithFinalResponse` for headless sessions. `sdk.d.ts` adds `agent_id` to subagent
-  messages, and `run_id` and `parent_task_id` to task events. The commit-message turn reads only the
-  `result` message.
+  `backgroundEndsWithFinalResponse` for headless sessions. It also adds artifact-listing totals and
+  notification-queue timestamps. `sdk.d.ts` adds `agent_id` to subagent messages, `run_id` and
+  `parent_task_id` to task events, and `runId` to task notifications. The commit-message turn reads
+  only the `result` message.
 
 The JavaScript went from 2,239 to 2,263 chunks. Each was tokenized with `acorn`, leaving out build
 stamps and chunk names: 2.1.292 adds 1,180 string literals and removes 174. The list was triaged by
