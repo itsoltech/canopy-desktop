@@ -16,7 +16,7 @@ the part that pays.
 
 **3. Probe `gh api` once, with the compare call, and commit to the result.** Under the workflow's
 `--allowedTools` it was denied on twenty-one consecutive runs that probed it (as of v2.1.283; the
-v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 to v2.1.291 runs' sessions ran in auto
+v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 to v2.1.292 runs' sessions ran in auto
 mode instead (an observation about those runs; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
 `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `python3` and `node` all ran. Record which way
 the one probe went in the PR body. **If it runs, use point 6.**
@@ -53,12 +53,18 @@ the rest so a timeout cannot strand it: commit and push the documentation, run `
 then refine. `date -u` runs, so the budget is measurable.
 
 **6. When `gh api` runs, four sources make the increment's coverage complete.** The v2.1.286 to
-v2.1.289 runs used all four and read every changelog entry (88, 106, 89 and 27), where earlier
-runs read twelve.
+v2.1.292 runs used all four and read every changelog entry (88, 106, 89, 27, 190 + 2 and 92),
+where earlier runs read twelve.
 
 - `gh api repos/marckrenn/claude-code-changelog/compare/{FROM_VERSION}...{TO_VERSION}` with
   `--jq '.files[] | "\(.filename) (\(.status))"'` lists the archive's changes. Select `.patch` for
   the `meta/` and `system-prompts/` files you need.
+- **Check that the tag compare covers the whole release.** The archive commits each release as a
+  series: "Update prompt to version N", five edits, an init, then two commits titled `vN` that
+  carry `meta/`. `v2.1.291` sits on its series' last commit, but `v2.1.292` sits on the first, so
+  the tag compare listed one file, `cc-prompt.md`. `commits?since=` lists the series; comparing
+  `v2.1.291` with its last commit (`4f5f34d`) gave all 16 files. Read `ahead_by` and the file count
+  before taking a compare as complete.
 - `gh api repos/anthropics/claude-code/contents/CHANGELOG.md --jq '.content' | base64 -d` is the
   official changelog, with every entry the pasted notes hide behind "… +N more".
 - `contents/meta/prompt-stats.md?ref={TAG}` names every prompt entry. **Read it before attributing
@@ -101,6 +107,10 @@ runs read twelve.
   removed. The status line (53 keys) and the options (174 and 117; 93 and 89 → 94 and 90) did
   reproduce. Paste the exact pattern into the PR body each run, so the next run reproduces the
   count instead of a near-miss of it.
+- **The v2.1.292 run's script reproduced 840 for 2.1.291 with that regex**, and read 845 for
+  2.1.292: five added, none removed. Status keys stayed 53, the `.option("` calls went 174 (117) →
+  175 (118), and the `new <X>("-` calls stayed 94 (90). All eight `["PreToolUse","PostToolUse"`
+  arrays and all 33 event schemas were identical.
 - **Diff the whole build by its string literals, not by its text.** The JavaScript is about
   2,170 chunks. Each starts with `// @bun @bytecode` and the `(c) Anthropic PBC` banner, and ends
   in a NUL byte. Cut at the NUL, every chunk tokenizes cleanly with `node_modules/acorn`
@@ -130,7 +140,7 @@ runs read twelve.
   (an unquoted path, a lost result, an unbounded wait), read the fix's guard in the build, and then
   check whether Canopy has the defect outside that guard. Both of 2.1.290's Canopy fixes came from
   this check.
-- **The SDK turns a late CLI error into a thrown stream.** From `0.3.207` to `0.3.291`,
+- **The SDK turns a late CLI error into a thrown stream.** From `0.3.207` to `0.3.292`,
   `Query.readMessages` queues a `result` message first. On a non-zero exit after an `is_error`
   result, it then errors the stream with "Claude Code returned an error result". A consumer that
   reads a value from the result and lets the loop throw loses that value. Check every new
@@ -143,6 +153,20 @@ runs read twelve.
   forms. Without the accessor form, the v2.1.287 run's first list called two 2.1.286 names new and
   missed `CLAUDE_CODE_GZIP_REQUEST_BODY_BLOCKS`; its review caught the miss, and a plain count in
   each build settled all three.
+- **When a tool accepts a new alias or drops a stray field, trace it to the hook in three
+  searches.** A tool attaches its repair either as a property, `coerceInput:<fn>`, or as a method,
+  `coerceInput(e){…}`; search both. The 2.1.292 Write, Grep and WebFetch repairs use the method
+  form, which a search for `coerceInput:` alone misses. A repair is kept only when its result passes the tool's
+  schema (`function pH(e,n){return n!==null&&e.safeParse(n.input).success?n:null}` in 2.1.292).
+  Then anchor on `{observableInput:`: the settings `PreToolUse` runner and the permission check,
+  whose input `PermissionRequest` receives, both take that variable. If they still do, a new alias
+  cannot reach `summarizeToolInput` raw, and the check is done.
+- **When an entry names a terminal, test Canopy's PTY environment against the CLI's detection.**
+  `PtyManager` sets `TERM_PROGRAM`, `COLORTERM` and `TERM`, and passes the rest of Canopy's own
+  environment through, via `resolveLoginEnv()`'s login shell. 2.1.292's iTerm2 fix
+  led to the detection function (anchor `inITerm2!==null`). It is true for a set `ITERM_SESSION_ID`,
+  which is present whenever Canopy itself starts in iTerm2. Read the detection, then check each
+  variable it reads against that override list.
 
 If `npm ci` and `npm run …` run too, use them. `npm ci` after a hand-edited bump is CI's own check
 of the lockfile, and it puts the branch's SDK types in `node_modules` for the typecheck. From 2.1.286
