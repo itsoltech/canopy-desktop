@@ -128,9 +128,10 @@ where earlier runs read twelve.
   `--tools` is variadic and swallows a trailing prompt. To test the commit-message turn itself, run
   its exact `query()` options from `node_modules` after `npm ci`, with
   `pathToClaudeCodeExecutable: undefined`. That runs the bundled CLI, which is the binary the bump
-  moves. Both calls cost under a cent on Haiku 5.5. Before reasoning about an alias, read the
-  catalog entry (`haiku:\{default:`) and the provider function (anchor `return"gateway";return`). A
-  plain `ANTHROPIC_BASE_URL` reads as `firstParty`.
+  moves. Both calls cost under a cent on Haiku 5.5. Do not count on PR Validation for this: on this
+  branch it passes through its bypass step and skips the model call. Before reasoning about an
+  alias, read the catalog entry (`haiku:\{default:`) and the provider function (anchor
+  `return"gateway";return`). A plain `ANTHROPIC_BASE_URL` reads as `firstParty`.
 - **A maintainer's force-push rewrites every hash the description cites.** PR 350's head was
   force-pushed at 2026-10-07 07:18 UTC, after the v2.1.292 description was written, and none of
   its 19 cited hashes survived. `gh api repos/{REPO}/commits/{SHA}` still returns an orphaned
