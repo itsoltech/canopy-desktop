@@ -67,6 +67,10 @@ pub struct PaneMetadata {
     /// Unsent task draft. Cleared after a successful bracketed paste; never a CLI argument.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_prompt: Option<String>,
+    /// Chat choices (model, reasoning, work mode); only chat panes carry them, so
+    /// snapshots without chats keep their previous shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<Box<crate::chat::config::ChatSettings>>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum PaneKind {
@@ -79,6 +83,8 @@ pub enum PaneKind {
     Video,
     Diff,
     Notes,
+    /// Headless agent conversation (`tool` is the provider, `profile_id` the account).
+    Chat,
 }
 impl PaneMetadata {
     fn valid(&self) -> bool {
@@ -87,6 +93,7 @@ impl PaneMetadata {
                 .task_prompt
                 .as_ref()
                 .is_none_or(|s| s.len() <= 512 * 1024 && !s.contains('\0'))
+            && self.chat.as_ref().is_none_or(|chat| chat.valid())
             && self.arguments.len() <= 128
             && self.arguments.iter().all(|a| a.len() <= 16384)
             && [
@@ -382,6 +389,58 @@ impl Workspace {
         value.metadata = metadata;
         tab.root.replace(pane, SplitTree::Leaf(value));
         Ok(())
+    }
+    /// Stores a chat pane's choices. Returns whether anything changed.
+    pub fn set_chat_settings(
+        &mut self,
+        pane: PaneId,
+        settings: crate::chat::config::ChatSettings,
+    ) -> Result<bool, StateError> {
+        let (tab, current) = self.locate(pane)?;
+        if current.metadata.kind != PaneKind::Chat {
+            return Err(StateError::InvalidMetadata);
+        }
+        if current.metadata.chat.as_deref() == Some(&settings) {
+            return Ok(false);
+        }
+        let mut metadata = current.metadata;
+        metadata.chat = Some(Box::new(settings));
+        self.set_pane_metadata(tab, pane, metadata)?;
+        Ok(true)
+    }
+    /// A chat's account before its first message; clears nothing else.
+    pub fn set_chat_account(&mut self, pane: PaneId, profile: &str) -> Result<bool, StateError> {
+        let (tab, current) = self.locate(pane)?;
+        if current.metadata.kind != PaneKind::Chat || current.metadata.resume_id.is_some() {
+            return Err(StateError::InvalidMetadata);
+        }
+        if current.metadata.profile_id.as_deref() == Some(profile) {
+            return Ok(false);
+        }
+        let mut metadata = current.metadata;
+        metadata.profile_id = Some(profile.to_owned());
+        self.set_pane_metadata(tab, pane, metadata)?;
+        Ok(true)
+    }
+    /// Renames the pane's tab only while it still has the `placeholder` title.
+    pub fn retitle_placeholder(
+        &mut self,
+        pane: PaneId,
+        placeholder: &str,
+        title: &str,
+    ) -> Result<bool, StateError> {
+        let (tab, _) = self.locate(pane)?;
+        if self.tab_mut(tab)?.title != placeholder {
+            return Ok(false);
+        }
+        self.rename(tab, title)?;
+        Ok(true)
+    }
+    fn locate(&self, pane: PaneId) -> Result<(TabId, Pane), StateError> {
+        self.tabs
+            .iter()
+            .find_map(|tab| tab.root.find(pane).map(|found| (tab.id, found.clone())))
+            .ok_or(StateError::MissingPane)
     }
     pub fn set_default_cwd(&mut self, path: PathBuf) {
         for tab in &mut self.tabs {

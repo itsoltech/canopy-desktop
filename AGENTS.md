@@ -119,7 +119,11 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 
 ## Projekty, worktree i puste stany
 
-- Bez wybranego projektu: centralne Open folder, bez layoutu sidebarów/tabów.
+- Bez wybranego projektu widać pełny layout z przestrzenią „No project”: czaty bez folderu,
+  każdy w prywatnym katalogu `<dane>/chats/<uuid>` usuwanym po zamknięciu taba czatu.
+  Wejście do pustej „No project” (start, zamknięcie ostatniego projektu, wybór w sidebarze)
+  otwiera nowy czat; zamknięcie ostatniego czatu pokazuje CTA „New chat”. Open folder jest
+  w sekcji Projects. Snapshot zapisuje tę przestrzeń w polu `scratch`.
 - Nowy projekt lub worktree ma pustą listę tabów. Nie twórz automatycznie
   taba, pane'a, shella ani agenta podczas otwierania/przełączania worktree.
 - Przy wybranym workspace bez tabów centralny CTA `Open shell` otwiera jawnie
@@ -394,6 +398,35 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   Pokazanie pane'a potwierdza obejrzenie, zwykłe Working i jawne Stop nie alarmują.
 - Live Claude pozostaje niezweryfikowane do czasu logowania; patrz docs/agents.md.
 
+## Czat agentów
+
+- Czat to główna funkcja: „New chat” na górze sidebara (⌘N) od razu otwiera `PaneKind::Chat`
+  w aktywnym projekcie (bez projektu — w „No project”); ikona obok (⌥⌘N) otwiera szybki czat
+  bez projektu. Paleta wyboru projektu jest pod ⌘⇧N.
+  Tools pozostają drugorzędne i wymagają projektu.
+- Claude Code działa headless (stream-json przez potoki), nie w PTY. Protokół, proces
+  i transkrypt żyją w `src/chat/` (bez GPUI); widok w `src/ui/chat/`, rejestr w
+  `AppState.chats`. Szczegóły i granice: [docs/chat.md](docs/chat.md).
+- Konto = profil narzędzia agenta; model, reasoning i tryb wybiera composer i zapisuje
+  `PaneMetadata.chat`. Nie zmieniaj profilu w Preferences w imieniu czatu.
+- Zgoda wymaga decyzji: brak decyzji, Stop i zamknięcie odrzucają oczekujące prośby.
+  Yolo jest jawnym wyborem w danym czacie, oznaczonym ostrzegawczo.
+- Proces czatu uczestniczy w Stop worktree, usuwaniu worktree i quit przez helpery
+  `AppState`; nie dodawaj ścieżek zamknięcia omijających `Chats`.
+- Wiersze listy synchronizuj wyłącznie przez `Transcript::take_changes`; nie przebudowuj
+  całej listy przy każdej delcie. Render nie parsuje markdown ani protokołu.
+- Każda wiadomość do Claude ma jawny `priority` (`later` = kolejna tura, `next` = Steer).
+  Kolejka żyje w Canopy i wysyła się po `session_state_changed idle`; Stop ją wstrzymuje,
+  zamknięcie z niewysłaną kolejką pyta o zgodę. Nie wysyłaj wiadomości bez priorytetu.
+- Praca subagenta nie trafia do głównej rozmowy: tam jest karta, a jego rozmowa otwiera się
+  w tym samym pane'ie (tylko do odczytu). Zgody subagenta zostają widoczne w głównej rozmowie.
+- Pigułki plików dla każdego istniejącego pliku (sprawdzanego poza UI), poza ukrytymi
+  katalogami w domu użytkownika; plik spoza katalogu czatu otwiera się w swoim katalogu.
+  Otwarcie idzie przez `FilesState::open_in`, nie przez przeglądarkę ani shell.
+- Subagent w tle kończy pracę po turze głównej: jego narzędzia nie są zamykane z turą,
+  a raport pochodzi z `SubagentHandback`. Bloki kodu najwyższego poziomu to osobne
+  widoki tekstu (zaznaczanie przez całą odpowiedź), z nagłówkiem i numerami linii.
+
 ## Toasty
 
 - Lekkie sukcesy operacji (Pull/Push, commit) trafiają do AppState.toasts.
@@ -450,7 +483,8 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 ## Aktualne granice i dalsze źródła
 
 Terminal/PTY, projekty i worktree, pełny layout, persist/restore, narzędzia oraz
-profile mają działające integracje. Files ma backend rzeczywistych plików, a edytor obsługuje zapis, konflikty i restore
+profile mają działające integracje. Czat z Claude Code (headless) ma pane, pickery
+i cykl życia; historia po restarcie, bogate karty narzędzi i Codex są kolejnymi etapami. Files ma backend rzeczywistych plików, a edytor obsługuje zapis, konflikty i restore
 ([zakres i ograniczenia](docs/files-editor.md)). Git Changes/diffy i commit mają integrację
 ([szczegóły i ograniczenia](docs/git-changes.md)). Inspektor, notch i resume mają
 integrację sesji Claude/Codex ([zakres kwalifikacji](docs/agents.md)); część

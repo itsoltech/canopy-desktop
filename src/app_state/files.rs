@@ -15,6 +15,65 @@ use std::{
     },
     time::Duration,
 };
+fn open_path(root: PathBuf, relative: &Path, line: Option<u32>, cx: &mut App) {
+    if cx.global::<AppState>().settings.read(cx).quitting {
+        return;
+    }
+    let resource = relative.to_string_lossy().to_string();
+    let app = cx.global::<AppState>().clone();
+    let pane = app.workspace.update(cx, |workspace, cx| {
+        let existing = workspace
+            .all_panes()
+            .iter()
+            .find(|p| {
+                matches!(
+                    p.metadata.kind,
+                    PaneKind::Editor | PaneKind::Image | PaneKind::Font | PaneKind::Video
+                ) && p.metadata.cwd.as_ref() == Some(&root)
+                    && p.metadata.resource.as_deref() == Some(&resource)
+            })
+            .map(|p| p.id);
+        let pane = if let Some(pane) = existing {
+            let _ = workspace.activate_pane(pane);
+            pane
+        } else {
+            let title = relative
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let tab = workspace.open(&title, "editor");
+            let pane = workspace.active().unwrap().focused;
+            let _ = workspace.set_pane_metadata(
+                tab,
+                pane,
+                PaneMetadata {
+                    kind: if files::is_font(relative) {
+                        PaneKind::Font
+                    } else if files::is_video(relative) {
+                        PaneKind::Video
+                    } else if files::is_image(relative) {
+                        PaneKind::Image
+                    } else {
+                        PaneKind::Editor
+                    },
+                    cwd: Some(root),
+                    resource: Some(resource),
+                    title: Some(title),
+                    ..Default::default()
+                },
+            );
+            pane
+        };
+        cx.notify();
+        pane
+    });
+    if let Some(line) = line {
+        app.editors
+            .update(cx, |editors, cx| editors.reveal(pane, line, cx));
+    }
+}
+
 #[derive(Clone)]
 struct Request {
     directories: BTreeSet<PathBuf>,
@@ -481,58 +540,22 @@ impl FilesState {
         self.refresh(cx);
     }
     pub fn open(&self, relative: &Path, cx: &mut App) {
-        if self.quitting || cx.global::<AppState>().settings.read(cx).quitting {
+        if self.quitting {
             return;
         }
         let Some(root) = self.root.clone() else {
             return;
         };
-        let resource = relative.to_string_lossy().to_string();
-        let app = cx.global::<AppState>().clone();
-        app.workspace.update(cx, |workspace, cx| {
-            let existing = workspace
-                .all_panes()
-                .iter()
-                .find(|p| {
-                    matches!(
-                        p.metadata.kind,
-                        PaneKind::Editor | PaneKind::Image | PaneKind::Font | PaneKind::Video
-                    ) && p.metadata.cwd.as_ref() == Some(&root)
-                        && p.metadata.resource.as_deref() == Some(&resource)
-                })
-                .map(|p| p.id);
-            if let Some(pane) = existing {
-                let _ = workspace.activate_pane(pane);
-            } else {
-                let title = relative
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
-                let tab = workspace.open(&title, "editor");
-                let pane = workspace.active().unwrap().focused;
-                let _ = workspace.set_pane_metadata(
-                    tab,
-                    pane,
-                    PaneMetadata {
-                        kind: if files::is_font(relative) {
-                            PaneKind::Font
-                        } else if files::is_video(relative) {
-                            PaneKind::Video
-                        } else if files::is_image(relative) {
-                            PaneKind::Image
-                        } else {
-                            PaneKind::Editor
-                        },
-                        cwd: Some(root),
-                        resource: Some(resource),
-                        title: Some(title),
-                        ..Default::default()
-                    },
-                );
-            }
-            cx.notify();
-        });
+        open_path(root, relative, None, cx);
+    }
+
+    /// Opens `relative` under `root` (e.g. a chat's folder) in the active workspace,
+    /// reusing its pane, and moves the cursor to the 1-based `line` when given.
+    pub fn open_in(root: PathBuf, relative: &Path, line: Option<u32>, cx: &mut App) {
+        if cx.global::<AppState>().files.read(cx).quitting {
+            return;
+        }
+        open_path(root, relative, line, cx);
     }
 }
 

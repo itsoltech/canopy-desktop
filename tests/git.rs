@@ -504,6 +504,7 @@ fn independent_worktree_workspaces_survive_sqlite_restore() {
             projects,
             workspaces: vec![main, linked],
             layout: LayoutState::default(),
+            scratch: None,
         };
         assert!(snapshot.valid());
         let db = dir.path().join("state.db");
@@ -558,6 +559,7 @@ fn fresh_empty_worktree_stays_empty_after_restore_and_starts_no_pty() {
             projects,
             workspaces: vec![main, empty],
             layout: LayoutState::default(),
+            scratch: None,
         };
         assert!(snapshot.valid());
         assert!(snapshot.activation_plan().is_empty());

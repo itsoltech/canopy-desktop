@@ -49,10 +49,8 @@ impl ProjectSnapshot {
                 .iter()
                 .enumerate()
                 .all(|(i, p)| !self.paths[..i].contains(p))
-            && match &self.active {
-                Some(p) => self.paths.contains(p),
-                None => self.paths.is_empty(),
-            }
+            // No active path means the "No project" space is selected.
+            && self.active.as_ref().is_none_or(|p| self.paths.contains(p))
     }
 }
 impl Projects {
@@ -107,6 +105,10 @@ impl Projects {
         }
         self.active = Some(id);
         true
+    }
+    /// Selects the "No project" space.
+    pub fn select_none(&mut self) {
+        self.active = None;
     }
     pub fn close(&mut self, id: WorkspaceId) -> bool {
         let Some(index) = self.items.iter().position(|p| p.workspace == id) else {

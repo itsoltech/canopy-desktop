@@ -408,9 +408,7 @@ impl GitState {
         }
         let mut cleanup_paths = vec![request.path.clone()];
         let mut cleanup_panes = panes.clone();
-        if workspace.is_some_and(|id| app.terminals.read(cx).workspace_running(id, cx))
-            && !stop_processes
-        {
+        if workspace.is_some_and(|id| app.workspace_running(id, cx)) && !stop_processes {
             self.removal_confirmation = Some(RemovalConfirmation::Processes);
             self.error = None;
             cx.notify();
@@ -449,11 +447,7 @@ impl GitState {
                     )
                     .into());
                 }
-                if app
-                    .terminals
-                    .read(cx)
-                    .workspace_running(target_workspace, cx)
-                {
+                if app.workspace_running(target_workspace, cx) {
                     return Err(format!(
                         "Stop processes in target branch '{target}' before merging."
                     )
@@ -485,13 +479,8 @@ impl GitState {
         self.removal_result = None;
         self.removal_confirmation = None;
         cx.notify();
-        let stop = if stop_processes
-            && workspace.is_some_and(|id| app.terminals.read(cx).workspace_running(id, cx))
-        {
-            workspace.map(|id| {
-                app.terminals
-                    .update(cx, |terminals, cx| terminals.stop_workspace(id, cx))
-            })
+        let stop = if stop_processes && workspace.is_some_and(|id| app.workspace_running(id, cx)) {
+            workspace.map(|id| app.stop_workspace_processes(id, cx))
         } else {
             None
         };
@@ -664,9 +653,7 @@ impl GitState {
         self.removal_confirmation = None;
         self.removal_result = None;
         self.worktree_analysis = None;
-        if workspace.is_some_and(|id| app.terminals.read(cx).workspace_running(id, cx))
-            && !stop_processes
-        {
+        if workspace.is_some_and(|id| app.workspace_running(id, cx)) && !stop_processes {
             self.error = None;
             self.removal_confirmation = Some(RemovalConfirmation::Processes);
             cx.notify();
@@ -677,7 +664,7 @@ impl GitState {
         self.error = None;
         cx.notify();
         let stop = if stop_processes {
-            workspace.map(|id| app.terminals.update(cx, |t, cx| t.stop_workspace(id, cx)))
+            workspace.map(|id| app.stop_workspace_processes(id, cx))
         } else {
             None
         };

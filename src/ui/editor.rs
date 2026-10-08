@@ -47,6 +47,8 @@ pub struct EditorView {
     visible: bool,
     window: AnyWindowHandle,
     refresh_pending: bool,
+    /// 1-based line to put the cursor on once the document is shown.
+    pending_line: Option<u32>,
 }
 fn language(path: &std::path::Path) -> &'static str {
     match path.extension().and_then(|v| v.to_str()).unwrap_or("") {
@@ -115,6 +117,7 @@ impl EditorView {
             visible: false,
             window: window.window_handle(),
             refresh_pending: false,
+            pending_line: None,
         };
         this.reload(window, cx);
         if watch {
@@ -166,6 +169,11 @@ impl EditorView {
                 }
             }
         }));
+    }
+    pub fn reveal_line(&mut self, line: u32, cx: &mut Context<Self>) {
+        self.pending_line = Some(line);
+        self.focus = true;
+        cx.notify();
     }
     pub fn activate(&mut self, visible: bool, focused: bool, cx: &mut Context<Self>) {
         if visible && (!self.visible || focused) {
@@ -303,6 +311,15 @@ impl Render for EditorView {
         if self.focus && self.visible {
             self.focus = false;
             self.input.update(cx, |input, cx| input.focus(window, cx));
+        }
+        if self.visible
+            && self.document.is_some()
+            && let Some(line) = self.pending_line.take()
+        {
+            let position = gpui_kit::base::input::Position::new(line.saturating_sub(1), 0);
+            self.input.update(cx, |input, cx| {
+                input.set_cursor_position(position, window, cx)
+            });
         }
         column()
             .key_context("FileEditor")

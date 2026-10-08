@@ -9,6 +9,7 @@ pub mod git;
 pub mod terminal;
 
 pub mod agents;
+pub mod chat;
 
 pub mod files;
 

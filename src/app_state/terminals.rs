@@ -90,7 +90,9 @@ impl Terminals {
         }
         let all = app.projects.read(cx).runtime_workspaces(cx);
         let started = self.views.keys().copied().collect();
-        let plan = lifecycle::reconcile(&all, app.projects.read(cx).catalog.active, &started);
+        // The global workspace is the active space: a project or "No project".
+        let active = Some(app.workspace.read(cx).id);
+        let plan = lifecycle::reconcile(&all, active, &started);
         for id in &plan.remove {
             self.events.remove(id);
             if let Some(view) = self.views.remove(id) {

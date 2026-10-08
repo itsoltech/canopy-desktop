@@ -3,6 +3,7 @@ pub mod assets;
 mod attachment_native;
 mod attachment_preview;
 mod changes_panel;
+pub(crate) mod chat;
 pub mod components;
 pub(crate) mod diff;
 pub(crate) mod editor;
@@ -13,6 +14,7 @@ pub(crate) mod image_preview;
 mod inspector;
 mod jira;
 mod markdown;
+mod new_chat_palette;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod notch;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -77,6 +79,9 @@ actions!(
         CloseTab,
         SaveFile,
         QuickOpen,
+        NewChat,
+        NewChatNoProject,
+        NewChatIn,
         SplitHorizontal,
         SplitVertical,
         ClosePane
@@ -90,6 +95,8 @@ pub struct Workspace {
     _new_file_events: Subscription,
     quick_open: Option<Entity<quick_open::QuickOpen>>,
     quick_open_events: Option<Subscription>,
+    new_chat: Option<Entity<new_chat_palette::NewChatPalette>>,
+    new_chat_events: Option<Subscription>,
     _editor_observers: Vec<Subscription>,
     screen_id: Option<WorkspaceId>,
     screen_reveal: Presence,
@@ -175,26 +182,15 @@ impl Workspace {
                 window.refresh();
                 cx.notify();
             }),
-            cx.observe_in(&state.projects, window, |this, entity, window, cx| {
+            cx.observe_in(&state.projects, window, |this, entity, _, cx| {
                 let id = entity.read(cx).catalog.active;
-                let mounting_layout = this.screen_id.is_some() != id.is_some();
+                // The layout stays mounted for projects and "No project" alike; switching
+                // spaces only resets transient view state, without an entrance animation.
                 if this.screen_id != id {
                     this.screen_id = id;
                     this.opened_file = None;
                     this.hovered_tab = None;
                     this.drop_hint = None;
-                    let now = Instant::now();
-                    // Switching between populated workspace contexts is not a page entrance.
-                    // Settle any previous entrance too, including rapid worktree switches.
-                    this.screen_reveal =
-                        Presence::new(!mounting_layout, presets::CONTENT_REVEAL, now);
-                    if mounting_layout {
-                        this.screen_reveal.set_open(true, now, motion::policy(cx));
-                    }
-                }
-                if mounting_layout {
-                    window.refresh();
-                    window.on_next_frame(|window, _| window.refresh());
                 }
                 cx.notify();
             }),
@@ -234,6 +230,9 @@ impl Workspace {
             KeyBinding::new("cmd-w", CloseTab, Some("Workspace")),
             KeyBinding::new("cmd-s", SaveFile, Some("Workspace")),
             KeyBinding::new("cmd-p", QuickOpen, Some("Workspace")),
+            KeyBinding::new("cmd-n", NewChat, Some("Workspace")),
+            KeyBinding::new("cmd-alt-n", NewChatNoProject, Some("Workspace")),
+            KeyBinding::new("cmd-shift-n", NewChatIn, Some("Workspace")),
             KeyBinding::new("cmd-d", SplitHorizontal, Some("Workspace")),
             KeyBinding::new("cmd-shift-d", SplitVertical, Some("Workspace")),
             KeyBinding::new("cmd-alt-w", ClosePane, Some("Workspace")),
@@ -252,6 +251,9 @@ impl Workspace {
             KeyBinding::new("ctrl-shift-w", CloseTab, Some("Workspace")),
             KeyBinding::new("ctrl-shift-s", SaveFile, Some("Workspace")),
             KeyBinding::new("ctrl-shift-p", QuickOpen, Some("Workspace")),
+            KeyBinding::new("ctrl-shift-n", NewChat, Some("Workspace")),
+            KeyBinding::new("ctrl-alt-shift-n", NewChatNoProject, Some("Workspace")),
+            KeyBinding::new("ctrl-alt-n", NewChatIn, Some("Workspace")),
             KeyBinding::new("ctrl-shift-d", SplitHorizontal, Some("Workspace")),
             KeyBinding::new("ctrl-shift-e", SplitVertical, Some("Workspace")),
             KeyBinding::new("ctrl-shift-x", ClosePane, Some("Workspace")),
@@ -270,11 +272,48 @@ impl Workspace {
                     .update(cx, |editors, cx| editors.sync(window, cx));
             }),
             cx.observe(&state.editors, |_, _, cx| cx.notify()),
+            // Chat views own a composer, so they are created with this window.
+            cx.observe_in(&state.workspace, window, |this, _, window, cx| {
+                this.state
+                    .chats
+                    .update(cx, |chats, cx| chats.sync(window, cx));
+            }),
+            cx.observe_in(&state.projects, window, |this, _, window, cx| {
+                this.state
+                    .chats
+                    .update(cx, |chats, cx| chats.sync(window, cx));
+            }),
+            cx.observe_in(&state.tools, window, |this, _, window, cx| {
+                this.state
+                    .chats
+                    .update(cx, |chats, cx| chats.sync(window, cx));
+            }),
+            cx.observe_in(&state.git, window, |this, _, window, cx| {
+                this.state
+                    .chats
+                    .update(cx, |chats, cx| chats.sync(window, cx));
+            }),
+            cx.observe_in(&state.agents, window, |this, _, window, cx| {
+                this.state
+                    .chats
+                    .update(cx, |chats, cx| chats.agents_changed(window, cx));
+            }),
+            cx.observe_in(&state.chats, window, |_, _, window, cx| {
+                window.refresh();
+                cx.notify();
+            }),
             cx.subscribe_in(
                 &state.editors,
                 window,
                 |_, _, request: &crate::app_state::GuardRequest, window, cx| {
                     crate::app_state::Editors::confirm(request, window, cx)
+                },
+            ),
+            cx.subscribe_in(
+                &state.chats,
+                window,
+                |_, _, request: &crate::app_state::ChatGuardRequest, window, cx| {
+                    crate::app_state::Chats::confirm(request, window, cx)
                 },
             ),
         ];
@@ -451,6 +490,8 @@ impl Workspace {
             _new_file_events: new_file_events,
             quick_open: None,
             quick_open_events: None,
+            new_chat: None,
+            new_chat_events: None,
             _editor_observers: editor_observers,
             screen_id: None,
             screen_reveal: Presence::new(true, presets::CONTENT_REVEAL, Instant::now()),
@@ -733,6 +774,7 @@ impl Render for Workspace {
             || self.task_editor_modal.is_some()
             || self.confirmation.is_some()
             || self.quick_open.is_some()
+            || self.new_chat.is_some()
             || self.worktree_modal.is_some()
             || self.upstream_modal.is_some();
         self.state
@@ -799,6 +841,28 @@ impl Render for Workspace {
                                 },
                             ),
                         )
+                        .children(
+                            (!has_project && self.state.workspace.read(cx).tabs().is_empty()).then(
+                                || {
+                                    let reason = crate::app_state::Chats::unavailable(cx);
+                                    empty_state(
+                                        primary_button("open-empty-chat", "New chat")
+                                            .disabled(reason.is_some())
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.state.chats.update(cx, |chats, cx| {
+                                                    chats.open_new(
+                                                        crate::app_state::ChatTarget::NoProject,
+                                                        cx,
+                                                    )
+                                                });
+                                            })),
+                                        reason.map(Into::into),
+                                        None,
+                                    )
+                                    .size_full()
+                                },
+                            ),
+                        )
                         .children(self.state.workspace.read(cx).active().cloned().map(|tab| {
                             self.render_tree(
                                 &tab.root,
@@ -844,6 +908,8 @@ impl Render for Workspace {
                     || self.upstream_modal.is_some()
                     || self.worktree_modal.is_some()
                     || self.confirmation.is_some()
+                    // Its ⌘1…⌘9 pick projects instead of switching tabs.
+                    || self.new_chat.is_some()
                 {
                     "WorkspaceModal"
                 } else {
@@ -930,6 +996,51 @@ impl Render for Workspace {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &NewTab, _, cx| this.new_tab(cx)))
+            .on_action(cx.listener(|this, _: &NewChat, _, cx| {
+                // A new chat where the user is: the active project, else "No project".
+                if this.modal.is_some()
+                    || this.new_chat.is_some()
+                    || crate::app_state::Chats::unavailable(cx).is_some()
+                {
+                    return;
+                }
+                let target = match this.state.projects.read(cx).catalog.active {
+                    Some(id) => crate::app_state::ChatTarget::Project(id),
+                    None => crate::app_state::ChatTarget::NoProject,
+                };
+                this.state
+                    .chats
+                    .update(cx, |chats, cx| chats.open_new(target, cx));
+            }))
+            .on_action(cx.listener(|this, _: &NewChatIn, window, cx| {
+                if this.new_chat.is_some()
+                    || this.quick_open.is_some()
+                    || this.modal.is_some()
+                    || this.task_detail_modal.is_some()
+                    || this.task_editor_modal.is_some()
+                    || crate::app_state::Chats::unavailable(cx).is_some()
+                {
+                    return;
+                }
+                let view = cx.new(|cx| {
+                    new_chat_palette::NewChatPalette::new(this.focus.clone(), window, cx)
+                });
+                this.new_chat_events =
+                    Some(cx.subscribe(&view, |this, _, _: &ModalDismissed, cx| {
+                        this.new_chat = None;
+                        this.new_chat_events = None;
+                        cx.notify();
+                    }));
+                this.new_chat = Some(view);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &NewChatNoProject, _, cx| {
+                if this.modal.is_none() {
+                    this.state.chats.update(cx, |chats, cx| {
+                        chats.open_new(crate::app_state::ChatTarget::NoProject, cx)
+                    });
+                }
+            }))
             .on_action(cx.listener(|this, _: &QuickOpen, window, cx| {
                 if this.quick_open.is_some()
                     || this.modal.is_some()
@@ -997,9 +1108,9 @@ impl Render for Workspace {
                         active
                             .as_ref()
                             .map(|p| p.name.clone())
-                            .unwrap_or_else(|| "Canopy".into()),
+                            .unwrap_or_else(|| "No project".into()),
                     )
-                    .children(has_project.then(|| {
+                    .child({
                         div()
                             .absolute()
                             .left(px(titlebar_leading_inset()))
@@ -1025,8 +1136,8 @@ impl Render for Workspace {
                                     },
                                 )),
                             )
-                    }))
-                    .children(has_project.then(|| {
+                    })
+                    .child({
                         div()
                             .absolute()
                             .right(px(t::SPACING_UNIT * 3. + titlebar_trailing_inset()))
@@ -1052,36 +1163,9 @@ impl Render for Workspace {
                                     },
                                 )),
                             )
-                    })),
+                    }),
             )
-            .children((!has_project).then(|| {
-                let project_state = self.state.projects.read(cx);
-                let settings = self.state.settings.read(cx);
-                let error = project_state
-                    .error
-                    .clone()
-                    .or_else(|| settings.error.clone())
-                    .or_else(|| self.state.tools.read(cx).error.clone());
-                let error = error
-                    .map(SharedString::from)
-                    .or_else(|| self.state.notch_status.read(cx).error.clone());
-                empty_state(
-                    button("open-folder", "Open folder")
-                        .disabled(!project_state.ready || project_state.busy)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.state
-                                .projects
-                                .update(cx, |state, cx| state.open_folder(window, cx))
-                        })),
-                    (project_state.busy || !project_state.ready)
-                        .then(|| "Restoring workspace…".into()),
-                    error,
-                )
-                .relative()
-                .top(px(motion::distance::BASE * (1. - screen_progress)))
-                .opacity(screen_progress)
-            }))
-            .children(has_project.then(|| {
+            .child({
                 row()
                     .relative()
                     .opacity(screen_progress)
@@ -1112,8 +1196,8 @@ impl Render for Workspace {
                             .left(px(layout.left + layout.terminal - 4.))
                             .top(px(t::TABS))
                     }))
-            }))
-            .children(has_project.then(|| {
+            })
+            .child({
                 row()
                     .h(px(t::STATUS))
                     .flex_shrink_0()
@@ -1193,12 +1277,13 @@ impl Render for Workspace {
                             }),
                         ),
                     )
-            }))
+            })
             .child(self.state.toasts.clone())
             .children(self.confirmation.clone())
             .children(self.upstream_modal.clone())
             .children(self.modal.clone())
             .children(self.quick_open.clone())
+            .children(self.new_chat.clone())
             .children(self.worktree_modal.clone())
             .children(self.task_detail_modal.clone())
             .children(self.task_editor_modal.clone())

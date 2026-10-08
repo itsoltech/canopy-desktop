@@ -286,3 +286,57 @@ fn running_worker_rejects_external_schema_upgrade() {
         client.shutdown().await.unwrap();
     });
 }
+
+#[test]
+fn chat_defaults_round_trip_and_invalid_values_warn() {
+    use canopy_desktop::chat::config::{Effort, Mode};
+    block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.db");
+        let client = SettingsClient::create(&path).await.unwrap();
+        let saved = client
+            .apply(vec![
+                Change::ChatProfile("claude-work".into()),
+                Change::ChatModel("claude-fable-5-1[1m]".into()),
+                Change::ChatEffort(Effort::XHigh),
+                Change::ChatMode(Mode::Yolo),
+            ])
+            .await
+            .unwrap();
+        let chat = &saved.preferences.chat;
+        assert_eq!(chat.profile.as_deref(), Some("claude-work"));
+        assert_eq!(chat.model.as_deref(), Some("claude-fable-5-1[1m]"));
+        assert_eq!(
+            (chat.effort, chat.mode),
+            (Some(Effort::XHigh), Some(Mode::Yolo))
+        );
+        let reset = client
+            .apply(vec![Change::Reset(PreferenceKey::ChatModel)])
+            .await
+            .unwrap();
+        assert_eq!(reset.preferences.chat.model, None);
+        client.shutdown().await.unwrap();
+        let db = Connection::open(&path).unwrap();
+        assert_eq!(raw(&db, "chat.mode"), "yolo");
+        db.execute(
+            "UPDATE preferences SET value='--print' WHERE key='chat.profileId'",
+            [],
+        )
+        .unwrap();
+        db.execute("INSERT INTO preferences VALUES('chat.model','a b')", [])
+            .unwrap();
+        drop(db);
+        let reopened = SettingsClient::open(&path, Access::ReadOnly).await.unwrap();
+        let snapshot = reopened.load().await.unwrap();
+        assert_eq!(snapshot.preferences.chat.model, None);
+        assert!(
+            snapshot
+                .warnings
+                .iter()
+                .any(|w| w.key == PreferenceKey::ChatModel)
+        );
+        reopened.shutdown().await.unwrap();
+    });
+    assert!(Change::parse(PreferenceKey::ChatEffort, "ultra").is_err());
+    assert!(Change::parse(PreferenceKey::ChatMode, "bypassPermissions").is_err());
+}

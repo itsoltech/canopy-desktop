@@ -11,6 +11,8 @@ pub struct Editors {
     events: HashMap<PaneId, Subscription>,
     pub images: HashMap<PaneId, Entity<crate::ui::image_preview::ImagePreview>>,
     paused: HashSet<PaneId>,
+    /// Lines to reveal in editors that `sync` has not created yet.
+    lines: HashMap<PaneId, u32>,
 }
 impl Editors {
     pub fn new() -> Self {
@@ -22,6 +24,17 @@ impl Editors {
             events: HashMap::new(),
             images: HashMap::new(),
             paused: HashSet::new(),
+            lines: HashMap::new(),
+        }
+    }
+
+    /// Moves the cursor of the editor in `pane` to the 1-based `line` once it has loaded.
+    pub fn reveal(&mut self, pane: PaneId, line: u32, cx: &mut Context<Self>) {
+        match self.views.get(&pane) {
+            Some(view) => view.update(cx, |view, cx| view.reveal_line(line, cx)),
+            None => {
+                self.lines.insert(pane, line);
+            }
         }
     }
     pub fn busy(&self, ids: &[PaneId], cx: &App) -> bool {
@@ -115,7 +128,14 @@ impl Editors {
                 continue;
             }
             if !self.views.contains_key(&pane.id) {
-                let view = cx.new(|cx| EditorView::new(pane.clone(), window, cx));
+                let line = self.lines.remove(&pane.id);
+                let view = cx.new(|cx| {
+                    let mut view = EditorView::new(pane.clone(), window, cx);
+                    if let Some(line) = line {
+                        view.reveal_line(line, cx);
+                    }
+                    view
+                });
                 self.events.insert(
                     pane.id,
                     cx.subscribe(&view, |_, _, _: &EditorChanged, cx| cx.notify()),
@@ -274,7 +294,14 @@ pub struct GuardRequest {
 }
 impl EventEmitter<GuardRequest> for Editors {}
 impl Editors {
+    /// Unsaved edits first, then unsent chat messages, before `action` closes `ids`.
     pub fn guard(ids: Vec<PaneId>, action: impl Fn(&mut App) + 'static, cx: &mut App) {
+        let action = std::rc::Rc::new(action);
+        let chats_ids = ids.clone();
+        let action = move |cx: &mut App| {
+            let action = action.clone();
+            super::Chats::guard(chats_ids.clone(), move |cx| action(cx), cx)
+        };
         let editors = cx.global::<AppState>().editors.clone();
         if editors.read(cx).busy(&ids, cx) {
             editors.update(cx, |_, cx| {

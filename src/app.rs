@@ -19,6 +19,7 @@ pub fn run() {
             canopy_desktop::motion::init_system_policy();
             crate::ui::editor::init(cx);
             crate::ui::terminal::init(cx);
+            crate::ui::chat::init(cx);
             #[cfg(feature = "frame-profile")]
             crate::profiling::init(cx);
             crate::ui::theme::init(cx);

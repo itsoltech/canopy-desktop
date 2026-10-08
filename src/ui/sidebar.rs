@@ -47,6 +47,8 @@ impl Sidebar {
                 this.sync_stop_feedback(cx);
                 cx.notify();
             }),
+            cx.observe(&app.chats, |_, _, cx| cx.notify()),
+            cx.observe(&app.settings, |_, _, cx| cx.notify()),
         ];
         let profiles = tools
             .read(cx)
@@ -147,6 +149,78 @@ impl Sidebar {
             }))
     }
 }
+impl Sidebar {
+    /// The primary entry point: a new conversation in the active worktree.
+    fn new_chat(&self, cx: &mut Context<Self>) -> Div {
+        use gpui_kit::{
+            base::Disableable,
+            component::button::{ButtonCustomVariant, ButtonVariants},
+        };
+        let reason = crate::app_state::Chats::unavailable(cx);
+        let button = Button::new("sidebar-new-chat")
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .foreground(t::text())
+                    .hover(t::hover())
+                    .active(t::selected()),
+            )
+            .compact()
+            .w_full()
+            .h(px(32.))
+            .px(px(10.))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(t::control_border())
+            .accessibility_label("New chat")
+            .disabled(reason.is_some())
+            .child(
+                row()
+                    .w_full()
+                    .gap(px(8.))
+                    .text_size(px(13.))
+                    .child(icon(IconName::Plus).text_color(t::secondary()))
+                    .child("New chat"),
+            )
+            .tooltip("New chat in this project (⌘N)")
+            .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::ui::NewChat), cx));
+        let quick = Button::new("sidebar-new-chat-no-project")
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .foreground(t::secondary())
+                    .hover(t::hover())
+                    .active(t::selected()),
+            )
+            .compact()
+            .size(px(32.))
+            .min_w(px(32.))
+            .max_w(px(32.))
+            .min_h(px(32.))
+            .max_h(px(32.))
+            .p_0()
+            .rounded(px(6.))
+            .border_1()
+            .border_color(t::control_border())
+            .accessibility_label("New chat without a project")
+            .disabled(reason.is_some())
+            .child(custom_icon("message-circle-plus").text_color(t::secondary()))
+            .tooltip("New chat without a project (⌥⌘N)")
+            .on_click(|_, window, cx| {
+                window.dispatch_action(Box::new(crate::ui::NewChatNoProject), cx)
+            });
+        let (button, quick) = match reason {
+            Some(reason) => (button.tooltip(reason), quick.tooltip(reason)),
+            None => (button, quick),
+        };
+        div().flex_shrink_0().px(px(12.)).pt(px(12.)).child(
+            row()
+                .w_full()
+                .gap(px(6.))
+                .child(div().flex_1().min_w_0().child(button))
+                .child(quick),
+        )
+    }
+}
+
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
@@ -178,6 +252,7 @@ impl Render for Sidebar {
                             .size_full()
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
+                            .child(self.new_chat(cx))
                             .child(
                                 column()
                                     .flex_shrink_0()

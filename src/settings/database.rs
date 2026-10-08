@@ -369,8 +369,13 @@ impl Database {
 }
 
 fn read_snapshot(db: &Connection, schema: Schema) -> Result<Snapshot> {
-    let mut statement =
-        db.prepare("SELECT key,value FROM preferences WHERE key IN (?1,?2,?3,?4,?5)")?;
+    let placeholders = (1..=PreferenceKey::ALL.len())
+        .map(|n| format!("?{n}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut statement = db.prepare(&format!(
+        "SELECT key,value FROM preferences WHERE key IN ({placeholders})"
+    ))?;
     let rows = statement.query_map(
         rusqlite::params_from_iter(PreferenceKey::ALL.map(PreferenceKey::as_str)),
         |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),

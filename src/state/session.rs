@@ -11,6 +11,10 @@ pub struct SessionSnapshot {
     pub projects: Projects,
     pub workspaces: Vec<Workspace>,
     pub layout: LayoutState,
+    /// The "No project" space (chats without a folder), active when no project is.
+    /// Omitted while empty, so sessions without such chats keep their shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scratch: Option<Workspace>,
 }
 impl SessionSnapshot {
     pub fn valid(&self) -> bool {
@@ -52,30 +56,52 @@ impl SessionSnapshot {
                 .iter()
                 .filter(|w| w.id == project.workspace)
                 .collect();
-            if matches.len() != 1 || !matches[0].valid() {
+            if matches.len() != 1 || !unique(matches[0], &mut tab_ids, &mut pane_ids) {
                 return false;
             }
-            for tab in matches[0].tabs() {
-                if !tab_ids.insert(tab.id) {
-                    return false;
-                }
-                let mut copy = matches[0].clone();
-                let _ = copy.activate(tab.id);
-                for pane in copy.activation_plan() {
-                    if !pane_ids.insert(pane.id) {
-                        return false;
-                    }
-                }
-            }
         }
-        true
+        self.scratch.as_ref().is_none_or(|scratch| {
+            workspace_ids.insert(scratch.id) && unique(scratch, &mut tab_ids, &mut pane_ids)
+        })
     }
     /// Only the selected project's active tab is eligible for future lazy startup.
     pub fn activation_plan(&self) -> Vec<Pane> {
-        self.workspaces
-            .iter()
-            .find(|w| Some(w.id) == self.projects.active)
-            .map(|w| w.activation_plan())
-            .unwrap_or_default()
+        match self.projects.active {
+            Some(active) => self
+                .workspaces
+                .iter()
+                .find(|w| w.id == active)
+                .map(|w| w.activation_plan())
+                .unwrap_or_default(),
+            None => self
+                .scratch
+                .as_ref()
+                .map(|w| w.activation_plan())
+                .unwrap_or_default(),
+        }
     }
+}
+
+/// A valid workspace whose tab and pane ids are unique across the whole session.
+fn unique(
+    workspace: &Workspace,
+    tab_ids: &mut std::collections::HashSet<super::workspace::TabId>,
+    pane_ids: &mut std::collections::HashSet<super::workspace::PaneId>,
+) -> bool {
+    if !workspace.valid() {
+        return false;
+    }
+    for tab in workspace.tabs() {
+        if !tab_ids.insert(tab.id) {
+            return false;
+        }
+        let mut copy = workspace.clone();
+        let _ = copy.activate(tab.id);
+        for pane in copy.activation_plan() {
+            if !pane_ids.insert(pane.id) {
+                return false;
+            }
+        }
+    }
+    true
 }

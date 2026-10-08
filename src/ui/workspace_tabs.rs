@@ -156,9 +156,11 @@ impl Workspace {
                         }
                     ),
                     active,
-                    tab.root.first().metadata.kind
-                        == canopy_desktop::state::workspace::PaneKind::Terminal
-                        && tab.root.first().tool != "shell",
+                    matches!(
+                        tab.root.first().metadata.kind,
+                        canopy_desktop::state::workspace::PaneKind::Terminal
+                            | canopy_desktop::state::workspace::PaneKind::Chat
+                    ) && tab.root.first().tool != "shell",
                 )
                 .on_hover(cx.listener(move |this, hovered, _, cx| {
                     if *hovered {

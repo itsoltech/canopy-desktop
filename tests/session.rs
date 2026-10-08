@@ -28,6 +28,7 @@ fn fixture() -> SessionSnapshot {
                 resume_id: Some("provider-session".into()),
                 arguments: vec!["--example".into()],
                 kind: PaneKind::Terminal,
+                chat: None,
             },
         )
         .unwrap();
@@ -47,6 +48,7 @@ fn fixture() -> SessionSnapshot {
         projects,
         workspaces: vec![first, other],
         layout,
+        scratch: None,
     }
 }
 #[test]
@@ -198,4 +200,88 @@ fn optional_worktree_base_roundtrips_and_old_sessions_default_to_none() {
     let restored: SessionSnapshot = serde_json::from_value(legacy).unwrap();
     assert_eq!(restored.projects.items[0].worktree_base, None);
     assert!(restored.valid());
+}
+
+#[test]
+fn chat_panes_keep_their_choices_and_other_panes_keep_their_shape() {
+    use canopy_desktop::chat::config::{ChatSettings, Effort, Mode};
+    let mut workspace = Workspace::new();
+    let tab = workspace.open("New chat", "claude");
+    let pane = workspace.active().unwrap().focused;
+    let chat = PaneMetadata {
+        cwd: Some("/repo/a".into()),
+        profile_id: Some("claude-default".into()),
+        kind: PaneKind::Chat,
+        chat: Some(Box::new(ChatSettings {
+            model: Some("opus".into()),
+            effort: Some(Effort::High),
+            mode: Mode::Yolo,
+        })),
+        ..Default::default()
+    };
+    workspace
+        .set_pane_metadata(tab, pane, chat.clone())
+        .unwrap();
+    let json = serde_json::to_string(&workspace).unwrap();
+    let restored: Workspace = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.all_panes()[0].metadata, chat);
+
+    let terminal = serde_json::to_value(PaneMetadata::default()).unwrap();
+    assert!(
+        terminal.get("chat").is_none(),
+        "non-chat panes serialize as before"
+    );
+
+    let mut invalid = chat;
+    invalid.chat.as_mut().unwrap().model = Some("--print".into());
+    assert!(workspace.set_pane_metadata(tab, pane, invalid).is_err());
+}
+
+#[test]
+fn no_project_space_roundtrips_and_shares_id_uniqueness() {
+    use canopy_desktop::state::projects::Projects;
+    let mut projects = Projects::default();
+    let project = projects.open("/repo/a".into());
+    let mut a = Workspace::new();
+    a.id = project;
+    a.open("terminal", "shell");
+    let mut scratch = Workspace::new();
+    let chat = scratch.open("New chat", "claude");
+    let pane = scratch.active().unwrap().focused;
+    projects.select_none();
+    let snapshot = SessionSnapshot {
+        projects: projects.clone(),
+        workspaces: vec![a.clone()],
+        layout: LayoutState::default(),
+        scratch: Some(scratch.clone()),
+    };
+    assert!(
+        snapshot.valid(),
+        "No project may be selected while projects exist"
+    );
+    assert_eq!(snapshot.activation_plan()[0].id, pane);
+    let json = serde_json::to_string(&snapshot).unwrap();
+    let restored: SessionSnapshot = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored, snapshot);
+
+    // Older sessions have no field and stay valid.
+    let mut old = snapshot.clone();
+    old.scratch = None;
+    old.projects.active = Some(project);
+    let json = serde_json::to_value(&old).unwrap();
+    assert!(json.get("scratch").is_none());
+    assert!(
+        serde_json::from_value::<SessionSnapshot>(json)
+            .unwrap()
+            .valid()
+    );
+
+    // The scratch space must not reuse a project's workspace, tab or pane ids.
+    let mut clash = snapshot.clone();
+    clash.scratch.as_mut().unwrap().id = project;
+    assert!(!clash.valid());
+    let mut duplicate = snapshot;
+    duplicate.scratch = Some(a);
+    assert!(!duplicate.valid());
+    let _ = chat;
 }

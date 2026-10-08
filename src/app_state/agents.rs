@@ -192,7 +192,7 @@ impl AgentsState {
         let workspace = app.workspace.read(cx);
         canopy_desktop::agents::pane_visible(
             self.main_active && !self.window_obscured,
-            app.projects.read(cx).catalog.active,
+            Some(app.workspace.read(cx).id),
             workspace,
             pane,
         )
@@ -273,7 +273,11 @@ impl AgentsState {
                     session.retired.push_back(previous);
                 }
             }
-            if changed {
+            // A chat saves its session itself once it has a message: an empty session
+            // is never written by the CLI, so resuming it would fail.
+            let chat =
+                session.pane.metadata.kind == canopy_desktop::state::workspace::PaneKind::Chat;
+            if changed && !chat {
                 let pane = session.pane.clone();
                 cx.global::<AppState>()
                     .projects
@@ -281,6 +285,8 @@ impl AgentsState {
                     .update(cx, |projects, cx| {
                         projects.record_agent_session(&pane, id, cx)
                     });
+            }
+            if changed {
                 session.session = Some(id.clone());
                 session.pane.metadata.resume_id = Some(id.clone());
             }

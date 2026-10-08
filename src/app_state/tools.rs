@@ -391,7 +391,7 @@ impl ToolsState {
             .catalog
             .current()
             .map(|p| p.worktree_path.clone().unwrap_or_else(|| p.path.clone()))
-            .ok_or("Open a project first.")?;
+            .ok_or("Open a folder to use tools.")?;
         let title = tool.label(profile.as_deref());
         app.workspace.update(cx, |state, cx| {
             let tab = state.open(title.clone(), id);

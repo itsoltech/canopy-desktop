@@ -153,7 +153,25 @@ impl Workspace {
                     )
                 }))
                 .child(pane_body(
-                    if pane.metadata.kind == canopy_desktop::state::workspace::PaneKind::Diff {
+                    if pane.metadata.kind == canopy_desktop::state::workspace::PaneKind::Chat {
+                        self.state
+                            .chats
+                            .read(cx)
+                            .views
+                            .get(&pane_id)
+                            .map(|v| v.clone().into_any_element())
+                            .unwrap_or_else(|| {
+                                div()
+                                    .p(px(12.))
+                                    .text_color(super::theme::muted())
+                                    .child(
+                                        crate::app_state::Chats::unavailable(cx)
+                                            .unwrap_or("Loading chat…"),
+                                    )
+                                    .into_any_element()
+                            })
+                    } else if pane.metadata.kind == canopy_desktop::state::workspace::PaneKind::Diff
+                    {
                         self.state
                             .diffs
                             .read(cx)

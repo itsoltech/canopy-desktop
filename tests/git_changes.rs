@@ -776,6 +776,7 @@ fn diff_metadata_survives_session_restore_without_starting_a_terminal() {
         projects,
         workspaces: vec![workspace],
         layout: LayoutState::default(),
+        scratch: None,
     };
     assert!(snapshot.valid());
     let restored: SessionSnapshot =

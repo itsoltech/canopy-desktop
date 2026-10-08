@@ -398,6 +398,7 @@ fn pane_session_binding_rejects_stale_updates_and_restores_lazily_from_sqlite() 
             projects,
             workspaces: vec![workspace],
             layout: LayoutState::default(),
+            scratch: None,
         };
         client.save_session(saved.clone()).await.unwrap();
         client.shutdown().await.unwrap();

@@ -19,6 +19,9 @@ pub struct ProjectsState {
     pub error: Option<String>,
     client: Option<SettingsClient>,
     sessions: HashMap<WorkspaceId, Workspace>,
+    /// The "No project" space while a project is active; otherwise it is the
+    /// global workspace entity.
+    scratch: Workspace,
     task: Option<Task<()>>,
     picking: bool,
     pub(super) quitting: bool,
@@ -71,7 +74,11 @@ impl ProjectsState {
                 cx.notify();
             }
         });
-        for workspace in self.sessions.values_mut() {
+        for workspace in self
+            .sessions
+            .values_mut()
+            .chain(std::iter::once(&mut self.scratch))
+        {
             update(workspace, source, session);
         }
         self.changed(cx);
@@ -96,7 +103,11 @@ impl ProjectsState {
                 clear(w, pane);
                 cx.notify();
             });
-        for workspace in self.sessions.values_mut() {
+        for workspace in self
+            .sessions
+            .values_mut()
+            .chain(std::iter::once(&mut self.scratch))
+        {
             clear(workspace, pane);
         }
         self.changed(cx);
@@ -111,6 +122,7 @@ impl ProjectsState {
             error: None,
             client: None,
             sessions: HashMap::new(),
+            scratch: Workspace::new(),
             task: None,
             picking: false,
             quitting: false,
@@ -172,6 +184,16 @@ impl ProjectsState {
                 this.busy = false;
                 match result {
                     Ok((catalog, session, skipped)) => {
+                        let app = cx.global::<AppState>().clone();
+                        let scratch = session
+                            .as_ref()
+                            .and_then(|s| s.scratch.clone())
+                            .unwrap_or_else(|| app.workspace.read(cx).clone());
+                        // The global entity holds "No project" until a project is published.
+                        app.workspace.update(cx, |state, cx| {
+                            *state = scratch;
+                            cx.notify();
+                        });
                         if let Some(session) = session {
                             this.sessions =
                                 session.workspaces.into_iter().map(|w| (w.id, w)).collect();
@@ -195,8 +217,26 @@ impl ProjectsState {
             });
         }));
     }
+    /// Every workspace with its live state, including "No project".
     pub fn runtime_workspaces(&self, cx: &App) -> Vec<Workspace> {
-        self.snapshot(cx).workspaces
+        let mut workspaces = self.snapshot(cx).workspaces;
+        workspaces.push(self.scratch_workspace(cx));
+        workspaces
+    }
+    fn scratch_workspace(&self, cx: &App) -> Workspace {
+        if self.catalog.active.is_none() {
+            cx.global::<AppState>().workspace.read(cx).clone()
+        } else {
+            self.scratch.clone()
+        }
+    }
+    /// Identity of the "No project" space.
+    pub fn scratch_id(&self, cx: &App) -> WorkspaceId {
+        if self.catalog.active.is_none() {
+            cx.global::<AppState>().workspace.read(cx).id
+        } else {
+            self.scratch.id
+        }
     }
     fn snapshot(&self, cx: &App) -> SessionSnapshot {
         let app = cx.global::<AppState>();
@@ -212,10 +252,12 @@ impl ProjectsState {
                 }
             })
             .collect();
+        let scratch = self.scratch_workspace(cx);
         SessionSnapshot {
             projects: self.catalog.clone(),
             workspaces,
             layout: app.layout.read(cx).clone(),
+            scratch: (!scratch.tabs().is_empty()).then_some(scratch),
         }
     }
     pub(super) fn final_snapshot(&self, cx: &App) -> Option<(SettingsClient, SessionSnapshot)> {
@@ -355,6 +397,79 @@ impl ProjectsState {
     pub fn select(&mut self, id: WorkspaceId, cx: &mut Context<Self>) {
         self.select_target(id, None, cx);
     }
+    /// Moves a chat pane (before its first message) to another account profile.
+    pub fn set_chat_account(&mut self, pane: PaneId, profile: String, cx: &mut Context<Self>) {
+        fn update(workspace: &mut Workspace, pane: PaneId, profile: &str) -> bool {
+            workspace.set_chat_account(pane, profile).unwrap_or(false)
+        }
+        let active = cx.global::<AppState>().workspace.clone();
+        let mut changed = false;
+        active.update(cx, |workspace, cx| {
+            if update(workspace, pane, &profile) {
+                changed = true;
+                cx.notify();
+            }
+        });
+        for workspace in self
+            .sessions
+            .values_mut()
+            .chain(std::iter::once(&mut self.scratch))
+        {
+            changed |= update(workspace, pane, &profile);
+        }
+        if changed {
+            self.changed(cx);
+            cx.notify();
+        }
+    }
+    /// Persists a chat pane's choices and its first-message title, wherever the
+    /// pane's workspace currently lives (active entity or cached session).
+    pub fn update_chat(
+        &mut self,
+        pane: PaneId,
+        settings: Option<canopy_desktop::chat::config::ChatSettings>,
+        title: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        fn update(
+            workspace: &mut Workspace,
+            pane: PaneId,
+            settings: &Option<canopy_desktop::chat::config::ChatSettings>,
+            title: Option<&str>,
+        ) -> bool {
+            let mut changed = false;
+            if let Some(settings) = settings {
+                changed |= workspace
+                    .set_chat_settings(pane, settings.clone())
+                    .unwrap_or(false);
+            }
+            if let Some(title) = title {
+                changed |= workspace
+                    .retitle_placeholder(pane, crate::ui::chat::NEW_CHAT_TITLE, title)
+                    .unwrap_or(false);
+            }
+            changed
+        }
+        let active = cx.global::<AppState>().workspace.clone();
+        let mut changed = false;
+        active.update(cx, |workspace, cx| {
+            if update(workspace, pane, &settings, title) {
+                changed = true;
+                cx.notify();
+            }
+        });
+        for workspace in self
+            .sessions
+            .values_mut()
+            .chain(std::iter::once(&mut self.scratch))
+        {
+            changed |= update(workspace, pane, &settings, title);
+        }
+        if changed {
+            self.changed(cx);
+            cx.notify();
+        }
+    }
     fn focus_selected(&self, pane: PaneId, cx: &mut Context<Self>) {
         let app = cx.global::<AppState>().clone();
         app.workspace.update(cx, |workspace, cx| {
@@ -365,12 +480,93 @@ impl ProjectsState {
         if let Some(view) = app.terminals.read(cx).views.get(&pane).cloned() {
             view.update(cx, |view, cx| view.request_focus(cx));
         }
+        if let Some(view) = app.chats.read(cx).views.get(&pane).cloned() {
+            view.update(cx, |view, cx| view.request_focus(cx));
+        }
     }
+    /// Shows the "No project" space.
+    pub fn select_none(&mut self, cx: &mut Context<Self>) {
+        if !self.available() || self.catalog.active.is_none() {
+            return;
+        }
+        let mut next = self.catalog.clone();
+        next.select_none();
+        self.save(next, cx);
+    }
+
+    /// Adds a chat tab to `target` (a project workspace, or "No project" for `None`)
+    /// and shows that space.
+    pub fn open_chat(
+        &mut self,
+        target: Option<WorkspaceId>,
+        title: &str,
+        metadata: canopy_desktop::state::workspace::PaneMetadata,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        fn add(
+            workspace: &mut Workspace,
+            title: &str,
+            metadata: canopy_desktop::state::workspace::PaneMetadata,
+        ) -> Result<(), String> {
+            let tab = workspace.open(title, "claude");
+            let pane = workspace.active().expect("new tab").focused;
+            if workspace.set_pane_metadata(tab, pane, metadata).is_err() {
+                let _ = workspace.close(tab);
+                return Err("The chat could not be created.".into());
+            }
+            Ok(())
+        }
+        if !self.available() {
+            return Err("Projects are busy.".into());
+        }
+        let app = cx.global::<AppState>().clone();
+        let active = app.workspace.read(cx).id;
+        let target_id = target.unwrap_or_else(|| self.scratch_id(cx));
+        if target_id == active {
+            let mut result = Ok(());
+            app.workspace.update(cx, |workspace, cx| {
+                result = add(workspace, title, metadata);
+                cx.notify();
+            });
+            self.changed(cx);
+            return result;
+        }
+        match target {
+            None => {
+                add(&mut self.scratch, title, metadata)?;
+                self.select_none(cx);
+            }
+            Some(id) => {
+                let workspace = self
+                    .sessions
+                    .get_mut(&id)
+                    .ok_or("This project is no longer open.")?;
+                add(workspace, title, metadata)?;
+                self.select_target(id, None, cx);
+            }
+        }
+        Ok(())
+    }
+
     fn select_target(&mut self, id: WorkspaceId, pane: Option<PaneId>, cx: &mut Context<Self>) {
         if !self.available() {
             return;
         }
-        if self.catalog.active == Some(id) {
+        if self.catalog.active == Some(id)
+            || (self.catalog.active.is_none() && self.scratch_id(cx) == id)
+        {
+            if let Some(pane) = pane {
+                self.focus_selected(pane, cx);
+            }
+            return;
+        }
+        if self.scratch.id == id {
+            if let Some(pane) = pane
+                && self.scratch.activate_pane(pane).is_err()
+            {
+                return;
+            }
+            self.select_none(cx);
             if let Some(pane) = pane {
                 self.focus_selected(pane, cx);
             }
@@ -547,15 +743,19 @@ impl ProjectsState {
             }
         }
         if self.catalog.active != next.active {
-            if let Some(old) = self.catalog.active {
-                self.sessions.insert(old, app.workspace.read(cx).clone());
+            let current = app.workspace.read(cx).clone();
+            match self.catalog.active {
+                Some(old) => {
+                    self.sessions.insert(old, current);
+                }
+                None => self.scratch = current,
             }
             let workspace = if let Some(id) = next.active {
                 self.sessions
                     .remove(&id)
                     .unwrap_or_else(|| Workspace::empty(id))
             } else {
-                Workspace::new()
+                self.scratch.clone()
             };
             app.workspace.update(cx, |state, cx| {
                 *state = workspace;
@@ -565,5 +765,86 @@ impl ProjectsState {
         self.sessions
             .retain(|id, _| next.items.iter().any(|p| p.workspace == *id));
         self.catalog = next;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use canopy_desktop::state::workspace::{PaneKind, PaneMetadata};
+    use core::prelude::v1::test;
+    use gpui_kit::TestAppContext;
+
+    fn titles(workspace: &Workspace) -> Vec<String> {
+        workspace
+            .tabs()
+            .iter()
+            .map(|tab| tab.title.clone())
+            .collect()
+    }
+
+    #[gpui_kit::test]
+    fn no_project_and_projects_keep_their_own_tabs(cx: &mut TestAppContext) {
+        let folder = tempfile::tempdir().unwrap();
+        let path = std::fs::canonicalize(folder.path()).unwrap();
+        let (app, project) = cx.update(|cx| {
+            let mut scratch = Workspace::new();
+            scratch.open("Scratch chat", "claude");
+            let app = AppState::install_test(scratch, cx);
+            let project = app.projects.update(cx, |projects, cx| {
+                let mut next = projects.catalog.clone();
+                let id = next.open(path.clone());
+                next.select_none();
+                let mut workspace = Workspace::empty(id);
+                workspace.open("Project shell", "shell");
+                projects.sessions.insert(id, workspace);
+                projects.catalog = next;
+                projects.ready = true;
+                cx.notify();
+                id
+            });
+            (app, project)
+        });
+        cx.update(|cx| {
+            let projects = app.projects.read(cx);
+            let ids: Vec<_> = projects
+                .runtime_workspaces(cx)
+                .iter()
+                .map(|w| w.id)
+                .collect();
+            assert!(ids.contains(&project) && ids.contains(&projects.scratch_id(cx)));
+            app.projects
+                .update(cx, |projects, cx| projects.select_target(project, None, cx));
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(titles(app.workspace.read(cx)), ["Project shell"]);
+            assert_eq!(titles(&app.projects.read(cx).scratch), ["Scratch chat"]);
+            // A chat for "No project" goes to that space and shows it.
+            app.projects.update(cx, |projects, cx| {
+                projects
+                    .open_chat(
+                        None,
+                        "New chat",
+                        PaneMetadata {
+                            cwd: Some(path.clone()),
+                            kind: PaneKind::Chat,
+                            ..Default::default()
+                        },
+                        cx,
+                    )
+                    .unwrap()
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(app.projects.read(cx).catalog.active, None);
+            assert_eq!(titles(app.workspace.read(cx)), ["Scratch chat", "New chat"]);
+            assert_eq!(
+                titles(&app.projects.read(cx).sessions[&project]),
+                ["Project shell"],
+                "the project keeps its tabs"
+            );
+        });
     }
 }

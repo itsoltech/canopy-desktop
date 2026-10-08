@@ -3,6 +3,7 @@ mod task_drafts;
 pub use integrations::{IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
 mod editors;
+pub use chats::ChatGuardRequest;
 pub use editors::{Editors, GuardRequest};
 mod files;
 pub use files::FilesState;
@@ -20,6 +21,8 @@ pub use tools::{ToolsState, WorktreeAgent};
 mod terminals;
 pub use projects::{AgentFocusRequested, ProjectsState};
 pub use terminals::Terminals;
+mod chats;
+pub use chats::{ChatTarget, Chats};
 // GPUI ownership and I/O coordination; domain operations live in the library.
 use canopy_desktop::{
     settings::{Access, Change, Preferences, SettingsClient},
@@ -34,6 +37,7 @@ pub struct AppState {
     pub workspace: Entity<Workspace>,
     pub layout: Entity<LayoutState>,
     pub terminals: Entity<Terminals>,
+    pub chats: Entity<Chats>,
     pub tools: Entity<ToolsState>,
     pub git: Entity<GitState>,
     pub changes: Entity<ChangesState>,
@@ -72,6 +76,7 @@ impl AppState {
             layout: cx.new(|_| LayoutState::default()),
             settings: cx.new(SettingsState::test),
             terminals: cx.new(|_| Terminals::new()),
+            chats: cx.new(|_| Chats::new()),
             tools: cx.new(|_| ToolsState::new()),
             git: cx.new(|_| GitState::new()),
             changes: cx.new(|_| ChangesState::new()),
@@ -88,13 +93,56 @@ impl AppState {
         state
     }
 
+    /// Workspaces with agent or shell processes: terminals and chats together.
+    pub fn running_workspaces(
+        &self,
+        cx: &App,
+    ) -> std::collections::HashSet<canopy_desktop::state::workspace::WorkspaceId> {
+        let mut running = self.terminals.read(cx).running_workspaces(cx);
+        running.extend(self.chats.read(cx).running_workspaces(cx));
+        running
+    }
+    pub fn workspace_running(
+        &self,
+        id: canopy_desktop::state::workspace::WorkspaceId,
+        cx: &App,
+    ) -> bool {
+        self.terminals.read(cx).workspace_running(id, cx)
+            || self.chats.read(cx).workspace_running(id, cx)
+    }
+    /// Stops terminals and chats of one workspace; both must confirm cleanup.
+    pub fn stop_workspace_processes(
+        &self,
+        id: canopy_desktop::state::workspace::WorkspaceId,
+        cx: &mut App,
+    ) -> Task<Result<(), String>> {
+        let terminals = self
+            .terminals
+            .update(cx, |terminals, cx| terminals.stop_workspace(id, cx));
+        let chats = self
+            .chats
+            .update(cx, |chats, cx| chats.stop_workspace(id, cx));
+        cx.spawn(async move |_| {
+            let terminals = terminals.await;
+            let chats = chats.await;
+            terminals.and(chats)
+        })
+    }
+
     pub fn quit(cx: &mut App) {
         let app = cx.global::<Self>().clone();
         if app.settings.read(cx).quitting {
             return;
         }
-        if app.editors.read(cx).any_dirty(cx) {
-            let ids = app.editors.read(cx).views.keys().copied().collect();
+        if app.editors.read(cx).any_dirty(cx) || app.chats.read(cx).any_unsent(cx) {
+            let ids = app
+                .editors
+                .read(cx)
+                .views
+                .keys()
+                .chain(app.chats.read(cx).views.keys())
+                .copied()
+                .collect();
             Editors::guard(ids, Self::quit, cx);
             return;
         }
@@ -124,10 +172,17 @@ impl AppState {
                         ));
                         cx.notify();
                     });
-                } else if app.editors.read(cx).any_dirty(cx) {
+                } else if app.editors.read(cx).any_dirty(cx) || app.chats.read(cx).any_unsent(cx) {
                     app.task_drafts.update(cx, |s, cx| s.resume(cx));
                     app.integrations.update(cx, |s, cx| s.cancel_quit(cx));
-                    let ids = app.editors.read(cx).views.keys().copied().collect();
+                    let ids = app
+                        .editors
+                        .read(cx)
+                        .views
+                        .keys()
+                        .chain(app.chats.read(cx).views.keys())
+                        .copied()
+                        .collect();
                     Editors::guard(ids, Self::quit, cx);
                 } else {
                     Self::finish_quit(cx);
@@ -197,8 +252,11 @@ impl AppState {
                 return;
             }
             let terminals=cx.update(|cx|cx.global::<AppState>().terminals.clone());
+            let chats=cx.update(|cx|cx.global::<AppState>().chats.clone());
             let stop=terminals.update(cx,|state,cx|state.shutdown(cx));
-            if let Err(error) = stop.await {
+            let stop_chats=chats.update(cx,|state,cx|state.shutdown(cx));
+            let stopped = stop.await.and(stop_chats.await);
+            if let Err(error) = stopped {
                 cx.update(|cx|cx.global::<Self>().task_drafts.clone().update(cx,|state,cx|state.resume(cx)));
                 integrations.update(cx,|state,cx|state.cancel_quit(cx));
                 files.update(cx,|files,cx|files.cancel_quit(cx));
@@ -231,6 +289,7 @@ impl AppState {
             layout: cx.new(|_| LayoutState::default()),
             settings: cx.new(SettingsState::new),
             terminals: cx.new(|_| Terminals::new()),
+            chats: cx.new(|_| Chats::new()),
             tools: cx.new(|_| ToolsState::new()),
             git: cx.new(|_| GitState::new()),
             changes: cx.new(|_| ChangesState::new()),
@@ -268,6 +327,7 @@ pub struct SettingsState {
     pub quitting: bool,
     pub error: Option<String>,
     pub warnings: Vec<canopy_desktop::settings::DecodeWarning>,
+    remembered: Vec<Change>,
     client: Option<SettingsClient>,
     _task: Option<Task<()>>,
     _quit: Subscription,
@@ -282,6 +342,7 @@ impl SettingsState {
             quitting: false,
             error: None,
             warnings: vec![],
+            remembered: vec![],
             client: None,
             _task: None,
             _quit: cx.on_app_quit(|_, _| async {}),
@@ -326,6 +387,7 @@ impl SettingsState {
                         this.values = snapshot.preferences;
                         this.warnings = snapshot.warnings;
                         this.ready = true;
+                        this.flush_remembered(cx);
                     }
                     Err(error) => this.error = Some(error.to_string()),
                 }
@@ -365,12 +427,54 @@ impl SettingsState {
             quitting: false,
             error: None,
             warnings: vec![],
+            remembered: vec![],
             client: None,
             _task: Some(task),
         }
     }
+    /// Background choices (e.g. last chat picks): queued while a write is in flight,
+    /// newest value per key wins, written after it. Never dropped like `change`.
+    pub fn remember(&mut self, changes: Vec<Change>, cx: &mut Context<Self>) {
+        for change in changes {
+            let key = change.key();
+            self.remembered.retain(|queued| queued.key() != key);
+            self.remembered.push(change);
+        }
+        self.flush_remembered(cx);
+    }
+    fn flush_remembered(&mut self, cx: &mut Context<Self>) {
+        if !self.ready || self.saving || self.quitting || self.remembered.is_empty() {
+            return;
+        }
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        let changes = std::mem::take(&mut self.remembered);
+        self.saving = true;
+        cx.notify();
+        self._task = Some(cx.spawn(async move |this, cx| {
+            let result = client.apply(changes).await;
+            let _ = this.update(cx, |this, cx| {
+                this.saving = false;
+                match result {
+                    Ok(snapshot) => {
+                        this.values = snapshot.preferences;
+                        this.warnings = snapshot.warnings;
+                    }
+                    Err(error) => this.error = Some(error.to_string()),
+                }
+                this.flush_remembered(cx);
+                cx.notify();
+            });
+        }));
+    }
     /// Commit before publishing. One in-flight write prevents stale snapshots across windows.
     pub fn change(&mut self, change: Change, cx: &mut Context<Self>) {
+        if self.ready && self.saving && !self.quitting {
+            // A background write is in flight: apply after it instead of dropping.
+            self.remember(vec![change], cx);
+            return;
+        }
         if !self.ready || self.saving || self.quitting {
             return;
         }
@@ -391,6 +495,7 @@ impl SettingsState {
                     }
                     Err(error) => this.error = Some(error.to_string()),
                 }
+                this.flush_remembered(cx);
                 cx.notify();
             });
         }));

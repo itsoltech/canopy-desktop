@@ -20,6 +20,11 @@ impl AssetSource for Assets {
             "canopy/sparkles.svg" => Some(include_bytes!("../../assets/icons/sparkles.svg")),
             "canopy/download.svg" => Some(include_bytes!("../../assets/icons/download.svg")),
             "canopy/upload.svg" => Some(include_bytes!("../../assets/icons/upload.svg")),
+            "canopy/brain.svg" => Some(include_bytes!("../../assets/icons/brain.svg")),
+            "canopy/pencil.svg" => Some(include_bytes!("../../assets/icons/pencil.svg")),
+            "canopy/message-circle-plus.svg" => {
+                Some(include_bytes!("../../assets/icons/message-circle-plus.svg"))
+            }
             _ => None,
         };
         match custom {

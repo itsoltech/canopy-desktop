@@ -79,8 +79,9 @@ fn snapshot_rejects_duplicates_relative_paths_and_invalid_selection() {
         }
         .valid()
     );
+    // No active path selects the "No project" space, even with open projects.
     assert!(
-        !ProjectSnapshot {
+        ProjectSnapshot {
             paths: vec![a.clone()],
             active: None
         }
