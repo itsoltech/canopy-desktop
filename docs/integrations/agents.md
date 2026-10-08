@@ -3481,17 +3481,17 @@ install (`SessionStart` and `SubagentStop`). All of them are `command` hooks.
 prompt tokens (+16.1%), three more prompt files (+15.0%) and a +0.9 kB bundle. That gives 52,675 →
 61,152 tokens and 20 → 23 files, and 52,675 is the 2.1.293 note's total. From the 2.1.293 tools
 total, 10,543 (15,193 less 4,650), and the new 80.3% system share, the system half grew about
-+6,973 and the tools
-half about +1,504, each ±31 from rounding. A +0.9 kB bundle has room for roughly 225 tokens of new
-text at four bytes per token: enough for the judge text above, far short of 8,477. The system step
++6,973 and the tools half about +1,504, each ±31 from rounding. A +0.9 kB bundle has room for
+roughly 225 tokens of new text at four bytes per token: enough for the judge text above, far short
+of 8,477. The system step
 fits the archive's `User Memory Project One` series, where each copy adds 389 tokens to the last:
 copy 7 was 6,198 and copy 8 6,587, so a ninth would be 6,976. `meta/prompt-stats.md` would confirm
 it, and was not reachable. The tools step is not attributed.
 
 **Both of 2.1.294's CLI changelog entries were read.** The pasted notes list two entries and no
-"… +N more" line, so the list is complete. The changelog archive, the official `CHANGELOG.md` and
-`WebFetch` were refused this run. On this branch, `npm ci` now installs `0.3.294`, which vendors CLI
-2.1.294.
+"… +N more" line, so the list is complete. The changelog archive and the official `CHANGELOG.md`
+were unreachable this run, because `gh api` and web fetches were both refused. On this branch,
+`npm ci` now installs `0.3.294`, which vendors CLI 2.1.294.
 
 ## Error states
 
