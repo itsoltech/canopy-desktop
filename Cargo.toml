@@ -1,0 +1,87 @@
+[package]
+name = "canopy-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+default-run = "canopy-desktop"
+
+[features]
+default = []
+dev-inspector = ["gpui-kit/inspector"]
+frame-profile = ["dep:gpui-profile"]
+
+[dependencies]
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled", "backup"] }
+futures-channel = "=0.3.34"
+futures-lite = "=2.6.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Already locked; standard Basic authentication encoding for Jira Cloud.
+base64 = "=0.22.1"
+# Already locked; date validation and timezone-aware Jira worklogs.
+chrono = "=0.4.45"
+tempfile = "=3.27.0"
+gpui-kit = { version = "=0.6.0", features = ["tree-sitter-rust", "tree-sitter-typescript", "tree-sitter-javascript", "tree-sitter-python", "tree-sitter-html", "tree-sitter-css", "tree-sitter-markdown", "tree-sitter-toml", "tree-sitter-yaml", "tree-sitter-bash", "tree-sitter-svelte"] }
+# HTTP transport already in GPUI Kit's locked dependency graph, but not re-exported.
+reqwest-client = { package = "gpui-pre-reqwest-client", version = "=0.3.4" }
+# Use the renderer's already-locked parser to prepare remote Markdown off the UI thread.
+markdown-parser = { package = "markdown", version = "=1.0.0" }
+# 0.6.0 does not forward profiler; enable it on the SAME locked GPUI package.
+# All application APIs continue to use the gpui_kit facade.
+gpui-profile = { package = "gpui-pre", version = "=0.3.4", default-features = false, features = ["profiler"], optional = true }
+alacritty_terminal = "=0.26.0"
+async-channel = "=2.5.0"
+libc = "=0.2.189"
+uuid = { version = "=1.26.0", features = ["v4"] }
+shell-words = "=1.1.1"
+# Already locked; strict HTTPS credential target parsing without ad-hoc URL splitting.
+url = "=2.5.8"
+git2 = { version = "=0.21.0", default-features = false, features = ["vendored-libgit2", "ssh", "https", "vendored-openssl"] }
+notify = "=7.0.0"
+# Already locked; cancellable, gitignore-aware Quick Open without eager tree indexing.
+ignore = "=0.4.33"
+ttf-parser = "=0.25.1"
+wuff = "=0.2.9"
+
+[dev-dependencies]
+# Exercise real GPUI focus and key dispatch in keyboard-navigation regressions.
+gpui-kit = { version = "=0.6.0", features = ["test-support"] }
+
+[profile.profiling]
+inherits = "release"
+debug = 2
+strip = "none"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+# Use the same native bindings already resolved by GPUI. Needed because GPUI
+# 0.3.4 creates titled panels even when WindowOptions.titlebar is None, and
+# native window adapters need the resolved platform handle on both desktops.
+raw-window-handle = "=0.6.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSView", "NSWindow", "NSScreen", "NSWorkspace", "NSAccessibility", "NSEvent", "block2"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSGeometry"] }
+
+objc2 = "=0.6.4"
+block2 = "=0.6.2"
+security-framework = "=3.7.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Direct Win32 relay backend. Keep features narrow; GPUI already resolves this version.
+windows-sys = { version = "=0.59.0", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# libssh2's default WinCNG build cannot load RSA private-key files because its
+# file parser is compiled out. Feature-unify the existing locked dependency with
+# OpenSSL so agent auth remains available and default OpenSSH keys also work.
+libssh2-sys = { version = "=0.3.1", features = ["openssl-on-win32", "vendored-openssl"] }
+
+[target."cfg(unix)".dependencies]
+polling = "=3.11.0"
+
+[build-dependencies]
+cc = "=1.4.5"
+
+[patch.crates-io]
+# Windows requires atomic Job Object assignment and quoted executable paths before
+# CreateProcessW. Keep the patch local to the locked Alacritty 0.26.0 sources.
+alacritty_terminal = { path = "vendor/alacritty_terminal" }

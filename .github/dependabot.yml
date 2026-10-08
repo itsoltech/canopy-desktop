@@ -3,37 +3,22 @@
 #
 # Strategy: weekly, grouped, non-major bumps so the review surface stays small.
 # Majors are excluded from every group and arrive as individual PRs.
-# Updates target `next` (the integration branch) explicitly.
+# Updates target the active Rust rewrite branch explicitly.
 # Review gate is intentionally kept: a maintainer still applies
 # `claude:review:approved` before auto-merge (see .github/workflows/auto-merge.yml).
 version: 2
 updates:
-  # ---- Root: Electron + Svelte 5 desktop app ----
-  - package-ecosystem: npm
+  # ---- Root: Rust + GPUI Kit desktop app ----
+  - package-ecosystem: cargo
     directory: '/'
-    target-branch: 'next'
+    target-branch: 'rust-rewrite'
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
     labels:
       - dependencies
     groups:
-      # Native modules are rebuilt against Electron's ABI by `install-app-deps`
-      # (postinstall). better-sqlite3 must support the Electron ABI it is rebuilt
-      # against — a version mismatch broke the build in #273. Keep Electron and the
-      # native modules in ONE PR (majors included, unlike every other group) so they
-      # are reviewed and rebuilt together, never a stray Electron major landing alone.
-      # Listed first so these three are pulled out of the catch-all `npm` group below.
-      electron-native:
-        patterns:
-          - 'electron'
-          - 'better-sqlite3'
-          - 'node-pty'
-        update-types:
-          - major
-          - minor
-          - patch
-      npm:
+      cargo:
         patterns:
           - '*'
         update-types:
@@ -43,7 +28,7 @@ updates:
   # ---- Mobile: Expo + React Native app ----
   - package-ecosystem: npm
     directory: '/mobile'
-    target-branch: 'next'
+    target-branch: 'rust-rewrite'
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
@@ -75,7 +60,7 @@ updates:
   # ---- GitHub Actions workflows ----
   - package-ecosystem: github-actions
     directory: '/'
-    target-branch: 'next'
+    target-branch: 'rust-rewrite'
     schedule:
       interval: weekly
     labels:

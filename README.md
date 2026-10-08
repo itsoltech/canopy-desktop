@@ -1,93 +1,110 @@
-<p align="center">
-  <img src="resources/icon.png" alt="Canopy desktop app icon" width="128" height="128">
-</p>
+# Canopy Desktop — Rust + GPUI
 
-<h1 align="center">Canopy</h1>
+Natywna aplikacja Canopy rozwijana w tym repozytorium na branchu `rust-rewrite`.
+Kod Rust + GPUI Kit został przeniesiony z `canopy-desktop-2`; implementacja
+Electron + Svelte pozostaje w historii brancha `next`.
 
-<p align="center"><strong>One canopy. Every branch.</strong></p>
+`mobile/` zawiera dotychczasową, niezależną aplikację Expo/React Native.
+Polecenia npm wykonujemy w `mobile/`; desktop korzysta z Cargo. Integracja
+Remote Control z desktopem Rust nie została przeniesiona. Zakres i pochodzenie
+kodu: [docs/rust-rewrite.md](docs/rust-rewrite.md).
 
-<p align="center">
-  A desktop app for developers who run AI coding agents across multiple git worktrees at once.
-</p>
+## Środowisko
 
-<p align="center">
-  <sub>AI coding terminal and multi-agent developer workstation for macOS, Windows, and Linux</sub>
-</p>
+- Rust 1.95.0, rustfmt i Clippy — wersje w `rust-toolchain.toml`.
+- GPUI Kit **0.6.0**, komponenty i wbudowane zasoby ikon.
+- Pełny graf zależności przypięty w `Cargo.lock`; zachowujemy go w Git.
+- Początkowa platforma weryfikacji: macOS / Apple Silicon.
+- Xcode z narzędziami deweloperskimi i SDK macOS (`xcode-select -p`).
 
-<p align="center">
-  <sub>Built at IT SOL, where we run Claude Code across dozens of PR branches daily.</sub>
-</p>
+Po instalacji Rust przez rustup Cargo pobierze wskazany toolchain i zależności.
+Pierwsza kompilacja GPUI jest znacznie dłuższa niż kolejne kompilacje aplikacji.
 
-<p align="center">
-  <a href="https://github.com/itsoltech/canopy-desktop/releases/latest">Download for Free</a> &bull;
-  <a href="https://canopy.itsol.tech">Website</a> &bull;
-  <a href="https://github.com/itsoltech/canopy-desktop/issues">Issues</a>
-</p>
+```sh
+cargo dev
+# To samo: cargo run --locked
+cargo inspect
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo build --locked
+```
 
----
+`./scripts/run-macos.sh` domyślnie buduje i otwiera **zoptymalizowany release**:
+`target/release/Canopy.app`. `./scripts/run-macos.sh dev` uruchamia build
+bez optymalizacji; `cargo dev` również pozostaje poleceniem debug.
+Pakiety są lokalne, bez podpisu wydawniczego.
 
-<p align="center">
-  <img src="docs/screenshot.png" alt="Canopy — Claude Code AI, Git sidebar, and multi-pane terminal in one window" width="800">
-</p>
+`cargo inspect` włącza feature inspektora GPUI; skrót: Cmd+Option+I. Profil do przyszłych pomiarów:
+`cargo build --locked --profile profiling`. Nie jest to potwierdzenie 120 FPS.
 
-## GPU-accelerated terminal emulator (xterm.js + WebGL)
+## Struktura
 
-Canopy uses WebGL-powered rendering with tmux session persistence across restarts. Drag and drop panes to split, reorder, move between groups, or detach into separate windows. Tabs, persistent sessions, and your shell config work out of the box.
+- `src/main.rs` — wejście procesu.
+- `src/app.rs` — inicjalizacja GPUI, menu, cykl życia okna i początkowy widok.
+- `docs/verification.md` — zakres sprawdzeń i ograniczenia.
 
-## AI coding agents
+Okno startuje w rozmiarze 1423 × 892 jednostek logicznych, z minimum
+800 × 500. Używa semantycznego motywu GPUI Kit oraz `Root` z warstwami
+sheet/dialog/notification. Cmd+Q i zamknięcie ostatniego okna kończą proces.
 
-Claude Code with a real-time Inspector panel tracking costs, context usage, tool calls, and tasks per session. Gemini CLI, Codex, and OpenCode run the same way. Canopy works as a GUI for Claude Code, Gemini CLI, and other AI pair programming tools. Pick a default startup tool per tab or per worktree. AI-powered commit message generation included.
+## Interfejs
 
-## Git worktree GUI and branch management
+Kod widoków i motywu: `src/ui/`. Terminal/PTY, projekty i worktree, layout,
+persist/restore, pliki i edytor, Git Changes oraz sesje agentów mają integracje.
+Część Preferences i metryki zasobów nadal zawierają mocki; szczegóły i granice
+kwalifikacji opisują dokumenty poszczególnych modułów. [docs/ui-mock.md](docs/ui-mock.md)
+jest historycznym opisem pierwszego etapu interfejsu.
 
-Canopy sidebar shows branches, worktrees, and merge status at a glance. Create worktrees from new or existing branches with one click. Push, pull, fetch, stash, and commit without leaving the window. Worktree setup commands run automatically on creation.
+## Stan aplikacji
 
-## Code review and GitHub
+Etap bazowego UI jest zamknięty. Warstwa ustawień ma typowany kontrakt,
+asynchroniczny worker SQLite oraz import zgodnej bazy Electrona do osobnej
+kopii. API, CLI i kolejność integracji: [docs/settings.md](docs/settings.md).
+Kontrolki General korzystają już ze wspólnego stanu i SQLite. Taby, splity,
+przenoszenie pane’ów i layout sidebarów mają modele domenowe. Architektura,
+skróty i zakres implementacji: [docs/app-state.md](docs/app-state.md).
+Open folder / ⌘O otwiera rzeczywisty katalog. Lista projektów i aktywny projekt
+są odtwarzane z SQLite zgodnie z preferencją startup. Bez projektu aplikacja
+pokazuje centralny CTA. Pełny layout tabów i pane’ów jest zapisywany i odtwarzany wraz z metadanymi.
+Format i kontrakt lazy-start PTY: [docs/persistence.md](docs/persistence.md).
 
-GitHub integration via GraphQL. A diff review panel shows all changes with inline commenting per line. Create pull requests and track their status and CI checks from the sidebar.
+Nie ma jeszcze pakowania wydaniowego / DMG, podpisu wydawniczego ani aktualizacji.
+Kwalifikacja platform jest opisana oddzielnie; nie oznacza pełnej weryfikacji GUI
+na Windows/Linux. Repozytorium zachowuje dotychczasowy [LICENSE.md](LICENSE.md).
 
-## Jira and YouTrack integration
+Implementacja i jawna macierz kwalifikacji Windows są prowadzone w
+[docs/windows.md](docs/windows.md).
 
-Connect Jira or YouTrack to view boards, sprints, and assigned tasks. Create branches directly from task keys. Task context is sent to agent sessions so agents know what they're working on.
+Źródło biblioteki: [GPUI Kit 0.6.0](https://gpui-kit.com/releases/).
 
-## Built-in browser
+## Profilowanie
 
-Each worktree gets its own browser tab. Device emulation presets for iPhone, iPad, Pixel, Samsung, and custom viewports. Credential storage backed by the OS keyring. Favorites for quick access. Element and screenshot capture feed directly into AI agent context.
+```sh
+./scripts/run-macos.sh release
+./scripts/run-macos.sh profiling --features frame-profile
+./scripts/run-macos.sh dev --features frame-profile
+```
 
-## Developer tool for macOS, Windows, and Linux
+W wariancie `frame-profile` Ctrl+Option+P rozpoczyna 30-sekundowy zapis
+`Window::draw` i kosztu przekazania klatki platformie. CSV trafia do
+`$TMPDIR/canopy-profiles` (lub katalogu `CANOPY_PROFILE_DIR`). Dane grupujemy
+według okna i próby: `python3 scripts/summarize-frames.py /path/frames-*.csv`.
+Nie są to timestampy faktycznego wyświetlenia klatki przez monitor.
+Release bez tego feature nie zawiera rejestratora ani jego wątku.
 
-Multiple projects in one window with persistent layouts that restore after restarts, including window position, size, and state. Native filesystem watcher powers a live file tree in the sidebar. macOS notch overlay shows color-coded agent status. Bottom status bar with toggleable CPU/RAM HUD. Keystroke visualizer with WPM tracking. Command palette and custom tool launcher. Run configurations via `.canopy/run.toml`. WebRTC remote control from mobile via QR pairing (beta).
+Wyniki profilowania i porównanie przed/po: [docs/performance.md](docs/performance.md).
 
-## Auto-updates and diagnostics
+API i przykłady wspólnych komponentów: [docs/components.md](docs/components.md).
 
-Auto-updates with stable and next (pre-release) channels. Post-update modal shows changelog from GitHub Releases. Crash detection records diagnostics and can file GitHub issues. Guided onboarding on first launch. Anonymous daily telemetry via Umami, opt-in only.
+Nakładka macOS i jej natywne pozycjonowanie: [docs/notch.md](docs/notch.md).
 
-## Multi-agent development workflow
+Wspólne tokeny i mechanizmy animacji: [docs/motion.md](docs/motion.md).
 
-Canopy lets you create a worktree from any branch. Launch an agent in its context. Open more worktrees, run more agents in parallel. Each session gets its own terminal, inspector, and browser tab. Switch between them from one screen.
 
-## Free. No subscription. No account. No middleman.
+## Terminal
 
-Canopy is not an editor and not a terminal. It is a workstation for managing AI-powered development across multiple branches simultaneously. It replaces the need to juggle multiple terminal windows when running parallel AI coding sessions. Your API keys, your Claude Code license, your Codex or Gemini setup. You manage them, we don't touch them.
-
-## Download
-
-- **macOS** - DMG or ZIP (code signed and notarized, Apple Silicon + Intel)
-- **Windows** - NSIS installer (code signed)
-- **Linux** - AppImage or DEB
-
-**[Download Canopy](https://github.com/itsoltech/canopy-desktop/releases/latest)** - free, source-available, cross-platform desktop app for developers. Auto-updates built in.
-
-## Tech stack
-
-Electron &bull; Svelte 5 &bull; TypeScript &bull; xterm.js &bull; node-pty &bull; tmux &bull; SQLite &bull; simple-git
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-Source-available under the [Canopy Source-Available License v1.0](LICENSE.md). Free to use for any purpose, commercial or personal.
-
-Copyright (c) 2026 IT SOL Sp. z o.o.
+Pane'y terminalowe korzystają teraz z Alacritty Terminal i rzeczywistego PTY.
+Powłoka/narzędzie startuje bezpośrednio jako program z argumentami i środowiskiem
+użytkownika. Po zakończeniu pane pokazuje exit code oraz Restart / Close.
+Restore uruchamia tylko aktywny tab. Szczegóły i sprawdzenia:
+[docs/terminal.md](docs/terminal.md).

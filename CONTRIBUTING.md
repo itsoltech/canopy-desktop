@@ -1,130 +1,89 @@
-# Contributing to Canopy
+# Contributing
+
+Desktop development happens on `rust-rewrite` using Rust + GPUI Kit. Preserve the
+pinned toolchain, `Cargo.lock`, product contracts in [AGENTS.md](AGENTS.md), and
+unrelated local changes.
 
 ## Who can contribute what
 
-Canopy is source-available software. Per the [license](LICENSE.md), code contributions (pull requests, patches) are accepted only from employees or authorized contractors of IT SOL Sp. z o.o.
+Canopy is source-available software. Per the [license](LICENSE.md), code
+contributions (pull requests, patches) are accepted only from employees or
+authorized contractors of IT SOL Sp. z o.o.
 
-Everyone can:
+Everyone can report bugs, suggest features using the repository's issue
+templates, and join discussions.
 
-- Report bugs using the [bug report template](https://github.com/itsoltech/canopy-desktop/issues/new?template=bug_report.yml)
-- Suggest features using the [feature request template](https://github.com/itsoltech/canopy-desktop/issues/new?template=feature_request.yml)
-- Join [discussions](https://github.com/itsoltech/canopy-desktop/discussions)
+## Reporting bugs and suggesting features
 
-Got an idea? Open an issue.
+Bug reports should include minimal numbered reproduction steps, platform,
+app version, and screenshots or recordings when applicable. The existing bug
+assignment workflow uses Git history for triage.
 
-## Reporting bugs
+Feature requests must explain the workflow problem, who benefits, and whether
+the feature should be opt-in or enabled by default. Features that add UI
+complexity without solving a concrete workflow problem, affect the default
+experience for a niche audience, or duplicate existing functionality are not
+accepted. Non-core features stay behind a feature flag, off by default; users
+opt in. Core security fixes, critical UX and essential workflows may be enabled
+by default.
 
-Use the bug report template. Include:
+## Desktop checks
 
-- Steps to reproduce (minimal, numbered)
-- Platform (macOS, Windows, or Linux)
-- App version (found in Settings or About)
-- Screenshots or screen recordings when applicable
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --lib
+```
 
-Bug issues are automatically analyzed against git history and assigned to the most likely author for triage.
+For a local macOS release bundle, run `./scripts/build-macos.sh release`.
+`./scripts/run-macos.sh release` also opens it. GUI/E2E verification is separate
+from unit tests and requires prior authorization under the workspace rules.
 
-## Suggesting features
+## Mobile
 
-Use the feature request template. You must answer:
+The independent app keeps its own dependencies, lockfile and EAS configuration.
+Run npm commands inside `mobile/`; see [mobile/README.md](mobile/README.md).
+Its Remote Control backend still requires the Electron implementation on `next`.
 
-- What workflow problem does this solve?
-- Who benefits? (all users, most users, some users, niche)
-- Should it be opt-in or on by default?
+## Commits and reviews
 
-Features that add UI complexity without solving a concrete workflow problem, target a niche audience but affect the default experience, or duplicate existing functionality won't be accepted.
+Use conventional commits (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`,
+`build:`), with a title under 72 characters and lowercase after the prefix.
+Branch from `rust-rewrite` for desktop work. Keep PRs focused and fill in What,
+Why and How to test; include screenshots or recordings for UI changes.
+State what was verified and which platform/runtime checks remain open.
+The existing PR labels and auto-merge gate remain in place. Electron-specific
+automated code review and auto-fix workflows were removed; approval labels must
+be applied after review.
 
-## Code standards
+## Privacy and security
 
-For internal contributors.
+- Never log secrets, passwords, tokens or API keys in logs or diagnostics.
+- Store credentials in the OS keychain, rather than plaintext.
+- Encrypt sensitive user data before persisting it.
+- Telemetry and analytics require explicit user consent.
+- Sanitize user data in error reports and diagnostics.
 
-### Commits
+## Documentation
 
-Conventional commits: `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`, `build:`
-
-Title under 72 characters, lowercase after prefix.
-
-### Code style
-
-Prettier handles formatting. Run `npm run format` before committing.
-
-- Single quotes, no semicolons, 2-space indentation, 100 character print width
-- LF line endings
-- Use `import type` for type-only imports (`verbatimModuleSyntax` is enabled)
-- Avoid bare `any` without `// eslint-disable` and a justification comment
-
-### Error handling
-
-Business logic must use `neverthrow` (`Result<T, E>` / `ResultAsync<T, E>`) instead of `try/catch`. Each domain defines a typed error union with `_tag` discriminants in an `errors.ts` file (e.g., `src/main/git/errors.ts`). Wrap external calls with `fromExternalCall()` from `src/main/errors.ts`.
-
-`try/catch` is only acceptable at process boundaries: PTY resource cleanup, HTTP body parsing, `JSON.parse` on untrusted input, `contextBridge` initialization, and renderer event handlers.
-
-IPC handlers unwrap Results before returning to the renderer: `unwrapOrThrow()` for write operations (propagates typed error as IPC error), `.unwrapOr(defaultValue)` for read operations with safe fallbacks.
-
-### Pattern matching
-
-Use `ts-pattern` for branching on discriminated unions, string literal types, or object shapes (3+ branches). Use `.exhaustive()` when all cases are handled, `.otherwise()` for defaults. Do not use it for simple 1-2 branch conditionals or numeric comparisons.
-
-### Architecture
-
-- Renderer (`src/renderer/`) never imports Node.js modules. All Node.js access goes through the preload bridge
-- IPC channels follow `feature:action` naming and use `invoke`/`handle` (not `send`/`on`)
-- Preload exposes dedicated typed functions per feature domain, not a generic `invoke(channel, ...args)`
-
-### Cross-platform
-
-This app targets macOS, Windows, and Linux. Shared features must not contain:
-
-- OS-specific labels ("Reveal in Finder" in a cross-platform menu)
-- Hardcoded platform paths (`~/`, `%APPDATA%`, `/home/`). Use `app.getPath()` or Node.js equivalents
-- Platform-specific shell commands without a `process.platform` guard
-
-### Privacy and security
-
-- Never log secrets, passwords, tokens, or API keys to console, files, or crash reports
-- Store credentials in the OS keychain (`safeStorage`, Keychain, Credential Manager), not plaintext
-- Encrypt sensitive user data (terminal history, file contents, clipboard) before persisting
-- Telemetry or analytics requires explicit user consent
-- Sanitize user data in error reports and diagnostics
-
-### Feature flags
-
-Non-core features must be behind a feature flag, off by default. Users opt in. Only core functionality (security fixes, critical UX, essential workflows) may be auto-enabled.
-
-### Documentation
-
-Feature behavior is documented in `docs/`. Code and docs ship together — a PR that changes behavior, configuration, error handling, or security properties must update the relevant doc in the same PR. New feature domains need a new doc file. See `docs/README.md` for the template and index.
-
-Each doc covers: Overview, Behavior (user-story workflows), Configuration (preference keys, config paths), Error States (from `errors.ts`), Security/Privacy, and Source Files. Update whichever sections the PR affects. The code review bot flags missing doc updates.
-
-Docs are grouped by layer:
-
-- `docs/core/` — terminal, git, worktree
-- `docs/integrations/` — task tracker, GitHub, agents, browser
-- `docs/features/` — run configurations, remote control, notch overlay, onboarding
-- `docs/diagnostics/` — telemetry, crash reporting, perf HUD, file watcher
+Code and docs ship together. A PR changing behavior, configuration, errors or
+security properties must update the relevant document in `docs/` in the same
+PR. New feature domains need a document covering behavior, configuration,
+errors, security/privacy and source files. Historical verification is separate
+from current test results.
 
 ## AI policy
 
-AI tools are allowed. We use them internally.
+AI tools are allowed and held to the same review standards as hand-written work.
 
-- You must understand every line you submit. If you cannot explain your changes without AI assistance, do not submit them
-- Disclose AI tools used in the PR description
-- AI-generated code is held to the same review standards as hand-written code. No exceptions
-- You bear full responsibility for AI-generated code: correctness, security, privacy, licensing
-- AI-generated media (images, icons, assets) requires prior approval
-- Poor-quality AI-assisted contributions will be rejected. Repeat offenses may result in restricted access
+- Understand every line you submit and be able to explain your changes.
+- Disclose AI tools used in the PR description.
+- Take responsibility for correctness, security, privacy and licensing.
+- AI-generated media (images, icons, assets) requires prior approval.
+- Poor-quality contributions may be rejected and repeat offenses may restrict access.
 
 ## Responsibility
 
-You own your changes. If it breaks, you fix it.
-
-- Security and privacy violations are treated with zero tolerance
-- Review the PR checklist before submitting
-- CI must pass. The code review bot flags issues automatically. Address them before requesting human review
-
-## Pull requests
-
-- Branch from `next`. Hotfixes branch from `main`
-- Fill in the PR template: What, Why, How to test
-- Keep PRs focused. One concern per PR
-- Screenshots or recordings for UI changes
+You own your changes and fix regressions. Security and privacy violations are
+not accepted. Review the PR checklist, ensure CI passes and address review
+findings before requesting approval.

@@ -6,7 +6,7 @@ Before applying labels, invoke `itsolpowers:using-itsolpowers` with the `Skill` 
 
 Do not mention ITSOL Powers, skills, routing, or tool usage in labels or comments.
 
-You are labeling a GitHub issue or pull request for Canopy, an Electron + Svelte 5 desktop app.
+You are labeling a GitHub issue or pull request for Canopy, a Rust + GPUI Kit desktop app with an independent Expo/React Native app in `mobile/`.
 
 ## Available labels
 
@@ -17,7 +17,7 @@ Type (pick one):
 - `documentation` — docs changes
 - `security` — security hardening or vulnerability
 - `type:refactor` — code restructuring, no behavior change
-- `type:build` — build system, electron-vite, CI
+- `type:build` — Cargo, native packaging, Expo builds, CI
 - `type:perf` — performance improvement
 
 Area (pick all that apply):
@@ -33,20 +33,19 @@ Area (pick all that apply):
 
 Scope (pick all that apply, for PRs only):
 
-- `scope:main` — main process (Node.js, IPC, window management)
-- `scope:renderer` — renderer / Svelte UI
-- `scope:preload` — preload bridge
+- `scope:main` — Rust application state, services and native platform integration
+- `scope:renderer` — GPUI views, components and motion
 
 ## Rules
 
 1. Read the issue/PR title and body to determine labels.
 2. For PRs, also read the diff (`gh pr diff`) to determine scope labels from changed file paths:
-   - `src/main/` -> `scope:main`
-   - `src/renderer/` -> `scope:renderer`
-   - `src/preload/` -> `scope:preload`
+   - `src/app_state/`, `src/state/`, `src/git/`, `src/terminal/`, `src/agents/`, `src/integrations/`, `src/settings/`, `src/platform/`, `src/app.rs`, `src/app_state.rs`, `src/main.rs`, `native/` -> `scope:main`
+   - `src/ui/`, `src/motion/` -> `scope:renderer`
+   - For `mobile/`, do not reuse desktop scope labels.
 3. Always apply exactly one type label. If unclear, skip the type label rather than guess.
 4. Apply area labels only when the content clearly maps to a specific area. Multiple area labels are fine.
-5. Do not apply `claude:review:*` labels. Those are managed by the code review workflow.
+5. Do not apply `claude:review:*` labels. Reviewers apply those after code review.
 6. Do not remove existing labels that were set manually.
 7. Apply all labels in a single `gh` command.
 

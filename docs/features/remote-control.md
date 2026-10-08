@@ -1,5 +1,9 @@
 # Remote control
 
+> Legacy Electron protocol retained for the unchanged `mobile/` application.
+> The Rust desktop on `rust-rewrite` does not implement this service yet.
+> Desktop commands in `mobile/README.md` refer to the Electron version on `next`.
+
 > Mirror and control a Canopy window from the mobile app on the same local network.
 
 **Status:** Beta

@@ -1,0 +1,40 @@
+name: Windows
+
+on:
+  pull_request:
+  push:
+    branches: [main, next, rust-rewrite]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  msvc:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --profile minimal --component rustfmt,clippy
+          rustup default 1.95.0-x86_64-pc-windows-msvc
+      - name: Show native toolchain
+        shell: pwsh
+        run: |
+          rustc --version --verbose
+          cargo --version
+          Get-Command cl, cmake, perl, nasm -ErrorAction SilentlyContinue
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check all targets and features
+        run: cargo check --locked --all-targets --all-features
+      - name: Lint all targets and features
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Test all targets and features
+        run: cargo test --locked --all-targets --all-features
+      - name: Build all targets and features
+        run: cargo build --locked --all-targets --all-features

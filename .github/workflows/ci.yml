@@ -3,9 +3,12 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, next]
+    branches: [main, next, rust-rewrite]
   pull_request:
-    branches: [main, next]
+    branches: [main, next, rust-rewrite]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.event.pull_request.head.ref || github.ref }}
@@ -13,11 +16,18 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
+    env:
+      CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v7
-      - uses: volta-cli/action@v5
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Lint all targets
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Run unit tests
+        run: cargo test --locked --lib
+      - name: Build local release bundle
+        run: ./scripts/build-macos.sh release

@@ -22,6 +22,6 @@
 - [ ] Non-core feature is behind a feature flag (off by default)
 - [ ] Cross-platform: no hardcoded OS-specific labels, paths, or shell commands
 - [ ] Keyboard accessible (all interactive elements reachable via keyboard)
-- [ ] IPC follows `feature:action` naming and uses `invoke`/`handle`
-- [ ] Renderer code does not import Node.js modules directly
+- [ ] Desktop uses the pinned `gpui_kit` facade and keeps I/O outside render
+- [ ] Rust checks use `--locked`; mobile commands run inside `mobile/`
 - [ ] Feature docs in `docs/` updated (behavior, config, errors, security — if any changed)

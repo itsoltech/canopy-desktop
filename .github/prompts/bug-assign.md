@@ -22,7 +22,7 @@ You are analyzing a bug report to identify the most likely author of the bug and
 3. Parse the issue title and body for clues: file paths, component names, error messages, stack traces, feature areas.
 4. Search the codebase to identify the most relevant files:
    - Use `Grep` to find files matching error messages, component names, or feature keywords from the issue.
-   - Use `Glob` to find files in the feature area (e.g., `src/renderer/components/sidebar/**` for sidebar bugs).
+   - Use `Glob` to find files in the feature area (e.g., `src/ui/sidebar/**` for desktop sidebar bugs or `mobile/src/**` for mobile bugs).
 5. For each matched file, run `git log --format='%aN' -10 -- <file>` to find recent authors.
 6. If a specific function or line is mentioned, run `git blame -L <range> -- <file>` to find the exact author.
 7. Tally authors across all matched files. The person with the most recent and frequent commits to the affected area is the most likely candidate.
@@ -41,8 +41,8 @@ You are analyzing a bug report to identify the most likely author of the bug and
 
 Multiple contributors have recent changes in the affected area:
 
-- **@user1** — `src/renderer/components/sidebar/Tree.svelte`, `src/main/git.ts`
-- **@user2** — `src/renderer/components/sidebar/Tree.svelte`
+- **@user1** — `src/ui/sidebar/projects.rs`, `src/git/service.rs`
+- **@user2** — `src/ui/sidebar/projects.rs`
 
 One of you may want to pick this up.
 ```

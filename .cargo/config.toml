@@ -1,0 +1,3 @@
+[alias]
+dev = "run --locked"
+inspect = "run --locked --features dev-inspector"
