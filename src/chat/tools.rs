@@ -210,6 +210,165 @@ fn change(result: &Value) -> Option<FileChange> {
     })
 }
 
+/// What a tool asks to do, shown before the user allows it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Proposal {
+    Command {
+        command: String,
+        description: Option<String>,
+    },
+    /// An edit (old → new text, without file line numbers) or a file to write.
+    /// `created` is true for Write; whether it replaces a file is checked separately.
+    Change(FileChange),
+    Input(String),
+}
+
+/// Lines compared per side at most (after the common start and end); beyond that a
+/// change shows as removed + added.
+const DIFF_LINES: usize = 500;
+/// Edits of one MultiEdit and lines of a Write shown before the user allows them.
+const PROPOSED_EDITS: usize = 50;
+const PROPOSED_LINES: usize = 2000;
+
+pub fn proposal(tool: &str, input: &Value) -> Proposal {
+    let path = || text(input, "file_path").map(PathBuf::from);
+    match tool {
+        "Bash" => Proposal::Command {
+            command: text(input, "command").unwrap_or_default().to_owned(),
+            description: text(input, "description").map(str::to_owned),
+        },
+        "Edit" if path().is_some() => Proposal::Change(edit_change(
+            path().expect("path"),
+            &[(
+                text(input, "old_string").unwrap_or_default(),
+                text(input, "new_string").unwrap_or_default(),
+            )],
+        )),
+        "MultiEdit" if path().is_some() => {
+            let edits: Vec<(&str, &str)> = input["edits"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .take(PROPOSED_EDITS)
+                .map(|edit| {
+                    (
+                        text(edit, "old_string").unwrap_or_default(),
+                        text(edit, "new_string").unwrap_or_default(),
+                    )
+                })
+                .collect();
+            Proposal::Change(edit_change(path().expect("path"), &edits))
+        }
+        "Write" if path().is_some() => {
+            let content = text(input, "content").unwrap_or_default();
+            let lines: Vec<DiffLine> = content
+                .lines()
+                .take(PROPOSED_LINES)
+                .enumerate()
+                .map(|(i, line)| DiffLine {
+                    old: None,
+                    new: Some(i as u32 + 1),
+                    kind: '+',
+                    text: line.to_owned(),
+                })
+                .collect();
+            Proposal::Change(FileChange {
+                path: path().expect("path"),
+                created: true,
+                added: content.lines().count(),
+                removed: 0,
+                lines,
+            })
+        }
+        _ => Proposal::Input(serde_json::to_string_pretty(input).unwrap_or_default()),
+    }
+}
+
+/// Edits as removed/added lines, each edit after a separator when there are several.
+fn edit_change(path: PathBuf, edits: &[(&str, &str)]) -> FileChange {
+    let mut lines = vec![];
+    for (index, (old, new)) in edits.iter().enumerate() {
+        if edits.len() > 1 {
+            lines.push(DiffLine {
+                old: None,
+                new: None,
+                kind: 'H',
+                text: format!("Edit {}", index + 1),
+            });
+        }
+        lines.extend(line_diff(old, new));
+    }
+    FileChange {
+        path,
+        created: false,
+        added: lines.iter().filter(|l| l.kind == '+').count(),
+        removed: lines.iter().filter(|l| l.kind == '-').count(),
+        lines,
+    }
+}
+
+/// Line diff by longest common subsequence; positions are unknown, so no line numbers.
+pub fn line_diff(old: &str, new: &str) -> Vec<DiffLine> {
+    let old: Vec<&str> = old.lines().collect();
+    let new: Vec<&str> = new.lines().collect();
+    let line = |kind: char, text: &str| DiffLine {
+        old: None,
+        new: None,
+        kind,
+        text: text.to_owned(),
+    };
+    // The unchanged start and end need no table.
+    let start = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    let end = old[start..]
+        .iter()
+        .rev()
+        .zip(new[start..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let (a, b) = (&old[start..old.len() - end], &new[start..new.len() - end]);
+    let mut lines: Vec<DiffLine> = old[..start].iter().map(|t| line(' ', t)).collect();
+    lines.extend(middle_diff(a, b, &line));
+    lines.extend(old[old.len() - end..].iter().map(|t| line(' ', t)));
+    lines
+}
+
+fn middle_diff(a: &[&str], b: &[&str], line: &dyn Fn(char, &str) -> DiffLine) -> Vec<DiffLine> {
+    if a.len() > DIFF_LINES || b.len() > DIFF_LINES {
+        return a
+            .iter()
+            .map(|t| line('-', t))
+            .chain(b.iter().map(|t| line('+', t)))
+            .collect();
+    }
+    // lengths[i][j]: common subsequence of a[i..] and b[j..].
+    let mut lengths = vec![vec![0u32; b.len() + 1]; a.len() + 1];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            lengths[i][j] = if a[i] == b[j] {
+                lengths[i + 1][j + 1] + 1
+            } else {
+                lengths[i + 1][j].max(lengths[i][j + 1])
+            };
+        }
+    }
+    let (mut i, mut j, mut lines) = (0, 0, vec![]);
+    while i < a.len() || j < b.len() {
+        if i < a.len() && j < b.len() && a[i] == b[j] {
+            lines.push(line(' ', a[i]));
+            i += 1;
+            j += 1;
+        } else if i < a.len() && (j == b.len() || lengths[i + 1][j] >= lengths[i][j + 1]) {
+            // Removed lines come before the added ones, as in git.
+            lines.push(line('-', a[i]));
+            i += 1;
+        } else {
+            lines.push(line('+', b[j]));
+            j += 1;
+        }
+    }
+    lines
+}
+
 /// Files changed by Edit/Write calls of `turn` (its subagents included), one entry per
 /// file in first-change order; later edits of a file add their hunks after earlier ones.
 pub fn turn_changes(transcript: &Transcript, turn: TurnId) -> Vec<FileChange> {
@@ -359,5 +518,33 @@ mod tests {
             view(&call("mcp__x__y", json!({"a": 1}), None, "out")),
             ToolView::Generic { .. }
         ));
+    }
+
+    #[test]
+    fn proposals_show_what_a_tool_will_do() {
+        let edit = proposal(
+            "Edit",
+            &json!({"file_path":"/p/a.rs","old_string":"a\nb\nc","new_string":"a\nB\nc\nd"}),
+        );
+        let Proposal::Change(change) = edit else {
+            panic!("edit");
+        };
+        let kinds: String = change.lines.iter().map(|l| l.kind).collect();
+        assert_eq!(kinds, " -+ +");
+        assert_eq!(
+            (change.added, change.removed, change.created),
+            (2, 1, false)
+        );
+        let Proposal::Change(write) =
+            proposal("Write", &json!({"file_path":"/p/b","content":"x\ny"}))
+        else {
+            panic!("write");
+        };
+        assert!(write.created && write.added == 2);
+        assert!(matches!(
+            proposal("Bash", &json!({"command":"ls","description":"List"})),
+            Proposal::Command { command, description: Some(_) } if command == "ls"
+        ));
+        assert!(matches!(proposal("Edit", &json!({})), Proposal::Input(_)));
     }
 }

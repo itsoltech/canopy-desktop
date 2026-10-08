@@ -1,5 +1,6 @@
 //! Chat pane: owns the headless agent session and its process for one PaneId.
 use super::{
+    decision::DecisionPanel,
     queue::{QueueBar, Waiting},
     rows::Rows,
 };
@@ -14,7 +15,7 @@ use canopy_desktop::{
         presentation,
         process::{Event, Process},
         session::{ChatSession, QueuedId, Status},
-        transcript::{Body, ItemId},
+        transcript::Body,
     },
     motion::{self, Transition, TransitionSpec},
     state::workspace::Pane,
@@ -52,7 +53,7 @@ pub struct ChatView {
     process: Option<Arc<Process>>,
     /// Lines produced before the process exists (initialize, early messages).
     outbox: Vec<serde_json::Value>,
-    agent_run: Option<String>,
+    pub(super) agent_run: Option<String>,
     generation: u64,
     pub(super) starting: bool,
     pub(super) error: Option<String>,
@@ -65,6 +66,8 @@ pub struct ChatView {
     /// Content transition when a subagent conversation opens or closes.
     pub(super) drill: Transition,
     pub(super) queue: QueueBar,
+    /// Permission, question or plan waiting on the user, above the composer.
+    pub(super) decision: DecisionPanel,
     /// Files read or written by finished tool calls that exist in the chat's folder.
     pub(super) tool_files: HashMap<String, FileRef>,
     checked_tools: HashSet<String>,
@@ -75,6 +78,8 @@ pub struct ChatView {
     needs_focus: bool,
     /// 0 = Send, 1 = Stop.
     pub(super) action: Transition,
+    /// What the notch was last told this chat waits for.
+    pub(super) reported_decision: Option<String>,
     /// Restored with a provider session: earlier messages exist but are not shown.
     pub(super) resumed: bool,
     pub(super) sent_any: bool,
@@ -100,7 +105,13 @@ impl ChatView {
                 InputEvent::PressEnter {
                     secondary: true, ..
                 } => this.command_enter(window, cx),
-                InputEvent::PressEnter { shift: false, .. } => this.submit(window, cx),
+                InputEvent::PressEnter { shift: false, .. } => {
+                    if this.decision.active().is_some() {
+                        this.decision_enter(window, cx);
+                    } else {
+                        this.submit(window, cx);
+                    }
+                }
                 InputEvent::Change => cx.notify(),
                 _ => {}
             },
@@ -123,6 +134,7 @@ impl ChatView {
             threads: vec![],
             drill: Transition::new(1., Instant::now()),
             queue: QueueBar::default(),
+            decision: DecisionPanel::default(),
             tool_files: HashMap::new(),
             checked_tools: HashSet::new(),
             composer,
@@ -131,6 +143,7 @@ impl ChatView {
             focused: false,
             needs_focus: false,
             action: Transition::new(0., Instant::now()),
+            reported_decision: None,
             resumed,
             sent_any: false,
             closed: false,
@@ -243,6 +256,8 @@ impl ChatView {
             }
         };
         self.agent_run = Some(registration.run.clone());
+        // A new run starts without anything reported to the notch.
+        self.reported_decision = None;
         let catalog = app.tools.read(cx).catalog.clone();
         let pane = self.pane.clone();
         let settings = self.settings.clone();
@@ -379,7 +394,7 @@ impl ChatView {
     }
 
     /// Mirrors session state into rows, persisted choices and the Send/Stop control.
-    fn after_change(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn after_change(&mut self, cx: &mut Context<Self>) {
         let Some(session) = &mut self.session else {
             return;
         };
@@ -389,7 +404,10 @@ impl ChatView {
             session.status(),
             Status::Working | Status::NeedsDecision | Status::Interrupting
         );
-        let settings = session.settings().clone();
+        let mut settings = session.settings().clone();
+        // Rules remembered for the chat live in its settings, not the session's.
+        settings.allowed = self.settings.allowed.clone();
+        settings.allow(session.take_remembered());
         let policy = motion::policy(cx);
         let session = self.session.as_ref().expect("session");
         let transcript = session.transcript();
@@ -405,6 +423,8 @@ impl ChatView {
             thread.rows.sync(transcript, &changes, thinking, policy, cx);
         }
         self.queue.sync(&waiting, session.queue(), policy);
+        self.sync_decision(policy, cx);
+        self.report_decision(cx);
         self.action.retarget(
             if working { 1. } else { 0. },
             TransitionSpec::new(motion::duration::FAST, motion::Easing::EaseInOut),
@@ -481,7 +501,7 @@ impl ChatView {
         .detach();
     }
 
-    fn write(&mut self, lines: Vec<serde_json::Value>) {
+    pub(super) fn write(&mut self, lines: Vec<serde_json::Value>) {
         match &self.process {
             Some(process) => {
                 for line in lines {
@@ -513,6 +533,11 @@ impl ChatView {
                 .update(cx, |projects, cx| {
                     projects.update_chat(self.pane.id, None, Some(&title), cx)
                 });
+            let pane = self.pane.id;
+            cx.global::<AppState>()
+                .agents
+                .clone()
+                .update(cx, |agents, cx| agents.rename(pane, &title, cx));
         }
         self.after_change(cx);
     }
@@ -674,8 +699,8 @@ impl ChatView {
 
     /// ⌘⏎: allow a pending prompt, else steer the typed message, else the oldest queued one.
     pub(super) fn command_enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pending_permission().is_some() {
-            self.answer_pending(true, cx);
+        if self.decision.active().is_some() {
+            self.decision_primary(window, cx);
             return;
         }
         let text = self.composer.read(cx).value().to_string();
@@ -782,42 +807,17 @@ impl ChatView {
     }
 
     /// The oldest permission still waiting for the user.
-    /// The oldest pending permission shown on screen: in a subagent's conversation only
-    /// its own requests, so a shortcut never answers a prompt the user cannot see.
-    pub(super) fn pending_permission(&self) -> Option<ItemId> {
-        let session = self.session.as_ref()?;
-        let thread = self.threads.last().map(|thread| thread.call.as_str());
-        let rows = self.shown_rows();
-        session
-            .transcript()
-            .items()
-            .iter()
-            .find_map(|item| match &item.body {
-                Body::Permission(p)
-                    if p.decision == canopy_desktop::chat::transcript::Decision::Pending
-                        && (thread.is_none() || rows.permission_thread(p) == thread) =>
-                {
-                    Some(item.id)
-                }
-                _ => None,
-            })
-    }
-    pub(super) fn answer_pending(&mut self, allow: bool, cx: &mut Context<Self>) {
-        if let Some(item) = self.pending_permission() {
-            self.decide(item, allow, cx);
-        }
-    }
     /// Starting or closing: Restart waits for it.
     pub(super) fn busy(&self) -> bool {
         self.starting || !self.closing_done()
     }
 
-    pub(super) fn decide(&mut self, item: ItemId, allow: bool, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session {
-            let lines = session.decide(item, allow);
-            self.write(lines);
-            self.after_change(cx);
-        }
+    /// Forgets a rule remembered for this chat. The running process keeps it until Restart:
+    /// the CLI cannot drop a session rule.
+    pub(super) fn remove_rule(&mut self, rule: &str, cx: &mut Context<Self>) {
+        self.settings.allowed.retain(|allowed| allowed != rule);
+        self.persist(None, cx);
+        cx.notify();
     }
 
     pub(super) fn set_model(&mut self, model: Option<String>, cx: &mut Context<Self>) {

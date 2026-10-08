@@ -183,7 +183,7 @@ impl ChatView {
                     .border_1()
                     .border_b_0()
                     .border_color(t::border())
-                    .bg(t::sidebar())
+                    .bg(t::input_bg())
                     .when(held, |tray| tray.child(paused_row(cx)))
                     .children(rows),
             )

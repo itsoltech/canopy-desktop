@@ -411,6 +411,11 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   `PaneMetadata.chat`. Nie zmieniaj profilu w Preferences w imieniu czatu.
 - Zgoda wymaga decyzji: brak decyzji, Stop i zamknięcie odrzucają oczekujące prośby.
   Yolo jest jawnym wyborem w danym czacie, oznaczonym ostrzegawczo.
+- Zgody, pytania agenta i akceptacja planu są wyłącznie w panelu nad composerem (miejsce tacki
+  kolejki); w rozmowie zostaje ślad decyzji. „Allow for this chat” zapisuje regułę tylko w czacie
+  (`ChatSettings.allowed`, przy starcie w prywatnym `--settings`); do CLI zawsze `destination: session`
+  — nigdy nie zapisujemy zgód do plików projektu ani globalnie. Oczekująca decyzja czatu trafia
+  do notcha przez `AgentsState::set_decision`.
 - Proces czatu uczestniczy w Stop worktree, usuwaniu worktree i quit przez helpery
   `AppState`; nie dodawaj ścieżek zamknięcia omijających `Chats`.
 - Wiersze listy synchronizuj wyłącznie przez `Transcript::take_changes`; nie przebudowuj

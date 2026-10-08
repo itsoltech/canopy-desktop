@@ -120,11 +120,31 @@ pub struct ChatSettings {
     pub effort: Option<Effort>,
     #[serde(default)]
     pub mode: Mode,
+    /// Permission rules "Allow for this chat" remembered (`Bash(npm test *)`); passed to
+    /// each start of the chat's process, never written to settings files (DEC-039).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed: Vec<String>,
 }
 impl ChatSettings {
     pub fn valid(&self) -> bool {
         self.model.as_deref().is_none_or(valid_model)
     }
+
+    /// Remembers rules, skipping invalid ones and duplicates; true when any was added.
+    pub fn allow(&mut self, rules: impl IntoIterator<Item = String>) -> bool {
+        let before = self.allowed.len();
+        for rule in rules {
+            if valid_rule(&rule) && !self.allowed.contains(&rule) {
+                self.allowed.push(rule);
+            }
+        }
+        self.allowed.len() != before
+    }
+}
+
+/// A permission rule as the CLI writes it: a tool name with an optional `(pattern)`.
+pub fn valid_rule(rule: &str) -> bool {
+    !rule.trim().is_empty() && rule.len() <= 1024 && !rule.chars().any(char::is_control)
 }
 
 /// Model ids come from the provider CLI and are passed back as one argv value.

@@ -220,7 +220,7 @@ pub(super) fn body(view: &Entity<ChatView>, entry: &Row, card: &ToolCard) -> Div
 
 /// A compact diff row for cards: one line number (the old one for removals), the
 /// sign and the text, on the change's background.
-fn diff_line(line: &DiffLine, gutter: f32) -> Div {
+pub(super) fn diff_line(line: &DiffLine, gutter: f32) -> Div {
     let changed = matches!(line.kind, '+' | '-');
     let color = if line.kind == '+' {
         t::green()

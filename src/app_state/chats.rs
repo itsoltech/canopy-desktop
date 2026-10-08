@@ -352,6 +352,8 @@ impl Chats {
             model: defaults.model,
             effort: defaults.effort,
             mode: defaults.mode.or(profile_mode).unwrap_or_default(),
+            // New chats start without remembered permissions.
+            allowed: vec![],
         };
         let metadata = move |cwd| PaneMetadata {
             cwd: Some(cwd),

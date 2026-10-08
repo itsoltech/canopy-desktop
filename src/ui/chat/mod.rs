@@ -1,5 +1,6 @@
 //! Chat pane: a conversation with a headless coding agent (Claude Code).
 mod composer;
+mod decision;
 mod dev_bench; // dev_bench: remove together with dev_bench.rs
 mod queue;
 mod render;

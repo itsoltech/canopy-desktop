@@ -5,7 +5,9 @@ use canopy_desktop::{
     chat::{
         presentation,
         tools::{self, FileChange, ToolView},
-        transcript::{Body, Change, Delivery, Item, Outcome, Permission, Transcript},
+        transcript::{
+            Body, Change, Decision, Delivery, Item, Outcome, Permission, PermissionKind, Transcript,
+        },
     },
     motion::{BatchReveal, MotionPolicy},
 };
@@ -473,8 +475,26 @@ impl Rows {
             return;
         };
         let now = Instant::now();
+        let cwd = self.cwd.clone();
         let entry = &mut self.rows[row];
         match &item.body {
+            // An approved plan opens from its row; the panel showed it before.
+            Body::Permission(p)
+                if p.kind == PermissionKind::Plan
+                    && p.decision == Decision::Allowed
+                    && entry.markdown.is_none() =>
+            {
+                if let Some(plan) = p.input["plan"].as_str() {
+                    let plan: Arc<str> = plan.into();
+                    entry.markdown = Some(cx.new(|cx| {
+                        let mut view = MarkdownView::document(cx);
+                        view.stream(plan, cx);
+                        view.finish(cwd, cx);
+                        view
+                    }));
+                    entry.output = Some(Disclosure::new(false, now));
+                }
+            }
             Body::Tool(tool) if tool.state.finished() && entry.extra.card.is_none() => {
                 let view = tools::view(tool);
                 let highlights = match &view {

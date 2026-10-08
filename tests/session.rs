@@ -216,6 +216,7 @@ fn chat_panes_keep_their_choices_and_other_panes_keep_their_shape() {
             model: Some("opus".into()),
             effort: Some(Effort::High),
             mode: Mode::Yolo,
+            allowed: vec!["Bash(npm test *)".into()],
         })),
         ..Default::default()
     };

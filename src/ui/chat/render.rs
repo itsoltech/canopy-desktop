@@ -11,7 +11,7 @@ use canopy_desktop::{
         session::Status,
         transcript::{
             Body, Decision, Delivery, Item, NoticeKind, Outcome, Permission, PermissionKind,
-            ToolCall, ToolState,
+            Remember, Resolution, ToolCall, ToolState,
         },
     },
     motion,
@@ -53,6 +53,7 @@ impl Render for ChatView {
             self.shown_rows().animating(now)
                 || self.action.is_animating(now)
                 || self.queue.animating(now)
+                || self.decision.animating(now)
                 || self.drill.is_animating(now),
         );
         let in_thread = !self.threads.is_empty();
@@ -101,13 +102,13 @@ impl Render for ChatView {
             .key_context("Chat")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &super::StopChat, _, cx| this.interrupt(cx)))
-            .on_action(
-                cx.listener(|this, _: &super::AllowPending, _, cx| this.answer_pending(true, cx)),
-            )
+            .on_action(cx.listener(|this, _: &super::AllowPending, window, cx| {
+                this.decision_primary(window, cx)
+            }))
             .on_action(cx.listener(|this, _: &super::DenyPending, window, cx| {
                 // Esc leaves a subagent's conversation before it denies anything.
                 if this.threads.is_empty() {
-                    this.answer_pending(false, cx)
+                    this.decision_dismiss(cx)
                 } else {
                     this.back(window, cx)
                 }
@@ -117,7 +118,11 @@ impl Render for ChatView {
             .children(self.thread_header(cx))
             .child(body)
             .children(self.banner(cx))
-            .children((!in_thread).then(|| self.queue_bar(cx)).flatten())
+            // A waiting request takes the queue tray's place until it is answered.
+            .children(match self.decision_bar(cx) {
+                Some(panel) => Some(panel),
+                None => (!in_thread).then(|| self.queue_bar(cx)).flatten(),
+            })
             .child(composer)
     }
 }
@@ -417,7 +422,7 @@ fn item_row(
                     Body::Tool(tool) => Some(presentation::subagent_title(tool)),
                     _ => None,
                 });
-            permission_card(view, item, permission, live, asker, this).into_any_element()
+            permission_row(view, entry, permission, live, asker, this, cx).into_any_element()
         }
         Body::Notice(notice) => {
             let (color, icon_name) = match notice.kind {
@@ -675,13 +680,16 @@ fn row_button(
         .child(content)
 }
 
-fn permission_card(
+/// A request in the conversation: waiting (answered in the panel above the composer) or
+/// how the user answered. An approved plan opens to its text.
+fn permission_row(
     view: &Entity<ChatView>,
-    item: &Item,
+    entry: &Row,
     permission: &Permission,
     live: bool,
     asker: Option<String>,
     this: &ChatView,
+    cx: &App,
 ) -> Div {
     let cwd = this.pane.metadata.cwd.clone().unwrap_or_default();
     let summary = presentation::tool_summary(
@@ -698,111 +706,144 @@ fn permission_card(
         },
         &cwd,
     );
-    if permission.decision != Decision::Pending || !live {
-        let (text, glyph) = match permission.decision {
-            Decision::Allowed => (format!("Allowed {}", permission.tool), IconName::Check),
-            Decision::Denied => (format!("Denied {}", permission.tool), IconName::CircleX),
-            Decision::Cancelled | Decision::Pending => (
-                format!("{} request dismissed", permission.tool),
-                IconName::Minus,
-            ),
-        };
-        return row()
-            .pt(px(4.))
-            .h(px(32.))
-            .px(px(6.))
-            .gap(px(8.))
-            .child(div().w(px(10.)).flex_shrink_0())
-            .child(icon(glyph))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(px(12.))
-                    .text_color(t::muted())
-                    .truncate()
-                    .child(if summary.is_empty() {
-                        text
-                    } else {
-                        format!("{text} · {summary}")
-                    }),
-            );
-    }
-    let question = permission.kind == PermissionKind::Question;
-    let title = if question {
-        "Claude has a question".to_owned()
-    } else {
-        permission
-            .title
-            .clone()
-            .unwrap_or_else(|| format!("Allow {}?", permission.tool))
-    };
-    let id = item.id;
-    let decide = |allow: bool| {
-        let view = view.downgrade();
-        move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-            let _ = view.update(cx, |this, cx| this.decide(id, allow, cx));
+    let tool = &permission.tool;
+    let with_summary = |text: String| {
+        if summary.is_empty() {
+            text
+        } else {
+            format!("{text} · {summary}")
         }
     };
-    column()
-        .mt(px(12.))
-        .p(px(14.))
-        .gap(px(10.))
-        .rounded(px(10.))
-        .border_1()
-        .border_color(t::control_border())
-        .bg(t::elevated())
-        .children(asker.map(|asker| {
-            row()
-                .gap(px(6.))
-                .text_size(px(11.))
-                .text_color(t::muted())
-                .child(tool_icon("Claude Code", IconName::Bot))
-                .child(div().truncate().child(format!("Subagent · {asker}")))
-        }))
-        .child(div().text_size(px(13.)).text_color(t::text()).child(title))
-        .children((!summary.is_empty()).then(|| {
-            div()
-                .p(px(8.))
-                .rounded(px(6.))
-                .bg(t::bg())
-                .font_family(t::MONO)
-                .text_size(px(12.))
-                .text_color(t::secondary())
-                .child(summary)
-        }))
-        .children(
-            permission
-                .description
-                .clone()
-                .map(|text| div().text_size(px(12.)).text_color(t::muted()).child(text)),
-        )
-        .children(question.then(|| {
-            div()
-                .text_size(px(12.))
-                .text_color(t::muted())
-                .child("Answering questions from the chat isn't available yet.")
-        }))
+    let with_note = |text: String, note: &Option<String>| match note {
+        Some(note) => format!("{text} — {note}"),
+        None => text,
+    };
+    let (glyph, text) = match (&permission.resolution, permission.decision) {
+        (_, Decision::Pending) if live => (
+            IconName::Info,
+            match permission.kind {
+                PermissionKind::Question => "Waiting for your answer".to_owned(),
+                PermissionKind::Plan => "Waiting for plan approval".to_owned(),
+                PermissionKind::Tool => with_summary(format!("Waiting for permission · {tool}")),
+            },
+        ),
+        (Some(Resolution::Allowed), _) => {
+            (IconName::Check, with_summary(format!("Allowed {tool}")))
+        }
+        (Some(Resolution::Remembered(Remember::Rules(rules))), _) => (
+            IconName::Check,
+            format!(
+                "Always allowed in this chat · {}",
+                rules
+                    .iter()
+                    .map(|rule| rule.text())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ),
+        (Some(Resolution::Remembered(Remember::AcceptEdits)), _) => (
+            IconName::Check,
+            with_summary(format!("Allowed {tool}, edits accepted in this chat")),
+        ),
+        (Some(Resolution::Denied(note)), _) => (
+            IconName::CircleX,
+            with_note(with_summary(format!("Denied {tool}")), note),
+        ),
+        (Some(Resolution::Answered(answers)), _) => (
+            IconName::Check,
+            format!(
+                "Claude asked · {}",
+                answers
+                    .iter()
+                    .map(|(question, answer)| format!("{question} → {answer}"))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+        ),
+        (Some(Resolution::PlanApproved { accept_edits }), _) => (
+            IconName::Check,
+            if *accept_edits {
+                "Plan approved, edits accepted".to_owned()
+            } else {
+                "Plan approved".to_owned()
+            },
+        ),
+        (Some(Resolution::KeepPlanning(note)), _) => {
+            (IconName::Minus, with_note("Kept planning".to_owned(), note))
+        }
+        (None, Decision::Allowed) => (IconName::Check, with_summary(format!("Allowed {tool}"))),
+        (None, Decision::Denied) => (IconName::CircleX, with_summary(format!("Denied {tool}"))),
+        (None, _) => (
+            IconName::Minus,
+            with_summary(match permission.kind {
+                PermissionKind::Question => "Question dismissed".to_owned(),
+                PermissionKind::Plan => "Plan dismissed".to_owned(),
+                PermissionKind::Tool => format!("{tool} request dismissed"),
+            }),
+        ),
+    };
+    let text = match asker {
+        Some(asker) => format!("{text} · Subagent {asker}"),
+        None => text,
+    };
+    let plan = permission.kind == PermissionKind::Plan && entry.markdown.is_some();
+    let now = Instant::now();
+    let line = row()
+        .w_full()
+        .gap(px(8.))
+        .child(match (&entry.output, plan) {
+            (Some(disclosure), true) => disclosure
+                .chevron(now)
+                .text_color(t::faint())
+                .into_any_element(),
+            _ => div().w(px(10.)).flex_shrink_0().into_any_element(),
+        })
+        .child(icon(glyph).text_color(t::muted()))
         .child(
-            row()
-                .gap(px(8.))
-                .justify_end()
-                .child(
-                    button(
-                        ("chat-deny", id.0),
-                        if question { "Dismiss" } else { "Deny" },
-                    )
-                    .tooltip(if question {
-                        "Dismiss (Esc)"
-                    } else {
-                        "Deny (Esc)"
-                    })
-                    .on_click(decide(false)),
-                )
-                .children((!question).then(|| {
-                    primary_button(("chat-allow", id.0), "Allow once")
-                        .tooltip("Allow once (⌘⏎)")
-                        .on_click(decide(true))
-                })),
-        )
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(12.))
+                .text_color(t::muted())
+                .truncate()
+                .child(text),
+        );
+    let key = entry.key;
+    let header: AnyElement = if plan {
+        row_button(("chat-plan", key), line, cx)
+            .w_auto()
+            .mx(px(-6.))
+            .accessibility_label("Show the plan")
+            .on_click({
+                let view = view.downgrade();
+                move |_, _, cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        this.shown_rows_mut().toggle_output(key, cx);
+                        cx.notify();
+                    });
+                }
+            })
+            .into_any_element()
+    } else {
+        row().h(px(28.)).child(line).into_any_element()
+    };
+    column()
+        .pt(px(4.))
+        .child(header)
+        .children(entry.output.as_ref().filter(|_| plan).map(|disclosure| {
+            disclosure.measured_body(
+                ("chat-plan-body", key),
+                div()
+                    .mt(px(4.))
+                    .px(px(18.))
+                    .py(px(14.))
+                    .rounded(px(10.))
+                    .border_1()
+                    .border_color(t::control_border())
+                    .bg(t::elevated())
+                    .text_color(t::text())
+                    .children(entry.markdown.clone()),
+                now,
+            )
+        }))
 }

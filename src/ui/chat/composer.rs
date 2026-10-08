@@ -2,7 +2,10 @@
 use super::{render::centered, view::ChatView};
 use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::chat::config::{Effort, Mode, ModelInfo};
+use canopy_desktop::chat::{
+    config::{Effort, Mode, ModelInfo},
+    transcript::PermissionKind,
+};
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     IconName, Sizable,
@@ -23,8 +26,9 @@ struct Account {
 
 impl ChatView {
     pub(super) fn composer_island(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let _ = window;
+        self.apply_composer_change(window, cx);
         let working = self.is_working();
+        let deciding = self.decision.active().is_some();
         let empty = self.composer.read(cx).value().trim().is_empty();
         let ended = self.status().is_some_and(|status| status.ended());
         centered(
@@ -36,6 +40,12 @@ impl ChatView {
                 .border_1()
                 .border_color(t::control_border())
                 .bg(t::input_bg())
+                // Number keys pick an option and ⌘⌫ denies while a request waits.
+                .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    if this.decision_key(event, window, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
                 .child(
                     Textarea::new(&self.composer)
                         .appearance(false)
@@ -53,7 +63,11 @@ impl ChatView {
                         .child(self.mode_picker(cx))
                         .child(div().flex_1())
                         .child(super::dev_bench::button(cx, ended)) // dev_bench
-                        .child(self.action_button(working, empty || ended, cx)),
+                        .children(deciding.then(|| self.decision_buttons(empty, cx)))
+                        // While a request waits, its own buttons answer it; ⌘. still stops.
+                        .children(
+                            (!deciding).then(|| self.action_button(working, empty || ended, cx)),
+                        ),
                 ),
         )
         .pt(px(4.))
@@ -240,6 +254,7 @@ impl ChatView {
 
     fn mode_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mode = self.settings.mode;
+        let allowed = self.settings.allowed.clone();
         // Without the model list yet, every mode stays offered; the CLI validates.
         let auto = self.current_model().is_none_or(|model| model.supports_auto);
         let view = cx.entity().downgrade();
@@ -275,8 +290,84 @@ impl ChatView {
                         }),
                 );
             }
+            if !allowed.is_empty() {
+                menu = menu
+                    .separator()
+                    .label("Allowed in this chat · click to remove");
+                for rule in &allowed {
+                    let view = view.clone();
+                    let remove = rule.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(rule.clone())
+                            .icon(icon(IconName::Close).size(px(13.)))
+                            .on_click(move |_, _, cx| {
+                                let _ = view.update(cx, |this, cx| this.remove_rule(&remove, cx));
+                            }),
+                    );
+                }
+            }
             menu.min_w(px(240.))
         })
+    }
+
+    /// While a request waits: back to the previous question, then Next / Submit for
+    /// questions, or Deny / Keep planning with the typed note.
+    fn decision_buttons(&self, empty: bool, cx: &mut Context<Self>) -> Div {
+        let Some(request) = self.decision.active() else {
+            return row();
+        };
+        let last = request.step + 1 >= request.questions.len();
+        let answered = !empty
+            || request
+                .chosen
+                .get(request.step)
+                .is_some_and(|chosen| !chosen.is_empty());
+        let primary = match request.permission.kind {
+            PermissionKind::Question => Some((if last { "Submit" } else { "Next" }, !answered)),
+            PermissionKind::Tool if !empty => Some(("Deny", false)),
+            PermissionKind::Plan if !empty => Some(("Keep planning", false)),
+            _ => None,
+        };
+        row()
+            .gap(px(6.))
+            .children(
+                (request.permission.kind == PermissionKind::Question && request.step > 0).then(
+                    || {
+                        Button::new("chat-decision-back")
+                            .ghost()
+                            .compact()
+                            .size(px(28.))
+                            .min_w(px(28.))
+                            .max_w(px(28.))
+                            .p_0()
+                            .rounded(px(14.))
+                            .border_1()
+                            .border_color(t::control_border())
+                            .icon(IconName::ChevronLeft)
+                            .accessibility_label("Previous question")
+                            .tooltip("Previous question")
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.decision_back(window, cx)),
+                            )
+                    },
+                ),
+            )
+            .children(primary.map(|(label, disabled)| {
+                Button::new("chat-decision-primary")
+                    .primary()
+                    .compact()
+                    .h(px(28.))
+                    .px(px(14.))
+                    .rounded(px(14.))
+                    .label(label)
+                    .accessibility_label(label)
+                    .tooltip(match label {
+                        "Next" | "Submit" => "Enter",
+                        _ => "Send with your note (Enter)",
+                    })
+                    .disabled(disabled)
+                    .on_click(cx.listener(|this, _, window, cx| this.decision_enter(window, cx)))
+            }))
     }
 
     fn action_button(&self, working: bool, disabled: bool, cx: &mut Context<Self>) -> Button {

@@ -15,7 +15,7 @@ use canopy_desktop::{
         config::{ChatSettings, Effort, Mode},
         launch::{HookConfig, prepare_claude},
         process::{Event, Process},
-        session::{ChatSession, Status},
+        session::{ChatSession, Response, Status},
         transcript::{Body, Decision, Delivery, Outcome, ToolState},
     },
     state::{
@@ -84,6 +84,17 @@ impl Live {
         hooks: Option<HookConfig<'_>>,
         model: &str,
     ) -> Self {
+        Self::start_settings(name, dir, resume, hooks, model, &ChatSettings::default())
+    }
+
+    fn start_settings(
+        name: &'static str,
+        dir: Option<tempfile::TempDir>,
+        resume: Option<&str>,
+        hooks: Option<HookConfig<'_>>,
+        model: &str,
+        settings: &ChatSettings,
+    ) -> Self {
         let dir = dir.unwrap_or_else(|| tempfile::tempdir().unwrap());
         std::fs::write(dir.path().join("note.txt"), "canopy fixture note\n").unwrap();
         let env = ShellEnvironment::load().expect("login shell environment");
@@ -97,14 +108,7 @@ impl Live {
                 ..Default::default()
             },
         };
-        let launch = prepare_claude(
-            &ToolCatalog::default(),
-            &pane,
-            &env,
-            &ChatSettings::default(),
-            hooks,
-        )
-        .unwrap();
+        let launch = prepare_claude(&ToolCatalog::default(), &pane, &env, settings, hooks).unwrap();
         let (process, events) =
             Process::start(launch.spec, launch.files, parse, wire::MAX_LINE_BYTES)
                 .expect("claude starts");
@@ -839,4 +843,62 @@ fn thinking_summaries_stream_into_the_transcript() {
         "a summary of the reasoning arrives"
     );
     live.finish();
+}
+
+#[test]
+#[ignore = "live Claude Code; set CANOPY_LIVE_CLAUDE=1"]
+fn rules_allowed_for_the_chat_stop_asking_and_survive_a_restart() {
+    if !enabled() {
+        return;
+    }
+    let prompt = "Use the Bash tool twice, one call at a time, with exactly this command: \
+                  `touch one.txt`. Then reply done.";
+    let mut live = Live::start("chat-rules", None, None);
+    live.submit(prompt);
+    live.pump(TURN, |s| *s.status() == Status::NeedsDecision);
+    let (item, _) = live.pending_permission().expect("permission request");
+    let lines = live.session.respond(item, Response::AllowForChat);
+    assert_eq!(
+        lines[0]["response"]["response"]["updatedPermissions"][0]["destination"],
+        "session"
+    );
+    live.write(lines);
+    live.pump(TURN, |s| {
+        matches!(s.status(), Status::Ready | Status::NeedsDecision)
+    });
+    assert_eq!(
+        *live.session.status(),
+        Status::Ready,
+        "the second call doesn't ask"
+    );
+    let rules = live.session.take_remembered();
+    eprintln!("chat-rules: remembered {rules:?}");
+    assert!(!rules.is_empty());
+    assert!(
+        !live.cwd.join(".claude").exists(),
+        "no settings file in the project"
+    );
+    live.finish();
+
+    // A new process (Restart) gets the rules at start and doesn't ask either.
+    let settings = ChatSettings {
+        allowed: rules,
+        ..Default::default()
+    };
+    let mut restarted =
+        Live::start_settings("chat-rules-restart", None, None, None, "haiku", &settings);
+    restarted.submit(
+        "Use the Bash tool once with exactly this command: `touch one.txt`. Then reply done.",
+    );
+    restarted.pump(TURN, |s| {
+        matches!(s.status(), Status::Ready | Status::NeedsDecision)
+            && s.transcript().items().len() > 2
+    });
+    assert_eq!(
+        *restarted.session.status(),
+        Status::Ready,
+        "the remembered rule applies"
+    );
+    assert!(!restarted.cwd.join(".claude").exists());
+    restarted.finish();
 }

@@ -18,11 +18,16 @@ pub struct AgentSession {
     confirmed: bool,
     retired: VecDeque<String>,
     pub status: Status,
+    /// Status from the agent's own events; a chat's pending decision shows over it.
+    base: Status,
     pub model: Option<String>,
     pub permission: Option<String>,
     pub tool: Option<String>,
     pub response: Option<String>,
     pub question: Option<String>,
+    /// What a chat waits for the user to decide (permission, question, plan), reported
+    /// by the chat itself: headless permission prompts may raise no hook.
+    pub decision: Option<String>,
     attention: canopy_desktop::agents::Attention,
     pub recent: VecDeque<String>,
     pub error: Option<String>,
@@ -72,11 +77,13 @@ impl AgentsState {
                 confirmed: false,
                 retired: VecDeque::new(),
                 status,
+                base: status,
                 model: None,
                 permission: None,
                 tool: None,
                 response: None,
                 question: None,
+                decision: None,
                 attention: Default::default(),
                 recent: VecDeque::new(),
                 error: None,
@@ -152,11 +159,13 @@ impl AgentsState {
                 active: true,
                 unseen: false,
                 status: Status::Starting,
+                base: Status::Starting,
                 model: None,
                 permission: None,
                 tool: None,
                 response: None,
                 question: None,
+                decision: None,
                 attention: Default::default(),
                 recent: VecDeque::new(),
                 error: None,
@@ -305,10 +314,11 @@ impl AgentsState {
         .then(|| (session.pane.id, event.clone()));
         session.attention.apply(&event);
         let previous = session.status;
-        session.status = if session.attention.waiting() {
+        session.base = event.status(session.base);
+        session.status = if session.attention.waiting() || session.decision.is_some() {
             Status::Waiting
         } else {
-            event.status(session.status)
+            session.base
         };
         if canopy_desktop::agents::should_notify(previous, session.status, visible) {
             session.unseen = true;
@@ -469,6 +479,51 @@ impl AgentsState {
             cx.notify();
         }
     }
+    /// A chat's request waiting on the user (`None` once answered): Needs attention,
+    /// with the usual alert when the chat isn't visible.
+    pub fn set_decision(
+        &mut self,
+        pane: PaneId,
+        run: &str,
+        decision: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let visible = self.visible(pane, cx);
+        let Some(session) = self
+            .sessions
+            .get_mut(&pane)
+            .filter(|session| session.run == run && session.active)
+        else {
+            return;
+        };
+        if session.decision == decision {
+            return;
+        }
+        let previous = session.status;
+        session.decision = decision;
+        session.status = if session.decision.is_some() || session.attention.waiting() {
+            Status::Waiting
+        } else if session.base == Status::Waiting {
+            // Answered: the agent goes on with its work.
+            Status::Working
+        } else {
+            session.base
+        };
+        if canopy_desktop::agents::should_notify(previous, session.status, visible) {
+            session.unseen = true;
+            self.notification_revision += 1;
+        }
+        cx.notify();
+    }
+
+    /// Keeps a chat's title current for the notch and the Session inspector.
+    pub fn rename(&mut self, pane: PaneId, title: &str, cx: &mut Context<Self>) {
+        if let Some(session) = self.sessions.get_mut(&pane) {
+            session.pane.metadata.title = Some(title.to_owned());
+            cx.notify();
+        }
+    }
+
     pub fn focus(&self, pane: PaneId, cx: &mut App) {
         let app = cx.global::<AppState>().clone();
         app.projects
@@ -539,5 +594,57 @@ impl AgentSession {
         } else {
             IntegrationHealth::Starting
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui_kit::test]
+    fn a_hidden_chat_waiting_on_a_decision_needs_attention(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            let mut workspace = canopy_desktop::state::workspace::Workspace::empty(
+                canopy_desktop::state::workspace::WorkspaceId::new(),
+            );
+            workspace.open("Chat", "claude");
+            let pane = workspace.all_panes().remove(0);
+            let id = pane.id;
+            let app = AppState::install_test(workspace, cx);
+            app.agents.update(cx, |agents, cx| {
+                agents.insert_test_session(pane, Status::Working);
+                let revision = agents.notification_revision;
+                agents.set_decision(id, "test-run", Some("Permission: Bash".into()), cx);
+                let session = &agents.sessions[&id];
+                assert_eq!(session.status, Status::Waiting);
+                assert!(session.unseen, "the window is not active: alert");
+                assert_eq!(agents.notification_revision, revision + 1);
+                agents.set_decision(id, "test-run", Some("Permission: Bash".into()), cx);
+                assert_eq!(
+                    agents.notification_revision,
+                    revision + 1,
+                    "no repeat alert"
+                );
+                agents.set_decision(id, "other-run", None, cx);
+                assert_eq!(
+                    agents.sessions[&id].status,
+                    Status::Waiting,
+                    "stale run ignored"
+                );
+                agents.set_decision(id, "test-run", None, cx);
+                assert_eq!(agents.sessions[&id].status, Status::Working);
+                // Stopped while a decision waited: the agent's own status comes back.
+                agents.set_decision(id, "test-run", Some("Plan ready for approval".into()), cx);
+                agents.sessions.get_mut(&id).unwrap().base = Status::Idle;
+                agents.set_decision(id, "test-run", None, cx);
+                assert_eq!(agents.sessions[&id].status, Status::Idle);
+                agents.rename(id, "Fix the tests", cx);
+                assert_eq!(
+                    agents.sessions[&id].pane.metadata.title.as_deref(),
+                    Some("Fix the tests")
+                );
+            });
+        });
     }
 }

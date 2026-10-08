@@ -98,6 +98,51 @@ pub struct Permission {
     pub description: Option<String>,
     pub kind: PermissionKind,
     pub decision: Decision,
+    /// What "Allow for this chat" would remember, when the provider offers it.
+    #[serde(default)]
+    pub remember: Option<Remember>,
+    /// How the user answered, for the conversation's record.
+    #[serde(default)]
+    pub resolution: Option<Resolution>,
+}
+
+/// A permission rule like `Bash(npm test *)`: a tool and an optional pattern.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rule {
+    pub tool: String,
+    pub content: Option<String>,
+}
+impl Rule {
+    pub fn text(&self) -> String {
+        match &self.content {
+            Some(content) => format!("{}({content})", self.tool),
+            None => self.tool.clone(),
+        }
+    }
+}
+
+/// Remembering a permission for the rest of the chat.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Remember {
+    /// Calls matching these rules no longer ask.
+    Rules(Vec<Rule>),
+    /// File edits no longer ask (the chat switches to accepting edits).
+    AcceptEdits,
+}
+
+/// The user's answer to a request, beyond allowed/denied.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Resolution {
+    Allowed,
+    Remembered(Remember),
+    /// Denied, with what the user told the agent to do instead.
+    Denied(Option<String>),
+    /// Question → answer, in the order asked.
+    Answered(Vec<(String, String)>),
+    PlanApproved {
+        accept_edits: bool,
+    },
+    KeepPlanning(Option<String>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +150,8 @@ pub enum PermissionKind {
     Tool,
     /// The agent asks the user to choose answers (Claude AskUserQuestion).
     Question,
+    /// The agent presents a plan for approval before acting (Claude ExitPlanMode).
+    Plan,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

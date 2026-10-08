@@ -5,11 +5,12 @@ use super::{
         adapter::{Adapter, CliState, InitInfo, Signal},
         wire::{self, Inbound, Lifecycle, Priority},
     },
-    config::{ChatSettings, Effort, Mode, ModelInfo},
+    config::{ChatSettings, Effort, Mode, ModelInfo, valid_rule},
+    presentation,
     process::{Event, Exit},
     transcript::{
-        Body, Decision, Delivery, ItemId, Notice, NoticeKind, Outcome, Transcript, TurnEnd,
-        UserMessage,
+        Body, Decision, Delivery, ItemId, Notice, NoticeKind, Outcome, PermissionKind, Remember,
+        Resolution, Rule, Transcript, TurnEnd, UserMessage,
     },
 };
 use serde_json::Value;
@@ -39,6 +40,27 @@ impl Status {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QueuedId(pub u64);
+
+/// The user's answer to a pending request: a permission, questions or a plan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Response {
+    Allow,
+    /// Allow and remember the request's `remember` for the rest of the chat.
+    AllowForChat,
+    /// Deny, optionally telling the agent what to do instead.
+    Deny(Option<String>),
+    /// One answer per question, in the order asked; empty ones are left out.
+    Answer(Vec<String>),
+    ApprovePlan {
+        accept_edits: bool,
+    },
+    KeepPlanning(Option<String>),
+}
+
+fn clean(text: Option<String>) -> Option<String> {
+    text.map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty())
+}
 
 /// What Resume sends after Stop, so the agent finishes the interrupted work before the
 /// queue continues.
@@ -83,6 +105,8 @@ pub struct ChatSession {
     hold_queue: bool,
     /// Stop cut work short and nothing was sent since: Resume first asks to finish it.
     stopped: bool,
+    /// Rules remembered for the chat, not yet taken by the view.
+    remembered: Vec<String>,
     /// Our message uuids the CLI has not finished with (`command_lifecycle`).
     outstanding: HashSet<String>,
     lifecycle_seen: bool,
@@ -136,6 +160,7 @@ impl ChatSession {
             next_queued: 0,
             hold_queue: false,
             stopped: false,
+            remembered: vec![],
             outstanding: HashSet::new(),
             lifecycle_seen: false,
             cli_idle: true,
@@ -391,28 +416,148 @@ impl ChatSession {
         lines
     }
 
-    /// Records the user's decision for a permission item; repeated decisions are ignored.
+    /// Allows or denies a permission item; repeated decisions are ignored.
     pub fn decide(&mut self, item: ItemId, allow: bool) -> Vec<Value> {
-        let Some(request) = self.transcript.position(item).and_then(|index| {
+        self.respond(
+            item,
+            if allow {
+                Response::Allow
+            } else {
+                Response::Deny(None)
+            },
+        )
+    }
+
+    /// Answers a pending request; answers that don't fit its kind, and repeated ones,
+    /// are ignored.
+    pub fn respond(&mut self, item: ItemId, response: Response) -> Vec<Value> {
+        let Some(permission) = self.transcript.position(item).and_then(|index| {
             match &self.transcript.items()[index].body {
-                Body::Permission(p) if p.decision == Decision::Pending => {
-                    Some(p.request_id.clone())
-                }
+                Body::Permission(p) if p.decision == Decision::Pending => Some(p.clone()),
                 _ => None,
             }
         }) else {
             return vec![];
         };
-        let decision = if allow {
-            Decision::Allowed
-        } else {
-            Decision::Denied
+        let request = permission.request_id.as_str();
+        let call = permission.call_id.as_deref();
+        let input = &permission.input;
+        let kind = permission.kind;
+        let (decision, resolution, line) = match response {
+            Response::Allow if kind == PermissionKind::Tool => (
+                Decision::Allowed,
+                Resolution::Allowed,
+                wire::allow(request, call, input),
+            ),
+            Response::AllowForChat if kind == PermissionKind::Tool => {
+                // Only rules the chat can keep are sent, so a restart behaves the same.
+                let remember = match permission.remember.clone() {
+                    Some(Remember::Rules(rules)) => {
+                        let rules: Vec<Rule> = rules
+                            .into_iter()
+                            .filter(|rule| valid_rule(&rule.text()))
+                            .collect();
+                        if rules.is_empty() {
+                            return vec![];
+                        }
+                        Remember::Rules(rules)
+                    }
+                    Some(Remember::AcceptEdits) => Remember::AcceptEdits,
+                    None => return vec![],
+                };
+                let line = wire::allow_updating(
+                    request,
+                    call,
+                    input,
+                    wire::session_permissions(&remember),
+                );
+                (Decision::Allowed, Resolution::Remembered(remember), line)
+            }
+            Response::Deny(note) => {
+                let note = clean(note);
+                let message = match &note {
+                    Some(note) => format!("The user denied this in Canopy and said: {note}"),
+                    None => DENIED_MESSAGE.to_owned(),
+                };
+                (
+                    Decision::Denied,
+                    Resolution::Denied(note),
+                    wire::deny(request, call, &message),
+                )
+            }
+            Response::Answer(answers) if kind == PermissionKind::Question => {
+                let pairs: Vec<(String, String)> = presentation::questions(&permission)
+                    .into_iter()
+                    .zip(answers)
+                    .filter_map(|(question, answer)| {
+                        Some((question.question, clean(Some(answer))?))
+                    })
+                    .collect();
+                if pairs.is_empty() {
+                    return vec![];
+                }
+                let line = wire::answer_questions(request, call, input, &pairs);
+                (Decision::Allowed, Resolution::Answered(pairs), line)
+            }
+            Response::ApprovePlan { accept_edits } if kind == PermissionKind::Plan => (
+                Decision::Allowed,
+                Resolution::PlanApproved { accept_edits },
+                wire::approve_plan(request, call, input, accept_edits),
+            ),
+            Response::KeepPlanning(note) if kind == PermissionKind::Plan => {
+                let note = clean(note);
+                let message = match &note {
+                    Some(note) => format!("The user wants to keep planning. Feedback: {note}"),
+                    None => "The user wants to keep planning.".to_owned(),
+                };
+                (
+                    Decision::Denied,
+                    Resolution::KeepPlanning(note),
+                    wire::deny(request, call, &message),
+                )
+            }
+            _ => return vec![],
         };
-        let line = self.answer(&request, decision);
+        let rules = match &resolution {
+            Resolution::Remembered(Remember::Rules(rules)) => {
+                rules.iter().map(Rule::text).collect()
+            }
+            _ => vec![],
+        };
+        if !self
+            .adapter
+            .resolve_with(request, decision, Some(resolution), &mut self.transcript)
+        {
+            return vec![];
+        }
+        self.remembered.extend(rules);
         if self.status == Status::NeedsDecision && self.adapter.pending_permissions().is_empty() {
             self.status = Status::Working;
         }
-        line.into_iter().collect()
+        vec![line]
+    }
+
+    /// Requests waiting for the user, oldest first.
+    pub fn pending_decisions(&self) -> Vec<ItemId> {
+        self.adapter
+            .pending_permissions()
+            .iter()
+            .filter_map(|request| {
+                self.transcript
+                    .items()
+                    .iter()
+                    .rev()
+                    .find_map(|item| match &item.body {
+                        Body::Permission(p) if &p.request_id == request => Some(item.id),
+                        _ => None,
+                    })
+            })
+            .collect()
+    }
+
+    /// Rules "Allow for this chat" added since the last call, to keep with the chat.
+    pub fn take_remembered(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.remembered)
     }
 
     pub fn on_event(&mut self, event: Event<Inbound>) -> Vec<Value> {

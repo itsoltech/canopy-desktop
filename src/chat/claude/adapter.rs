@@ -3,8 +3,8 @@
 use super::wire::{self, ApiEvent, Block, Delta, Inbound, System};
 use crate::chat::presentation::HANDBACK_TOOL;
 use crate::chat::transcript::{
-    Body, Decision, Notice, NoticeKind, Outcome, Permission, PermissionKind, TextBlock, ToolCall,
-    ToolOutput, ToolState, Transcript, TurnEnd, Usage,
+    Body, Decision, Notice, NoticeKind, Outcome, Permission, PermissionKind, Resolution, TextBlock,
+    ToolCall, ToolOutput, ToolState, Transcript, TurnEnd, Usage,
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -156,12 +156,23 @@ impl Adapter {
 
     /// Records a decision for a pending permission; false when it was not pending.
     pub fn resolve(&mut self, request_id: &str, decision: Decision, t: &mut Transcript) -> bool {
+        self.resolve_with(request_id, decision, None, t)
+    }
+
+    pub fn resolve_with(
+        &mut self,
+        request_id: &str,
+        decision: Decision,
+        resolution: Option<Resolution>,
+        t: &mut Transcript,
+    ) -> bool {
         let Some(index) = self.permissions.remove(request_id) else {
             return false;
         };
         t.update(index, |body| {
             if let Body::Permission(permission) = body {
                 permission.decision = decision;
+                permission.resolution = resolution;
             }
         });
         true
@@ -209,8 +220,11 @@ impl Adapter {
         false
     }
 
+    /// Request ids of pending permissions, oldest first.
     pub fn pending_permissions(&self) -> Vec<String> {
-        self.permissions.keys().cloned().collect()
+        let mut pending: Vec<_> = self.permissions.iter().collect();
+        pending.sort_by_key(|(_, index)| **index);
+        pending.into_iter().map(|(id, _)| id.clone()).collect()
     }
 
     /// Closes everything still open in the current turn (interrupt, failure, exit).
@@ -271,11 +285,12 @@ impl Adapter {
                 wire::request_subtype(request),
             ))];
         };
-        let kind = if prompt.tool_name == "AskUserQuestion" {
-            PermissionKind::Question
-        } else {
-            PermissionKind::Tool
+        let kind = match prompt.tool_name.as_str() {
+            "AskUserQuestion" => PermissionKind::Question,
+            "ExitPlanMode" => PermissionKind::Plan,
+            _ => PermissionKind::Tool,
         };
+        let remember = wire::remember(&prompt.permission_suggestions);
         let index = transcript.push(
             None,
             Body::Permission(Permission {
@@ -287,6 +302,8 @@ impl Adapter {
                 description: prompt.description.or(prompt.decision_reason),
                 kind,
                 decision: Decision::Pending,
+                remember,
+                resolution: None,
             }),
         );
         self.permissions.insert(request_id, index);

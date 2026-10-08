@@ -5,6 +5,7 @@
 //! defaults instead of failing the line. Shapes follow CLI 2.1.294 /
 //! `@anthropic-ai/claude-agent-sdk` 0.3.293.
 use crate::chat::config::{Effort, Mode, ModelInfo};
+use crate::chat::transcript::{Remember, Rule};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -118,6 +119,115 @@ pub struct CanUseTool {
     pub description: Option<String>,
     #[serde(default)]
     pub decision_reason: Option<String>,
+    /// Ways to remember the decision (`addRules`, `setMode`, `addDirectories`).
+    #[serde(default)]
+    pub permission_suggestions: Vec<Value>,
+}
+
+/// What "Allow for this chat" can remember from the CLI's suggestions: its allow rules,
+/// else switching to accepting edits. Directory grants are not offered.
+pub fn remember(suggestions: &[Value]) -> Option<Remember> {
+    let rules: Vec<Rule> = suggestions
+        .iter()
+        .filter(|s| s["type"] == "addRules" && s["behavior"] == "allow")
+        .filter_map(|s| s["rules"].as_array())
+        .flatten()
+        .filter_map(|rule| {
+            Some(Rule {
+                tool: rule["toolName"]
+                    .as_str()
+                    .filter(|t| !t.is_empty())?
+                    .to_owned(),
+                content: rule["ruleContent"]
+                    .as_str()
+                    .filter(|c| !c.is_empty())
+                    .map(str::to_owned),
+            })
+        })
+        .collect();
+    if !rules.is_empty() {
+        return Some(Remember::Rules(rules));
+    }
+    suggestions
+        .iter()
+        .any(|s| s["type"] == "setMode" && s["mode"] == "acceptEdits")
+        .then_some(Remember::AcceptEdits)
+}
+
+/// `updatedPermissions` for remembering. Always scoped to the running session: the CLI
+/// would otherwise write them into the project's or user's settings files (DEC-039).
+pub fn session_permissions(remember: &Remember) -> Value {
+    match remember {
+        Remember::Rules(rules) => json!([{
+            "type": "addRules",
+            "rules": rules
+                .iter()
+                .map(|rule| match &rule.content {
+                    Some(content) => json!({"toolName": rule.tool, "ruleContent": content}),
+                    None => json!({"toolName": rule.tool}),
+                })
+                .collect::<Vec<_>>(),
+            "behavior": "allow",
+            "destination": "session",
+        }]),
+        Remember::AcceptEdits => accept_edits(),
+    }
+}
+
+fn accept_edits() -> Value {
+    json!([{"type": "setMode", "mode": "acceptEdits", "destination": "session"}])
+}
+
+/// Allows a call with permission updates (session-scoped, see `session_permissions`).
+pub fn allow_updating(
+    request_id: &str,
+    tool_use_id: Option<&str>,
+    input: &Value,
+    permissions: Value,
+) -> Value {
+    success(
+        request_id,
+        with_tool_use(
+            json!({"behavior": "allow", "updatedInput": input, "updatedPermissions": permissions}),
+            tool_use_id,
+        ),
+    )
+}
+
+/// Approves a plan (ExitPlanMode); with `accept_edits` the agent then edits without asking.
+pub fn approve_plan(
+    request_id: &str,
+    tool_use_id: Option<&str>,
+    input: &Value,
+    accept: bool,
+) -> Value {
+    if accept {
+        allow_updating(request_id, tool_use_id, input, accept_edits())
+    } else {
+        allow(request_id, tool_use_id, input)
+    }
+}
+
+/// Answers AskUserQuestion: its input plus `answers` (question → answer text; several
+/// choices joined with ", ").
+pub fn answer_questions(
+    request_id: &str,
+    tool_use_id: Option<&str>,
+    input: &Value,
+    answers: &[(String, String)],
+) -> Value {
+    let mut input = input.clone();
+    if let Some(object) = input.as_object_mut() {
+        object.insert(
+            "answers".into(),
+            answers
+                .iter()
+                .map(|(question, answer)| (question.clone(), Value::from(answer.as_str())))
+                .collect::<serde_json::Map<_, _>>()
+                .into(),
+        );
+    }
+    allow(request_id, tool_use_id, &input)
 }
 
 #[derive(Clone, Debug, Deserialize)]

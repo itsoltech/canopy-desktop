@@ -3,9 +3,10 @@
 use canopy_desktop::chat::{
     claude::wire::{self, Inbound},
     process::{Event, Exit},
-    session::{ChatSession, Status},
+    session::{ChatSession, Response, Status},
     transcript::{
-        Body, Decision, Delivery, NoticeKind, Outcome, PermissionKind, ToolCall, ToolState, TurnId,
+        Body, Decision, Delivery, NoticeKind, Outcome, Permission, PermissionKind, Remember,
+        Resolution, Rule, ToolCall, ToolState, TurnId,
     },
 };
 use serde_json::Value;
@@ -14,7 +15,7 @@ const DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/chat/claude-2.1.294"
 );
-const ALL: [&str; 15] = [
+const ALL: [&str; 17] = [
     "settings",
     "simple",
     "bash-allow",
@@ -30,6 +31,8 @@ const ALL: [&str; 15] = [
     "hooks",
     "resume-first",
     "resume-second",
+    "permissions",
+    "plan",
 ];
 
 fn lines(name: &str) -> Vec<String> {
@@ -805,4 +808,121 @@ fn recorded_thinking_streams_a_summary() {
             .iter()
             .all(|item| !matches!(&item.body, Body::Thinking(b) if b.streaming))
     );
+}
+
+fn pending(
+    session: &ChatSession,
+) -> Option<(canopy_desktop::chat::transcript::ItemId, Permission)> {
+    let id = *session.pending_decisions().first()?;
+    session
+        .transcript()
+        .items()
+        .iter()
+        .find_map(|item| match &item.body {
+            Body::Permission(p) if item.id == id => Some((id, p.clone())),
+            _ => None,
+        })
+}
+
+fn control_responses(written: &[Value]) -> Vec<&Value> {
+    written
+        .iter()
+        .filter(|line| line["type"] == "control_response")
+        .map(|line| &line["response"]["response"])
+        .collect()
+}
+
+#[test]
+fn recorded_questions_and_rules_are_answered_for_this_chat_only() {
+    let (mut session, written) = replay("permissions", "prompt", |session| {
+        let Some((id, permission)) = pending(session) else {
+            return vec![];
+        };
+        match permission.kind {
+            PermissionKind::Question => {
+                let questions = canopy_desktop::chat::presentation::questions(&permission);
+                assert_eq!(questions.len(), 2);
+                assert!(!questions[0].multi && questions[1].multi);
+                session.respond(
+                    id,
+                    Response::Answer(vec!["red".into(), "apple, pear".into()]),
+                )
+            }
+            _ => session.respond(id, Response::AllowForChat),
+        }
+    });
+    let responses = control_responses(&written);
+    let answers = responses
+        .iter()
+        .find_map(|r| r["updatedInput"].get("answers"))
+        .expect("answers");
+    assert_eq!(answers["Which color do you prefer?"], "red");
+    assert_eq!(answers["Which fruits do you like?"], "apple, pear");
+    let updates: Vec<&Value> = responses
+        .iter()
+        .filter_map(|r| r["updatedPermissions"].as_array())
+        .flatten()
+        .collect();
+    assert_eq!(updates.len(), 2, "the Bash rule and accepting edits");
+    assert!(
+        updates.iter().all(|u| u["destination"] == "session"),
+        "nothing is written to settings files"
+    );
+    assert_eq!(session.take_remembered(), ["Bash(echo probe *)"]);
+    let resolutions: Vec<Resolution> = session
+        .transcript()
+        .items()
+        .iter()
+        .filter_map(|item| match &item.body {
+            Body::Permission(p) => p.resolution.clone(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        resolutions,
+        [
+            Resolution::Answered(vec![
+                ("Which color do you prefer?".into(), "red".into()),
+                ("Which fruits do you like?".into(), "apple, pear".into()),
+            ]),
+            Resolution::Remembered(Remember::Rules(vec![Rule {
+                tool: "Bash".into(),
+                content: Some("echo probe *".into()),
+            }])),
+            Resolution::Remembered(Remember::AcceptEdits),
+        ]
+    );
+    assert_eq!(*session.status(), Status::Ready);
+}
+
+#[test]
+fn recorded_plan_is_approved_with_accepting_edits() {
+    let mut kinds = vec![];
+    let (session, written) = replay("plan", "prompt", |session| {
+        let Some((id, permission)) = pending(session) else {
+            return vec![];
+        };
+        kinds.push(permission.kind);
+        match permission.kind {
+            PermissionKind::Plan => {
+                assert!(
+                    permission.input["plan"]
+                        .as_str()
+                        .unwrap()
+                        .contains("hello.txt")
+                );
+                session.respond(id, Response::ApprovePlan { accept_edits: true })
+            }
+            _ => session.respond(id, Response::Allow),
+        }
+    });
+    assert_eq!(kinds, [PermissionKind::Plan, PermissionKind::Tool]);
+    let plan = control_responses(&written)[0];
+    assert_eq!(plan["behavior"], "allow");
+    assert_eq!(plan["updatedPermissions"][0]["mode"], "acceptEdits");
+    assert_eq!(plan["updatedPermissions"][0]["destination"], "session");
+    assert!(session.transcript().items().iter().any(|item| matches!(
+        &item.body,
+        Body::Permission(p) if p.resolution == Some(Resolution::PlanApproved { accept_edits: true })
+    )));
 }

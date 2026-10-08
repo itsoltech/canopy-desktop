@@ -39,6 +39,8 @@ pub struct MarkdownView {
     /// Agent replies: streamed text fades in, code blocks get a copy action and an
     /// empty or preparing block renders nothing instead of a placeholder.
     chat: bool,
+    /// A document to read (an agent's plan): sections and code stand out in color.
+    document: bool,
     stream_fade: bool,
     /// The text is final: file mentions inside `files` (the chat's folder) become pills.
     done: bool,
@@ -63,6 +65,7 @@ impl MarkdownView {
             reading: false,
             keep_previous: false,
             chat: false,
+            document: false,
             stream_fade: false,
             done: false,
             files: None,
@@ -92,6 +95,13 @@ impl MarkdownView {
         view.reading = true;
         view.chat = true;
         view.interactive = true;
+        view
+    }
+    /// An agent's plan: chat rendering with colored headings and code spans, so its
+    /// structure stands apart from the interface around it.
+    pub fn document(cx: &mut Context<Self>) -> Self {
+        let mut view = Self::chat(cx);
+        view.document = true;
         view
     }
     /// Streams agent text; the policy is resolved here, outside render.
@@ -315,6 +325,41 @@ fn markdown_style(reading: bool, chat: bool) -> TextViewStyle {
         .with_table(table)
         .with_table_cell(div().px(px(8.)).py(px(6.)).style().clone())
 }
+/// Chat style with a reading hierarchy: an underlined title, accent section headings,
+/// tinted code spans and quotes on an accent rule.
+fn document_style() -> TextViewStyle {
+    markdown_style(true, true)
+        .with_muted_foreground(t::secondary())
+        .with_border(t::accent().opacity(0.45))
+        .with_paragraph_gap(rems(0.8))
+        .with_heading(|level| {
+            let heading = StyleRefinement::default();
+            match level {
+                1 => heading
+                    .text_size(px(19.))
+                    .text_color(t::text())
+                    .mt(px(2.))
+                    .pb(px(8.))
+                    .border_b_1()
+                    .border_color(t::border()),
+                2 => heading
+                    .text_size(px(15.))
+                    .text_color(t::accent())
+                    .mt(px(10.)),
+                3 => heading
+                    .text_size(px(14.))
+                    .text_color(t::yellow())
+                    .mt(px(6.)),
+                _ => heading.text_size(px(13.5)).text_color(t::secondary()),
+            }
+        })
+        .with_inline_code(HighlightStyle {
+            color: Some(t::accent()),
+            background_color: Some(t::accent().opacity(0.12)),
+            ..Default::default()
+        })
+}
+
 /// Room above the code for the language label and Copy.
 const CODE_HEADER: f32 = 36.;
 
@@ -389,7 +434,12 @@ impl MarkdownView {
                 });
             }
         }
-        view.style(markdown_style(self.reading, self.chat))
+        let style = if self.document {
+            document_style()
+        } else {
+            markdown_style(self.reading, self.chat)
+        };
+        view.style(style)
             .w_full()
             .min_w_0()
             .text_size(px(if self.reading { 14. } else { 12. }))

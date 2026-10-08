@@ -133,16 +133,21 @@ fn project_sessions(cx: &App) -> Vec<NotchSession> {
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| session.pane.tool.clone())
                     .into(),
-                context: format!(
-                    "{} · {}",
-                    session.pane.tool,
-                    session.model.as_deref().unwrap_or("session")
-                )
+                context: match (&session.pane.metadata.kind, &session.pane.metadata.title) {
+                    (canopy_desktop::state::workspace::PaneKind::Chat, Some(title)) => {
+                        format!("Chat · {title}")
+                    }
+                    _ => format!(
+                        "{} · {}",
+                        session.pane.tool,
+                        session.model.as_deref().unwrap_or("session")
+                    ),
+                }
                 .into(),
                 status: session
-                    .question
-                    .as_ref()
-                    .map(|q| format!("Question: {q}"))
+                    .decision
+                    .clone()
+                    .or_else(|| session.question.as_ref().map(|q| format!("Question: {q}")))
                     .unwrap_or_else(|| {
                         if session.integration_health()
                             == crate::app_state::IntegrationHealth::AwaitingEvents

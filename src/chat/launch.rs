@@ -175,6 +175,44 @@ fn apply_settings(
         profile.settings.effort_level = effort.key().into();
     }
     profile.settings.permission_mode = settings.mode.claude_profile().into();
+    // A stored rule that is no longer valid is skipped rather than blocking the chat.
+    let rules: Vec<String> = settings
+        .allowed
+        .iter()
+        .filter(|rule| crate::chat::config::valid_rule(rule))
+        .cloned()
+        .collect();
+    if !rules.is_empty() {
+        allow_rules(&mut profile.settings.settings_json, &rules)?;
+    }
+    Ok(())
+}
+
+/// Adds the chat's rules to `permissions.allow` of the profile's settings JSON (a private
+/// copy passed with `--settings`), keeping the profile's own rules.
+fn allow_rules(settings_json: &mut String, rules: &[String]) -> Result<(), String> {
+    let mut value: serde_json::Value = if settings_json.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_str(settings_json).map_err(|_| "Invalid agent settings JSON.")?
+    };
+    let allow = value
+        .as_object_mut()
+        .ok_or("Agent settings must be an object.")?
+        .entry("permissions")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or("Agent permissions must be an object.")?
+        .entry("allow")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .ok_or("Agent permission rules must be a list.")?;
+    for rule in rules {
+        if !allow.iter().any(|existing| existing == rule.as_str()) {
+            allow.push(rule.as_str().into());
+        }
+    }
+    *settings_json = value.to_string();
     Ok(())
 }
 
@@ -300,11 +338,25 @@ mod tests {
             model: Some("opus".into()),
             effort: Some(crate::chat::config::Effort::High),
             mode: crate::chat::config::Mode::Yolo,
+            allowed: vec!["Bash(npm test *)".into()],
         };
         let args = prepare_claude(&catalog, &pane(&[]), &env(), &chosen, None)
             .unwrap()
             .spec
             .arguments;
+        let settings: serde_json::Value =
+            serde_json::from_str(&value(&args, "--settings")).unwrap();
+        assert_eq!(
+            settings["permissions"]["allow"],
+            serde_json::json!(["Bash(npm test *)"])
+        );
+        assert!(
+            catalog.tools.iter().all(|tool| tool
+                .profiles
+                .iter()
+                .all(|p| !p.settings.settings_json.contains("npm test"))),
+            "the profile keeps its own settings"
+        );
         assert_eq!(value(&args, "--model"), "opus");
         assert_eq!(value(&args, "--effort"), "high");
         assert_eq!(value(&args, "--permission-mode"), "bypassPermissions");

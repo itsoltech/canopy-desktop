@@ -1,10 +1,48 @@
 //! What a chat view shows for a transcript, independent of GPUI.
 use super::{
     session::Status,
-    transcript::{Body, Decision, Item, Outcome, ToolCall, ToolState, Transcript},
+    transcript::{Body, Decision, Item, Outcome, Permission, ToolCall, ToolState, Transcript},
 };
 use serde_json::Value;
 use std::path::Path;
+
+/// One question of an AskUserQuestion request.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Question {
+    pub question: String,
+    /// Short label ("Color"); may be empty.
+    pub header: String,
+    /// Choices as (label, description).
+    pub options: Vec<(String, String)>,
+    /// Several choices may be picked; their labels are sent joined with ", ".
+    pub multi: bool,
+}
+
+/// The questions of a question request, tolerating missing fields (a question without
+/// options is answered with text).
+pub fn questions(permission: &Permission) -> Vec<Question> {
+    let text = |value: &serde_json::Value| value.as_str().unwrap_or_default().trim().to_owned();
+    permission.input["questions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|question| {
+            let text_of_question = text(&question["question"]);
+            (!text_of_question.is_empty()).then(|| Question {
+                question: text_of_question,
+                header: text(&question["header"]),
+                options: question["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|option| (text(&option["label"]), text(&option["description"])))
+                    .filter(|(label, _)| !label.is_empty())
+                    .collect(),
+                multi: question["multiSelect"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect()
+}
 
 /// Whether an item gets a row. Successful turn ends add no noise, and thinking
 /// is not displayed until the thinking stage.
@@ -439,6 +477,8 @@ mod tests {
                 description: None,
                 kind: PermissionKind::Tool,
                 decision: Decision::Pending,
+                remember: None,
+                resolution: None,
             }),
         );
         assert!(

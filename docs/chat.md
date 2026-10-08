@@ -218,3 +218,29 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   pracy (`RowExtra.fold`) i resztę do końcowej odpowiedzi (`folded_by`); zwinięte wiersze mają
   zerową wysokość, rozwinięcie remeasure + fade. Wiadomości Steer w tej turze też są składane.
 
+
+## Etap 4: zgody, pytania, plan i notch
+
+- Wszystkie decyzje obsługuje panel nad composerem (`src/ui/chat/decision.rs`) w miejscu
+  tacki kolejki: jedna prośba naraz, najstarsza pierwsza (`ChatSession::pending_decisions`).
+  Tekst w composerze to własna odpowiedź na pytanie, uwaga przy odmowie albo uwagi do planu;
+  `1–9` (przy pustym polu) wybiera opcję, `Enter` = Next/Submit (lub odmowa z uwagą),
+  `⌘⏎` = pierwsza opcja, `⌘⌫`/Esc = odmowa / Skip / Keep planning. Draft composera wraca
+  po ostatniej decyzji. W rozmowie zostaje wiersz śladu (`Permission.resolution`).
+- `ChatSession::respond(item, Response)`: Allow, AllowForChat, Deny(uwaga), Answer
+  (odpowiedzi per pytanie, kilka wyborów łączone „, ”), ApprovePlan{accept_edits}, KeepPlanning.
+  Odpowiedź niepasująca do rodzaju prośby jest ignorowana.
+- „Allow for this chat” (DEC-039): sugestie CLI (`permission_suggestions`) zamienione na
+  `Remember::Rules` / `Remember::AcceptEdits` i odesłane zawsze z `destination: "session"`
+  (`wire::session_permissions`) — CLI nie zapisuje `.claude/settings.local.json`. Reguły trafiają do
+  `ChatSettings.allowed` i przy każdym starcie procesu do `permissions.allow` w prywatnej kopii
+  ustawień profilu (`--settings`). Usunięcie (menu trybu) działa od następnego startu procesu.
+- AskUserQuestion: `updatedInput.answers` (pytanie → tekst). ExitPlanMode (`PermissionKind::Plan`):
+  akceptacja przełącza CLI w Default, wariant z edycjami dodaje `setMode acceptEdits` (session),
+  „Keep planning” to odmowa z uwagami. Zaakceptowany plan rozwija się z wiersza śladu.
+- Notch: czat zgłasza oczekującą decyzję przez `AgentsState::set_decision` (Needs attention,
+  alert gdy czat niewidoczny) — prompty headless nie gwarantują hooka `PermissionRequest`.
+  Wiersz notcha pokazuje tytuł czatu (`AgentsState::rename`).
+- Własne hooki/ustawienia Claude Code użytkownika mogą auto-akceptować prośby; panel wtedy się
+  nie pojawia. Weryfikacja: fixtures `permissions.jsonl`, `plan.jsonl`, `tests/chat_permissions.rs`,
+  test live `rules_allowed_for_the_chat_stop_asking_and_survive_a_restart`.
