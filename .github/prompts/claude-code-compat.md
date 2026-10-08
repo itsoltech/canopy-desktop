@@ -18,8 +18,10 @@ the part that pays.
 `--allowedTools` it was denied on twenty-one consecutive runs that probed it (as of v2.1.283; the
 v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 to v2.1.293 runs' sessions ran in auto
 mode instead (an observation about those runs; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
-`npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `python3` and `node` all ran. Record which way
-the one probe went in the PR body. **If it runs, use point 6.**
+`npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `python3` and `node` all ran. The v2.1.294
+run's session was held again, the twenty-second run to have its probe denied: the compare call, `WebFetch`,
+`python3`, `npm run lint` and Bash `grep` on a path outside the working tree were all refused, so
+expect either. Record which way the one probe went in the PR body. **If it runs, use point 6.**
 
 **If it is denied, everything below about the denial applies.** It was denied against every shape
 of path, flag and quoting. The rule in `.github/workflows/claude-code-compat.yml` ends mid-token and
@@ -36,8 +38,9 @@ below, `node_modules/@anthropic-ai/claude-agent-sdk`, and Canopy's own files.
 
 **4. The `TO_VERSION` CLI is probably already on disk — look for it before reasoning from release
 notes alone.** The action installs the CLI it runs under `~/.local/share/claude/versions/<version>`,
-and on the v2.1.280 → v2.1.281 run that directory held `2.1.281`, `TO_VERSION` exactly. `ls` outside
-the working directory is denied; the `Glob` tool is not (pattern `*`, that directory as the path).
+and on the v2.1.280 → v2.1.281 run that directory held `2.1.281`, `TO_VERSION` exactly. `ls` and
+`grep` on a path outside the working directory are denied; the `Glob` and `Grep` tools are not (for
+`Glob`, pattern `*` with that directory as the path).
 "The CLI binary running this job" under step 2 says how to read it and what it can and cannot settle.
 An older build ships inside the vendored SDK in `node_modules`; the same section says what it is for.
 
@@ -132,12 +135,17 @@ where earlier runs read twelve.
   branch it passes through its bypass step and skips the model call. Before reasoning about an
   alias, read the catalog entry (`haiku:\{default:`) and the provider function (anchor
   `return"gateway";return`). A plain `ANTHROPIC_BASE_URL` reads as `firstParty`.
-- **A maintainer's force-push rewrites every hash the description cites.** PR 350's head was
-  force-pushed at 2026-10-07 07:18 UTC, after the v2.1.292 description was written, and none of
-  its 19 cited hashes survived. `gh api repos/{REPO}/commits/{SHA}` still returns an orphaned
-  commit's subject. Match it against `git log origin/next..origin/chore/claude-code-compat`. The
-  timeline's `head_ref_force_pushed` events show when this happened. The workflow's clone is
-  shallow, so run `git fetch --unshallow origin` before `git merge-base`.
+- **The workflow's own last step rewrites every hash the description cites, on every run.**
+  `Rebase compatibility branch` runs `git rebase next` and force-pushes as soon as the tracker
+  commit lands on `next`. Tracker commit `d6e02e8` landed at 2026-10-07 19:18:02 UTC, and all 154
+  branch commits were re-committed by `github-actions[bot]` four seconds later. The 07:18 UTC
+  force-push an earlier note blamed on a maintainer sits at the same offset from the 06:17 run. So
+  every hash a run writes into the description is stale once that run ends. Cite this increment's
+  commits by subject, and point at application-code commits with
+  `git log --oneline origin/next..origin/chore/claude-code-compat -- src resources`. When `gh api`
+  runs, `gh api repos/{REPO}/commits/{SHA}` still returns an orphaned commit's subject. The
+  workflow's clone is shallow, so run `git fetch --unshallow origin` before `git merge-base` if it
+  fails.
 - **Diff the whole build by its string literals, not by its text.** The JavaScript is about
   2,170 chunks. Each starts with `// @bun @bytecode` and the `(c) Anthropic PBC` banner, and ends
   in a NUL byte. Cut at the NUL, every chunk tokenizes cleanly with `node_modules/acorn`
@@ -725,6 +733,13 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > tens of tokens as flat rather than as a finding. The 2.1.258 note in `docs/integrations/agents.md`
 > works an example through.
 >
+> **Anchor the "before" split on the previous note's exact figures, not on its rounded share.** The
+> previous release's section in `docs/integrations/agents.md` usually states its tools total to the
+> token (10,543 after 2.1.293). Subtracting it from the "before" total leaves only the "after"
+> share's rounding, which took the v2.1.294 run's band from ±57 to ±31. That was tight enough to
+> match the system step, +6,973, to a predicted ninth `User Memory Project One` copy of 6,976, since
+> each copy has added 389 tokens to the last.
+>
 > **Check for the truncation marker before drawing any inference from a metadata/changelog mismatch —
 > it decides whether the mismatch is evidence or just a gap.** Several notes in this range record a
 > prompt-file count rising while the changelog names no new tool (2.1.272, 2.1.276, 2.1.277). In every
@@ -827,7 +842,7 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > so `-o` with a context window returns the minified source around a literal. **Keep the window near
 > 300 characters** — a longer match comes back as "[Omitted long matching line]" — and walk forward
 > with a second search anchored on the tail of the first. `output_mode: count` answers presence
-> questions in one call. Three kinds of question it settles that nothing else here can:
+> questions in one call. Four kinds of question it settles that nothing else here can:
 >
 > - **Settings schemas, including transforms and defaults.** 2.1.281's `attribution` schema — the
 >   `union([boolean, object])` and the transform that turns the new boolean into the object form —
@@ -839,6 +854,11 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > - **Whether every flag and field name Canopy depends on still exists** — `"--system-prompt-snapshot`,
 >   `used_percentage`, `error_details` and the rest. Presence rules out a removal or a rename, not a
 >   change of shape.
+> - **What a prompt or agent hook's judge is told.** `You are evaluating.{0,300}` returns the
+>   opening of every judge: prompt hooks, Stop/SubagentStop hooks and agent hooks. In 2.1.294 all
+>   three interpolate one shared block; anchor on its text (`decides what happens next`), since its
+>   minified name will differ. The vendored build gives an older wording to compare against, which
+>   is how the v2.1.294 run dated that block to "after 2.1.207" and no closer.
 >
 > **It cannot recover the changelog.** Three phrases from 2.1.281's visible entries returned no match,
 > so the entries behind "… +N more" are not in the binary, and there is no previous build on disk to
