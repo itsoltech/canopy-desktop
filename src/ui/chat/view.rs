@@ -517,6 +517,102 @@ impl ChatView {
         self.after_change(cx);
     }
 
+    /// Sessions this pane had before the running one (each Restart adds one).
+    pub fn session_epoch(&self) -> u64 {
+        self.rows.archived.len() as u64
+    }
+
+    /// Files the agent changed in `turn` of the running session.
+    pub fn turn_changes(
+        &self,
+        session: u64,
+        turn: u64,
+    ) -> Option<Vec<canopy_desktop::chat::tools::FileChange>> {
+        if session != self.session_epoch() {
+            return None;
+        }
+        let transcript = self.session.as_ref()?.transcript();
+        let turn = canopy_desktop::chat::transcript::TurnId(turn);
+        transcript
+            .items()
+            .iter()
+            .any(|item| item.turn == turn)
+            .then(|| canopy_desktop::chat::tools::turn_changes(transcript, turn))
+    }
+
+    /// Opens (or reuses) the pane with `turn`'s changes, scrolled to `file`.
+    pub(super) fn open_turn_diff(
+        &mut self,
+        turn: u64,
+        file: Option<std::path::PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        use canopy_desktop::state::workspace::{PaneKind, PaneMetadata};
+        let epoch = self.session_epoch();
+        let target = canopy_desktop::chat::tools::TurnDiffTarget {
+            chat: self.pane.id,
+            session: epoch,
+            turn,
+            file,
+        };
+        let Ok(resource) = serde_json::to_string(&target) else {
+            return;
+        };
+        let chat = self.pane.id;
+        let cwd = self.cwd();
+        let name = self
+            .pane
+            .metadata
+            .title
+            .clone()
+            .unwrap_or_else(|| super::NEW_CHAT_TITLE.into());
+        let workspace = cx.global::<AppState>().workspace.clone();
+        workspace.update(cx, |w, cx| {
+            let same_turn = |p: &canopy_desktop::state::workspace::Pane| {
+                p.metadata.kind == PaneKind::TurnDiff
+                    && p.metadata
+                        .resource
+                        .as_deref()
+                        .and_then(|s| {
+                            serde_json::from_str::<canopy_desktop::chat::tools::TurnDiffTarget>(s)
+                                .ok()
+                        })
+                        .is_some_and(|t| t.chat == chat && t.session == epoch && t.turn == turn)
+            };
+            if let Some(pane) = w.all_panes().into_iter().find(|p| same_turn(p))
+                && let Some(tab) = w
+                    .tabs()
+                    .iter()
+                    .filter(|t| t.root.find(pane.id).is_some())
+                    .map(|t| t.id)
+                    .next()
+            {
+                let mut metadata = pane.metadata.clone();
+                metadata.resource = Some(resource);
+                let _ = w.set_pane_metadata(tab, pane.id, metadata);
+                let _ = w.activate(tab);
+                let _ = w.focus(tab, pane.id);
+                cx.notify();
+                return;
+            }
+            let title = format!("Changes · {name}");
+            let tab = w.open(title.clone(), "turn-diff");
+            let pane = w.active().expect("opened tab").focused;
+            let _ = w.set_pane_metadata(
+                tab,
+                pane,
+                PaneMetadata {
+                    kind: PaneKind::TurnDiff,
+                    cwd,
+                    resource: Some(resource),
+                    title: Some(title),
+                    ..Default::default()
+                },
+            );
+            cx.notify();
+        });
+    }
+
     /// Rows of the conversation on screen: the main chat or an opened subagent.
     pub(super) fn shown_rows(&self) -> &Rows {
         self.threads
@@ -610,6 +706,14 @@ impl ChatView {
         }
     }
 
+    pub(super) fn resume_queue(&mut self, cx: &mut Context<Self>) {
+        if let Some(session) = &mut self.session {
+            let lines = session.resume_queue();
+            self.write(lines);
+            self.after_change(cx);
+        }
+    }
+
     pub(super) fn steer(&mut self, id: QueuedId, cx: &mut Context<Self>) {
         if let Some(session) = &mut self.session {
             let lines = session.steer(id);
@@ -636,6 +740,15 @@ impl ChatView {
             state.focus(window, cx);
         });
         self.after_change(cx);
+    }
+
+    /// Drag and drop in the queue: `id` goes in front of `before`.
+    pub(super) fn move_queued(&mut self, id: QueuedId, before: QueuedId, cx: &mut Context<Self>) {
+        if let Some(session) = &mut self.session
+            && session.move_queued(id, Some(before))
+        {
+            self.after_change(cx);
+        }
     }
 
     pub(super) fn remove(&mut self, id: QueuedId, cx: &mut Context<Self>) {

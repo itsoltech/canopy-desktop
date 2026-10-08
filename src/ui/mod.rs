@@ -7,6 +7,7 @@ pub(crate) mod chat;
 pub mod components;
 pub(crate) mod diff;
 pub(crate) mod editor;
+pub(crate) mod file_icons;
 mod file_nodes;
 pub(crate) mod font_preview;
 mod history;

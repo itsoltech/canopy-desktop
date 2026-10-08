@@ -4,7 +4,8 @@ use crate::ui::{components::Disclosure, markdown::MarkdownView};
 use canopy_desktop::{
     chat::{
         presentation,
-        transcript::{Body, Change, Item, Permission, Transcript},
+        tools::{self, FileChange, ToolView},
+        transcript::{Body, Change, Delivery, Item, Outcome, Permission, Transcript},
     },
     motion::{BatchReveal, MotionPolicy},
 };
@@ -31,6 +32,12 @@ pub(super) enum Kind {
     Report,
     /// Subagents started together, in one row that expands to a list.
     Subagents(Vec<Source>),
+    /// Files a finished turn changed; `live` while its session can still open the diff.
+    Changes {
+        turn: u64,
+        files: Vec<FileChange>,
+        live: bool,
+    },
 }
 
 pub(super) struct Row {
@@ -39,6 +46,41 @@ pub(super) struct Row {
     pub kind: Kind,
     pub markdown: Option<Entity<MarkdownView>>,
     pub output: Option<Disclosure>,
+    pub extra: RowExtra,
+}
+
+/// Per-row view state beyond text and disclosure.
+#[derive(Default)]
+pub(super) struct RowExtra {
+    /// What a finished tool did, prepared once (with preview highlighting).
+    pub card: Option<Arc<ToolCard>>,
+    /// "Show more" of a long diff or preview.
+    pub expanded: bool,
+    /// When a thinking block started and stopped streaming, for "Thought for Ns".
+    pub thought: Option<(Option<Instant>, Option<Instant>)>,
+    /// Folders folded in a turn's change summary.
+    pub collapsed: std::collections::HashSet<String>,
+    /// The user opened or closed the row: thinking no longer folds on its own.
+    pub touched: bool,
+    /// First work row of a finished turn: "Worked for …" folds the work up to the reply.
+    pub fold: Option<Fold>,
+    /// Index of the row whose `fold` hides this one while it is closed.
+    pub folded_by: Option<usize>,
+}
+
+/// A completed turn's work (thinking, tools, interim text, subagents) under one header,
+/// leaving its prompt, final reply and change summary in view.
+pub(super) struct Fold {
+    pub disclosure: Disclosure,
+    pub duration_ms: Option<u64>,
+    /// Row of the final reply; work rows are the header row up to this one.
+    pub reply: usize,
+}
+
+pub(super) struct ToolCard {
+    pub view: ToolView,
+    /// Syntax highlighting of a Read preview, over its whole content.
+    pub highlights: Vec<(std::ops::Range<usize>, HighlightStyle)>,
 }
 
 /// A tool call of the running session, in any thread.
@@ -115,6 +157,7 @@ impl Rows {
                 kind: Kind::Prompt(prompt),
                 markdown: None,
                 output: None,
+                extra: RowExtra::default(),
             });
         }
         let mut ignored = vec![];
@@ -173,6 +216,7 @@ impl Rows {
                 Change::Inserted(index) => self.insert(transcript, index, &mut remeasure, cx),
                 Change::Updated(index) => {
                     if let Some(&row) = self.current.get(&index) {
+                        self.refresh(transcript, index, row, cx);
                         if let (Some(markdown), Some(Body::Text(block))) = (
                             self.rows[row].markdown.clone(),
                             transcript.get(index).map(|item| &item.body),
@@ -247,6 +291,7 @@ impl Rows {
             kind: Kind::Thinking,
             markdown: None,
             output: None,
+            extra: RowExtra::default(),
         });
     }
 
@@ -295,6 +340,8 @@ impl Rows {
             remeasure.push(row);
         }
         if !presentation::visible(item) || !self.belongs(item) {
+            self.fold_turn(transcript, index, remeasure);
+            self.summarize_turn(transcript, index);
             return;
         }
         if let Some(row) = self.join_subagents(transcript, index) {
@@ -310,8 +357,13 @@ impl Rows {
             )),
             _ => None,
         };
-        let output =
-            matches!(item.body, Body::Tool(_)).then(|| Disclosure::new(false, Instant::now()));
+        let now = Instant::now();
+        let output = match &item.body {
+            Body::Tool(_) => Some(Disclosure::new(false, now)),
+            // Thinking is shown while it streams, folded once it is done.
+            Body::Thinking(block) => Some(Disclosure::new(block.streaming, now)),
+            _ => None,
+        };
         let at = self.rows.len() - usize::from(self.thinking_shown());
         let key = self.key();
         self.rows.insert(
@@ -321,9 +373,164 @@ impl Rows {
                 kind: Kind::Item(Source::Current(index)),
                 markdown,
                 output,
+                extra: RowExtra::default(),
             },
         );
         self.current.insert(index, at);
+        if let Body::Thinking(block) = &item.body {
+            self.rows[at].extra.thought = Some((block.streaming.then_some(now), None));
+        }
+        self.refresh(transcript, index, at, cx);
+        self.summarize_turn(transcript, index);
+    }
+
+    /// Folds a completed turn's work once it ends: rows between the message that
+    /// started it and its final reply (steered messages included). Turns that stopped,
+    /// failed, or end without a reply stay open.
+    fn fold_turn(&mut self, transcript: &Transcript, index: usize, remeasure: &mut Vec<usize>) {
+        let Some(item) = transcript.get(index) else {
+            return;
+        };
+        let Body::TurnEnd(end) = &item.body else {
+            return;
+        };
+        if self.thread.is_some() || end.outcome != Outcome::Completed {
+            return;
+        }
+        let turn = item.turn;
+        let of_turn = |row: &Row| {
+            let source = match &row.kind {
+                Kind::Item(source) => *source,
+                Kind::Subagents(sources) => *sources.first()?,
+                _ => return None,
+            };
+            let Source::Current(index) = source else {
+                return None;
+            };
+            transcript.get(index).filter(|item| item.turn == turn)
+        };
+        let Some(first) = self.rows.iter().position(|row| of_turn(row).is_some()) else {
+            return;
+        };
+        let Some(reply) = self.rows.iter().rposition(|row| of_turn(row).is_some()) else {
+            return;
+        };
+        let started = of_turn(&self.rows[first]).is_some_and(
+            |item| matches!(&item.body, Body::User(m) if m.delivery == Delivery::Sent),
+        );
+        let replied = of_turn(&self.rows[reply])
+            .is_some_and(|item| item.parent.is_none() && matches!(item.body, Body::Text(_)));
+        let start = first + 1;
+        if !started
+            || !replied
+            || start >= reply
+            || !self.rows[start..reply]
+                .iter()
+                .all(|row| of_turn(row).is_some())
+        {
+            return;
+        }
+        self.rows[start].extra.fold = Some(Fold {
+            disclosure: Disclosure::new(false, Instant::now()),
+            duration_ms: end.duration_ms,
+            reply,
+        });
+        for row in &mut self.rows[start + 1..reply] {
+            row.extra.folded_by = Some(start);
+        }
+        remeasure.extend(start..reply);
+    }
+
+    /// Whether the row is hidden inside a closed "Worked for …" fold.
+    pub fn folded(&self, row: &Row) -> bool {
+        row.extra
+            .folded_by
+            .and_then(|header| self.rows.get(header)?.extra.fold.as_ref())
+            .is_some_and(|fold| !fold.disclosure.open)
+    }
+
+    pub fn toggle_fold(&mut self, key: u64, policy: MotionPolicy, cx: &mut App) {
+        let now = Instant::now();
+        let Some(start) = self.rows.iter().position(|row| row.key == key) else {
+            return;
+        };
+        let Some(fold) = &mut self.rows[start].extra.fold else {
+            return;
+        };
+        fold.disclosure.toggle(now, cx);
+        let (open, reply) = (fold.disclosure.open, fold.reply);
+        if open {
+            self.reveal.begin(start, reply - start, now, policy);
+        }
+        self.scroller
+            .update(cx, |state, cx| state.remeasure_items(start..reply, cx));
+    }
+
+    /// Keeps a row's prepared state in step with its item: tool cards once a call has
+    /// finished, the end of a thinking block.
+    fn refresh(&mut self, transcript: &Transcript, index: usize, row: usize, cx: &mut App) {
+        let Some(item) = transcript.get(index) else {
+            return;
+        };
+        let now = Instant::now();
+        let entry = &mut self.rows[row];
+        match &item.body {
+            Body::Tool(tool) if tool.state.finished() && entry.extra.card.is_none() => {
+                let view = tools::view(tool);
+                let highlights = match &view {
+                    ToolView::Read { path, content, .. } => preview_highlights(path, content, cx),
+                    _ => vec![],
+                };
+                // Changes are shown right away (DEC-034).
+                if matches!(view, ToolView::Change(_)) {
+                    entry.output = Some(Disclosure::new(true, now));
+                }
+                entry.extra.card = Some(Arc::new(ToolCard { view, highlights }));
+            }
+            Body::Thinking(block) if !block.streaming => {
+                if let Some((started, ended @ None)) = &mut entry.extra.thought {
+                    *ended = Some(now);
+                    if started.is_some()
+                        && !entry.extra.touched
+                        && let Some(disclosure) = &mut entry.output
+                        && disclosure.open
+                    {
+                        disclosure.toggle(now, cx);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A finished turn of the main conversation that changed files gets a summary row.
+    fn summarize_turn(&mut self, transcript: &Transcript, index: usize) {
+        let Some(item) = transcript.get(index) else {
+            return;
+        };
+        if self.thread.is_some() || !matches!(item.body, Body::TurnEnd(_)) {
+            return;
+        }
+        let files = tools::turn_changes(transcript, item.turn);
+        if files.is_empty() {
+            return;
+        }
+        let at = self.rows.len() - usize::from(self.thinking_shown());
+        let key = self.key();
+        self.rows.insert(
+            at,
+            Row {
+                key,
+                kind: Kind::Changes {
+                    turn: item.turn.0,
+                    files,
+                    live: true,
+                },
+                markdown: None,
+                output: None,
+                extra: RowExtra::default(),
+            },
+        );
     }
 
     /// Adds a subagent to the subagent row right above it (same turn and thread);
@@ -395,6 +602,7 @@ impl Rows {
                 kind: Kind::Report,
                 markdown: Some(markdown),
                 output: None,
+                extra: RowExtra::default(),
             },
         );
     }
@@ -418,6 +626,7 @@ impl Rows {
             match &mut row.kind {
                 Kind::Item(source) => archive(source),
                 Kind::Subagents(sources) => sources.iter_mut().for_each(archive),
+                Kind::Changes { live, .. } => *live = false,
                 _ => {}
             }
         }
@@ -431,10 +640,30 @@ impl Rows {
                 kind: Kind::Restarted,
                 markdown: None,
                 output: None,
+                extra: RowExtra::default(),
             });
             let at = self.rows.len() - 1;
             self.scroller
                 .update(cx, |state, cx| state.splice(at..at, 1, cx));
+        }
+    }
+
+    pub fn toggle_expanded(&mut self, key: u64, cx: &mut App) {
+        if let Some(index) = self.rows.iter().position(|row| row.key == key) {
+            self.rows[index].extra.expanded ^= true;
+            self.scroller
+                .update(cx, |state, cx| state.remeasure_items(index..index + 1, cx));
+        }
+    }
+
+    pub fn toggle_folder(&mut self, key: u64, folder: String, cx: &mut App) {
+        if let Some(index) = self.rows.iter().position(|row| row.key == key) {
+            let collapsed = &mut self.rows[index].extra.collapsed;
+            if !collapsed.remove(&folder) {
+                collapsed.insert(folder);
+            }
+            self.scroller
+                .update(cx, |state, cx| state.remeasure_items(index..index + 1, cx));
         }
     }
 
@@ -448,6 +677,7 @@ impl Rows {
             && let Some(output) = &mut row.output
         {
             output.toggle(now, cx);
+            row.extra.touched = true;
             self.scroller
                 .update(cx, |state, cx| state.remeasure_items(index..index + 1, cx));
         }
@@ -456,10 +686,14 @@ impl Rows {
     /// Whether row-local motion (entrance, disclosures) still needs frames.
     pub fn animating(&self, now: Instant) -> bool {
         self.reveal.is_animating(now)
-            || self
-                .rows
-                .iter()
-                .any(|row| row.output.as_ref().is_some_and(|o| o.active(now)))
+            || self.rows.iter().any(|row| {
+                row.output.as_ref().is_some_and(|o| o.active(now))
+                    || row
+                        .extra
+                        .fold
+                        .as_ref()
+                        .is_some_and(|fold| fold.disclosure.active(now))
+            })
     }
 
     fn key(&mut self) -> u64 {
@@ -593,6 +827,129 @@ mod tests {
                 row.kind,
                 Kind::Item(source) if main.item(source, Some(transcript)).is_some_and(|item| matches!(&item.body, Body::Tool(t) if presentation::is_subagent(t)))
             )));
+        });
+    }
+}
+
+/// Highlighting for a file preview, by the file's extension.
+fn preview_highlights(
+    path: &std::path::Path,
+    content: &str,
+    cx: &App,
+) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+    // Without a theme (headless tests) there are no syntax colors to use.
+    if !cx.has_global::<gpui_kit::component::Theme>() {
+        return vec![];
+    }
+    let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
+        return vec![];
+    };
+    let block = gpui_kit::base::text::CodeBlock::from_code(content.to_owned(), Some(extension));
+    crate::ui::markdown::highlight_code(&block, cx)
+}
+
+#[cfg(test)]
+mod card_tests {
+    use super::*;
+    use canopy_desktop::chat::{claude::wire, session::ChatSession};
+    use core::prelude::v1::test;
+
+    #[gpui_kit::test]
+    fn finished_tools_get_cards_and_the_turn_a_summary(cx: &mut TestAppContext) {
+        let (mut session, _) = ChatSession::new();
+        session.submit("prompt");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/chat/claude-2.1.294/tools.jsonl"
+        );
+        for line in std::fs::read_to_string(path).unwrap().lines() {
+            session.on_message(wire::parse_line(line.as_bytes()).unwrap().unwrap());
+        }
+        let changes = session.take_changes();
+        let transcript = session.transcript();
+        cx.update(|cx| {
+            let mut rows = Rows::new(cx);
+            rows.sync(transcript, &changes, false, MotionPolicy::Reduced, cx);
+            let cards: Vec<&ToolView> = rows
+                .rows
+                .iter()
+                .filter_map(|row| row.extra.card.as_deref().map(|card| &card.view))
+                .collect();
+            assert!(
+                cards
+                    .iter()
+                    .any(|v| matches!(v, ToolView::Change(c) if !c.created))
+            );
+            assert!(cards.iter().any(|v| matches!(v, ToolView::Read { .. })));
+            let summaries: Vec<usize> = rows
+                .rows
+                .iter()
+                .filter_map(|row| match &row.kind {
+                    Kind::Changes {
+                        files, live: true, ..
+                    } => Some(files.len()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(summaries, [2]);
+            let thoughts = rows
+                .rows
+                .iter()
+                .filter(|row| row.extra.thought.is_some())
+                .count();
+            assert!(thoughts > 0, "thinking blocks have rows");
+            // Diffs open by default.
+            assert!(rows.rows.iter().any(|row| matches!(
+                (row.extra.card.as_deref(), &row.output),
+                (Some(ToolCard { view: ToolView::Change(_), .. }), Some(d)) if d.open
+            )));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_completed_turn_folds_its_work_above_the_reply(cx: &mut TestAppContext) {
+        let (mut session, _) = ChatSession::new();
+        session.submit("prompt");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/chat/claude-2.1.294/tools.jsonl"
+        );
+        for line in std::fs::read_to_string(path).unwrap().lines() {
+            session.on_message(wire::parse_line(line.as_bytes()).unwrap().unwrap());
+        }
+        let changes = session.take_changes();
+        let transcript = session.transcript();
+        cx.update(|cx| {
+            let mut rows = Rows::new(cx);
+            rows.sync(transcript, &changes, false, MotionPolicy::Reduced, cx);
+            let header = rows
+                .rows
+                .iter()
+                .position(|row| row.extra.fold.is_some())
+                .expect("a fold");
+            let reply = rows.rows[header].extra.fold.as_ref().unwrap().reply;
+            let body = |row: &Row| match row.kind {
+                Kind::Item(source) => rows.item(source, Some(transcript)).map(|item| &item.body),
+                _ => None,
+            };
+            assert!(matches!(body(&rows.rows[header - 1]), Some(Body::User(_))));
+            assert!(matches!(body(&rows.rows[reply]), Some(Body::Text(_))));
+            assert!(
+                rows.rows[header + 1..reply]
+                    .iter()
+                    .all(|row| rows.folded(row))
+            );
+            assert!(!rows.folded(&rows.rows[reply]), "the reply stays in view");
+            assert!(
+                rows.rows[reply..]
+                    .iter()
+                    .any(|row| matches!(row.kind, Kind::Changes { .. })),
+                "so does the change summary"
+            );
+
+            let key = rows.rows[header].key;
+            rows.toggle_fold(key, MotionPolicy::Reduced, cx);
+            assert!(!rows.rows.iter().any(|row| rows.folded(row)));
         });
     }
 }

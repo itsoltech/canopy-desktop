@@ -10,6 +10,14 @@ use std::{path::PathBuf, sync::Arc};
 pub(crate) mod file_pill;
 mod highlight;
 
+/// Syntax highlighting of a code block outside Markdown (tool previews).
+pub(crate) fn highlight_code(
+    block: &gpui_kit::base::text::CodeBlock,
+    cx: &App,
+) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+    highlight::shared(cx)(block)
+}
+
 /// Chat replies are shown as prose and code parts; each has its own text view, so
 /// selection still runs across them while code gets a header and line numbers.
 enum Part {

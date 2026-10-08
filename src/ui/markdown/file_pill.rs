@@ -101,13 +101,22 @@ pub(crate) fn pill(
         .px(px(6.))
         .h(height)
         .rounded(px(6.))
-        .bg(t::accent().opacity(0.12))
-        .hover(|style| style.bg(t::accent().opacity(0.2)))
-        .active(|style| style.bg(t::accent().opacity(0.28)))
+        // Close to the surface with a blue tint; the name reads like body text.
+        .bg(t::accent().opacity(0.08))
+        .border_1()
+        .border_color(t::accent().opacity(0.14))
+        .hover(|style| style.bg(t::accent().opacity(0.14)))
+        .active(|style| style.bg(t::accent().opacity(0.2)))
         .cursor_pointer()
         .text_size(size)
-        .text_color(t::accent())
-        .child(icon(IconName::File).size(size).text_color(t::accent()))
+        .text_color(t::text())
+        .child(match crate::ui::file_icons::for_path(&target.path) {
+            Some(asset) => img(asset).size(size).flex_shrink_0().into_any_element(),
+            None => icon(IconName::File)
+                .size(size)
+                .text_color(t::muted())
+                .into_any_element(),
+        })
         .child(div().min_w_0().truncate().child(label))
         .tooltip(move |window, cx| {
             gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)

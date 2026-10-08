@@ -12,7 +12,7 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
     spinner::Spinner,
 };
-use gpui_kit::*;
+use gpui_kit::{prelude::FluentBuilder, *};
 use std::{collections::VecDeque, time::Instant};
 
 const ROW: f32 = 32.;
@@ -84,6 +84,23 @@ impl QueueBar {
                 None => {}
             }
         }
+        // Follow the session's order (reordering by drag and drop); entries on their
+        // way out keep their place among the others.
+        let rank = |entry: &Entry| lines.iter().position(|line| line.same(&entry.line));
+        let mut ordered: Vec<(usize, Entry)> = vec![];
+        let mut last = 0;
+        for entry in self.entries.drain(..) {
+            let key = match rank(&entry) {
+                Some(position) => {
+                    last = position;
+                    position
+                }
+                None => last,
+            };
+            ordered.push((key, entry));
+        }
+        ordered.sort_by_key(|(key, _)| *key);
+        self.entries = ordered.into_iter().map(|(_, entry)| entry).collect();
         for line in lines {
             if !self.entries.iter().any(|e| e.line.same(&line)) {
                 let mut presence = Presence::new(false, ENTRY, now);
@@ -167,6 +184,7 @@ impl ChatView {
                     .border_b_0()
                     .border_color(t::border())
                     .bg(t::sidebar())
+                    .when(held, |tray| tray.child(paused_row(cx)))
                     .children(rows),
             )
             // Cancels the composer island's top padding: the tray meets its border,
@@ -184,6 +202,51 @@ fn shell(entry: &Entry, now: Instant, content: impl IntoElement) -> Div {
         .overflow_hidden()
         .opacity(progress)
         .child(row().h(px(ROW)).px(px(6.)).gap(px(8.)).child(content))
+}
+
+/// Stop paused the queue; Resume sends it again one message per turn.
+fn paused_row(cx: &Context<ChatView>) -> Div {
+    row()
+        .flex_shrink_0()
+        .h(px(ROW))
+        .px(px(6.))
+        .gap(px(8.))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(12.))
+                .text_color(t::muted())
+                .child("Queue paused after Stop"),
+        )
+        // Drawn like a file pill so it stands out, at the height of the other actions.
+        .child(
+            row()
+                .id("chat-queue-resume")
+                .flex_shrink_0()
+                .h(px(22.))
+                .px(px(7.))
+                .gap(px(4.))
+                .rounded(px(6.))
+                .bg(t::accent().opacity(0.08))
+                .border_1()
+                .border_color(t::accent().opacity(0.14))
+                .hover(|style| style.bg(t::accent().opacity(0.14)))
+                .active(|style| style.bg(t::accent().opacity(0.2)))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .text_color(t::text())
+                .child(icon(IconName::Play).size(px(11.)).text_color(t::accent()))
+                .child("Resume")
+                .tooltip(|window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(
+                        "Let the agent finish the stopped work, then send the queue",
+                    )
+                    .build(window, cx)
+                })
+                .on_click(cx.listener(|this, _, _, cx| this.resume_queue(cx))),
+        )
 }
 
 fn status_dot(color: Hsla) -> Div {
@@ -239,18 +302,41 @@ fn queued_row(
     };
     let text = queued.text.clone();
     let tip: SharedString = if held {
-        format!("{text}\n\nQueued — paused after Stop; send or steer to continue").into()
+        format!("{text}\n\nQueued — paused after Stop; Resume, send or steer to continue").into()
     } else {
         format!("{text}\n\nQueued — sent when the agent finishes").into()
     };
+    let movable = active && queued.steering.is_none();
     shell(
         entry,
         now,
         row()
             .flex_1()
             .min_w_0()
-            .gap(px(8.))
-            .child(status_dot(if held { t::faint() } else { t::muted() }))
+            .gap(px(6.))
+            // Drag handle: drop on another message to put this one in front of it.
+            .child(
+                div()
+                    .id(("chat-queue-grip", key))
+                    .flex_shrink_0()
+                    .size(px(16.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when(movable, |grip| {
+                        grip.cursor_grab()
+                            .hover(|style| style.text_color(t::secondary()))
+                            .on_drag(QueuedDrag(id), |_, _, _, cx| {
+                                cx.new(|_| DragPreview("Move message"))
+                            })
+                    })
+                    .text_color(if held { t::faint() } else { t::muted() })
+                    .child(
+                        custom_icon("grip-vertical")
+                            .size(px(12.))
+                            .text_color(t::faint()),
+                    ),
+            )
             .child(
                 div()
                     .id(("chat-queue-text", key))
@@ -266,7 +352,13 @@ fn queued_row(
             )
             .child(actions),
     )
+    .drag_over::<QueuedDrag>(|style, _, _, _| style.border_t_2().border_color(t::accent()))
+    .on_drop(cx.listener(move |this, drag: &QueuedDrag, _, cx| this.move_queued(drag.0, id, cx)))
 }
+
+/// A queued message being dragged in the tray.
+#[derive(Clone, Copy)]
+struct QueuedDrag(QueuedId);
 
 fn waiting_row(entry: &Entry, waiting: &Waiting, now: Instant, cx: &Context<ChatView>) -> Div {
     let active = !entry.leaving;

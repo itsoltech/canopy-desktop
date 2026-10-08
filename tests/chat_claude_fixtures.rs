@@ -14,7 +14,7 @@ const DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/chat/claude-2.1.294"
 );
-const ALL: [&str; 13] = [
+const ALL: [&str; 15] = [
     "settings",
     "simple",
     "bash-allow",
@@ -25,6 +25,8 @@ const ALL: [&str; 13] = [
     "steer",
     "subagent",
     "parallel-subagents",
+    "tools",
+    "thinking",
     "hooks",
     "resume-first",
     "resume-second",
@@ -735,5 +737,72 @@ fn handback_survives_a_notification_before_its_result() {
     assert_eq!(
         tool(&session, "Agent").output.as_ref().unwrap().text,
         "Report text"
+    );
+}
+
+#[test]
+fn recorded_tools_become_views_and_turn_changes() {
+    use canopy_desktop::chat::tools::{self, ToolView};
+    let (session, _) = replay("tools", "prompt", |_| vec![]);
+    let views: Vec<ToolView> = session
+        .transcript()
+        .items()
+        .iter()
+        .filter_map(|item| match &item.body {
+            Body::Tool(t) => Some(tools::view(t)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        views
+            .iter()
+            .any(|v| matches!(v, ToolView::Read { total: 4, .. }))
+    );
+    assert!(
+        views
+            .iter()
+            .any(|v| matches!(v, ToolView::Shell { failed: true, .. }))
+    );
+    assert!(views.iter().any(
+        |v| matches!(v, ToolView::Shell { failed: false, stdout, .. } if stdout.contains("a.txt"))
+    ));
+    let changes = tools::turn_changes(session.transcript(), TurnId(1));
+    let summary: Vec<_> = changes
+        .iter()
+        .map(|c| {
+            (
+                c.path.file_name().unwrap().to_string_lossy().into_owned(),
+                c.created,
+                c.added,
+                c.removed,
+            )
+        })
+        .collect();
+    // a.txt: edit (+1 -1) then rewrite (+1 -3); b.txt created with two lines.
+    assert_eq!(
+        summary,
+        [("a.txt".into(), false, 2, 4), ("b.txt".into(), true, 2, 0)]
+    );
+}
+
+#[test]
+fn recorded_thinking_streams_a_summary() {
+    let (session, _) = replay("thinking", "prompt", |_| vec![]);
+    let thinking: String = session
+        .transcript()
+        .items()
+        .iter()
+        .filter_map(|item| match &item.body {
+            Body::Thinking(block) => Some(block.text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(!thinking.trim().is_empty());
+    assert!(
+        session
+            .transcript()
+            .items()
+            .iter()
+            .all(|item| !matches!(&item.body, Body::Thinking(b) if b.streaming))
     );
 }

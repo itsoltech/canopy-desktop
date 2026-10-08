@@ -10,7 +10,8 @@ use std::path::Path;
 /// is not displayed until the thinking stage.
 pub fn visible(item: &Item) -> bool {
     match &item.body {
-        Body::Thinking(_) => false,
+        // Thinking summaries show as a foldable row (empty blocks too: "Thought for Ns").
+        Body::Thinking(_) => true,
         // Delivers the subagent's report, which its card and conversation already show.
         Body::Tool(tool) if tool.name == HANDBACK_TOOL => false,
         Body::TurnEnd(end) => end.outcome != Outcome::Completed,
@@ -231,6 +232,8 @@ pub fn thinking(transcript: &Transcript, status: &Status) -> bool {
     };
     match &last.body {
         Body::Text(block) => !block.streaming || block.text.is_empty(),
+        // Its own row says "Thinking…" while it streams.
+        Body::Thinking(block) => !block.streaming,
         Body::Permission(permission) => permission.decision != Decision::Pending,
         _ => true,
     }
@@ -372,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn completed_turns_and_thinking_have_no_rows() {
+    fn completed_turns_have_no_rows_but_thinking_does() {
         let mut transcript = Transcript::default();
         transcript.push(
             None,
@@ -393,7 +396,7 @@ mod tests {
             );
         }
         let shown: Vec<bool> = transcript.items().iter().map(visible).collect();
-        assert_eq!(shown, [false, false, true]);
+        assert_eq!(shown, [true, false, true]);
     }
 
     #[test]

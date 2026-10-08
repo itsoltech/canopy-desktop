@@ -15,7 +15,11 @@ All assets are embedded at build time; the running UI makes no asset requests.
 
 Additional Preferences Lucide icons (same upstream and license): shield,
 keyboard, diamond, braces, wrench, sparkles, download, upload.
-Chat Lucide icons `brain`, `pencil`, `message-circle-plus`: copied from the Lucide set bundled with
+Chat Lucide icons `brain`, `pencil`, `message-circle-plus`, `grip-vertical`: copied from the Lucide set bundled with
 gpui-kit-assets 0.7.1 (same license).
 
 `icons/jira.svg` is the CC0 Simple Icons Jira mark, reused from the Electron Canopy reference.
+
+`icons/files/*.svg`: file-type icons from Material Icon Theme
+(https://github.com/material-extensions/vscode-material-icon-theme, `icons/`), downloaded on
+2026-10-08; MIT license in `icons/files/LICENSE-material-icon-theme`.

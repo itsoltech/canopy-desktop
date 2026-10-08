@@ -9,4 +9,5 @@ pub mod presentation;
 pub mod process;
 pub mod scratch;
 pub mod session;
+pub mod tools;
 pub mod transcript;

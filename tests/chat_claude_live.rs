@@ -64,11 +64,25 @@ impl Live {
         Self::start_with(name, dir, resume, None)
     }
 
+    fn start_model(name: &'static str, model: &str) -> Self {
+        Self::start_full(name, None, None, None, model)
+    }
+
     fn start_with(
         name: &'static str,
         dir: Option<tempfile::TempDir>,
         resume: Option<&str>,
         hooks: Option<HookConfig<'_>>,
+    ) -> Self {
+        Self::start_full(name, dir, resume, hooks, "haiku")
+    }
+
+    fn start_full(
+        name: &'static str,
+        dir: Option<tempfile::TempDir>,
+        resume: Option<&str>,
+        hooks: Option<HookConfig<'_>>,
+        model: &str,
     ) -> Self {
         let dir = dir.unwrap_or_else(|| tempfile::tempdir().unwrap());
         std::fs::write(dir.path().join("note.txt"), "canopy fixture note\n").unwrap();
@@ -78,11 +92,7 @@ impl Live {
             tool: "claude".into(),
             metadata: PaneMetadata {
                 cwd: Some(std::fs::canonicalize(dir.path()).unwrap()),
-                arguments: vec![
-                    "--model".into(),
-                    "haiku".into(),
-                    "--setting-sources=".into(),
-                ],
+                arguments: vec!["--model".into(), model.into(), "--setting-sources=".into()],
                 resume_id: resume.map(str::to_owned),
                 ..Default::default()
             },
@@ -741,6 +751,92 @@ fn parallel_background_subagents_finish_cleanly() {
             .iter()
             .all(|r| !r.trim().is_empty() && !r.contains("SubagentHandback")),
         "reports are the subagents' own text"
+    );
+    live.finish();
+}
+
+#[test]
+#[ignore = "live Claude Code; set CANOPY_LIVE_CLAUDE=1"]
+fn tool_results_carry_patches_and_contents() {
+    if !enabled() {
+        return;
+    }
+    let mut live = Live::start("tools", None, None);
+    std::fs::write(
+        live.dir.path().join("a.txt"),
+        "line one\nline two\nline three\n",
+    )
+    .unwrap();
+    live.pump(TURN, |s| *s.status() == Status::Ready);
+    let lines = live.session.set_mode(Mode::Yolo);
+    live.write(lines);
+    live.submit(
+        "Do these steps one tool call at a time, without explaining: 1) Read a.txt. 2) Edit a.txt replacing 'line two' with 'line 2'. 3) Write a new file b.txt containing two lines. 4) Write a.txt again with the single line 'rewritten'. 5) Bash: run `ls`. 6) Bash: run `ls missing-dir` (it fails). Then reply 'done'.",
+    );
+    live.pump(TURN, |s| {
+        *s.status() == Status::Ready
+            && s.transcript()
+                .items()
+                .iter()
+                .any(|item| matches!(item.body, Body::TurnEnd(_)))
+    });
+    let tools: Vec<_> = live
+        .session
+        .transcript()
+        .items()
+        .iter()
+        .filter_map(|item| match &item.body {
+            Body::Tool(t) => Some((
+                t.name.clone(),
+                t.output
+                    .as_ref()
+                    .and_then(|o| o.structured.clone())
+                    .is_some(),
+            )),
+            _ => None,
+        })
+        .collect();
+    eprintln!("tools: {tools:?}");
+    for name in ["Read", "Edit", "Write", "Bash"] {
+        assert!(
+            tools.iter().any(|(n, structured)| n == name && *structured),
+            "{name} result is structured"
+        );
+    }
+    live.finish();
+}
+
+#[test]
+#[ignore = "live Claude Code; set CANOPY_LIVE_CLAUDE=1"]
+fn thinking_summaries_stream_into_the_transcript() {
+    if !enabled() {
+        return;
+    }
+    let mut live = Live::start_model("thinking", "opus");
+    live.submit(
+        "Carefully reason step by step: how many distinct ways can you tile a 2x10 board with 1x2 dominoes? Reply with the number only.",
+    );
+    live.pump(TURN, |s| {
+        *s.status() == Status::Ready
+            && s.transcript()
+                .items()
+                .iter()
+                .any(|item| matches!(item.body, Body::TurnEnd(_)))
+    });
+    let thinking: String = live
+        .session
+        .transcript()
+        .items()
+        .iter()
+        .filter_map(|item| match &item.body {
+            Body::Thinking(block) => Some(block.text.as_str()),
+            _ => None,
+        })
+        .collect();
+    eprintln!("thinking: {thinking:?}, reply {:?}", live.assistant_text());
+    assert!(
+        !thinking.trim().is_empty(),
+        "a summary of the reasoning arrives"
     );
     live.finish();
 }

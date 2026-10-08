@@ -1,7 +1,7 @@
 //! Runtime registry of chat panes. Agent processes never enter SQLite; the pane
 //! keeps only its account, choices and provider session id.
 use super::AppState;
-use crate::ui::chat::{ChatStateChanged, ChatView, NEW_CHAT_TITLE};
+use crate::ui::chat::{ChatStateChanged, ChatView, NEW_CHAT_TITLE, TurnDiffView};
 use canopy_desktop::{
     chat::config::{ChatSettings, Mode},
     state::workspace::{PaneId, PaneKind, PaneMetadata, WorkspaceId},
@@ -40,6 +40,8 @@ struct Retiring {
 
 pub struct Chats {
     pub views: HashMap<PaneId, Entity<ChatView>>,
+    /// Turn-diff panes, the resource they were built from and whether it had data.
+    pub turn_diffs: HashMap<PaneId, (String, bool, Entity<TurnDiffView>)>,
     pub error: Option<String>,
     workspaces: HashMap<PaneId, WorkspaceId>,
     events: HashMap<PaneId, Subscription>,
@@ -129,6 +131,7 @@ impl Chats {
     pub fn new() -> Self {
         Self {
             views: HashMap::new(),
+            turn_diffs: HashMap::new(),
             error: None,
             workspaces: HashMap::new(),
             events: HashMap::new(),
@@ -223,9 +226,68 @@ impl Chats {
                 view.set_active(visible, visible && focused == Some(*id), cx)
             });
         }
+        changed |= self.sync_turn_diffs(&app, &active, cx);
         if changed {
             cx.notify();
         }
+    }
+
+    /// Turn diffs read the chat's live transcript; without it they say so.
+    fn sync_turn_diffs(
+        &mut self,
+        app: &AppState,
+        active: &[canopy_desktop::state::workspace::Pane],
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let alive: HashSet<PaneId> = app
+            .projects
+            .read(cx)
+            .runtime_workspaces(cx)
+            .iter()
+            .flat_map(|workspace| workspace.all_panes())
+            .filter(|pane| pane.metadata.kind == PaneKind::TurnDiff)
+            .map(|pane| pane.id)
+            .collect();
+        let before = self.turn_diffs.len();
+        self.turn_diffs.retain(|id, _| alive.contains(id));
+        let mut changed = before != self.turn_diffs.len();
+        for pane in active
+            .iter()
+            .filter(|p| p.metadata.kind == PaneKind::TurnDiff)
+        {
+            let resource = pane.metadata.resource.clone().unwrap_or_default();
+            // An unavailable diff is retried: the chat may not have started yet.
+            if self
+                .turn_diffs
+                .get(&pane.id)
+                .is_some_and(|(built, found, _)| *built == resource && *found)
+            {
+                continue;
+            }
+            let Ok(target) =
+                serde_json::from_str::<canopy_desktop::chat::tools::TurnDiffTarget>(&resource)
+            else {
+                continue;
+            };
+            let files = self
+                .views
+                .get(&target.chat)
+                .and_then(|chat| chat.read(cx).turn_changes(target.session, target.turn));
+            let found = files.is_some();
+            if !found
+                && self
+                    .turn_diffs
+                    .get(&pane.id)
+                    .is_some_and(|(built, _, _)| *built == resource)
+            {
+                continue;
+            }
+            let cwd = pane.metadata.cwd.clone();
+            let view = cx.new(|_| TurnDiffView::new(&target, files, cwd));
+            self.turn_diffs.insert(pane.id, (resource, found, view));
+            changed = true;
+        }
+        changed
     }
 
     fn retire(&mut self, workspace: WorkspaceId, view: Entity<ChatView>, cx: &mut Context<Self>) {

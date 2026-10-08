@@ -170,6 +170,21 @@ impl Workspace {
                                     )
                                     .into_any_element()
                             })
+                    } else if pane.metadata.kind
+                        == canopy_desktop::state::workspace::PaneKind::TurnDiff
+                    {
+                        self.state
+                            .chats
+                            .read(cx)
+                            .turn_diffs
+                            .get(&pane_id)
+                            .map(|(_, _, v)| v.clone().into_any_element())
+                            .unwrap_or_else(|| {
+                                div()
+                                    .p(px(12.))
+                                    .child("Loading changes…")
+                                    .into_any_element()
+                            })
                     } else if pane.metadata.kind == canopy_desktop::state::workspace::PaneKind::Diff
                     {
                         self.state

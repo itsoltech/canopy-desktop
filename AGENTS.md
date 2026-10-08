@@ -416,7 +416,7 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 - Wiersze listy synchronizuj wyłącznie przez `Transcript::take_changes`; nie przebudowuj
   całej listy przy każdej delcie. Render nie parsuje markdown ani protokołu.
 - Każda wiadomość do Claude ma jawny `priority` (`later` = kolejna tura, `next` = Steer).
-  Kolejka żyje w Canopy i wysyła się po `session_state_changed idle`; Stop ją wstrzymuje,
+  Kolejka żyje w Canopy i wysyła się po `session_state_changed idle`; Stop ją wstrzymuje (Resume w tacce najpierw wysyła `RESUME_PROMPT`, potem kolejkę),
   zamknięcie z niewysłaną kolejką pyta o zgodę. Nie wysyłaj wiadomości bez priorytetu.
 - Praca subagenta nie trafia do głównej rozmowy: tam jest karta, a jego rozmowa otwiera się
   w tym samym pane'ie (tylko do odczytu). Zgody subagenta zostają widoczne w głównej rozmowie.
@@ -426,6 +426,12 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 - Subagent w tle kończy pracę po turze głównej: jego narzędzia nie są zamykane z turą,
   a raport pochodzi z `SubagentHandback`. Bloki kodu najwyższego poziomu to osobne
   widoki tekstu (zaznaczanie przez całą odpowiedź), z nagłówkiem i numerami linii.
+- Karty narzędzi powstają z `chat::tools::view` (tolerancyjnie, z fallbackiem Generic);
+  diffy używają `git::changes::DiffLine` i `components::git::diff_line`. Diff tury czyta żywą
+  sesję i nie udaje dostępności po restarcie. Proces czatu ma `--thinking-display summarized`.
+- Zakończona (Completed) tura głównej rozmowy składa pracę między wiadomością użytkownika a ostatnią
+  odpowiedzią pod „Worked for …” (czas z `TurnEnd.duration_ms`); widoczne zostają prompt, odpowiedź
+  i podsumowanie zmian. Przerwana/błędna tura lub tura bez końcowej odpowiedzi zostaje rozwinięta.
 
 ## Toasty
 

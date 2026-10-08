@@ -85,6 +85,8 @@ pub enum PaneKind {
     Notes,
     /// Headless agent conversation (`tool` is the provider, `profile_id` the account).
     Chat,
+    /// The files a chat turn changed (`resource` is a `chat::tools::TurnDiffTarget`).
+    TurnDiff,
 }
 impl PaneMetadata {
     fn valid(&self) -> bool {

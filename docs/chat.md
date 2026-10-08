@@ -200,3 +200,21 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 - Narzędzia z pustym wynikiem lub „(empty)” nie są rozwijane; composer ma ikony providera,
   reasoningu i trybów.
 
+## Etap 3: narzędzia, diffy i thinking
+
+- `chat::tools::view` zamienia zakończone wywołanie (wejście + `tool_use_result`) w `ToolView`:
+  Shell (stdout/stderr, błąd), Read (zakres linii, treść), Change (hunki `structuredPatch`
+  albo treść nowego pliku jako linie `+`, model `git::changes::DiffLine`), Web, Generic.
+  Nieznany kształt → Generic. W CLI 2.1.294 nie ma osobnych narzędzi Grep/Glob/TodoWrite.
+- Karty: `Rows` przygotowuje `ToolCard` przy zakończeniu narzędzia (podświetlanie podglądu
+  Read poza renderem); diff Edit/Write rozwinięty, 12 linii + „Show more”.
+- `turn_changes` składa zmiany Edit/Write tury (z subagentami) per plik; wiersz
+  `Kind::Changes` po końcu tury z drzewem folderów i „Open diff” → `PaneKind::TurnDiff`
+  (`TurnDiffTarget` w `resource`). Widok czyta transkrypt żywej sesji; po restarcie
+  pokazuje „no longer available” (historia — etap 6). Zmiany przez Bash nie są liczone.
+- Thinking: proces startuje z `--thinking-display summarized` (zastrzeżone w profilu);
+  wiersz „Thinking…” na żywo, po końcu zwinięty do „Thought for Ns” (czas mierzony w widoku).
+- „Worked for …”: po `TurnEnd` z `Outcome::Completed` `Rows::fold_turn` oznacza pierwszy wiersz
+  pracy (`RowExtra.fold`) i resztę do końcowej odpowiedzi (`folded_by`); zwinięte wiersze mają
+  zerową wysokość, rozwinięcie remeasure + fade. Wiadomości Steer w tej turze też są składane.
+

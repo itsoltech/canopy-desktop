@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Protocol flags Canopy owns; the SDK passes the same set.
-pub const HEADLESS_ARGUMENTS: [&str; 8] = [
+pub const HEADLESS_ARGUMENTS: [&str; 10] = [
     "--output-format",
     "stream-json",
     "--verbose",
@@ -20,10 +20,14 @@ pub const HEADLESS_ARGUMENTS: [&str; 8] = [
     "--include-partial-messages",
     "--permission-prompt-tool",
     "stdio",
+    // Streams a summary of the model's reasoning; headless output omits it otherwise.
+    "--thinking-display",
+    "summarized",
 ];
 
 /// User arguments that would change the protocol or pick the session behind Canopy's back.
-const RESERVED: [&str; 14] = [
+const RESERVED: [&str; 15] = [
+    "--thinking-display",
     "-p",
     "--print",
     "--output-format",

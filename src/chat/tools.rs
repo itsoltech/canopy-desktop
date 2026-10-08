@@ -1,0 +1,363 @@
+//! What a finished tool call did, in a shape the chat can draw: a command and its
+//! output, a file read, or a file change as diff lines. Built from the tool input and
+//! the CLI's structured result (`tool_use_result`); unknown shapes fall back to
+//! `Generic`, because the CLI's results change between versions.
+use super::transcript::{ToolCall, ToolState, Transcript, TurnId};
+use crate::git::changes::DiffLine;
+use serde_json::Value;
+use std::path::PathBuf;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ToolView {
+    Shell {
+        command: String,
+        description: Option<String>,
+        stdout: String,
+        stderr: String,
+        failed: bool,
+    },
+    Read {
+        path: PathBuf,
+        start: u32,
+        shown: u32,
+        total: u32,
+        content: String,
+    },
+    Change(FileChange),
+    Web {
+        target: String,
+        text: String,
+    },
+    Generic {
+        input: String,
+        output: String,
+    },
+}
+
+/// What a turn-diff pane shows, stored as its resource: a chat pane's turn, optionally
+/// scrolled to one file.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TurnDiffTarget {
+    pub chat: crate::state::workspace::PaneId,
+    /// Sessions the chat had before (Restart); turn numbers restart in each session.
+    #[serde(default)]
+    pub session: u64,
+    pub turn: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<PathBuf>,
+}
+
+/// A file the agent changed: one or more hunks, or the whole content of a new file.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileChange {
+    pub path: PathBuf,
+    pub created: bool,
+    pub added: usize,
+    pub removed: usize,
+    pub lines: Vec<DiffLine>,
+}
+
+fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
+pub fn view(tool: &ToolCall) -> ToolView {
+    let output = tool.output.as_ref();
+    let structured = output.and_then(|o| o.structured.as_ref());
+    let plain = output.map(|o| o.text.clone()).unwrap_or_default();
+    let failed = tool.state == ToolState::Failed || output.is_some_and(|o| o.is_error);
+    match tool.name.as_str() {
+        "Bash" => {
+            let command = text(&tool.input, "command").unwrap_or_default().to_owned();
+            let description = text(&tool.input, "description").map(str::to_owned);
+            match structured.filter(|s| s.is_object()) {
+                Some(result) => ToolView::Shell {
+                    command,
+                    description,
+                    stdout: text(result, "stdout").unwrap_or_default().to_owned(),
+                    stderr: text(result, "stderr").unwrap_or_default().to_owned(),
+                    failed,
+                },
+                // Failures arrive as plain text ("Error: Exit code 1\n…").
+                None => ToolView::Shell {
+                    command,
+                    description,
+                    stdout: if failed { String::new() } else { plain },
+                    stderr: if failed {
+                        output.map(|o| o.text.clone()).unwrap_or_default()
+                    } else {
+                        String::new()
+                    },
+                    failed,
+                },
+            }
+        }
+        "Read" => match structured.and_then(|s| s.get("file")) {
+            Some(file) => ToolView::Read {
+                path: text(file, "filePath")
+                    .or_else(|| text(&tool.input, "file_path"))
+                    .unwrap_or_default()
+                    .into(),
+                start: number(file, "startLine").unwrap_or(1),
+                shown: number(file, "numLines").unwrap_or(0),
+                total: number(file, "totalLines").unwrap_or(0),
+                content: text(file, "content").unwrap_or_default().to_owned(),
+            },
+            None => generic(tool, plain),
+        },
+        "Edit" | "MultiEdit" | "Write" => match structured.and_then(change) {
+            Some(change) => ToolView::Change(change),
+            None => generic(tool, plain),
+        },
+        "WebFetch" | "WebSearch" => ToolView::Web {
+            target: text(&tool.input, "url")
+                .or_else(|| text(&tool.input, "query"))
+                .unwrap_or_default()
+                .to_owned(),
+            text: plain,
+        },
+        _ => generic(tool, plain),
+    }
+}
+
+fn number(value: &Value, key: &str) -> Option<u32> {
+    value
+        .get(key)?
+        .as_u64()
+        .map(|n| n.min(u32::MAX as u64) as u32)
+}
+
+fn generic(tool: &ToolCall, output: String) -> ToolView {
+    ToolView::Generic {
+        input: serde_json::to_string_pretty(&tool.input).unwrap_or_default(),
+        output,
+    }
+}
+
+/// A file change from an Edit/Write result: its patch, or a new file's content.
+fn change(result: &Value) -> Option<FileChange> {
+    let path: PathBuf = text(result, "filePath")?.into();
+    let created = text(result, "type") == Some("create");
+    let mut lines = vec![];
+    if created {
+        let content = text(result, "content").unwrap_or_default();
+        lines.extend(content.lines().enumerate().map(|(i, line)| DiffLine {
+            old: None,
+            new: Some(i as u32 + 1),
+            kind: '+',
+            text: line.to_owned(),
+        }));
+    } else {
+        for hunk in result.get("structuredPatch")?.as_array()? {
+            let mut old = number(hunk, "oldStart").unwrap_or(1);
+            let mut new = number(hunk, "newStart").unwrap_or(1);
+            lines.push(DiffLine {
+                old: None,
+                new: None,
+                kind: 'H',
+                text: format!(
+                    "@@ -{},{} +{},{} @@",
+                    old,
+                    number(hunk, "oldLines").unwrap_or(0),
+                    new,
+                    number(hunk, "newLines").unwrap_or(0)
+                ),
+            });
+            for line in hunk.get("lines")?.as_array()? {
+                let line = line.as_str().unwrap_or_default();
+                let (kind, body) = match line.chars().next() {
+                    Some(c @ ('+' | '-' | ' ')) => (c, &line[1..]),
+                    // "\ No newline at end of file" belongs to no side.
+                    Some('\\') => {
+                        lines.push(DiffLine {
+                            old: None,
+                            new: None,
+                            kind: ' ',
+                            text: line.to_owned(),
+                        });
+                        continue;
+                    }
+                    _ => (' ', line),
+                };
+                let (o, n) = match kind {
+                    '+' => (None, Some(new)),
+                    '-' => (Some(old), None),
+                    _ => (Some(old), Some(new)),
+                };
+                if kind != '+' {
+                    old += 1;
+                }
+                if kind != '-' {
+                    new += 1;
+                }
+                lines.push(DiffLine {
+                    old: o,
+                    new: n,
+                    kind,
+                    text: body.to_owned(),
+                });
+            }
+        }
+    }
+    let added = lines.iter().filter(|l| l.kind == '+').count();
+    let removed = lines.iter().filter(|l| l.kind == '-').count();
+    Some(FileChange {
+        path,
+        created,
+        added,
+        removed,
+        lines,
+    })
+}
+
+/// Files changed by Edit/Write calls of `turn` (its subagents included), one entry per
+/// file in first-change order; later edits of a file add their hunks after earlier ones.
+pub fn turn_changes(transcript: &Transcript, turn: TurnId) -> Vec<FileChange> {
+    let mut files: Vec<FileChange> = vec![];
+    for item in transcript.items().iter().filter(|item| item.turn == turn) {
+        let super::transcript::Body::Tool(tool) = &item.body else {
+            continue;
+        };
+        if tool.state != ToolState::Succeeded {
+            continue;
+        }
+        let ToolView::Change(change) = view(tool) else {
+            continue;
+        };
+        match files.iter_mut().find(|f| f.path == change.path) {
+            Some(file) => {
+                file.added += change.added;
+                file.removed += change.removed;
+                file.lines.extend(change.lines);
+            }
+            None => files.push(change),
+        }
+    }
+    files
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::transcript::ToolOutput;
+    use serde_json::json;
+
+    fn call(name: &str, input: Value, result: Option<Value>, text: &str) -> ToolCall {
+        ToolCall {
+            call_id: "t".into(),
+            name: name.into(),
+            input,
+            input_partial: String::new(),
+            state: ToolState::Succeeded,
+            output: Some(ToolOutput {
+                text: text.into(),
+                is_error: false,
+                structured: result,
+            }),
+            elapsed_seconds: None,
+            activity: None,
+            background: false,
+        }
+    }
+
+    #[test]
+    fn edit_patches_become_numbered_diff_lines() {
+        let tool = call(
+            "Edit",
+            json!({"file_path": "/r/a.txt"}),
+            Some(json!({"filePath": "/r/a.txt", "structuredPatch": [
+                {"oldStart": 1, "oldLines": 3, "newStart": 1, "newLines": 3,
+                 "lines": [" line one", "-line two", "+line 2", " line three"]}
+            ]})),
+            "updated",
+        );
+        let ToolView::Change(change) = view(&tool) else {
+            panic!("change");
+        };
+        assert_eq!(
+            (change.added, change.removed, change.created),
+            (1, 1, false)
+        );
+        let numbered: Vec<_> = change
+            .lines
+            .iter()
+            .map(|l| (l.kind, l.old, l.new, l.text.as_str()))
+            .collect();
+        assert_eq!(
+            numbered,
+            [
+                ('H', None, None, "@@ -1,3 +1,3 @@"),
+                (' ', Some(1), Some(1), "line one"),
+                ('-', Some(2), None, "line two"),
+                ('+', None, Some(2), "line 2"),
+                (' ', Some(3), Some(3), "line three"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_final_newline_does_not_shift_numbers() {
+        let tool = call(
+            "Edit",
+            json!({}),
+            Some(json!({"filePath": "/r/a", "structuredPatch": [
+                {"oldStart": 4, "oldLines": 1, "newStart": 4, "newLines": 1,
+                 "lines": ["-end", "\\ No newline at end of file", "+end!"]}
+            ]})),
+            "",
+        );
+        let ToolView::Change(change) = view(&tool) else {
+            panic!("change");
+        };
+        let numbers: Vec<_> = change.lines.iter().map(|l| (l.old, l.new)).collect();
+        assert_eq!(
+            numbers,
+            [(None, None), (Some(4), None), (None, None), (None, Some(4))]
+        );
+    }
+
+    #[test]
+    fn created_files_are_all_additions() {
+        let tool = call(
+            "Write",
+            json!({}),
+            Some(
+                json!({"type": "create", "filePath": "/r/b.txt", "content": "one\ntwo\n", "structuredPatch": []}),
+            ),
+            "created",
+        );
+        let ToolView::Change(change) = view(&tool) else {
+            panic!("change");
+        };
+        assert!(change.created);
+        assert_eq!(change.added, 2);
+        assert_eq!(change.lines[1].new, Some(2));
+    }
+
+    #[test]
+    fn shell_results_and_failures() {
+        let ok = call(
+            "Bash",
+            json!({"command": "ls", "description": "List"}),
+            Some(json!({"stdout": "a\nb", "stderr": ""})),
+            "a\nb",
+        );
+        assert!(
+            matches!(view(&ok), ToolView::Shell { stdout, failed: false, .. } if stdout == "a\nb")
+        );
+        let mut failed = call(
+            "Bash",
+            json!({"command": "ls x"}),
+            Some(json!("Error: Exit code 1")),
+            "Exit code 1\nls: x: No such file",
+        );
+        failed.state = ToolState::Failed;
+        assert!(
+            matches!(view(&failed), ToolView::Shell { stderr, failed: true, .. } if stderr.contains("No such file"))
+        );
+        assert!(matches!(
+            view(&call("mcp__x__y", json!({"a": 1}), None, "out")),
+            ToolView::Generic { .. }
+        ));
+    }
+}

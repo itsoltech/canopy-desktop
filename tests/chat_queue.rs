@@ -209,6 +209,62 @@ fn stop_keeps_the_queue_until_the_user_sends_again() {
 }
 
 #[test]
+fn resume_sends_the_queue_held_by_stop() {
+    let mut session = ready(&[]);
+    session.submit("first");
+    state(&mut session, "running");
+    session.submit("second");
+    session.submit("third");
+    session.interrupt();
+    assert!(
+        session.resume_queue().is_empty(),
+        "waits until the Stop has finished"
+    );
+    feed(
+        &mut session,
+        r#"{"type":"result","subtype":"error_during_execution","is_error":true}"#,
+    );
+    let sent = user_lines(&state(&mut session, "idle"));
+    assert_eq!(
+        sent[0].0,
+        canopy_desktop::chat::session::RESUME_PROMPT,
+        "the stopped work is finished first"
+    );
+    assert!(!session.queue_held());
+    state(&mut session, "running");
+    assert!(result(&mut session).is_empty());
+    let next = user_lines(&state(&mut session, "idle"));
+    assert_eq!(next[0].0, "second", "then the queue goes on");
+
+    let mut stopped = ready(&[]);
+    stopped.submit("first");
+    state(&mut stopped, "running");
+    stopped.submit("later");
+    stopped.interrupt();
+    result(&mut stopped);
+    state(&mut stopped, "idle");
+    assert!(stopped.queue_held());
+    let sent = user_lines(&stopped.resume_queue());
+    assert_eq!(
+        sent[0].0,
+        canopy_desktop::chat::session::RESUME_PROMPT,
+        "an idle agent gets it right away"
+    );
+
+    // Sending something after Stop already moved on: Resume only releases the queue.
+    let mut moved = ready(&[]);
+    moved.submit("first");
+    state(&mut moved, "running");
+    moved.submit("queued");
+    moved.interrupt();
+    result(&mut moved);
+    state(&mut moved, "idle");
+    let id = moved.queue()[0].id;
+    assert_eq!(user_lines(&moved.steer(id))[0].0, "queued");
+    assert!(moved.resume_queue().is_empty(), "nothing held any more");
+}
+
+#[test]
 fn a_steer_dropped_before_it_was_read_waits_again() {
     let mut session = ready(&[wire::LIFECYCLE_CAPABILITY]);
     session.submit("first");
@@ -328,4 +384,24 @@ fn stop_after_the_turn_stops_background_subagents() {
     );
     state(&mut session, "idle");
     assert!(session.interrupt().is_empty(), "nothing left to stop");
+}
+
+#[test]
+fn queued_messages_can_be_reordered_but_not_steers_in_flight() {
+    let mut session = ready(&[wire::LIFECYCLE_CAPABILITY]);
+    session.submit("first");
+    state(&mut session, "running");
+    for text in ["a", "b", "c"] {
+        session.submit(text);
+    }
+    let ids: Vec<_> = session.queue().iter().map(|q| q.id).collect();
+    assert!(session.move_queued(ids[2], Some(ids[0])));
+    assert_eq!(queued_texts(&session), ["c", "a", "b"]);
+    assert!(session.move_queued(ids[2], None));
+    assert_eq!(queued_texts(&session), ["a", "b", "c"]);
+    session.steer(ids[0]);
+    assert!(
+        !session.move_queued(ids[0], None),
+        "a steer in flight stays put"
+    );
 }

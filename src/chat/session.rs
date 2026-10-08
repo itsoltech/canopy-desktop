@@ -40,6 +40,10 @@ impl Status {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QueuedId(pub u64);
 
+/// What Resume sends after Stop, so the agent finishes the interrupted work before the
+/// queue continues.
+pub const RESUME_PROMPT: &str = "Continue where you left off.";
+
 /// A message held in Canopy until the agent finishes, or being steered into its turn.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Queued {
@@ -77,6 +81,8 @@ pub struct ChatSession {
     next_queued: u64,
     /// Stop holds the queue until the user sends or steers again.
     hold_queue: bool,
+    /// Stop cut work short and nothing was sent since: Resume first asks to finish it.
+    stopped: bool,
     /// Our message uuids the CLI has not finished with (`command_lifecycle`).
     outstanding: HashSet<String>,
     lifecycle_seen: bool,
@@ -129,6 +135,7 @@ impl ChatSession {
             queue: VecDeque::new(),
             next_queued: 0,
             hold_queue: false,
+            stopped: false,
             outstanding: HashSet::new(),
             lifecycle_seen: false,
             cli_idle: true,
@@ -214,6 +221,27 @@ impl ChatSession {
         self.hold_queue && self.queue.iter().any(|q| q.steering.is_none())
     }
 
+    /// Lets the queue held by Stop go on. Work cut short by Stop comes first: the agent
+    /// is asked to finish it (`RESUME_PROMPT`) before the oldest queued message. Each
+    /// goes as soon as the agent can take a turn (right away when it is idle, else once
+    /// the Stop has finished).
+    pub fn resume_queue(&mut self) -> Vec<Value> {
+        if !self.hold_queue || self.status.ended() {
+            return vec![];
+        }
+        self.hold_queue = false;
+        if self.stopped {
+            self.stopped = false;
+            self.next_queued += 1;
+            self.queue.push_front(Queued {
+                id: QueuedId(self.next_queued),
+                text: RESUME_PROMPT.to_owned(),
+                steering: None,
+            });
+        }
+        self.flush()
+    }
+
     /// Sends a user message, or keeps it in the queue while the agent is busy.
     pub fn submit(&mut self, text: &str) -> Vec<Value> {
         let text = text.trim();
@@ -274,6 +302,27 @@ impl ChatSession {
         if !text.is_empty() {
             self.enqueue(text.to_owned());
         }
+    }
+
+    /// Moves a waiting message in front of `before` (or to the end); steers in flight
+    /// stay where they are.
+    pub fn move_queued(&mut self, id: QueuedId, before: Option<QueuedId>) -> bool {
+        if Some(id) == before {
+            return false;
+        }
+        let Some(from) = self
+            .queue
+            .iter()
+            .position(|q| q.id == id && q.steering.is_none())
+        else {
+            return false;
+        };
+        let moved = self.queue.remove(from).expect("queued message");
+        let at = before
+            .and_then(|before| self.queue.iter().position(|q| q.id == before))
+            .unwrap_or(self.queue.len());
+        self.queue.insert(at, moved);
+        true
     }
 
     /// Takes a waiting message back for editing.
@@ -338,6 +387,7 @@ impl ChatSession {
         lines.push(wire::interrupt(&id, cancel_queued));
         self.interrupt_id = Some(id);
         self.hold_queue = true;
+        self.stopped = true;
         lines
     }
 
@@ -694,6 +744,7 @@ impl ChatSession {
 
     /// Starts a turn with `text`.
     fn send(&mut self, text: String) -> Vec<Value> {
+        self.stopped = false;
         let turn = self.transcript.allocate_turn();
         let uuid = uuid::Uuid::new_v4().to_string();
         let line = wire::user_message(&text, &uuid, Priority::Later);

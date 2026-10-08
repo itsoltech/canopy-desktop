@@ -1,7 +1,7 @@
 //! Declarative chat layout: centered conversation column above the composer.
 use super::{
-    rows::{Kind, Row, Rows, Source},
-    subagent,
+    rows::{Fold, Kind, Row, Rows, Source},
+    subagent, tools,
     view::ChatView,
 };
 use crate::ui::{components::*, theme as t};
@@ -25,7 +25,7 @@ use gpui_kit::component::{
     shimmer::ShimmerText,
     spinner::Spinner,
 };
-use gpui_kit::*;
+use gpui_kit::{prelude::FluentBuilder, *};
 use std::time::Instant;
 
 /// Readable line length for the conversation column.
@@ -234,7 +234,7 @@ pub(super) fn centered(content: impl IntoElement) -> Div {
 fn render_row(view: &Entity<ChatView>, index: usize, _: &mut Window, cx: &mut App) -> AnyElement {
     let this = view.read(cx);
     let rows = this.shown_rows();
-    let Some(entry) = rows.rows.get(index) else {
+    let Some(entry) = rows.rows.get(index).filter(|entry| !rows.folded(entry)) else {
         return div().into_any_element();
     };
     let opacity = rows.reveal.opacity(index, Instant::now());
@@ -287,6 +287,9 @@ fn render_row(view: &Entity<ChatView>, index: usize, _: &mut Window, cx: &mut Ap
                     .children(entry.markdown.clone()),
             )
             .into_any_element(),
+        Kind::Changes { turn, files, live } => {
+            tools::changes_card(view, this, entry, *turn, files, *live, cx).into_any_element()
+        }
         Kind::Subagents(sources) => {
             subagent::group(view, this, rows, entry, sources, cx).into_any_element()
         }
@@ -298,7 +301,53 @@ fn render_row(view: &Entity<ChatView>, index: usize, _: &mut Window, cx: &mut Ap
             }
         }
     };
-    centered(content).opacity(opacity).into_any_element()
+    match &entry.extra.fold {
+        // The header stays put while the work under it fades in.
+        Some(fold) => centered(
+            column()
+                .child(worked_header(view, entry.key, fold))
+                .when(fold.disclosure.open, |column| {
+                    column.child(div().opacity(opacity).child(content))
+                }),
+        )
+        .into_any_element(),
+        None => centered(content).opacity(opacity).into_any_element(),
+    }
+}
+
+/// "Worked for 2m 41s ›" above a completed turn's reply; opens the work behind it.
+fn worked_header(view: &Entity<ChatView>, key: u64, fold: &Fold) -> Div {
+    let label = match fold.duration_ms {
+        Some(ms) => format!("Worked for {}", tools::elapsed(ms as f32 / 1000.)),
+        None => "Worked".to_owned(),
+    };
+    let view = view.downgrade();
+    column()
+        .pt(px(16.))
+        .child(
+            row()
+                .id(("chat-worked", key))
+                .h(px(24.))
+                .gap(px(4.))
+                .cursor_pointer()
+                .text_size(px(13.))
+                .text_color(t::muted())
+                .hover(|style| style.text_color(t::secondary()))
+                .child(label)
+                .child(
+                    fold.disclosure
+                        .chevron(Instant::now())
+                        .text_color(t::faint()),
+                )
+                .on_click(move |_, _, cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        let policy = motion::policy(cx);
+                        this.shown_rows_mut().toggle_fold(key, policy, cx);
+                        cx.notify();
+                    });
+                }),
+        )
+        .child(div().mt(px(6.)).h(px(1.)).bg(t::border()))
 }
 
 fn row_separator(label: &'static str) -> Div {
@@ -405,7 +454,9 @@ fn item_row(
                 .child(text)
                 .into_any_element()
         }
-        Body::Thinking(_) => div().into_any_element(),
+        Body::Thinking(block) => {
+            tools::thinking_row(view, entry, &block.text, block.streaming, cx).into_any_element()
+        }
     }
 }
 
@@ -470,7 +521,16 @@ fn tool_row(
             .child(text)
     });
     let key = entry.key;
-    let has_output = presentation::has_output(tool);
+    let card = entry.extra.card.clone();
+    let (label, detail) = card
+        .as_deref()
+        .and_then(tools::header)
+        .map(|(label, detail)| (label.to_owned(), detail))
+        .unwrap_or_else(|| (tool.name.clone(), None));
+    let has_output = match &card {
+        Some(card) => tools::has_body(card),
+        None => presentation::has_output(tool),
+    };
     let now = Instant::now();
     let line = row()
         .w_full()
@@ -488,7 +548,7 @@ fn tool_row(
                 .flex_shrink_0()
                 .text_size(px(13.))
                 .text_color(t::secondary())
-                .child(tool.name.clone()),
+                .child(label),
         )
         .child(match file {
             Some(file) => div()
@@ -517,6 +577,7 @@ fn tool_row(
                 .child(summary)
                 .into_any_element(),
         })
+        .children(detail)
         .child(
             div()
                 .id(("chat-tool-status", key))
@@ -529,6 +590,9 @@ fn tool_row(
     // Only rows with output are interactive; the others stay plain lines.
     let header: AnyElement = if has_output {
         row_button(("chat-tool", key), line, cx)
+            .w_auto()
+            // Hover background reaches 6 px past both text edges; status stays on the right edge.
+            .mx(px(-6.))
             .accessibility_label(format!("{} {status_label}, show output", tool.name))
             .on_click({
                 let view = view.downgrade();
@@ -541,9 +605,16 @@ fn tool_row(
             })
             .into_any_element()
     } else {
-        row().h(px(28.)).px(px(6.)).child(line).into_any_element()
+        row().h(px(28.)).child(line).into_any_element()
     };
     let output = match (&entry.output, &tool.output) {
+        (Some(disclosure), Some(_)) if has_output && card.is_some() => {
+            Some(disclosure.measured_body(
+                ("chat-tool-output", key),
+                tools::body(view, entry, card.as_deref().expect("card")),
+                now,
+            ))
+        }
         (Some(disclosure), Some(output)) if has_output => Some(
             disclosure.measured_body(
                 ("chat-tool-output", key),

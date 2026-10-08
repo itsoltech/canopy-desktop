@@ -52,6 +52,7 @@ impl ChatView {
                         .children(self.effort_picker(cx))
                         .child(self.mode_picker(cx))
                         .child(div().flex_1())
+                        .child(super::dev_bench::button(cx, ended)) // dev_bench
                         .child(self.action_button(working, empty || ended, cx)),
                 ),
         )

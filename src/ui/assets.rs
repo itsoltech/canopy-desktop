@@ -22,10 +22,13 @@ impl AssetSource for Assets {
             "canopy/upload.svg" => Some(include_bytes!("../../assets/icons/upload.svg")),
             "canopy/brain.svg" => Some(include_bytes!("../../assets/icons/brain.svg")),
             "canopy/pencil.svg" => Some(include_bytes!("../../assets/icons/pencil.svg")),
+            "canopy/grip-vertical.svg" => {
+                Some(include_bytes!("../../assets/icons/grip-vertical.svg"))
+            }
             "canopy/message-circle-plus.svg" => {
                 Some(include_bytes!("../../assets/icons/message-circle-plus.svg"))
             }
-            _ => None,
+            _ => super::file_icons::load(path),
         };
         match custom {
             Some(bytes) => Ok(Some(Cow::Borrowed(bytes))),
