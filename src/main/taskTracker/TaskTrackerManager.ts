@@ -594,7 +594,8 @@ export class TaskTrackerManager {
     dlErr: (reason: string) => TaskTrackerError,
   ): ResultAsync<string, TaskTrackerError> {
     const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
-    mkdirSync(dir, { recursive: true })
+    // Owner-only: attachments of private issues land in the shared temp dir on multi-user systems.
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
 
     const safeName = basename(filename.replace(/[/\\]/g, '_'))
     const filePath = join(dir, safeName)
@@ -635,8 +636,9 @@ export class TaskTrackerManager {
             cb(null, chunk)
           },
         })
-        return fromExternalCall(pipeline(nodeStream, capGuard, createWriteStream(filePath)), (e) =>
-          dlErr(errorMessage(e)),
+        return fromExternalCall(
+          pipeline(nodeStream, capGuard, createWriteStream(filePath, { mode: 0o600 })),
+          (e) => dlErr(errorMessage(e)),
         ).map(() => filePath)
       })
       .mapErr((error) => {

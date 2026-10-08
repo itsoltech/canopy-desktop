@@ -6,6 +6,7 @@
   import { bumpCiCredentialTick } from '../../lib/stores/ci.svelte'
   import { credentialRemovalMessage } from '../../lib/credentials/removal'
   import { teamCityTokenCreationUrl } from '../../lib/ci/teamCityToken'
+  import { ipcErrorMessage } from '../../lib/ci/errors'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import CiServerForm from './_partials/CiServerForm.svelte'
@@ -35,6 +36,9 @@
   let trimmedFormToken = $derived(formToken.trim())
   let testing = $state(false)
   let testResult = $state<'success' | 'fail' | ''>('')
+  let testError = $state('')
+  // Set when the credential list cannot be read; the last known list stays visible.
+  let loadError = $state('')
   // In-flight guards: the confirm dialogs inside save/remove yield to the event loop,
   // so a double-click would otherwise start two overlapping keychain writes.
   let savingServer = $state(false)
@@ -57,8 +61,10 @@
         (connection) =>
           connection.provider === 'teamcity' || connection.provider === 'github-actions',
       )
-    } catch {
-      servers = []
+      loadError = ''
+    } catch (e) {
+      // An emptied list would read as "No CI connections yet" and invite re-adding tokens.
+      loadError = ipcErrorMessage(e, 'Could not read saved CI connections')
     }
   }
 
@@ -67,6 +73,7 @@
     formUrl = ''
     formToken = ''
     testResult = ''
+    testError = ''
   }
 
   function startEdit(server: { provider: string; baseUrl: string }): void {
@@ -75,11 +82,13 @@
     formUrl = server.baseUrl
     formToken = ''
     testResult = ''
+    testError = ''
   }
 
   function cancelEdit(): void {
     editing = null
     testResult = ''
+    testError = ''
   }
 
   function credentialIssue(server: (typeof servers)[number]): string {
@@ -145,11 +154,13 @@
     if (!(await confirmDestination())) return
     testing = true
     testResult = ''
+    testError = ''
     try {
       await window.api.ciTestNewConnection(normalizedUrl, trimmedFormToken)
       testResult = 'success'
-    } catch {
+    } catch (e) {
       testResult = 'fail'
+      testError = ipcErrorMessage(e, 'Connection test failed')
     } finally {
       testing = false
     }
@@ -220,7 +231,19 @@
   <div class="flex flex-col gap-2">
     <!-- Mounted before the async credential list arrives; only its text mutates. -->
     <div class="sr-only" role="status">{credentialIssueAnnouncement}</div>
-    {#if servers.length === 0 && editing === null}
+    {#if loadError}
+      <p
+        class="flex flex-wrap items-center gap-2 text-sm text-danger-text m-0 break-words"
+        role="alert"
+      >
+        {loadError}
+        <button
+          type="button"
+          class="px-2 py-0.5 rounded-md border border-border bg-transparent text-xs text-text-secondary font-inherit cursor-pointer hover:text-text"
+          onclick={reloadServers}>Retry</button
+        >
+      </p>
+    {:else if servers.length === 0 && editing === null}
       <p class="text-sm text-text-faint m-0">No CI connections yet.</p>
     {/if}
 
@@ -234,6 +257,7 @@
           {urlValid}
           {testing}
           {testResult}
+          {testError}
           onCancel={cancelEdit}
           onTest={testConnection}
           saving={savingBusy}
@@ -259,6 +283,7 @@
         {urlValid}
         {testing}
         {testResult}
+        {testError}
         onCancel={cancelEdit}
         onTest={testConnection}
         saving={savingBusy}

@@ -155,7 +155,12 @@
   // Sidebar resize state
   const SIDEBAR_MIN = 150
   const SIDEBAR_MAX = 600
-  let sidebarWidth = $state(parseInt(getPref('sidebar.width', '220'), 10) || 220)
+  // Prefs load after this component is created (App's onMount), so follow the saved
+  // width until the divider is dragged in this session.
+  let sidebarDragWidth: number | null = $state(null)
+  const sidebarWidth = $derived(
+    sidebarDragWidth ?? (parseInt(getPref('sidebar.width', '220'), 10) || 220),
+  )
   let sidebarDragging = $state(false)
   let sidebarDragStart = 0
 
@@ -171,7 +176,7 @@
     if (!sidebarDragging) return
     const delta = e.clientX - sidebarDragStart
     if (delta !== 0) {
-      sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, sidebarWidth + delta))
+      sidebarDragWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, sidebarWidth + delta))
       sidebarDragStart = e.clientX
     }
   }
@@ -186,7 +191,10 @@
   // Right panel resize state
   const RPANEL_MIN = 200
   const RPANEL_MAX = 500
-  let rightPanelWidth = $state(parseInt(getPref('rightPanel.width', '280'), 10) || 280)
+  let rightPanelDragWidth: number | null = $state(null)
+  const rightPanelWidth = $derived(
+    rightPanelDragWidth ?? (parseInt(getPref('rightPanel.width', '280'), 10) || 280),
+  )
   let rpDragging = $state(false)
   let rpDragStart = 0
 
@@ -202,7 +210,7 @@
     if (!rpDragging) return
     const delta = rpDragStart - e.clientX
     if (delta !== 0) {
-      rightPanelWidth = Math.min(RPANEL_MAX, Math.max(RPANEL_MIN, rightPanelWidth + delta))
+      rightPanelDragWidth = Math.min(RPANEL_MAX, Math.max(RPANEL_MIN, rightPanelWidth + delta))
       rpDragStart = e.clientX
     }
   }

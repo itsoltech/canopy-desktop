@@ -5,6 +5,8 @@
   import CustomSelect from '../shared/CustomSelect.svelte'
   import { closeDialog, showOnboardingWizard } from '../../lib/stores/dialogs.svelte'
   import { initOnboarding } from '../../lib/stores/onboarding.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
+  import { ipcErrorMessage } from '../../lib/taskTracker/ipcErrorMessage'
   import PrefsSection from './_partials/PrefsSection.svelte'
   import PrefsRow from './_partials/PrefsRow.svelte'
 
@@ -42,11 +44,22 @@
     setPref('perf.hud.enabled', perfHudEnabled ? 'false' : 'true')
   }
 
+  let rerunningWizard = $state(false)
+
   async function rerunSetupWizard(): Promise<void> {
-    await window.api.resetOnboarding()
-    await initOnboarding('first-launch')
-    closeDialog()
-    showOnboardingWizard()
+    // A double click would otherwise run two reset/init sequences.
+    if (rerunningWizard) return
+    rerunningWizard = true
+    try {
+      await window.api.resetOnboarding()
+      await initOnboarding('first-launch')
+      closeDialog()
+      showOnboardingWizard()
+    } catch (e) {
+      addToast(`Could not start the setup wizard: ${ipcErrorMessage(e)}`, 'danger')
+    } finally {
+      rerunningWizard = false
+    }
   }
 </script>
 
@@ -67,7 +80,8 @@
     >
       <button
         type="button"
-        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-border-subtle text-text-secondary hover:bg-active hover:text-text"
+        class="px-3 py-1 rounded-md text-sm font-inherit cursor-pointer border border-border bg-border-subtle text-text-secondary hover:bg-active hover:text-text disabled:opacity-50 disabled:cursor-wait"
+        disabled={rerunningWizard}
         onclick={rerunSetupWizard}
       >
         Re-run wizard

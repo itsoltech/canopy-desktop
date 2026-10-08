@@ -35,6 +35,7 @@ export class WindowManager {
   private fileWatchers = new Map<number, FileTreeWatcher>()
   private ptySessions = new Map<number, Set<string>>()
   private forceClosing = new Set<number>()
+  private closeChecksInFlight = new Set<number>()
   private focusedAgentSessions = new Map<number, string>()
   private agentSessionManager: AgentSessionManager | null = null
   private browserManager: BrowserManager | null = null
@@ -162,26 +163,35 @@ export class WindowManager {
 
       event.preventDefault()
 
-      void this.getActiveSessionInfo(wcId).then(async (detail) => {
-        if (!detail) {
-          this.forceClosing.add(wcId)
-          win.close()
-          return
-        }
-        const { response } = await dialog.showMessageBox(win, {
-          type: 'warning',
-          buttons: ['Close Window', 'Cancel'],
-          defaultId: 1,
-          cancelId: 1,
-          title: 'Active Sessions',
-          message: 'This window has active sessions',
-          detail,
+      // A second close while the busy check runs (double click, Cmd+W) must not start
+      // another check and dialog. The window can also be destroyed before the check
+      // resolves (app quit); `win.close()` then throws, and the unhandled rejection is
+      // recorded as a crash.
+      if (this.closeChecksInFlight.has(wcId)) return
+      this.closeChecksInFlight.add(wcId)
+      void this.getActiveSessionInfo(wcId)
+        .then(async (detail) => {
+          if (win.isDestroyed()) return
+          if (!detail) {
+            this.forceClosing.add(wcId)
+            win.close()
+            return
+          }
+          const { response } = await dialog.showMessageBox(win, {
+            type: 'warning',
+            buttons: ['Close Window', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'Active Sessions',
+            message: 'This window has active sessions',
+            detail,
+          })
+          if (response === 0 && !win.isDestroyed()) {
+            this.forceClosing.add(wcId)
+            win.close()
+          }
         })
-        if (response === 0) {
-          this.forceClosing.add(wcId)
-          win.close()
-        }
-      })
+        .finally(() => this.closeChecksInFlight.delete(wcId))
     })
 
     win.on('closed', () => {
@@ -332,6 +342,12 @@ export class WindowManager {
   }
 
   setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {
+    // Callers register after `await watcher.start()`. If the window closed meanwhile,
+    // disposeWindow has already run and nothing would ever stop this watcher.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     let watchers = this.gitWatchers.get(wcId)
     if (!watchers) {
       watchers = new Map()
@@ -397,6 +413,10 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     this.fileWatchers.set(wcId, watcher)
   }
 

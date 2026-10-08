@@ -123,7 +123,9 @@
   })
 
   onDestroy(() => {
-    if (currentKey) drawingsState[currentKey] = [...strokes]
+    // Closing the last drawing pane clears drawingsState before this pane unmounts
+    // (disposeEphemeralPaneState); writing back a cleared key would resurrect the drawing.
+    if (currentKey && currentKey in drawingsState) drawingsState[currentKey] = [...strokes]
   })
 
   // --- Pointer handling ---

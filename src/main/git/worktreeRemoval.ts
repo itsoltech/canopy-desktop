@@ -1,3 +1,5 @@
+import path from 'path'
+
 /**
  * Failure taxonomy for `git worktree remove` on real filesystems (esp. Windows).
  *
@@ -38,3 +40,27 @@ export function classifyWorktreeRemoveError(message: string): WorktreeRemoveErro
 /** Backoff schedule for lock-classified retries: dying process trees on Windows
  *  release their cwd/file handles within a couple of seconds. */
 export const REMOVE_RETRY_DELAYS_MS = [500, 1000, 1500, 2000]
+
+/**
+ * Worktree removal ends in a recursive delete of the listed path, and the listing comes from
+ * repository metadata (`.git/worktrees/<name>/gitdir`) that a cloned or unpacked repository
+ * controls. True when `target` is a filesystem root, or is or contains any of
+ * `protectedPaths` (the repository itself, the home folder).
+ */
+export function isProtectedRemovalTarget(
+  target: string,
+  protectedPaths: string[],
+  {
+    pathApi = path,
+    caseInsensitive = process.platform === 'win32',
+  }: { pathApi?: typeof path.posix; caseInsensitive?: boolean } = {},
+): boolean {
+  const comparable = (value: string): string => {
+    const normalized = pathApi.normalize(value)
+    return caseInsensitive ? normalized.toLowerCase() : normalized
+  }
+  const root = comparable(target)
+  if (pathApi.dirname(root) === root) return true
+  const prefix = root.endsWith(pathApi.sep) ? root : root + pathApi.sep
+  return protectedPaths.map(comparable).some((p) => p === root || p.startsWith(prefix))
+}

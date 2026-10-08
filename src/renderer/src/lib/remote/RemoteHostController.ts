@@ -102,20 +102,30 @@ export class RemoteHostController {
 
     await match(msg)
       .with({ type: 'offer' }, async (m) => {
-        await pc.setRemoteDescription(m.sdp)
-        // Replay any ICE candidates that arrived before the remote description
-        // was set. Trickle ICE frequently delivers candidates out-of-order.
-        for (const c of this.pendingIce) {
-          try {
-            await pc.addIceCandidate(c)
-          } catch (err) {
-            console.warn('[remote-host] flushed ICE rejected:', err)
+        try {
+          await pc.setRemoteDescription(m.sdp)
+          // Replay any ICE candidates that arrived before the remote description
+          // was set. Trickle ICE frequently delivers candidates out-of-order.
+          for (const c of this.pendingIce) {
+            try {
+              await pc.addIceCandidate(c)
+            } catch (err) {
+              console.warn('[remote-host] flushed ICE rejected:', err)
+            }
           }
+          this.pendingIce = []
+          const answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          this.send({ type: 'answer', sdp: answer })
+        } catch (err) {
+          // A controller replaced by a newer offer fails here too (its pc is closed);
+          // only the current one may end the attempt.
+          if (this.disposed) return
+          // Without an answer the peer would wait in "connecting" indefinitely.
+          console.warn('[remote-host] could not answer offer:', err)
+          this.send({ type: 'bye', reason: 'offer rejected' })
+          this.dispose()
         }
-        this.pendingIce = []
-        const answer = await pc.createAnswer()
-        await pc.setLocalDescription(answer)
-        this.send({ type: 'answer', sdp: answer })
       })
       .with({ type: 'answer' }, async () => {
         // We are the answerer — an inbound answer from the peer is a protocol

@@ -11,7 +11,7 @@
   import Tooltip from '../shared/Tooltip.svelte'
   import { remoteSession } from '../../lib/stores/remoteSession.svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
-  import { showPreferences } from '../../lib/stores/dialogs.svelte'
+  import { confirm, showPreferences } from '../../lib/stores/dialogs.svelte'
   import {
     applyRemoteListenerPref,
     buildRemoteInterfaceGroups,
@@ -154,6 +154,16 @@
 
   async function stopSession(): Promise<void> {
     if (busy) return
+    // Stop disconnects a device that may be driving terminals right now.
+    if (status.kind === 'paired') {
+      const confirmed = await confirm({
+        title: 'Stop remote session?',
+        message: `${status.deviceName} will be disconnected.`,
+        confirmLabel: 'Stop',
+        destructive: true,
+      })
+      if (!confirmed || busy) return
+    }
     busy = true
     errorMsg = null
     try {

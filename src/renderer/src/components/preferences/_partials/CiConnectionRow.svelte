@@ -68,6 +68,8 @@
           title="Credentials saved"
         >
           <Check size={12} />
+          <!-- The row button's name comes from its text; without this the healthy state is silent. -->
+          <span class="sr-only">Credentials saved</span>
         </span>
       {/if}
     </button>

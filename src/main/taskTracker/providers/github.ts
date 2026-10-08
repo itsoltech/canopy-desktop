@@ -1,5 +1,7 @@
 import { okAsync, errAsync, type ResultAsync } from 'neverthrow'
+import { match } from 'ts-pattern'
 import { taskTrackerErrorMessage, type TaskTrackerError } from '../errors'
+import { gitHubErrorMessage, type GitHubError } from '../../github/errors'
 import type {
   TaskTrackerConnection,
   TaskTrackerProviderClient,
@@ -19,7 +21,8 @@ function apiError(status: number, message: string): TaskTrackerError {
 
 function apiUrlForConnection(connection: TaskTrackerConnection): string {
   const baseUrl = connection.baseUrl || 'https://github.com'
-  const host = new URL(baseUrl).hostname
+  // `host` keeps a non-default port: GitHub Enterprise on :8443 must not be sent to :443.
+  const host = new URL(baseUrl).host
   if (host === 'github.com') return 'https://api.github.com/graphql'
   return `https://${host}/api/graphql`
 }
@@ -29,21 +32,17 @@ function ownerRepo(connection: TaskTrackerConnection): { owner: string; repo: st
   return { owner: parts[0], repo: parts[1] }
 }
 
-function mapGitHubError<T>(result: ResultAsync<T, unknown>): ResultAsync<T, TaskTrackerError> {
-  return result.mapErr((e) => {
-    if (e && typeof e === 'object' && '_tag' in e) {
-      const gh = e as {
-        _tag: string
-        status?: number
-        message?: string
-        errors?: Array<{ message: string }>
-      }
-      const msg =
-        gh.errors?.map((err) => err.message).join(', ') ?? gh.message ?? 'Unknown GitHub error'
-      return apiError(gh.status ?? 0, msg)
-    }
-    return apiError(0, String(e))
-  })
+function mapGitHubError<T>(result: ResultAsync<T, GitHubError>): ResultAsync<T, TaskTrackerError> {
+  return result.mapErr((e) =>
+    match(e)
+      .with({ _tag: 'GitHubApiError' }, (x) => apiError(x.status, x.message))
+      .with({ _tag: 'GitHubGraphQLError' }, (x) =>
+        apiError(0, x.errors.map((err) => err.message).join(', ')),
+      )
+      .with({ _tag: 'GitHubNetworkError' }, (x) => apiError(0, x.message))
+      // Rate limits and the rest carry no message of their own (the reset time, for one).
+      .otherwise((x) => apiError(0, gitHubErrorMessage(x))),
+  )
 }
 
 interface ViewerResponse {

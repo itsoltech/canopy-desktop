@@ -324,11 +324,15 @@ export class CredentialRegistry {
   }
 
   recordAuthentication(credentialId: string, state: 'valid' | 'invalid'): void {
+    const records = this.list()
+    // Pollers report the same verdict again on every request. Keep the moment the state was
+    // first reached ("rejected since") and skip the encrypted registry rewrite.
+    if (records.find((record) => record.id === credentialId)?.authenticationState === state) return
     const now = new Date().toISOString()
     this.preferencesStore.set(
       REGISTRY_KEY,
       JSON.stringify(
-        this.list().map((record) =>
+        records.map((record) =>
           record.id === credentialId
             ? {
                 ...record,

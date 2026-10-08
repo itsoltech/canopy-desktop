@@ -119,7 +119,9 @@ the user changed `worktrees.baseDir`, or may live in another directory that Git 
 tracks for the repository. `gitWorktreeRemove`, `worktree:prepareRemove`, and
 `worktree:removeWithBranch` only accept an absolute path that exactly matches a non-main
 worktree returned by `git worktree list --porcelain` for the target repository. The main
-worktree and the current repo root are never removable through these handlers. When
+worktree and the current repo root are never removable through these handlers. Because that
+list is read from repository metadata (`.git/worktrees/*/gitdir`), a listed path that contains
+the repository or the home folder, or is a filesystem root, is also refused. When
 removing and deleting a branch, the branch to delete is derived from the matched Git
 worktree record, not from renderer-supplied payload data.
 
@@ -141,7 +143,7 @@ Worktree setup actions are configured per workspace and stored in the preference
 4. For `command` actions: a PTY is spawned in the new worktree directory running the command through the user's shell. The command string supports three variables: `$MAIN_WORKTREE`, `$NEW_WORKTREE`, and `$REPO_ROOT`, each shell-quoted. Output chunks stream back to the renderer via `worktree:setupProgress` push events. Each command has a 5-minute timeout.
 5. For `copy` actions: the file at `source` (relative to the main worktree) is copied to `dest` (relative to the new worktree, defaults to `source` if omitted). Parent directories are created automatically.
 6. Progress events include `{ actionIndex, totalActions, label, status, outputChunk?, error? }` where status is `running`, `done`, or `error`.
-7. The user can abort setup at any time by calling `window.api.abortWorktreeSetup()`, which triggers an AbortController. The currently running command's PTY is killed and the runner returns `{ success: false, errors: ['Setup aborted'] }`.
+7. The user can abort setup at any time by calling `window.api.abortWorktreeSetup()`, which triggers an AbortController. The currently running command's PTY is killed and the runner returns `{ success: false, errors: ['Setup aborted'] }`. Closing the window that started the setup aborts it the same way.
 8. If an individual action fails, its error is recorded but the runner continues with the remaining actions. The final result includes all errors.
 
 ### Agent worktree status
@@ -200,6 +202,7 @@ Example configuration (JSON):
 | Worktree not registered              | "Access denied: worktree is not registered for this repository"  | Removal path does not exactly match a Git-listed worktree for the repository                                      |
 | Main worktree removal                | "Access denied: cannot remove the main worktree"                 | Removal path matches the repository's main worktree                                                               |
 | Current repo root removal            | "Access denied: cannot remove the current repo root"             | Removal path matches the repo root passed to the IPC handler                                                      |
+| Removal target is protected          | "Access denied: worktree path contains the repo or home folder"  | A Git-listed worktree path contains the repo or home folder, or is a filesystem root                              |
 | Repo outside attached project        | "Access denied: path outside workspace"                          | Repo/worktree path is not a strict workspace path or exact attached project path                                  |
 | Path escapes ancestor                | "Access denied: worktree path escapes ancestor"                  | Non-existent tail of the creation path escapes its ancestor via `..` or absolute ref                              |
 | Setup command timeout                | "Command timed out after 5 minutes"                              | A setup action's shell command did not exit within 300 seconds                                                    |

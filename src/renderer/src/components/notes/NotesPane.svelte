@@ -50,6 +50,17 @@
     })
   })
 
+  // ARIA tabs pattern: one Tab stop for the tablist; arrows, Home and End switch scope.
+  function handleScopeKeydown(e: KeyboardEvent): void {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+    e.preventDefault()
+    let next: NoteScope = scope === 'worktree' ? 'project' : 'worktree'
+    if (e.key === 'Home') next = 'worktree'
+    if (e.key === 'End') next = 'project'
+    setScope(next)
+    document.getElementById(`notes-tab-${next}-${paneSessionId}`)?.focus()
+  }
+
   function setScope(next: NoteScope): void {
     notesUiScope[paneSessionId] = next
   }
@@ -110,11 +121,13 @@
         id="notes-tab-worktree-{paneSessionId}"
         aria-controls="notes-panel-{paneSessionId}"
         aria-selected={scope === 'worktree'}
+        tabindex={scope === 'worktree' ? 0 : -1}
         class="bg-transparent border-0 px-2.5 py-0.5 text-sm cursor-pointer"
         class:bg-accent={scope === 'worktree'}
         class:text-bg={scope === 'worktree'}
         class:text-text-secondary={scope !== 'worktree'}
         onclick={() => setScope('worktree')}
+        onkeydown={handleScopeKeydown}
       >
         Worktree
       </button>
@@ -124,11 +137,13 @@
         id="notes-tab-project-{paneSessionId}"
         aria-controls="notes-panel-{paneSessionId}"
         aria-selected={scope === 'project'}
+        tabindex={scope === 'project' ? 0 : -1}
         class="bg-transparent border-0 px-2.5 py-0.5 text-sm cursor-pointer"
         class:bg-accent={scope === 'project'}
         class:text-bg={scope === 'project'}
         class:text-text-secondary={scope !== 'project'}
         onclick={() => setScope('project')}
+        onkeydown={handleScopeKeydown}
       >
         Project
       </button>

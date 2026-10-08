@@ -71,8 +71,9 @@ The integration follows the Project management architecture:
   approved for this repository and its selected jobs, because all three lead to
   the same dead ends — **Run job…** cannot list branches or queue anything and the history
   window has nothing to load, so neither is offered. The rejected variant names the
-  provider, says **since when** (from the credential's `authenticationCheckedAt`, which a
-  401 writes; per-capability verification does not move for a 401 and can still read
+  provider, says **since when** (from the credential's `authenticationCheckedAt`, which the
+  first 401 writes and later 401s for the same token keep; per-capability verification does
+  not move for a 401 and can still read
   "verified" from days earlier), carries a provider-specific recovery tooltip, and offers
   **Update token**. The unapproved variant offers **Review access**, which opens the configurator
   and a main-process-owned native confirmation naming the server, canonical repository and build
@@ -333,7 +334,9 @@ Additional surfaces that are not `CiError` variants:
   naming the exact destination, including public HTTPS origins; a declined prompt sends nothing.
 - Before any TeamCity request, the main process resolves the server hostname. An invalid or
   unresolved destination fails closed. A private, loopback, link-local or local-network result
-  requires a separate native confirmation for the exact URL.
+  requires a separate native confirmation for the exact URL. IPv6 forms that embed an IPv4
+  address (IPv4-mapped, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) are classified by that address;
+  multicast and reserved ranges count as local.
   Its bounded, hashed approval list is stored under
   `ci.teamcity.privateOriginApprovals.v1`, encrypted when supported, excluded from settings export
   and never exposed through renderer preference IPC. The resulting policy is enforced again in

@@ -94,7 +94,7 @@ reconnect/listen flow after the operating system wakes.
 
 ### Stopping a session
 
-1. User explicitly stops the session from the Remote sidebar section.
+1. User explicitly stops the session from the Remote sidebar section. While a device is connected, Canopy first asks for confirmation, naming the device that will be disconnected.
 2. `remote:stop` calls `RemoteSessionService.stop()`, which closes the peer WebSocket, stops the HTTP server, clears all timers (pairing expiry, reaper, idle), and returns to `idle`.
 
 ### Idle timeout

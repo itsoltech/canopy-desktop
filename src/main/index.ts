@@ -626,6 +626,10 @@ app.whenReady().then(async () => {
     })
 
     autoUpdater.on('error', (err) => {
+      // A failed hand-off to the installer is reported here and the app keeps running.
+      // Drop the quit state app:installUpdate set, or new windows are refused, closing
+      // skips the active-session prompt and closing the last window no longer quits.
+      if (updateInstalling && !database.isClosed()) windowManager.isQuitting = false
       updateInstalling = false
       broadcast('update:error', { message: err.message })
     })

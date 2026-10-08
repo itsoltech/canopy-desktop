@@ -13,6 +13,7 @@
     urlValid,
     testing,
     testResult,
+    testError = '',
     onCancel,
     onTest,
     saving = false,
@@ -25,6 +26,8 @@
     urlValid: boolean
     testing: boolean
     testResult: 'success' | 'fail' | ''
+    /** Why the last test failed — shown next to "Failed". */
+    testError?: string
     onCancel: () => void
     onTest: () => void
     /** Save in flight — the button says so, like Test's "Testing…". */
@@ -106,7 +109,9 @@
     {#if testResult === 'success'}
       <span class="flex items-center gap-1 text-xs text-success"><Check size={13} /> OK</span>
     {:else if testResult === 'fail'}
-      <span class="flex items-center gap-1 text-xs text-danger-text"><X size={13} /> Failed</span>
+      <span class="flex items-start gap-1 text-xs text-danger-text break-words"
+        ><X size={13} class="shrink-0 mt-px" /> Failed{testError ? `: ${testError}` : ''}</span
+      >
     {/if}
   </div>
 

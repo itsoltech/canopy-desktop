@@ -255,6 +255,31 @@ describe('CredentialRegistry', () => {
     }
   })
 
+  it('keeps the first rejection moment while the same token keeps being rejected', () => {
+    // CI polls every few seconds; each 401 reports `invalid` again. Re-stamping on every
+    // poll would make the banner's "rejected since" always read as the latest poll.
+    const registry = new CredentialRegistry(fakePreferences())
+    const credential = registry.save({
+      service: 'teamcity',
+      authMethod: 'pat',
+      audience: { host: 'tc.example.com', baseUrl: 'https://tc.example.com' },
+      intendedUses: ['teamcity'],
+      capabilities: ['builds.read'],
+      secret: 'token',
+    })
+
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-08-06T10:00:00.000Z'))
+      registry.recordAuthentication(credential.id, 'invalid')
+      vi.setSystemTime(new Date('2026-08-06T10:05:00.000Z'))
+      registry.recordAuthentication(credential.id, 'invalid')
+      expect(registry.list()[0]?.authenticationCheckedAt).toBe('2026-08-06T10:00:00.000Z')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does not delete a credential while bindings still depend on it', () => {
     const registry = new CredentialRegistry(fakePreferences())
     const credential = registry.save({

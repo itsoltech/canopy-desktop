@@ -36,7 +36,11 @@ import { FileTreeWatcher } from '../fileWatcher/FileTreeWatcher'
 import { DEFAULT_IGNORE_PATTERNS } from '../fileWatcher/defaults'
 import { fileWatcherErrorMessage } from '../fileWatcher/errors'
 import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
-import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/worktreeRemoval'
+import {
+  classifyWorktreeRemoveError,
+  isProtectedRemovalTarget,
+  REMOVE_RETRY_DELAYS_MS,
+} from '../git/worktreeRemoval'
 import { comparableWorkspacePath } from '../db/workspacePaths'
 
 const execFileAsync = promisify(execFile)
@@ -3054,6 +3058,10 @@ export function registerIpcHandlers(
     if (!samePath(resolved, listedPath)) {
       throw new Error('Access denied: worktree is not registered for this repository')
     }
+    const home = await normalizeRealpathOrInput(os.homedir())
+    if (isProtectedRemovalTarget(resolved, [path.normalize(resolvedRepo), home])) {
+      throw new Error('Access denied: worktree path contains the repo or home folder')
+    }
 
     return { path: resolved, branch: matchedWorktree.branch }
   }
@@ -4963,8 +4971,12 @@ export function registerIpcHandlers(
       const mainWorktreePath = mainWorktree?.path ?? resolvedRepo
 
       const sender = event.sender
+      const senderId = sender.id
       const controller = new AbortController()
-      setupAbortControllers.set(sender.id, controller)
+      setupAbortControllers.set(senderId, controller)
+      // Closing the window leaves nothing that can show or cancel the run, so stop it.
+      const abortOnClose = (): void => controller.abort()
+      sender.once('destroyed', abortOnClose)
 
       try {
         return await runWorktreeSetup(
@@ -4982,7 +4994,11 @@ export function registerIpcHandlers(
           controller.signal,
         )
       } finally {
-        setupAbortControllers.delete(sender.id)
+        if (!sender.isDestroyed()) sender.removeListener('destroyed', abortOnClose)
+        // A newer run from the same window may own the slot by now; keep its controller.
+        if (setupAbortControllers.get(senderId) === controller) {
+          setupAbortControllers.delete(senderId)
+        }
       }
     },
   )

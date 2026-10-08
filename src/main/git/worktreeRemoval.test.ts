@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { classifyWorktreeRemoveError } from './worktreeRemoval'
+import path from 'path'
+import { classifyWorktreeRemoveError, isProtectedRemovalTarget } from './worktreeRemoval'
 
 describe('classifyWorktreeRemoveError', () => {
   it('detects an already-unregistered worktree (partial success of a prior attempt)', () => {
@@ -47,5 +48,36 @@ describe('classifyWorktreeRemoveError', () => {
 
   it('falls through to other for unrecognized failures', () => {
     expect(classifyWorktreeRemoveError('fatal: repository is corrupt')).toBe('other')
+  })
+})
+
+describe('isProtectedRemovalTarget', () => {
+  const posix = { pathApi: path.posix, caseInsensitive: false }
+  const protectedPaths = ['/home/u/Projects/app', '/home/u']
+
+  it('refuses a listed "worktree" that contains the repository or the home folder', () => {
+    // `.git/worktrees/*/gitdir` is repository content: a crafted entry can list any directory.
+    expect(isProtectedRemovalTarget('/home/u/Projects', protectedPaths, posix)).toBe(true)
+    expect(isProtectedRemovalTarget('/home/u/Projects/app', protectedPaths, posix)).toBe(true)
+    expect(isProtectedRemovalTarget('/home', protectedPaths, posix)).toBe(true)
+    expect(isProtectedRemovalTarget('/', protectedPaths, posix)).toBe(true)
+  })
+
+  it('accepts ordinary worktree locations, including ones nested under the repository', () => {
+    expect(isProtectedRemovalTarget('/home/u/Projects/app-wt', protectedPaths, posix)).toBe(false)
+    expect(
+      isProtectedRemovalTarget('/home/u/canopy/worktrees/app/feat', protectedPaths, posix),
+    ).toBe(false)
+    expect(isProtectedRemovalTarget('/home/u/Projects/app/.wt/feat', protectedPaths, posix)).toBe(
+      false,
+    )
+  })
+
+  it('compares Windows paths case-insensitively and treats a drive root as protected', () => {
+    const win = { pathApi: path.win32, caseInsensitive: true }
+    const winProtected = ['C:\\Users\\u\\src\\app', 'C:\\Users\\u']
+    expect(isProtectedRemovalTarget('c:\\users\\U\\SRC', winProtected, win)).toBe(true)
+    expect(isProtectedRemovalTarget('C:\\', winProtected, win)).toBe(true)
+    expect(isProtectedRemovalTarget('C:\\Users\\u\\src\\app-wt', winProtected, win)).toBe(false)
   })
 })

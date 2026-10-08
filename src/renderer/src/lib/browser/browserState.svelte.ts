@@ -39,14 +39,38 @@ export const DEFAULT_VIEWPORTS: Record<string, ViewportPreset> = {
   'Pixel 8': { width: 412, height: 915, scaleFactor: 2.625, mobile: true },
 }
 
-export function getCustomViewports(): Record<string, ViewportPreset> {
-  const raw = prefs['viewports.custom']
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw) as Record<string, ViewportPreset>
-  } catch {
-    return {}
+function toViewportPreset(value: unknown): ViewportPreset | null {
+  if (!value || typeof value !== 'object') return null
+  // Field-by-field reads of an untrusted object; each one is type-checked below.
+  const preset = value as Partial<Record<keyof ViewportPreset, unknown>>
+  if (typeof preset.width !== 'number' || typeof preset.height !== 'number') return null
+  return {
+    width: preset.width,
+    height: preset.height,
+    scaleFactor: typeof preset.scaleFactor === 'number' ? preset.scaleFactor : 1,
+    mobile: preset.mobile === true,
   }
+}
+
+// Stored values can come from a settings import, so check the shape, not just the JSON.
+function parseStored(raw: string | undefined): unknown {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+export function getCustomViewports(): Record<string, ViewportPreset> {
+  const parsed = parseStored(prefs['viewports.custom'])
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  const presets: Record<string, ViewportPreset> = {}
+  for (const [name, value] of Object.entries(parsed)) {
+    const preset = toViewportPreset(value)
+    if (preset) presets[name] = preset
+  }
+  return presets
 }
 
 export function getAllViewports(): Record<string, ViewportPreset> {
@@ -63,14 +87,22 @@ export interface BrowserFavorite {
   favicon: string | null
 }
 
-export function getFavorites(): BrowserFavorite[] {
-  const raw = prefs['browser.favorites']
-  if (!raw) return []
-  try {
-    return JSON.parse(raw) as BrowserFavorite[]
-  } catch {
-    return []
+function toFavorite(value: unknown): BrowserFavorite | null {
+  if (!value || typeof value !== 'object') return null
+  // Field-by-field reads of an untrusted object; each one is type-checked below.
+  const fav = value as Partial<Record<keyof BrowserFavorite, unknown>>
+  if (typeof fav.url !== 'string') return null
+  return {
+    url: fav.url,
+    name: typeof fav.name === 'string' ? fav.name : fav.url,
+    favicon: typeof fav.favicon === 'string' ? fav.favicon : null,
   }
+}
+
+export function getFavorites(): BrowserFavorite[] {
+  const parsed = parseStored(prefs['browser.favorites'])
+  if (!Array.isArray(parsed)) return []
+  return parsed.map(toFavorite).filter((fav): fav is BrowserFavorite => fav !== null)
 }
 
 export function addFavorite(fav: BrowserFavorite): void {

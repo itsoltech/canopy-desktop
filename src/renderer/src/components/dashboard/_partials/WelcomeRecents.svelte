@@ -94,6 +94,14 @@
       {filteredWorkspaces.length}{filter ? ` / ${workspaces.length}` : ''}
     </span>
   </div>
+  <!-- Always mounted so text changes are announced while typing in the filter. -->
+  <span class="sr-only" role="status">
+    {filter
+      ? filteredWorkspaces.length === 0
+        ? `No matches for ${filter}`
+        : `${filteredWorkspaces.length} of ${workspaces.length} recent workspaces`
+      : ''}
+  </span>
 
   {#if filteredWorkspaces.length === 0}
     <p class="text-sm text-text-muted py-8 text-center m-0">
