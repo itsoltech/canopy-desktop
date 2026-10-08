@@ -1,7 +1,7 @@
 # Komponenty interfejsu Canopy
 
 Punkt wejścia: `crate::ui::components`. Komponenty korzystają z tokenów
-`ui::theme` i z GPUI Kit 0.6.0. Istniejące Preferences i sidebar już ich używają.
+`ui::theme` i z GPUI Kit 0.7.1. Istniejące Preferences i sidebar już ich używają.
 
 ## Dostępne elementy
 

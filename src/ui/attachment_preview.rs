@@ -364,7 +364,5 @@ impl Render for AttachmentPreview {
                         .inset_0(),
                     ),
             )
-            .children(Root::render_dialog_layer(window, cx))
-            .children(Root::render_notification_layer(window, cx))
     }
 }

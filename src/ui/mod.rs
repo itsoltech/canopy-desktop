@@ -1195,15 +1195,6 @@ impl Render for Workspace {
                     )
             }))
             .child(self.state.toasts.clone())
-            .children(
-                Root::render_sheet_layer(window, cx)
-                    .map(|layer| div().absolute().inset_0().child(layer)),
-            )
-            .children(
-                Root::render_dialog_layer(window, cx)
-                    .map(|layer| div().absolute().inset_0().child(layer)),
-            )
-            .children(Root::render_notification_layer(window, cx))
             .children(self.confirmation.clone())
             .children(self.upstream_modal.clone())
             .children(self.modal.clone())

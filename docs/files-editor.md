@@ -100,9 +100,9 @@ This milestone does not implement rename/delete, full-text repository search,
 LSP, formatting, or a filesystem change merge UI.
 
 Syntax highlighting uses the optional Tree-sitter features of the existing pinned
-GPUI Kit 0.6.0 facade: Rust, TypeScript, JavaScript, JSON, Python, HTML, CSS,
+GPUI Kit 0.7.1 facade: Rust, TypeScript, JavaScript, JSON, Python, HTML, CSS,
 Markdown, TOML, YAML, Bash and Svelte. Other extensions remain plain text. Cargo.lock
-includes those parser dependencies; the GPUI/framework versions are unchanged.
+includes those parser dependencies.
 
 ## Verification of this milestone
 

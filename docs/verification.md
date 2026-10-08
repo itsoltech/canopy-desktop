@@ -1,3 +1,28 @@
+# Aktualizacja GPUI Kit — 2026-10-08
+
+GPUI Kit / Component / Base / Assets: 0.7.1, GPUI (`gpui-pre`) i klient
+HTTP: 0.3.8. Rust pozostaje przypięty do 1.95.0. Aktualizacja pochodzi
+z crates.io; [informacje o wydaniu](https://gpui-kit.com/releases/).
+
+Root automatycznie montuje warstwy komponentów; usunięto ręczne renderowanie
+warstw z okien aplikacji. Markdown używa `with_heading` z zachowaniem
+dotychczasowych rozmiarów nagłówków. Notch zachowuje przezroczyste tło,
+a obramowanie Root wynika z natywnych dekoracji okna. `frame-profile` włącza
+teraz `gpui-kit/profiler`, bez dodatkowej bezpośredniej zależności od GPUI.
+
+Weryfikacja na macOS:
+
+- `cargo fmt --all -- --check` — OK.
+- `cargo clippy --locked --all-targets --all-features -- -D warnings` — OK,
+  łącznie z `dev-inspector` i `frame-profile`.
+- `cargo test --locked --lib --bin canopy-desktop -- --skip ui::editor::tests --skip ui::session_inspector::tests --skip app_state::editors::tests`
+  — 125 zaliczonych, 1 ignorowany, 6 odfiltrowanych testów interakcji GUI.
+- `cargo tree --locked -i gpui-pre --depth 2` — jedna wersja GPUI: 0.3.8.
+
+Nie uruchamiano aplikacji, E2E ani builda release. Wygląd, działanie warstw
+w rzeczywistych oknach oraz platformy Windows/Linux wymagają osobnej weryfikacji.
+Poniższe wyniki dotyczą wcześniejszego bootstrapu, nie tej aktualizacji.
+
 # Weryfikacja bootstrapu — 2026-09-08
 
 Środowisko: macOS, aarch64-apple-darwin, Rust/Cargo 1.95.0, profil dev.

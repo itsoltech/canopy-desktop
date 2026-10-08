@@ -54,12 +54,12 @@ access and the GitHub adapter. `AppState.integrations` owns connection work,
 current project resolution, bounded in-memory caches and async requests.
 Desktop startup explicitly installs the shared real HTTP transport using
 `Application::with_http_client`; native GPUI's default is a null client. The
-transport is the already-locked `gpui-pre-reqwest-client` 0.3.4, made a direct
-dependency because the facade does not export it. It uses platform TLS certificate
+transport is `gpui-pre-reqwest-client` 0.3.8, pinned to the facade's GPUI snapshot
+as a direct dependency. It uses platform TLS certificate
 verification and normal proxy discovery, preserves request redirect/deadline
 policies and limits idle body reads to 20 seconds. A streaming body adapter enters
-the transport's Tokio context for each read poll: 0.3.4 returns the body to GPUI,
-and body timers otherwise panic outside Tokio. No framework version changed.
+the transport's Tokio context for each read poll: 0.3.8 returns the body to GPUI,
+and body timers otherwise panic outside Tokio.
 
 `SettingsClient` serializes versioned `_canopy_rust_integrations` writes separately
 from ordinary preferences. It stores account identity, opaque Keychain references,

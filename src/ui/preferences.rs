@@ -153,11 +153,6 @@ impl Render for Preferences {
                             .child(content),
                     ),
             )
-            .children(
-                Root::render_dialog_layer(window, cx)
-                    .map(|layer| div().absolute().inset_0().child(layer)),
-            )
-            .children(Root::render_notification_layer(window, cx))
     }
 }
 

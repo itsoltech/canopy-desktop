@@ -300,7 +300,9 @@ pub fn open(main: WindowHandle<Root>, cx: &mut App) -> Result<WindowHandle<Root>
                     motion: Motion::new(Instant::now()),
                 }
             });
-            cx.new(|cx| Root::new(notch, window, cx).bg(rgba(0)).bordered(false))
+            // GPUI Kit 0.7 derives borders from native window decorations;
+            // macOS and Windows use server decorations, so this stays borderless.
+            cx.new(|cx| Root::new(notch, window, cx).bg(rgba(0)))
         },
     )
 }

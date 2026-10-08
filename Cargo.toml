@@ -9,7 +9,7 @@ default-run = "canopy-desktop"
 [features]
 default = []
 dev-inspector = ["gpui-kit/inspector"]
-frame-profile = ["dep:gpui-profile"]
+frame-profile = ["gpui-kit/profiler"]
 
 [dependencies]
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled", "backup"] }
@@ -22,14 +22,11 @@ base64 = "=0.22.1"
 # Already locked; date validation and timezone-aware Jira worklogs.
 chrono = "=0.4.45"
 tempfile = "=3.27.0"
-gpui-kit = { version = "=0.6.0", features = ["tree-sitter-rust", "tree-sitter-typescript", "tree-sitter-javascript", "tree-sitter-python", "tree-sitter-html", "tree-sitter-css", "tree-sitter-markdown", "tree-sitter-toml", "tree-sitter-yaml", "tree-sitter-bash", "tree-sitter-svelte"] }
-# HTTP transport already in GPUI Kit's locked dependency graph, but not re-exported.
-reqwest-client = { package = "gpui-pre-reqwest-client", version = "=0.3.4" }
+gpui-kit = { version = "=0.7.1", features = ["tree-sitter-rust", "tree-sitter-typescript", "tree-sitter-javascript", "tree-sitter-python", "tree-sitter-html", "tree-sitter-css", "tree-sitter-markdown", "tree-sitter-toml", "tree-sitter-yaml", "tree-sitter-bash", "tree-sitter-svelte"] }
+# HTTP transport uses the same GPUI snapshot as the facade.
+reqwest-client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
 # Use the renderer's already-locked parser to prepare remote Markdown off the UI thread.
 markdown-parser = { package = "markdown", version = "=1.0.0" }
-# 0.6.0 does not forward profiler; enable it on the SAME locked GPUI package.
-# All application APIs continue to use the gpui_kit facade.
-gpui-profile = { package = "gpui-pre", version = "=0.3.4", default-features = false, features = ["profiler"], optional = true }
 alacritty_terminal = "=0.26.0"
 async-channel = "=2.5.0"
 libc = "=0.2.189"
@@ -46,7 +43,7 @@ wuff = "=0.2.9"
 
 [dev-dependencies]
 # Exercise real GPUI focus and key dispatch in keyboard-navigation regressions.
-gpui-kit = { version = "=0.6.0", features = ["test-support"] }
+gpui-kit = { version = "=0.7.1", features = ["test-support"] }
 
 [profile.profiling]
 inherits = "release"

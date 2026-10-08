@@ -32,7 +32,7 @@ historyczne wyniki oraz wcześniejsze etapy w docs/ nie oznaczają obecnego stan
 ## Stos, źródła i granice
 
 - Używaj fasady `gpui_kit`. Nie dodawaj niezależnej wersji GPUI ani innego źródła
-  frameworka. Obecna baza: GPUI Kit 0.6.0 / gpui-pre 0.3.4, Rust 1.95.0.
+  frameworka. Obecna baza: GPUI Kit 0.7.1 / gpui-pre 0.3.8, Rust 1.95.0.
 - Zachowuj `rust-toolchain.toml`, przypięte wersje i Cargo.lock. API sprawdzaj
   w źródłach wersji rozwiązanych przez Cargo, a nie przez analogię z React/CSS.
 - Celową zmianę zależności uzasadnij; potem wykonuj Cargo z `--locked`.
@@ -100,6 +100,8 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 - Preferences otwieramy jako osobne okno aplikacji, nie modal całego workspace'u.
   Mniejsze formularze/potwierdzenia korzystają ze wspólnego systemu modali.
 - Każde okno ma Root i właściwe warstwy dialogów, popupów, tooltipów itd.
+  GPUI Kit 0.7 montuje warstwy komponentów automatycznie w Root; nie dodawaj
+  ręcznych wywołań renderowania tych warstw w widokach aplikacji.
 - Oba sidebary mają zachowywać szerokość ustawioną przez użytkownika podczas
   resize okna. Przestrzeń między nimi wypełnia terminal; nie dziel szerokości
   proporcjonalnie między terminal a inspector.

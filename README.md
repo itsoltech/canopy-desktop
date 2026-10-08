@@ -12,7 +12,7 @@ kodu: [docs/rust-rewrite.md](docs/rust-rewrite.md).
 ## Środowisko
 
 - Rust 1.95.0, rustfmt i Clippy — wersje w `rust-toolchain.toml`.
-- GPUI Kit **0.6.0**, komponenty i wbudowane zasoby ikon.
+- GPUI Kit **0.7.1** / GPUI **0.3.8**, komponenty i wbudowane zasoby ikon.
 - Pełny graf zależności przypięty w `Cargo.lock`; zachowujemy go w Git.
 - Początkowa platforma weryfikacji: macOS / Apple Silicon.
 - Xcode z narzędziami deweloperskimi i SDK macOS (`xcode-select -p`).
@@ -75,7 +75,7 @@ na Windows/Linux. Repozytorium zachowuje dotychczasowy [LICENSE.md](LICENSE.md).
 Implementacja i jawna macierz kwalifikacji Windows są prowadzone w
 [docs/windows.md](docs/windows.md).
 
-Źródło biblioteki: [GPUI Kit 0.6.0](https://gpui-kit.com/releases/).
+Źródło biblioteki: [GPUI Kit 0.7.1](https://gpui-kit.com/releases/).
 
 ## Profilowanie
 

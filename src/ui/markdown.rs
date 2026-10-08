@@ -115,8 +115,8 @@ fn markdown_style(reading: bool) -> TextViewStyle {
         .with_border(t::control_border())
         .with_code_background(t::hover())
         .with_paragraph_gap(rems(0.65))
-        .with_heading_font_size(move |level, _| {
-            px(if reading {
+        .with_heading(move |level| {
+            StyleRefinement::default().text_size(px(if reading {
                 match level {
                     1 => 20.,
                     2 => 18.,
@@ -130,7 +130,7 @@ fn markdown_style(reading: bool) -> TextViewStyle {
                     3 => 14.,
                     _ => 13.,
                 }
-            })
+            }))
         })
         .with_inline_code(HighlightStyle {
             color: Some(t::text()),

@@ -47,7 +47,7 @@ impl HttpClient for DesktopHttpClient {
     }
 }
 
-// gpui-pre-reqwest-client 0.3.4 runs send() on Tokio but returns the body stream
+// gpui-pre-reqwest-client 0.3.8 runs send() on Tokio but returns the body stream
 // to GPUI. Reqwest creates body-read timers when polled, which panics without a
 // Tokio context. Enter its shared runtime only for each poll, never across await.
 // Keep streaming so callers can enforce response-size bounds and cancel reads.
