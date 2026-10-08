@@ -91,7 +91,7 @@ notifications, and counters across tab/layout updates.
 
 Each adapter declares `busyEvents` and `idleEvents` sets. The `AgentSessionManager` tracks busy state per session so the notch overlay and other UI elements can reflect whether the agent is actively working.
 
-Claude Code runs Canopy's `Stop` hook in parallel with any `Stop` hook from the user's own settings, so Canopy cannot see whether one of those blocks the stop. When one does, Claude keeps working while the pane reads idle, the notch reads "Finished" and the close confirmations count the pane as not busy, until its next tool call or its next stop. A blocked `SubagentStop` likewise removes the subagent from `activeSubagents` while it keeps running.
+Claude Code runs Canopy's `Stop` hook in parallel with any `Stop` hook from the user's own settings, so Canopy cannot see whether one of those blocks the stop. When one does, Claude keeps working while the pane reads idle, the notch peeks out with "Finished" if the pane is out of view, and the close confirmations count the pane as not busy, until its next tool call or its next stop. A blocked `SubagentStop` likewise removes the subagent from `activeSubagents` while it keeps running.
 
 ### Notifications
 
@@ -3449,9 +3449,10 @@ install (`SessionStart` and `SubagentStop`). All of them are `command` hooks.
 - **Panes.** A pane runs the user's `claude`, which loads the user's settings beside Canopy's
   `--settings` file. The CLI runs every hook that matches an event in parallel, so Canopy's `Stop`
   hook reports the turn over while a user's Stop hook is still being judged. If that hook blocks,
-  Claude keeps working, but Canopy has already set the pane idle, shown "Finished" in the notch, set
-  an `unread` badge on a background tab, and stopped counting the pane as busy, which the window and
-  tab close confirmations read. The next `PreToolUse` makes the pane busy again; a text-only
+  Claude keeps working, but Canopy has already set the pane idle, made the notch peek out with
+  "Finished" if the pane is out of view (`NotchOverlayManager.ts:239-243`), set an `unread` badge on
+  a background tab, and stopped counting the pane as busy, which the window and tab close
+  confirmations read. The next `PreToolUse` makes the pane busy again; a text-only
   continuation stays idle until it stops again. A blocked `SubagentStop` removes the subagent from
   the Agent Inspector's list while it keeps running, and nothing adds it back. Neither effect is
   new: any blocking Stop or SubagentStop hook, of any type, has always caused it. From 2.1.294 a
@@ -3479,7 +3480,8 @@ install (`SessionStart` and `SubagentStop`). All of them are `command` hooks.
 **The metadata step is almost all archive bookkeeping, by arithmetic.** The archive reports +8,477
 prompt tokens (+16.1%), three more prompt files (+15.0%) and a +0.9 kB bundle. That gives 52,675 →
 61,152 tokens and 20 → 23 files, and 52,675 is the 2.1.293 note's total. From the 2.1.293 tools
-total of 10,543 and the new 80.3% system share, the system half grew about +6,973 and the tools
+total, 10,543 (15,193 less 4,650), and the new 80.3% system share, the system half grew about
++6,973 and the tools
 half about +1,504, each ±31 from rounding. A +0.9 kB bundle has room for roughly 225 tokens of new
 text at four bytes per token: enough for the judge text above, far short of 8,477. The system step
 fits the archive's `User Memory Project One` series, where each copy adds 389 tokens to the last:
