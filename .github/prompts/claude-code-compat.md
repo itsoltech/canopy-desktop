@@ -734,8 +734,8 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > works an example through.
 >
 > **Anchor the "before" split on the previous note's exact figures, not on its rounded share.** The
-> previous release's section in `docs/integrations/agents.md` usually states its tools total to the
-> token (10,543 after 2.1.293). Subtracting it from the "before" total leaves only the "after"
+> recent sections of `docs/integrations/agents.md` state the tools total or its step to the token
+> (15,193 at 2.1.292, then −4,650 at 2.1.293, so 10,543). Subtracting it from the "before" total leaves only the "after"
 > share's rounding, which took the v2.1.294 run's band from ±57 to ±31. That was tight enough to
 > match the system step, +6,973, to a predicted ninth `User Memory Project One` copy of 6,976, since
 > each copy has added 389 tokens to the last.
