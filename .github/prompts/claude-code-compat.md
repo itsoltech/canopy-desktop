@@ -869,7 +869,9 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > - **Which terminal probes the CLI sends.** `PROGRAM_STATUS:7501` returns the CLI's table of OSC
 >   codes, and `probe: no reply to` the probes that decide whether it uses each. Check each code
 >   against `node_modules/@xterm/xterm/lib/xterm.js`: an OSC code with no registered handler goes to
->   a no-op fallback (`_handlerFb=()=>{}`), so a Canopy pane sends no reply.
+>   a fallback that only logs `Unknown OSC code` at debug level, so a Canopy pane sends no reply.
+>   Anchor on that log text: xterm.js replaces the parser's own `_handlerFb=()=>{}` when it builds
+>   each terminal.
 >
 > **A highlight can read an opt-in as a default.** The archive's 2.1.295 highlight said failing
 > hooks "now block the action". The entry adds `onFailure: "block"`, and the schema calls `continue`
