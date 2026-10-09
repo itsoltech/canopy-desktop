@@ -987,3 +987,122 @@ fn an_edit_restores_files_and_forks_before_the_message() {
     );
     second.finish();
 }
+
+#[test]
+#[ignore = "live Claude Code; set CANOPY_LIVE_CLAUDE=1"]
+fn saved_history_continues_after_a_restart_and_restores_files() {
+    if !enabled() {
+        return;
+    }
+    use canopy_desktop::chat::history;
+    let edits = ChatSettings {
+        mode: Mode::AcceptEdits,
+        ..Default::default()
+    };
+    let ready = |s: &ChatSession| *s.status() == Status::Ready && s.transcript().items().len() > 1;
+    let mut first = Live::start_settings("history-first", None, None, None, "haiku", &edits);
+    first.submit("Remember the word KIWI. Use the Write tool to create note.txt containing exactly v1. Reply only OK.");
+    first.pump(TURN, ready);
+    // What Canopy saves, read back as after an app restart.
+    let saved: Vec<String> = first
+        .session
+        .transcript()
+        .items()
+        .iter()
+        .filter_map(history::item_json)
+        .collect();
+    let (first, session) = first.finish_keep();
+    let mut items: Vec<_> = saved
+        .iter()
+        .map(|json| serde_json::from_str(json).unwrap())
+        .collect();
+    assert!(history::settle(&mut items).is_empty(), "a finished turn");
+    let note = first.cwd.join("note.txt");
+    std::fs::write(&note, "changed").unwrap();
+    let mut second = Live::start_settings(
+        "history-second",
+        Some(first.dir),
+        Some(&session),
+        None,
+        "haiku",
+        &edits,
+    );
+    second.session.restore_history(items);
+    let message = second
+        .session
+        .transcript()
+        .items()
+        .iter()
+        .filter(|item| matches!(item.body, Body::User(_)))
+        .map(|item| item.id)
+        .next()
+        .unwrap();
+    assert_eq!(
+        second.session.fork_point(message),
+        Some(None),
+        "editable after restart"
+    );
+    // As in the app, files are offered once the CLI is up.
+    second.pump(TURN, |s| *s.status() == Status::Ready);
+    let lines = second.session.rewind_files(message, true);
+    second.write(lines);
+    second.pump(TURN, |s| s.rewind().is_some());
+    assert!(
+        matches!(
+            second.session.rewind(),
+            Some((_, canopy_desktop::chat::session::Rewind::Preview(p))) if p.possible
+        ),
+        "files still restorable: {:?}",
+        second.session.rewind()
+    );
+    let before = second.session.transcript().items().len();
+    second.submit("Which word did I ask you to remember? Reply with the word only.");
+    second.pump(TURN, |s| {
+        ready(s) && s.transcript().items().len() > before + 1
+    });
+    let reply = second
+        .session
+        .transcript()
+        .items()
+        .iter()
+        .rev()
+        .filter_map(|item| match &item.body {
+            Body::Text(block) if item.parent.is_none() => Some(block.text.to_uppercase()),
+            _ => None,
+        })
+        .next()
+        .unwrap_or_default();
+    assert!(reply.contains("KIWI"), "{reply:?}");
+    second.finish();
+}
+
+#[test]
+#[ignore = "live Claude Code; set CANOPY_LIVE_CLAUDE=1"]
+fn an_attached_image_reaches_the_model() {
+    if !enabled() {
+        return;
+    }
+    use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
+    let mut png = std::io::Cursor::new(vec![]);
+    DynamicImage::ImageRgb8(RgbImage::from_pixel(64, 64, Rgb([20, 40, 220])))
+        .write_to(&mut png, ImageFormat::Png)
+        .unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let image =
+        canopy_desktop::chat::attachments::prepare_image(png.get_ref(), folder.path()).unwrap();
+    let mut live = Live::start_model("image", "haiku");
+    let lines = live
+        .session
+        .submit_draft(canopy_desktop::chat::session::Draft {
+            text: "What single color fills this image? Answer with one English word.".into(),
+            attachments: vec![image],
+        });
+    live.write(lines);
+    live.pump(TURN, |s| {
+        *s.status() == Status::Ready && s.transcript().items().len() > 1
+    });
+    let reply = live.assistant_text().to_lowercase();
+    eprintln!("image: {reply:?}");
+    assert!(reply.contains("blue"), "{reply:?}");
+    live.finish();
+}

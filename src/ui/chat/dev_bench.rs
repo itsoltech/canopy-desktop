@@ -17,25 +17,26 @@ fn prompts() -> [String; 3] {
     let f = FOLDER;
     [
         format!(
-            "[Canopy benchmark 1/3 — message actions]\n\
-             Tester checks: hover a reply for Copy (✓ after copying), Retry on the last reply and the turn's \
-             numbers (time, tokens; cost only with an API key); hover your message for Copy and Edit; the \
-             context ring next to the pickers.\n\n\
-             Remember the word APPLE. Then use the Write tool to create `{f}/notes.txt` containing exactly `v1`. \
-             Reply with one sentence and a short `rust` code block."
+            "[Canopy benchmark 1/3 — history after restart]\n\
+             Tester checks: after this turn quit Canopy (⌘Q) and start it again: the whole conversation is \
+             back (folded turn, subagent card, change summary); the subagent and \"Open diff\" open; then ask \
+             \"Which fruit did I mention?\" — the answer must be MANGO.\n\n\
+             Remember the word MANGO. Use the Write tool to create `{f}/notes.txt` containing exactly `v1`, then \
+             use the Task tool with a general-purpose subagent to list the files in `{f}/`. Reply with one sentence."
         ),
+        "[Canopy benchmark 2/3 — attachments]\n\
+         Tester checks: before this runs, Edit it in the queue and attach: a screenshot (⌘⇧⌃4, then ⌘V), \
+         an image dragged from Finder, and a file or folder via the paperclip; thumbnails show above the \
+         field, X removes one; after sending, the thumbnails sit under your message and open full size.\n\n\
+         Describe each attached image in one sentence and name each attached file or folder. If nothing \
+         is attached, say so."
+            .to_owned(),
         format!(
-            "[Canopy benchmark 2/3 — edit and restore]\n\
-             Tester checks: after this turn, Edit THIS message (hover → pencil): the tray offers to restore \
-             1 file; send the edit with restore on and ask \"Which words do you remember?\" — the answer must be \
-             APPLE only, `{f}/notes.txt` must be back to `v1`, and the earlier version stays above the separator.\n\n\
-             Remember the word BANANA. Then use the Write tool to overwrite `{f}/notes.txt` with exactly `v2`. \
-             Reply with one sentence."
-        ),
-        format!(
-            "[Canopy benchmark 3/3 — cleanup]\n\
-             Tester checks: the change summary tree, keyboard: Tab through pills, cards and actions, Enter/Space \
-             to open them.\n\n\
+            "[Canopy benchmark 3/3 — navigator, New session, cleanup]\n\
+             Tester checks: the marks on the left (one per message, the one you read stands out); hover grows \
+             them and previews the message; click and ⌥⌘↑/⌥⌘↓ glide to messages. After this turn press ⌘K \
+             (New session) and ask \"Which fruit did I mention?\" — the agent must not know; the earlier \
+             conversation stays above \"New session\".\n\n\
              Delete the `{f}/` folder with Bash (`rm -rf {f}`). Reply with a checklist of what this benchmark exercised."
         ),
     ]
@@ -83,6 +84,8 @@ impl ChatView {
             let _ = this.update(cx, |this, cx| {
                 let started = std::time::Instant::now();
                 this.session = Some(long_session());
+                // Not part of the chat's saved history.
+                this.history_off = true;
                 this.rows = super::rows::Rows::new(cx).in_folder(this.rows.cwd.clone());
                 this.threads.clear();
                 this.after_change(cx);

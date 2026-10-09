@@ -1,5 +1,6 @@
 //! Row model of one conversation thread — the main chat, or a subagent opened from its
 //! card: which transcript items are shown, in what order, with per-row view state.
+use super::scroller::ChatScrollerState;
 use crate::ui::{components::Disclosure, markdown::MarkdownView};
 use canopy_desktop::{
     chat::{
@@ -11,9 +12,16 @@ use canopy_desktop::{
     },
     motion::{BatchReveal, MotionPolicy},
 };
-use gpui_kit::component::message_scroller::MessageScrollerState;
 use gpui_kit::*;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
+
+/// A session replaced by Restart, Edit or New session (or restored from history),
+/// kept whole so its diffs and subagent conversations still open.
+pub(super) struct Archived {
+    /// Stable session number of the chat (saved history, turn diff targets).
+    pub epoch: u64,
+    pub transcript: Transcript,
+}
 
 /// Where a row's item lives: the running session or a session replaced by Restart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,11 +42,11 @@ pub(super) enum Kind {
     Report,
     /// Subagents started together, in one row that expands to a list.
     Subagents(Vec<Source>),
-    /// Files a finished turn changed; `live` while its session can still open the diff.
+    /// Files a finished turn changed; `epoch` of an earlier session (`None`: running).
     Changes {
         turn: u64,
         files: Vec<FileChange>,
-        live: bool,
+        epoch: Option<u64>,
     },
 }
 
@@ -103,8 +111,8 @@ pub(super) struct Children {
 
 pub(super) struct Rows {
     pub rows: Vec<Row>,
-    pub archived: Vec<Vec<Item>>,
-    pub scroller: Entity<MessageScrollerState>,
+    pub archived: Vec<Arc<Archived>>,
+    pub scroller: Entity<ChatScrollerState>,
     pub reveal: BatchReveal,
     /// `None` for the main conversation, else the subagent's tool call id.
     pub thread: Option<String>,
@@ -112,6 +120,8 @@ pub(super) struct Rows {
     pub cwd: Option<PathBuf>,
     pub calls: HashMap<String, Call>,
     pub children: HashMap<String, Children>,
+    /// How a sent message draws its attachment badges (the main conversation).
+    badges: Option<BadgeFactory>,
     /// Transcript index → row, for the running session.
     current: HashMap<usize, usize>,
     next_key: u64,
@@ -122,15 +132,21 @@ impl Rows {
         Self {
             rows: vec![],
             archived: vec![],
-            scroller: cx.new(|cx| MessageScrollerState::new(0, cx)),
+            scroller: cx.new(|cx| ChatScrollerState::new(0, cx)),
             reveal: BatchReveal::default(),
             thread: None,
             cwd: None,
             calls: HashMap::new(),
             children: HashMap::new(),
             current: HashMap::new(),
+            badges: None,
             next_key: 0,
         }
+    }
+
+    pub fn with_badges(mut self, badges: BadgeFactory) -> Self {
+        self.badges = Some(badges);
+        self
     }
 
     pub fn in_folder(mut self, cwd: Option<PathBuf>) -> Self {
@@ -174,7 +190,7 @@ impl Rows {
             rows.push_thinking();
         }
         let count = rows.rows.len();
-        rows.scroller = cx.new(|cx| MessageScrollerState::new(count, cx));
+        rows.scroller = cx.new(|cx| ChatScrollerState::new(count, cx));
         rows
     }
 
@@ -185,7 +201,7 @@ impl Rows {
     ) -> Option<&'a Item> {
         match source {
             Source::Current(index) => transcript?.get(index),
-            Source::Archived { epoch, index } => self.archived.get(epoch)?.get(index),
+            Source::Archived { epoch, index } => self.archived.get(epoch)?.transcript.get(index),
         }
     }
 
@@ -360,6 +376,18 @@ impl Rows {
                 (!block.streaming).then(|| self.cwd.clone()),
                 cx,
             )),
+            // Attachments mentioned in a sent message stay badges.
+            Body::User(message) => self.badges.as_ref().and_then(|badges| {
+                let source =
+                    super::attachments::badge_markdown(&message.text, &message.attachments)?;
+                let renderer = badges(&message.attachments);
+                Some(cx.new(|cx| {
+                    let mut view = MarkdownView::chat(cx);
+                    view.set_badges(renderer);
+                    view.set_content(source.into(), String::new(), true, cx);
+                    view
+                }))
+            }),
             _ => None,
         };
         let now = Instant::now();
@@ -560,7 +588,7 @@ impl Rows {
                 kind: Kind::Changes {
                     turn: item.turn.0,
                     files,
-                    live: true,
+                    epoch: None,
                 },
                 markdown: None,
                 output: None,
@@ -644,31 +672,20 @@ impl Rows {
     }
 
     /// Freezes the replaced session's rows above a separator; new output follows.
-    pub fn archive(&mut self, transcript: &Transcript, label: &'static str, cx: &mut App) {
+    pub fn archive(
+        &mut self,
+        transcript: Transcript,
+        epoch: u64,
+        label: &'static str,
+        cx: &mut App,
+    ) {
         if self.thinking_shown() {
             let at = self.rows.len() - 1;
             self.rows.pop();
             self.scroller
                 .update(cx, |state, cx| state.splice(at..at + 1, 0, cx));
         }
-        let epoch = self.archived.len();
-        self.archived.push(transcript.items().to_vec());
-        let archive = |source: &mut Source| {
-            if let Source::Current(index) = *source {
-                *source = Source::Archived { epoch, index };
-            }
-        };
-        for row in &mut self.rows {
-            match &mut row.kind {
-                Kind::Item(source) => archive(source),
-                Kind::Subagents(sources) => sources.iter_mut().for_each(archive),
-                Kind::Changes { live, .. } => *live = false,
-                _ => {}
-            }
-        }
-        self.current.clear();
-        self.calls.clear();
-        self.children.clear();
+        self.freeze(Arc::new(Archived { epoch, transcript }));
         if self.has_items() {
             let key = self.key();
             self.rows.push(Row {
@@ -682,6 +699,59 @@ impl Rows {
             self.scroller
                 .update(cx, |state, cx| state.splice(at..at, 1, cx));
         }
+    }
+
+    /// Points the running session's rows at `archived` (its transcript, now kept here).
+    fn freeze(&mut self, archived: Arc<Archived>) {
+        let position = self.archived.len();
+        let epoch = archived.epoch;
+        self.archived.push(archived);
+        let archive = |source: &mut Source| {
+            if let Source::Current(index) = *source {
+                *source = Source::Archived {
+                    epoch: position,
+                    index,
+                };
+            }
+        };
+        for row in &mut self.rows {
+            match &mut row.kind {
+                Kind::Item(source) => archive(source),
+                Kind::Subagents(sources) => sources.iter_mut().for_each(archive),
+                Kind::Changes { epoch: of, .. } if of.is_none() => *of = Some(epoch),
+                _ => {}
+            }
+        }
+        self.current.clear();
+        self.calls.clear();
+        self.children.clear();
+    }
+
+    /// Adds a saved session above the running one: its rows (turns folded as when it
+    /// ran), then the separator `label`.
+    pub fn restore(
+        &mut self,
+        mut transcript: Transcript,
+        epoch: u64,
+        label: &'static str,
+        cx: &mut App,
+    ) {
+        let changes = transcript.take_changes();
+        self.sync(&transcript, &changes, false, MotionPolicy::Reduced, cx);
+        self.archive(transcript, epoch, label, cx);
+    }
+
+    /// The conversation of a subagent of an earlier session (read-only, nothing more
+    /// arrives).
+    pub fn archived_thread(
+        call: &str,
+        archived: Arc<Archived>,
+        cwd: Option<PathBuf>,
+        cx: &mut App,
+    ) -> Self {
+        let mut rows = Self::thread(call, &archived.transcript, false, cwd, cx);
+        rows.freeze(archived);
+        rows
     }
 
     pub fn toggle_expanded(&mut self, key: u64, cx: &mut App) {
@@ -737,6 +807,11 @@ impl Rows {
         self.next_key
     }
 }
+
+/// Builds a sent message's badge renderer from its attachments.
+pub(super) type BadgeFactory = std::rc::Rc<
+    dyn Fn(&[canopy_desktop::chat::transcript::Attachment]) -> crate::ui::markdown::BadgeRenderer,
+>;
 
 /// `finished` carries the folder for file links once the text is final.
 fn chat_markdown(
@@ -922,7 +997,7 @@ mod card_tests {
                 .iter()
                 .filter_map(|row| match &row.kind {
                     Kind::Changes {
-                        files, live: true, ..
+                        files, epoch: None, ..
                     } => Some(files.len()),
                     _ => None,
                 })

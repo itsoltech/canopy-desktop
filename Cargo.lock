@@ -884,6 +884,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre-reqwest-client",
  "ignore",
+ "image",
  "libc",
  "libssh2-sys",
  "markdown",

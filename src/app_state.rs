@@ -21,7 +21,9 @@ pub use tools::{ToolsState, WorktreeAgent};
 mod terminals;
 pub use projects::{AgentFocusRequested, ProjectsState};
 pub use terminals::Terminals;
+mod chat_history;
 mod chats;
+pub use chat_history::ChatHistory;
 pub use chats::{ChatTarget, Chats};
 // GPUI ownership and I/O coordination; domain operations live in the library.
 use canopy_desktop::{
@@ -38,6 +40,7 @@ pub struct AppState {
     pub layout: Entity<LayoutState>,
     pub terminals: Entity<Terminals>,
     pub chats: Entity<Chats>,
+    pub chat_history: Entity<ChatHistory>,
     pub tools: Entity<ToolsState>,
     pub git: Entity<GitState>,
     pub changes: Entity<ChangesState>,
@@ -77,6 +80,7 @@ impl AppState {
             settings: cx.new(SettingsState::test),
             terminals: cx.new(|_| Terminals::new()),
             chats: cx.new(|_| Chats::new()),
+            chat_history: cx.new(|_| ChatHistory::new()),
             tools: cx.new(|_| ToolsState::new()),
             git: cx.new(|_| GitState::new()),
             changes: cx.new(|_| ChangesState::new()),
@@ -251,6 +255,20 @@ impl AppState {
                 changes.update(cx,|s,_|s.cancel_quit());
                 return;
             }
+            let history=cx.update(|cx|cx.global::<AppState>().chat_history.clone());
+            let saved=history.update(cx,|state,cx|state.flush(cx)).await;
+            if let Err(error) = saved {
+                cx.update(|cx|cx.global::<Self>().task_drafts.clone().update(cx,|state,cx|state.resume(cx)));
+                history.update(cx,|state,cx|state.cancel_quit(cx));
+                integrations.update(cx,|state,cx|state.cancel_quit(cx));
+                files.update(cx,|files,cx|files.cancel_quit(cx));
+                projects.update(cx,|state,cx|{state.quitting=false;state.error=Some(format!("{error}. Retry closing to save again."));cx.notify();});
+                settings.update(cx,|state,cx|{state.quitting=false;cx.notify();});
+                tools.update(cx,|state,cx|{state.quitting=false;cx.notify();});
+                git.update(cx,|git,cx|git.cancel_quit(cx));
+                changes.update(cx,|s,_|s.cancel_quit());
+                return;
+            }
             let terminals=cx.update(|cx|cx.global::<AppState>().terminals.clone());
             let chats=cx.update(|cx|cx.global::<AppState>().chats.clone());
             let stop=terminals.update(cx,|state,cx|state.shutdown(cx));
@@ -258,6 +276,7 @@ impl AppState {
             let stopped = stop.await.and(stop_chats.await);
             if let Err(error) = stopped {
                 cx.update(|cx|cx.global::<Self>().task_drafts.clone().update(cx,|state,cx|state.resume(cx)));
+                history.update(cx,|state,cx|state.cancel_quit(cx));
                 integrations.update(cx,|state,cx|state.cancel_quit(cx));
                 files.update(cx,|files,cx|files.cancel_quit(cx));
                 projects.update(cx,|state,cx|{state.quitting=false;state.error=Some(format!("Could not confirm terminal cleanup before closing: {error}. Canopy remains open."));cx.notify();});
@@ -290,6 +309,7 @@ impl AppState {
             settings: cx.new(SettingsState::new),
             terminals: cx.new(|_| Terminals::new()),
             chats: cx.new(|_| Chats::new()),
+            chat_history: cx.new(|_| ChatHistory::new()),
             tools: cx.new(|_| ToolsState::new()),
             git: cx.new(|_| GitState::new()),
             changes: cx.new(|_| ChangesState::new()),
@@ -397,6 +417,8 @@ impl SettingsState {
                 cx.update(|cx| {
                     let app = cx.global::<AppState>().clone();
                     app.task_drafts
+                        .update(cx, |state, cx| state.initialize(client.clone(), cx));
+                    app.chat_history
                         .update(cx, |state, cx| state.initialize(client.clone(), cx));
                     app.integrations
                         .update(cx, |state, cx| state.initialize(client.clone(), cx));

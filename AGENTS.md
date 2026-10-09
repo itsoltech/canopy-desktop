@@ -434,6 +434,10 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 - Karty narzędzi powstają z `chat::tools::view` (tolerancyjnie, z fallbackiem Generic);
   diffy używają `git::changes::DiffLine` i `components::git::diff_line`. Diff tury czyta żywą
   sesję i nie udaje dostępności po restarcie. Proces czatu ma `--thinking-display summarized`.
+- Historia czatu żyje w SQLite per element (`ChatSettings.id`, epoki Restart/Edit/New session) i wraca
+  po restarcie aplikacji; zamknięcie taba czatu usuwa ją razem z załącznikami (nie ma listy czatów).
+  Zapis idzie przez `AppState.chat_history`; render nie czyta bazy. Obrazy do modelu skaluje
+  `chat::attachments`; inne pliki idą jako ścieżki. New session (⌘K) zaczyna nową epokę w tym samym tabie.
 - Akcje przy wiadomościach (Copy/Edit/Retry + metryki) są na hover. Edit rozgałęzia sesję
   (`--resume-session-at` + `--fork-session`) od końca poprzedniej tury; pliki cofa tylko jawnie wybrane
   `rewind_files` (checkpointing w środowisku czatu). Kwotę pokazujemy tylko przy koncie API.
@@ -498,7 +502,7 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 
 Terminal/PTY, projekty i worktree, pełny layout, persist/restore, narzędzia oraz
 profile mają działające integracje. Czat z Claude Code (headless) ma pane, pickery
-i cykl życia; historia po restarcie, bogate karty narzędzi i Codex są kolejnymi etapami. Files ma backend rzeczywistych plików, a edytor obsługuje zapis, konflikty i restore
+i cykl życia, karty narzędzi i historię po restarcie; Codex jest kolejnym etapem. Files ma backend rzeczywistych plików, a edytor obsługuje zapis, konflikty i restore
 ([zakres i ograniczenia](docs/files-editor.md)). Git Changes/diffy i commit mają integrację
 ([szczegóły i ograniczenia](docs/git-changes.md)). Inspektor, notch i resume mają
 integrację sesji Claude/Codex ([zakres kwalifikacji](docs/agents.md)); część

@@ -292,7 +292,7 @@ fn only_waiting_messages_can_be_edited_or_removed() {
         "a steer in flight is no longer editable"
     );
     assert!(!session.remove(a));
-    assert_eq!(session.edit(b).as_deref(), Some("b"));
+    assert_eq!(session.edit(b).map(|d| d.text).as_deref(), Some("b"));
     assert_eq!(queued_texts(&session), ["a"]);
 }
 

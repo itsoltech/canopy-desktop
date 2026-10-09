@@ -39,6 +39,9 @@ notify = "=7.0.0"
 # Already locked; cancellable, gitignore-aware Quick Open without eager tree indexing.
 ignore = "=0.4.33"
 ttf-parser = "=0.25.1"
+# Already locked (GPUI decodes images with it); scales chat image attachments to the
+# size the model reads before they are sent.
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "tiff", "bmp"] }
 wuff = "=0.2.9"
 
 [dev-dependencies]
@@ -57,8 +60,8 @@ strip = "none"
 raw-window-handle = "=0.6.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSView", "NSWindow", "NSScreen", "NSWorkspace", "NSAccessibility", "NSEvent", "block2"] }
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSGeometry"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSView", "NSWindow", "NSScreen", "NSWorkspace", "NSAccessibility", "NSEvent", "NSPasteboard", "block2"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSGeometry", "NSData"] }
 
 objc2 = "=0.6.4"
 block2 = "=0.6.2"

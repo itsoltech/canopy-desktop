@@ -459,6 +459,7 @@ mod tests {
                 text: "hi".into(),
                 delivery: Delivery::Sent,
                 uuid: None,
+                attachments: vec![],
             }),
         );
         let text = transcript.push(

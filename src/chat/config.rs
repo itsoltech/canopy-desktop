@@ -124,10 +124,23 @@ pub struct ChatSettings {
     /// each start of the chat's process, never written to settings files (DEC-039).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed: Vec<String>,
+    /// Identifies the chat's saved history (a UUID); stays the same across Restart,
+    /// Edit and New session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 impl ChatSettings {
     pub fn valid(&self) -> bool {
         self.model.as_deref().is_none_or(valid_model)
+            && self
+                .id
+                .as_deref()
+                .is_none_or(|id| uuid::Uuid::parse_str(id).is_ok())
+    }
+
+    /// A new chat id.
+    pub fn new_id() -> String {
+        uuid::Uuid::new_v4().to_string()
     }
 
     /// Remembers rules, skipping invalid ones and duplicates; true when any was added.
@@ -281,6 +294,18 @@ mod tests {
             assert!(!settings.valid(), "{bad:?}");
         }
         assert!(serde_json::from_str::<ChatSettings>(r#"{"model":"opus","extra":1}"#).is_err());
+        let with_id = ChatSettings {
+            id: Some(ChatSettings::new_id()),
+            ..Default::default()
+        };
+        assert!(with_id.valid());
+        assert!(
+            !ChatSettings {
+                id: Some("../x".into()),
+                ..Default::default()
+            }
+            .valid()
+        );
         let restored: ChatSettings = serde_json::from_str(r#"{"effort":"XHigh"}"#).unwrap();
         assert_eq!(restored.effort, Some(Effort::XHigh));
         assert_eq!(restored.mode, Mode::Ask);

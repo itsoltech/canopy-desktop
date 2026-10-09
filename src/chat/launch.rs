@@ -366,6 +366,7 @@ mod tests {
             effort: Some(crate::chat::config::Effort::High),
             mode: crate::chat::config::Mode::Yolo,
             allowed: vec!["Bash(npm test *)".into()],
+            id: None,
         };
         let args = prepare_claude(&catalog, &pane(&[]), &env(), &chosen, None)
             .unwrap()

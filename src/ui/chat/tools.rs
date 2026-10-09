@@ -8,7 +8,6 @@ use super::{
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::tools::{FileChange, ToolView, TreeRow};
 use canopy_desktop::git::changes::DiffLine;
-use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     IconName, Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants},
@@ -459,7 +458,7 @@ pub(super) fn changes_card(
     entry: &Row,
     turn: u64,
     files: &[FileChange],
-    live: bool,
+    epoch: Option<u64>,
     cx: &App,
 ) -> Div {
     let key = entry.key;
@@ -469,7 +468,9 @@ pub(super) fn changes_card(
     let open = |file: Option<std::path::PathBuf>| {
         let view = view.downgrade();
         move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-            let _ = view.update(cx, |this, cx| this.open_turn_diff(turn, file.clone(), cx));
+            let _ = view.update(cx, |this, cx| {
+                this.open_turn_diff(epoch, turn, file.clone(), cx)
+            });
         }
     };
     let open_diff = Button::new(("chat-changes-open", key))
@@ -552,7 +553,6 @@ pub(super) fn changes_card(
                 depth,
                 cx,
             )
-            .disabled(!live)
             .accessibility_label(format!("Open the diff of {name}"))
             .child(
                 row()
@@ -608,16 +608,7 @@ pub(super) fn changes_card(
                 )
                 .child(counts(added, removed))
                 .child(div().flex_1())
-                // A restarted session no longer has this turn: say so, no dead button.
-                .child(if live {
-                    open_diff.into_any_element()
-                } else {
-                    div()
-                        .text_size(px(12.))
-                        .text_color(t::faint())
-                        .child("Diff not kept after restart")
-                        .into_any_element()
-                }),
+                .child(open_diff),
         )
         .child(column().py(px(4.)).children(rows))
 }

@@ -9,8 +9,8 @@ use super::{
     presentation,
     process::{Event, Exit},
     transcript::{
-        Body, Decision, Delivery, ItemId, Notice, NoticeKind, Outcome, PermissionKind, Remember,
-        Resolution, Rule, Transcript, TurnEnd, UserMessage,
+        Attachment, Body, Decision, Delivery, Item, ItemId, Notice, NoticeKind, Outcome,
+        PermissionKind, Remember, Resolution, Rule, Transcript, TurnEnd, UserMessage,
     },
 };
 use serde_json::Value;
@@ -87,11 +87,34 @@ pub enum Base {
 /// queue continues.
 pub const RESUME_PROMPT: &str = "Continue where you left off.";
 
+/// A message as written in the composer: text and what goes along with it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Draft {
+    pub text: String,
+    pub attachments: Vec<Attachment>,
+}
+impl Draft {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            attachments: vec![],
+        }
+    }
+    fn trimmed(self) -> Option<Self> {
+        let text = self.text.trim().to_owned();
+        (!text.is_empty() || !self.attachments.is_empty()).then_some(Self {
+            text,
+            attachments: self.attachments,
+        })
+    }
+}
+
 /// A message held in Canopy until the agent finishes, or being steered into its turn.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Queued {
     pub id: QueuedId,
     pub text: String,
+    pub attachments: Vec<Attachment>,
     /// Uuid of the Steer already written to the CLI; it can no longer be edited.
     pub steering: Option<String>,
 }
@@ -158,6 +181,15 @@ impl Previous {
     }
 }
 
+impl Queued {
+    fn draft(self) -> Draft {
+        Draft {
+            text: self.text,
+            attachments: self.attachments,
+        }
+    }
+}
+
 impl ChatSession {
     /// Returns the session and the lines to write immediately.
     pub fn new() -> (Self, Vec<Value>) {
@@ -205,6 +237,21 @@ impl ChatSession {
 
     pub fn transcript(&self) -> &Transcript {
         &self.transcript
+    }
+    /// The conversation so far, handed over when this session is replaced.
+    pub fn take_transcript(&mut self) -> Transcript {
+        std::mem::take(&mut self.transcript)
+    }
+    /// A note from Canopy itself in the conversation (e.g. history it couldn't read).
+    pub fn note(&mut self, text: String) {
+        self.transcript.push(
+            None,
+            Body::Notice(Notice {
+                kind: NoticeKind::Diagnostic,
+                text,
+                until: None,
+            }),
+        );
     }
     pub fn take_changes(&mut self) -> Vec<super::transcript::Change> {
         self.transcript.take_changes()
@@ -294,6 +341,7 @@ impl ChatSession {
             self.queue.push_front(Queued {
                 id: QueuedId(self.next_queued),
                 text: RESUME_PROMPT.to_owned(),
+                attachments: vec![],
                 steering: None,
             });
         }
@@ -302,16 +350,32 @@ impl ChatSession {
 
     /// Sends a user message, or keeps it in the queue while the agent is busy.
     pub fn submit(&mut self, text: &str) -> Vec<Value> {
-        let text = text.trim();
-        if text.is_empty() || self.status.ended() {
+        self.submit_draft(Draft::text(text))
+    }
+    /// `submit` with attachments (image data loaded).
+    pub fn submit_draft(&mut self, draft: Draft) -> Vec<Value> {
+        let Some(draft) = draft.trimmed() else {
+            return vec![];
+        };
+        if self.status.ended() {
             return vec![];
         }
         self.hold_queue = false;
         if self.queue.is_empty() && self.accepts_turn() {
-            return self.send(text.to_owned());
+            return self.send(draft);
         }
-        self.enqueue(text.to_owned());
+        self.enqueue(draft);
         self.flush()
+    }
+
+    /// Shows saved history before the session's first event: the conversation it
+    /// resumes. Ids and turns continue after it.
+    pub fn restore_history(&mut self, items: Vec<Item>) {
+        self.restore_history_after(items, 0);
+    }
+    /// `restore_history`, with new item ids also after `floor`.
+    pub fn restore_history_after(&mut self, items: Vec<Item>, floor: u64) {
+        self.transcript = Transcript::restore_after(items, floor);
     }
 
     /// Sends a queued message now: the agent reads it after the current tool.
@@ -329,36 +393,45 @@ impl ChatSession {
         self.hold_queue = false;
         if self.accepts_turn() {
             let queued = self.queue.remove(index).expect("queued message");
-            return self.send(queued.text);
+            return self.send(queued.draft());
         }
         let uuid = uuid::Uuid::new_v4().to_string();
-        let line = wire::user_message(&self.queue[index].text, &uuid, Priority::Next);
+        let line = wire::user_message(
+            &self.queue[index].text,
+            &self.queue[index].attachments,
+            &uuid,
+            Priority::Next,
+        );
         self.outstanding.insert(uuid.clone());
         if self.tracks_lifecycle() {
             // The bubble appears where the CLI reads it (`started`).
             self.queue[index].steering = Some(uuid);
         } else {
             let queued = self.queue.remove(index).expect("queued message");
-            self.push_steered(queued.text);
+            self.push_steered(queued.draft());
         }
         self.outgoing(vec![line])
     }
 
     /// Steers a message that was never queued (⌘⏎ in the composer).
     pub fn steer_text(&mut self, text: &str) -> Vec<Value> {
-        let text = text.trim();
-        if text.is_empty() || self.status.ended() {
+        self.steer_draft(Draft::text(text))
+    }
+    pub fn steer_draft(&mut self, draft: Draft) -> Vec<Value> {
+        let Some(draft) = draft.trimmed() else {
+            return vec![];
+        };
+        if self.status.ended() {
             return vec![];
         }
-        let id = self.enqueue(text.to_owned());
+        let id = self.enqueue(draft);
         self.steer(id)
     }
 
     /// Keeps a composer draft displaced by Edit, without sending anything.
-    pub fn enqueue_draft(&mut self, text: &str) {
-        let text = text.trim();
-        if !text.is_empty() {
-            self.enqueue(text.to_owned());
+    pub fn enqueue_draft(&mut self, draft: Draft) {
+        if let Some(draft) = draft.trimmed() {
+            self.enqueue(draft);
         }
     }
 
@@ -384,12 +457,12 @@ impl ChatSession {
     }
 
     /// Takes a waiting message back for editing.
-    pub fn edit(&mut self, id: QueuedId) -> Option<String> {
+    pub fn edit(&mut self, id: QueuedId) -> Option<Draft> {
         let index = self
             .queue
             .iter()
             .position(|q| q.id == id && q.steering.is_none())?;
-        self.queue.remove(index).map(|q| q.text)
+        self.queue.remove(index).map(|q| q.draft())
     }
     pub fn remove(&mut self, id: QueuedId) -> bool {
         self.edit(id).is_some()
@@ -405,13 +478,13 @@ impl ChatSession {
     }
 
     /// Unsent messages for a replacement session (Restart); nothing is lost.
-    pub fn take_queue(&mut self) -> Vec<String> {
-        self.queue.drain(..).map(|q| q.text).collect()
+    pub fn take_queue(&mut self) -> Vec<Draft> {
+        self.queue.drain(..).map(|q| q.draft()).collect()
     }
     /// Restores messages taken from a previous session; they wait for the user.
-    pub fn restore_queue(&mut self, texts: Vec<String>) {
-        for text in texts {
-            self.enqueue(text);
+    pub fn restore_queue(&mut self, drafts: Vec<Draft>) {
+        for draft in drafts {
+            self.enqueue(draft);
         }
         self.hold_queue = !self.queue.is_empty();
     }
@@ -603,8 +676,8 @@ impl ChatSession {
         vec![wire::get_context_usage(&id)]
     }
 
-    /// The text of the last message that started a turn, to send again (Retry).
-    pub fn retry_text(&self) -> Option<String> {
+    /// The last message that started a turn, to send again (Retry).
+    pub fn retry_draft(&self) -> Option<Draft> {
         self.transcript
             .items()
             .iter()
@@ -613,7 +686,10 @@ impl ChatSession {
                 Body::User(message)
                     if item.parent.is_none() && message.delivery == Delivery::Sent =>
                 {
-                    Some(message.text.clone())
+                    Some(Draft {
+                        text: message.text.clone(),
+                        attachments: message.attachments.clone(),
+                    })
                 }
                 _ => None,
             })
@@ -924,7 +1000,7 @@ impl ChatSession {
         match (state, steering) {
             (Lifecycle::Started, Some(index)) => {
                 let queued = self.queue.remove(index).expect("steered message");
-                self.push_steered(queued.text);
+                self.push_steered(queued.draft());
             }
             // Dropped before the agent read it (Stop, cancelled turn): it waits again.
             (state, Some(index)) if state.terminal() => self.queue[index].steering = None,
@@ -1052,30 +1128,32 @@ impl ChatSession {
                 .any(|c| c == wire::LIFECYCLE_CAPABILITY)
     }
 
-    fn enqueue(&mut self, text: String) -> QueuedId {
+    fn enqueue(&mut self, draft: Draft) -> QueuedId {
         self.next_queued += 1;
         let id = QueuedId(self.next_queued);
         self.queue.push_back(Queued {
             id,
-            text,
+            text: draft.text,
+            attachments: draft.attachments,
             steering: None,
         });
         id
     }
 
-    /// Starts a turn with `text`.
-    fn send(&mut self, text: String) -> Vec<Value> {
+    /// Starts a turn with `draft`.
+    fn send(&mut self, draft: Draft) -> Vec<Value> {
         self.stopped = false;
         let turn = self.transcript.allocate_turn();
         let uuid = uuid::Uuid::new_v4().to_string();
-        let line = wire::user_message(&text, &uuid, Priority::Later);
+        let line = wire::user_message(&draft.text, &draft.attachments, &uuid, Priority::Later);
         self.transcript.push_in(
             turn,
             None,
             Body::User(UserMessage {
-                text,
+                text: draft.text,
                 delivery: Delivery::Sent,
                 uuid: Some(uuid.clone()),
+                attachments: draft.attachments,
             }),
         );
         self.start_turn(turn);
@@ -1085,14 +1163,15 @@ impl ChatSession {
 
     /// Shows a steered message where the agent read it: inside the running turn, or
     /// as a new turn when the CLI ran it after the previous one ended.
-    fn push_steered(&mut self, text: String) {
+    fn push_steered(&mut self, draft: Draft) {
         if self.turn_open {
             self.transcript.push(
                 None,
                 Body::User(UserMessage {
-                    text,
+                    text: draft.text,
                     delivery: Delivery::Steered,
                     uuid: None,
+                    attachments: draft.attachments,
                 }),
             );
         } else {
@@ -1101,9 +1180,10 @@ impl ChatSession {
                 turn,
                 None,
                 Body::User(UserMessage {
-                    text,
+                    text: draft.text,
                     delivery: Delivery::Sent,
                     uuid: None,
+                    attachments: draft.attachments,
                 }),
             );
             self.start_turn(turn);
@@ -1121,7 +1201,7 @@ impl ChatSession {
             return vec![];
         }
         match self.queue.pop_front() {
-            Some(queued) => self.send(queued.text),
+            Some(queued) => self.send(queued.draft()),
             None => vec![],
         }
     }

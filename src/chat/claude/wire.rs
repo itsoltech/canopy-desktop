@@ -5,7 +5,7 @@
 //! defaults instead of failing the line. Shapes follow CLI 2.1.294 /
 //! `@anthropic-ai/claude-agent-sdk` 0.3.293.
 use crate::chat::config::{Effort, Mode, ModelInfo};
-use crate::chat::transcript::{Remember, Rule};
+use crate::chat::transcript::{Attachment, Remember, Rule};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -535,11 +535,58 @@ pub fn initialize(request_id: &str) -> Value {
     })
 }
 
-pub fn user_message(text: &str, uuid: &str, priority: Priority) -> Value {
+/// A user message: images as image blocks (their data must be loaded), files and folders
+/// listed after the text for the agent to read.
+pub fn user_message(
+    text: &str,
+    attachments: &[Attachment],
+    uuid: &str,
+    priority: Priority,
+) -> Value {
+    let mut content: Vec<Value> = attachments
+        .iter()
+        .filter_map(|attachment| match attachment {
+            Attachment::Image {
+                media_type,
+                data: Some(data),
+                ..
+            } => Some(json!({
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": &**data},
+            })),
+            _ => None,
+        })
+        .collect();
+    let paths: Vec<String> = attachments
+        .iter()
+        .filter_map(|attachment| match attachment {
+            // A path already mentioned in the text isn't listed again.
+            Attachment::Path { path, label }
+                if label.as_deref().is_none_or(|label| !text.contains(label)) =>
+            {
+                Some(format!("- {}", path.display()))
+            }
+            _ => None,
+        })
+        .collect();
+    let text = if paths.is_empty() {
+        text.to_owned()
+    } else {
+        let list = paths.join("\n");
+        let header = "Attached files (read them as needed):";
+        if text.is_empty() {
+            format!("{header}\n{list}")
+        } else {
+            format!("{text}\n\n{header}\n{list}")
+        }
+    };
+    if !text.is_empty() {
+        content.push(json!({"type": "text", "text": text}));
+    }
     json!({
         "type": "user",
         "session_id": "",
-        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+        "message": {"role": "user", "content": content},
         "parent_tool_use_id": null,
         "uuid": uuid,
         "priority": priority.key(),
@@ -881,10 +928,34 @@ mod tests {
     #[test]
     fn outbound_shapes_match_the_sdk_contract() {
         assert_eq!(
-            user_message("hi", "u1", Priority::Later),
+            user_message("hi", &[], "u1", Priority::Later),
             json!({"type":"user","session_id":"","message":{"role":"user","content":[{"type":"text","text":"hi"}]},"parent_tool_use_id":null,"uuid":"u1","priority":"later"})
         );
-        assert_eq!(user_message("hi", "u2", Priority::Next)["priority"], "next");
+        assert_eq!(
+            user_message("hi", &[], "u2", Priority::Next)["priority"],
+            "next"
+        );
+        let attachments = [
+            Attachment::Image {
+                file: "a.png".into(),
+                media_type: "image/png".into(),
+                width: 1,
+                height: 1,
+                data: Some("QUJD".into()),
+                label: None,
+            },
+            Attachment::Path {
+                path: "/tmp/notes.txt".into(),
+                label: None,
+            },
+        ];
+        assert_eq!(
+            user_message("look", &attachments, "u3", Priority::Later)["message"]["content"],
+            json!([
+                {"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJD"}},
+                {"type":"text","text":"look\n\nAttached files (read them as needed):\n- /tmp/notes.txt"}
+            ])
+        );
         assert_eq!(
             allow("r1", Some("toolu_1"), &json!({"command":"ls"})),
             json!({"type":"control_response","response":{"subtype":"success","request_id":"r1","response":{"behavior":"allow","updatedInput":{"command":"ls"},"toolUseID":"toolu_1"}}})

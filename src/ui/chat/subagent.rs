@@ -10,7 +10,6 @@ use canopy_desktop::chat::{
     presentation::{self, SubagentState},
     transcript::ToolCall,
 };
-use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     IconName, Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants},
@@ -75,8 +74,11 @@ pub(super) fn card(
             format!("{} tools", children.tools)
         });
     }
-    // Only the running session keeps a subagent's conversation.
-    let live = matches!(source, Source::Current(_));
+    // An earlier session's subagent opens from that session's saved conversation.
+    let archived = match source {
+        Source::Current(_) => None,
+        Source::Archived { epoch, .. } => Some(epoch),
+    };
     let content =
         row()
             .w_full()
@@ -112,11 +114,11 @@ pub(super) fn card(
                             .child(preview)
                     })),
             )
-            .children(live.then(|| {
+            .child(
                 icon(IconName::ChevronRight)
                     .text_color(t::faint())
-                    .mt(px(10.))
-            }));
+                    .mt(px(10.)),
+            );
     let card = Button::new(("chat-subagent", key))
         .custom(
             ButtonCustomVariant::new(cx)
@@ -135,26 +137,16 @@ pub(super) fn card(
         .border_color(t::border())
         .accessibility_label(format!("Subagent {title}, {}", state.label()))
         .child(content);
-    let card = if live {
-        let call = tool.call_id.clone();
-        let view = view.downgrade();
-        card.tooltip("Open the subagent's conversation")
-            .on_click(move |_, window, cx| {
-                let _ = view.update(cx, |this, cx| this.open_thread(call.clone(), window, cx));
-            })
-            .into_any_element()
-    } else {
-        div()
-            .id(("chat-subagent-archived", key))
-            .tooltip(|window, cx| {
-                gpui_kit::component::tooltip::Tooltip::new(
-                    "Subagent conversations of a restarted session aren't kept",
-                )
-                .build(window, cx)
-            })
-            .child(card.disabled(true))
-            .into_any_element()
-    };
+    let call = tool.call_id.clone();
+    let view = view.downgrade();
+    let card = card
+        .tooltip("Open the subagent's conversation")
+        .on_click(move |_, window, cx| {
+            let _ = view.update(cx, |this, cx| {
+                this.open_thread(call.clone(), archived, window, cx)
+            });
+        })
+        .into_any_element();
     div().pt(px(8.)).child(card).into_any_element()
 }
 

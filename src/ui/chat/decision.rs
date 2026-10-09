@@ -61,7 +61,7 @@ impl Request {
 
 /// Composer text and placeholder to apply once a window is at hand.
 pub(super) struct ComposerChange {
-    pub text: Option<String>,
+    pub text: Option<gpui_kit::component::input::InputContent>,
     pub placeholder: &'static str,
 }
 
@@ -289,7 +289,7 @@ impl ChatView {
             // The draft stays until the panel is gone: a request arriving meanwhile
             // must not mistake the last answer for it.
             self.decision.composer = Some(ComposerChange {
-                text: Some(self.decision.draft.clone().unwrap_or_default()),
+                text: Some(self.decision.draft.clone().unwrap_or_default().into()),
                 placeholder: COMPOSER_PLACEHOLDER,
             });
             return;
@@ -328,7 +328,7 @@ impl ChatView {
         };
         let asker = self.asker(&permission);
         self.decision.composer = Some(ComposerChange {
-            text: Some(String::new()),
+            text: Some(String::new().into()),
             placeholder: placeholder(permission.kind),
         });
         self.decision.request = Some(Request {

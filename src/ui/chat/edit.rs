@@ -7,24 +7,22 @@ use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{
     claude::wire::RewindPreview,
-    session::Rewind,
+    session::{Draft, Rewind},
     transcript::{Body, ItemId},
 };
 use gpui_kit::{prelude::FluentBuilder, *};
-
-pub(super) const EDITED_SEPARATOR: &str = "Edited — earlier version above";
 
 pub(super) struct Editing {
     pub item: ItemId,
     /// Message the new branch continues after; `None` starts a fresh conversation.
     pub fork: Option<String>,
-    /// Composer text from before the edit, back on Cancel.
-    pub draft: String,
+    /// Composer content from before the edit, back on Cancel.
+    pub draft: Draft,
     /// What restoring files would change, once the CLI has answered.
     pub preview: Option<RewindPreview>,
     pub restore: bool,
-    /// The edited text, waiting for the restore to finish.
-    pub sending: Option<String>,
+    /// The edited message, waiting for the restore to finish.
+    pub sending: Option<Draft>,
     pub error: Option<String>,
 }
 
@@ -40,12 +38,15 @@ impl ChatView {
         let Some(fork) = session.fork_point(item) else {
             return;
         };
-        let Some(text) = session
+        let Some(message) = session
             .transcript()
             .items()
             .iter()
             .find_map(|i| match &i.body {
-                Body::User(message) if i.id == item => Some(message.text.clone()),
+                Body::User(message) if i.id == item => Some(Draft {
+                    text: message.text.clone(),
+                    attachments: message.attachments.clone(),
+                }),
                 _ => None,
             })
         else {
@@ -54,7 +55,7 @@ impl ChatView {
         // Which files changed after this message (answered asynchronously).
         let lines = session.rewind_files(item, true);
         self.write(lines);
-        let draft = self.composer.read(cx).value().to_string();
+        let draft = self.composer_draft(cx);
         self.editing = Some(Editing {
             item,
             fork,
@@ -64,10 +65,7 @@ impl ChatView {
             sending: None,
             error: None,
         });
-        self.composer.update(cx, |state, cx| {
-            state.set_value(text, window, cx);
-            state.focus(window, cx);
-        });
+        self.set_composer_draft(message, window, cx);
         cx.notify();
     }
 
@@ -79,23 +77,33 @@ impl ChatView {
         let Some(editing) = self.editing.take() else {
             return;
         };
-        self.composer
-            .update(cx, |state, cx| state.set_value(editing.draft, window, cx));
+        self.set_composer_draft(editing.draft, window, cx);
         cx.notify();
     }
 
     /// Sends the edited text: restores files first when asked, then forks.
     pub(super) fn send_edit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.composer.read(cx).value().trim().to_owned();
+        let draft = self.composer_draft(cx);
+        if self.attachments_blocked(cx)
+            || (draft.text.trim().is_empty() && draft.attachments.is_empty())
+            || self.editing.as_ref().is_none_or(|e| e.sending.is_some())
+        {
+            return;
+        }
+        // Images of a message sent before a restart are read again first.
+        self.with_images(draft, cx, |this, draft, cx| this.send_edit_draft(draft, cx));
+    }
+
+    fn send_edit_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
         let Some(editing) = &mut self.editing else {
             return;
         };
-        if text.is_empty() || editing.sending.is_some() {
+        if editing.sending.is_some() {
             return;
         }
         let item = editing.item;
         let restore = editing.restore && editing.preview.as_ref().is_some_and(|p| p.possible);
-        editing.sending = Some(text);
+        editing.sending = Some(draft);
         editing.error = None;
         if restore {
             let lines = self
@@ -164,7 +172,7 @@ impl ChatView {
         let Some(editing) = self.editing.take() else {
             return;
         };
-        let Some(text) = editing.sending else {
+        let Some(draft) = editing.sending else {
             return;
         };
         if editing.fork.is_some() && self.pane.metadata.resume_id.is_none() {
@@ -179,12 +187,13 @@ impl ChatView {
         }
         // The composer empties once the edit is on its way.
         self.decision.composer = Some(super::decision::ComposerChange {
-            text: Some(String::new()),
+            text: Some(String::new().into()),
             placeholder: super::decision::COMPOSER_PLACEHOLDER,
         });
+        self.attachments.pending.clear();
         self.switching = true;
         self.fork_at = editing.fork.clone();
-        self.send_on_start = Some(text);
+        self.send_on_start = Some(draft);
         if editing.fork.is_none() {
             // The first message itself changed: a new conversation.
             let pane = self.pane.id;
@@ -200,28 +209,20 @@ impl ChatView {
             let _ = this.update(cx, |this, cx| {
                 this.switching = false;
                 if !this.closed {
-                    this.separator = EDITED_SEPARATOR;
+                    this.boundary = canopy_desktop::chat::history::Boundary::Edited;
                     this.start(cx);
                 }
                 // Not started (closing, already starting): nothing was sent.
-                if let Some(text) = this.send_on_start.take() {
+                if let Some(draft) = this.send_on_start.take() {
                     this.fork_at = None;
-                    this.separator = super::view::RESTARTED;
-                    this.restore_text(text);
+                    this.boundary = canopy_desktop::chat::history::Boundary::Restarted;
+                    this.restore_draft(draft, cx);
                     cx.notify();
                 }
             });
         })
         .detach();
         cx.notify();
-    }
-
-    /// Puts text back into the composer (applied once a window is at hand).
-    pub(super) fn restore_text(&mut self, text: String) {
-        self.decision.composer = Some(super::decision::ComposerChange {
-            text: Some(text),
-            placeholder: super::decision::COMPOSER_PLACEHOLDER,
-        });
     }
 
     /// Above the composer while editing: what happens on send, with Cancel.

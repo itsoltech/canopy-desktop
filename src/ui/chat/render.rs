@@ -22,7 +22,6 @@ use gpui_kit::component::{
     IconName, Sizable,
     bubble::{Bubble, BubbleContent},
     message::MessageAlignment,
-    message_scroller::MessageScroller,
     shimmer::ShimmerText,
     spinner::Spinner,
 };
@@ -55,7 +54,8 @@ impl Render for ChatView {
                 || self.action.is_animating(now)
                 || self.queue.animating(now)
                 || self.decision.animating(now)
-                || self.drill.is_animating(now),
+                || self.drill.is_animating(now)
+                || self.navigator.animating(now),
         );
         let in_thread = !self.threads.is_empty();
         let body = if self.shown_rows().rows.is_empty() && !in_thread {
@@ -67,21 +67,19 @@ impl Render for ChatView {
                 Some(thread) => ("chat-thread", thread.rows.scroller.entity_id()).into(),
                 None => "chat-messages".into(),
             };
-            MessageScroller::new(
-                id,
-                self.shown_rows().scroller.clone(),
-                move |index, window, cx| {
-                    view.upgrade()
-                        .map(|view| render_row(&view, index, window, cx))
-                        .unwrap_or_else(|| div().into_any_element())
-                },
-            )
-            .with_row_style(div().p_0().style().clone())
-            .with_list_style(div().pt(px(16.)).pb(px(24.)).style().clone())
-            .with_bottom_fade(t::bg())
-            .flex_1()
-            .min_h_0()
-            .into_any_element()
+            div()
+                .flex_1()
+                .min_h_0()
+                .child(super::scroller::ChatScroller::new(
+                    id,
+                    self.shown_rows().scroller.clone(),
+                    move |index, window, cx| {
+                        view.upgrade()
+                            .map(|view| render_row(&view, index, window, cx))
+                            .unwrap_or_else(|| div().into_any_element())
+                    },
+                ))
+                .into_any_element()
         };
         let drill = self.drill.value(now);
         let body = div()
@@ -92,7 +90,8 @@ impl Render for ChatView {
             .opacity(drill)
             .left(px(8. * (1. - drill)))
             .relative()
-            .child(body);
+            .child(body)
+            .children(self.navigator(window, cx));
         let composer = if in_thread {
             self.locked_composer(cx)
         } else {
@@ -103,12 +102,20 @@ impl Render for ChatView {
             .key_context("Chat")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &super::StopChat, _, cx| this.interrupt(cx)))
+            .on_action(cx.listener(|this, _: &super::NewSession, _, cx| this.new_session(cx)))
+            .on_action(
+                cx.listener(|this, _: &super::PreviousMessage, _, cx| this.jump_message(false, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &super::NextMessage, _, cx| this.jump_message(true, cx)),
+            )
             .on_action(cx.listener(|this, _: &super::AllowPending, window, cx| {
                 this.decision_primary(window, cx)
             }))
             .on_action(cx.listener(|this, _: &super::DenyPending, window, cx| {
                 // Esc leaves a subagent's conversation before it denies anything.
-                if this.editing.is_some() {
+                if this.close_lightbox(cx) {
+                } else if this.editing.is_some() {
                     this.cancel_edit(window, cx)
                 } else if this.threads.is_empty() {
                     this.decision_dismiss(cx)
@@ -117,6 +124,7 @@ impl Render for ChatView {
                 }
             }))
             .size_full()
+            .relative()
             .bg(t::bg())
             .children(self.thread_header(cx))
             .child(body)
@@ -130,6 +138,9 @@ impl Render for ChatView {
                 },
             })
             .child(composer)
+            // Files dropped anywhere on the chat, the message field included, attach.
+            .children((!in_thread).then(|| self.drop_target(cx)))
+            .children(self.lightbox(window, cx))
     }
 }
 
@@ -298,8 +309,8 @@ fn render_row(view: &Entity<ChatView>, index: usize, _: &mut Window, cx: &mut Ap
                     .children(entry.markdown.clone()),
             )
             .into_any_element(),
-        Kind::Changes { turn, files, live } => {
-            tools::changes_card(view, this, entry, *turn, files, *live, cx).into_any_element()
+        Kind::Changes { turn, files, epoch } => {
+            tools::changes_card(view, this, entry, *turn, files, *epoch, cx).into_any_element()
         }
         Kind::Subagents(sources) => {
             subagent::group(view, this, rows, entry, sources, cx).into_any_element()
@@ -388,7 +399,7 @@ fn row_separator(label: &'static str) -> Div {
         .child(div().flex_1().h(px(1.)).bg(t::border()))
 }
 
-fn user_bubble(text: String) -> Bubble {
+fn user_bubble(text: impl IntoElement) -> Bubble {
     Bubble::new()
         .alignment(MessageAlignment::End)
         .max_w(relative(0.85))
@@ -425,7 +436,25 @@ fn item_row(
             .items_end()
             .gap(px(4.))
             .group(actions::MESSAGE_GROUP)
-            .child(user_bubble(message.text.clone()))
+            .children(match &entry.markdown {
+                // Attachments mentioned in the text show as badges inside it.
+                Some(markdown) => Some(user_bubble(markdown.clone())),
+                None => (!message.text.is_empty()).then(|| user_bubble(message.text.clone())),
+            })
+            .children(super::attachments::sent_attachments(
+                view,
+                this,
+                entry.key,
+                &message
+                    .attachments
+                    .iter()
+                    .filter(|attachment| {
+                        entry.markdown.is_none()
+                            || !super::attachments::mentioned_in(&message.text, attachment)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            ))
             .child(actions::user_actions(
                 view,
                 this,
@@ -475,6 +504,16 @@ fn item_row(
         Body::Tool(tool) if presentation::is_subagent(tool) => {
             subagent::card(view, this, rows, entry.key, source, tool, cx)
         }
+        Body::Tool(tool) if item.trimmed => column()
+            .child(tool_row(view, this, entry, tool, cx))
+            .child(
+                div()
+                    .pl(px(26.))
+                    .text_size(px(11.))
+                    .text_color(t::faint())
+                    .child("Long output trimmed in saved history"),
+            )
+            .into_any_element(),
         Body::Tool(tool) => tool_row(view, this, entry, tool, cx).into_any_element(),
         Body::Permission(permission) => {
             let asker = live
@@ -840,6 +879,14 @@ fn permission_row(
         (Some(Resolution::KeepPlanning(note)), _) => {
             (IconName::Minus, with_note("Kept planning".to_owned(), note))
         }
+        (Some(Resolution::Expired), _) => (
+            IconName::Minus,
+            with_summary(match permission.kind {
+                PermissionKind::Question => "Question not answered".to_owned(),
+                PermissionKind::Plan => "Plan not answered".to_owned(),
+                PermissionKind::Tool => format!("{tool} request not answered"),
+            }),
+        ),
         (None, Decision::Allowed) => (IconName::Check, with_summary(format!("Allowed {tool}"))),
         (None, Decision::Denied) => (IconName::CircleX, with_summary(format!("Denied {tool}"))),
         (None, _) => (

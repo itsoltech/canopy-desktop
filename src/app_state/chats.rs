@@ -171,18 +171,22 @@ impl Chats {
                 self.open_new(ChatTarget::NoProject, cx);
             }
         }
-        let owner: HashMap<PaneId, WorkspaceId> = app
-            .projects
-            .read(cx)
-            .runtime_workspaces(cx)
+        let chat_panes: HashMap<PaneId, (canopy_desktop::state::workspace::Pane, WorkspaceId)> =
+            app.projects
+                .read(cx)
+                .runtime_workspaces(cx)
+                .iter()
+                .flat_map(|workspace| {
+                    workspace
+                        .all_panes()
+                        .into_iter()
+                        .filter(|pane| pane.metadata.kind == PaneKind::Chat)
+                        .map(move |pane| (pane.id, (pane, workspace.id)))
+                })
+                .collect();
+        let owner: HashMap<PaneId, WorkspaceId> = chat_panes
             .iter()
-            .flat_map(|workspace| {
-                workspace
-                    .all_panes()
-                    .into_iter()
-                    .filter(|pane| pane.metadata.kind == PaneKind::Chat)
-                    .map(move |pane| (pane.id, workspace.id))
-            })
+            .map(|(id, (_, workspace))| (*id, *workspace))
             .collect();
         let removed: Vec<PaneId> = self
             .views
@@ -203,21 +207,48 @@ impl Chats {
         let focused = workspace.active().map(|tab| tab.focused);
         let ready =
             self.agents_ready && app.tools.read(cx).environment.is_some() && !app.git.read(cx).busy;
-        for pane in active.iter().filter(|p| p.metadata.kind == PaneKind::Chat) {
-            if self.views.contains_key(&pane.id) || !ready {
+        // A shown turn diff needs its chat's history, even while the chat's own tab
+        // isn't shown: that chat is created without starting its agent.
+        let diffed: Vec<PaneId> = active
+            .iter()
+            .filter(|p| p.metadata.kind == PaneKind::TurnDiff)
+            .filter_map(|p| {
+                serde_json::from_str::<canopy_desktop::chat::tools::TurnDiffTarget>(
+                    p.metadata.resource.as_deref()?,
+                )
+                .ok()
+            })
+            .map(|target| target.chat)
+            .collect();
+        let shown: Vec<PaneId> = active
+            .iter()
+            .filter(|p| p.metadata.kind == PaneKind::Chat)
+            .map(|p| p.id)
+            .collect();
+        for id in shown.iter().chain(&diffed) {
+            let start = shown.contains(id);
+            if let Some(view) = self.views.get(id) {
+                if start && view.read(cx).dormant() && ready {
+                    view.update(cx, |view, cx| view.start(cx));
+                }
                 continue;
             }
-            let Some(&workspace) = owner.get(&pane.id) else {
+            if !ready {
+                continue;
+            }
+            let Some((pane, workspace)) = chat_panes.get(id) else {
                 continue;
             };
             let view = cx.new(|cx| ChatView::new(pane.clone(), window, cx));
             self.events.insert(
-                pane.id,
+                *id,
                 cx.subscribe(&view, |_, _, _: &ChatStateChanged, cx| cx.notify()),
             );
-            view.update(cx, |view, cx| view.start(cx));
-            self.workspaces.insert(pane.id, workspace);
-            self.views.insert(pane.id, view);
+            if start {
+                view.update(cx, |view, cx| view.start(cx));
+            }
+            self.workspaces.insert(*id, *workspace);
+            self.views.insert(*id, view);
             changed = true;
         }
         for (id, view) in &self.views {
@@ -293,6 +324,13 @@ impl Chats {
     fn retire(&mut self, workspace: WorkspaceId, view: Entity<ChatView>, cx: &mut Context<Self>) {
         let close = view.update(cx, |view, cx| view.close(cx));
         let cwd = view.read(cx).cwd();
+        // Closing a chat deletes it: its saved conversation and attachments go too.
+        if let Some(chat) = view.read(cx).chat_id() {
+            cx.global::<AppState>()
+                .chat_history
+                .clone()
+                .update(cx, |history, cx| history.delete(&chat, cx));
+        }
         let done = Arc::new(AtomicBool::new(false));
         let finished = done.clone();
         let watch = cx.spawn(async move |this, cx| {
@@ -354,6 +392,7 @@ impl Chats {
             mode: defaults.mode.or(profile_mode).unwrap_or_default(),
             // New chats start without remembered permissions.
             allowed: vec![],
+            id: Some(ChatSettings::new_id()),
         };
         let metadata = move |cwd| PaneMetadata {
             cwd: Some(cwd),

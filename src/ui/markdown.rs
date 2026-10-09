@@ -7,8 +7,14 @@ use gpui_kit::{
 };
 use std::{path::PathBuf, sync::Arc};
 
+pub(crate) mod attachment_badge;
 pub(crate) mod file_pill;
 mod highlight;
+
+/// Draws attachment badge `index` at a line's height (a sent message's attachments).
+/// Plugins prepare text off the UI thread, so the renderer is shareable.
+pub(crate) type BadgeRenderer =
+    Arc<dyn Fn(usize, Pixels, &mut Window, &mut App) -> AnyElement + Send + Sync>;
 
 /// Syntax highlighting of a code block outside Markdown (tool previews).
 pub(crate) fn highlight_code(
@@ -54,6 +60,8 @@ pub struct MarkdownView {
     parts: Vec<Part>,
     /// The text each part was last given, so unchanged parts are not re-parsed.
     part_texts: Vec<String>,
+    /// Attachment links become badges drawn by this.
+    badges: Option<BadgeRenderer>,
     _observer: Subscription,
 }
 impl MarkdownView {
@@ -77,6 +85,7 @@ impl MarkdownView {
             prepare: None,
             parts: vec![],
             part_texts: vec![],
+            badges: None,
             _observer: observer,
         }
     }
@@ -104,6 +113,10 @@ impl MarkdownView {
         view.document = true;
         view
     }
+    pub(crate) fn set_badges(&mut self, renderer: BadgeRenderer) {
+        self.badges = Some(renderer);
+    }
+
     /// Streams agent text; the policy is resolved here, outside render.
     pub fn stream(&mut self, source: Arc<str>, cx: &mut Context<Self>) {
         self.stream_fade =
@@ -426,6 +439,11 @@ impl MarkdownView {
             view = view
                 .code_block_actions(|block, _, _| code_header(block))
                 .shared_code_block_highlighter(highlight::shared(cx));
+            if let Some(renderer) = &self.badges {
+                view = view.plugin(attachment_badge::AttachmentBadges {
+                    renderer: renderer.clone(),
+                });
+            }
             if let Some(root) = &self.files {
                 view = view.plugin(file_pill::FilePills {
                     root: root.clone(),

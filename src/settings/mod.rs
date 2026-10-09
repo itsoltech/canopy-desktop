@@ -3,7 +3,7 @@ mod contract;
 mod database;
 mod worker;
 pub use contract::*;
-pub use database::{Access, ImportReport};
+pub use database::{Access, ChatHistoryBatch, ChatHistoryRows, ImportReport};
 use std::fmt;
 pub use worker::SettingsClient;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -19,6 +19,7 @@ pub enum Error {
     InvalidToolCatalog,
     InvalidIntegrations,
     InvalidTaskDrafts,
+    InvalidChatHistory,
     UnsupportedKey,
     InvalidValue(PreferenceKey),
     InvalidToolId,
@@ -47,6 +48,7 @@ impl fmt::Display for Error {
                 f,
                 "Task drafts are invalid or from a newer version; existing data was preserved."
             ),
+            Self::InvalidChatHistory => write!(f, "Chat history is invalid or too large"),
             Self::InvalidIntegrations => {
                 write!(f, "Unsupported or invalid integrations configuration")
             }

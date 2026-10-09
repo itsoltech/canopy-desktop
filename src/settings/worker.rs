@@ -24,6 +24,10 @@ enum Command {
     LoadProjects(Reply<ProjectSnapshot>),
     SaveProjects(ProjectSnapshot, Reply<()>),
     Apply(Vec<Change>, Reply<Snapshot>),
+    SaveChatHistory(Vec<super::ChatHistoryBatch>, Reply<()>),
+    LoadChatHistory(String, Reply<super::ChatHistoryRows>),
+    DeleteChatHistory(String, Reply<()>),
+    RetainChatHistory(Vec<String>, Reply<Vec<String>>),
     Shutdown(Reply<()>),
 }
 
@@ -128,6 +132,18 @@ impl SettingsClient {
                         Command::Apply(changes, reply) => {
                             let _ = reply.send(db.apply(changes));
                         }
+                        Command::SaveChatHistory(batches, reply) => {
+                            let _ = reply.send(db.save_chat_history(batches));
+                        }
+                        Command::LoadChatHistory(chat, reply) => {
+                            let _ = reply.send(db.load_chat_history(&chat));
+                        }
+                        Command::DeleteChatHistory(chat, reply) => {
+                            let _ = reply.send(db.delete_chat_history(&chat));
+                        }
+                        Command::RetainChatHistory(keep, reply) => {
+                            let _ = reply.send(db.retain_chat_history(keep));
+                        }
                         Command::Shutdown(reply) => {
                             drop(db);
                             let _ = reply.send(Ok(()));
@@ -221,6 +237,28 @@ impl SettingsClient {
         }
         let (tx, rx) = oneshot::channel();
         self.enqueue(Command::Apply(changes, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    /// Writes changed chat items in one transaction.
+    pub async fn save_chat_history(&self, batches: Vec<super::ChatHistoryBatch>) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::SaveChatHistory(batches, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    pub async fn load_chat_history(&self, chat: String) -> Result<super::ChatHistoryRows> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::LoadChatHistory(chat, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    pub async fn delete_chat_history(&self, chat: String) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::DeleteChatHistory(chat, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    /// Deletes every saved chat not in `keep`; returns the deleted ids.
+    pub async fn retain_chat_history(&self, keep: Vec<String>) -> Result<Vec<String>> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::RetainChatHistory(keep, tx))?;
         rx.await.map_err(|_| Error::WorkerStopped)?
     }
     /// Completes earlier queued operations and closes SQLite before acknowledging.

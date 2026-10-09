@@ -386,7 +386,7 @@ fn waiting_row(entry: &Entry, waiting: &Waiting, now: Instant, cx: &Context<Chat
                     .tooltip("Open the subagent's conversation")
                     .disabled(!active)
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_thread(call.clone(), window, cx)
+                        this.open_thread(call.clone(), None, window, cx)
                     }))
                     .child(
                         row()

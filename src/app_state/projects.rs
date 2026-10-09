@@ -233,6 +233,7 @@ impl ProjectsState {
                             *state = scratch;
                             cx.notify();
                         });
+                        let restored = reopen && session.is_some();
                         if let Some(session) = session {
                             this.sessions =
                                 session.workspaces.into_iter().map(|w| (w.id, w)).collect();
@@ -245,6 +246,20 @@ impl ProjectsState {
                         this.publish(catalog, cx);
                         this.ready = true;
                         this.enabled = reopen;
+                        // Saved chats whose panes are gone (closed). Only against a restored
+                        // layout: without one, nothing says which chats still exist.
+                        let chats: Vec<String> = this
+                            .runtime_workspaces(cx)
+                            .iter()
+                            .flat_map(|workspace| workspace.all_panes())
+                            .filter_map(|pane| pane.metadata.chat.as_ref()?.id.clone())
+                            .collect();
+                        if restored {
+                            cx.global::<AppState>()
+                                .chat_history
+                                .clone()
+                                .update(cx, |history, cx| history.retain(chats, cx));
+                        }
                         this.last_observed = Some(this.snapshot(cx));
                         if skipped > 0 {
                             this.error = Some(format!("{skipped} folder(s) are unavailable. Saved pane layouts are preserved."));

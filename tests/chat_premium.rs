@@ -81,7 +81,10 @@ fn an_edit_forks_after_the_previous_turn() {
         "a fresh conversation"
     );
     assert_eq!(session.fork_point(second), Some(Some("a1".into())));
-    assert_eq!(session.retry_text().as_deref(), Some("remember BANANA"));
+    assert_eq!(
+        session.retry_draft().map(|d| d.text).as_deref(),
+        Some("remember BANANA")
+    );
     assert!(!session.api_billing(), "a subscription login");
 }
 

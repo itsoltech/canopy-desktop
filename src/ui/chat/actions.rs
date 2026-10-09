@@ -40,12 +40,16 @@ impl ChatView {
         let Some(session) = &mut self.session else {
             return;
         };
-        let Some(text) = session.retry_text() else {
+        let Some(draft) = session.retry_draft() else {
             return;
         };
-        let lines = session.submit(&text);
-        self.write(lines);
-        self.after_change(cx);
+        self.with_images(draft, cx, |this, draft, cx| {
+            if let Some(session) = &mut this.session {
+                let lines = session.submit_draft(draft);
+                this.write(lines);
+            }
+            this.after_change(cx);
+        });
     }
 
     /// Nothing runs, waits or is queued: a message can be sent again or edited.

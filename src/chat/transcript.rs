@@ -1,5 +1,8 @@
 //! Provider-neutral conversation model. Items are only appended or updated in place,
 //! so a view can splice/remeasure exactly the rows reported by `take_changes`.
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -17,6 +20,9 @@ pub struct Item {
     /// Tool call that spawned this item (subagent output); `None` for the main thread.
     pub parent: Option<String>,
     pub body: Body,
+    /// The saved copy left out parts too large to keep (long outputs, big inputs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trimmed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -37,6 +43,49 @@ pub struct UserMessage {
     /// The uuid it was sent with: files are restored and conversations forked by it.
     #[serde(default)]
     pub uuid: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
+}
+
+/// Something sent along with a user message.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Attachment {
+    /// A picture the model sees. `file` names it in the chat's attachment folder; the
+    /// encoded data is held only in memory, for sending.
+    Image {
+        file: String,
+        media_type: String,
+        width: u32,
+        height: u32,
+        #[serde(skip)]
+        data: Option<Arc<str>>,
+        /// Its mention in the message text (`[shot.png (120 KB)]`), shown as a badge.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
+    /// A file or folder the agent reads itself.
+    Path {
+        path: PathBuf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
+}
+impl Attachment {
+    pub fn is_image(&self) -> bool {
+        matches!(self, Self::Image { .. })
+    }
+    /// Its mention in the message text, if it has one.
+    pub fn label(&self) -> Option<&str> {
+        match self {
+            Self::Image { label, .. } | Self::Path { label, .. } => label.as_deref(),
+        }
+    }
+    pub fn with_label(mut self, text: impl Into<String>) -> Self {
+        match &mut self {
+            Self::Image { label, .. } | Self::Path { label, .. } => *label = Some(text.into()),
+        }
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +195,8 @@ pub enum Resolution {
         accept_edits: bool,
     },
     KeepPlanning(Option<String>),
+    /// Never answered: the chat ended (Canopy closed) while it waited.
+    Expired,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,6 +280,30 @@ pub struct Transcript {
     changes: Vec<Change>,
 }
 impl Transcript {
+    /// A transcript holding saved items (ids ascending); new items and turns continue
+    /// after them. Every item is reported as inserted.
+    pub fn restore(items: Vec<Item>) -> Self {
+        Self::restore_after(items, 0)
+    }
+    /// `restore`, with new item ids also after `floor` (ids of rows kept but unread).
+    pub fn restore_after(items: Vec<Item>, floor: u64) -> Self {
+        let next_item = items
+            .iter()
+            .map(|item| item.id.0)
+            .max()
+            .unwrap_or(0)
+            .max(floor);
+        let next_turn = items.iter().map(|item| item.turn.0).max().unwrap_or(0);
+        let changes = (0..items.len()).map(Change::Inserted).collect();
+        Self {
+            current: items.last().map(|item| item.turn).unwrap_or_default(),
+            revision: items.len() as u64,
+            items,
+            next_item,
+            next_turn,
+            changes,
+        }
+    }
     pub fn items(&self) -> &[Item] {
         &self.items
     }
@@ -259,6 +334,7 @@ impl Transcript {
             turn,
             parent,
             body,
+            trimmed: false,
         });
         let index = self.items.len() - 1;
         self.record(Change::Inserted(index));
@@ -330,6 +406,23 @@ mod tests {
             }
         });
         assert_eq!(transcript.take_changes(), [Change::Updated(0)]);
+    }
+
+    #[test]
+    fn a_restored_transcript_continues_its_ids() {
+        let mut saved = Transcript::default();
+        let turn = saved.allocate_turn();
+        saved.push_in(turn, None, text("a"));
+        saved.push_in(turn, None, text("b"));
+        let mut restored = Transcript::restore(saved.items().to_vec());
+        assert_eq!(
+            restored.take_changes(),
+            [Change::Inserted(0), Change::Inserted(1)]
+        );
+        assert_eq!(restored.allocate_turn(), TurnId(2));
+        let index = restored.push(None, text("c"));
+        assert_eq!(restored.items()[index].id, ItemId(3));
+        assert_eq!(restored.position(ItemId(3)), Some(2));
     }
 
     #[test]

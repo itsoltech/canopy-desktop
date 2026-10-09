@@ -12,11 +12,12 @@ use canopy_desktop::{
     chat::{
         claude::wire::{self, Inbound},
         config::{ChatSettings, Effort, Mode},
+        history::{Boundary, EpochMeta, Saved, SavedEpoch},
         launch::{HookConfig, fork_at, prepare_claude},
         presentation,
         process::{Event, Process},
         session::{ChatSession, QueuedId, Status},
-        transcript::Body,
+        transcript::{Body, Change, Transcript},
     },
     motion::{self, Transition, TransitionSpec},
     state::workspace::Pane,
@@ -31,7 +32,6 @@ use std::{
 
 pub struct ChatStateChanged;
 
-pub(super) const RESTARTED: &str = "Session restarted";
 impl EventEmitter<ChatStateChanged> for ChatView {}
 
 /// An opened subagent conversation (read-only), stacked for nested subagents.
@@ -39,6 +39,14 @@ pub(super) struct Thread {
     pub call: String,
     pub title: String,
     pub rows: Rows,
+    /// From an earlier session: complete, nothing more arrives.
+    pub archived: bool,
+}
+
+/// The chat's saved conversation, read once when the view is created.
+pub(super) enum History {
+    Loading(#[allow(dead_code)] Task<()>),
+    Loaded,
 }
 
 /// One in-flight shutdown shared by every caller (pane close, Stop worktree, quit).
@@ -98,13 +106,30 @@ pub struct ChatView {
     /// The next start forks the session after this message (an edit).
     pub(super) fork_at: Option<String>,
     /// Sent as soon as the next session starts (the edited message).
-    pub(super) send_on_start: Option<String>,
+    pub(super) send_on_start: Option<canopy_desktop::chat::session::Draft>,
+    pub(super) attachments: super::attachments::Attachments,
+    pub(super) navigator: super::navigator::Navigator,
     /// Separator shown above the replaced session at the next start.
-    pub(super) separator: &'static str,
+    pub(super) boundary: Boundary,
+    /// Number of the running session in the chat's saved history.
+    pub(super) epoch: u64,
+    pub(super) history: History,
+    /// The last saved session, continued by the first start.
+    restored: Option<SavedEpoch>,
+    /// Said in the conversation at the first start (history that couldn't be read).
+    history_note: Option<String>,
+    /// Restored items already saved: their insertion isn't written again.
+    pub(super) history_skip: usize,
+    /// The saved history couldn't be read: nothing is written over it.
+    pub(super) history_off: bool,
+    /// Ids of saved rows that couldn't be read (a newer version): new ones go after.
+    item_floor: u64,
+    /// `start` was asked for while the history was loading.
+    start_waiting: bool,
     /// Redraws while a retry or limit countdown is shown.
     ticker: Option<Task<()>>,
     /// The edited message sent at start, until the session is up (back on failure).
-    edit_recovery: Option<String>,
+    edit_recovery: Option<canopy_desktop::chat::session::Draft>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -136,8 +161,30 @@ impl ChatView {
                 _ => {}
             },
         );
-        let settings = pane.metadata.chat.as_deref().cloned().unwrap_or_default();
+        let mut settings = pane.metadata.chat.as_deref().cloned().unwrap_or_default();
         let resumed = pane.metadata.resume_id.is_some();
+        let history = match settings.id.clone() {
+            Some(chat) => {
+                let load = cx
+                    .global::<AppState>()
+                    .chat_history
+                    .clone()
+                    .update(cx, |history, cx| history.load(&chat, cx));
+                History::Loading(cx.spawn(async move |this, cx| {
+                    let saved = load.await;
+                    let _ = this.update(cx, |this, cx| this.restore_history(saved, cx));
+                }))
+            }
+            None => {
+                // A chat from before saved history: it gets an id now.
+                settings.id = Some(ChatSettings::new_id());
+                let this = cx.entity().downgrade();
+                cx.defer(move |cx| {
+                    let _ = this.update(cx, |this, cx| this.persist(None, cx));
+                });
+                History::Loaded
+            }
+        };
         Self {
             settings,
             session: None,
@@ -150,7 +197,9 @@ impl ChatView {
             start_task: None,
             pump: None,
             closing: None,
-            rows: Rows::new(cx).in_folder(files_root(&pane)),
+            rows: Rows::new(cx)
+                .in_folder(files_root(&pane))
+                .with_badges(super::attachments::badge_factory(cx.entity().downgrade())),
             threads: vec![],
             drill: Transition::new(1., Instant::now()),
             queue: QueueBar::default(),
@@ -173,7 +222,17 @@ impl ChatView {
             editing: None,
             fork_at: None,
             send_on_start: None,
-            separator: RESTARTED,
+            attachments: Default::default(),
+            navigator: Default::default(),
+            boundary: Boundary::Restarted,
+            epoch: 0,
+            history,
+            restored: None,
+            history_note: None,
+            history_skip: 0,
+            history_off: false,
+            item_floor: 0,
+            start_waiting: false,
             ticker: None,
             edit_recovery: None,
             _subscriptions: vec![subscription],
@@ -183,6 +242,91 @@ impl ChatView {
 
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
         self.pane.metadata.cwd.clone()
+    }
+    /// Identifies the chat's saved history.
+    pub fn chat_id(&self) -> Option<String> {
+        self.settings.id.clone()
+    }
+    /// Created only to show its history (a turn diff): the agent hasn't started.
+    pub fn dormant(&self) -> bool {
+        self.session.is_none() && !self.starting && !self.closed && self.error.is_none()
+    }
+
+    /// Shows the saved conversation: earlier sessions above their separators, the last
+    /// one continued by the agent at start.
+    fn restore_history(&mut self, saved: Result<Saved, String>, cx: &mut Context<Self>) {
+        self.history = History::Loaded;
+        let chat = self.settings.id.clone();
+        let saved = match saved {
+            Ok(saved) => saved,
+            Err(error) => {
+                // What is saved stays as it is; this run of the chat isn't saved.
+                self.history_off = true;
+                self.history_note = Some(format!(
+                    "Earlier messages couldn't be loaded ({error}); this conversation isn't saved."
+                ));
+                Saved::default()
+            }
+        };
+        self.item_floor = saved.floor.unwrap_or(0);
+        if saved.lost > 0 {
+            self.history_note = Some(format!(
+                "{} saved {} couldn't be read.",
+                saved.lost,
+                if saved.lost == 1 { "entry" } else { "entries" }
+            ));
+        }
+        let mut epochs = saved.epochs;
+        let last = epochs.pop();
+        let history = cx.global::<AppState>().chat_history.clone();
+        let settle = |epoch: &mut SavedEpoch, cx: &mut Context<Self>| {
+            let changed = canopy_desktop::chat::history::settle(&mut epoch.items);
+            if let Some(chat) = &chat
+                && !changed.is_empty()
+            {
+                let items: Vec<_> = changed.iter().map(|&i| epoch.items[i].clone()).collect();
+                let index = epoch.index;
+                history.update(cx, |history, cx| {
+                    history.record(chat, index, None, items, false, cx)
+                });
+            }
+        };
+        for position in 0..epochs.len() {
+            let below = epochs
+                .get(position + 1)
+                .or(last.as_ref())
+                .and_then(|next| next.meta.before)
+                .unwrap_or(Boundary::Restarted);
+            let epoch = &mut epochs[position];
+            settle(epoch, cx);
+            let images = images_in(epoch.items.iter());
+            self.load_previews(images, cx);
+            let transcript = Transcript::restore(std::mem::take(&mut epoch.items));
+            self.rows
+                .restore(transcript, epoch.index, below.label(), cx);
+        }
+        if let Some(mut last) = last {
+            settle(&mut last, cx);
+            self.epoch = last.index;
+            self.restored = Some(last);
+            // The conversation is on screen; nothing is missing anymore.
+            self.resumed = false;
+        }
+        // Sessions kept for a newer version: this run starts after them.
+        if let Some(unread) = saved.last_epoch.filter(|&unread| unread >= self.epoch) {
+            self.epoch = unread + 1;
+            if let Some(last) = self.restored.take() {
+                // Its rows stay saved, but it's not continued after a newer one.
+                let transcript = Transcript::restore(last.items);
+                self.rows
+                    .restore(transcript, last.index, Boundary::Restarted.label(), cx);
+            }
+        }
+        if std::mem::take(&mut self.start_waiting) {
+            self.start(cx);
+        }
+        cx.emit(ChatStateChanged);
+        cx.notify();
     }
     pub fn status(&self) -> Option<&Status> {
         self.session.as_ref().map(ChatSession::status)
@@ -231,6 +375,10 @@ impl ChatView {
         if self.closed || self.starting || !self.closing_done() || self.process.is_some() {
             return;
         }
+        if matches!(self.history, History::Loading(_)) {
+            self.start_waiting = true;
+            return;
+        }
         let app = cx.global::<AppState>().clone();
         // Fresh launch identity: resume id and account may have changed since creation.
         if let Some(pane) = app
@@ -260,15 +408,17 @@ impl ChatView {
         self.threads.clear();
         // Unsent messages survive Restart and wait for the user again.
         let mut queued = vec![];
+        let replaced = self.session.is_some();
         if let Some(session) = &mut self.session {
             queued = session.take_queue();
-            let transcript = session.transcript();
-            self.rows.archive(transcript, self.separator, cx);
+            let transcript = session.take_transcript();
+            self.rows
+                .archive(transcript, self.epoch, self.boundary.label(), cx);
         }
-        self.separator = RESTARTED;
+        let boundary = std::mem::replace(&mut self.boundary, Boundary::Restarted);
         // An open edit belongs to the session being replaced; its draft comes back.
         if let Some(editing) = self.editing.take() {
-            self.restore_text(editing.draft);
+            self.restore_draft(editing.draft, cx);
         }
         // Forking needs the session it continues.
         let fork = self
@@ -281,21 +431,48 @@ impl ChatView {
         self.starting = true;
         let (mut session, mut lines) = ChatSession::with_settings(self.settings.clone());
         session.restore_queue(queued);
-        session.set_base(
-            if fork.is_some() || self.pane.metadata.resume_id.is_some() {
-                canopy_desktop::chat::session::Base::Continued
-            } else {
-                canopy_desktop::chat::session::Base::Fresh
-            },
-        );
-        if let Some(text) = self.send_on_start.take() {
+        let continued = fork.is_some() || self.pane.metadata.resume_id.is_some();
+        let restored = self.restored.take().filter(|_| !replaced);
+        let meta = match &restored {
+            // The saved session goes on: it keeps how it began.
+            Some(epoch) => epoch.meta.clone(),
+            None => {
+                if replaced {
+                    self.epoch += 1;
+                }
+                // New sessions start at item 1 again: no unread rows to land on.
+                self.item_floor = 0;
+                EpochMeta {
+                    before: replaced.then_some(boundary),
+                    continued,
+                }
+            }
+        };
+        session.set_base(meta.base());
+        if let Some(epoch) = restored {
+            self.history_skip = epoch.items.len();
+            session.restore_history_after(epoch.items, self.item_floor);
+        } else if let Some(chat) = self.settings.id.as_ref().filter(|_| !self.history_off) {
+            let epoch = self.epoch;
+            app.chat_history.update(cx, |history, cx| {
+                history.record(chat, epoch, Some(meta), [], false, cx)
+            });
+        }
+        if let Some(note) = self.history_note.take() {
+            // Said once, not saved.
+            self.history_skip = session.transcript().items().len() + 1;
+            session.note(note);
+        }
+        if let Some(draft) = self.send_on_start.take() {
             // Held until initialize, then sent as the new branch's first message; kept
             // to give back if the start fails.
-            lines.extend(session.submit(&text));
-            self.edit_recovery = Some(text);
+            lines.extend(session.submit_draft(draft.clone()));
+            self.edit_recovery = Some(draft);
         }
         self.session = Some(session);
         self.outbox = lines;
+        // Restored history shows before the agent answers anything.
+        self.after_change(cx);
         let registration = match app
             .agents
             .update(cx, |agents, cx| agents.register(self.pane.clone(), cx))
@@ -379,8 +556,8 @@ impl ChatView {
     fn fail_start(&mut self, error: String, cx: &mut Context<Self>) {
         self.starting = false;
         self.error = Some(error);
-        if let Some(text) = self.edit_recovery.take() {
-            self.restore_text(text);
+        if let Some(draft) = self.edit_recovery.take() {
+            self.restore_draft(draft, cx);
         }
         self.outbox.clear();
         // The session never started: end it so the composer stops accepting messages.
@@ -464,6 +641,7 @@ impl ChatView {
         let mut settings = session.settings().clone();
         // Rules remembered for the chat live in its settings, not the session's.
         settings.allowed = self.settings.allowed.clone();
+        settings.id = self.settings.id.clone();
         settings.allow(session.take_remembered());
         let policy = motion::policy(cx);
         let session = self.session.as_ref().expect("session");
@@ -475,11 +653,16 @@ impl ChatView {
             waiting_subagents(transcript, &self.rows, self.pane.metadata.cwd.as_deref())
         };
         self.rows.sync(transcript, &changes, thinking, policy, cx);
-        for thread in &mut self.threads {
+        for thread in self.threads.iter_mut().filter(|thread| !thread.archived) {
             let thinking = thread_thinking(transcript, &thread.call);
             thread.rows.sync(transcript, &changes, thinking, policy, cx);
         }
+        let images = images_in(changes.iter().filter_map(|change| match *change {
+            Change::Inserted(index) | Change::Updated(index) => transcript.get(index),
+        }));
         self.queue.sync(&waiting, session.queue(), policy);
+        self.save_history(&changes, cx);
+        self.load_previews(images, cx);
         self.sync_decision(policy, cx);
         self.report_decision(cx);
         self.sync_edit(cx);
@@ -505,6 +688,38 @@ impl ChatView {
         self.resolve_tool_files(files, cx);
         self.save_session(cx);
         cx.notify();
+    }
+
+    /// Hands changed items to the chat's saved history.
+    fn save_history(&mut self, changes: &[Change], cx: &mut Context<Self>) {
+        let skip = std::mem::take(&mut self.history_skip);
+        let (Some(chat), Some(session)) = (&self.settings.id, &self.session) else {
+            return;
+        };
+        if self.history_off {
+            return;
+        }
+        let transcript = session.transcript();
+        let items: Vec<_> = changes
+            .iter()
+            .filter_map(|change| match *change {
+                Change::Inserted(index) if index < skip => None,
+                Change::Inserted(index) | Change::Updated(index) => transcript.get(index).cloned(),
+            })
+            .collect();
+        if items.is_empty() {
+            return;
+        }
+        let urgent = items
+            .iter()
+            .any(|item| matches!(item.body, Body::TurnEnd(_)));
+        let epoch = self.epoch;
+        cx.global::<AppState>()
+            .chat_history
+            .clone()
+            .update(cx, |history, cx| {
+                history.record(chat, epoch, None, items, urgent, cx)
+            });
     }
 
     /// Records the provider session for resume once the conversation has a message;
@@ -579,20 +794,42 @@ impl ChatView {
     }
 
     pub(super) fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.composer.read(cx).value().to_string();
+        let draft = self.composer_draft(cx);
+        if self.attachments_blocked(cx)
+            || (draft.text.trim().is_empty() && draft.attachments.is_empty())
+            || self.session.as_ref().is_none_or(|s| s.status().ended())
+        {
+            return;
+        }
+        if canopy_desktop::chat::attachments::needs_data(&draft.attachments) {
+            // Saved images are read again first; the composer empties once they are.
+            self.with_images(draft, cx, |this, draft, cx| {
+                this.attachments.pending.clear();
+                this.decision.composer = Some(super::decision::ComposerChange {
+                    text: Some(String::new().into()),
+                    placeholder: super::decision::COMPOSER_PLACEHOLDER,
+                });
+                this.send_draft(draft, cx)
+            });
+        } else {
+            self.clear_composer(window, cx);
+            self.send_draft(draft, cx);
+        }
+    }
+
+    fn send_draft(&mut self, draft: canopy_desktop::chat::session::Draft, cx: &mut Context<Self>) {
+        let title = if draft.text.trim().is_empty() {
+            "Image".to_owned()
+        } else {
+            presentation::title(&draft.text)
+        };
         let Some(session) = &mut self.session else {
             return;
         };
-        if text.trim().is_empty() || session.status().ended() {
-            return;
-        }
-        let lines = session.submit(&text);
+        let lines = session.submit_draft(draft);
         self.write(lines);
-        self.composer
-            .update(cx, |state, cx| state.clean(window, cx));
         if !self.sent_any {
             self.sent_any = true;
-            let title = presentation::title(&text);
             cx.global::<AppState>()
                 .projects
                 .clone()
@@ -608,21 +845,31 @@ impl ChatView {
         self.after_change(cx);
     }
 
-    /// Sessions this pane had before the running one (each Restart adds one).
-    pub fn session_epoch(&self) -> u64 {
-        self.rows.archived.len() as u64
-    }
-
-    /// Files the agent changed in `turn` of the running session.
+    /// Files the agent changed in `turn` of session `session` (running or earlier).
     pub fn turn_changes(
         &self,
         session: u64,
         turn: u64,
     ) -> Option<Vec<canopy_desktop::chat::tools::FileChange>> {
-        if session != self.session_epoch() {
-            return None;
-        }
-        let transcript = self.session.as_ref()?.transcript();
+        let restored;
+        let transcript = if session == self.epoch {
+            match (&self.session, &self.restored) {
+                (Some(session), _) => session.transcript(),
+                // Not started yet (shown for a turn diff): the saved session.
+                (None, Some(saved)) => {
+                    restored = Transcript::restore(saved.items.clone());
+                    &restored
+                }
+                (None, None) => return None,
+            }
+        } else {
+            &self
+                .rows
+                .archived
+                .iter()
+                .find(|archived| archived.epoch == session)?
+                .transcript
+        };
         let turn = canopy_desktop::chat::transcript::TurnId(turn);
         transcript
             .items()
@@ -634,12 +881,13 @@ impl ChatView {
     /// Opens (or reuses) the pane with `turn`'s changes, scrolled to `file`.
     pub(super) fn open_turn_diff(
         &mut self,
+        epoch: Option<u64>,
         turn: u64,
         file: Option<std::path::PathBuf>,
         cx: &mut Context<Self>,
     ) {
         use canopy_desktop::state::workspace::{PaneKind, PaneMetadata};
-        let epoch = self.session_epoch();
+        let epoch = epoch.unwrap_or(self.epoch);
         let target = canopy_desktop::chat::tools::TurnDiffTarget {
             chat: self.pane.id,
             session: epoch,
@@ -718,25 +966,46 @@ impl ChatView {
     }
 
     /// Opens the conversation of the subagent run by tool call `call`.
+    /// `archived`: position of an earlier session in the shown rows.
     pub(super) fn open_thread(
         &mut self,
         call: String,
+        archived: Option<usize>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(session) = &self.session else {
-            return;
+        let earlier = match archived {
+            Some(position) => match self.shown_rows().archived.get(position) {
+                Some(archived) => Some(archived.clone()),
+                None => return,
+            },
+            None => None,
         };
-        let transcript = session.transcript();
+        let transcript = match (&earlier, &self.session) {
+            (Some(archived), _) => &archived.transcript,
+            (None, Some(session)) => session.transcript(),
+            (None, None) => return,
+        };
         let Some(title) = transcript.items().iter().find_map(|item| match &item.body {
             Body::Tool(tool) if tool.call_id == call => Some(presentation::subagent_title(tool)),
             _ => None,
         }) else {
             return;
         };
-        let thinking = thread_thinking(transcript, &call);
-        let rows = Rows::thread(&call, transcript, thinking, files_root(&self.pane), cx);
-        self.threads.push(Thread { call, title, rows });
+        let cwd = files_root(&self.pane);
+        let rows = match &earlier {
+            Some(archived) => Rows::archived_thread(&call, archived.clone(), cwd, cx),
+            None => {
+                let thinking = thread_thinking(transcript, &call);
+                Rows::thread(&call, transcript, thinking, cwd, cx)
+            }
+        };
+        self.threads.push(Thread {
+            call,
+            title,
+            rows,
+            archived: archived.is_some(),
+        });
         self.restart_drill(cx);
         // The composer is locked; Esc and ⌘. still reach the pane.
         self.focus.focus(window, cx);
@@ -773,16 +1042,20 @@ impl ChatView {
             self.decision_primary(window, cx);
             return;
         }
-        let text = self.composer.read(cx).value().to_string();
-        if !text.trim().is_empty() {
+        let draft = self.composer_draft(cx);
+        if !draft.text.trim().is_empty() || !draft.attachments.is_empty() {
+            if self.attachments_blocked(cx) {
+                return;
+            }
             if self.is_working() {
-                if let Some(session) = &mut self.session {
-                    let lines = session.steer_text(&text);
-                    self.write(lines);
-                    self.composer
-                        .update(cx, |state, cx| state.clean(window, cx));
-                    self.after_change(cx);
-                }
+                self.clear_composer(window, cx);
+                self.with_images(draft, cx, |this, draft, cx| {
+                    if let Some(session) = &mut this.session {
+                        let lines = session.steer_draft(draft);
+                        this.write(lines);
+                    }
+                    this.after_change(cx);
+                });
             } else {
                 self.submit(window, cx);
             }
@@ -820,20 +1093,15 @@ impl ChatView {
     /// Moves a queued message back into the message field; a draft there takes its
     /// place at the end of the queue, so nothing typed is lost.
     pub(super) fn edit(&mut self, id: QueuedId, window: &mut Window, cx: &mut Context<Self>) {
-        let draft = self.composer.read(cx).value().to_string();
+        let draft = self.composer_draft(cx);
         let Some(session) = &mut self.session else {
             return;
         };
-        let Some(text) = session.edit(id) else {
+        let Some(queued) = session.edit(id) else {
             return;
         };
-        if !draft.trim().is_empty() {
-            session.enqueue_draft(&draft);
-        }
-        self.composer.update(cx, |state, cx| {
-            state.set_value(text, window, cx);
-            state.focus(window, cx);
-        });
+        session.enqueue_draft(draft);
+        self.set_composer_draft(queued, window, cx);
         self.after_change(cx);
     }
 
@@ -991,7 +1259,9 @@ impl ChatView {
                     return;
                 }
                 this.session = None;
-                this.rows = Rows::new(cx).in_folder(files_root(&this.pane));
+                this.rows = Rows::new(cx)
+                    .in_folder(files_root(&this.pane))
+                    .with_badges(super::attachments::badge_factory(cx.entity().downgrade()));
                 this.threads.clear();
                 this.queue.clear();
                 this.start(cx);
@@ -1046,6 +1316,48 @@ impl ChatView {
             .settings
             .clone()
             .update(cx, |settings, cx| settings.remember(changes, cx));
+    }
+
+    /// Nothing runs, waits or is being edited, and there is a conversation to leave.
+    pub fn can_new_session(&self) -> bool {
+        self.session.is_some()
+            && !self.starting
+            && !self.switching
+            && !self.closed
+            && !self.is_working()
+            && self.decision.active().is_none()
+            && self.editing.is_none()
+            && self.rows.has_items()
+    }
+
+    /// Starts a new conversation in this chat with the same account and choices. The
+    /// agent no longer remembers the earlier one, which stays above a "New session"
+    /// separator; unsent messages wait for the new conversation.
+    pub fn new_session(&mut self, cx: &mut Context<Self>) {
+        if !self.can_new_session() {
+            return;
+        }
+        self.switching = true;
+        self.fork_at = None;
+        let pane = self.pane.id;
+        self.pane.metadata.resume_id = None;
+        cx.global::<AppState>()
+            .projects
+            .clone()
+            .update(cx, |projects, cx| projects.forget_chat_session(pane, cx));
+        let stop = self.shutdown(cx);
+        cx.spawn(async move |this, cx| {
+            let _ = stop.await;
+            let _ = this.update(cx, |this, cx| {
+                this.switching = false;
+                if !this.closed {
+                    this.boundary = Boundary::NewSession;
+                    this.start(cx);
+                }
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     pub(super) fn restart(&mut self, cx: &mut Context<Self>) {
@@ -1192,6 +1504,21 @@ fn file_tools(
                 _ => None,
             }
         })
+        .collect()
+}
+
+/// Images sent in user messages among `items`.
+fn images_in<'a>(
+    items: impl Iterator<Item = &'a canopy_desktop::chat::transcript::Item>,
+) -> Vec<canopy_desktop::chat::transcript::Attachment> {
+    items
+        .filter_map(|item| match &item.body {
+            Body::User(message) => Some(message.attachments.iter()),
+            _ => None,
+        })
+        .flatten()
+        .filter(|attachment| attachment.is_image())
+        .cloned()
         .collect()
 }
 

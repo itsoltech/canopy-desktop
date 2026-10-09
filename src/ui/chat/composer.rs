@@ -29,6 +29,7 @@ impl ChatView {
         self.apply_composer_change(window, cx);
         let working = self.is_working();
         let deciding = self.decision.active().is_some();
+        self.insert_badges(window, cx);
         let empty = self.composer.read(cx).value().trim().is_empty();
         let ended = self.status().is_some_and(|status| status.ended());
         centered(
@@ -46,14 +47,33 @@ impl ChatView {
                         cx.stop_propagation();
                     }
                 }))
-                .child(
+                .child({
+                    let view = cx.entity().downgrade();
+                    let badges = view.clone();
+                    let clicks = view.clone();
                     Textarea::new(&self.composer)
                         .appearance(false)
                         .disabled(ended)
                         .w_full()
                         .text_size(px(14.))
-                        .px(px(4.)),
-                )
+                        .px(px(4.))
+                        // Images and copied files become attachments, not text.
+                        .on_paste(move |item, _, cx| {
+                            view.update(cx, |this, cx| this.paste(item, cx))
+                                .unwrap_or(false)
+                        })
+                        // Attachments are badges in the text.
+                        .token(move |context, _, cx| {
+                            badges
+                                .upgrade()
+                                .map(|view| view.read(cx).badge(context))
+                                .unwrap_or_else(|| div().into_any_element())
+                        })
+                        .on_token_click(move |event, _, cx| {
+                            let _ = clicks.update(cx, |this, cx| this.badge_clicked(event, cx));
+                        })
+                })
+                .children(self.attachment_errors(cx))
                 .child(
                     row()
                         .w_full()
@@ -62,13 +82,55 @@ impl ChatView {
                         .children(self.effort_picker(cx))
                         .child(self.mode_picker(cx))
                         .children(super::actions::context_ring(self))
+                        .children(self.rows.has_items().then(|| {
+                            Button::new("chat-new-session")
+                                .ghost()
+                                .compact()
+                                .size(px(26.))
+                                .min_w(px(26.))
+                                .max_w(px(26.))
+                                .min_h(px(26.))
+                                .max_h(px(26.))
+                                .p_0()
+                                .rounded(px(13.))
+                                .border_0()
+                                .accessibility_label("New session")
+                                .tooltip(
+                                    "New session (⌘K) — the agent starts without this conversation",
+                                )
+                                .disabled(!self.can_new_session())
+                                .child(custom_icon("square-pen").size(px(14.)))
+                                .on_click(cx.listener(|this, _, _, cx| this.new_session(cx)))
+                        }))
                         .child(div().flex_1())
                         .child(super::dev_bench::button(cx, ended)) // dev_bench
+                        .child(
+                            Button::new("chat-attach")
+                                .ghost()
+                                .compact()
+                                .size(px(26.))
+                                .min_w(px(26.))
+                                .max_w(px(26.))
+                                .min_h(px(26.))
+                                .max_h(px(26.))
+                                .p_0()
+                                .rounded(px(13.))
+                                .border_0()
+                                .accessibility_label("Attach images or files")
+                                .tooltip("Attach images or files")
+                                .disabled(ended)
+                                .child(custom_icon("paperclip").size(px(14.)))
+                                .on_click(cx.listener(|this, _, _, cx| this.pick_attachments(cx))),
+                        )
                         .children(deciding.then(|| self.decision_buttons(empty, cx)))
                         // While a request waits, its own buttons answer it; ⌘. still stops.
-                        .children(
-                            (!deciding).then(|| self.action_button(working, empty || ended, cx)),
-                        ),
+                        .children((!deciding).then(|| {
+                            self.action_button(
+                                working,
+                                empty || ended || self.attachments_blocked(cx),
+                                cx,
+                            )
+                        })),
                 ),
         )
         .pt(px(4.))

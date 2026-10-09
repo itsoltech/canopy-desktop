@@ -145,8 +145,8 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 - Proces zawsze startuje z `--allow-dangerously-skip-permissions`, żeby Yolo dało się
   wybrać w dowolnym momencie; samo to nie omija zgód.
 - Restart w pane'ie zachowuje wiersze poprzedniej sesji nad separatorem „Session
-  restarted”. Po restarcie aplikacji czat wznawia sesję (`--resume <uuid>` z hooków),
-  ale historii jeszcze nie pokazuje (etap 6).
+  restarted”. Po restarcie aplikacji czat pokazuje zapisaną historię i wznawia sesję
+  (`--resume <uuid>`) — etap 6.
 - Skróty (kontekst `Chat`): Enter wysyła, Shift+Enter nowa linia, ⌘. przerywa turę.
 
 ## Etap 2b: kolejka, subagenci, kod i pliki
@@ -160,9 +160,9 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   jest kartą (`src/ui/chat/subagent.rs`) ze stanem, licznikiem narzędzi i ostatnią
   aktywnością. Klik otwiera rozmowę subagenta w tym samym pane'ie (`Rows::thread`:
   prompt zadania, jego elementy, raport), z zablokowanym polem; Back/Esc wraca do miejsca
-  przewinięcia (osobne `MessageScrollerState`). Zgoda subagenta jest w głównej rozmowie
-  z etykietą „Subagent · …” i w jego wątku. Rozmowy subagentów poprzednich sesji (Restart)
-  nie są dostępne.
+  przewinięcia (osobne `ChatScrollerState`). Zgoda subagenta jest w głównej rozmowie
+  z etykietą „Subagent · …” i w jego wątku. Rozmowy subagentów poprzednich sesji (Restart,
+  Edit, New session, sprzed restartu aplikacji) otwierają się z zachowanego transkryptu.
 - Bloki kodu: współdzielony highlighter (`src/ui/markdown/highlight.rs`) normalizuje tagi
   (`Rust`, `TS`, `zsh`, `jsx`/`tsx` → JS/TS) przed gramatykami GPUI Kit; nieobsługiwane
   języki zostają bez kolorów. Karta z ramką, w prawym górnym rogu język i Copy.
@@ -175,7 +175,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 ## Ograniczenia etapu 1
 
 - (etap 1) Brak UI i persist/restore — dostarczone w etapie 2; zapis transkryptu
-  do SQLite nadal w etapie 6.
+  do SQLite — etap 6.
 - Thinking jest modelowany, ale CLI wysyła treść tylko przy włączonym wyświetlaniu
   podsumowań (`--thinking-display`); decyzja o fladze należy do etapu narzędzi/thinking.
 - AskUserQuestion jest rozpoznawane (`PermissionKind::Question`), ale odpowiedzi
@@ -210,8 +210,9 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   Read poza renderem); diff Edit/Write rozwinięty, 12 linii + „Show more”.
 - `turn_changes` składa zmiany Edit/Write tury (z subagentami) per plik; wiersz
   `Kind::Changes` po końcu tury z drzewem folderów i „Open diff” → `PaneKind::TurnDiff`
-  (`TurnDiffTarget` w `resource`). Widok czyta transkrypt żywej sesji; po restarcie
-  pokazuje „no longer available” (historia — etap 6). Zmiany przez Bash nie są liczone.
+  (`TurnDiffTarget` w `resource`, `session` = numer epoki). Widok czyta transkrypt sesji
+  (żywej, wcześniejszej albo zapisanej — etap 6) — to zapis tego, co zrobił agent, nie stan
+  dysku. Zmiany przez Bash nie są liczone.
 - Thinking: proces startuje z `--thinking-display summarized` (zastrzeżone w profilu);
   wiersz „Thinking…” na żywo, po końcu zwinięty do „Thought for Ns” (czas mierzony w widoku).
 - „Worked for …”: po `TurnEnd` z `Outcome::Completed` `Rows::fold_turn` oznacza pierwszy wiersz
@@ -249,7 +250,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 
 - Akcje przy wiadomościach (`src/ui/chat/actions.rs`), widoczne na hover wiersza (`group_hover`):
   Copy (✓ przez 1,5 s), Edit przy wiadomości użytkownika (gdy nic nie pracuje), Retry przy ostatniej
-  odpowiedzi (`ChatSession::retry_text`), metryki tury z `TurnEnd` (czas, tokeny; kwota tylko gdy
+  odpowiedzi (`ChatSession::retry_draft`), metryki tury z `TurnEnd` (czas, tokeny; kwota tylko gdy
   `init.apiKeySource != "none"`). Odpowiedź tury = ostatni `Text` głównego wątku (`RowExtra.turn_end`).
 - Edit (`src/ui/chat/edit.rs`, DEC-043): punkt rozgałęzienia `fork_point` = `TurnEnd.resume_at` poprzedniej
   tury (uuid ostatniej wiadomości asystenta), dla pierwszej wiadomości świeża sesja
@@ -269,3 +270,36 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 - Wydajność: dev bench „Load long transcript” (nagrania ×60 → ~1260 wierszy, offline). Budowa wierszy
   od zera ~13 ms w release (`long_transcript_rows_build_quickly`, ignorowany); profil klatek w GUI
   wymaga przewijania w aplikacji (`./scripts/run-macos.sh profiling --features frame-profile`).
+
+## Etap 6: sesje, historia, załączniki, nawigator
+
+- Historia (DEC-045/046/049): `ChatSettings.id` (UUID czatu) → tabele SQLite
+  `_canopy_rust_chat_epochs(chat, epoch, version, meta)` i `_canopy_rust_chat_items(chat, epoch, item,
+  version, payload)` (wiersz na element, `src/settings/database/chat_history.rs`). Wiersze nowszej wersji
+  są pomijane i nienadpisywane. `chat::history`: epoki (Restart/Edit/New session → `Boundary`), kopia
+  do zapisu ze skróceniem (wynik narzędzia > 64 KiB → początek+koniec, `structured` > 128 KiB → pominięte,
+  `Item.trimmed`), `settle` (strumienie kończą się, narzędzia → Cancelled, decyzje → `Resolution::Expired`,
+  otwarta tura → notka + `TurnEnd{Interrupted}`).
+- Zapis: `AppState.chat_history` (`ChatHistory`) zbiera zmienione elementy z `ChatView::after_change`,
+  jeden writer w tle (500 ms, koniec tury szybciej), flush w `finish_quit` przed zamknięciem czatów
+  (błąd zostawia aplikację otwartą). Zamknięcie taba czatu (`Chats::retire`, także zamknięcie projektu)
+  usuwa historię i `<dane>/chat-attachments/<id>`; po starcie `retain` usuwa czaty spoza layoutu.
+- Odtworzenie: `ChatView::new` czyta historię, `start` czeka. Wcześniejsze epoki → `Rows.archived`
+  (`Archived{epoch, transcript}` — diffy, subagenci działają), ostatnia → `ChatSession::restore_history`
+  (`Transcript::restore`: identyfikatory i tury dalej, `fork_point`/Retry/`rewind_files` działają — sonda
+  i test live `saved_history_continues_after_a_restart_and_restores_files`). Pane diffu tury tworzy uśpiony
+  `ChatView` (bez procesu) dla swojego czatu.
+- New session (⌘K, przycisk w composerze, menu taba): `forget_chat_session` + nowa epoka „New session”;
+  niewysłana kolejka czeka wstrzymana w nowej rozmowie.
+- Załączniki (DEC-047/051/052): `UserMessage.attachments` (`Image{file, media_type, …}` / `Path`).
+  `chat::attachments` skaluje obraz do 1568 px dłuższego boku (Lanczos3; PNG dla zrzutów, JPEG q85 dla zdjęć;
+  ≤ 3,75 MB), zapisuje 0600 w folderze czatu; dane base64 tylko w pamięci, przy ponownym wysłaniu po
+  restarcie czytane z pliku. W composerze załącznik jest odznaką w tekście (`InlineToken` GPUI Kit,
+  tekst `[nazwa (rozmiar)]`, dla plików pełna ścieżka) — model dostaje ten tekst, obrazy jako bloki
+  `image`; usunięcie odznaki usuwa załącznik. Strefa upuszczania obejmuje cały pane. Wejścia: ⌘V
+  (`Textarea::on_paste`; obraz z przeglądarki — tekst-URL + natywny `NSPasteboard`), drop plików z Findera
+  (GPUI nie przyjmuje przeciągania obrazów z przeglądarki), spinacz (`prompt_for_paths`). Limit 10 obrazów.
+- Nawigator (DEC-048/050): własny `ChatScroller` (port `MessageScroller` z dostępem do `ListState`) +
+  `navigator.rs`: kreska na wiadomość użytkownika od 2 wiadomości, wyróżniona bieżąca, hover wydłuża kreski
+  i pokazuje kartę, klik/⌥⌘↑/⌥⌘↓ płynnie przewija (skok blisko celu + RESIZE; ręczny scroll przerywa,
+  Reduce Motion → natychmiast).
