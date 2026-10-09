@@ -427,6 +427,10 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 - Każda wiadomość do Claude ma jawny `priority` (`later` = kolejna tura, `next` = Steer).
   Kolejka żyje w Canopy i wysyła się po `session_state_changed idle`; Stop ją wstrzymuje (Resume w tacce najpierw wysyła `RESUME_PROMPT`, potem kolejkę),
   zamknięcie z niewysłaną kolejką pyta o zgodę. Nie wysyłaj wiadomości bez priorytetu.
+- Zamknięcie taba/pane'a czatu albo projektu z czatami usuwa rozmowy, więc gdy czat ma rozmowę lub agent pracuje,
+  pyta „Delete this chat?” (`Editors::guard_closing` → `Chats::guard(…, deleting)`; mówi też o pracującym agencie,
+  kolejce i poleceniach `!`). Quit niczego nie usuwa i pyta tylko o kolejkę. Nowe ścieżki zamykania czatu idą
+  przez `guard_closing`.
 - Praca subagenta nie trafia do głównej rozmowy: tam jest karta, a jego rozmowa otwiera się
   w tym samym pane'ie (tylko do odczytu). Zgody subagenta zostają widoczne w głównej rozmowie.
 - Pigułki plików dla każdego istniejącego pliku (sprawdzanego poza UI), poza ukrytymi
@@ -456,6 +460,11 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 - ⌘F szuka w tekście pokazanej rozmowy (widoki tekstu wierszy, bez kart narzędzi) i podświetla trafienia przez
   range highlights TextView; nawigacja otwiera fold/grupę/thinking. Zaznaczenie w rozmowie daje przycisk „Quote”:
   cytat to `Attachment::Quote` (badge w tekście), agent dostaje go jako blok `> …` (`chat::quotes::expand`).
+- Composer: `/` (komendy i skille z CLI agenta, tylko na początku), `@` (pliki i foldery czatu, agent dostaje
+  ścieżkę), `#` (PR-y GitHuba repozytorium czatu przez połączenie Tasks) dają podpowiedzi i badge'e (`Attachment::
+  Command/Path/Pull`). Tekst dla agenta składa wyłącznie `chat::compose::expand`. `!cmd` uruchamia jedno polecenie
+  (`chat::shell`, `$SHELL -c`, własna grupa procesów), kartę `Body::Shell` i wiadomość z wynikiem do agenta;
+  działające polecenia kończą się z sesją czatu. ↑ w pustym composerze przywraca wcześniejsze wiadomości.
 - Zakończona (Completed) tura głównej rozmowy składa pracę między wiadomością użytkownika a ostatnią
   odpowiedzią pod „Worked for …” (czas z `TurnEnd.duration_ms`); widoczne zostają prompt, odpowiedź
   i podsumowanie zmian. Przerwana/błędna tura lub tura bez końcowej odpowiedzi zostaje rozwinięta.

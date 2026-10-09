@@ -153,6 +153,51 @@ pub fn thread_fork(id: &str, thread: &str, last_turn: &str, options: &ThreadOpti
     request(id, "thread/fork", params)
 }
 
+/// Skills for `cwd` (`forceReload` after `skills/changed`).
+pub fn skills_list(id: &str, cwd: &Path, reload: bool) -> Value {
+    request(
+        id,
+        "skills/list",
+        json!({"cwds": [cwd], "forceReload": reload}),
+    )
+}
+
+/// Enabled skills from `skills/list`.
+pub fn skills(result: &Value) -> Vec<crate::chat::config::CommandInfo> {
+    let text = |value: &Value| {
+        value
+            .as_str()
+            .unwrap_or_default()
+            .chars()
+            .take(600)
+            .collect::<String>()
+    };
+    crate::chat::config::tidy_commands(
+        result["data"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|entry| entry["skills"].as_array().into_iter().flatten())
+            .filter(|skill| skill["enabled"].as_bool() != Some(false))
+            .filter_map(|skill| {
+                let name = skill["name"].as_str()?;
+                let path = skill["path"].as_str()?;
+                let short = text(&skill["interface"]["shortDescription"]);
+                crate::chat::config::valid_command(name).then(|| crate::chat::config::CommandInfo {
+                    name: name.to_owned(),
+                    description: if short.is_empty() {
+                        text(&skill["description"])
+                    } else {
+                        short
+                    },
+                    hint: None,
+                    path: Some(path.into()),
+                })
+            })
+            .collect(),
+    )
+}
+
 pub fn model_list(id: &str) -> Value {
     request(id, "model/list", json!({}))
 }
@@ -174,8 +219,9 @@ fn sandbox_policy(mode: Mode) -> Value {
     }
 }
 
-/// A user message as Codex input: text with quotes as quote blocks, images by path (from
-/// the chat's attachment folder `images`), files and folders as mentions.
+/// A user message as Codex input: text with its badges expanded (`compose`), skills,
+/// images by path (from the chat's attachment folder `images`), files and folders as
+/// mentions.
 pub fn input(
     text: &str,
     attachments: &[Attachment],
@@ -187,9 +233,13 @@ pub fn input(
     if let Some(context) = context {
         input.push(json!({"type": "text", "text": context, "text_elements": []}));
     }
-    let text = crate::chat::quotes::expand(text, attachments);
-    if !text.is_empty() {
-        input.push(json!({"type": "text", "text": text, "text_elements": []}));
+    let composed =
+        crate::chat::compose::expand(text, attachments, crate::chat::provider::Provider::Codex);
+    if !composed.text.is_empty() {
+        input.push(json!({"type": "text", "text": composed.text, "text_elements": []}));
+    }
+    for (name, path) in composed.skills {
+        input.push(json!({"type": "skill", "name": name, "path": path}));
     }
     for attachment in attachments {
         match attachment {
@@ -198,7 +248,6 @@ pub fn input(
                     input.push(json!({"type": "localImage", "path": folder.join(file)}));
                 }
             }
-            Attachment::Quote { .. } => {}
             Attachment::Path { path, .. } => {
                 let name = path
                     .file_name()
@@ -206,6 +255,7 @@ pub fn input(
                     .unwrap_or_else(|| path.display().to_string());
                 input.push(json!({"type": "mention", "name": name, "path": path}));
             }
+            _ => {}
         }
     }
     input
@@ -417,6 +467,45 @@ mod tests {
             "printf 'v1' > notes.txt"
         );
         assert_eq!(command_text("git status"), "git status");
+    }
+
+    #[test]
+    fn skills_list_enabled_skills_with_their_paths() {
+        assert_eq!(
+            skills_list("c9", Path::new("/repo"), true)["params"],
+            json!({"cwds": ["/repo"], "forceReload": true})
+        );
+        let result = json!({"data": [{"cwd": "/repo", "errors": [], "skills": [
+            {"name": "deploy", "description": "Long description", "enabled": true, "path": "/s/deploy/SKILL.md",
+             "scope": "repo", "interface": {"shortDescription": "Ship it"}},
+            {"name": "off", "description": "x", "enabled": false, "path": "/s/off/SKILL.md", "scope": "user"},
+            {"name": "audit", "description": "Check things", "enabled": true, "path": "/s/audit/SKILL.md", "scope": "user"}
+        ]}]});
+        let skills = skills(&result);
+        assert_eq!(
+            skills
+                .iter()
+                .map(|s| (s.name.as_str(), s.description.as_str()))
+                .collect::<Vec<_>>(),
+            [("audit", "Check things"), ("deploy", "Ship it")]
+        );
+        assert_eq!(
+            skills[1].path.as_deref(),
+            Some(Path::new("/s/deploy/SKILL.md"))
+        );
+        let skill = Attachment::Command {
+            name: "deploy".into(),
+            path: Some("/s/deploy/SKILL.md".into()),
+            description: None,
+            label: Some("[/deploy]".into()),
+        };
+        assert_eq!(
+            input("[/deploy] now", &[skill], None, None),
+            vec![
+                json!({"type":"text","text":"$deploy now","text_elements":[]}),
+                json!({"type":"skill","name":"deploy","path":"/s/deploy/SKILL.md"})
+            ]
+        );
     }
 
     #[test]

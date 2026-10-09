@@ -17,8 +17,10 @@ after an access error. Without a matching owner or default connection, Tasks sho
 a configuration prompt. Linked tasks resolve credentials from their own repository.
 
 The Create token with required permissions button opens GitHub with a prefilled
-form: classic `repo`, or fine-grained `issues=write` and `metadata=read` plus the
-entered resource owner. Classic `repo` also grants write access at GitHub; Canopy supports reading and updating issues through explicit user actions. The user selects the repositories, expiration
+form: classic `repo`, or fine-grained `issues=write`, `pull_requests=read` (for `#`
+pull requests in chat) and `metadata=read` plus the entered resource owner. Older
+fine-grained tokens without pull requests get a permission error in chat, without
+falling back to another connection. Classic `repo` also grants write access at GitHub; Canopy supports reading and updating issues through explicit user actions. The user selects the repositories, expiration
 and approves creation on GitHub. SSO authorization for each organization, approval
 of fine-grained tokens and organization restrictions still apply. No `workflow`,
 `read:org`, administration or future CI permissions are requested in this stage.

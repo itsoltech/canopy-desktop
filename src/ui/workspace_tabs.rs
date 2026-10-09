@@ -30,7 +30,7 @@ impl Workspace {
             .map(|t| t.root.panes().iter().map(|p| p.id).collect())
             .unwrap_or_default();
         let target = self.state.workspace.clone();
-        crate::app_state::Editors::guard(
+        crate::app_state::Editors::guard_closing(
             ids,
             move |cx| {
                 target.update(cx, |state, cx| {

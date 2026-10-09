@@ -702,7 +702,7 @@ impl WorktreeDialog {
         if let Some(confirmation) = &self.confirmation {
             let (title, detail) = match confirmation {
                 RemovalConfirmation::Processes if request.registration_only() => ("Close processes and remove this missing entry?".to_owned(), "Running panes will stop. Existing files and branches remain.".to_owned()),
-                RemovalConfirmation::Processes => ("Close all processes in this worktree?".to_owned(), "Canopy will wait for every pane before checking files again.".to_owned()),
+                RemovalConfirmation::Processes => ("Close all processes in this worktree?".to_owned(), "Canopy will wait for every pane before checking files again. Chats in this worktree are deleted with their conversations.".to_owned()),
                 RemovalConfirmation::Changes(count) => (format!("Permanently remove {count} changed, untracked or ignored entries?"), "The selected worktree directory will be deleted. This cannot be undone.".to_owned()),
                 RemovalConfirmation::Branch(analysis) => (format!("Delete local branch '{}' with {} commit(s) not in '{}'?", analysis.source, analysis.commits_not_in_target, analysis.target), "The commits are not reachable from the selected comparison branch. Git object retention is not guaranteed.".to_owned()),
             };

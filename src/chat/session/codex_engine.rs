@@ -31,6 +31,7 @@ pub(super) struct CodexEngine {
     pub start: CodexStart,
     thread_request: Option<String>,
     models_request: Option<String>,
+    skills_request: Option<String>,
     account_request: Option<String>,
     rate_request: Option<String>,
     /// Our `turn/start` in flight, to report its failure.
@@ -260,6 +261,11 @@ impl ChatSession {
         }
         let signals = self.codex.adapter.apply(message, &mut self.transcript);
         let mut lines = vec![];
+        if std::mem::take(&mut self.codex.adapter.skills_changed) && self.initialized {
+            let id = self.request_id();
+            lines.push(wire::skills_list(&id, &self.codex.start.cwd, true));
+            self.codex.skills_request = Some(id);
+        }
         for signal in signals {
             match signal {
                 Signal::ControlAck {
@@ -329,6 +335,9 @@ impl ChatSession {
             };
             lines.push(line);
             self.codex.thread_request = Some(id);
+            let id = self.request_id();
+            lines.push(wire::skills_list(&id, &self.codex.start.cwd, false));
+            self.codex.skills_request = Some(id);
             for (slot, build) in [
                 (0, wire::model_list as fn(&str) -> Value),
                 (1, wire::account_read),
@@ -375,6 +384,13 @@ impl ChatSession {
         if self.codex.models_request.as_deref() == Some(request) {
             self.codex.models_request = None;
             self.models = wire::models(&result);
+            return lines;
+        }
+        if self.codex.skills_request.as_deref() == Some(request) {
+            self.codex.skills_request = None;
+            if error.is_none() {
+                self.commands = wire::skills(&result);
+            }
             return lines;
         }
         if self.codex.account_request.as_deref() == Some(request) {

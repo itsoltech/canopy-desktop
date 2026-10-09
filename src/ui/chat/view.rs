@@ -147,6 +147,22 @@ pub struct ChatView {
     pub(super) lit: Vec<Entity<gpui_kit::base::TextViewState>>,
     /// Quote button for the selection in the conversation (DEC-070).
     pub(super) quote_offer: Option<super::quote::QuoteOffer>,
+    /// Suggestions for the word being typed (`/`, `@`, `#`, DEC-071).
+    pub(super) suggest: Option<super::suggest::Suggest>,
+    /// Esc closed the suggestions for the word starting here.
+    pub(super) suggest_dismissed: Option<usize>,
+    /// `!` commands running, by their card (DEC-072).
+    pub(super) shells: HashMap<canopy_desktop::chat::transcript::ItemId, super::shell::Shell>,
+    /// Commands the user (or closing) stopped, so the agent hears it.
+    pub(super) stopped_shells: HashSet<canopy_desktop::chat::transcript::ItemId>,
+    /// Why the last `!` command couldn't run, under the composer.
+    pub(super) shell_error: Option<String>,
+    /// The composer runs shell commands: `!` typed into an empty field turned it on.
+    pub(super) shell: bool,
+    /// The composer was empty before its latest change (a typed `!` starts shell mode).
+    pub(super) composer_was_empty: bool,
+    /// ↑ in the composer: which earlier message is shown, and its text (DEC-075).
+    pub(super) recall: Option<super::recall::Recall>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -176,6 +192,10 @@ impl ChatView {
                 }
                 InputEvent::Change => {
                     this.dismiss_quote_offer(cx);
+                    this.shell_error = None;
+                    this.composer_changed(window, cx);
+                    this.update_suggest(cx);
+                    this.end_recall(cx);
                     cx.notify()
                 }
                 _ => {}
@@ -263,6 +283,14 @@ impl ChatView {
             flash: None,
             lit: vec![],
             quote_offer: None,
+            suggest: None,
+            suggest_dismissed: None,
+            shells: HashMap::new(),
+            stopped_shells: HashSet::new(),
+            shell_error: None,
+            shell: false,
+            composer_was_empty: true,
+            recall: None,
             _subscriptions: vec![subscription],
             pane,
         }
@@ -918,6 +946,19 @@ impl ChatView {
     }
 
     pub(super) fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.shell_mode(cx) {
+            let text = self.composer.read(cx).value().to_string();
+            match self.run_shell(&text, cx) {
+                // One command per `!`, as in Claude Code.
+                Ok(()) => {
+                    self.clear_composer(window, cx);
+                    self.set_shell(false, window, cx);
+                }
+                Err(error) => self.shell_error = Some(error),
+            }
+            cx.notify();
+            return;
+        }
         let draft = self.composer_draft(cx);
         if self.attachments_blocked(cx)
             || (draft.text.trim().is_empty() && draft.attachments.is_empty())
@@ -1252,6 +1293,14 @@ impl ChatView {
     pub fn unsent(&self) -> usize {
         self.session.as_ref().map_or(0, ChatSession::unsent)
     }
+    /// Something was said here (now or in an earlier session): closing loses it.
+    pub fn has_conversation(&self) -> bool {
+        self.rows.has_items()
+    }
+    /// `!` commands still running.
+    pub fn running_commands(&self) -> usize {
+        self.shells.len()
+    }
     pub fn has_unsent(&self) -> bool {
         self.unsent() > 0
     }
@@ -1494,6 +1543,7 @@ impl ChatView {
         }
         self.generation += 1;
         self.starting = false;
+        self.stop_shells();
         // Stopped on purpose: not a session that failed to continue.
         self.resuming_switch = false;
         self.pump = None;

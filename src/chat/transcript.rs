@@ -34,6 +34,26 @@ pub enum Body {
     Permission(Permission),
     Notice(Notice),
     TurnEnd(TurnEnd),
+    /// A shell command the user ran from the composer (`!cmd`), with its output.
+    Shell(ShellRun),
+}
+
+/// A `!` command: run by Canopy in the chat's folder, then its result goes to the agent.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ShellRun {
+    pub command: String,
+    /// What it printed (stdout and stderr), bounded.
+    pub output: String,
+    pub exit: Option<i32>,
+    /// Stopped by the user (or the chat closing).
+    #[serde(default)]
+    pub stopped: bool,
+    pub running: bool,
+    #[serde(default)]
+    pub elapsed_ms: Option<u64>,
+    /// The result went to the agent (the message carrying it was sent or queued).
+    #[serde(default)]
+    pub reported: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -80,6 +100,41 @@ pub enum Attachment {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         label: Option<String>,
     },
+    /// A command or skill of the agent (`/name`), at the start of the message.
+    Command {
+        name: String,
+        /// Where a Codex skill lives (it is sent with it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<PathBuf>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
+    /// A pull request of the project (`#123`): what the agent needs to look it up.
+    Pull {
+        number: u64,
+        title: String,
+        url: String,
+        head: String,
+        base: String,
+        state: String,
+        /// The start of its description.
+        #[serde(default)]
+        body: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
+    /// The result of a `!` command, sent to the agent as the message.
+    Shell {
+        command: String,
+        exit: Option<i32>,
+        stopped: bool,
+        /// The output as the agent gets it (shortened).
+        output: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
 }
 impl Attachment {
     pub fn is_image(&self) -> bool {
@@ -88,16 +143,22 @@ impl Attachment {
     /// Its mention in the message text, if it has one.
     pub fn label(&self) -> Option<&str> {
         match self {
-            Self::Image { label, .. } | Self::Path { label, .. } | Self::Quote { label, .. } => {
-                label.as_deref()
-            }
+            Self::Image { label, .. }
+            | Self::Path { label, .. }
+            | Self::Quote { label, .. }
+            | Self::Command { label, .. }
+            | Self::Pull { label, .. }
+            | Self::Shell { label, .. } => label.as_deref(),
         }
     }
     pub fn with_label(mut self, text: impl Into<String>) -> Self {
         match &mut self {
-            Self::Image { label, .. } | Self::Path { label, .. } | Self::Quote { label, .. } => {
-                *label = Some(text.into())
-            }
+            Self::Image { label, .. }
+            | Self::Path { label, .. }
+            | Self::Quote { label, .. }
+            | Self::Command { label, .. }
+            | Self::Pull { label, .. }
+            | Self::Shell { label, .. } => *label = Some(text.into()),
         }
         self
     }

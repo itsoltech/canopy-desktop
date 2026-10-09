@@ -1,4 +1,5 @@
 //! Composer island: message field, account/model, reasoning and mode pickers, Send/Stop.
+use super::suggest::SuggestKey;
 use super::{render::centered, view::ChatView};
 use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
@@ -11,7 +12,7 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     IconName, Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants},
-    input::Textarea,
+    input::{self, Textarea},
     menu::{DropdownMenu, PopupMenuItem},
 };
 use gpui_kit::*;
@@ -42,6 +43,8 @@ impl ChatView {
         self.insert_badges(window, cx);
         let empty = self.composer.read(cx).value().trim().is_empty();
         let ended = self.status().is_some_and(|status| status.ended());
+        // `!command`: the island turns burgundy and Enter runs it (DEC-072).
+        let shell = self.shell_mode(cx);
         centered(
             column()
                 .w_full()
@@ -49,14 +52,65 @@ impl ChatView {
                 .gap(px(6.))
                 .rounded(px(16.))
                 .border_1()
-                .border_color(t::control_border())
-                .bg(t::input_bg())
+                .border_color(if shell {
+                    t::shell().opacity(0.7)
+                } else {
+                    t::control_border()
+                })
+                .bg(if shell {
+                    t::shell().opacity(0.12)
+                } else {
+                    t::input_bg()
+                })
+                // The field binds ↑/↓/Enter/Tab/Esc to its own actions, which run before
+                // key listeners: the open suggestions (and ↑ in an empty field, recalling
+                // earlier messages) take them first.
+                .capture_action(cx.listener(|this, _: &input::MoveUp, window, cx| {
+                    if this.suggest_key(SuggestKey::Up, window, cx) || this.recall(true, window, cx)
+                    {
+                        cx.stop_propagation();
+                    }
+                }))
+                .capture_action(cx.listener(|this, _: &input::MoveDown, window, cx| {
+                    if this.suggest_key(SuggestKey::Down, window, cx)
+                        || this.recall(false, window, cx)
+                    {
+                        cx.stop_propagation();
+                    }
+                }))
+                .capture_action(cx.listener(|this, enter: &input::Enter, window, cx| {
+                    if !enter.secondary
+                        && !enter.shift
+                        && this.suggest_key(SuggestKey::Accept, window, cx)
+                    {
+                        cx.stop_propagation();
+                    }
+                }))
+                .capture_action(cx.listener(|this, _: &input::IndentInline, window, cx| {
+                    if this.suggest_key(SuggestKey::Accept, window, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
+                .capture_action(cx.listener(|this, _: &input::Escape, window, cx| {
+                    if this.suggest_key(SuggestKey::Close, window, cx)
+                        || this.leave_shell(window, cx)
+                    {
+                        cx.stop_propagation();
+                    }
+                }))
+                // Backspace in an empty field leaves shell mode.
+                .capture_action(cx.listener(|this, _: &input::Backspace, window, cx| {
+                    if this.leave_shell(window, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
                 // Number keys pick an option and ⌘⌫ denies while a request waits.
                 .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     if this.decision_key(event, window, cx) {
                         cx.stop_propagation();
                     }
                 }))
+                .children(shell.then(super::shell::shell_label))
                 .child({
                     let view = cx.entity().downgrade();
                     let badges = view.clone();
@@ -84,6 +138,13 @@ impl ChatView {
                         })
                 })
                 .children(self.attachment_errors(cx))
+                .children(self.shell_error.clone().map(|error| {
+                    div()
+                        .px(px(4.))
+                        .text_size(px(12.))
+                        .text_color(t::red())
+                        .child(error)
+                }))
                 .child(
                     row()
                         .w_full()

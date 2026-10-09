@@ -744,10 +744,11 @@ impl ProjectsState {
             .map(|p| p.id)
             .collect();
         let editors = cx.global::<AppState>().editors.clone();
-        if editors.read(cx).busy(&panes, cx) {
+        let chats = cx.global::<AppState>().chats.clone();
+        if editors.read(cx).busy(&panes, cx) || chats.read(cx).needs_guard(&panes, cx) {
             let repository = repository.to_owned();
             let target = cx.entity();
-            super::Editors::guard(
+            super::Editors::guard_closing(
                 panes,
                 move |cx| target.update(cx, |state, cx| state.close_repository(&repository, cx)),
                 cx,
@@ -790,9 +791,10 @@ impl ProjectsState {
             .map(|p| p.id)
             .collect();
         let editors = cx.global::<AppState>().editors.clone();
-        if editors.read(cx).busy(&panes, cx) {
+        let chats = cx.global::<AppState>().chats.clone();
+        if editors.read(cx).busy(&panes, cx) || chats.read(cx).needs_guard(&panes, cx) {
             let target = cx.entity();
-            super::Editors::guard(
+            super::Editors::guard_closing(
                 panes,
                 move |cx| target.update(cx, |state, cx| state.close(id, cx)),
                 cx,

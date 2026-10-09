@@ -84,7 +84,7 @@ pub fn prepare_image(bytes: &[u8], dir: &Path) -> Result<Attachment, String> {
 pub fn image_bytes(dir: &Path, attachment: &Attachment) -> Option<Vec<u8>> {
     match attachment {
         Attachment::Image { file, .. } => std::fs::read(dir.join(safe_name(file)?)).ok(),
-        Attachment::Path { .. } | Attachment::Quote { .. } => None,
+        _ => None,
     }
 }
 

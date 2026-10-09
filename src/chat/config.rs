@@ -237,6 +237,33 @@ pub fn valid_model(model: &str) -> bool {
         && model.chars().all(|c| !c.is_control() && !c.is_whitespace())
 }
 
+/// A command or skill the agent offers (`/name` in the composer), as its CLI reports it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CommandInfo {
+    pub name: String,
+    pub description: String,
+    /// What it takes after its name (`<pr-number>`).
+    pub hint: Option<String>,
+    /// Where a Codex skill lives (sent with it).
+    pub path: Option<std::path::PathBuf>,
+}
+
+/// Command names are typed after `/` and sent back as one word.
+pub fn valid_command(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name
+            .chars()
+            .all(|c| !c.is_control() && !c.is_whitespace() && c != '[' && c != ']')
+}
+
+/// Sorted by name, one entry per name.
+pub fn tidy_commands(mut commands: Vec<CommandInfo>) -> Vec<CommandInfo> {
+    commands.sort_by_key(|command| command.name.to_lowercase());
+    commands.dedup_by(|a, b| a.name == b.name);
+    commands
+}
+
 /// A model the provider account offers, as reported by its CLI.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ModelInfo {

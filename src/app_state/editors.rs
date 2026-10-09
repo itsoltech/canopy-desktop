@@ -294,13 +294,27 @@ pub struct GuardRequest {
 }
 impl EventEmitter<GuardRequest> for Editors {}
 impl Editors {
-    /// Unsaved edits first, then unsent chat messages, before `action` closes `ids`.
+    /// Unsaved edits first, then unsent chat messages, before `action` closes `ids`
+    /// without deleting them (quit: chats come back).
     pub fn guard(ids: Vec<PaneId>, action: impl Fn(&mut App) + 'static, cx: &mut App) {
+        Self::guard_with(ids, action, false, cx)
+    }
+    /// `guard` for closing panes for good: chats with a conversation ask first, because
+    /// closing deletes them.
+    pub fn guard_closing(ids: Vec<PaneId>, action: impl Fn(&mut App) + 'static, cx: &mut App) {
+        Self::guard_with(ids, action, true, cx)
+    }
+    fn guard_with(
+        ids: Vec<PaneId>,
+        action: impl Fn(&mut App) + 'static,
+        deleting: bool,
+        cx: &mut App,
+    ) {
         let action = std::rc::Rc::new(action);
         let chats_ids = ids.clone();
         let action = move |cx: &mut App| {
             let action = action.clone();
-            super::Chats::guard(chats_ids.clone(), move |cx| action(cx), cx)
+            super::Chats::guard(chats_ids.clone(), move |cx| action(cx), deleting, cx)
         };
         let editors = cx.global::<AppState>().editors.clone();
         if editors.read(cx).busy(&ids, cx) {

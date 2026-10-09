@@ -442,7 +442,7 @@ fn replacing_a_token_preserves_other_organizations_and_rejects_ambiguous_routing
 }
 
 #[test]
-fn token_links_prefill_only_current_task_permissions_and_owner() {
+fn token_links_prefill_only_used_permissions_and_owner() {
     let classic = Url::parse(&AccountScope::Default.creation_url()).unwrap();
     assert_eq!(classic.host_str(), Some("github.com"));
     assert_eq!(classic.path(), "/settings/tokens/new");
@@ -456,7 +456,9 @@ fn token_links_prefill_only_current_task_permissions_and_owner() {
     assert_eq!(query["target_name"], "my-org");
     assert_eq!(query["issues"], "write");
     assert_eq!(query["metadata"], "read");
-    assert_eq!(query.len(), 5);
+    // `#` pull requests in chat read them.
+    assert_eq!(query["pull_requests"], "read");
+    assert_eq!(query.len(), 6);
     for owner in [
         "",
         "https://github.com/acme",

@@ -24,10 +24,23 @@ pub enum ChatTarget {
     Project(WorkspaceId),
 }
 
-/// Closing panes whose chats still hold unsent queued messages.
+/// Closing panes whose chats would lose something: their conversation (closing deletes
+/// a chat), or messages still queued (also on quit).
 pub struct ChatGuardRequest {
     pub ids: Vec<PaneId>,
     pub action: std::rc::Rc<dyn Fn(&mut App)>,
+    /// The chats are closed for good: their conversations are deleted.
+    pub deleting: bool,
+}
+
+/// What closing some chats would lose.
+#[derive(Default)]
+struct AtRisk {
+    /// Chats with a conversation (or an agent at work).
+    chats: usize,
+    working: usize,
+    unsent: usize,
+    commands: usize,
 }
 impl EventEmitter<ChatGuardRequest> for Chats {}
 
@@ -56,28 +69,46 @@ pub struct Chats {
 }
 
 impl Chats {
-    pub fn unsent(&self, ids: &[PaneId], cx: &App) -> bool {
-        ids.iter()
-            .any(|id| self.views.get(id).is_some_and(|v| v.read(cx).has_unsent()))
-    }
     pub fn any_unsent(&self, cx: &App) -> bool {
         self.views.values().any(|v| v.read(cx).has_unsent())
     }
-    fn unsent_count(&self, ids: &[PaneId], cx: &App) -> usize {
-        ids.iter()
-            .filter_map(|id| self.views.get(id))
-            .map(|v| v.read(cx).unsent())
-            .sum()
+    fn at_risk(&self, ids: &[PaneId], cx: &App) -> AtRisk {
+        let mut risk = AtRisk::default();
+        for view in ids.iter().filter_map(|id| self.views.get(id)) {
+            let view = view.read(cx);
+            if view.has_conversation() || view.is_working() {
+                risk.chats += 1;
+            }
+            risk.working += usize::from(view.is_working());
+            risk.unsent += view.unsent();
+            risk.commands += view.running_commands();
+        }
+        risk
     }
 
-    /// Runs `action` now, or after the user agreed to drop the queued messages.
-    pub fn guard(ids: Vec<PaneId>, action: impl Fn(&mut App) + 'static, cx: &mut App) {
+    /// Whether closing `ids` for good deletes a conversation or drops queued messages.
+    pub fn needs_guard(&self, ids: &[PaneId], cx: &App) -> bool {
+        let risk = self.at_risk(ids, cx);
+        risk.chats > 0 || risk.unsent > 0
+    }
+
+    /// Runs `action` now, or after the user agreed to what it loses. `deleting`: the
+    /// chats close for good (tab, pane, project), so their conversations are deleted;
+    /// otherwise (quit) only queued messages are at stake.
+    pub fn guard(
+        ids: Vec<PaneId>,
+        action: impl Fn(&mut App) + 'static,
+        deleting: bool,
+        cx: &mut App,
+    ) {
         let chats = cx.global::<AppState>().chats.clone();
-        if chats.read(cx).unsent(&ids, cx) {
+        let risk = chats.read(cx).at_risk(&ids, cx);
+        if risk.unsent > 0 || deleting && risk.chats > 0 {
             chats.update(cx, |_, cx| {
                 cx.emit(ChatGuardRequest {
                     ids,
                     action: std::rc::Rc::new(action),
+                    deleting,
                 })
             });
         } else {
@@ -91,24 +122,70 @@ impl Chats {
         }
         let ids = request.ids.clone();
         let action = request.action.clone();
-        let count = cx
-            .global::<AppState>()
-            .chats
-            .read(cx)
-            .unsent_count(&ids, cx);
-        let title = if count == 1 {
-            "Discard 1 queued message?".to_owned()
-        } else {
-            format!("Discard {count} queued messages?")
+        let risk = cx.global::<AppState>().chats.read(cx).at_risk(&ids, cx);
+        let plural = |n: usize, one: &str, many: &str| {
+            if n == 1 {
+                format!("1 {one}")
+            } else {
+                format!("{n} {many}")
+            }
         };
+        let (title, mut detail, button) = if request.deleting && risk.chats > 0 {
+            (
+                if risk.chats == 1 {
+                    "Delete this chat?".to_owned()
+                } else {
+                    format!("Delete {} chats?", risk.chats)
+                },
+                vec![if risk.chats == 1 {
+                    "Closing deletes the conversation and its attachments. This can't be undone."
+                        .to_owned()
+                } else {
+                    "Closing deletes their conversations and attachments. This can't be undone."
+                        .to_owned()
+                }],
+                "Delete chat",
+            )
+        } else {
+            (
+                format!(
+                    "Discard {}?",
+                    plural(risk.unsent, "queued message", "queued messages")
+                ),
+                vec![],
+                "Discard and close",
+            )
+        };
+        if risk.working > 0 {
+            detail.push(if risk.working == 1 {
+                "The agent is still working and will be stopped.".to_owned()
+            } else {
+                format!(
+                    "{} agents are still working and will be stopped.",
+                    risk.working
+                )
+            });
+        }
+        if risk.unsent > 0 {
+            detail.push(format!(
+                "{} not sent to the agent yet.",
+                plural(risk.unsent, "queued message is", "queued messages are")
+            ));
+        }
+        if risk.commands > 0 {
+            detail.push(format!(
+                "{} will be stopped.",
+                plural(risk.commands, "running ! command", "running ! commands")
+            ));
+        }
+        let detail = detail.join(" ");
         let answer = window.prompt(
             PromptLevel::Warning,
             &title,
-            Some("Messages waiting in the chat queue haven't been sent to the agent."),
-            &[
-                PromptButton::cancel("Cancel"),
-                PromptButton::ok("Discard and close"),
-            ],
+            Some(&detail)
+                .filter(|detail| !detail.is_empty())
+                .map(|d| d.as_str()),
+            &[PromptButton::cancel("Cancel"), PromptButton::ok(button)],
             cx,
         );
         let chats = cx.global::<AppState>().chats.clone();

@@ -161,6 +161,8 @@ pub struct ChatSession {
     /// What the agent runs with; changes apply from the next turn.
     settings: ChatSettings,
     models: Vec<ModelInfo>,
+    /// Commands and skills the agent offers (`/` in the composer).
+    commands: Vec<crate::chat::config::CommandInfo>,
     /// In-flight setting changes and the value to restore if the CLI refuses them.
     pending_settings: HashMap<String, Previous>,
     /// Context window use after the last turn, and the request asking for it.
@@ -249,6 +251,7 @@ impl ChatSession {
             diagnostics: VecDeque::new(),
             settings,
             models: vec![],
+            commands: vec![],
             pending_settings: HashMap::new(),
             context: None,
             context_request: None,
@@ -317,6 +320,9 @@ impl ChatSession {
     /// Models the account offers; empty until the CLI answered `initialize`.
     pub fn models(&self) -> &[ModelInfo] {
         &self.models
+    }
+    pub fn commands(&self) -> &[crate::chat::config::CommandInfo] {
+        &self.commands
     }
 
     pub fn set_model(&mut self, model: Option<String>) -> Vec<Value> {
@@ -426,6 +432,70 @@ impl ChatSession {
         }
         self.enqueue(draft);
         self.flush()
+    }
+
+    /// A `!` command starts: its card goes into the conversation, in a turn of its own.
+    pub fn begin_shell(&mut self, command: &str) -> ItemId {
+        let turn = self.transcript.allocate_turn();
+        let index = self.transcript.push_in(
+            turn,
+            None,
+            Body::Shell(crate::chat::transcript::ShellRun {
+                command: command.to_owned(),
+                running: true,
+                ..Default::default()
+            }),
+        );
+        self.transcript.items()[index].id
+    }
+
+    /// More output of the `!` command `id`.
+    pub fn shell_output(&mut self, id: ItemId, chunk: &str) {
+        if let Some(index) = self.transcript.position(id) {
+            self.transcript.update(index, |body| {
+                if let Body::Shell(run) = body {
+                    crate::chat::shell::append(&mut run.output, chunk, crate::chat::shell::KEEP);
+                }
+            });
+        }
+    }
+
+    /// The `!` command `id` ended: its result goes to the agent as a message (queued
+    /// while the agent works).
+    pub fn end_shell(
+        &mut self,
+        id: ItemId,
+        exit: Option<i32>,
+        stopped: bool,
+        elapsed_ms: u64,
+    ) -> Vec<Value> {
+        let Some(index) = self.transcript.position(id) else {
+            return vec![];
+        };
+        let mut result = None;
+        self.transcript.update(index, |body| {
+            if let Body::Shell(run) = body {
+                run.running = false;
+                run.exit = exit;
+                run.stopped = stopped;
+                run.elapsed_ms = Some(elapsed_ms);
+                run.reported = true;
+                result = Some(Attachment::Shell {
+                    command: run.command.clone(),
+                    exit,
+                    stopped,
+                    output: crate::chat::shell::excerpt(&run.output, crate::chat::shell::REPORT),
+                    label: None,
+                });
+            }
+        });
+        match result {
+            Some(result) => self.submit_draft(Draft {
+                attachments: vec![result],
+                ..Default::default()
+            }),
+            None => vec![],
+        }
     }
 
     /// Shows saved history before the session's first event: the conversation it
@@ -917,6 +987,7 @@ impl ChatSession {
                             self.initialized = true;
                             if let Some(response) = &response {
                                 self.models = wire::models(response);
+                                self.commands = wire::commands(response);
                                 // A change queued before initialize is newer than the launch value.
                                 let queued_mode = self
                                     .pending_settings

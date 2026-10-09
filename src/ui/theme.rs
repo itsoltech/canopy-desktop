@@ -80,6 +80,10 @@ pub fn red() -> Hsla {
 pub fn yellow() -> Hsla {
     oklch(0.883, 0.165, 92.22, 1.)
 }
+/// Burgundy of the chat composer's shell mode (`!command`) and shell command cards.
+pub fn shell() -> Hsla {
+    oklch(0.64, 0.17, 6., 1.)
+}
 
 pub const SPACING_UNIT: f32 = 4.;
 pub const ROW: f32 = 28.;

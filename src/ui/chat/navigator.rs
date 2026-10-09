@@ -60,11 +60,14 @@ fn marks(rows: &Rows, transcript: Option<&Transcript>) -> Vec<Mark> {
                 return None;
             };
             let item = rows.item(source, transcript)?;
-            matches!(&item.body, Body::User(message) if message.delivery == Delivery::Sent)
-                .then_some(Mark {
-                    row,
-                    key: entry.key,
-                })
+            // A `!` command's result is no message of the user's to jump to.
+            matches!(&item.body, Body::User(message) if message.delivery == Delivery::Sent
+                && !message.attachments.iter().any(|a| matches!(a,
+                    canopy_desktop::chat::transcript::Attachment::Shell { .. })))
+            .then_some(Mark {
+                row,
+                key: entry.key,
+            })
         })
         .collect()
 }

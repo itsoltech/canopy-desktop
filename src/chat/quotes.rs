@@ -1,5 +1,5 @@
 //! Text quoted from the conversation (DEC-070): a badge in the message as written and
-//! a quote block where that badge is in the message the agent reads.
+//! a quote block where that badge is in the message the agent reads (`compose`).
 use super::transcript::Attachment;
 
 /// Longest quote kept, in characters; longer ones end with "…".
@@ -37,87 +37,9 @@ pub fn mention(text: &str) -> String {
     format!("[❝ {excerpt}]")
 }
 
-/// The message as the agent reads it: each quote's mention becomes a quote block there.
-/// A quote whose mention isn't in the text comes before it.
-pub fn expand(text: &str, attachments: &[Attachment]) -> String {
-    let mut out = String::new();
-    let mut from = 0;
-    for attachment in attachments {
-        let Attachment::Quote {
-            text: quoted,
-            label,
-        } = attachment
-        else {
-            continue;
-        };
-        let found = label
-            .as_deref()
-            .and_then(|label| Some((text[from..].find(label)? + from, label.len())));
-        match found {
-            Some((at, len)) => {
-                out.push_str(text[from..at].trim_end_matches([' ', '\t']));
-                block(quoted, &mut out);
-                from = at + len;
-                // The space put after the badge.
-                while text[from..].starts_with([' ', '\t']) {
-                    from += 1;
-                }
-            }
-            None if from == 0 => block(quoted, &mut out),
-            None => {}
-        }
-    }
-    out.push_str(&text[from..]);
-    out.trim().to_owned()
-}
-
-/// `quoted` as a Markdown quote on lines of its own.
-fn block(quoted: &str, out: &mut String) {
-    let kept = out.trim_end().len();
-    out.truncate(kept);
-    if !out.is_empty() {
-        out.push_str("\n\n");
-    }
-    for line in quoted.lines() {
-        out.push('>');
-        if !line.is_empty() {
-            out.push(' ');
-            out.push_str(line);
-        }
-        out.push('\n');
-    }
-    out.push('\n');
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn quoted(text: &str) -> (Attachment, String) {
-        let quote = quote(text).expect("quote");
-        let label = quote.label().unwrap().to_owned();
-        (quote, label)
-    }
-
-    #[test]
-    fn quotes_become_blocks_where_their_badges_are() {
-        let (first, a) = quoted("Rows::insert creates groups\nwhen a reply arrives");
-        let (second, b) = quoted("short");
-        let text = format!("why {a} and not {b} here?");
-        assert_eq!(
-            expand(&text, &[first, second]),
-            "why\n\n> Rows::insert creates groups\n> when a reply arrives\n\nand not\n\n> short\n\nhere?"
-        );
-    }
-
-    #[test]
-    fn a_message_of_only_a_quote_and_one_not_mentioned() {
-        let (only, label) = quoted("all of it");
-        assert_eq!(expand(&format!("{label} "), &[only]), "> all of it");
-        let (unmentioned, _) = quoted("lost badge");
-        assert_eq!(expand("hello", &[unmentioned]), "> lost badge\n\nhello");
-        assert_eq!(expand("plain", &[]), "plain");
-    }
 
     #[test]
     fn quotes_are_saved_with_their_message() {

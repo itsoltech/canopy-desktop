@@ -4,7 +4,8 @@
 //! tolerates unknown fields, every tagged enum has a catch-all, and optional data
 //! defaults instead of failing the line. Shapes follow CLI 2.1.294 /
 //! `@anthropic-ai/claude-agent-sdk` 0.3.293.
-use crate::chat::config::{Effort, Mode, ModelInfo};
+use crate::chat::config::{CommandInfo, Effort, Mode, ModelInfo};
+use crate::chat::provider::Provider;
 use crate::chat::transcript::{Attachment, Remember, Rule};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -572,7 +573,7 @@ pub fn user_message(
             _ => None,
         })
         .collect();
-    let text = crate::chat::quotes::expand(text, attachments);
+    let text = crate::chat::compose::expand(text, attachments, Provider::Claude).text;
     let text = if paths.is_empty() {
         text
     } else {
@@ -625,6 +626,36 @@ pub fn set_effort(request_id: &str, effort: Option<Effort>) -> Value {
 
 fn control(request_id: &str, request: Value) -> Value {
     json!({"type": "control_request", "request_id": request_id, "request": request})
+}
+
+/// Commands and skills listed in the `initialize` response.
+pub fn commands(initialize: &Value) -> Vec<CommandInfo> {
+    let Some(commands) = initialize.get("commands").and_then(Value::as_array) else {
+        return vec![];
+    };
+    let text = |value: &Value, key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .chars()
+            .take(600)
+            .collect::<String>()
+    };
+    crate::chat::config::tidy_commands(
+        commands
+            .iter()
+            .filter_map(|command| {
+                let name = command.get("name")?.as_str()?.trim_start_matches('/');
+                crate::chat::config::valid_command(name).then(|| CommandInfo {
+                    name: name.to_owned(),
+                    description: text(command, "description"),
+                    hint: Some(text(command, "argumentHint")).filter(|hint| !hint.is_empty()),
+                    path: None,
+                })
+            })
+            .collect(),
+    )
 }
 
 /// Models listed in the `initialize` response, in CLI order.
@@ -934,6 +965,26 @@ mod tests {
         assert!(parse("refused").1.terminal());
         assert_eq!(parse("paused").1, Lifecycle::Other);
         assert!(!Lifecycle::Queued.terminal());
+    }
+
+    #[test]
+    fn initialize_lists_commands_and_skills() {
+        let response = json!({"commands": [
+            {"name": "review", "description": "Review a PR (user)", "argumentHint": "<pr>"},
+            {"name": "compact", "description": "Compact the conversation", "argumentHint": ""},
+            {"name": "bad name", "description": "spaces"},
+            {"name": "review", "description": "duplicate"},
+            {"description": "no name"}
+        ]});
+        let commands = commands(&response);
+        assert_eq!(
+            commands
+                .iter()
+                .map(|c| (c.name.as_str(), c.hint.as_deref()))
+                .collect::<Vec<_>>(),
+            [("compact", None), ("review", Some("<pr>"))]
+        );
+        assert!(super::commands(&json!({})).is_empty());
     }
 
     #[test]

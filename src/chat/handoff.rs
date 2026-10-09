@@ -59,13 +59,15 @@ fn turns(parts: &[Part]) -> Vec<Turn> {
                         let names: Vec<String> = message
                             .attachments
                             .iter()
-                            .filter(|a| !matches!(a, Attachment::Quote { .. }))
+                            .filter(|a| {
+                                matches!(a, Attachment::Image { .. } | Attachment::Path { .. })
+                            })
                             .filter_map(|a| a.label().map(str::to_owned))
                             .collect();
                         let steered = message.delivery == Delivery::Steered;
                         let mentioned = names.iter().all(|n| message.text.contains(n.as_str()));
                         let mut text =
-                            crate::chat::quotes::expand(&message.text, &message.attachments);
+                            crate::chat::compose::plain(&message.text, &message.attachments);
                         if !names.is_empty() && !mentioned {
                             text.push_str(&format!(" (attached: {})", names.join(", ")));
                         }

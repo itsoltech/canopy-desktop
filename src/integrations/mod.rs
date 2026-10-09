@@ -80,7 +80,7 @@ impl AccountScope {
             _ => false,
         }
     }
-    /// Only permissions used by the current Tasks reader. Never contains a token.
+    /// Only permissions Canopy uses (Tasks, `#` pull requests in chat). Never contains a token.
     pub fn creation_url(&self) -> String {
         use gpui_kit::http_client::Url;
         match self {
@@ -103,9 +103,13 @@ impl AccountScope {
                     Url::parse("https://github.com/settings/personal-access-tokens/new").unwrap();
                 url.query_pairs_mut()
                     .append_pair("name", "Canopy Tasks")
-                    .append_pair("description", "Read and update GitHub Issues in Canopy")
+                    .append_pair(
+                        "description",
+                        "Read and update GitHub Issues and read pull requests in Canopy",
+                    )
                     .append_pair("target_name", owner)
                     .append_pair("issues", "write")
+                    .append_pair("pull_requests", "read")
                     .append_pair("metadata", "read");
                 url.into()
             }

@@ -1,0 +1,322 @@
+//! `!` commands from the composer (DEC-072): one shell command the user runs, in the
+//! chat's folder with their shell and environment. Its output streams back while it
+//! runs; Stop ends its whole process group. No GPUI here.
+use std::{
+    io::Read,
+    path::Path,
+    sync::{Arc, Mutex},
+    thread,
+    time::{Duration, Instant},
+};
+
+/// Output kept for the card: this much from the start and from the end.
+pub const KEEP: usize = 32 * 1024;
+/// Output the agent gets: this much from the start and from the end.
+pub const REPORT: usize = 5 * 1024;
+/// After the shell exits, output still arriving from tools it left running is not
+/// waited for longer than this.
+const DRAIN: Duration = Duration::from_millis(500);
+/// Stop asks politely first, then kills the group after this.
+const GRACE: Duration = Duration::from_secs(2);
+
+#[derive(Debug, PartialEq)]
+pub enum ShellEvent {
+    Output(String),
+    Exit {
+        code: Option<i32>,
+        elapsed: Duration,
+    },
+}
+
+/// A running command; dropping it doesn't stop it (call `stop`).
+pub struct Running {
+    shared: Arc<Shared>,
+}
+
+struct Shared {
+    pid: u32,
+    /// Set once the child is reaped; signals are sent only before, under this lock.
+    exited: Mutex<bool>,
+}
+
+impl Running {
+    /// Runs `command` with `shell -c` in `cwd`, with exactly the environment `vars`.
+    #[cfg(unix)]
+    pub fn start(
+        command: &str,
+        cwd: &Path,
+        shell: &Path,
+        vars: &std::collections::HashMap<String, String>,
+    ) -> Result<(Self, async_channel::Receiver<ShellEvent>), String> {
+        use std::os::unix::process::CommandExt;
+        let mut child = std::process::Command::new(shell);
+        child
+            .arg("-c")
+            .arg(command)
+            .current_dir(cwd)
+            .env_clear()
+            .envs(vars)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .process_group(0);
+        // SAFETY: only async-signal-safe libc calls between fork and exec; GPUI threads
+        // may block signals, the command must start with none blocked.
+        unsafe {
+            child.pre_exec(|| {
+                let mut empty = std::mem::zeroed();
+                libc::sigemptyset(&mut empty);
+                libc::pthread_sigmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
+                Ok(())
+            });
+        }
+        let started = Instant::now();
+        let mut child = child
+            .spawn()
+            .map_err(|error| format!("Couldn't run the command: {error}"))?;
+        let shared = Arc::new(Shared {
+            pid: child.id(),
+            exited: Mutex::new(false),
+        });
+        let (events, receiver) = async_channel::unbounded();
+        let (done, drained) = std::sync::mpsc::channel::<()>();
+        let mut readers = 0;
+        let pipes: [Option<Box<dyn Read + Send>>; 2] = [
+            child
+                .stdout
+                .take()
+                .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+            child
+                .stderr
+                .take()
+                .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+        ];
+        for mut pipe in pipes.into_iter().flatten() {
+            readers += 1;
+            let events = events.clone();
+            let done = done.clone();
+            thread::spawn(move || {
+                let mut buffer = [0u8; 8192];
+                let mut pending = Vec::new();
+                loop {
+                    match pipe.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => {
+                            pending.extend_from_slice(&buffer[..read]);
+                            // Whole characters only; a split one waits for the rest.
+                            let valid = match std::str::from_utf8(&pending) {
+                                Ok(_) => pending.len(),
+                                Err(error) if error.error_len().is_none() => error.valid_up_to(),
+                                Err(_) => pending.len(),
+                            };
+                            let chunk: Vec<u8> = pending.drain(..valid).collect();
+                            if !chunk.is_empty()
+                                && events
+                                    .send_blocking(ShellEvent::Output(
+                                        String::from_utf8_lossy(&chunk).into_owned(),
+                                    ))
+                                    .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+                if !pending.is_empty() {
+                    let _ = events.send_blocking(ShellEvent::Output(
+                        String::from_utf8_lossy(&pending).into_owned(),
+                    ));
+                }
+                let _ = done.send(());
+            });
+        }
+        drop(done);
+        let waiter = shared.clone();
+        thread::spawn(move || {
+            let status = reap(&mut child, &waiter);
+            let deadline = Instant::now() + DRAIN;
+            for _ in 0..readers {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if drained.recv_timeout(left).is_err() {
+                    break;
+                }
+            }
+            let _ = events.send_blocking(ShellEvent::Exit {
+                code: status.ok().and_then(|status| status.code()),
+                elapsed: started.elapsed(),
+            });
+        });
+        Ok((Self { shared }, receiver))
+    }
+
+    #[cfg(not(unix))]
+    pub fn start(
+        _: &str,
+        _: &Path,
+        _: &Path,
+        _: &std::collections::HashMap<String, String>,
+    ) -> Result<(Self, async_channel::Receiver<ShellEvent>), String> {
+        Err("Shell commands from the chat are supported on macOS and Linux.".into())
+    }
+
+    /// Ends the command and everything it started: SIGTERM, then SIGKILL.
+    pub fn stop(&self) {
+        signal(&self.shared, false);
+        let shared = self.shared.clone();
+        thread::spawn(move || {
+            thread::sleep(GRACE);
+            signal(&shared, true);
+        });
+    }
+}
+
+#[cfg(unix)]
+fn signal(shared: &Shared, kill: bool) {
+    let exited = shared.exited.lock().unwrap_or_else(|e| e.into_inner());
+    if *exited {
+        return;
+    }
+    // SAFETY: plain syscall on the child's own group (process_group(0)); the waiter
+    // reaps only under this lock, so the id is still ours.
+    unsafe {
+        libc::killpg(
+            shared.pid as libc::pid_t,
+            if kill { libc::SIGKILL } else { libc::SIGTERM },
+        );
+    }
+}
+#[cfg(not(unix))]
+fn signal(_: &Shared, _: bool) {}
+
+/// Waits for the exit without reaping, then reaps under the lock `signal` takes.
+#[cfg(unix)]
+fn reap(
+    child: &mut std::process::Child,
+    shared: &Shared,
+) -> std::io::Result<std::process::ExitStatus> {
+    loop {
+        // SAFETY: siginfo is plain data written by the kernel; WNOWAIT keeps the zombie.
+        let result = unsafe {
+            let mut info: libc::siginfo_t = std::mem::zeroed();
+            libc::waitid(
+                libc::P_PID,
+                shared.pid as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        if result == 0 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+        {
+            break;
+        }
+    }
+    let mut exited = shared.exited.lock().unwrap_or_else(|e| e.into_inner());
+    let status = child.wait();
+    *exited = true;
+    status
+}
+#[cfg(not(unix))]
+fn reap(
+    child: &mut std::process::Child,
+    shared: &Shared,
+) -> std::io::Result<std::process::ExitStatus> {
+    let status = child.wait();
+    *shared.exited.lock().unwrap_or_else(|e| e.into_inner()) = true;
+    status
+}
+
+/// Appends `chunk` to `output`, keeping its first and last `limit` bytes with a note
+/// where the middle was left out.
+pub fn append(output: &mut String, chunk: &str, limit: usize) {
+    output.push_str(chunk);
+    if output.len() > 3 * limit {
+        *output = excerpt(output, limit);
+    }
+}
+
+/// `output` with at most `limit` bytes from its start and its end.
+pub fn excerpt(output: &str, limit: usize) -> String {
+    const NOTE: &str = "\n… (output shortened) …\n";
+    if output.len() <= 2 * limit + NOTE.len() {
+        return output.to_owned();
+    }
+    // An earlier excerpt keeps its note: cut around it, not again inside the head.
+    let (head, tail) = match output.find(NOTE) {
+        Some(at) => (&output[..at], &output[at + NOTE.len()..]),
+        None => (output, output),
+    };
+    let mut start = limit.min(head.len());
+    while !head.is_char_boundary(start) {
+        start -= 1;
+    }
+    let mut end = tail.len().saturating_sub(limit);
+    while !tail.is_char_boundary(end) {
+        end += 1;
+    }
+    format!("{}{NOTE}{}", &head[..start], &tail[end..])
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    fn run(command: &str) -> (String, Option<i32>) {
+        let vars = std::env::vars().collect();
+        let (_running, events) =
+            Running::start(command, Path::new("/tmp"), Path::new("/bin/sh"), &vars).unwrap();
+        let mut output = String::new();
+        loop {
+            match events.recv_blocking().unwrap() {
+                ShellEvent::Output(chunk) => output.push_str(&chunk),
+                ShellEvent::Exit { code, .. } => return (output, code),
+            }
+        }
+    }
+
+    #[test]
+    fn commands_report_output_and_exit_code() {
+        let (output, code) = run("echo hi; echo oops >&2; exit 3");
+        assert!(
+            output.contains("hi\n") && output.contains("oops\n"),
+            "{output}"
+        );
+        assert_eq!(code, Some(3));
+        let (output, _) = run("pwd");
+        assert!(output.trim_end().ends_with("tmp"), "{output}");
+    }
+
+    #[test]
+    fn stop_ends_the_whole_group() {
+        let vars = std::env::vars().collect();
+        let (running, events) = Running::start(
+            "sleep 30 & sleep 30",
+            Path::new("/tmp"),
+            Path::new("/bin/sh"),
+            &vars,
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(200));
+        let started = Instant::now();
+        running.stop();
+        loop {
+            if let ShellEvent::Exit { code, .. } = events.recv_blocking().unwrap() {
+                assert_eq!(code, None);
+                break;
+            }
+        }
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn long_output_keeps_its_start_and_end() {
+        let mut output = String::new();
+        for line in 0..10_000 {
+            append(&mut output, &format!("line {line}\n"), 100);
+        }
+        let kept = excerpt(&output, 100);
+        assert!(kept.starts_with("line 0\n"), "{kept}");
+        assert!(kept.ends_with("line 9999\n"), "{kept}");
+        assert!(kept.contains("(output shortened)") && kept.len() < 400);
+        assert_eq!(excerpt("short", 100), "short");
+    }
+}

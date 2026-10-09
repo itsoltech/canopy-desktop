@@ -4,6 +4,7 @@
 pub mod attachments;
 pub mod claude;
 pub mod codex;
+pub mod compose;
 pub mod config;
 pub mod handoff;
 pub mod history;
@@ -15,5 +16,6 @@ pub mod provider;
 pub mod quotes;
 pub mod scratch;
 pub mod session;
+pub mod shell;
 pub mod tools;
 pub mod transcript;

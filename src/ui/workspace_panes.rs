@@ -299,7 +299,7 @@ impl Workspace {
     pub(super) fn close_editor_pane(&mut self, tab: TabId, pane: PaneId, cx: &mut Context<Self>) {
         let target = self.state.workspace.clone();
         let workspace = target.read(cx).id;
-        crate::app_state::Editors::guard(
+        crate::app_state::Editors::guard_closing(
             vec![pane],
             move |cx| {
                 target.update(cx, |state, cx| {

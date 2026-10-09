@@ -26,6 +26,8 @@ pub struct RateLimit {
 pub struct Adapter {
     /// The conversation's thread; others are its subagents.
     pub thread: Option<String>,
+    /// `skills/changed` arrived: the skills list is asked for again.
+    pub skills_changed: bool,
     /// The running turn of the main thread.
     pub turn: Option<String>,
     /// Codex item id → transcript indices (a patch becomes one row per file).
@@ -151,6 +153,10 @@ impl Adapter {
 
     fn notification(&mut self, method: &str, params: &Value, t: &mut Transcript) -> Vec<Signal> {
         match method {
+            "skills/changed" => {
+                self.skills_changed = true;
+                return vec![];
+            }
             "account/rateLimits/updated" => {
                 self.rate = rate_limit(&params["rateLimits"]).or(self.rate);
                 return vec![];

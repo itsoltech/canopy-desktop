@@ -24,6 +24,22 @@ impl AssetSource for Assets {
             "canopy/pencil.svg" => Some(include_bytes!("../../assets/icons/pencil.svg")),
             "canopy/paperclip.svg" => Some(include_bytes!("../../assets/icons/paperclip.svg")),
             "canopy/quote.svg" => Some(include_bytes!("../../assets/icons/quote.svg")),
+            "canopy/git-pull-request.svg" => {
+                Some(include_bytes!("../../assets/icons/git-pull-request.svg"))
+            }
+            "canopy/git-pull-request-draft.svg" => Some(include_bytes!(
+                "../../assets/icons/git-pull-request-draft.svg"
+            )),
+            "canopy/git-merge.svg" => Some(include_bytes!("../../assets/icons/git-merge.svg")),
+            "canopy/git-pull-request-closed.svg" => Some(include_bytes!(
+                "../../assets/icons/git-pull-request-closed.svg"
+            )),
+            "canopy/square-slash.svg" => {
+                Some(include_bytes!("../../assets/icons/square-slash.svg"))
+            }
+            "canopy/square-terminal.svg" => {
+                Some(include_bytes!("../../assets/icons/square-terminal.svg"))
+            }
             "canopy/arrow-right-left.svg" => {
                 Some(include_bytes!("../../assets/icons/arrow-right-left.svg"))
             }

@@ -378,3 +378,56 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   Cytat to `Attachment::Quote` z wzmianką `[❝ …]` w tekście (badge jak załącznik, tooltip z całością, ≤ 4 000 znaków),
   więc przeżywa kolejkę, Edit i historię. `quotes::expand` zamienia wzmiankę na blok `> …` w wire Claude/Codex
   i w skrócie handoff. Klik w badge wysłanej wiadomości przewija do źródła i na chwilę je podświetla.
+
+## Etap 9: komendy, wzmianki i polecenia w composerze
+
+- Podpowiedzi (DEC-071, `ui/chat/suggest.rs`): `suggest::trigger` wykrywa słowo przy kursorze. Wyzwalacze:
+  - `/` tylko na początku wiadomości;
+  - `@` i `#` na początku słowa;
+  - badge'e nie są częścią słowa.
+  Tacka na górnej krawędzi composera, jak kolejka: wysuwa się (PANEL, `MotionReveal`), wysokość zmienia płynnie
+  (`AnimatedHeight`) i chowa się z animacją. Tacka ma pierwszeństwo przed edit, kolejką i kontekstem. ↑/↓, Enter/Tab
+  i Esc to akcje pola tekstowego (`MoveUp`, `MoveDown`, `Enter`, `IndentInline`, `Escape`), przechwytywane
+  `capture_action` na composerze, bo akcje idą przed zwykłymi zdarzeniami klawiszy; tak samo działa ↑ historii.
+  Lista jest liczona w subskrypcji `InputEvent::Change`, wyszukiwanie w tle z debounce i odrzucaniem starszych
+  wyników. Wybór wywołuje `put_mention`, który zamienia zakres na `InlineToken`
+  i dodaje gotowy `Pending`.
+- `/`: lista z CLI.
+  - Claude: `initialize.commands` (`claude::wire::commands`).
+  - Codex: `skills/list` przy starcie i ponownie po `skills/changed` (`codex::wire::skills`).
+  - Badge `Attachment::Command`. `chat::compose::expand` zamienia go na `/name` (Claude) albo na `$name` + wejście
+    `{"type":"skill"}` (Codex).
+  - Lokalne komendy Claude (np. `/context`, `/compact`) odpowiadają syntetyczną wiadomością asystenta.
+- `@`: `files::search::mentions` (ignore rules jak ⌘P, pliki i foldery, trafienia w nazwie wyżej). Badge to
+  `Attachment::Path` z wzmianką `@ścieżka`: agent dostaje tylko ścieżkę (DEC-073).
+- `#`: `IntegrationsState::pull_requests`:
+  - repozytorium czatu z `task_repository` (nadpisanie Tasks, jeśli wskazuje GitHub, inaczej origin);
+  - konto przez `account_for`, token z Keychain;
+  - `Github::pulls`: otwarte PR-y albo `search` + `pullRequest(number:)`;
+  - cache 60 s.
+  Badge `Attachment::Pull`; agent dostaje `PR #N` i blok „Referenced pull requests”.
+- `!` (DEC-072):
+  - `!` wpisany w puste pole włącza tryb shella (`ChatView.shell`, `t::shell()`, etykieta „Shell”, placeholder
+    „Run a shell command”) i nie zostaje w tekście; Backspace lub Esc w pustym polu wyłącza tryb, a po
+    uruchomieniu polecenia tryb się kończy;
+  - Enter uruchamia `chat::shell::Running`: `$SHELL -c` w katalogu czatu, środowisko z `ShellEnvironment`, własna
+    grupa procesów, Stop wysyła SIGTERM, a po 2 s SIGKILL;
+  - karta to `Body::Shell(ShellRun)` w osobnej turze, z outputem ograniczonym do 32 KB z każdej strony;
+  - po zakończeniu `end_shell` wysyła (albo kolejkuje) wiadomość z `Attachment::Shell`: polecenie, kod wyjścia,
+    output skrócony do ~5 KB z każdej strony. Wiadomość nie ma własnego dymka ani znacznika w nawigatorze, a tacka
+    kolejki pokazuje ją jako „Output of !cmd” bez Edit;
+  - Restart, przełączenie agenta i zamknięcie zatrzymują działające polecenia; po restarcie aplikacji karta
+    pokazuje „Interrupted”.
+- ↑ (DEC-075, `ui/chat/recall.rs`): w pustym composerze przywraca wcześniejsze wiadomości z badge'ami (również
+  z archiwalnych części, bez wyników `!`). ↓ idzie do przodu, a edycja tekstu kończy przeglądanie.
+- Granice:
+  - polecenia `!` nie mają PTY ani wejścia;
+  - Codex nie ma ręcznego `/compact` (kompaktuje sam);
+  - `#` obejmuje tylko PR-y GitHuba.
+- Zamykanie (QA etapu 9, DEC-076):
+  - tab, pane, projekt i worktree z czatem, który ma rozmowę albo pracującego agenta, pytają „Delete this chat?” /
+    „Delete N chats?”;
+  - pytanie wymienia też pracującego agenta, niewysłaną kolejkę i działające polecenia `!`;
+  - pusty czat zamyka się bez pytania;
+  - quit niczego nie usuwa i pyta tylko o kolejkę;
+  - usuwanie worktree mówi o czatach w kroku zamykania procesów.

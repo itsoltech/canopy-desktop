@@ -7,6 +7,8 @@ use canopy_desktop::{
 use gpui_kit::*;
 pub use mutations::WriteFinished;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
+/// Pull requests found for one search, and when.
+type FoundPulls = (std::time::Instant, Vec<github::PullRef>);
 #[derive(Clone)]
 struct Cached {
     items: Arc<Vec<TaskItem>>,
@@ -43,6 +45,8 @@ pub struct IntegrationsState {
     quitting: bool,
     mutation_id: u64,
     read_generation: u64,
+    /// Pull requests found for `#` in chat, by account, repository and search.
+    pulls: Arc<std::sync::Mutex<HashMap<String, FoundPulls>>>,
 }
 impl EventEmitter<TaskItem> for IntegrationsState {}
 impl IntegrationsState {
@@ -77,6 +81,7 @@ impl IntegrationsState {
             quitting: false,
             mutation_id: 0,
             read_generation: 0,
+            pulls: Default::default(),
         }
     }
     pub fn bind(&mut self, cx: &mut Context<Self>) {
@@ -413,6 +418,64 @@ impl IntegrationsState {
                 cx.notify();
             });
         }));
+    }
+    /// Pull requests of the GitHub repository at `path` for `#` in chat (DEC-074),
+    /// through the connection Tasks use for its owner. Answers repeat for a minute; no
+    /// refresh happens without a search.
+    pub fn pull_requests(
+        &mut self,
+        path: PathBuf,
+        query: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Vec<github::PullRef>, String>> {
+        const FRESH: std::time::Duration = std::time::Duration::from_secs(60);
+        let app = cx.global::<AppState>().clone();
+        let Some(git) = app.git.read(cx).client() else {
+            return Task::ready(Err("Git is still starting.".into()));
+        };
+        let config = self.config.clone();
+        let http = cx.http_client();
+        let cache = self.pulls.clone();
+        cx.spawn(async move |_, cx| {
+            let repository = git
+                .task_repository(path)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or("This chat's folder isn't a Git repository.")?;
+            let github = |target: &ProjectTarget| target.provider == Provider::Github;
+            let target = config
+                .task_project(&repository)
+                .filter(github)
+                .or(repository.inferred.clone().filter(github))
+                .ok_or("The repository's origin isn't on GitHub.")?;
+            let account = config
+                .account_for(&target)
+                .cloned()
+                .ok_or("Connect GitHub in Preferences → Integrations to mention pull requests.")?;
+            let key = format!("{}\n{}\n{}", account.id, target.key, query.trim());
+            if let Some((at, pulls)) = cache.lock().ok().and_then(|c| c.get(&key).cloned())
+                && at.elapsed() < FRESH
+            {
+                return Ok(pulls);
+            }
+            let credential = account.credential.clone();
+            let token = cx
+                .background_executor()
+                .spawn(async move { credentials::load(&credential) })
+                .await?;
+            let (owner, name) = target
+                .key
+                .split_once('/')
+                .ok_or("Invalid GitHub repository.")?;
+            let pulls = github::Github::new(http, token)
+                .pulls(owner, name, &query)
+                .await?;
+            if let Ok(mut cache) = cache.lock() {
+                cache.retain(|_, (at, _)| at.elapsed() < FRESH);
+                cache.insert(key, (std::time::Instant::now(), pulls.clone()));
+            }
+            Ok(pulls)
+        })
     }
     pub fn active_account(&self) -> Option<&Account> {
         self.config.account_for(self.target.as_ref()?)

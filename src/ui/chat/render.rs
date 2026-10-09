@@ -157,11 +157,15 @@ impl Render for ChatView {
             // context for a switched-to agent shows when nothing else does.
             .children(match self.decision_bar(cx) {
                 Some(panel) => Some(panel),
-                None => match (!in_thread).then(|| self.edit_bar(cx)).flatten() {
+                // Suggestions for the word being typed come before the other trays.
+                None => match (!in_thread).then(|| self.suggest_bar(window, cx)).flatten() {
                     Some(bar) => Some(bar),
-                    None => match (!in_thread).then(|| self.queue_bar(cx)).flatten() {
+                    None => match (!in_thread).then(|| self.edit_bar(cx)).flatten() {
                         Some(bar) => Some(bar),
-                        None => (!in_thread).then(|| self.handoff_bar(cx)).flatten(),
+                        None => match (!in_thread).then(|| self.queue_bar(cx)).flatten() {
+                            Some(bar) => Some(bar),
+                            None => (!in_thread).then(|| self.handoff_bar(cx)).flatten(),
+                        },
                     },
                 },
             })
@@ -569,6 +573,20 @@ fn item_row(
 ) -> AnyElement {
     let live = matches!(source, Source::Current(_));
     match &item.body {
+        // A `!` command's result: its card above already shows it went to the agent.
+        Body::User(message)
+            if message.attachments.iter().any(|a| {
+                matches!(
+                    a,
+                    canopy_desktop::chat::transcript::Attachment::Shell { .. }
+                )
+            }) =>
+        {
+            div().into_any_element()
+        }
+        Body::Shell(run) => {
+            super::shell::shell_card(view, this, entry, item.id, run, live).into_any_element()
+        }
         Body::User(message) => column()
             // A steered message continues the running turn: less space above it.
             .pt(px(if message.delivery == Delivery::Steered {

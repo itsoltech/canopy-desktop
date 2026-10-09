@@ -167,6 +167,7 @@ impl ChatView {
                         Attachment::Quote { text, .. } => {
                             canopy_desktop::chat::quotes::mention(text)
                         }
+                        other => super::mentions::mention_of(other),
                     });
             let start = match text[from..].find(&mention) {
                 Some(at) => from + at,
@@ -242,6 +243,39 @@ impl ChatView {
     fn next_attachment(&mut self) -> u64 {
         self.attachments.next += 1;
         self.attachments.next
+    }
+
+    /// Replaces `range` of the composer's text (a typed `@na…`) with the badge of
+    /// `attachment`, followed by a space.
+    pub(super) fn put_mention(
+        &mut self,
+        range: std::ops::Range<usize>,
+        attachment: Attachment,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mention) = attachment.label().map(str::to_owned) else {
+            return;
+        };
+        let id = self.next_attachment();
+        self.attachments.pending.push(Pending {
+            id,
+            text: mention.clone().into(),
+            state: AttachState::Ready(attachment),
+            preview: None,
+            image: false,
+        });
+        let token = InlineToken::new(token_id(id), mention).with_label(name.to_owned());
+        self.composer.update(cx, |state, cx| {
+            if state
+                .replace_range_with_token(range, token, window, cx)
+                .is_ok()
+            {
+                state.insert(" ", window, cx);
+            }
+            state.focus(window, cx);
+        });
     }
 
     /// A new attachment and its badge, put into the text at the cursor.
@@ -590,6 +624,8 @@ impl ChatView {
         if let AttachState::Ready(Attachment::Quote { text, .. }) = &pending.state {
             let text = text.clone();
             self.show_quote(&text, None, cx);
+        } else if let AttachState::Ready(Attachment::Pull { url, .. }) = &pending.state {
+            cx.open_url(url);
         } else if let Some(image) = pending.preview.clone() {
             self.open_lightbox(image, cx);
         }
@@ -598,6 +634,23 @@ impl ChatView {
     /// One badge in the composer's text: thumbnail (or spinner, warning, file icon) and name.
     pub(super) fn badge(&self, context: &InlineTokenContext) -> AnyElement {
         let pending = id_of(context.token()).and_then(|id| self.pending(id));
+        if let Some(Pending {
+            id,
+            state: AttachState::Ready(attachment),
+            ..
+        }) = pending
+            && let Some(badge) = super::mentions::mention_badge(
+                ("chat-composer-mention", *id),
+                attachment,
+                context.line_height(),
+                context.is_selected(),
+            )
+        {
+            return badge
+                .max_w(context.available_width())
+                .cursor_pointer()
+                .into_any_element();
+        }
         if let Some(Pending {
             id,
             state: AttachState::Ready(Attachment::Quote { text, .. }),
@@ -792,6 +845,8 @@ fn badge_name(attachment: &Attachment, mention: &str) -> String {
     let inner = mention.trim_start_matches('[').trim_end_matches(']');
     match attachment {
         Attachment::Path { path, .. } if inner == path.display().to_string() => name_of(path),
+        // `@src/chat/view.rs`: the file's name.
+        Attachment::Path { path, .. } if inner.starts_with('@') => name_of(path),
         _ => inner.to_owned(),
     }
 }
@@ -891,6 +946,8 @@ pub(super) fn sent_attachments(
                         })
                         .into_any_element()
                     }
+                    // Commands and pull requests are always in the text.
+                    _ => div().into_any_element(),
                 }
             })),
     )
@@ -981,21 +1038,40 @@ pub(super) fn badge_factory(view: WeakEntity<ChatView>) -> super::rows::BadgeFac
                 })
                 .into_any_element();
             }
+            if let Some(badge) = super::mentions::mention_badge(
+                ElementId::Name(format!("chat-mention-{index}-{name}").into()),
+                attachment,
+                height,
+                false,
+            ) {
+                let url = match attachment {
+                    Attachment::Pull { url, .. } => Some(url.clone()),
+                    _ => None,
+                };
+                return badge
+                    .when_some(url, |badge, url| {
+                        badge.cursor_pointer().on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            cx.open_url(&url);
+                        })
+                    })
+                    .into_any_element();
+            }
             let preview = match attachment {
                 Attachment::Image { file, .. } => view
                     .upgrade()
                     .and_then(|view| view.read(cx).attachments.previews.get(file).cloned()),
-                Attachment::Path { .. } | Attachment::Quote { .. } => None,
+                _ => None,
             };
             let key = match attachment {
                 Attachment::Image { file, .. } => file.clone(),
                 Attachment::Path { path, .. } => path.display().to_string(),
-                Attachment::Quote { text, .. } => text.clone(),
+                _ => name.clone(),
             };
             let tooltip: SharedString = match attachment {
                 Attachment::Image { .. } => name.clone(),
                 Attachment::Path { path, .. } => path.display().to_string(),
-                Attachment::Quote { text, .. } => text.clone(),
+                _ => name.clone(),
             }
             .into();
             let size = height - px(6.);

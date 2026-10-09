@@ -265,6 +265,11 @@ fn queued_row(
     let id: QueuedId = queued.id;
     let key = id.0;
     let active = !entry.leaving;
+    // A `!` command's result waits like a message but has no text to edit.
+    let ran = queued.attachments.iter().find_map(|a| match a {
+        canopy_desktop::chat::transcript::Attachment::Shell { command, .. } => Some(command),
+        _ => None,
+    });
     let actions: AnyElement = if queued.steering.is_some() {
         row()
             .gap(px(6.))
@@ -290,7 +295,7 @@ fn queued_row(
             .child(
                 action(("chat-queue-edit", key), "Edit")
                     .tooltip("Move back to the message field")
-                    .disabled(!active)
+                    .disabled(!active || ran.is_some())
                     .on_click(cx.listener(move |this, _, window, cx| this.edit(id, window, cx))),
             )
             .child(
@@ -300,7 +305,10 @@ fn queued_row(
             )
             .into_any_element()
     };
-    let text = queued.text.clone();
+    let text = match ran {
+        Some(command) => format!("Output of !{command}"),
+        None => queued.text.clone(),
+    };
     let tip: SharedString = if held {
         format!("{text}\n\nQueued — paused after Stop; Resume, send or steer to continue").into()
     } else {
@@ -348,7 +356,7 @@ fn queued_row(
                     .tooltip(move |window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
                     })
-                    .child(single_line(&queued.text)),
+                    .child(single_line(&text)),
             )
             .child(actions),
     )
