@@ -89,8 +89,7 @@
       confirmLabel: 'Delete',
       destructive: true,
     })
-    if (confirmed) {
-      await deleteRunConfig(configDir, name)
+    if (confirmed && (await deleteRunConfig(configDir, name))) {
       if (selectedKey?.configDir === configDir && selectedKey?.name === name) {
         selectedKey = null
         isNew = false

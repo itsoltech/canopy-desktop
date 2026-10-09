@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { Eye, EyeOff, Trash2 } from '@lucide/svelte'
   import { confirm } from '../../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../../lib/stores/toast.svelte'
   import PrefsSection from './PrefsSection.svelte'
   import { prefsSearch, matches } from './prefsSearch.svelte'
 
@@ -31,7 +32,12 @@
       destructive: true,
     })
     if (!ok) return
-    await window.api.deleteCredential(id)
+    try {
+      await window.api.deleteCredential(id)
+    } catch (e) {
+      addToast(`Failed to delete saved password: ${e instanceof Error ? e.message : String(e)}`)
+      return
+    }
     await loadCredentials()
   }
 

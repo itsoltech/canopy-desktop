@@ -100,6 +100,10 @@
   import { initToolStore, destroyToolStore } from '../../lib/stores/tools.svelte'
   import { initSkillStore, destroySkillStore } from '../../lib/stores/skills.svelte'
   import { initProfileStore, destroyProfileStore } from '../../lib/stores/profiles.svelte'
+  import {
+    initBackgroundListener as initRunConfigListener,
+    cleanupBackgroundListener as cleanupRunConfigListener,
+  } from '../../lib/stores/runConfig.svelte'
   import { isMacPlatform } from '../../lib/platform'
 
   onMount(() => {
@@ -107,6 +111,9 @@
     initToolStore()
     initSkillStore()
     initProfileStore()
+    // Owned here, not by the sidebar RUN section: that section unmounts whenever the sidebar
+    // is hidden, which used to drop pty-exit tracking and post_run result toasts.
+    initRunConfigListener()
     const stopWorkspaceStateSubscription = initWorkspaceStateSubscription()
     const stopRemoteListeners = initRemoteSessionListeners()
     window.api
@@ -127,6 +134,7 @@
       stopRemoteListeners()
       destroyToolStore()
       destroyProfileStore()
+      cleanupRunConfigListener()
     }
   })
 
