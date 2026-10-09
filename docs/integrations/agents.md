@@ -3493,6 +3493,91 @@ it, and was not reachable. The tools step is not attributed.
 were unreachable this run, because `gh api` and web fetches were both refused. On this branch,
 `npm ci` now installs `0.3.294`, which vendors CLI 2.1.294.
 
+**2.1.295 adds an opt-in failure policy for command and HTTP hooks, and Canopy's hooks keep the
+default.** The entry reads "Added onFailure: "block" for command and HTTP hooks: a hook that can't
+start, times out, or exits with an unexpected code blocks the action instead of letting it
+through". The archive's highlight says such hooks "now block the action", which reads like a new
+default. The 2.1.295 build on the runner says it is not:
+
+- **The default is `continue`.** The schema describes a failure as a hook that could not start,
+  timed out, exited with a code other than 0 or 2, or printed JSON that is invalid or fails
+  validation. "'continue' (default): the failure is reported and the action goes ahead. 'block':
+  the failure counts as exit code 2". `block` is ignored for async hooks and on `Stop`,
+  `SubagentStop`, `TaskCompleted` and `TeammateIdle`.
+- **Canopy writes no `onFailure`.** `setupSettings` writes only `type` and `command`
+  (`claude.ts:110`), so a Canopy hook that fails still lets the action through. Claude panes run
+  `canopy-agent-hook.sh` on every platform, and it exits 0 even when `curl` cannot reach the hook
+  server. The `.cmd` script, which only the Codex and Gemini adapters use, returns `curl`'s exit
+  code instead.
+- **A second path blocks the user's own hooks.** With `CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG` set, a
+  synchronous command or HTTP hook that is the user's own blocks when it fails or times out on
+  `PreToolUse`, `PermissionRequest`, `PreModelSwitch`, `UserPromptSubmit` and
+  `UserPromptExpansion`. Canopy subscribes to the first four. The build counts a hook as the user's
+  own when it comes from the user's own skills, agents or plugins, or when the same hook is in user
+  settings. Canopy's hooks come from its `--settings` file, so they do not count. The variable is
+  absent from the vendored 2.1.207 build, and with no 2.1.294 build on the runner it could not be
+  dated more closely.
+- **Older CLIs drop the key.** 2.1.207's command-hook schema is a plain object without strict mode,
+  so an older CLI ignores an `onFailure` it does not know rather than rejecting the file.
+
+**This repository's publish guard fails open, and `block` alone would not close it.** The
+`PreToolUse` guard in `.claude/settings.json` ends in `|| true`, so it exits 0 even when `jq` is
+missing and no command was read. `onFailure: "block"` acts only on a failure, so adding it changes
+nothing until the guard exits non-zero when it cannot read the command.
+
+**Program Status (OSC 7501) does not reach Canopy panes.** When the 2.1.295 CLI probes the terminal,
+it now also sends `OSC 7501 ; ?`. It emits status only after an OSC 7501 reply that starts with `?`.
+Without one it records "probe: no reply to OSC 7501 ; ?" and stays silent. xterm.js 6.0.0's OSC
+parser passes an unregistered code to a no-op fallback, and Canopy registers no OSC handler, so a
+pane never replies, never receives status and draws nothing. Each status reads
+`state=<state>:app=claude-code`, with an optional `id`, a `kind` when blocked, a 0–100 `progress`,
+and a base64 `title` and `msg`. `state=clear` withdraws it. `CLAUDE_CODE_DISABLE_TERMINAL_TITLE`
+turns the probe off. Canopy already tracks its Claude panes through hooks. The protocol could also
+give status to a `claude` started by hand in a plain terminal tab, which has none today.
+
+**The other visible entries do not reach Canopy.**
+
+- **Gateway sign-in from user settings.** `forceLoginMethod: "gateway"` and `forceLoginGatewayUrl`
+  now work from user settings on a machine without managed settings. The build reads that pair
+  from user settings only, so a profile's Settings JSON, which lands in the `--settings` file,
+  cannot carry it.
+- **The `claude -p` waiting line.** It is printed only when stderr is a terminal. The SDK spawns
+  the commit-message turn's CLI with stderr piped or ignored.
+- **Plugin warnings and advice.** Canopy runs no `claude plugin` command.
+- **Not used by Canopy.** The gateway's per-upstream `models` lists, `timeouts.upstream_ttfb_ms`
+  and `upstream_request_id`, the `/copy` picker's quoted text, the "Backgrounding cancelled"
+  message and `$.ui.notify` for mods.
+
+**Canopy's contract against 2.1.295, by presence.** The 2.1.295 build was on the runner at
+`~/.local/share/claude/versions/2.1.295`. No 2.1.294 build was reachable, so nothing below is a
+diff:
+
+- **Hook events.** The array names the same 33 events, the 18 Canopy subscribes to among them.
+  `Stop` still carries `stop_hook_active` and `last_assistant_message`, `StopFailure` carries
+  `error` and `error_details`, and `PostModelSwitch` carries `to_model`.
+- **Tool input.** `PreToolUse` hooks still receive the validated input (`observableInput`).
+  `TaskCreate` still takes `subject` and `activeForm` and returns `task.id`, and `TaskUpdate` still
+  takes `taskId`.
+- **Flags and scripts.** All seven flags Canopy emits are present. On Windows, a quoted first word
+  ending in `.sh` still runs as `bash "<path>"`, which `shellQuote` relies on. The status-line
+  builder still starts at `model:{id:`.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The metadata step splits about evenly between the halves, by arithmetic.** The archive reports
++14,401 prompt tokens (+23.5%), five more prompt files (+21.7%) and a +1,149.1 kB bundle. That
+gives 61,152 → 75,553 tokens and 23 → 28 files. From the 2.1.294 tools total, about 12,047 (±31),
+and the new 74.7% system share, the system half grew about +7,333 and the tools half about +7,068,
+each ±68. The system step fits the archive's `User Memory Project One` series: each copy adds 389
+tokens to the last, so a tenth would be 7,365. The tools step is not attributed. 14,401 tokens is
+about 58 kB of text, so most of the bundle growth is code. `meta/prompt-stats.md` would settle
+both, and was not reachable.
+
+**12 of 2.1.295's 143 CLI changelog entries were read.** The pasted notes list 12 and hide 131
+behind "… +131 more". The changelog archive and the official `CHANGELOG.md` were unreachable this
+run, because `gh api` and web fetches were both refused. On this branch, `npm ci` now installs
+`0.3.295`, which vendors CLI 2.1.295.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
