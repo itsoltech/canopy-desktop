@@ -2,6 +2,7 @@
 //! keeps only its account, choices and provider session id.
 use super::AppState;
 use crate::ui::chat::{ChatStateChanged, ChatView, NEW_CHAT_TITLE, TurnDiffView};
+use canopy_desktop::chat::provider::Provider;
 use canopy_desktop::{
     chat::config::{ChatSettings, Mode},
     state::workspace::{PaneId, PaneKind, PaneMetadata, WorkspaceId},
@@ -375,21 +376,48 @@ impl Chats {
         }
         let app = cx.global::<AppState>().clone();
         let defaults = app.settings.read(cx).values.chat.clone();
-        let Some(tool) = app.tools.read(cx).catalog.get("claude").cloned() else {
+        let provider = Self::provider(cx);
+        let Some(tool) = app.tools.read(cx).catalog.get(provider.tool()).cloned() else {
             return;
         };
         let profile = defaults
             .profile
+            .clone()
             .filter(|id| tool.profiles.iter().any(|p| &p.id == id))
             .or(tool.default_profile.clone());
-        let profile_mode = profile
+        let chosen = profile
             .as_ref()
-            .and_then(|id| tool.profiles.iter().find(|p| &p.id == id))
-            .and_then(|p| Mode::from_claude(&p.settings.permission_mode));
+            .and_then(|id| tool.profiles.iter().find(|p| &p.id == id));
+        let profile_mode = chosen.and_then(|p| match provider {
+            Provider::Claude => Mode::from_claude(&p.settings.permission_mode),
+            Provider::Codex => Some(Mode::from_codex(
+                &p.settings.approval_mode,
+                &p.settings.sandbox,
+                p.settings.full_auto,
+                p.settings.bypass_approvals,
+            )),
+        });
+        // The last choice in the other agent's terms; its model and effort don't apply.
+        let same = defaults
+            .profile
+            .as_ref()
+            .is_some_and(|id| tool.profiles.iter().any(|p| &p.id == id));
+        let mode = match (defaults.mode, provider) {
+            (Some(mode), Provider::Claude) => Some(mode.for_claude()),
+            (Some(mode), Provider::Codex) => Some(mode.for_codex()),
+            (None, _) => None,
+        };
+        // The profile's own model, unless the last choice for this account is newer.
+        let profile_model = chosen
+            .map(|p| p.model.clone())
+            .filter(|model| !model.trim().is_empty());
         let settings = ChatSettings {
-            model: defaults.model,
-            effort: defaults.effort,
-            mode: defaults.mode.or(profile_mode).unwrap_or_default(),
+            model: defaults.model.filter(|_| same).or(profile_model),
+            effort: defaults.effort.filter(|_| same),
+            mode: mode.or(profile_mode).unwrap_or(match provider {
+                Provider::Claude => Mode::Ask,
+                Provider::Codex => Mode::Auto,
+            }),
             // New chats start without remembered permissions.
             allowed: vec![],
             id: Some(ChatSettings::new_id()),
@@ -409,7 +437,7 @@ impl Chats {
                     cx.notify();
                     return;
                 };
-                self.place(Some(id), metadata(cwd), cx);
+                self.place(Some(id), provider, metadata(cwd), cx);
             }
             ChatTarget::NoProject => {
                 // The private folder is created off the UI thread, then the tab opens.
@@ -424,7 +452,7 @@ impl Chats {
                     let _ = this.update(cx, |this, cx| {
                         this.opening = None;
                         match folder {
-                            Ok(cwd) => this.place(None, metadata(cwd), cx),
+                            Ok(cwd) => this.place(None, provider, metadata(cwd), cx),
                             Err(error) => {
                                 this.error =
                                     Some(format!("Could not create the chat folder: {error}"));
@@ -440,15 +468,49 @@ impl Chats {
     fn place(
         &mut self,
         target: Option<WorkspaceId>,
+        provider: Provider,
         metadata: PaneMetadata,
         cx: &mut Context<Self>,
     ) {
         let projects = cx.global::<AppState>().projects.clone();
         let result = projects.update(cx, |projects, cx| {
-            projects.open_chat(target, NEW_CHAT_TITLE, metadata, cx)
+            projects.open_chat(target, NEW_CHAT_TITLE, provider.tool(), metadata, cx)
         });
         self.error = result.err();
         cx.notify();
+    }
+
+    /// The agent of a new chat: the last account's (Claude unless it was Codex's).
+    pub fn provider(cx: &App) -> Provider {
+        let app = cx.global::<AppState>();
+        let tools = app.tools.read(cx);
+        let last = app.settings.read(cx).values.chat.profile.clone();
+        let usable = |provider: Provider| {
+            tools
+                .catalog
+                .get(provider.tool())
+                .is_some_and(|tool| tool.enabled)
+                && !matches!(tools.availability.get(provider.tool()), Some(Err(_)))
+        };
+        let owns_last = |provider: &Provider| {
+            tools.catalog.get(provider.tool()).is_some_and(|tool| {
+                last.as_ref()
+                    .is_some_and(|id| tool.profiles.iter().any(|p| &p.id == id))
+            })
+        };
+        // The last account's agent; the other one when that can't run (Claude names
+        // the problem when neither can).
+        let preferred = Provider::ALL
+            .into_iter()
+            .rfind(owns_last)
+            .unwrap_or(Provider::Claude);
+        if usable(preferred) {
+            return preferred;
+        }
+        Provider::ALL
+            .into_iter()
+            .rfind(|provider| usable(*provider))
+            .unwrap_or(Provider::Claude)
     }
 
     /// Why "New chat" is unavailable, if it is.
@@ -461,12 +523,19 @@ impl Chats {
         if !tools.ready || tools.environment.is_none() {
             return Some("Loading tools…");
         }
-        let tool = tools.catalog.get("claude")?;
+        let provider = Self::provider(cx);
+        let tool = tools.catalog.get(provider.tool())?;
         if !tool.enabled {
-            return Some("Claude Code is disabled in Preferences.");
+            return Some(match provider {
+                Provider::Claude => "Claude Code is disabled in Preferences.",
+                Provider::Codex => "Codex is disabled in Preferences.",
+            });
         }
-        if matches!(tools.availability.get("claude"), Some(Err(_))) {
-            return Some("Claude Code is not installed.");
+        if matches!(tools.availability.get(provider.tool()), Some(Err(_))) {
+            return Some(match provider {
+                Provider::Claude => "Claude Code is not installed.",
+                Provider::Codex => "Codex is not installed.",
+            });
         }
         if app.git.read(cx).busy {
             return Some("Waiting for a Git operation.");

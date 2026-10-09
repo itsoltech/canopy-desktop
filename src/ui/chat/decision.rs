@@ -7,6 +7,7 @@ use crate::ui::{components::*, markdown::MarkdownView, theme as t};
 use canopy_desktop::{
     chat::{
         presentation::{self, Question},
+        provider::Provider,
         session::Response,
         tools::{self, Proposal},
         transcript::{Body, ItemId, Permission, PermissionKind, Remember},
@@ -182,6 +183,11 @@ fn choices(request: &Request) -> Vec<Choice> {
                     "File edits no longer ask in this chat".into(),
                     Action::AllowForChat,
                 )),
+                Some(Remember::Session) => list.push(choice(
+                    "Allow for this session",
+                    "The same request no longer asks until the chat restarts".into(),
+                    Action::AllowForChat,
+                )),
                 None => {}
             }
             list.push(choice(
@@ -257,11 +263,13 @@ fn answers(request: &Request) -> Vec<String> {
         .collect()
 }
 
-fn placeholder(kind: PermissionKind) -> &'static str {
-    match kind {
-        PermissionKind::Tool => "Tell Claude what to do instead",
-        PermissionKind::Question => "Type your own answer",
-        PermissionKind::Plan => "Tell Claude what to change in the plan",
+fn placeholder(kind: PermissionKind, provider: Provider) -> &'static str {
+    match (kind, provider) {
+        (PermissionKind::Tool, Provider::Claude) => "Tell Claude what to do instead",
+        (PermissionKind::Tool, Provider::Codex) => "Tell Codex what to do instead",
+        (PermissionKind::Question, _) => "Type your own answer",
+        (PermissionKind::Plan, Provider::Claude) => "Tell Claude what to change in the plan",
+        (PermissionKind::Plan, Provider::Codex) => "Tell Codex what to change in the plan",
     }
 }
 
@@ -329,7 +337,7 @@ impl ChatView {
         let asker = self.asker(&permission);
         self.decision.composer = Some(ComposerChange {
             text: Some(String::new().into()),
-            placeholder: placeholder(permission.kind),
+            placeholder: placeholder(permission.kind, self.provider()),
         });
         self.decision.request = Some(Request {
             item,
@@ -367,7 +375,7 @@ impl ChatView {
             .map(|request| match request.permission.kind {
                 PermissionKind::Question => match request.questions.first() {
                     Some(question) => format!("Question: {}", question.question),
-                    None => "Claude has a question".to_owned(),
+                    None => format!("{} has a question", self.provider().name()),
                 },
                 PermissionKind::Plan => "Plan ready for approval".to_owned(),
                 PermissionKind::Tool => format!("Permission: {}", request.permission.tool),
@@ -700,7 +708,7 @@ impl ChatView {
                         _ => "Question".to_owned(),
                     },
                     question.map_or_else(
-                        || "Claude has a question".to_owned(),
+                        || format!("{} has a question", self.provider().name()),
                         |q| q.question.clone(),
                     ),
                 )

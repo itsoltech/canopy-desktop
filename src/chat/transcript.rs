@@ -180,6 +180,8 @@ pub enum Remember {
     Rules(Vec<Rule>),
     /// File edits no longer ask (the chat switches to accepting edits).
     AcceptEdits,
+    /// The same request no longer asks until the agent restarts (Codex sessions).
+    Session,
 }
 
 /// The user's answer to a request, beyond allowed/denied.

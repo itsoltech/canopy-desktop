@@ -171,6 +171,8 @@ pub fn session_permissions(remember: &Remember) -> Value {
             "destination": "session",
         }]),
         Remember::AcceptEdits => accept_edits(),
+        // Codex only: nothing for Claude to remember.
+        Remember::Session => json!([]),
     }
 }
 
@@ -656,11 +658,14 @@ pub fn models(initialize: &Value) -> Vec<ModelInfo> {
                         .into_iter()
                         .flatten()
                         .filter_map(|level| Effort::from_key(level.as_str()?))
+                        // A Codex level; Claude doesn't take it.
+                        .filter(|effort| *effort != Effort::Ultra)
                         .collect()
                 } else {
                     vec![]
                 },
                 supports_auto: model.get("supportsAutoMode").and_then(Value::as_bool) == Some(true),
+                ..Default::default()
             })
         })
         .take(64)

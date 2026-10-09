@@ -84,7 +84,7 @@ pub(super) fn card(
             .w_full()
             .gap(px(12.))
             .items_start()
-            .child(mark(dot))
+            .child(mark(this.provider(), dot))
             .child(
                 column()
                     .flex_1()
@@ -150,8 +150,8 @@ pub(super) fn card(
     div().pt(px(8.)).child(card).into_any_element()
 }
 
-/// Claude's mark with the state dot on its corner (Codex gets its own in stage 7).
-fn mark(dot: Hsla) -> Div {
+/// The agent's mark with the state dot on its corner.
+fn mark(provider: canopy_desktop::chat::provider::Provider, dot: Hsla) -> Div {
     div()
         .relative()
         .flex_shrink_0()
@@ -161,7 +161,7 @@ fn mark(dot: Hsla) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .child(tool_icon("Claude Code", IconName::Bot))
+        .child(super::composer::provider_icon(provider))
         .child(
             div()
                 .absolute()
@@ -300,7 +300,7 @@ pub(super) fn group(
         .w(px(28. + STEP * stacked.saturating_sub(1) as f32))
         .h(px(28.))
         .children(members.iter().take(3).enumerate().map(|(i, (_, tool))| {
-            mark(dot(SubagentState::of(tool)))
+            mark(this.provider(), dot(SubagentState::of(tool)))
                 .absolute()
                 .top_0()
                 .left(px(STEP * i as f32))

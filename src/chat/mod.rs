@@ -3,12 +3,14 @@
 //! `process` events and writes back the lines it returns.
 pub mod attachments;
 pub mod claude;
+pub mod codex;
 pub mod config;
 pub mod history;
 pub mod launch;
 pub mod mentions;
 pub mod presentation;
 pub mod process;
+pub mod provider;
 pub mod scratch;
 pub mod session;
 pub mod tools;

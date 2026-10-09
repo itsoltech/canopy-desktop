@@ -26,7 +26,6 @@ gpui_kit::actions!(
         StopChat,
         AllowPending,
         DenyPending,
-        NewSession,
         PreviousMessage,
         NextMessage
     ]
@@ -38,7 +37,6 @@ pub(crate) fn init(cx: &mut gpui_kit::App) {
         // From the composer, cmd-enter arrives as a secondary PressEnter instead.
         gpui_kit::KeyBinding::new("cmd-enter", AllowPending, Some("Chat")),
         gpui_kit::KeyBinding::new("escape", DenyPending, Some("Chat")),
-        gpui_kit::KeyBinding::new("cmd-k", NewSession, Some("Chat")),
         gpui_kit::KeyBinding::new("alt-cmd-up", PreviousMessage, Some("Chat")),
         gpui_kit::KeyBinding::new("alt-cmd-down", NextMessage, Some("Chat")),
     ]);

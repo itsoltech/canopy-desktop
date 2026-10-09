@@ -1,5 +1,5 @@
 //! What a chat keeps across app restarts: its conversation split into sessions
-//! (epochs) at Restart, Edit and New session. No I/O — the owner stores the JSON
+//! (epochs) at Restart and Edit. No I/O — the owner stores the JSON
 //! produced here and hands loaded rows back.
 use super::session::Base;
 use super::transcript::{Body, Decision, Item, Notice, NoticeKind, Outcome, Resolution, TurnEnd};
@@ -26,6 +26,7 @@ const LAST_RESORT: usize = 16 * 1024;
 pub enum Boundary {
     Restarted,
     Edited,
+    /// Kept so histories saved with it still load (New session was removed).
     NewSession,
 }
 impl Boundary {

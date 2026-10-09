@@ -234,23 +234,6 @@ impl Workspace {
                     } else {
                         menu
                     };
-                    let chat = cx
-                        .global::<crate::app_state::AppState>()
-                        .chats
-                        .read(cx)
-                        .views
-                        .get(&editor_pane)
-                        .cloned();
-                    let menu = match chat {
-                        Some(chat) => menu.item(
-                            PopupMenuItem::new("New session")
-                                .disabled(!chat.read(cx).can_new_session())
-                                .on_click(move |_, _, cx| {
-                                    chat.update(cx, |chat, cx| chat.new_session(cx));
-                                }),
-                        ),
-                        None => menu,
-                    };
                     let rename_target = owner.clone();
                     let close_target = owner.clone();
                     menu.item(

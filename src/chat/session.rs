@@ -1,5 +1,6 @@
 //! Session controller: owns the transcript and decides what to write to the agent.
 //! No I/O — the owner forwards process events in and writes the returned lines out.
+use super::provider::Provider;
 use super::{
     claude::{
         adapter::{Adapter, CliState, InitInfo, Signal},
@@ -15,6 +16,22 @@ use super::{
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
+
+mod codex_engine;
+pub use codex_engine::CodexStart;
+
+/// A line from either agent's process.
+#[derive(Debug)]
+pub enum Incoming {
+    Claude(Inbound),
+    Codex(super::codex::wire::Message),
+}
+pub fn parse_claude(line: &[u8]) -> Result<Option<Incoming>, String> {
+    Ok(wire::parse_line(line)?.map(Incoming::Claude))
+}
+pub fn parse_codex(line: &[u8]) -> Result<Option<Incoming>, String> {
+    Ok(super::codex::wire::parse_line(line)?.map(Incoming::Codex))
+}
 
 const DIAGNOSTICS: usize = 50;
 pub const DENIED_MESSAGE: &str = "Denied by the user in Canopy.";
@@ -163,6 +180,9 @@ pub struct ChatSession {
     lifecycle_seen: bool,
     /// The CLI reported idle: no turn, held result or background agent is running.
     cli_idle: bool,
+    provider: Provider,
+    /// Codex protocol state (unused for Claude).
+    codex: codex_engine::CodexEngine,
 }
 
 #[derive(Clone, Debug)]
@@ -198,7 +218,14 @@ impl ChatSession {
 
     /// `settings` must match what the process was launched with.
     pub fn with_settings(settings: ChatSettings) -> (Self, Vec<Value>) {
-        let mut session = Self {
+        let mut session = Self::base(settings, Provider::Claude);
+        session.initialize_id = session.request_id();
+        let init = wire::initialize(&session.initialize_id);
+        (session, vec![init])
+    }
+
+    fn base(settings: ChatSettings, provider: Provider) -> Self {
+        Self {
             transcript: Transcript::default(),
             adapter: Adapter::default(),
             status: Status::Starting,
@@ -229,10 +256,21 @@ impl ChatSession {
             outstanding: HashSet::new(),
             lifecycle_seen: false,
             cli_idle: true,
-        };
-        session.initialize_id = session.request_id();
-        let init = wire::initialize(&session.initialize_id);
-        (session, vec![init])
+            provider,
+            codex: Default::default(),
+        }
+    }
+
+    pub fn provider(&self) -> Provider {
+        self.provider
+    }
+
+    /// Requests waiting for the user, as the provider names them, oldest first.
+    fn pending_requests(&self) -> Vec<String> {
+        match self.provider {
+            Provider::Claude => self.adapter.pending_permissions(),
+            Provider::Codex => self.codex.adapter.pending_permissions(),
+        }
     }
 
     pub fn transcript(&self) -> &Transcript {
@@ -277,6 +315,11 @@ impl ChatSession {
         if self.status.ended() || self.settings.model == model {
             return vec![];
         }
+        if self.provider == Provider::Codex {
+            // Codex takes it with the next turn.
+            self.settings.model = model;
+            return vec![];
+        }
         let previous = Previous::Model(std::mem::replace(&mut self.settings.model, model));
         let line = wire::set_model(&self.track(previous), self.settings.model.as_deref());
         self.outgoing(vec![line])
@@ -285,12 +328,20 @@ impl ChatSession {
         if self.status.ended() || self.settings.effort == effort {
             return vec![];
         }
+        if self.provider == Provider::Codex {
+            self.settings.effort = effort;
+            return vec![];
+        }
         let previous = Previous::Effort(std::mem::replace(&mut self.settings.effort, effort));
         let line = wire::set_effort(&self.track(previous), effort);
         self.outgoing(vec![line])
     }
     pub fn set_mode(&mut self, mode: Mode) -> Vec<Value> {
         if self.status.ended() || self.settings.mode == mode {
+            return vec![];
+        }
+        if self.provider == Provider::Codex {
+            self.settings.mode = mode;
             return vec![];
         }
         let previous = Previous::Mode(std::mem::replace(&mut self.settings.mode, mode));
@@ -394,6 +445,15 @@ impl ChatSession {
         if self.accepts_turn() {
             let queued = self.queue.remove(index).expect("queued message");
             return self.send(queued.draft());
+        }
+        if self.provider == Provider::Codex {
+            let draft = self.queue[index].clone().draft();
+            let Some((id, line)) = self.codex_steer(&draft) else {
+                // No running turn to steer into: it goes as the next message.
+                return vec![];
+            };
+            self.queue[index].steering = Some(id);
+            return self.outgoing(vec![line]);
         }
         let uuid = uuid::Uuid::new_v4().to_string();
         let line = wire::user_message(
@@ -503,6 +563,12 @@ impl ChatSession {
         if self.turn_open {
             self.status = Status::Interrupting;
         }
+        if self.provider == Provider::Codex {
+            let lines = self.codex_interrupt();
+            self.hold_queue = true;
+            self.stopped = true;
+            return lines;
+        }
         let mut lines = vec![];
         for request in self.adapter.pending_permissions() {
             if let Some(line) = self.answer(&request, Decision::Cancelled) {
@@ -537,6 +603,9 @@ impl ChatSession {
     /// Answers a pending request; answers that don't fit its kind, and repeated ones,
     /// are ignored.
     pub fn respond(&mut self, item: ItemId, response: Response) -> Vec<Value> {
+        if self.provider == Provider::Codex {
+            return self.codex_respond(item, response);
+        }
         let Some(permission) = self.transcript.position(item).and_then(|index| {
             match &self.transcript.items()[index].body {
                 Body::Permission(p) if p.decision == Decision::Pending => Some(p.clone()),
@@ -569,7 +638,7 @@ impl ChatSession {
                         Remember::Rules(rules)
                     }
                     Some(Remember::AcceptEdits) => Remember::AcceptEdits,
-                    None => return vec![],
+                    Some(Remember::Session) | None => return vec![],
                 };
                 let line = wire::allow_updating(
                     request,
@@ -637,7 +706,7 @@ impl ChatSession {
             return vec![];
         }
         self.remembered.extend(rules);
-        if self.status == Status::NeedsDecision && self.adapter.pending_permissions().is_empty() {
+        if self.status == Status::NeedsDecision && self.pending_requests().is_empty() {
             self.status = Status::Working;
         }
         vec![line]
@@ -645,12 +714,18 @@ impl ChatSession {
 
     /// Context window use after the last finished turn.
     pub fn context(&self) -> Option<ContextUsage> {
-        self.context
+        match self.provider {
+            Provider::Claude => self.context,
+            Provider::Codex => self.codex.adapter.context,
+        }
     }
 
     /// The account pays per token (an API key), so the turn's cost is an amount owed.
     /// A subscription login reports `none` (or `oauth`).
     pub fn api_billing(&self) -> bool {
+        if self.provider == Provider::Codex {
+            return self.codex.account.as_deref() == Some("apiKey");
+        }
         self.info
             .api_key_source
             .as_deref()
@@ -663,8 +738,9 @@ impl ChatSession {
     }
 
     fn request_context(&mut self) -> Vec<Value> {
-        // A closing session asks nothing more of its process.
-        if !self.initialized
+        // A closing session asks nothing more of its process; Codex reports it unasked.
+        if self.provider == Provider::Codex
+            || !self.initialized
             || self.closing
             || self.status.ended()
             || self.context_request.is_some()
@@ -732,7 +808,8 @@ impl ChatSession {
         }) else {
             return vec![];
         };
-        if !self.initialized || self.status.ended() {
+        // Codex keeps no file checkpoints (DEC-055).
+        if !self.initialized || self.status.ended() || self.provider == Provider::Codex {
             return vec![];
         }
         let id = self.request_id();
@@ -748,8 +825,7 @@ impl ChatSession {
 
     /// Requests waiting for the user, oldest first.
     pub fn pending_decisions(&self) -> Vec<ItemId> {
-        self.adapter
-            .pending_permissions()
+        self.pending_requests()
             .iter()
             .filter_map(|request| {
                 self.transcript
@@ -767,6 +843,16 @@ impl ChatSession {
     /// Rules "Allow for this chat" added since the last call, to keep with the chat.
     pub fn take_remembered(&mut self) -> Vec<String> {
         std::mem::take(&mut self.remembered)
+    }
+
+    /// A process event of either provider.
+    pub fn on_incoming(&mut self, event: Event<Incoming>) -> Vec<Value> {
+        match event {
+            Event::Message(Incoming::Claude(message)) => self.on_message(message),
+            Event::Message(Incoming::Codex(message)) => self.on_codex(message),
+            Event::Diagnostic(text) => self.on_event(Event::Diagnostic(text)),
+            Event::Exited(exit) => self.on_event(Event::Exited(exit)),
+        }
     }
 
     pub fn on_event(&mut self, event: Event<Inbound>) -> Vec<Value> {
@@ -1023,10 +1109,17 @@ impl ChatSession {
                 Outcome::Interrupted
             } else {
                 Outcome::Failed(format!(
-                    "Claude Code exited before finishing the turn ({reason})."
+                    "{} exited before finishing the turn ({reason}).",
+                    self.provider.name()
                 ))
             };
-            self.adapter.close_turn(&mut self.transcript, &outcome);
+            match self.provider {
+                Provider::Claude => self.adapter.close_turn(&mut self.transcript, &outcome),
+                Provider::Codex => self
+                    .codex
+                    .adapter
+                    .close_turn(&mut self.transcript, &outcome),
+            }
             self.transcript.push(
                 None,
                 Body::TurnEnd(TurnEnd {
@@ -1038,8 +1131,12 @@ impl ChatSession {
                 }),
             );
             self.turn_open = false;
-        } else {
+        } else if self.provider == Provider::Claude {
             self.adapter
+                .close_turn(&mut self.transcript, &Outcome::Interrupted);
+        } else {
+            self.codex
+                .adapter
                 .close_turn(&mut self.transcript, &Outcome::Interrupted);
         }
         self.adapter.cancel_background(&mut self.transcript);
@@ -1069,11 +1166,13 @@ impl ChatSession {
             }
         } else if !self.initialized {
             Status::Failed(format!(
-                "Claude Code stopped before the session started ({reason})."
+                "{} stopped before the session started ({reason}).",
+                self.provider.name()
             ))
         } else {
             Status::Failed(format!(
-                "Claude Code session ended unexpectedly ({reason})."
+                "{} session ended unexpectedly ({reason}).",
+                self.provider.name()
             ))
         };
     }
@@ -1116,7 +1215,9 @@ impl ChatSession {
             && !self.interrupting
             && self.cli_idle
             && (!self.tracks_lifecycle() || self.outstanding.is_empty())
-            && self.adapter.pending_permissions().is_empty()
+            && self.pending_requests().is_empty()
+            // Codex takes a turn only once its thread is open.
+            && (self.provider == Provider::Claude || self.codex_thread().is_some())
     }
 
     fn tracks_lifecycle(&self) -> bool {
@@ -1142,10 +1243,19 @@ impl ChatSession {
 
     /// Starts a turn with `draft`.
     fn send(&mut self, draft: Draft) -> Vec<Value> {
+        // Codex needs its thread; `accepts_turn` waits for it, this keeps it so.
+        if self.provider == Provider::Codex && self.codex_thread().is_none() {
+            return vec![];
+        }
         self.stopped = false;
         let turn = self.transcript.allocate_turn();
         let uuid = uuid::Uuid::new_v4().to_string();
-        let line = wire::user_message(&draft.text, &draft.attachments, &uuid, Priority::Later);
+        let line = match self.provider {
+            Provider::Claude => {
+                wire::user_message(&draft.text, &draft.attachments, &uuid, Priority::Later)
+            }
+            Provider::Codex => self.codex_send(&draft, &uuid).pop().unwrap_or(Value::Null),
+        };
         self.transcript.push_in(
             turn,
             None,

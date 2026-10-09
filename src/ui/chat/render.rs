@@ -102,7 +102,6 @@ impl Render for ChatView {
             .key_context("Chat")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &super::StopChat, _, cx| this.interrupt(cx)))
-            .on_action(cx.listener(|this, _: &super::NewSession, _, cx| this.new_session(cx)))
             .on_action(
                 cx.listener(|this, _: &super::PreviousMessage, _, cx| this.jump_message(false, cx)),
             )
@@ -164,7 +163,7 @@ impl ChatView {
             .child(
                 row()
                     .gap(px(8.))
-                    .child(tool_icon("Claude Code", IconName::Bot))
+                    .child(super::composer::provider_icon(self.provider()))
                     .child(div().text_size(px(16.)).text_color(t::text()).child(account)),
             )
             .child(div().text_size(px(12.)).text_color(t::secondary()).child(model))
@@ -849,6 +848,10 @@ fn permission_row(
                     .join(", ")
             ),
         ),
+        (Some(Resolution::Remembered(Remember::Session)), _) => (
+            IconName::Check,
+            with_summary(format!("Allowed {tool} for this session")),
+        ),
         (Some(Resolution::Remembered(Remember::AcceptEdits)), _) => (
             IconName::Check,
             with_summary(format!("Allowed {tool}, edits accepted in this chat")),
@@ -860,7 +863,8 @@ fn permission_row(
         (Some(Resolution::Answered(answers)), _) => (
             IconName::Check,
             format!(
-                "Claude asked · {}",
+                "{} asked · {}",
+                this.provider().name(),
                 answers
                     .iter()
                     .map(|(question, answer)| format!("{question} → {answer}"))

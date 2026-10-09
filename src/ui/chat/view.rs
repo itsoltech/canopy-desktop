@@ -10,13 +10,14 @@ use canopy_desktop::chat::mentions::{self, FileRef};
 use canopy_desktop::{
     agents::launch as hook_launch,
     chat::{
-        claude::wire::{self, Inbound},
+        codex::wire as codex_wire,
         config::{ChatSettings, Effort, Mode},
         history::{Boundary, EpochMeta, Saved, SavedEpoch},
-        launch::{HookConfig, fork_at, prepare_claude},
+        launch::{HookConfig, fork_at, prepare_claude, prepare_codex},
         presentation,
         process::{Event, Process},
-        session::{ChatSession, QueuedId, Status},
+        provider::Provider,
+        session::{ChatSession, CodexStart, Incoming, QueuedId, Status},
         transcript::{Body, Change, Transcript},
     },
     motion::{self, Transition, TransitionSpec},
@@ -108,6 +109,8 @@ pub struct ChatView {
     /// Sent as soon as the next session starts (the edited message).
     pub(super) send_on_start: Option<canopy_desktop::chat::session::Draft>,
     pub(super) attachments: super::attachments::Attachments,
+    /// Working (true) or idle last told to the notch, for agents without hooks.
+    reported_activity: Option<bool>,
     pub(super) navigator: super::navigator::Navigator,
     /// Separator shown above the replaced session at the next start.
     pub(super) boundary: Boundary,
@@ -223,6 +226,7 @@ impl ChatView {
             fork_at: None,
             send_on_start: None,
             attachments: Default::default(),
+            reported_activity: None,
             navigator: Default::default(),
             boundary: Boundary::Restarted,
             epoch: 0,
@@ -243,6 +247,11 @@ impl ChatView {
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
         self.pane.metadata.cwd.clone()
     }
+    /// Which agent the chat talks to (its pane's tool).
+    pub fn provider(&self) -> Provider {
+        Provider::from_tool(&self.pane.tool).unwrap_or_default()
+    }
+
     /// Identifies the chat's saved history.
     pub fn chat_id(&self) -> Option<String> {
         self.settings.id.clone()
@@ -429,7 +438,22 @@ impl ChatView {
         self.closing = None;
         self.error = None;
         self.starting = true;
-        let (mut session, mut lines) = ChatSession::with_settings(self.settings.clone());
+        let provider = self.provider();
+        let (mut session, mut lines) = match provider {
+            Provider::Claude => ChatSession::with_settings(self.settings.clone()),
+            Provider::Codex => ChatSession::codex(
+                self.settings.clone(),
+                CodexStart {
+                    cwd: self.pane.metadata.cwd.clone().unwrap_or_default(),
+                    resume: self.pane.metadata.resume_id.clone(),
+                    fork_at: fork.clone(),
+                    images: self.settings.id.as_deref().and_then(|chat| {
+                        let data = canopy_desktop::platform::directories::data_dir().ok()?;
+                        Some(canopy_desktop::chat::history::attachments_dir(&data, chat))
+                    }),
+                },
+            ),
+        };
         session.restore_queue(queued);
         let continued = fork.is_some() || self.pane.metadata.resume_id.is_some();
         let restored = self.restored.take().filter(|_| !replaced);
@@ -486,6 +510,9 @@ impl ChatView {
         self.agent_run = Some(registration.run.clone());
         // A new run starts without anything reported to the notch.
         self.reported_decision = None;
+        self.reported_activity = None;
+        // Without hooks, the notch learns the chat is up from here.
+        self.report_activity(false, cx);
         let catalog = app.tools.read(cx).catalog.clone();
         let pane = self.pane.clone();
         let settings = self.settings.clone();
@@ -494,6 +521,16 @@ impl ChatView {
             let started = cx
                 .background_executor()
                 .spawn(async move {
+                    if provider == Provider::Codex {
+                        // Codex picks the conversation over the protocol; no hooks (DEC-059).
+                        let launch = prepare_codex(&catalog, &pane, &env)?;
+                        return Process::start(
+                            launch.spec,
+                            launch.files,
+                            canopy_desktop::chat::session::parse_codex,
+                            codex_wire::MAX_LINE_BYTES,
+                        );
+                    }
                     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
                     let helper = hook_launch::helper_path(&executable);
                     hook_launch::validate_helper(&helper)?;
@@ -513,8 +550,8 @@ impl ChatView {
                     Process::start(
                         launch.spec,
                         launch.files,
-                        wire::parse_line,
-                        wire::MAX_LINE_BYTES,
+                        canopy_desktop::chat::session::parse_claude,
+                        canopy_desktop::chat::claude::wire::MAX_LINE_BYTES,
                     )
                 })
                 .await;
@@ -577,7 +614,7 @@ impl ChatView {
 
     fn pump(
         &self,
-        events: async_channel::Receiver<Event<Inbound>>,
+        events: async_channel::Receiver<Event<Incoming>>,
         generation: u64,
         cx: &mut Context<Self>,
     ) -> Task<()> {
@@ -606,7 +643,7 @@ impl ChatView {
         })
     }
 
-    fn apply(&mut self, batch: Vec<Event<Inbound>>, cx: &mut Context<Self>) {
+    fn apply(&mut self, batch: Vec<Event<Incoming>>, cx: &mut Context<Self>) {
         let Some(session) = &mut self.session else {
             return;
         };
@@ -614,7 +651,7 @@ impl ChatView {
         let mut exited = false;
         for event in batch {
             exited |= matches!(event, Event::Exited(_));
-            lines.extend(session.on_event(event));
+            lines.extend(session.on_incoming(event));
         }
         self.write(lines);
         if exited {
@@ -665,6 +702,7 @@ impl ChatView {
         self.load_previews(images, cx);
         self.sync_decision(policy, cx);
         self.report_decision(cx);
+        self.report_activity(working, cx);
         self.sync_edit(cx);
         self.tick(cx);
         if self
@@ -688,6 +726,24 @@ impl ChatView {
         self.resolve_tool_files(files, cx);
         self.save_session(cx);
         cx.notify();
+    }
+
+    /// Codex has no hooks in chat: its working/idle state goes to the notch from here.
+    fn report_activity(&mut self, working: bool, cx: &mut Context<Self>) {
+        if self.provider() != Provider::Codex || self.reported_activity == Some(working) {
+            return;
+        }
+        let Some(run) = self.agent_run.clone() else {
+            return;
+        };
+        self.reported_activity = Some(working);
+        let pane = self.pane.id;
+        cx.global::<AppState>()
+            .agents
+            .clone()
+            .update(cx, |agents, cx| {
+                agents.chat_activity(pane, &run, working, cx)
+            });
     }
 
     /// Hands changed items to the chat's saved history.
@@ -1235,20 +1291,36 @@ impl ChatView {
         self.after_change(cx);
     }
 
-    /// Switches the account before the first message: a new process for the new profile.
-    pub(super) fn set_account(&mut self, profile: String, cx: &mut Context<Self>) {
+    /// Switches the account (Claude or Codex) before the first message: a new process
+    /// for the new profile.
+    pub(super) fn set_account(
+        &mut self,
+        provider: Provider,
+        profile: String,
+        cx: &mut Context<Self>,
+    ) {
         if self.closed
             || self.switching
             || self.account_locked()
-            || self.pane.metadata.profile_id.as_deref() == Some(&profile)
+            || (self.pane.metadata.profile_id.as_deref() == Some(&profile)
+                && self.provider() == provider)
         {
             return;
         }
         self.switching = true;
+        if self.provider() != provider {
+            // The same intent in the other agent's modes; efforts differ per model.
+            self.settings.mode = match provider {
+                Provider::Claude => self.settings.mode.for_claude(),
+                Provider::Codex => self.settings.mode.for_codex(),
+            };
+            self.settings.effort = None;
+            self.pane.tool = provider.tool().to_owned();
+        }
         self.pane.metadata.profile_id = Some(profile.clone());
         // Models belong to the account; the new one starts from its default model.
         self.settings.model = None;
-        self.persist(Some(profile), cx);
+        self.persist(Some((provider, profile)), cx);
         self.remember(cx);
         let stop = self.shutdown(cx);
         cx.spawn(async move |this, cx| {
@@ -1278,15 +1350,15 @@ impl ChatView {
             || self.pane.metadata.resume_id.is_some()
     }
 
-    fn persist(&mut self, profile: Option<String>, cx: &mut Context<Self>) {
+    fn persist(&mut self, account: Option<(Provider, String)>, cx: &mut Context<Self>) {
         let pane = self.pane.id;
         let settings = self.settings.clone();
         cx.global::<AppState>()
             .projects
             .clone()
             .update(cx, |projects, cx| {
-                if let Some(profile) = profile {
-                    projects.set_chat_account(pane, profile, cx);
+                if let Some((provider, profile)) = account {
+                    projects.set_chat_account(pane, provider.tool(), profile, cx);
                 }
                 projects.update_chat(pane, Some(settings), None, cx)
             });
@@ -1306,7 +1378,7 @@ impl ChatView {
             },
         ];
         // Yolo applies only to the chat that chose it, never to the next new chat.
-        if self.settings.mode != Mode::Yolo {
+        if !self.settings.mode.unguarded() {
             changes.push(Change::ChatMode(self.settings.mode));
         }
         if let Some(profile) = &self.pane.metadata.profile_id {
@@ -1316,48 +1388,6 @@ impl ChatView {
             .settings
             .clone()
             .update(cx, |settings, cx| settings.remember(changes, cx));
-    }
-
-    /// Nothing runs, waits or is being edited, and there is a conversation to leave.
-    pub fn can_new_session(&self) -> bool {
-        self.session.is_some()
-            && !self.starting
-            && !self.switching
-            && !self.closed
-            && !self.is_working()
-            && self.decision.active().is_none()
-            && self.editing.is_none()
-            && self.rows.has_items()
-    }
-
-    /// Starts a new conversation in this chat with the same account and choices. The
-    /// agent no longer remembers the earlier one, which stays above a "New session"
-    /// separator; unsent messages wait for the new conversation.
-    pub fn new_session(&mut self, cx: &mut Context<Self>) {
-        if !self.can_new_session() {
-            return;
-        }
-        self.switching = true;
-        self.fork_at = None;
-        let pane = self.pane.id;
-        self.pane.metadata.resume_id = None;
-        cx.global::<AppState>()
-            .projects
-            .clone()
-            .update(cx, |projects, cx| projects.forget_chat_session(pane, cx));
-        let stop = self.shutdown(cx);
-        cx.spawn(async move |this, cx| {
-            let _ = stop.await;
-            let _ = this.update(cx, |this, cx| {
-                this.switching = false;
-                if !this.closed {
-                    this.boundary = Boundary::NewSession;
-                    this.start(cx);
-                }
-            });
-        })
-        .detach();
-        cx.notify();
     }
 
     pub(super) fn restart(&mut self, cx: &mut Context<Self>) {

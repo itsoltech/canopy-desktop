@@ -337,6 +337,6 @@ fn chat_defaults_round_trip_and_invalid_values_warn() {
         );
         reopened.shutdown().await.unwrap();
     });
-    assert!(Change::parse(PreferenceKey::ChatEffort, "ultra").is_err());
+    assert!(Change::parse(PreferenceKey::ChatEffort, "extreme").is_err());
     assert!(Change::parse(PreferenceKey::ChatMode, "bypassPermissions").is_err());
 }

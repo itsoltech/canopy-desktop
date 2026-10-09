@@ -13,15 +13,29 @@ pub enum Mode {
     Auto,
     /// Skips every permission prompt (Claude `bypassPermissions`).
     Yolo,
+    /// Codex: reads freely, asks before changing anything.
+    ReadOnly,
+    /// Codex: no sandbox and no prompts.
+    FullAccess,
 }
 impl Mode {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
+        Self::Ask,
+        Self::AcceptEdits,
+        Self::Plan,
+        Self::Auto,
+        Self::Yolo,
+        Self::ReadOnly,
+        Self::FullAccess,
+    ];
+    pub const CLAUDE: [Self; 5] = [
         Self::Ask,
         Self::AcceptEdits,
         Self::Plan,
         Self::Auto,
         Self::Yolo,
     ];
+    pub const CODEX: [Self; 4] = [Self::ReadOnly, Self::Ask, Self::Auto, Self::FullAccess];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -30,16 +44,58 @@ impl Mode {
             Self::Plan => "Plan",
             Self::Auto => "Auto",
             Self::Yolo => "Yolo",
+            Self::ReadOnly => "Read only",
+            Self::FullAccess => "Full access",
+        }
+    }
+    /// Runs everything without asking: shown as a warning, never a new chat's default.
+    pub fn unguarded(self) -> bool {
+        matches!(self, Self::Yolo | Self::FullAccess)
+    }
+    /// Codex approval policy and sandbox mode (`thread/start`).
+    pub fn codex(self) -> (&'static str, &'static str) {
+        match self {
+            Self::ReadOnly => ("on-request", "read-only"),
+            Self::Ask | Self::AcceptEdits | Self::Plan => ("untrusted", "workspace-write"),
+            Self::Auto => ("on-request", "workspace-write"),
+            Self::Yolo | Self::FullAccess => ("never", "danger-full-access"),
+        }
+    }
+    /// The Codex mode of a profile's approval and sandbox settings.
+    pub fn from_codex(approval: &str, sandbox: &str, full_auto: bool, bypass: bool) -> Self {
+        match (approval, sandbox) {
+            _ if bypass => Self::FullAccess,
+            _ if full_auto => Self::Auto,
+            (_, "danger-full-access") | ("never", _) => Self::FullAccess,
+            (_, "read-only") => Self::ReadOnly,
+            ("untrusted", _) => Self::Ask,
+            _ => Self::Auto,
+        }
+    }
+    /// The same intent among Codex's modes.
+    pub fn for_codex(self) -> Self {
+        match self {
+            Self::AcceptEdits | Self::Plan => Self::Ask,
+            Self::Yolo => Self::FullAccess,
+            other => other,
+        }
+    }
+    /// The same intent among Claude's modes.
+    pub fn for_claude(self) -> Self {
+        match self {
+            Self::ReadOnly => Self::Ask,
+            Self::FullAccess => Self::Yolo,
+            other => other,
         }
     }
     /// Claude permission mode for `set_permission_mode`.
     pub fn claude(self) -> &'static str {
-        match self {
-            Self::Ask => "default",
+        match self.for_claude() {
             Self::AcceptEdits => "acceptEdits",
             Self::Plan => "plan",
             Self::Auto => "auto",
             Self::Yolo => "bypassPermissions",
+            _ => "default",
         }
     }
     /// Claude profile setting at launch; empty keeps the CLI default.
@@ -67,6 +123,8 @@ impl Mode {
             Self::Plan => "plan",
             Self::Auto => "auto",
             Self::Yolo => "yolo",
+            Self::ReadOnly => "read-only",
+            Self::FullAccess => "full-access",
         }
     }
     pub fn from_key(key: &str) -> Option<Self> {
@@ -81,9 +139,18 @@ pub enum Effort {
     High,
     XHigh,
     Max,
+    /// Codex only, on models that offer it.
+    Ultra,
 }
 impl Effort {
-    pub const ALL: [Self; 5] = [Self::Low, Self::Medium, Self::High, Self::XHigh, Self::Max];
+    pub const ALL: [Self; 6] = [
+        Self::Low,
+        Self::Medium,
+        Self::High,
+        Self::XHigh,
+        Self::Max,
+        Self::Ultra,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -92,6 +159,7 @@ impl Effort {
             Self::High => "High",
             Self::XHigh => "Extra high",
             Self::Max => "Max",
+            Self::Ultra => "Ultra",
         }
     }
     /// Claude `--effort` / `effortLevel` value; also the preference value.
@@ -102,6 +170,7 @@ impl Effort {
             Self::High => "high",
             Self::XHigh => "xhigh",
             Self::Max => "max",
+            Self::Ultra => "ultra",
         }
     }
     pub fn from_key(key: &str) -> Option<Self> {
@@ -178,6 +247,10 @@ pub struct ModelInfo {
     pub description: String,
     pub effort_levels: Vec<Effort>,
     pub supports_auto: bool,
+    /// The effort the provider uses when none is chosen (Codex).
+    pub default_effort: Option<Effort>,
+    /// The account's default model (Codex reports it; Claude has a `default` entry).
+    pub default: bool,
 }
 impl ModelInfo {
     pub fn supports_effort(&self) -> bool {
@@ -234,6 +307,7 @@ mod tests {
             description: description.into(),
             effort_levels: vec![],
             supports_auto: false,
+            ..Default::default()
         }
     }
 
@@ -274,10 +348,30 @@ mod tests {
 
     #[test]
     fn modes_round_trip_through_claude_and_preference_values() {
-        for mode in Mode::ALL {
+        for mode in Mode::CLAUDE {
             assert_eq!(Mode::from_claude(mode.claude()), Some(mode));
+        }
+        for mode in Mode::ALL {
             assert_eq!(Mode::from_key(mode.key()), Some(mode));
         }
+        // Codex modes read as their Claude counterparts, and the other way round.
+        assert_eq!(Mode::ReadOnly.claude(), "default");
+        assert_eq!(Mode::FullAccess.claude(), "bypassPermissions");
+        assert_eq!(Mode::Yolo.for_codex(), Mode::FullAccess);
+        assert_eq!(Mode::ReadOnly.codex(), ("on-request", "read-only"));
+        assert_eq!(
+            Mode::from_codex("", "", true, false),
+            Mode::Auto,
+            "Full auto"
+        );
+        assert_eq!(
+            Mode::from_codex("untrusted", "workspace-write", false, false),
+            Mode::Ask
+        );
+        assert_eq!(
+            Mode::from_codex("on-request", "", false, true),
+            Mode::FullAccess
+        );
         assert_eq!(Mode::Ask.claude_profile(), "");
         assert_eq!(Mode::Yolo.claude_profile(), "bypassPermissions");
         assert_eq!(Mode::from_claude("dontAsk"), None);

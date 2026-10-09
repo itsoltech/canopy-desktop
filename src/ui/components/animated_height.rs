@@ -4,7 +4,8 @@
 use canopy_desktop::motion::presets;
 use gpui_kit::{
     AnyElement, App, AvailableSpace, Bounds, ContentMask, Element, ElementId, GlobalElementId,
-    InspectorElementId, IntoElement, LayoutId, Pixels, Style, Window, px, relative, size,
+    InspectorElementId, IntoElement, LayoutId, ParentElement, Pixels, Style, Styled, Window, px,
+    relative, size,
 };
 use std::time::Instant;
 
@@ -41,7 +42,9 @@ impl AnimatedHeight {
         Self {
             id: id.into(),
             animate,
-            child: child.into_any_element(),
+            // Measured as its own layout root: the wrapper gives it the full width,
+            // which a root would otherwise shrink to its content's.
+            child: gpui_kit::div().w_full().child(child).into_any_element(),
         }
     }
 }

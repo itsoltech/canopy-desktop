@@ -17,27 +17,26 @@ fn prompts() -> [String; 3] {
     let f = FOLDER;
     [
         format!(
-            "[Canopy benchmark 1/3 — history after restart]\n\
-             Tester checks: after this turn quit Canopy (⌘Q) and start it again: the whole conversation is \
-             back (folded turn, subagent card, change summary); the subagent and \"Open diff\" open; then ask \
-             \"Which fruit did I mention?\" — the answer must be MANGO.\n\n\
-             Remember the word MANGO. Use the Write tool to create `{f}/notes.txt` containing exactly `v1`, then \
-             use the Task tool with a general-purpose subagent to list the files in `{f}/`. Reply with one sentence."
+            "[Canopy benchmark 1/3 — Codex basics]\n\
+             Tester checks: run this in a NEW chat switched to a Codex account (account picker) in Ask mode: \
+             the reply streams, the command and the patch ask in the panel (Allow / Allow for this session / \
+             Deny with a note), cards show the command output and the diff, the turn folds to \"Worked for…\", \
+             the context ring shows the ChatGPT limit.\n\n\
+             Remember the word MANGO. Run `ls -la` in the shell, then create `{f}/notes.txt` containing exactly \
+             `v1` with apply_patch. Reply with one sentence."
         ),
-        "[Canopy benchmark 2/3 — attachments]\n\
-         Tester checks: before this runs, Edit it in the queue and attach: a screenshot (⌘⇧⌃4, then ⌘V), \
-         an image dragged from Finder, and a file or folder via the paperclip; thumbnails show above the \
-         field, X removes one; after sending, the thumbnails sit under your message and open full size.\n\n\
-         Describe each attached image in one sentence and name each attached file or folder. If nothing \
-         is attached, say so."
+        "[Canopy benchmark 2/3 — Codex subagent, image, steer]\n\
+         Tester checks: switch to Auto; while this runs, type a message and press ⌘⏎ (steer); a subagent card \
+         opens its conversation; attach an image before sending to see it reach Codex.\n\n\
+         Spawn one subagent to list the files in the current folder, wait for it and report its result. If an \
+         image is attached, also name its main color."
             .to_owned(),
         format!(
-            "[Canopy benchmark 3/3 — navigator, New session, cleanup]\n\
-             Tester checks: the marks on the left (one per message, the one you read stands out); hover grows \
-             them and previews the message; click and ⌥⌘↑/⌥⌘↓ glide to messages. After this turn press ⌘K \
-             (New session) and ask \"Which fruit did I mention?\" — the agent must not know; the earlier \
-             conversation stays above \"New session\".\n\n\
-             Delete the `{f}/` folder with Bash (`rm -rf {f}`). Reply with a checklist of what this benchmark exercised."
+            "[Canopy benchmark 3/3 — Codex edit, restart, cleanup]\n\
+             Tester checks: quit Canopy and start it again — the conversation is back and Codex still knows \
+             MANGO; Edit benchmark 1 and ask \"Which fruit?\" — still MANGO, files stay as they are (no restore \
+             option for Codex).\n\n\
+             Delete the `{f}/` folder with the shell (`rm -rf {f}`). Reply with a checklist of what this benchmark exercised."
         ),
     ]
 }

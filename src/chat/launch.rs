@@ -138,6 +138,76 @@ pub fn prepare_claude(
     })
 }
 
+/// `codex app-server` with the account profile's environment (API key from Keychain,
+/// base URL, custom env) and config profile. Nothing is written to `~/.codex`; the
+/// conversation (new, resumed or forked) is chosen over the protocol, not argv.
+pub fn prepare_codex(
+    catalog: &ToolCatalog,
+    pane: &Pane,
+    env: &ShellEnvironment,
+) -> Result<Launch, String> {
+    if pane.tool != "codex" {
+        return Err("This chat isn't a Codex chat.".into());
+    }
+    let mut pane = pane.clone();
+    // The terminal's `resume <id>` argv doesn't apply to the app server.
+    pane.metadata.resume_id = None;
+    let prepared = agent_config::prepare(catalog, &pane, env)?;
+    let mut arguments = vec!["app-server".to_owned()];
+    let profile = catalog
+        .get("codex")
+        .and_then(|tool| {
+            let id = pane
+                .metadata
+                .profile_id
+                .as_ref()
+                .or(tool.default_profile.as_ref())?;
+            tool.profiles.iter().find(|profile| &profile.id == id)
+        })
+        .map(|profile| profile.settings.config_profile.trim().to_owned())
+        .filter(|name| !name.is_empty());
+    if let Some(name) = profile {
+        arguments.extend(["-c".to_owned(), format!("profile={}", toml_string(&name))]);
+    }
+    let environment = prepared.environment.vars;
+    let api_env = Agent::Codex.api_env();
+    let secrets = environment
+        .iter()
+        .filter(|(key, _)| {
+            let key = key.to_ascii_uppercase();
+            key == api_env || SECRET_NAME_PARTS.iter().any(|part| key.contains(part))
+        })
+        .map(|(_, value)| value.clone())
+        .collect();
+    Ok(Launch {
+        spec: Spec {
+            program: prepared.spec.program,
+            arguments,
+            cwd: prepared.spec.cwd,
+            environment,
+            secrets,
+        },
+        files: prepared.files,
+    })
+}
+
+/// A TOML basic string.
+fn toml_string(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' | '\\' => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// Continues a resumed session as a new one that ends at message `at` (an edited
 /// message's predecessor): the conversation after it is left behind. The pane's
 /// `resume_id` names the session being forked.

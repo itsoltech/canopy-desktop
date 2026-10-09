@@ -188,11 +188,54 @@ fn turn_numbers(end: &TurnEnd, billing: bool) -> String {
 
 /// The context indicator next to the pickers: how full the model's context window is.
 pub(super) fn context_ring(this: &ChatView) -> Option<Stateful<Div>> {
-    let usage = this.session.as_ref()?.context()?;
-    // The CLI compacts once the free space before its buffer runs out: the ring
-    // fills toward that point.
-    let limit = usage.max.saturating_sub(usage.buffer).max(1);
-    let percent = (usage.used as f32 / limit as f32 * 100.).clamp(0., 100.);
+    let session = this.session.as_ref()?;
+    let usage = session.context();
+    // A ChatGPT plan's usage limit (Codex), shown with the context.
+    let rate = session.rate_limit();
+    if usage.is_none() && rate.is_none() {
+        return None;
+    }
+    let mut lines = vec![];
+    let mut percent = 0f32;
+    if let Some(usage) = usage {
+        // The CLI compacts once the free space before its buffer runs out: the ring
+        // fills toward that point.
+        let limit = usage.max.saturating_sub(usage.buffer).max(1);
+        percent = (usage.used as f32 / limit as f32 * 100.).clamp(0., 100.);
+        lines.push(match session.provider() {
+            canopy_desktop::chat::provider::Provider::Claude => format!(
+                "{} / {} tokens of context used · Claude compacts the conversation near {}",
+                presentation::tokens(usage.used),
+                presentation::tokens(usage.max),
+                presentation::tokens(limit)
+            ),
+            canopy_desktop::chat::provider::Provider::Codex => format!(
+                "{} / {} tokens of context used",
+                presentation::tokens(usage.used),
+                presentation::tokens(usage.max),
+            ),
+        });
+    }
+    if let Some(rate) = rate {
+        let window = match rate.window_mins {
+            Some(10080) => "weekly limit".to_owned(),
+            Some(300) => "5-hour limit".to_owned(),
+            Some(mins) if mins >= 1440 => format!("{}-day limit", mins / 1440),
+            Some(mins) => format!("{}-hour limit", mins.div_ceil(60)),
+            None => "usage limit".to_owned(),
+        };
+        let resets = rate
+            .resets_at
+            .and_then(reset_day)
+            .map(|at| format!(" · resets {at}"))
+            .unwrap_or_default();
+        lines.push(format!(
+            "{:.0}% of the {window} used{resets}",
+            rate.used_percent
+        ));
+        // The ring warns about whichever runs out first.
+        percent = percent.max(rate.used_percent as f32);
+    }
     let color = if percent >= 95. {
         t::red()
     } else if percent >= 80. {
@@ -200,13 +243,7 @@ pub(super) fn context_ring(this: &ChatView) -> Option<Stateful<Div>> {
     } else {
         t::secondary()
     };
-    let tip: SharedString = format!(
-        "{} / {} tokens of context used · Claude compacts the conversation near {}",
-        presentation::tokens(usage.used),
-        presentation::tokens(usage.max),
-        presentation::tokens(limit)
-    )
-    .into();
+    let tip: SharedString = lines.join("\n").into();
     Some(
         div()
             .id("chat-context")
@@ -249,6 +286,17 @@ pub(super) fn countdown(until: u64) -> Option<String> {
         format!("{left}s")
     } else {
         format!("{} min", left.div_ceil(60))
+    })
+}
+
+/// When a weekly limit resets: "Thu 14:00" (today: just the time).
+fn reset_day(until: u64) -> Option<String> {
+    let at = chrono::DateTime::from_timestamp(until as i64, 0)?.with_timezone(&chrono::Local);
+    let today = chrono::Local::now().date_naive();
+    Some(if at.date_naive() == today {
+        at.format("%H:%M").to_string()
+    } else {
+        at.format("%a %H:%M").to_string()
     })
 }
 

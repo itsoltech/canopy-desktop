@@ -516,6 +516,45 @@ impl AgentsState {
         cx.notify();
     }
 
+    /// Activity of a chat that reports it itself rather than through hooks (Codex in
+    /// chat: its hooks need approval in its own terminal UI). `working` false = idle.
+    pub fn chat_activity(
+        &mut self,
+        pane: PaneId,
+        run: &str,
+        working: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let visible = self.visible(pane, cx);
+        let Some(session) = self
+            .sessions
+            .get_mut(&pane)
+            .filter(|session| session.run == run && session.active)
+        else {
+            return;
+        };
+        session.event_count += 1;
+        session.awaiting_events = false;
+        let base = if working {
+            Status::Working
+        } else {
+            Status::Idle
+        };
+        if session.base == base && session.event_count > 1 {
+            return;
+        }
+        let previous = session.status;
+        session.base = base;
+        if session.decision.is_none() && !session.attention.waiting() {
+            session.status = base;
+        }
+        if canopy_desktop::agents::should_notify(previous, session.status, visible) {
+            session.unseen = true;
+            self.notification_revision += 1;
+        }
+        cx.notify();
+    }
+
     /// Keeps a chat's title current for the notch and the Session inspector.
     pub fn rename(&mut self, pane: PaneId, title: &str, cx: &mut Context<Self>) {
         if let Some(session) = self.sessions.get_mut(&pane) {

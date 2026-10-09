@@ -410,18 +410,33 @@ impl Workspace {
         self.set_pane_metadata(tab, pane, metadata)?;
         Ok(true)
     }
-    /// A chat's account before its first message; clears nothing else.
-    pub fn set_chat_account(&mut self, pane: PaneId, profile: &str) -> Result<bool, StateError> {
+    /// A chat's account (and with it the agent, `tool`) before its first message;
+    /// clears nothing else.
+    pub fn set_chat_account(
+        &mut self,
+        pane: PaneId,
+        tool: &str,
+        profile: &str,
+    ) -> Result<bool, StateError> {
         let (tab, current) = self.locate(pane)?;
-        if current.metadata.kind != PaneKind::Chat || current.metadata.resume_id.is_some() {
+        if current.metadata.kind != PaneKind::Chat
+            || current.metadata.resume_id.is_some()
+            || crate::chat::provider::Provider::from_tool(tool).is_none()
+        {
             return Err(StateError::InvalidMetadata);
         }
-        if current.metadata.profile_id.as_deref() == Some(profile) {
+        if current.metadata.profile_id.as_deref() == Some(profile) && current.tool == tool {
             return Ok(false);
         }
-        let mut metadata = current.metadata;
-        metadata.profile_id = Some(profile.to_owned());
-        self.set_pane_metadata(tab, pane, metadata)?;
+        let mut value = current;
+        value.tool = tool.to_owned();
+        value.metadata.profile_id = Some(profile.to_owned());
+        if !value.metadata.valid() {
+            return Err(StateError::InvalidMetadata);
+        }
+        self.tab_mut(tab)?
+            .root
+            .replace(pane, SplitTree::Leaf(value));
         Ok(true)
     }
     /// Renames the pane's tab only while it still has the `placeholder` title.

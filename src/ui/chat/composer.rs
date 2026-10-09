@@ -4,6 +4,7 @@ use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{
     config::{Effort, Mode, ModelInfo},
+    provider::Provider,
     transcript::PermissionKind,
 };
 use gpui_kit::base::Disableable;
@@ -18,10 +19,21 @@ use std::time::Instant;
 
 const ACCOUNT_LOCKED: &str = "Switching accounts in an ongoing chat isn't available yet.";
 
-/// Accounts are the Claude Code profiles configured in Preferences.
+/// Accounts are the Claude Code and Codex profiles configured in Preferences.
 struct Account {
+    provider: Provider,
     id: String,
     name: String,
+}
+
+/// The mark of the agent a chat talks to.
+pub(super) fn provider_icon(provider: Provider) -> AnyElement {
+    match provider {
+        Provider::Claude => tool_icon("Claude Code", IconName::Bot),
+        Provider::Codex => custom_icon("openai")
+            .text_color(t::text())
+            .into_any_element(),
+    }
 }
 
 impl ChatView {
@@ -82,26 +94,6 @@ impl ChatView {
                         .children(self.effort_picker(cx))
                         .child(self.mode_picker(cx))
                         .children(super::actions::context_ring(self))
-                        .children(self.rows.has_items().then(|| {
-                            Button::new("chat-new-session")
-                                .ghost()
-                                .compact()
-                                .size(px(26.))
-                                .min_w(px(26.))
-                                .max_w(px(26.))
-                                .min_h(px(26.))
-                                .max_h(px(26.))
-                                .p_0()
-                                .rounded(px(13.))
-                                .border_0()
-                                .accessibility_label("New session")
-                                .tooltip(
-                                    "New session (⌘K) — the agent starts without this conversation",
-                                )
-                                .disabled(!self.can_new_session())
-                                .child(custom_icon("square-pen").size(px(14.)))
-                                .on_click(cx.listener(|this, _, _, cx| this.new_session(cx)))
-                        }))
                         .child(div().flex_1())
                         .child(super::dev_bench::button(cx, ended)) // dev_bench
                         .child(
@@ -137,31 +129,50 @@ impl ChatView {
         .pb(px(16.))
     }
 
+    /// Claude Code and Codex profiles, and the chat's own.
     fn accounts(&self, cx: &App) -> (Vec<Account>, String) {
         let catalog = &cx.global::<AppState>().tools.read(cx).catalog;
-        let Some(tool) = catalog.get("claude") else {
-            return (vec![], String::new());
-        };
-        let accounts: Vec<_> = tool
-            .profiles
-            .iter()
-            .map(|profile| Account {
+        let mut accounts = vec![];
+        for provider in Provider::ALL {
+            let Some(tool) = catalog.get(provider.tool()).filter(|tool| tool.enabled) else {
+                continue;
+            };
+            let short = match provider {
+                Provider::Claude => "Claude",
+                Provider::Codex => "Codex",
+            };
+            accounts.extend(tool.profiles.iter().map(|profile| Account {
+                provider,
                 id: profile.id.clone(),
                 name: if tool.profiles.len() == 1 {
-                    "Claude Code".into()
+                    provider.name().into()
                 } else {
-                    format!("Claude {}", profile.name)
+                    format!("{short} {}", profile.name)
                 },
-            })
-            .collect();
+            }));
+        }
         let current = self
             .pane
             .metadata
             .profile_id
             .clone()
-            .or(tool.default_profile.clone())
+            .or_else(|| catalog.get(self.provider().tool())?.default_profile.clone())
             .unwrap_or_default();
         (accounts, current)
+    }
+
+    /// The entry for no chosen model: the account's default, named when known.
+    fn default_model_label(models: &[ModelInfo]) -> String {
+        models
+            .iter()
+            .filter(|m| m.value == "default")
+            .map(ModelInfo::label)
+            .next()
+            .or_else(|| {
+                let model = models.iter().find(|m| m.default)?;
+                Some(format!("Default ({})", model.label()))
+            })
+            .unwrap_or_else(|| "Default model".to_owned())
     }
 
     fn models(&self) -> Vec<ModelInfo> {
@@ -173,8 +184,16 @@ impl ChatView {
 
     /// The model the choices apply to; `None` means the account's default entry.
     fn current_model(&self) -> Option<ModelInfo> {
-        let value = self.settings.model.as_deref().unwrap_or("default");
-        self.models().into_iter().find(|model| model.value == value)
+        let models = self.models();
+        match self.settings.model.as_deref() {
+            Some(value) => models.into_iter().find(|m| m.value == value),
+            // Claude lists a `default` entry; Codex marks its default model.
+            None => {
+                let default = models.iter().position(|m| m.value == "default");
+                let index = default.or_else(|| models.iter().position(|m| m.default))?;
+                models.into_iter().nth(index)
+            }
+        }
     }
 
     /// Account and model names shown in the picker and the empty state.
@@ -184,15 +203,10 @@ impl ChatView {
             .into_iter()
             .find(|account| account.id == current)
             .map(|account| account.name)
-            .unwrap_or_else(|| "Claude Code".into());
+            .unwrap_or_else(|| self.provider().name().into());
         let models = self.models();
         let model = match &self.settings.model {
-            None => models
-                .iter()
-                .filter(|m| m.value == "default")
-                .map(ModelInfo::label)
-                .next()
-                .unwrap_or_else(|| "Default model".to_owned()),
+            None => Self::default_model_label(&models),
             Some(value) => models
                 .iter()
                 .filter(|m| &m.value == value)
@@ -212,8 +226,7 @@ impl ChatView {
         let view = cx.entity().downgrade();
         let picker = picker_button(
             "chat-model",
-            // Codex accounts get their own mark in stage 7.
-            Some(tool_icon("Claude Code", IconName::Bot)),
+            Some(provider_icon(self.provider())),
             format!("{account_name} · {model_name}"),
             None,
             cx,
@@ -236,12 +249,7 @@ impl ChatView {
                             let _ = view.update(cx, |this, cx| this.set_model(value.clone(), cx));
                         }
                     };
-                    let default = models
-                        .iter()
-                        .filter(|m| m.value == "default")
-                        .map(ModelInfo::label)
-                        .next()
-                        .unwrap_or_else(|| "Default model".to_owned());
+                    let default = Self::default_model_label(&models);
                     menu = menu.item(
                         PopupMenuItem::new(default)
                             .checked(model.is_none())
@@ -257,6 +265,7 @@ impl ChatView {
                 } else {
                     let view = view.clone();
                     let id = account.id.clone();
+                    let provider = account.provider;
                     menu = menu.item(
                         PopupMenuItem::new(if locked {
                             ACCOUNT_LOCKED.to_owned()
@@ -265,7 +274,8 @@ impl ChatView {
                         })
                         .disabled(locked)
                         .on_click(move |_, _, cx| {
-                            let _ = view.update(cx, |this, cx| this.set_account(id.clone(), cx));
+                            let _ = view
+                                .update(cx, |this, cx| this.set_account(provider, id.clone(), cx));
                         }),
                     );
                 }
@@ -319,9 +329,11 @@ impl ChatView {
         let mode = self.settings.mode;
         let allowed = self.settings.allowed.clone();
         // Without the model list yet, every mode stays offered; the CLI validates.
-        let auto = self.current_model().is_none_or(|model| model.supports_auto);
+        let codex = self.provider() == Provider::Codex;
+        let auto = codex || self.current_model().is_none_or(|model| model.supports_auto);
         let view = cx.entity().downgrade();
-        let warning = (mode == Mode::Yolo).then(t::yellow);
+        let warning = mode.unguarded().then(t::yellow);
+        let options: &'static [Mode] = if codex { &Mode::CODEX } else { &Mode::CLAUDE };
         picker_button(
             "chat-mode",
             Some(
@@ -335,13 +347,17 @@ impl ChatView {
         )
         .dropdown_menu_with_anchor(Anchor::BottomLeft, move |mut menu, _, _| {
             menu = menu.label("Work mode");
-            for option in Mode::ALL {
+            for &option in options {
                 if option == Mode::Auto && !auto {
                     continue;
                 }
                 let view = view.clone();
                 let label = match option {
                     Mode::Yolo => "Yolo — runs everything without asking",
+                    Mode::FullAccess => "Full access — no sandbox, never asks",
+                    Mode::ReadOnly => "Read only — asks before any change",
+                    Mode::Auto if codex => "Auto — works in this folder without asking",
+                    Mode::Ask if codex => "Ask — asks before commands and edits",
                     other => other.label(),
                 };
                 menu = menu.item(
@@ -493,7 +509,8 @@ fn mode_icon(mode: Mode) -> gpui_kit::component::Icon {
         Mode::AcceptEdits => custom_icon("pencil"),
         Mode::Plan => icon(IconName::Map),
         Mode::Auto => custom_icon("sparkles"),
-        Mode::Yolo => icon(IconName::TriangleAlert),
+        Mode::Yolo | Mode::FullAccess => icon(IconName::TriangleAlert),
+        Mode::ReadOnly => icon(IconName::Search),
     }
     .size(px(13.))
 }

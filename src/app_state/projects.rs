@@ -452,10 +452,18 @@ impl ProjectsState {
         self.select_target(id, None, cx);
     }
     /// Moves a chat pane (before its first message) to another account profile.
-    pub fn set_chat_account(&mut self, pane: PaneId, profile: String, cx: &mut Context<Self>) {
-        fn update(workspace: &mut Workspace, pane: PaneId, profile: &str) -> bool {
-            workspace.set_chat_account(pane, profile).unwrap_or(false)
-        }
+    pub fn set_chat_account(
+        &mut self,
+        pane: PaneId,
+        tool: &str,
+        profile: String,
+        cx: &mut Context<Self>,
+    ) {
+        let update = |workspace: &mut Workspace, pane: PaneId, profile: &str| {
+            workspace
+                .set_chat_account(pane, tool, profile)
+                .unwrap_or(false)
+        };
         let active = cx.global::<AppState>().workspace.clone();
         let mut changed = false;
         active.update(cx, |workspace, cx| {
@@ -554,15 +562,17 @@ impl ProjectsState {
         &mut self,
         target: Option<WorkspaceId>,
         title: &str,
+        tool: &str,
         metadata: canopy_desktop::state::workspace::PaneMetadata,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         fn add(
             workspace: &mut Workspace,
             title: &str,
+            tool: &str,
             metadata: canopy_desktop::state::workspace::PaneMetadata,
         ) -> Result<(), String> {
-            let tab = workspace.open(title, "claude");
+            let tab = workspace.open(title, tool);
             let pane = workspace.active().expect("new tab").focused;
             if workspace.set_pane_metadata(tab, pane, metadata).is_err() {
                 let _ = workspace.close(tab);
@@ -579,7 +589,7 @@ impl ProjectsState {
         if target_id == active {
             let mut result = Ok(());
             app.workspace.update(cx, |workspace, cx| {
-                result = add(workspace, title, metadata);
+                result = add(workspace, title, tool, metadata);
                 cx.notify();
             });
             self.changed(cx);
@@ -587,7 +597,7 @@ impl ProjectsState {
         }
         match target {
             None => {
-                add(&mut self.scratch, title, metadata)?;
+                add(&mut self.scratch, title, tool, metadata)?;
                 self.select_none(cx);
             }
             Some(id) => {
@@ -595,7 +605,7 @@ impl ProjectsState {
                     .sessions
                     .get_mut(&id)
                     .ok_or("This project is no longer open.")?;
-                add(workspace, title, metadata)?;
+                add(workspace, title, tool, metadata)?;
                 self.select_target(id, None, cx);
             }
         }
@@ -880,6 +890,7 @@ mod tests {
                     .open_chat(
                         None,
                         "New chat",
+                        "claude",
                         PaneMetadata {
                             cwd: Some(path.clone()),
                             kind: PaneKind::Chat,

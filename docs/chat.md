@@ -162,7 +162,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   prompt zadania, jego elementy, raport), z zablokowanym polem; Back/Esc wraca do miejsca
   przewinięcia (osobne `ChatScrollerState`). Zgoda subagenta jest w głównej rozmowie
   z etykietą „Subagent · …” i w jego wątku. Rozmowy subagentów poprzednich sesji (Restart,
-  Edit, New session, sprzed restartu aplikacji) otwierają się z zachowanego transkryptu.
+  Edit, sprzed restartu aplikacji) otwierają się z zachowanego transkryptu.
 - Bloki kodu: współdzielony highlighter (`src/ui/markdown/highlight.rs`) normalizuje tagi
   (`Rust`, `TS`, `zsh`, `jsx`/`tsx` → JS/TS) przed gramatykami GPUI Kit; nieobsługiwane
   języki zostają bez kolorów. Karta z ramką, w prawym górnym rogu język i Copy.
@@ -276,7 +276,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 - Historia (DEC-045/046/049): `ChatSettings.id` (UUID czatu) → tabele SQLite
   `_canopy_rust_chat_epochs(chat, epoch, version, meta)` i `_canopy_rust_chat_items(chat, epoch, item,
   version, payload)` (wiersz na element, `src/settings/database/chat_history.rs`). Wiersze nowszej wersji
-  są pomijane i nienadpisywane. `chat::history`: epoki (Restart/Edit/New session → `Boundary`), kopia
+  są pomijane i nienadpisywane. `chat::history`: epoki (Restart/Edit → `Boundary`), kopia
   do zapisu ze skróceniem (wynik narzędzia > 64 KiB → początek+koniec, `structured` > 128 KiB → pominięte,
   `Item.trimmed`), `settle` (strumienie kończą się, narzędzia → Cancelled, decyzje → `Resolution::Expired`,
   otwarta tura → notka + `TurnEnd{Interrupted}`).
@@ -289,8 +289,6 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   (`Transcript::restore`: identyfikatory i tury dalej, `fork_point`/Retry/`rewind_files` działają — sonda
   i test live `saved_history_continues_after_a_restart_and_restores_files`). Pane diffu tury tworzy uśpiony
   `ChatView` (bez procesu) dla swojego czatu.
-- New session (⌘K, przycisk w composerze, menu taba): `forget_chat_session` + nowa epoka „New session”;
-  niewysłana kolejka czeka wstrzymana w nowej rozmowie.
 - Załączniki (DEC-047/051/052): `UserMessage.attachments` (`Image{file, media_type, …}` / `Path`).
   `chat::attachments` skaluje obraz do 1568 px dłuższego boku (Lanczos3; PNG dla zrzutów, JPEG q85 dla zdjęć;
   ≤ 3,75 MB), zapisuje 0600 w folderze czatu; dane base64 tylko w pamięci, przy ponownym wysłaniu po
@@ -303,3 +301,29 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   `navigator.rs`: kreska na wiadomość użytkownika od 2 wiadomości, wyróżniona bieżąca, hover wydłuża kreski
   i pokazuje kartę, klik/⌥⌘↑/⌥⌘↓ płynnie przewija (skok blisko celu + RESIZE; ręczny scroll przerywa,
   Reduce Motion → natychmiast).
+
+## Etap 7: Codex
+
+- Dostawca czatu = narzędzie pane'a (`Pane.tool`: `claude` / `codex`, `chat::provider::Provider`); picker konta
+  pokazuje profile obu i zmienia narzędzie przed pierwszą wiadomością (`Workspace::set_chat_account`). ⌘N bierze
+  ostatnie konto (`Chats::provider`).
+- `codex app-server` (`launch::prepare_codex`: env profilu, klucz z Keychain, `-c profile=…`; bez hooków, bez zapisu
+  do `~/.codex`). JSON-RPC bez pola `jsonrpc`, wiadomość na linię (`chat::codex::wire`). Start: `initialize` →
+  `initialized` + `thread/start` | `thread/resume{threadId}` | `thread/fork{threadId,lastTurnId}` (Edit), `model/list`,
+  `account/read`, `account/rateLimits/read`. Wiadomość: `turn/start` (tekst, `localImage` z folderu załączników,
+  `mention` dla plików; tryb/model/effort jako nadpisania), Steer `turn/steer{expectedTurnId}`, Stop `turn/interrupt`.
+- `ChatSession` ma rdzeń wspólny i gałęzie dostawcy (`session/codex_engine.rs`); adapter Codexa
+  (`codex/adapter.rs`) wysyła te same `Signal`y. Mapowanie: commandExecution→`Bash`, fileChange→`Edit`/`Write`
+  (wynik w kształcie structuredPatch z unified diff), webSearch→`WebSearch`, mcpToolCall→`mcp__server__tool`,
+  turn/plan→`TodoWrite`, subAgentActivity→karta `Agent` (elementy wątku subagenta z `parent`), contextCompaction→
+  Notice. Kolejka rusza po `turn/completed` (idle Codexa przychodzi przed nim).
+- Tryby Codexa: Read only (`on-request`+`read-only`), Ask (`untrusted`+`workspace-write`), Auto (`on-request`+
+  `workspace-write`), Full access (`never`+`danger-full-access`, ostrzeżenie, niezapamiętywany). Zgody: komenda,
+  patch (podgląd diffu), uprawnienia; „Allow for this session” = `acceptForSession` (do restartu procesu); Deny z uwagą
+  = `decline` + `turn/steer` z uwagą. Pytania `item/tool/requestUserInput` → panel (odpowiedzi po id pytań).
+- Edit: fork wątku od poprzedniej tury, bez cofania plików (Codex nie ma checkpointów). Kółko: kontekst z
+  `thread/tokenUsage/updated` i limit konta ChatGPT (`account/rateLimits`). Notch: `AgentsState::chat_activity`.
+- Testy: `tests/chat_codex.rs` (nagranie `fixtures/chat/codex-0.161/session.jsonl`), live `tests/chat_codex_live.rs`
+  (`CANOPY_LIVE_CODEX=1`): rozmowa, zgoda+odmowa, wznowienie, fork, komenda+patch, obraz.
+- Granice: zmiany robione komendami nie trafiają do podsumowania zmian; Codex 0.161 często pyta tekstem zamiast
+  narzędziem pytań; `app-server` jest eksperymentalny w Codexie.

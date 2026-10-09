@@ -341,6 +341,11 @@ pub fn proposal(tool: &str, input: &Value) -> Proposal {
             command: text(input, "command").unwrap_or_default().to_owned(),
             description: text(input, "description").map(str::to_owned),
         },
+        // A Codex patch, already shaped like an Edit/Write result.
+        "apply_patch" => match change(&input["result"]) {
+            Some(change) => Proposal::Change(change),
+            None => Proposal::Input(serde_json::to_string_pretty(input).unwrap_or_default()),
+        },
         "Edit" if path().is_some() => Proposal::Change(edit_change(
             path().expect("path"),
             &[(
