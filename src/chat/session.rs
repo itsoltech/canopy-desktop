@@ -3,7 +3,7 @@
 use super::{
     claude::{
         adapter::{Adapter, CliState, InitInfo, Signal},
-        wire::{self, Inbound, Lifecycle, Priority},
+        wire::{self, ContextUsage, Inbound, Lifecycle, Priority},
     },
     config::{ChatSettings, Effort, Mode, ModelInfo, valid_rule},
     presentation,
@@ -62,6 +62,27 @@ fn clean(text: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
+/// Restoring files from before a user message (the CLI's file checkpoints).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Rewind {
+    Preview(wire::RewindPreview),
+    /// The dry run failed: files can't be offered for restoring.
+    Unavailable(String),
+    Done,
+    Failed(String),
+}
+
+/// What came before this session's first message, for editing it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Base {
+    /// A new conversation: editing the first message starts over.
+    #[default]
+    Fresh,
+    /// A resumed or forked conversation: its first message continues history this
+    /// session doesn't hold, so it can't be edited.
+    Continued,
+}
+
 /// What Resume sends after Stop, so the agent finishes the interrupted work before the
 /// queue continues.
 pub const RESUME_PROMPT: &str = "Continue where you left off.";
@@ -98,6 +119,13 @@ pub struct ChatSession {
     models: Vec<ModelInfo>,
     /// In-flight setting changes and the value to restore if the CLI refuses them.
     pending_settings: HashMap<String, Previous>,
+    /// Context window use after the last turn, and the request asking for it.
+    context: Option<ContextUsage>,
+    context_request: Option<String>,
+    /// File restores asked for (request id → item, dry run) and the latest outcome.
+    rewinds: HashMap<String, (ItemId, bool)>,
+    rewind: Option<(ItemId, Rewind)>,
+    base: Base,
     /// Oldest first. Sent one at a time once the agent has finished everything.
     queue: VecDeque<Queued>,
     next_queued: u64,
@@ -156,6 +184,11 @@ impl ChatSession {
             settings,
             models: vec![],
             pending_settings: HashMap::new(),
+            context: None,
+            context_request: None,
+            rewinds: HashMap::new(),
+            rewind: None,
+            base: Base::Fresh,
             queue: VecDeque::new(),
             next_queued: 0,
             hold_queue: false,
@@ -537,6 +570,106 @@ impl ChatSession {
         vec![line]
     }
 
+    /// Context window use after the last finished turn.
+    pub fn context(&self) -> Option<ContextUsage> {
+        self.context
+    }
+
+    /// The account pays per token (an API key), so the turn's cost is an amount owed.
+    /// A subscription login reports `none` (or `oauth`).
+    pub fn api_billing(&self) -> bool {
+        self.info
+            .api_key_source
+            .as_deref()
+            .is_some_and(|source| !matches!(source, "none" | "oauth"))
+    }
+
+    /// Set at start: whether this session continues an earlier conversation.
+    pub fn set_base(&mut self, base: Base) {
+        self.base = base;
+    }
+
+    fn request_context(&mut self) -> Vec<Value> {
+        // A closing session asks nothing more of its process.
+        if !self.initialized
+            || self.closing
+            || self.status.ended()
+            || self.context_request.is_some()
+        {
+            return vec![];
+        }
+        let id = self.request_id();
+        self.context_request = Some(id.clone());
+        vec![wire::get_context_usage(&id)]
+    }
+
+    /// The text of the last message that started a turn, to send again (Retry).
+    pub fn retry_text(&self) -> Option<String> {
+        self.transcript
+            .items()
+            .iter()
+            .rev()
+            .find_map(|item| match &item.body {
+                Body::User(message)
+                    if item.parent.is_none() && message.delivery == Delivery::Sent =>
+                {
+                    Some(message.text.clone())
+                }
+                _ => None,
+            })
+    }
+
+    /// Where an edit of the user message `item` continues from: the last message of
+    /// the turn before it (`None` for the first message: a fresh conversation). `None`
+    /// when the item can't be edited (not a sent message of this session).
+    pub fn fork_point(&self, item: ItemId) -> Option<Option<String>> {
+        let index = self.transcript.position(item)?;
+        let Body::User(message) = &self.transcript.items()[index].body else {
+            return None;
+        };
+        if message.delivery != Delivery::Sent || self.transcript.items()[index].parent.is_some() {
+            return None;
+        }
+        let previous = self.transcript.items()[..index]
+            .iter()
+            .rev()
+            .find_map(|item| match &item.body {
+                Body::TurnEnd(end) => end.resume_at.clone(),
+                _ => None,
+            });
+        match (previous, &self.base) {
+            (Some(at), _) => Some(Some(at)),
+            (None, Base::Fresh) => Some(None),
+            // History before this session's first turn isn't known here.
+            (None, Base::Continued) => None,
+        }
+    }
+
+    /// Asks what restoring files to before the user message `item` would change
+    /// (`dry_run`), or restores them. The outcome arrives in `rewind`.
+    pub fn rewind_files(&mut self, item: ItemId, dry_run: bool) -> Vec<Value> {
+        let Some(uuid) = self.transcript.position(item).and_then(|index| {
+            match &self.transcript.items()[index].body {
+                Body::User(message) => message.uuid.clone(),
+                _ => None,
+            }
+        }) else {
+            return vec![];
+        };
+        if !self.initialized || self.status.ended() {
+            return vec![];
+        }
+        let id = self.request_id();
+        self.rewinds.insert(id.clone(), (item, dry_run));
+        self.rewind = None;
+        vec![wire::rewind_files(&id, &uuid, dry_run)]
+    }
+
+    /// The latest file restore outcome.
+    pub fn rewind(&self) -> Option<&(ItemId, Rewind)> {
+        self.rewind.as_ref()
+    }
+
     /// Requests waiting for the user, oldest first.
     pub fn pending_decisions(&self) -> Vec<ItemId> {
         self.adapter
@@ -633,6 +766,42 @@ impl ChatSession {
                     }
                 }
                 Signal::ControlAck {
+                    request_id,
+                    response,
+                    ..
+                } if self.context_request.as_deref() == Some(request_id.as_str()) => {
+                    self.context_request = None;
+                    if let Some(usage) = response.as_ref().and_then(wire::context_usage) {
+                        self.context = Some(usage);
+                    }
+                }
+                Signal::ControlAck {
+                    request_id,
+                    error,
+                    response,
+                } if self.rewinds.contains_key(&request_id) => {
+                    let (item, dry_run) = self.rewinds.remove(&request_id).expect("rewind");
+                    let outcome = match (error, response) {
+                        (Some(error), _) if dry_run => Rewind::Unavailable(error),
+                        (Some(error), _) => Rewind::Failed(error),
+                        (None, Some(response)) if dry_run => {
+                            Rewind::Preview(wire::rewind_preview(&response))
+                        }
+                        (None, Some(response))
+                            if response["canRewind"].as_bool() == Some(false) =>
+                        {
+                            Rewind::Failed(
+                                response["error"]
+                                    .as_str()
+                                    .unwrap_or("These files can no longer be restored.")
+                                    .to_owned(),
+                            )
+                        }
+                        (None, _) => Rewind::Done,
+                    };
+                    self.rewind = Some((item, outcome));
+                }
+                Signal::ControlAck {
                     request_id, error, ..
                 } if self.pending_settings.contains_key(&request_id) => {
                     let previous = self.pending_settings.remove(&request_id);
@@ -648,6 +817,7 @@ impl ChatSession {
                             Body::Notice(Notice {
                                 kind: NoticeKind::Error,
                                 text: format!("Couldn't change the {noun}: {error}"),
+                                until: None,
                             }),
                         );
                     }
@@ -671,6 +841,7 @@ impl ChatSession {
                         Body::Notice(Notice {
                             kind: NoticeKind::Error,
                             text: format!("Claude Code could not stop the turn: {error}"),
+                            until: None,
                         }),
                     );
                 }
@@ -711,6 +882,7 @@ impl ChatSession {
                     }
                 }
                 Signal::State(CliState::Idle) => {
+                    lines.extend(self.request_context());
                     // Authoritative: everything we sent was handled.
                     self.cli_idle = true;
                     // Idle fires only after background subagents have exited.
@@ -786,6 +958,7 @@ impl ChatSession {
                     usage: None,
                     cost_usd: None,
                     duration_ms: None,
+                    resume_at: None,
                 }),
             );
             self.turn_open = false;
@@ -806,6 +979,7 @@ impl ChatSession {
                 Body::Notice(Notice {
                     kind: NoticeKind::Diagnostic,
                     text: exit.stderr.clone(),
+                    until: None,
                 }),
             );
         }
@@ -853,6 +1027,8 @@ impl ChatSession {
     fn start_turn(&mut self, turn: super::transcript::TurnId) {
         self.transcript.set_current_turn(turn);
         self.turn_open = true;
+        // An unanswered context request doesn't block the next one.
+        self.context_request = None;
         if !self.status.ended() && self.initialized {
             self.status = Status::Working;
         }
@@ -899,6 +1075,7 @@ impl ChatSession {
             Body::User(UserMessage {
                 text,
                 delivery: Delivery::Sent,
+                uuid: Some(uuid.clone()),
             }),
         );
         self.start_turn(turn);
@@ -915,6 +1092,7 @@ impl ChatSession {
                 Body::User(UserMessage {
                     text,
                     delivery: Delivery::Steered,
+                    uuid: None,
                 }),
             );
         } else {
@@ -925,6 +1103,7 @@ impl ChatSession {
                 Body::User(UserMessage {
                     text,
                     delivery: Delivery::Sent,
+                    uuid: None,
                 }),
             );
             self.start_turn(turn);

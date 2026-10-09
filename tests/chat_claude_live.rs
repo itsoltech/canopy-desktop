@@ -32,6 +32,11 @@ use std::{
 
 const TURN: Duration = Duration::from_secs(120);
 
+thread_local! {
+    /// The next start forks its resumed session after this message (an edit).
+    static FORK_AT: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 fn enabled() -> bool {
     if std::env::var_os("CANOPY_LIVE_CLAUDE").is_none() {
         eprintln!("skipped: set CANOPY_LIVE_CLAUDE=1");
@@ -108,7 +113,11 @@ impl Live {
                 ..Default::default()
             },
         };
-        let launch = prepare_claude(&ToolCatalog::default(), &pane, &env, settings, hooks).unwrap();
+        let mut launch =
+            prepare_claude(&ToolCatalog::default(), &pane, &env, settings, hooks).unwrap();
+        if let Some(at) = FORK_AT.with(|fork| fork.borrow_mut().take()) {
+            canopy_desktop::chat::launch::fork_at(&mut launch, &at);
+        }
         let (process, events) =
             Process::start(launch.spec, launch.files, parse, wire::MAX_LINE_BYTES)
                 .expect("claude starts");
@@ -901,4 +910,80 @@ fn rules_allowed_for_the_chat_stop_asking_and_survive_a_restart() {
     );
     assert!(!restarted.cwd.join(".claude").exists());
     restarted.finish();
+}
+
+#[test]
+#[ignore = "live Claude Code; set CANOPY_LIVE_CLAUDE=1"]
+fn an_edit_restores_files_and_forks_before_the_message() {
+    if !enabled() {
+        return;
+    }
+    let edits = ChatSettings {
+        mode: Mode::AcceptEdits,
+        ..Default::default()
+    };
+    let mut first = Live::start_settings("edit-first", None, None, None, "haiku", &edits);
+    let ready = |s: &ChatSession| *s.status() == Status::Ready && s.transcript().items().len() > 1;
+    first.submit("Remember the word APPLE. Use the Write tool to create note.txt containing exactly v1. Reply only OK.");
+    first.pump(TURN, ready);
+    let turns = first.session.transcript().items().len();
+    first.submit("Remember the word BANANA. Use the Write tool to overwrite note.txt with exactly v2. Reply only OK.");
+    first.pump(TURN, |s| {
+        ready(s) && s.transcript().items().len() > turns + 1
+    });
+    let edited = first
+        .session
+        .transcript()
+        .items()
+        .iter()
+        .filter(|item| matches!(item.body, Body::User(_)))
+        .map(|item| item.id)
+        .nth(1)
+        .unwrap();
+    let at = first
+        .session
+        .fork_point(edited)
+        .unwrap()
+        .expect("resume point after the first turn");
+    let note = first.cwd.join("note.txt");
+    assert_eq!(std::fs::read_to_string(&note).unwrap().trim(), "v2");
+    let lines = first.session.rewind_files(edited, true);
+    first.write(lines);
+    first.pump(TURN, |s| s.rewind().is_some());
+    let Some((_, canopy_desktop::chat::session::Rewind::Preview(preview))) =
+        first.session.rewind().cloned()
+    else {
+        panic!("preview: {:?}", first.session.rewind());
+    };
+    assert!(preview.possible && preview.files.iter().any(|f| f.ends_with("note.txt")));
+    let lines = first.session.rewind_files(edited, false);
+    first.write(lines);
+    first.pump(TURN, |s| {
+        matches!(
+            s.rewind(),
+            Some((_, canopy_desktop::chat::session::Rewind::Done))
+        )
+    });
+    assert_eq!(std::fs::read_to_string(&note).unwrap().trim(), "v1");
+    let (first, session) = first.finish_keep();
+    FORK_AT.with(|fork| *fork.borrow_mut() = Some(at));
+    let mut second = Live::start_settings(
+        "edit-second",
+        Some(first.dir),
+        Some(&session),
+        None,
+        "haiku",
+        &edits,
+    );
+    second.submit("Which words did I ask you to remember? Reply with the words only.");
+    second.pump(TURN, ready);
+    let reply = second.assistant_text().to_uppercase();
+    eprintln!("edit-second: {reply:?}");
+    assert!(reply.contains("APPLE") && !reply.contains("BANANA"));
+    assert_ne!(
+        second.session.session_id(),
+        Some(session.as_str()),
+        "a new branch"
+    );
+    second.finish();
 }

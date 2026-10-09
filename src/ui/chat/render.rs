@@ -1,5 +1,6 @@
 //! Declarative chat layout: centered conversation column above the composer.
 use super::{
+    actions,
     rows::{Fold, Kind, Row, Rows, Source},
     subagent, tools,
     view::ChatView,
@@ -107,7 +108,9 @@ impl Render for ChatView {
             }))
             .on_action(cx.listener(|this, _: &super::DenyPending, window, cx| {
                 // Esc leaves a subagent's conversation before it denies anything.
-                if this.threads.is_empty() {
+                if this.editing.is_some() {
+                    this.cancel_edit(window, cx)
+                } else if this.threads.is_empty() {
                     this.decision_dismiss(cx)
                 } else {
                     this.back(window, cx)
@@ -121,7 +124,10 @@ impl Render for ChatView {
             // A waiting request takes the queue tray's place until it is answered.
             .children(match self.decision_bar(cx) {
                 Some(panel) => Some(panel),
-                None => (!in_thread).then(|| self.queue_bar(cx)).flatten(),
+                None => match (!in_thread).then(|| self.edit_bar(cx)).flatten() {
+                    Some(bar) => Some(bar),
+                    None => (!in_thread).then(|| self.queue_bar(cx)).flatten(),
+                },
             })
             .child(composer)
     }
@@ -256,7 +262,7 @@ fn render_row(view: &Entity<ChatView>, index: usize, _: &mut Window, cx: &mut Ap
                     .highlight_color(t::text()),
             )
             .into_any_element(),
-        Kind::Restarted => row_separator("Session restarted").into_any_element(),
+        Kind::Separator(label) => row_separator(label).into_any_element(),
         Kind::Prompt(prompt) => column()
             .pt(px(16.))
             .items_end()
@@ -332,6 +338,7 @@ fn worked_header(view: &Entity<ChatView>, key: u64, fold: &Fold) -> Div {
         .child(
             row()
                 .id(("chat-worked", key))
+                .keyboard("Show or hide the work of this turn")
                 .h(px(24.))
                 .gap(px(4.))
                 .cursor_pointer()
@@ -353,6 +360,22 @@ fn worked_header(view: &Entity<ChatView>, key: u64, fold: &Fold) -> Div {
                 }),
         )
         .child(div().mt(px(6.)).h(px(1.)).bg(t::border()))
+}
+
+/// A notice with its live countdown: when a limit resets, when a retry happens.
+fn notice_text(notice: &canopy_desktop::chat::transcript::Notice) -> String {
+    let Some(until) = notice.until else {
+        return notice.text.clone();
+    };
+    match (notice.kind, actions::countdown(until)) {
+        (NoticeKind::RateLimit, left) => match (actions::local_time(until), left) {
+            (Some(at), Some(left)) => format!("{} · resets at {at} (in {left})", notice.text),
+            (Some(at), None) => format!("{} · reset at {at}", notice.text),
+            _ => notice.text.clone(),
+        },
+        (NoticeKind::ApiRetry, Some(left)) => format!("{} · next try in {left}", notice.text),
+        _ => notice.text.clone(),
+    }
 }
 
 fn row_separator(label: &'static str) -> Div {
@@ -401,13 +424,54 @@ fn item_row(
             }))
             .items_end()
             .gap(px(4.))
+            .group(actions::MESSAGE_GROUP)
             .child(user_bubble(message.text.clone()))
+            .child(actions::user_actions(
+                view,
+                this,
+                entry,
+                item.id,
+                &message.text,
+                live && this.settled()
+                    && this
+                        .session
+                        .as_ref()
+                        .is_some_and(|s| s.fork_point(item.id).is_some()),
+            ))
             .into_any_element(),
-        Body::Text(_) => div()
-            .pt(px(12.))
-            .text_color(t::text())
-            .children(entry.markdown.clone())
-            .into_any_element(),
+        Body::Text(block) => {
+            let end = entry.extra.turn_end.map(|index| match source {
+                Source::Current(_) => Source::Current(index),
+                Source::Archived { epoch, .. } => Source::Archived { epoch, index },
+            });
+            let transcript = this.session.as_ref().map(|s| s.transcript());
+            let end = end
+                .and_then(|end| rows.item(end, transcript))
+                .and_then(|item| match &item.body {
+                    Body::TurnEnd(end) => Some(end),
+                    _ => None,
+                });
+            // Retry answers the newest turn only: its end is the conversation's last.
+            let last = live
+                && entry.extra.turn_end.is_some()
+                && transcript.and_then(|t| {
+                    t.items()
+                        .iter()
+                        .rposition(|item| matches!(item.body, Body::TurnEnd(_)))
+                }) == entry.extra.turn_end;
+            column()
+                .pt(px(12.))
+                .group(actions::MESSAGE_GROUP)
+                .child(div().text_color(t::text()).children(entry.markdown.clone()))
+                .children(
+                    entry
+                        .extra
+                        .turn_end
+                        .is_some()
+                        .then(|| actions::reply_actions(view, this, entry, end, &block.text, last)),
+                )
+                .into_any_element()
+        }
         Body::Tool(tool) if presentation::is_subagent(tool) => {
             subagent::card(view, this, rows, entry.key, source, tool, cx)
         }
@@ -441,7 +505,7 @@ fn item_row(
                         .min_w_0()
                         .text_size(px(12.))
                         .text_color(t::secondary())
-                        .child(notice.text.clone()),
+                        .child(notice_text(notice)),
                 )
                 .into_any_element()
         }
@@ -616,7 +680,12 @@ fn tool_row(
         (Some(disclosure), Some(_)) if has_output && card.is_some() => {
             Some(disclosure.measured_body(
                 ("chat-tool-output", key),
-                tools::body(view, entry, card.as_deref().expect("card")),
+                // "Show more" eases the card's height.
+                AnimatedHeight::new(
+                    ("chat-tool-height", key),
+                    motion::policy(cx) == motion::MotionPolicy::Full,
+                    tools::body(view, entry, card.as_deref().expect("card")),
+                ),
                 now,
             ))
         }

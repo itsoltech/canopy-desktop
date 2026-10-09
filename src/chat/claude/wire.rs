@@ -249,7 +249,10 @@ pub enum System {
         #[serde(default)]
         session_id: Option<String>,
     },
-    CompactBoundary,
+    CompactBoundary {
+        #[serde(default)]
+        compact_metadata: Option<Value>,
+    },
     Status {
         #[serde(default, rename = "permissionMode")]
         permission_mode: Option<String>,
@@ -286,6 +289,8 @@ pub enum System {
         max_retries: Option<u32>,
         #[serde(default)]
         error_status: Option<u16>,
+        #[serde(default)]
+        retry_delay_ms: Option<u64>,
     },
     #[serde(other)]
     Other,
@@ -301,6 +306,9 @@ pub struct Init {
     pub permission_mode: Option<String>,
     #[serde(default)]
     pub claude_code_version: Option<String>,
+    /// `none` for a subscription login; otherwise the source of an API key.
+    #[serde(default, rename = "apiKeySource")]
+    pub api_key_source: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<Value>,
 }
@@ -387,6 +395,8 @@ pub enum Delta {
 #[derive(Clone, Debug, Deserialize)]
 pub struct AssistantMessage {
     pub message: ApiMessage,
+    #[serde(default)]
+    pub uuid: Option<String>,
     #[serde(default)]
     pub parent_tool_use_id: Option<String>,
     #[serde(default)]
@@ -672,6 +682,74 @@ fn success(request_id: &str, response: Value) -> Value {
 
 pub fn request_subtype(request: &Value) -> Option<&str> {
     request.get("subtype")?.as_str()
+}
+
+/// Asks how much of the model's context window the conversation uses.
+pub fn get_context_usage(request_id: &str) -> Value {
+    json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": "get_context_usage"},
+    })
+}
+
+/// Restores files to their state before the user message `user_message_id`; a dry run
+/// only reports what would change. Needs file checkpointing in the CLI's environment.
+pub fn rewind_files(request_id: &str, user_message_id: &str, dry_run: bool) -> Value {
+    json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": "rewind_files", "user_message_id": user_message_id, "dry_run": dry_run},
+    })
+}
+
+/// Context window use reported by `get_context_usage`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ContextUsage {
+    pub used: u64,
+    pub max: u64,
+    /// Reserved before the CLI compacts the conversation on its own.
+    pub buffer: u64,
+}
+
+pub fn context_usage(response: &Value) -> Option<ContextUsage> {
+    let max = response["maxTokens"].as_u64().filter(|max| *max > 0)?;
+    let buffer = response["categories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|category| category["kind"] == "buffer")
+        .filter_map(|category| category["tokens"].as_u64())
+        .sum();
+    Some(ContextUsage {
+        used: response["totalTokens"].as_u64()?,
+        max,
+        buffer,
+    })
+}
+
+/// What restoring files would change, from a `rewind_files` dry run.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RewindPreview {
+    pub possible: bool,
+    pub files: Vec<String>,
+    pub insertions: u64,
+    pub deletions: u64,
+}
+
+pub fn rewind_preview(response: &Value) -> RewindPreview {
+    RewindPreview {
+        possible: response["canRewind"].as_bool().unwrap_or(false),
+        files: response["filesChanged"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
+        insertions: response["insertions"].as_u64().unwrap_or(0),
+        deletions: response["deletions"].as_u64().unwrap_or(0),
+    }
 }
 
 /// A permission prompt (`can_use_tool`), including AskUserQuestion.

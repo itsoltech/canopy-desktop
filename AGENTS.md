@@ -434,6 +434,9 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 - Karty narzędzi powstają z `chat::tools::view` (tolerancyjnie, z fallbackiem Generic);
   diffy używają `git::changes::DiffLine` i `components::git::diff_line`. Diff tury czyta żywą
   sesję i nie udaje dostępności po restarcie. Proces czatu ma `--thinking-display summarized`.
+- Akcje przy wiadomościach (Copy/Edit/Retry + metryki) są na hover. Edit rozgałęzia sesję
+  (`--resume-session-at` + `--fork-session`) od końca poprzedniej tury; pliki cofa tylko jawnie wybrane
+  `rewind_files` (checkpointing w środowisku czatu). Kwotę pokazujemy tylko przy koncie API.
 - Zakończona (Completed) tura głównej rozmowy składa pracę między wiadomością użytkownika a ostatnią
   odpowiedzią pod „Worked for …” (czas z `TurnEnd.duration_ms`); widoczne zostają prompt, odpowiedź
   i podsumowanie zmian. Przerwana/błędna tura lub tura bez końcowej odpowiedzi zostaje rozwinięta.

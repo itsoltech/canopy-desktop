@@ -210,6 +210,110 @@ fn change(result: &Value) -> Option<FileChange> {
     })
 }
 
+/// One row of a turn's change tree: a folder (with its descendants' counts) or a file.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TreeRow<'a> {
+    Folder {
+        /// Full path from the tree's root, the key for folding.
+        path: String,
+        /// Shown name; folders holding only one folder are joined ("src/ui/chat").
+        name: String,
+        depth: usize,
+        added: usize,
+        removed: usize,
+    },
+    File {
+        change: &'a FileChange,
+        name: String,
+        depth: usize,
+    },
+}
+
+#[derive(Default)]
+struct TreeNode<'a> {
+    folders: std::collections::BTreeMap<String, TreeNode<'a>>,
+    files: Vec<(String, &'a FileChange)>,
+}
+
+impl TreeNode<'_> {
+    fn counts(&self) -> (usize, usize) {
+        let own = self
+            .files
+            .iter()
+            .fold((0, 0), |(a, r), (_, f)| (a + f.added, r + f.removed));
+        self.folders.values().fold(own, |(a, r), folder| {
+            let (fa, fr) = folder.counts();
+            (a + fa, r + fr)
+        })
+    }
+}
+
+/// Files as a folder tree, rows in display order. `paths` are the files' paths as shown
+/// (relative to the chat folder when inside it). Children of `collapsed` folders are left
+/// out.
+pub fn change_tree<'a>(
+    files: impl IntoIterator<Item = (String, &'a FileChange)>,
+    collapsed: &std::collections::HashSet<String>,
+) -> Vec<TreeRow<'a>> {
+    let mut root = TreeNode::default();
+    for (path, change) in files {
+        let mut parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+        let name = parts.pop().unwrap_or_default().to_owned();
+        let mut node = &mut root;
+        for part in parts {
+            node = node.folders.entry(part.to_owned()).or_default();
+        }
+        node.files.push((name, change));
+    }
+    let mut rows = vec![];
+    flatten(&root, "", 0, collapsed, &mut rows);
+    rows
+}
+
+fn flatten<'a>(
+    node: &TreeNode<'a>,
+    prefix: &str,
+    depth: usize,
+    collapsed: &std::collections::HashSet<String>,
+    rows: &mut Vec<TreeRow<'a>>,
+) {
+    for (name, folder) in &node.folders {
+        // Join single-folder chains into one row.
+        let mut name = name.clone();
+        let mut folder = folder;
+        while folder.files.is_empty() && folder.folders.len() == 1 {
+            let (child, next) = folder.folders.iter().next().expect("one folder");
+            name = format!("{name}/{child}");
+            folder = next;
+        }
+        let path = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        let (added, removed) = folder.counts();
+        rows.push(TreeRow::Folder {
+            path: path.clone(),
+            name,
+            depth,
+            added,
+            removed,
+        });
+        if !collapsed.contains(&path) {
+            flatten(folder, &path, depth + 1, collapsed, rows);
+        }
+    }
+    let mut files: Vec<_> = node.files.iter().collect();
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, change) in files {
+        rows.push(TreeRow::File {
+            change,
+            name: name.clone(),
+            depth,
+        });
+    }
+}
+
 /// What a tool asks to do, shown before the user allows it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Proposal {
@@ -546,5 +650,55 @@ mod tests {
             Proposal::Command { command, description: Some(_) } if command == "ls"
         ));
         assert!(matches!(proposal("Edit", &json!({})), Proposal::Input(_)));
+    }
+
+    #[test]
+    fn changes_nest_by_folder_and_join_single_chains() {
+        let change = |path: &str, added| FileChange {
+            path: path.into(),
+            created: false,
+            added,
+            removed: 1,
+            lines: vec![],
+        };
+        let files = [
+            change("src/ui/chat/view.rs", 3),
+            change("src/ui/chat/rows.rs", 2),
+            change("src/ui/theme.rs", 1),
+            change("README.md", 4),
+        ];
+        let rows = change_tree(
+            files.iter().map(|f| (f.path.display().to_string(), f)),
+            &Default::default(),
+        );
+        let shape: Vec<String> = rows
+            .iter()
+            .map(|row| match row {
+                TreeRow::Folder {
+                    name, depth, added, ..
+                } => format!("{depth}:{name}/ +{added}"),
+                TreeRow::File { name, depth, .. } => format!("{depth}:{name}"),
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                "0:src/ui/ +6",
+                "1:chat/ +5",
+                "2:rows.rs",
+                "2:view.rs",
+                "1:theme.rs",
+                "0:README.md"
+            ]
+        );
+        let folded = change_tree(
+            files.iter().map(|f| (f.path.display().to_string(), f)),
+            &["src/ui/chat".to_owned()].into(),
+        );
+        assert!(
+            !folded
+                .iter()
+                .any(|row| matches!(row, TreeRow::File { name, .. } if name == "view.rs"))
+        );
     }
 }

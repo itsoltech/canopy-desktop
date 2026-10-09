@@ -112,6 +112,11 @@ pub fn prepare_claude(
     // Same as the SDK: a host NODE_OPTIONS must not alter the CLI runtime.
     environment.retain(|key, _| !key.eq_ignore_ascii_case("NODE_OPTIONS"));
     environment.insert("CLAUDE_CODE_SDK_READS_SESSION_STATE".into(), "1".into());
+    // File checkpoints let an edited message restore the files changed after it.
+    environment.insert(
+        "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".into(),
+        "1".into(),
+    );
     let api_env = Agent::Claude.api_env();
     let secrets = environment
         .iter()
@@ -131,6 +136,17 @@ pub fn prepare_claude(
         },
         files: prepared.files,
     })
+}
+
+/// Continues a resumed session as a new one that ends at message `at` (an edited
+/// message's predecessor): the conversation after it is left behind. The pane's
+/// `resume_id` names the session being forked.
+pub fn fork_at(launch: &mut Launch, at: &str) {
+    launch.spec.arguments.extend([
+        "--resume-session-at".to_owned(),
+        at.to_owned(),
+        "--fork-session".to_owned(),
+    ]);
 }
 
 /// The chat's choices win over the account profile; `None` keeps the profile's value.
@@ -295,7 +311,18 @@ mod tests {
             launch.spec.environment["CLAUDE_CODE_SDK_READS_SESSION_STATE"],
             "1"
         );
+        assert_eq!(
+            launch.spec.environment["CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING"],
+            "1"
+        );
         assert_eq!(launch.spec.secrets, ["sk-ant-secret-value"]);
+        let mut forked = launch;
+        fork_at(&mut forked, "message-uuid");
+        assert!(forked.spec.arguments.ends_with(&[
+            "--resume-session-at".into(),
+            "message-uuid".into(),
+            "--fork-session".into()
+        ]));
         let mut profile_resume = pane.clone();
         profile_resume
             .metadata

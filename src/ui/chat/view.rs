@@ -1,6 +1,7 @@
 //! Chat pane: owns the headless agent session and its process for one PaneId.
 use super::{
     decision::DecisionPanel,
+    edit::Editing,
     queue::{QueueBar, Waiting},
     rows::Rows,
 };
@@ -11,7 +12,7 @@ use canopy_desktop::{
     chat::{
         claude::wire::{self, Inbound},
         config::{ChatSettings, Effort, Mode},
-        launch::{HookConfig, prepare_claude},
+        launch::{HookConfig, fork_at, prepare_claude},
         presentation,
         process::{Event, Process},
         session::{ChatSession, QueuedId, Status},
@@ -29,6 +30,8 @@ use std::{
 };
 
 pub struct ChatStateChanged;
+
+pub(super) const RESTARTED: &str = "Session restarted";
 impl EventEmitter<ChatStateChanged> for ChatView {}
 
 /// An opened subagent conversation (read-only), stacked for nested subagents.
@@ -84,9 +87,24 @@ pub struct ChatView {
     pub(super) resumed: bool,
     pub(super) sent_any: bool,
     /// The registry closed this pane (or the app quits): never start again.
-    closed: bool,
-    /// An account switch is restarting the process; ignore further switches.
-    switching: bool,
+    pub(super) closed: bool,
+    /// An account switch or an edit is restarting the process; ignore further switches.
+    pub(super) switching: bool,
+    /// Row key whose Copy shows a check mark, and since when.
+    pub(super) copied: Option<(u64, Instant)>,
+    pub(super) copied_reset: Option<Task<()>>,
+    /// A sent message being edited in the composer.
+    pub(super) editing: Option<Editing>,
+    /// The next start forks the session after this message (an edit).
+    pub(super) fork_at: Option<String>,
+    /// Sent as soon as the next session starts (the edited message).
+    pub(super) send_on_start: Option<String>,
+    /// Separator shown above the replaced session at the next start.
+    pub(super) separator: &'static str,
+    /// Redraws while a retry or limit countdown is shown.
+    ticker: Option<Task<()>>,
+    /// The edited message sent at start, until the session is up (back on failure).
+    edit_recovery: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -106,7 +124,9 @@ impl ChatView {
                     secondary: true, ..
                 } => this.command_enter(window, cx),
                 InputEvent::PressEnter { shift: false, .. } => {
-                    if this.decision.active().is_some() {
+                    if this.editing.is_some() {
+                        this.send_edit(window, cx);
+                    } else if this.decision.active().is_some() {
                         this.decision_enter(window, cx);
                     } else {
                         this.submit(window, cx);
@@ -148,6 +168,14 @@ impl ChatView {
             sent_any: false,
             closed: false,
             switching: false,
+            copied: None,
+            copied_reset: None,
+            editing: None,
+            fork_at: None,
+            send_on_start: None,
+            separator: RESTARTED,
+            ticker: None,
+            edit_recovery: None,
             _subscriptions: vec![subscription],
             pane,
         }
@@ -235,14 +263,37 @@ impl ChatView {
         if let Some(session) = &mut self.session {
             queued = session.take_queue();
             let transcript = session.transcript();
-            self.rows.archive(transcript, cx);
+            self.rows.archive(transcript, self.separator, cx);
         }
+        self.separator = RESTARTED;
+        // An open edit belongs to the session being replaced; its draft comes back.
+        if let Some(editing) = self.editing.take() {
+            self.restore_text(editing.draft);
+        }
+        // Forking needs the session it continues.
+        let fork = self
+            .fork_at
+            .take()
+            .filter(|_| self.pane.metadata.resume_id.is_some());
         self.generation += 1;
         self.closing = None;
         self.error = None;
         self.starting = true;
-        let (mut session, lines) = ChatSession::with_settings(self.settings.clone());
+        let (mut session, mut lines) = ChatSession::with_settings(self.settings.clone());
         session.restore_queue(queued);
+        session.set_base(
+            if fork.is_some() || self.pane.metadata.resume_id.is_some() {
+                canopy_desktop::chat::session::Base::Continued
+            } else {
+                canopy_desktop::chat::session::Base::Fresh
+            },
+        );
+        if let Some(text) = self.send_on_start.take() {
+            // Held until initialize, then sent as the new branch's first message; kept
+            // to give back if the start fails.
+            lines.extend(session.submit(&text));
+            self.edit_recovery = Some(text);
+        }
         self.session = Some(session);
         self.outbox = lines;
         let registration = match app
@@ -269,7 +320,7 @@ impl ChatView {
                     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
                     let helper = hook_launch::helper_path(&executable);
                     hook_launch::validate_helper(&helper)?;
-                    let launch = prepare_claude(
+                    let mut launch = prepare_claude(
                         &catalog,
                         &pane,
                         &env,
@@ -279,6 +330,9 @@ impl ChatView {
                             registration: &registration,
                         }),
                     )?;
+                    if let Some(at) = &fork {
+                        fork_at(&mut launch, at);
+                    }
                     Process::start(
                         launch.spec,
                         launch.files,
@@ -325,6 +379,9 @@ impl ChatView {
     fn fail_start(&mut self, error: String, cx: &mut Context<Self>) {
         self.starting = false;
         self.error = Some(error);
+        if let Some(text) = self.edit_recovery.take() {
+            self.restore_text(text);
+        }
         self.outbox.clear();
         // The session never started: end it so the composer stops accepting messages.
         if let Some(session) = &mut self.session {
@@ -425,6 +482,15 @@ impl ChatView {
         self.queue.sync(&waiting, session.queue(), policy);
         self.sync_decision(policy, cx);
         self.report_decision(cx);
+        self.sync_edit(cx);
+        self.tick(cx);
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|s| !matches!(s.status(), Status::Starting))
+        {
+            self.edit_recovery = None;
+        }
         self.action.retarget(
             if working { 1. } else { 0. },
             TransitionSpec::new(motion::duration::FAST, motion::Easing::EaseInOut),
@@ -699,6 +765,10 @@ impl ChatView {
 
     /// ⌘⏎: allow a pending prompt, else steer the typed message, else the oldest queued one.
     pub(super) fn command_enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.editing.is_some() {
+            self.send_edit(window, cx);
+            return;
+        }
         if self.decision.active().is_some() {
             self.decision_primary(window, cx);
             return;
@@ -810,6 +880,55 @@ impl ChatView {
     /// Starting or closing: Restart waits for it.
     pub(super) fn busy(&self) -> bool {
         self.starting || !self.closing_done()
+    }
+
+    /// Keeps a retry or limit countdown current: a redraw each second while seconds
+    /// show, every half minute while minutes do; nothing once no countdown runs.
+    fn tick(&mut self, cx: &mut Context<Self>) {
+        if self.countdown_left().is_none() {
+            self.ticker = None;
+            return;
+        }
+        if self.ticker.is_some() {
+            return;
+        }
+        self.ticker = Some(cx.spawn(async move |this, cx| {
+            let mut wait = std::time::Duration::from_secs(1);
+            loop {
+                cx.background_executor().timer(wait).await;
+                let left = this
+                    .update(cx, |this, cx| {
+                        cx.notify();
+                        let left = this.countdown_left();
+                        if left.is_none() {
+                            this.ticker = None;
+                        }
+                        left
+                    })
+                    .ok()
+                    .flatten();
+                let Some(left) = left else {
+                    break;
+                };
+                wait = std::time::Duration::from_secs(if left < 90 { 1 } else { 30 });
+            }
+        }));
+    }
+
+    /// Seconds until the nearest retry or limit reset shown in the conversation.
+    fn countdown_left(&self) -> Option<u64> {
+        let session = self.session.as_ref()?;
+        session
+            .transcript()
+            .items()
+            .iter()
+            .rev()
+            .take(200)
+            .filter_map(|item| match &item.body {
+                Body::Notice(notice) => super::actions::seconds_left(notice.until),
+                _ => None,
+            })
+            .min()
     }
 
     /// Forgets a rule remembered for this chat. The running process keeps it until Restart:

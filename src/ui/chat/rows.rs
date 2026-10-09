@@ -24,8 +24,8 @@ pub(super) enum Source {
 
 pub(super) enum Kind {
     Item(Source),
-    /// Separator above the output of a restarted session.
-    Restarted,
+    /// Separator above the output of a replaced session ("Session restarted").
+    Separator(&'static str),
     /// "Thinking…" while the agent works without writing; always the last row.
     Thinking,
     /// First row of a subagent thread: the task it was given.
@@ -68,6 +68,9 @@ pub(super) struct RowExtra {
     pub fold: Option<Fold>,
     /// Index of the row whose `fold` hides this one while it is closed.
     pub folded_by: Option<usize>,
+    /// The final reply of an ended turn: transcript index of its turn end, for the
+    /// message actions and the turn's numbers.
+    pub turn_end: Option<usize>,
 }
 
 /// A completed turn's work (thinking, tools, interim text, subagents) under one header,
@@ -383,6 +386,8 @@ impl Rows {
             self.rows[at].extra.thought = Some((block.streaming.then_some(now), None));
         }
         self.refresh(transcript, index, at, cx);
+        // A turn that stopped or failed shows its end; its reply still gets actions.
+        self.fold_turn(transcript, index, remeasure);
         self.summarize_turn(transcript, index);
     }
 
@@ -396,7 +401,7 @@ impl Rows {
         let Body::TurnEnd(end) = &item.body else {
             return;
         };
-        if self.thread.is_some() || end.outcome != Outcome::Completed {
+        if self.thread.is_some() {
             return;
         }
         let turn = item.turn;
@@ -411,6 +416,17 @@ impl Rows {
             };
             transcript.get(index).filter(|item| item.turn == turn)
         };
+        // The turn's last main-thread text is its reply: actions and numbers go under it.
+        if let Some(reply) = self.rows.iter().rposition(|row| {
+            of_turn(row)
+                .is_some_and(|item| item.parent.is_none() && matches!(item.body, Body::Text(_)))
+        }) {
+            self.rows[reply].extra.turn_end = Some(index);
+            remeasure.push(reply);
+        }
+        if end.outcome != Outcome::Completed {
+            return;
+        }
         let Some(first) = self.rows.iter().position(|row| of_turn(row).is_some()) else {
             return;
         };
@@ -628,7 +644,7 @@ impl Rows {
     }
 
     /// Freezes the replaced session's rows above a separator; new output follows.
-    pub fn archive(&mut self, transcript: &Transcript, cx: &mut App) {
+    pub fn archive(&mut self, transcript: &Transcript, label: &'static str, cx: &mut App) {
         if self.thinking_shown() {
             let at = self.rows.len() - 1;
             self.rows.pop();
@@ -657,7 +673,7 @@ impl Rows {
             let key = self.key();
             self.rows.push(Row {
                 key,
-                kind: Kind::Restarted,
+                kind: Kind::Separator(label),
                 markdown: None,
                 output: None,
                 extra: RowExtra::default(),
@@ -970,6 +986,34 @@ mod card_tests {
             let key = rows.rows[header].key;
             rows.toggle_fold(key, MotionPolicy::Reduced, cx);
             assert!(!rows.rows.iter().any(|row| rows.folded(row)));
+        });
+    }
+}
+
+#[cfg(test)]
+mod long_tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    /// Row building for a long conversation (dev bench transcript). Timing only:
+    /// `cargo test --release --locked long_transcript -- --ignored --nocapture`.
+    #[gpui_kit::test]
+    #[ignore = "timing"]
+    fn long_transcript_rows_build_quickly(cx: &mut TestAppContext) {
+        let mut session = crate::ui::chat::dev_bench::long_session();
+        let changes = session.take_changes();
+        let transcript = session.transcript();
+        cx.update(|cx| {
+            let started = Instant::now();
+            let mut rows = Rows::new(cx);
+            rows.sync(transcript, &changes, false, MotionPolicy::Reduced, cx);
+            eprintln!(
+                "long transcript: {} items -> {} rows in {:?}",
+                transcript.items().len(),
+                rows.rows.len(),
+                started.elapsed()
+            );
+            assert!(rows.rows.len() > 1000);
         });
     }
 }

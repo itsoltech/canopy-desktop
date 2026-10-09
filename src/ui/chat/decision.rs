@@ -750,6 +750,11 @@ impl ChatView {
             .child(
                 div()
                     .id(("chat-decision-fold", key))
+                    .keyboard(if collapsed {
+                        "Expand the request"
+                    } else {
+                        "Collapse the request"
+                    })
                     .flex_shrink_0()
                     .size(px(20.))
                     .flex()
@@ -832,7 +837,12 @@ impl ChatView {
             .child(header)
             .child(self.decision.fold.measured_body(
                 ("chat-decision-fold-body", key),
-                content,
+                // Another question or preview size eases the panel's height.
+                AnimatedHeight::new(
+                    ("chat-decision-height", key),
+                    motion::policy(cx) == MotionPolicy::Full,
+                    content,
+                ),
                 now,
             ));
         // Panel reveal: the height opens with a short rise and fade, and closes the same
@@ -996,7 +1006,8 @@ impl ChatView {
                         .rounded(px(8.))
                         .when(selected, |row| row.bg(t::hover()))
                         .when(active, |row| {
-                            row.cursor_pointer()
+                            row.keyboard(format!("Option {}: {}", index + 1, choice.label))
+                                .cursor_pointer()
                                 .hover(|style| style.bg(t::hover()))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.choose(item, index, window, cx);
@@ -1037,6 +1048,7 @@ impl ChatView {
 fn text_action(id: impl Into<ElementId>, label: &'static str) -> Stateful<Div> {
     div()
         .id(id)
+        .keyboard(label)
         .flex_shrink_0()
         .px(px(6.))
         .h(px(20.))
@@ -1051,7 +1063,7 @@ fn text_action(id: impl Into<ElementId>, label: &'static str) -> Stateful<Div> {
 }
 
 /// Marks a picked option of a question that allows several.
-fn checkbox(checked: bool) -> Div {
+pub(super) fn checkbox(checked: bool) -> Div {
     div()
         .flex_shrink_0()
         .size(px(14.))

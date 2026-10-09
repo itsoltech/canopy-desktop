@@ -1,4 +1,6 @@
 //! Canopy UI building blocks. Native GPUI builders keep Styled overrides and events.
+mod animated_height;
+pub use animated_height::AnimatedHeight;
 mod button_loading;
 mod buttons;
 pub use button_loading::ButtonLoading;
@@ -25,6 +27,18 @@ pub use settings::*;
 use super::theme as t;
 use gpui_kit::component::{Icon, IconName};
 use gpui_kit::*;
+
+/// Clickable non-button elements reachable with Tab: GPUI clicks a focused element on
+/// Enter/Space; the label is what a screen reader announces, the highlight shows
+/// keyboard focus only.
+pub trait KeyboardFocus: StatefulInteractiveElement + Sized {
+    fn keyboard(self, label: impl Into<SharedString>) -> Self {
+        self.tab_index(0)
+            .aria_label(label)
+            .focus_visible(|style| style.bg(t::hover()))
+    }
+}
+impl<T: StatefulInteractiveElement + Sized> KeyboardFocus for T {}
 
 pub fn row() -> Div {
     div().flex().items_center().min_w_0()

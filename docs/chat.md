@@ -244,3 +244,28 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 - Własne hooki/ustawienia Claude Code użytkownika mogą auto-akceptować prośby; panel wtedy się
   nie pojawia. Weryfikacja: fixtures `permissions.jsonl`, `plan.jsonl`, `tests/chat_permissions.rs`,
   test live `rules_allowed_for_the_chat_stop_asking_and_survive_a_restart`.
+
+## Etap 5: premium feel
+
+- Akcje przy wiadomościach (`src/ui/chat/actions.rs`), widoczne na hover wiersza (`group_hover`):
+  Copy (✓ przez 1,5 s), Edit przy wiadomości użytkownika (gdy nic nie pracuje), Retry przy ostatniej
+  odpowiedzi (`ChatSession::retry_text`), metryki tury z `TurnEnd` (czas, tokeny; kwota tylko gdy
+  `init.apiKeySource != "none"`). Odpowiedź tury = ostatni `Text` głównego wątku (`RowExtra.turn_end`).
+- Edit (`src/ui/chat/edit.rs`, DEC-043): punkt rozgałęzienia `fork_point` = `TurnEnd.resume_at` poprzedniej
+  tury (uuid ostatniej wiadomości asystenta), dla pierwszej wiadomości świeża sesja
+  (`ProjectsState::forget_chat_session`). Proces startuje z `--resume <sesja> --resume-session-at <uuid>
+  --fork-session` (`launch::fork_at`); stara rozmowa nad separatorem „Edited — earlier version above”.
+  Pliki: `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING=1` w środowisku czatu; `rewind_files` (dry run → tacka
+  z opcją „Also restore N files”, domyślnie wyłączoną; właściwy przed forkiem). Uuid wiadomości użytkownika
+  (`UserMessage.uuid`) to klucz cofnięcia.
+- Kontekst: `get_context_usage` po każdym `idle` (jedno zapytanie w locie, nie przy zamykaniu) →
+  kółko w composerze z podpowiedzią i ostrzeżeniem od 80% przestrzeni przed buforem autokompaktowania.
+- Notice: kompaktowanie z `compact_metadata` (trigger, pre_tokens), limit z godziną odnowienia
+  i ponowienie API z odliczaniem (`Notice.until`, odświeżanie co 1 s tylko podczas odliczania).
+- `components::AnimatedHeight`: mierzona wysokość z animacją RESIZE (panel decyzji, „Show more” w kartach).
+  Drzewo zmian: `chat::tools::change_tree` (zagnieżdżone foldery, łączenie łańcuchów, sumy).
+  Klawiatura: `KeyboardFocus::keyboard(label)` (tab_index + aria_label + focus_visible) dla klikalnych divów;
+  przyciski GPUI obsługują Tab/Enter/Space same.
+- Wydajność: dev bench „Load long transcript” (nagrania ×60 → ~1260 wierszy, offline). Budowa wierszy
+  od zera ~13 ms w release (`long_transcript_rows_build_quickly`, ignorowany); profil klatek w GUI
+  wymaga przewijania w aplikacji (`./scripts/run-macos.sh profiling --features frame-profile`).

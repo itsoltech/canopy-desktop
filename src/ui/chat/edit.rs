@@ -1,0 +1,335 @@
+//! Editing a sent message (DEC-043): the conversation continues from before it as a
+//! new branch (the CLI forks the session there); the earlier continuation stays above
+//! a separator. Files changed after the message can be restored first, when the CLI
+//! kept their checkpoints.
+use super::{render::centered, view::ChatView};
+use crate::app_state::AppState;
+use crate::ui::{components::*, theme as t};
+use canopy_desktop::chat::{
+    claude::wire::RewindPreview,
+    session::Rewind,
+    transcript::{Body, ItemId},
+};
+use gpui_kit::{prelude::FluentBuilder, *};
+
+pub(super) const EDITED_SEPARATOR: &str = "Edited — earlier version above";
+
+pub(super) struct Editing {
+    pub item: ItemId,
+    /// Message the new branch continues after; `None` starts a fresh conversation.
+    pub fork: Option<String>,
+    /// Composer text from before the edit, back on Cancel.
+    pub draft: String,
+    /// What restoring files would change, once the CLI has answered.
+    pub preview: Option<RewindPreview>,
+    pub restore: bool,
+    /// The edited text, waiting for the restore to finish.
+    pub sending: Option<String>,
+    pub error: Option<String>,
+}
+
+impl ChatView {
+    /// Puts a sent message into the composer to be edited and sent again.
+    pub(super) fn start_edit(&mut self, item: ItemId, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.settled() {
+            return;
+        }
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        let Some(fork) = session.fork_point(item) else {
+            return;
+        };
+        let Some(text) = session
+            .transcript()
+            .items()
+            .iter()
+            .find_map(|i| match &i.body {
+                Body::User(message) if i.id == item => Some(message.text.clone()),
+                _ => None,
+            })
+        else {
+            return;
+        };
+        // Which files changed after this message (answered asynchronously).
+        let lines = session.rewind_files(item, true);
+        self.write(lines);
+        let draft = self.composer.read(cx).value().to_string();
+        self.editing = Some(Editing {
+            item,
+            fork,
+            draft,
+            preview: None,
+            restore: false,
+            sending: None,
+            error: None,
+        });
+        self.composer.update(cx, |state, cx| {
+            state.set_value(text, window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    pub(super) fn cancel_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Restoring files is under way: the edit goes through once it finishes.
+        if self.editing.as_ref().is_some_and(|e| e.sending.is_some()) {
+            return;
+        }
+        let Some(editing) = self.editing.take() else {
+            return;
+        };
+        self.composer
+            .update(cx, |state, cx| state.set_value(editing.draft, window, cx));
+        cx.notify();
+    }
+
+    /// Sends the edited text: restores files first when asked, then forks.
+    pub(super) fn send_edit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.composer.read(cx).value().trim().to_owned();
+        let Some(editing) = &mut self.editing else {
+            return;
+        };
+        if text.is_empty() || editing.sending.is_some() {
+            return;
+        }
+        let item = editing.item;
+        let restore = editing.restore && editing.preview.as_ref().is_some_and(|p| p.possible);
+        editing.sending = Some(text);
+        editing.error = None;
+        if restore {
+            let lines = self
+                .session
+                .as_mut()
+                .map(|session| session.rewind_files(item, false))
+                .unwrap_or_default();
+            if lines.is_empty() {
+                // The session can't restore now: the text stays to send without files.
+                if let Some(editing) = &mut self.editing {
+                    editing.sending = None;
+                    editing.restore = false;
+                    editing.error = Some("Files can't be restored now.".into());
+                }
+            } else {
+                self.write(lines);
+            }
+            cx.notify();
+            return;
+        }
+        self.fork_edit(cx);
+    }
+
+    /// Follows the CLI's answers about files (in `after_change`).
+    pub(super) fn sync_edit(&mut self, cx: &mut Context<Self>) {
+        let ended = self
+            .session
+            .as_ref()
+            .is_none_or(|session| session.status().ended());
+        let Some(editing) = &mut self.editing else {
+            return;
+        };
+        let outcome = self
+            .session
+            .as_ref()
+            .and_then(|s| s.rewind())
+            .filter(|(item, _)| *item == editing.item)
+            .map(|(_, outcome)| outcome.clone());
+        let sending = editing.sending.is_some();
+        match outcome {
+            // Dry-run answers only shape the offer; restore answers only the sending.
+            Some(Rewind::Preview(preview)) if !sending && editing.preview.is_none() => {
+                editing.preview = Some(preview)
+            }
+            Some(Rewind::Unavailable(_)) if !sending && editing.preview.is_none() => {
+                editing.preview = Some(Default::default())
+            }
+            Some(Rewind::Done) if sending => self.fork_edit(cx),
+            Some(Rewind::Failed(error)) if sending => {
+                // Nothing was sent: the text stays to be sent with or without files.
+                editing.error = Some(format!("Files couldn't be restored: {error}"));
+                editing.restore = false;
+                editing.sending = None;
+            }
+            _ if sending && ended => {
+                editing.error = Some("The chat ended before the files were restored.".into());
+                editing.restore = false;
+                editing.sending = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Replaces the session with a branch that continues before the edited message.
+    fn fork_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(editing) = self.editing.take() else {
+            return;
+        };
+        let Some(text) = editing.sending else {
+            return;
+        };
+        if editing.fork.is_some() && self.pane.metadata.resume_id.is_none() {
+            // Nothing to fork from: keep the text and say so.
+            self.editing = Some(Editing {
+                sending: None,
+                error: Some("This conversation can't be continued from there.".into()),
+                ..editing
+            });
+            cx.notify();
+            return;
+        }
+        // The composer empties once the edit is on its way.
+        self.decision.composer = Some(super::decision::ComposerChange {
+            text: Some(String::new()),
+            placeholder: super::decision::COMPOSER_PLACEHOLDER,
+        });
+        self.switching = true;
+        self.fork_at = editing.fork.clone();
+        self.send_on_start = Some(text);
+        if editing.fork.is_none() {
+            // The first message itself changed: a new conversation.
+            let pane = self.pane.id;
+            self.pane.metadata.resume_id = None;
+            cx.global::<AppState>()
+                .projects
+                .clone()
+                .update(cx, |projects, cx| projects.forget_chat_session(pane, cx));
+        }
+        let stop = self.shutdown(cx);
+        cx.spawn(async move |this, cx| {
+            let _ = stop.await;
+            let _ = this.update(cx, |this, cx| {
+                this.switching = false;
+                if !this.closed {
+                    this.separator = EDITED_SEPARATOR;
+                    this.start(cx);
+                }
+                // Not started (closing, already starting): nothing was sent.
+                if let Some(text) = this.send_on_start.take() {
+                    this.fork_at = None;
+                    this.separator = super::view::RESTARTED;
+                    this.restore_text(text);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Puts text back into the composer (applied once a window is at hand).
+    pub(super) fn restore_text(&mut self, text: String) {
+        self.decision.composer = Some(super::decision::ComposerChange {
+            text: Some(text),
+            placeholder: super::decision::COMPOSER_PLACEHOLDER,
+        });
+    }
+
+    /// Above the composer while editing: what happens on send, with Cancel.
+    pub(super) fn edit_bar(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+        let editing = self.editing.as_ref()?;
+        let files = editing
+            .preview
+            .as_ref()
+            .filter(|p| p.possible && !p.files.is_empty());
+        let note = match (&editing.error, files, editing.sending.is_some()) {
+            (Some(error), _, _) => error.clone(),
+            (_, _, true) => "Restoring files…".to_owned(),
+            (_, Some(_), _) => String::new(),
+            (_, None, _) => {
+                "The conversation continues from before this message; files stay as they are."
+                    .to_owned()
+            }
+        };
+        let restore = files.map(|preview| {
+            let count = preview.files.len();
+            let checked = editing.restore;
+            row()
+                .id("chat-edit-restore")
+                .keyboard(format!(
+                    "Also restore the files changed after this message, {}",
+                    if checked { "on" } else { "off" }
+                ))
+                .gap(px(8.))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .text_color(t::secondary())
+                .hover(|style| style.text_color(t::text()))
+                .child(super::decision::checkbox(checked))
+                .child(format!(
+                    "Also restore {count} {} changed after this message (+{} −{})",
+                    if count == 1 { "file" } else { "files" },
+                    preview.insertions,
+                    preview.deletions
+                ))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(editing) = &mut this.editing {
+                        editing.restore ^= true;
+                        cx.notify();
+                    }
+                }))
+        });
+        Some(
+            centered(
+                column()
+                    .mx(px(14.))
+                    .px(px(14.))
+                    .pt(px(10.))
+                    .pb(px(10.))
+                    .gap(px(6.))
+                    .rounded_t(px(12.))
+                    .border_1()
+                    .border_b_0()
+                    .border_color(t::border())
+                    .bg(t::input_bg())
+                    .child(
+                        row()
+                            .gap(px(8.))
+                            .child(custom_icon("pencil").size(px(13.)).text_color(t::muted()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.))
+                                    .text_color(t::muted())
+                                    .child("Editing message"),
+                            )
+                            .child(
+                                div()
+                                    .id("chat-edit-cancel")
+                                    .keyboard("Cancel editing")
+                                    .px(px(6.))
+                                    .h(px(20.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(px(5.))
+                                    .cursor_pointer()
+                                    .text_size(px(12.))
+                                    .text_color(t::secondary())
+                                    .hover(|style| style.bg(t::hover()).text_color(t::text()))
+                                    .child("Cancel")
+                                    .tooltip(|window, cx| {
+                                        gpui_kit::component::tooltip::Tooltip::new("Cancel (Esc)")
+                                            .build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.cancel_edit(window, cx)
+                                    })),
+                            ),
+                    )
+                    .children(restore)
+                    .when(!note.is_empty(), |bar| {
+                        bar.child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(if editing.error.is_some() {
+                                    t::red()
+                                } else {
+                                    t::faint()
+                                })
+                                .child(note),
+                        )
+                    }),
+            )
+            .mb(px(-4.)),
+        )
+    }
+}

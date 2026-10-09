@@ -34,6 +34,9 @@ pub enum Body {
 pub struct UserMessage {
     pub text: String,
     pub delivery: Delivery,
+    /// The uuid it was sent with: files are restored and conversations forked by it.
+    #[serde(default)]
+    pub uuid: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,6 +170,9 @@ pub enum Decision {
 pub struct Notice {
     pub kind: NoticeKind,
     pub text: String,
+    /// When a limit resets or a retry happens (unix seconds), for a live countdown.
+    #[serde(default)]
+    pub until: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,6 +190,10 @@ pub struct TurnEnd {
     pub usage: Option<Usage>,
     pub cost_usd: Option<f64>,
     pub duration_ms: Option<u64>,
+    /// The turn's last main-thread message: a later message edited forks the
+    /// conversation here.
+    #[serde(default)]
+    pub resume_at: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

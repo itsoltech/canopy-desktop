@@ -108,6 +108,7 @@ pub(crate) fn pill(
         .hover(|style| style.bg(t::accent().opacity(0.14)))
         .active(|style| style.bg(t::accent().opacity(0.2)))
         .cursor_pointer()
+        .keyboard(format!("Open {}", target.path.display()))
         .text_size(size)
         .text_color(t::text())
         .child(match crate::ui::file_icons::for_path(&target.path) {

@@ -149,7 +149,7 @@ fn steer_is_shown_where_the_agent_read_it() {
     lifecycle(&mut session, &steer[0].2, "completed");
     result(&mut session);
     lifecycle(&mut session, &first, "completed");
-    assert!(state(&mut session, "idle").is_empty());
+    assert!(user_lines(&state(&mut session, "idle")).is_empty());
     assert_eq!(*session.status(), Status::Ready);
 }
 
@@ -197,7 +197,7 @@ fn stop_keeps_the_queue_until_the_user_sends_again() {
         r#"{"type":"result","subtype":"error_during_execution","is_error":true}"#,
     );
     assert!(
-        state(&mut session, "idle").is_empty(),
+        user_lines(&state(&mut session, "idle")).is_empty(),
         "Stop holds the queue"
     );
     assert!(session.queue_held());
@@ -305,7 +305,7 @@ fn a_restarted_session_keeps_the_queue_on_hold() {
     let mut session = ready(&[]);
     session.restore_queue(old.take_queue());
     assert!(session.queue_held());
-    assert!(state(&mut session, "idle").is_empty());
+    assert!(user_lines(&state(&mut session, "idle")).is_empty());
     let sent = user_lines(&session.steer(session.queue()[0].id));
     assert_eq!(sent[0].0, "later message");
 }

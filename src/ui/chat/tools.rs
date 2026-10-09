@@ -6,7 +6,7 @@ use super::{
     view::ChatView,
 };
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::chat::tools::{FileChange, ToolView};
+use canopy_desktop::chat::tools::{FileChange, ToolView, TreeRow};
 use canopy_desktop::git::changes::DiffLine;
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{
@@ -15,7 +15,7 @@ use gpui_kit::component::{
     shimmer::ShimmerText,
 };
 use gpui_kit::{prelude::FluentBuilder, *};
-use std::{collections::BTreeMap, time::Instant};
+use std::time::Instant;
 
 /// Lines of a diff or preview shown before "Show more".
 const PREVIEW_LINES: usize = 12;
@@ -411,6 +411,7 @@ pub(super) fn thinking_row(
     let header: AnyElement = if has_text {
         let view = view.downgrade();
         line.id(("chat-thinking-toggle", key))
+            .keyboard("Show or hide the thinking")
             .h(px(24.))
             .cursor_pointer()
             .hover(|style| style.text_color(t::secondary()))
@@ -465,15 +466,6 @@ pub(super) fn changes_card(
     let cwd = this.pane.metadata.cwd.clone();
     let added: usize = files.iter().map(|f| f.added).sum();
     let removed: usize = files.iter().map(|f| f.removed).sum();
-    let mut folders: BTreeMap<String, Vec<&FileChange>> = BTreeMap::new();
-    for file in files {
-        let path = display_path(&file.path, cwd.as_deref());
-        let folder = std::path::Path::new(&path)
-            .parent()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default();
-        folders.entry(folder).or_default().push(file);
-    }
     let open = |file: Option<std::path::PathBuf>| {
         let view = view.downgrade();
         move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
@@ -492,18 +484,33 @@ pub(super) fn changes_card(
         .label("Open diff")
         .tooltip("Open this turn's changes")
         .on_click(open(None));
-    let mut rows: Vec<AnyElement> = vec![];
-    for (folder, items) in &folders {
-        let folded = entry.extra.collapsed.contains(folder);
-        if !folder.is_empty() {
-            let name = folder.clone();
-            let view = view.downgrade();
-            rows.push(
+    let tree = canopy_desktop::chat::tools::change_tree(
+        files
+            .iter()
+            .map(|file| (display_path(&file.path, cwd.as_deref()), file)),
+        &entry.extra.collapsed,
+    );
+    let rows: Vec<AnyElement> = tree
+        .into_iter()
+        .map(|node| match node {
+            TreeRow::Folder {
+                path,
+                name,
+                depth,
+                added,
+                removed,
+            } => {
+                let folded = entry.extra.collapsed.contains(&path);
+                let view = view.downgrade();
                 tree_row(
-                    ElementId::Name(format!("chat-changes-{key}-dir-{folder}").into()),
-                    0,
+                    ElementId::Name(format!("chat-changes-{key}-dir-{path}").into()),
+                    depth,
                     cx,
                 )
+                .accessibility_label(format!(
+                    "{} folder {name}",
+                    if folded { "Expand" } else { "Collapse" }
+                ))
                 .child(
                     row()
                         .w_full()
@@ -524,61 +531,57 @@ pub(super) fn changes_card(
                                 .min_w_0()
                                 .truncate()
                                 .text_color(t::secondary())
-                                .child(folder.clone()),
-                        ),
+                                .child(name),
+                        )
+                        .child(counts(added, removed)),
                 )
                 .on_click(move |_, _, cx| {
                     let _ = view.update(cx, |this, cx| {
-                        this.shown_rows_mut().toggle_folder(key, name.clone(), cx);
+                        this.shown_rows_mut().toggle_folder(key, path.clone(), cx);
                         cx.notify();
                     });
                 })
-                .into_any_element(),
-            );
-        }
-        if folded {
-            continue;
-        }
-        for file in items {
-            let name = file
-                .path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            rows.push(
-                tree_row(
-                    ElementId::Name(
-                        format!("chat-changes-{key}-file-{}", file.path.display()).into(),
-                    ),
-                    if folder.is_empty() { 0 } else { 1 },
-                    cx,
-                )
-                .disabled(!live)
-                .child(
-                    row()
-                        .w_full()
-                        .gap(px(6.))
-                        .child(icon(IconName::File).text_color(t::muted()))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_color(t::text())
-                                .child(name),
-                        )
-                        .children(
-                            file.created.then(|| {
-                                div().text_size(px(11.)).text_color(t::faint()).child("new")
-                            }),
-                        )
-                        .child(counts(file.added, file.removed)),
-                )
-                .on_click(open(Some(file.path.clone())))
-                .into_any_element(),
-            );
-        }
-    }
+                .into_any_element()
+            }
+            TreeRow::File {
+                change: file,
+                name,
+                depth,
+            } => tree_row(
+                ElementId::Name(format!("chat-changes-{key}-file-{}", file.path.display()).into()),
+                depth,
+                cx,
+            )
+            .disabled(!live)
+            .accessibility_label(format!("Open the diff of {name}"))
+            .child(
+                row()
+                    .w_full()
+                    .gap(px(6.))
+                    .child(match crate::ui::file_icons::for_path(&file.path) {
+                        Some(asset) => img(asset).size(px(14.)).flex_shrink_0().into_any_element(),
+                        None => icon(IconName::File)
+                            .text_color(t::muted())
+                            .into_any_element(),
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(t::text())
+                            .child(name),
+                    )
+                    .children(
+                        file.created
+                            .then(|| div().text_size(px(11.)).text_color(t::faint()).child("new")),
+                    )
+                    .child(counts(file.added, file.removed)),
+            )
+            .on_click(open(Some(file.path.clone())))
+            .into_any_element(),
+        })
+        .collect();
     column()
         .mt(px(12.))
         .rounded(px(10.))

@@ -85,6 +85,45 @@ impl ProjectsState {
         cx.notify();
     }
 
+    /// A chat starts over without its provider session (an edit of its first message).
+    pub fn forget_chat_session(&mut self, pane: PaneId, cx: &mut Context<Self>) {
+        fn clear(workspace: &mut Workspace, pane: PaneId) -> bool {
+            let Some((tab, mut metadata)) = workspace
+                .tabs()
+                .iter()
+                .find_map(|t| t.root.find(pane).map(|p| (t.id, p.metadata.clone())))
+            else {
+                return false;
+            };
+            if metadata.resume_id.is_none() {
+                return false;
+            }
+            metadata.resume_id = None;
+            workspace.set_pane_metadata(tab, pane, metadata).is_ok()
+        }
+        let mut changed = false;
+        cx.global::<AppState>()
+            .workspace
+            .clone()
+            .update(cx, |workspace, cx| {
+                if clear(workspace, pane) {
+                    changed = true;
+                    cx.notify();
+                }
+            });
+        for workspace in self
+            .sessions
+            .values_mut()
+            .chain(std::iter::once(&mut self.scratch))
+        {
+            changed |= clear(workspace, pane);
+        }
+        if changed {
+            self.changed(cx);
+            cx.notify();
+        }
+    }
+
     pub fn task_prompt_pasted(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         fn clear(workspace: &mut Workspace, pane: PaneId) {
             if let Some((tab, mut metadata)) = workspace

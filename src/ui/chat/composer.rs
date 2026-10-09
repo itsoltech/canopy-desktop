@@ -61,6 +61,7 @@ impl ChatView {
                         .child(self.model_picker(cx))
                         .children(self.effort_picker(cx))
                         .child(self.mode_picker(cx))
+                        .children(super::actions::context_ring(self))
                         .child(div().flex_1())
                         .child(super::dev_bench::button(cx, ended)) // dev_bench
                         .children(deciding.then(|| self.decision_buttons(empty, cx)))
@@ -414,6 +415,8 @@ impl ChatView {
             .on_click(cx.listener(move |this, _, window, cx| {
                 if this.is_working() {
                     this.interrupt(cx);
+                } else if this.editing.is_some() {
+                    this.send_edit(window, cx);
                 } else {
                     this.submit(window, cx);
                 }

@@ -6,6 +6,16 @@ use super::{
 use serde_json::Value;
 use std::path::Path;
 
+/// Token counts as people read them: "840", "1.2k", "35k", "1.0M".
+pub fn tokens(count: u64) -> String {
+    match count {
+        0..1_000 => count.to_string(),
+        1_000..10_000 => format!("{:.1}k", count as f64 / 1_000.),
+        10_000..1_000_000 => format!("{:.0}k", count as f64 / 1_000.),
+        _ => format!("{:.1}M", count as f64 / 1_000_000.),
+    }
+}
+
 /// One question of an AskUserQuestion request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Question {
@@ -430,6 +440,7 @@ mod tests {
                     usage: None,
                     cost_usd: None,
                     duration_ms: None,
+                    resume_at: None,
                 }),
             );
         }
@@ -447,6 +458,7 @@ mod tests {
             Body::User(UserMessage {
                 text: "hi".into(),
                 delivery: Delivery::Sent,
+                uuid: None,
             }),
         );
         let text = transcript.push(

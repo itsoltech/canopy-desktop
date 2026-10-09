@@ -16,6 +16,7 @@ pub struct InitInfo {
     pub permission_mode: Option<String>,
     pub version: Option<String>,
     pub capabilities: Vec<String>,
+    pub api_key_source: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +70,8 @@ pub struct Adapter {
     /// Subagent call → the report it handed back (`SubagentHandback`).
     handbacks: HashMap<String, String>,
     permissions: HashMap<String, usize>,
+    /// The main thread's latest message uuid, kept with the turn's end.
+    last_message: Option<String>,
 }
 
 impl Adapter {
@@ -126,11 +129,17 @@ impl Adapter {
             Inbound::RateLimitEvent(event) => {
                 let info = event.rate_limit_info;
                 let text = match info.status.as_deref() {
-                    Some("allowed_warning") => "Approaching the Claude usage limit.",
-                    Some("rejected") => "Claude usage limit reached.",
+                    Some("allowed_warning") => "Approaching the Claude usage limit",
+                    Some("rejected") => "Claude usage limit reached",
                     _ => return vec![],
                 };
-                notice(transcript, None, NoticeKind::RateLimit, text.into());
+                // Seconds since the epoch (milliseconds tolerated).
+                let until = info
+                    .resets_at
+                    .as_ref()
+                    .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)))
+                    .map(|at| if at > 10_000_000_000 { at / 1000 } else { at });
+                notice_until(transcript, None, NoticeKind::RateLimit, text.into(), until);
                 vec![]
             }
             Inbound::ToolProgress(progress) => {
@@ -318,6 +327,7 @@ impl Adapter {
                 model: init.model,
                 permission_mode: init.permission_mode,
                 version: init.claude_code_version,
+                api_key_source: init.api_key_source,
             })],
             System::SessionStateChanged { state, session_id } => {
                 let mut signals: Vec<_> = session_id.into_iter().map(Signal::SessionId).collect();
@@ -333,13 +343,21 @@ impl Adapter {
                 permission_mode: Some(mode),
             } => vec![Signal::PermissionMode(mode)],
             System::Status { .. } => vec![],
-            System::CompactBoundary => {
-                notice(
-                    transcript,
-                    None,
-                    NoticeKind::Compacted,
-                    "Conversation context was compacted.".into(),
-                );
+            System::CompactBoundary { compact_metadata } => {
+                let metadata = compact_metadata.unwrap_or_default();
+                let mut text = "Conversation compacted".to_owned();
+                if let Some(before) = metadata["pre_tokens"].as_u64() {
+                    text.push_str(&format!(
+                        " · {} tokens summarized",
+                        crate::chat::presentation::tokens(before)
+                    ));
+                }
+                match metadata["trigger"].as_str() {
+                    Some("auto") => text.push_str(" (automatically, near the context limit)"),
+                    Some("manual") => text.push_str(" (on request)"),
+                    _ => {}
+                }
+                notice(transcript, None, NoticeKind::Compacted, text);
                 vec![]
             }
             System::TaskStarted {
@@ -415,6 +433,7 @@ impl Adapter {
                 attempt,
                 max_retries,
                 error_status,
+                retry_delay_ms,
             } => {
                 let mut text = match (attempt, max_retries) {
                     (Some(a), Some(m)) => format!("Retrying the API request (attempt {a} of {m})"),
@@ -423,8 +442,8 @@ impl Adapter {
                 if let Some(status) = error_status {
                     text.push_str(&format!(" after HTTP {status}"));
                 }
-                text.push('.');
-                notice(transcript, None, NoticeKind::ApiRetry, text);
+                let until = retry_delay_ms.map(|ms| now_seconds() + ms.div_ceil(1000));
+                notice_until(transcript, None, NoticeKind::ApiRetry, text, until);
                 vec![]
             }
             System::Other => vec![],
@@ -490,6 +509,9 @@ impl Adapter {
     }
 
     fn assistant(&mut self, message: wire::AssistantMessage, transcript: &mut Transcript) {
+        if message.parent_tool_use_id.is_none() && message.uuid.is_some() {
+            self.last_message = message.uuid.clone();
+        }
         let streamed = self.streamed.contains(&message.message.id);
         for block in message.message.content {
             match block {
@@ -747,6 +769,7 @@ impl Adapter {
                 }),
                 cost_usd: result.total_cost_usd,
                 duration_ms: result.duration_ms,
+                resume_at: self.last_message.clone(),
             }),
         );
         let mut signals: Vec<_> = result
@@ -772,7 +795,23 @@ fn finish_input(tool: &mut ToolCall) {
 }
 
 fn notice(transcript: &mut Transcript, parent: Option<String>, kind: NoticeKind, text: String) {
-    transcript.push(parent, Body::Notice(Notice { kind, text }));
+    notice_until(transcript, parent, kind, text, None);
+}
+
+fn notice_until(
+    transcript: &mut Transcript,
+    parent: Option<String>,
+    kind: NoticeKind,
+    text: String,
+    until: Option<u64>,
+) {
+    transcript.push(parent, Body::Notice(Notice { kind, text, until }));
+}
+
+fn now_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 fn parent_of(transcript: &Transcript, index: usize) -> Option<String> {
