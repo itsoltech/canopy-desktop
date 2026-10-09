@@ -332,11 +332,20 @@ export class WindowManager {
   }
 
   setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {
+    // Callers register only after `await watcher.start()`. In that gap the window may have
+    // closed or an overlapping watch for the same repo may have registered — never drop a
+    // started watcher without stopping it, or its native subscription lives forever.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     let watchers = this.gitWatchers.get(wcId)
     if (!watchers) {
       watchers = new Map()
       this.gitWatchers.set(wcId, watchers)
     }
+    const previous = watchers.get(repoRoot)
+    if (previous && previous !== watcher) void previous.stop()
     watchers.set(repoRoot, watcher)
   }
 
@@ -397,6 +406,14 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    // Same registration gap as setGitWatcher: stop the watcher being displaced, or this one
+    // when its window closed while it was starting.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
+    const previous = this.fileWatchers.get(wcId)
+    if (previous && previous !== watcher) void previous.stop()
     this.fileWatchers.set(wcId, watcher)
   }
 
