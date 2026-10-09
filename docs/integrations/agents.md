@@ -3513,12 +3513,12 @@ default. The 2.1.295 build on the runner says it is not:
   synchronous command or HTTP hook that is the user's own blocks when it fails or times out on
   `PreToolUse`, `PermissionRequest`, `PreModelSwitch`, `UserPromptSubmit` and
   `UserPromptExpansion`. Canopy subscribes to the first four. The build counts a hook as the user's
-  own when it comes from the user's own skills, agents or plugins, or when the same hook is in user
-  settings. Canopy's hooks come from its `--settings` file, so they do not count. The variable is
-  absent from the vendored 2.1.207 build, and with no 2.1.294 build on the runner it could not be
-  dated more closely.
-- **Older CLIs drop the key.** 2.1.207's command-hook schema is a plain object without strict mode,
-  so an older CLI ignores an `onFailure` it does not know rather than rejecting the file.
+  own when it marks the hook personal, as it does for the user's own skills and agents and for some
+  plugins, or when the same hook is in user settings. Canopy's hooks come from its `--settings`
+  file, so they do not count. The variable is absent from the vendored 2.1.207 build, and with no
+  2.1.294 build on the runner it could not be dated more closely.
+- **Older CLIs should drop the key.** 2.1.207's command-hook schema is a plain object without strict
+  mode, which strips keys it does not know. That was read from the schema, not run.
 
 **This repository's publish guard fails open, and `block` alone would not close it.** The
 `PreToolUse` guard in `.claude/settings.json` ends in `|| true`, so it exits 0 even when `jq` is
@@ -3527,13 +3527,15 @@ nothing until the guard exits non-zero when it cannot read the command.
 
 **Program Status (OSC 7501) does not reach Canopy panes.** When the 2.1.295 CLI probes the terminal,
 it now also sends `OSC 7501 ; ?`. It emits status only after an OSC 7501 reply that starts with `?`.
-Without one it records "probe: no reply to OSC 7501 ; ?" and stays silent. xterm.js 6.0.0's OSC
-parser passes an unregistered code to a no-op fallback, and Canopy registers no OSC handler, so a
-pane never replies, never receives status and draws nothing. Each status reads
-`state=<state>:app=claude-code`, with an optional `id`, a `kind` when blocked, a 0–100 `progress`,
-and a base64 `title` and `msg`. `state=clear` withdraws it. `CLAUDE_CODE_DISABLE_TERMINAL_TITLE`
-turns the probe off. Canopy already tracks its Claude panes through hooks. The protocol could also
-give status to a `claude` started by hand in a plain terminal tab, which has none today.
+When the terminal answers the batch's closing query but not OSC 7501, it records "probe: no reply
+to OSC 7501 ; ?" and stays silent. xterm.js 6.0.0 hands an OSC code with no registered handler to
+a fallback that only logs "Unknown OSC code" at debug level, and Canopy registers no OSC handler.
+So a pane never replies, never receives status and draws nothing. Each status reads
+`state=<state>:app=claude-code`, with an optional `id`, a `kind` when blocked, a 0–100 `progress`
+while working or blocked, and a base64 `title` and `msg`. `state=clear` withdraws it.
+`CLAUDE_CODE_DISABLE_TERMINAL_TITLE` turns the probe off. Canopy already tracks its Claude panes
+through hooks. The protocol could also give status to a `claude` started by hand in a plain
+terminal tab, which has none today.
 
 **The other visible entries do not reach Canopy.**
 
