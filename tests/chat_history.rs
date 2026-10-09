@@ -90,6 +90,7 @@ fn a_reloaded_chat_continues_with_its_ids_edits_and_retry() {
         Draft {
             text: "look".into(),
             attachments: vec![image()],
+            ..Default::default()
         },
         "a2",
     );

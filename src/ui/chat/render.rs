@@ -1,7 +1,7 @@
 //! Declarative chat layout: centered conversation column above the composer.
 use super::{
     actions,
-    rows::{Fold, Kind, Row, Rows, Source},
+    rows::{Fold, Group, Kind, Row, Rows, Source},
     subagent, tools,
     view::ChatView,
 };
@@ -9,6 +9,7 @@ use crate::ui::{components::*, theme as t};
 use canopy_desktop::{
     chat::{
         presentation::{self, ToolKind},
+        provider::Provider,
         session::Status,
         transcript::{
             Body, Decision, Delivery, Item, NoticeKind, Outcome, Permission, PermissionKind,
@@ -19,7 +20,7 @@ use canopy_desktop::{
 };
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{
-    IconName, Sizable,
+    Icon, IconName, Sizable,
     bubble::{Bubble, BubbleContent},
     message::MessageAlignment,
     shimmer::ShimmerText,
@@ -55,7 +56,8 @@ impl Render for ChatView {
                 || self.queue.animating(now)
                 || self.decision.animating(now)
                 || self.drill.is_animating(now)
-                || self.navigator.animating(now),
+                || self.navigator.animating(now)
+                || self.handoff_animating(now),
         );
         let in_thread = !self.threads.is_empty();
         let body = if self.shown_rows().rows.is_empty() && !in_thread {
@@ -90,8 +92,17 @@ impl Render for ChatView {
             .opacity(drill)
             .left(px(8. * (1. - drill)))
             .relative()
+            // A selection made in the conversation offers Quote where it ends.
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseUpEvent, window, cx| {
+                    this.offer_quote(event.position, window, cx)
+                }),
+            )
             .child(body)
-            .children(self.navigator(window, cx));
+            .children(self.navigator(window, cx))
+            .children(self.find_bar(window, cx))
+            .children(self.quote_button(window, cx));
         let composer = if in_thread {
             self.locked_composer(cx)
         } else {
@@ -108,12 +119,26 @@ impl Render for ChatView {
             .on_action(
                 cx.listener(|this, _: &super::NextMessage, _, cx| this.jump_message(true, cx)),
             )
+            .on_action(
+                cx.listener(|this, _: &super::FindInChat, window, cx| this.open_find(window, cx)),
+            )
+            // The composer leaves ⌘F to its parents as its own Search action.
+            .on_action(
+                cx.listener(|this, _: &gpui_kit::base::input::Search, window, cx| {
+                    this.open_find(window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &super::FindNext, _, cx| this.find_step(1, cx)))
+            .on_action(cx.listener(|this, _: &super::FindPrevious, _, cx| this.find_step(-1, cx)))
             .on_action(cx.listener(|this, _: &super::AllowPending, window, cx| {
                 this.decision_primary(window, cx)
             }))
             .on_action(cx.listener(|this, _: &super::DenyPending, window, cx| {
                 // Esc leaves a subagent's conversation before it denies anything.
-                if this.close_lightbox(cx) {
+                if this.close_lightbox(cx)
+                    || this.dismiss_quote_offer(cx)
+                    || this.close_find(window, cx)
+                {
                 } else if this.editing.is_some() {
                     this.cancel_edit(window, cx)
                 } else if this.threads.is_empty() {
@@ -128,12 +153,16 @@ impl Render for ChatView {
             .children(self.thread_header(cx))
             .child(body)
             .children(self.banner(cx))
-            // A waiting request takes the queue tray's place until it is answered.
+            // A waiting request takes the queue tray's place until it is answered; the
+            // context for a switched-to agent shows when nothing else does.
             .children(match self.decision_bar(cx) {
                 Some(panel) => Some(panel),
                 None => match (!in_thread).then(|| self.edit_bar(cx)).flatten() {
                     Some(bar) => Some(bar),
-                    None => (!in_thread).then(|| self.queue_bar(cx)).flatten(),
+                    None => match (!in_thread).then(|| self.queue_bar(cx)).flatten() {
+                        Some(bar) => Some(bar),
+                        None => (!in_thread).then(|| self.handoff_bar(cx)).flatten(),
+                    },
                 },
             })
             .child(composer)
@@ -322,6 +351,14 @@ fn render_row(view: &Entity<ChatView>, index: usize, _: &mut Window, cx: &mut Ap
             }
         }
     };
+    // A run of actions closed by a reply: its header, the first action when open.
+    let content = match &entry.extra.group {
+        Some(group) => column()
+            .child(group_header(view, entry.key, group))
+            .when(group.disclosure.open, |column| column.child(content))
+            .into_any_element(),
+        None => content,
+    };
     match &entry.extra.fold {
         // The header stays put while the work under it fades in.
         Some(fold) => centered(
@@ -372,6 +409,44 @@ fn worked_header(view: &Entity<ChatView>, key: u64, fold: &Fold) -> Div {
         .child(div().mt(px(6.)).h(px(1.)).bg(t::border()))
 }
 
+/// "Ran 3 commands and read 2 files ›" over a run of actions; opens them (DEC-068).
+fn group_header(view: &Entity<ChatView>, key: u64, group: &Group) -> Stateful<Div> {
+    let view = view.downgrade();
+    row()
+        .id(("chat-actions", key))
+        .keyboard(format!(
+            "{} {}",
+            if group.disclosure.open {
+                "Hide"
+            } else {
+                "Show"
+            },
+            group.label
+        ))
+        .pt(px(12.))
+        .h(px(36.))
+        .gap(px(6.))
+        .cursor_pointer()
+        .text_size(px(13.))
+        .text_color(t::muted())
+        .hover(|style| style.text_color(t::secondary()))
+        .child(custom_icon("wrench").size(px(13.)))
+        .child(group.label.clone())
+        .child(
+            group
+                .disclosure
+                .chevron(Instant::now())
+                .text_color(t::faint()),
+        )
+        .on_click(move |_, _, cx| {
+            let _ = view.update(cx, |this, cx| {
+                let policy = motion::policy(cx);
+                this.shown_rows_mut().toggle_group(key, policy, cx);
+                cx.notify();
+            });
+        })
+}
+
 /// A notice with its live countdown: when a limit resets, when a retry happens.
 fn notice_text(notice: &canopy_desktop::chat::transcript::Notice) -> String {
     let Some(until) = notice.until else {
@@ -386,6 +461,75 @@ fn notice_text(notice: &canopy_desktop::chat::transcript::Notice) -> String {
         (NoticeKind::ApiRetry, Some(left)) => format!("{} · next try in {left}", notice.text),
         _ => notice.text.clone(),
     }
+}
+
+/// "Continue with Codex" beside a limit notice.
+fn limit_button(
+    id: impl Into<ElementId>,
+    label: String,
+    cx: &App,
+) -> gpui_kit::component::button::Button {
+    use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
+    Button::new(id)
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .hover(t::hover())
+                .foreground(t::text()),
+        )
+        .compact()
+        .flex_shrink_0()
+        .h(px(24.))
+        .px(px(8.))
+        .rounded(px(6.))
+        .border_1()
+        .border_color(t::border())
+        .text_size(px(12.))
+        .child(label)
+}
+
+/// Under a message sent after a switch: the context that went with it, folded.
+fn sent_context(view: &Entity<ChatView>, entry: &Row, context: &str) -> Div {
+    let key = entry.key;
+    let open = entry.extra.expanded;
+    let view = view.downgrade();
+    column()
+        .w_full()
+        .items_end()
+        .gap(px(6.))
+        .child(
+            row()
+                .id(("chat-sent-context", key))
+                .keyboard(format!(
+                    "{} the context sent with this message",
+                    if open { "Hide" } else { "Show" }
+                ))
+                .gap(px(4.))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .text_color(t::faint())
+                .hover(|style| style.text_color(t::secondary()))
+                .child(format!(
+                    "Context from earlier in the conversation · {}",
+                    super::handoff::size_label(context)
+                ))
+                .child(
+                    Icon::new(if open {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .size(px(10.)),
+                )
+                .on_click(move |_, _, cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        this.shown_rows_mut().toggle_expanded(key, cx);
+                        cx.notify();
+                    });
+                }),
+        )
+        .children(open.then(|| {
+            super::handoff::context_text(("chat-sent-context-text", key), context.to_owned())
+        }))
 }
 
 fn row_separator(label: &'static str) -> Div {
@@ -435,11 +579,17 @@ fn item_row(
             .items_end()
             .gap(px(4.))
             .group(actions::MESSAGE_GROUP)
-            .children(match &entry.markdown {
-                // Attachments mentioned in the text show as badges inside it.
-                Some(markdown) => Some(user_bubble(markdown.clone())),
-                None => (!message.text.is_empty()).then(|| user_bubble(message.text.clone())),
-            })
+            // Attachments and quotes mentioned in the text show as badges inside it.
+            .children((!message.text.is_empty()).then(|| match &entry.markdown {
+                Some(markdown) => user_bubble(markdown.clone()),
+                None => user_bubble(message.text.clone()),
+            }))
+            .children(
+                message
+                    .context
+                    .as_ref()
+                    .map(|context| sent_context(view, entry, context)),
+            )
             .children(super::attachments::sent_attachments(
                 view,
                 this,
@@ -465,6 +615,17 @@ fn item_row(
                         .session
                         .as_ref()
                         .is_some_and(|s| s.fork_point(item.id).is_some()),
+                // Sent in another agent's part: it can't be edited from here.
+                match source {
+                    Source::Archived { epoch, .. } => rows
+                        .archived
+                        .get(epoch)
+                        .and_then(|archived| archived.agent.as_ref())
+                        .filter(|agent| agent.tool != this.pane.tool)
+                        .and_then(|agent| Provider::from_tool(&agent.tool))
+                        .map(Provider::name),
+                    Source::Current(_) => None,
+                },
             ))
             .into_any_element(),
         Body::Text(block) => {
@@ -532,6 +693,7 @@ fn item_row(
                 NoticeKind::RateLimit | NoticeKind::ApiRetry => (t::yellow(), IconName::RefreshCw),
                 NoticeKind::Compacted | NoticeKind::Diagnostic => (t::muted(), IconName::Info),
             };
+            let elsewhere = live.then(|| this.limit_switch(item, cx)).flatten();
             row()
                 .pt(px(8.))
                 .gap(px(8.))
@@ -545,6 +707,17 @@ fn item_row(
                         .text_color(t::secondary())
                         .child(notice_text(notice)),
                 )
+                .children(elsewhere.map(|provider| {
+                    let view = view.downgrade();
+                    limit_button(
+                        ("chat-limit-switch", entry.key),
+                        format!("Continue with {}", provider.name()),
+                        cx,
+                    )
+                    .on_click(move |_, _, cx| {
+                        let _ = view.update(cx, |this, cx| this.continue_elsewhere(cx));
+                    })
+                }))
                 .into_any_element()
         }
         Body::TurnEnd(end) => {

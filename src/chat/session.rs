@@ -109,12 +109,14 @@ pub const RESUME_PROMPT: &str = "Continue where you left off.";
 pub struct Draft {
     pub text: String,
     pub attachments: Vec<Attachment>,
+    /// The conversation so far for an agent switched to (sent before the text).
+    pub context: Option<String>,
 }
 impl Draft {
     pub fn text(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            attachments: vec![],
+            ..Default::default()
         }
     }
     fn trimmed(self) -> Option<Self> {
@@ -122,6 +124,7 @@ impl Draft {
         (!text.is_empty() || !self.attachments.is_empty()).then_some(Self {
             text,
             attachments: self.attachments,
+            context: self.context,
         })
     }
 }
@@ -132,6 +135,7 @@ pub struct Queued {
     pub id: QueuedId,
     pub text: String,
     pub attachments: Vec<Attachment>,
+    pub context: Option<String>,
     /// Uuid of the Steer already written to the CLI; it can no longer be edited.
     pub steering: Option<String>,
 }
@@ -183,6 +187,8 @@ pub struct ChatSession {
     provider: Provider,
     /// Codex protocol state (unused for Claude).
     codex: codex_engine::CodexEngine,
+    /// The conversation so far for an agent switched to: goes with the next message.
+    handoff: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -206,6 +212,7 @@ impl Queued {
         Draft {
             text: self.text,
             attachments: self.attachments,
+            context: self.context,
         }
     }
 }
@@ -258,6 +265,7 @@ impl ChatSession {
             cli_idle: true,
             provider,
             codex: Default::default(),
+            handoff: None,
         }
     }
 
@@ -393,6 +401,7 @@ impl ChatSession {
                 id: QueuedId(self.next_queued),
                 text: RESUME_PROMPT.to_owned(),
                 attachments: vec![],
+                context: None,
                 steering: None,
             });
         }
@@ -459,6 +468,7 @@ impl ChatSession {
         let line = wire::user_message(
             &self.queue[index].text,
             &self.queue[index].attachments,
+            self.queue[index].context.as_deref(),
             &uuid,
             Priority::Next,
         );
@@ -540,6 +550,15 @@ impl ChatSession {
     /// Unsent messages for a replacement session (Restart); nothing is lost.
     pub fn take_queue(&mut self) -> Vec<Draft> {
         self.queue.drain(..).map(|q| q.draft()).collect()
+    }
+    /// The conversation so far, sent with the next message that starts a turn (after a
+    /// switch to this agent).
+    pub fn set_handoff(&mut self, text: Option<String>) {
+        self.handoff = text;
+    }
+    /// The context still waiting for the next message.
+    pub fn handoff(&self) -> Option<&str> {
+        self.handoff.as_deref()
     }
     /// Restores messages taken from a previous session; they wait for the user.
     pub fn restore_queue(&mut self, drafts: Vec<Draft>) {
@@ -765,6 +784,7 @@ impl ChatSession {
                     Some(Draft {
                         text: message.text.clone(),
                         attachments: message.attachments.clone(),
+                        context: message.context.clone(),
                     })
                 }
                 _ => None,
@@ -1236,24 +1256,32 @@ impl ChatSession {
             id,
             text: draft.text,
             attachments: draft.attachments,
+            context: draft.context,
             steering: None,
         });
         id
     }
 
     /// Starts a turn with `draft`.
-    fn send(&mut self, draft: Draft) -> Vec<Value> {
+    fn send(&mut self, mut draft: Draft) -> Vec<Value> {
         // Codex needs its thread; `accepts_turn` waits for it, this keeps it so.
         if self.provider == Provider::Codex && self.codex_thread().is_none() {
             return vec![];
+        }
+        if draft.context.is_none() {
+            draft.context = self.handoff.take();
         }
         self.stopped = false;
         let turn = self.transcript.allocate_turn();
         let uuid = uuid::Uuid::new_v4().to_string();
         let line = match self.provider {
-            Provider::Claude => {
-                wire::user_message(&draft.text, &draft.attachments, &uuid, Priority::Later)
-            }
+            Provider::Claude => wire::user_message(
+                &draft.text,
+                &draft.attachments,
+                draft.context.as_deref(),
+                &uuid,
+                Priority::Later,
+            ),
             Provider::Codex => self.codex_send(&draft, &uuid).pop().unwrap_or(Value::Null),
         };
         self.transcript.push_in(
@@ -1264,6 +1292,7 @@ impl ChatSession {
                 delivery: Delivery::Sent,
                 uuid: Some(uuid.clone()),
                 attachments: draft.attachments,
+                context: draft.context,
             }),
         );
         self.start_turn(turn);
@@ -1282,6 +1311,7 @@ impl ChatSession {
                     delivery: Delivery::Steered,
                     uuid: None,
                     attachments: draft.attachments,
+                    context: draft.context.clone(),
                 }),
             );
         } else {
@@ -1294,6 +1324,7 @@ impl ChatSession {
                     delivery: Delivery::Sent,
                     uuid: None,
                     attachments: draft.attachments,
+                    context: draft.context.clone(),
                 }),
             );
             self.start_turn(turn);

@@ -45,6 +45,10 @@ pub struct UserMessage {
     pub uuid: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Attachment>,
+    /// The conversation so far, sent along after a switch to another agent (not shown
+    /// as the message).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
 }
 
 /// Something sent along with a user message.
@@ -69,6 +73,13 @@ pub enum Attachment {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         label: Option<String>,
     },
+    /// Text quoted from the conversation; the agent gets it as a quote block where its
+    /// badge is in the message (`chat::quotes`).
+    Quote {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
 }
 impl Attachment {
     pub fn is_image(&self) -> bool {
@@ -77,12 +88,16 @@ impl Attachment {
     /// Its mention in the message text, if it has one.
     pub fn label(&self) -> Option<&str> {
         match self {
-            Self::Image { label, .. } | Self::Path { label, .. } => label.as_deref(),
+            Self::Image { label, .. } | Self::Path { label, .. } | Self::Quote { label, .. } => {
+                label.as_deref()
+            }
         }
     }
     pub fn with_label(mut self, text: impl Into<String>) -> Self {
         match &mut self {
-            Self::Image { label, .. } | Self::Path { label, .. } => *label = Some(text.into()),
+            Self::Image { label, .. } | Self::Path { label, .. } | Self::Quote { label, .. } => {
+                *label = Some(text.into())
+            }
         }
         self
     }

@@ -28,6 +28,9 @@ pub enum Boundary {
     Edited,
     /// Kept so histories saved with it still load (New session was removed).
     NewSession,
+    /// The conversation went on with another agent.
+    SwitchedToClaude,
+    SwitchedToCodex,
 }
 impl Boundary {
     pub fn label(self) -> &'static str {
@@ -35,8 +38,31 @@ impl Boundary {
             Self::Restarted => "Session restarted",
             Self::Edited => "Edited — earlier version above",
             Self::NewSession => "New session",
+            Self::SwitchedToClaude => "Switched to Claude Code",
+            Self::SwitchedToCodex => "Switched to Codex",
         }
     }
+    pub fn switched_to(provider: super::provider::Provider) -> Self {
+        match provider {
+            super::provider::Provider::Claude => Self::SwitchedToClaude,
+            super::provider::Provider::Codex => Self::SwitchedToCodex,
+        }
+    }
+}
+
+/// The agent that ran a part of the conversation, to come back to it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentRef {
+    /// Tool id (`claude`, `codex`).
+    pub tool: String,
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// Its provider session, to resume.
+    #[serde(default)]
+    pub session: Option<String>,
+    /// Its model, effort and mode in this conversation.
+    #[serde(default)]
+    pub settings: Option<super::config::ChatSettings>,
 }
 
 /// How a session began.
@@ -48,6 +74,9 @@ pub struct EpochMeta {
     /// It continues a conversation it doesn't hold (resumed or forked).
     #[serde(default)]
     pub continued: bool,
+    /// Who ran it (none in histories from before agents could be switched).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentRef>,
 }
 impl EpochMeta {
     pub fn base(&self) -> Base {
@@ -339,6 +368,7 @@ mod tests {
             delivery: Delivery::Sent,
             uuid: Some("u1".into()),
             attachments: vec![],
+            context: None,
         })
     }
 
@@ -377,6 +407,7 @@ mod tests {
                 meta_json(&EpochMeta {
                     before: Some(Boundary::NewSession),
                     continued: false,
+                    agent: None,
                 }),
             )],
             items: vec![

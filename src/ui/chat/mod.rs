@@ -3,10 +3,12 @@ mod actions;
 mod attachments;
 mod composer;
 mod decision;
-mod dev_bench; // dev_bench: remove together with dev_bench.rs
 mod edit;
+mod find;
+mod handoff;
 mod navigator;
 mod queue;
+mod quote;
 mod render;
 mod rows;
 mod scroller;
@@ -27,7 +29,11 @@ gpui_kit::actions!(
         AllowPending,
         DenyPending,
         PreviousMessage,
-        NextMessage
+        NextMessage,
+        FindInChat,
+        FindNext,
+        FindPrevious,
+        CloseFind
     ]
 );
 
@@ -39,5 +45,9 @@ pub(crate) fn init(cx: &mut gpui_kit::App) {
         gpui_kit::KeyBinding::new("escape", DenyPending, Some("Chat")),
         gpui_kit::KeyBinding::new("alt-cmd-up", PreviousMessage, Some("Chat")),
         gpui_kit::KeyBinding::new("alt-cmd-down", NextMessage, Some("Chat")),
+        gpui_kit::KeyBinding::new("cmd-f", FindInChat, Some("Chat")),
+        gpui_kit::KeyBinding::new("cmd-g", FindNext, Some("Chat")),
+        gpui_kit::KeyBinding::new("cmd-shift-g", FindPrevious, Some("Chat")),
+        gpui_kit::KeyBinding::new("escape", CloseFind, Some("ChatFind")),
     ]);
 }

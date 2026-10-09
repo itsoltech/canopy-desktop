@@ -177,6 +177,75 @@ pub fn thread_thinking(transcript: &Transcript, call: &str, tool: &ToolCall) -> 
     !matches!(last.map(|item| &item.body), Some(Body::Text(block)) if block.streaming && !block.text.is_empty())
 }
 
+/// Whether `item` folds into a run of actions closed by the agent's next reply
+/// (DEC-068): thinking and successful tools. Edits with their diff, plans, subagents,
+/// failed tools and everything else stay in view and end the run.
+pub fn groups(item: &Item) -> bool {
+    match &item.body {
+        Body::Thinking(_) => true,
+        Body::Tool(tool) => {
+            tool.state == ToolState::Succeeded
+                && !is_subagent(tool)
+                && !matches!(
+                    tool_kind(&tool.name),
+                    ToolKind::Edit | ToolKind::Plan | ToolKind::Agent
+                )
+        }
+        _ => false,
+    }
+}
+
+/// "Ran 3 commands, read 2 files and ran 1 search" for a run of actions.
+pub fn actions_label<'a>(items: impl IntoIterator<Item = &'a Item>) -> String {
+    let (mut shell, mut read, mut search, mut web, mut other, mut thought) = (0, 0, 0, 0, 0, 0);
+    for item in items {
+        match &item.body {
+            Body::Tool(tool) => match tool_kind(&tool.name) {
+                ToolKind::Shell => shell += 1,
+                ToolKind::Read => read += 1,
+                ToolKind::Search => search += 1,
+                ToolKind::Web => web += 1,
+                _ => other += 1,
+            },
+            Body::Thinking(_) => thought += 1,
+            _ => {}
+        }
+    }
+    let plural =
+        |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+    let mut parts = vec![];
+    if shell > 0 {
+        parts.push(format!("ran {}", plural(shell, "command", "commands")));
+    }
+    if read > 0 {
+        parts.push(format!("read {}", plural(read, "file", "files")));
+    }
+    if search > 0 {
+        parts.push(format!("ran {}", plural(search, "search", "searches")));
+    }
+    if web > 0 {
+        parts.push(format!("made {}", plural(web, "web lookup", "web lookups")));
+    }
+    if other > 0 {
+        parts.push(format!("used {}", plural(other, "tool", "tools")));
+    }
+    if parts.is_empty() && thought > 0 {
+        parts.push("thought".to_owned());
+    }
+    let mut label = match parts.len() {
+        0 => String::new(),
+        1 => parts.remove(0),
+        _ => {
+            let last = parts.pop().unwrap_or_default();
+            format!("{} and {last}", parts.join(", "))
+        }
+    };
+    if let Some(first) = label.get(..1) {
+        label = first.to_uppercase() + &label[1..];
+    }
+    label
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToolKind {
     Shell,
@@ -324,6 +393,58 @@ mod tests {
     }
 
     #[test]
+    fn runs_of_actions_group_with_a_counted_label() {
+        let item = |body: Body| Item {
+            id: crate::chat::transcript::ItemId(0),
+            turn: crate::chat::transcript::TurnId(0),
+            parent: None,
+            body,
+            trimmed: false,
+        };
+        let done = |name: &str| {
+            let mut call = tool(name, json!({}));
+            call.state = ToolState::Succeeded;
+            item(Body::Tool(call))
+        };
+        let thinking = item(Body::Thinking(TextBlock {
+            text: "hm".into(),
+            streaming: false,
+        }));
+        assert!(groups(&done("Bash")) && groups(&done("Read")) && groups(&thinking));
+        assert!(groups(&done("mcp__github__search")));
+        // Diffs, plans, subagents and failures stay in view.
+        for name in ["Edit", "Write", "TodoWrite", "Agent"] {
+            assert!(!groups(&done(name)), "{name}");
+        }
+        let mut failed = tool("Bash", json!({}));
+        failed.state = ToolState::Failed;
+        assert!(!groups(&item(Body::Tool(failed))));
+        assert!(!groups(&item(Body::Tool(tool("Bash", json!({}))))));
+        assert!(!groups(&item(Body::Text(TextBlock {
+            text: "found it".into(),
+            streaming: false,
+        }))));
+
+        let run = [
+            done("Bash"),
+            thinking.clone(),
+            done("Bash"),
+            done("Read"),
+            done("Glob"),
+        ];
+        assert_eq!(
+            actions_label(&run),
+            "Ran 2 commands, read 1 file and ran 1 search"
+        );
+        assert_eq!(actions_label(&[done("Read"), done("Read")]), "Read 2 files");
+        assert_eq!(
+            actions_label(&[done("WebFetch"), done("mcp__x__y")]),
+            "Made 1 web lookup and used 1 tool"
+        );
+        assert_eq!(actions_label(&[thinking.clone(), thinking]), "Thought");
+    }
+
+    #[test]
     fn subagent_cards_describe_the_task_and_its_progress() {
         let cwd = Path::new("/repo");
         let mut agent = tool(
@@ -460,6 +581,7 @@ mod tests {
                 delivery: Delivery::Sent,
                 uuid: None,
                 attachments: vec![],
+                context: None,
             }),
         );
         let text = transcript.push(

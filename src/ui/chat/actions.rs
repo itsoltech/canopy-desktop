@@ -111,6 +111,7 @@ pub(super) fn user_actions(
     item: ItemId,
     text: &str,
     editable: bool,
+    other_agent: Option<&'static str>,
 ) -> Div {
     let key = entry.key;
     hover_row()
@@ -127,6 +128,22 @@ pub(super) fn user_actions(
                 .icon(custom_icon("pencil"))
                 .on_click(move |_, window, cx| {
                     let _ = view.update(cx, |this, cx| this.start_edit(item, window, cx));
+                })
+        }))
+        .children(other_agent.map(|agent| {
+            div()
+                .id(("chat-other-agent", key))
+                .opacity(0.)
+                .group_hover(MESSAGE_GROUP, |style| style.opacity(1.))
+                .pl(px(6.))
+                .text_size(px(12.))
+                .text_color(t::faint())
+                .child(format!("Sent to {agent}"))
+                .tooltip(|window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(
+                        "Messages can be edited within the current agent's part",
+                    )
+                    .build(window, cx)
                 })
         }))
 }

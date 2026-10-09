@@ -47,6 +47,8 @@ pub struct MarkdownView {
     chat: bool,
     /// A document to read (an agent's plan): sections and code stand out in color.
     document: bool,
+    /// A thinking summary: smaller and muted, under its header.
+    quiet: bool,
     stream_fade: bool,
     /// The text is final: file mentions inside `files` (the chat's folder) become pills.
     done: bool,
@@ -74,6 +76,7 @@ impl MarkdownView {
             keep_previous: false,
             chat: false,
             document: false,
+            quiet: false,
             stream_fade: false,
             done: false,
             files: None,
@@ -112,6 +115,25 @@ impl MarkdownView {
         let mut view = Self::chat(cx);
         view.document = true;
         view
+    }
+    /// An agent's thinking: chat rendering, smaller and muted.
+    pub fn thinking(cx: &mut Context<Self>) -> Self {
+        let mut view = Self::chat(cx);
+        view.quiet = true;
+        view
+    }
+    /// The text views it renders (prose and code, in reading order): what search and
+    /// highlights work on.
+    pub fn text_views(&self) -> Vec<Entity<TextViewState>> {
+        if !self.chat {
+            return vec![self.text.clone()];
+        }
+        self.parts
+            .iter()
+            .map(|part| match part {
+                Part::Prose(state) | Part::Code { text: state, .. } => state.clone(),
+            })
+            .collect()
     }
     pub(crate) fn set_badges(&mut self, renderer: BadgeRenderer) {
         self.badges = Some(renderer);
@@ -454,14 +476,23 @@ impl MarkdownView {
         }
         let style = if self.document {
             document_style()
+        } else if self.quiet {
+            markdown_style(self.reading, self.chat)
+                .with_foreground(t::muted())
+                .with_paragraph_gap(rems(0.5))
         } else {
             markdown_style(self.reading, self.chat)
+        };
+        let (size, line) = match (self.quiet, self.reading) {
+            (true, _) => (13., 20.),
+            (false, true) => (14., 22.),
+            (false, false) => (12., 19.),
         };
         view.style(style)
             .w_full()
             .min_w_0()
-            .text_size(px(if self.reading { 14. } else { 12. }))
-            .line_height(px(if self.reading { 22. } else { 19. }))
+            .text_size(px(size))
+            .line_height(px(line))
             .scrollable(false)
             .selectable(interactive)
             .on_link_click(move |target, event, _, cx| {

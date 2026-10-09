@@ -12,7 +12,7 @@ use canopy_desktop::{
     chat::{
         codex::wire as codex_wire,
         config::{ChatSettings, Effort, Mode},
-        history::{Boundary, EpochMeta, Saved, SavedEpoch},
+        history::{AgentRef, Boundary, EpochMeta, Saved, SavedEpoch},
         launch::{HookConfig, fork_at, prepare_claude, prepare_codex},
         presentation,
         process::{Event, Process},
@@ -116,11 +116,17 @@ pub struct ChatView {
     pub(super) boundary: Boundary,
     /// Number of the running session in the chat's saved history.
     pub(super) epoch: u64,
+    /// How the running session began and who runs it, as saved (DEC-065).
+    pub(super) epoch_meta: EpochMeta,
+    /// The conversation so far for the agent switched to, until a message takes it.
+    pub(super) handoff: Option<super::handoff::Handoff>,
+    /// A switch continues the agent's earlier session; if that fails, it starts anew.
+    pub(super) resuming_switch: bool,
     pub(super) history: History,
     /// The last saved session, continued by the first start.
-    restored: Option<SavedEpoch>,
-    /// Said in the conversation at the first start (history that couldn't be read).
-    history_note: Option<String>,
+    pub(super) restored: Option<SavedEpoch>,
+    /// Said in the conversation at the next start (history that couldn't be read).
+    pub(super) history_note: Option<String>,
     /// Restored items already saved: their insertion isn't written again.
     pub(super) history_skip: usize,
     /// The saved history couldn't be read: nothing is written over it.
@@ -133,6 +139,14 @@ pub struct ChatView {
     ticker: Option<Task<()>>,
     /// The edited message sent at start, until the session is up (back on failure).
     edit_recovery: Option<canopy_desktop::chat::session::Draft>,
+    /// The ⌘F bar and its matches (DEC-069).
+    pub(super) find: Option<super::find::Find>,
+    /// The source of a clicked quote, lit for a moment.
+    pub(super) flash: Option<super::find::Flash>,
+    /// Text views holding highlights, cleared when no longer lit.
+    pub(super) lit: Vec<Entity<gpui_kit::base::TextViewState>>,
+    /// Quote button for the selection in the conversation (DEC-070).
+    pub(super) quote_offer: Option<super::quote::QuoteOffer>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -160,7 +174,10 @@ impl ChatView {
                         this.submit(window, cx);
                     }
                 }
-                InputEvent::Change => cx.notify(),
+                InputEvent::Change => {
+                    this.dismiss_quote_offer(cx);
+                    cx.notify()
+                }
                 _ => {}
             },
         );
@@ -230,6 +247,9 @@ impl ChatView {
             navigator: Default::default(),
             boundary: Boundary::Restarted,
             epoch: 0,
+            epoch_meta: EpochMeta::default(),
+            handoff: None,
+            resuming_switch: false,
             history,
             restored: None,
             history_note: None,
@@ -239,6 +259,10 @@ impl ChatView {
             start_waiting: false,
             ticker: None,
             edit_recovery: None,
+            find: None,
+            flash: None,
+            lit: vec![],
+            quote_offer: None,
             _subscriptions: vec![subscription],
             pane,
         }
@@ -286,6 +310,22 @@ impl ChatView {
             ));
         }
         let mut epochs = saved.epochs;
+        // Sessions saved before agents could be switched ran the chat's first agent.
+        let first = epochs
+            .iter()
+            .filter_map(|epoch| epoch.meta.agent.as_ref())
+            .next()
+            .map(|agent| AgentRef {
+                tool: agent.tool.clone(),
+                profile: agent.profile.clone(),
+                ..Default::default()
+            })
+            .unwrap_or_else(|| AgentRef {
+                tool: self.pane.tool.clone(),
+                profile: self.pane.metadata.profile_id.clone(),
+                ..Default::default()
+            });
+        let agent_of = |epoch: &SavedEpoch| Some(epoch.meta.agent.clone().unwrap_or(first.clone()));
         let last = epochs.pop();
         let history = cx.global::<AppState>().chat_history.clone();
         let settle = |epoch: &mut SavedEpoch, cx: &mut Context<Self>| {
@@ -311,8 +351,9 @@ impl ChatView {
             let images = images_in(epoch.items.iter());
             self.load_previews(images, cx);
             let transcript = Transcript::restore(std::mem::take(&mut epoch.items));
+            let agent = agent_of(epoch);
             self.rows
-                .restore(transcript, epoch.index, below.label(), cx);
+                .restore(transcript, epoch.index, agent, below.label(), cx);
         }
         if let Some(mut last) = last {
             settle(&mut last, cx);
@@ -320,15 +361,22 @@ impl ChatView {
             self.restored = Some(last);
             // The conversation is on screen; nothing is missing anymore.
             self.resumed = false;
+            self.restore_handoff();
         }
         // Sessions kept for a newer version: this run starts after them.
         if let Some(unread) = saved.last_epoch.filter(|&unread| unread >= self.epoch) {
             self.epoch = unread + 1;
             if let Some(last) = self.restored.take() {
                 // Its rows stay saved, but it's not continued after a newer one.
+                let agent = agent_of(&last);
                 let transcript = Transcript::restore(last.items);
-                self.rows
-                    .restore(transcript, last.index, Boundary::Restarted.label(), cx);
+                self.rows.restore(
+                    transcript,
+                    last.index,
+                    agent,
+                    Boundary::Restarted.label(),
+                    cx,
+                );
             }
         }
         if std::mem::take(&mut self.start_waiting) {
@@ -421,8 +469,9 @@ impl ChatView {
         if let Some(session) = &mut self.session {
             queued = session.take_queue();
             let transcript = session.take_transcript();
+            let agent = self.epoch_meta.agent.clone();
             self.rows
-                .archive(transcript, self.epoch, self.boundary.label(), cx);
+                .archive(transcript, self.epoch, agent, self.boundary.label(), cx);
         }
         let boundary = std::mem::replace(&mut self.boundary, Boundary::Restarted);
         // An open edit belongs to the session being replaced; its draft comes back.
@@ -469,9 +518,14 @@ impl ChatView {
                 EpochMeta {
                     before: replaced.then_some(boundary),
                     continued,
+                    agent: Some(self.agent_ref()),
                 }
             }
         };
+        self.epoch_meta = meta.clone();
+        if let Some(handoff) = &self.handoff {
+            session.set_handoff(Some(handoff.text.clone()));
+        }
         session.set_base(meta.base());
         if let Some(epoch) = restored {
             self.history_skip = epoch.items.len();
@@ -495,6 +549,8 @@ impl ChatView {
         }
         self.session = Some(session);
         self.outbox = lines;
+        // A saved session from before agents were recorded learns who runs it.
+        self.record_meta(cx);
         // Restored history shows before the agent answers anything.
         self.after_change(cx);
         let registration = match app
@@ -592,6 +648,8 @@ impl ChatView {
 
     fn fail_start(&mut self, error: String, cx: &mut Context<Self>) {
         self.starting = false;
+        // Not the session's fault: nothing to start anew without it.
+        self.resuming_switch = false;
         self.error = Some(error);
         if let Some(draft) = self.edit_recovery.take() {
             self.restore_draft(draft, cx);
@@ -725,6 +783,10 @@ impl ChatView {
         }
         self.resolve_tool_files(files, cx);
         self.save_session(cx);
+        self.sync_handoff();
+        self.record_meta(cx);
+        self.check_resumed_switch(cx);
+        self.refresh_find(cx);
         cx.notify();
     }
 
@@ -778,14 +840,20 @@ impl ChatView {
             });
     }
 
-    /// Records the provider session for resume once the conversation has a message;
-    /// until then the CLI has not written it, and the account may still change.
+    /// Records the provider session for resume once the session has a message; until
+    /// then the CLI has not written it, and the account may still change.
     fn save_session(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self
             .session
             .as_ref()
+            .filter(|session| {
+                session
+                    .transcript()
+                    .items()
+                    .iter()
+                    .any(|item| matches!(item.body, Body::User(_)))
+            })
             .and_then(ChatSession::session_id)
-            .filter(|_| self.sent_any)
             .map(str::to_owned)
         else {
             return;
@@ -1063,6 +1131,7 @@ impl ChatView {
             archived: archived.is_some(),
         });
         self.restart_drill(cx);
+        self.refresh_find(cx);
         // The composer is locked; Esc and ⌘. still reach the pane.
         self.focus.focus(window, cx);
         cx.notify();
@@ -1074,6 +1143,7 @@ impl ChatView {
             return;
         }
         self.restart_drill(cx);
+        self.refresh_find(cx);
         if self.threads.is_empty() {
             let composer = self.composer.clone();
             composer.update(cx, |state, cx| state.focus(window, cx));
@@ -1342,7 +1412,7 @@ impl ChatView {
         .detach();
     }
 
-    /// The account cannot change once the conversation has messages (stage 8).
+    /// The conversation has messages: another account means a switch with context.
     pub fn account_locked(&self) -> bool {
         self.resumed
             || self.sent_any
@@ -1350,7 +1420,7 @@ impl ChatView {
             || self.pane.metadata.resume_id.is_some()
     }
 
-    fn persist(&mut self, account: Option<(Provider, String)>, cx: &mut Context<Self>) {
+    pub(super) fn persist(&mut self, account: Option<(Provider, String)>, cx: &mut Context<Self>) {
         let pane = self.pane.id;
         let settings = self.settings.clone();
         cx.global::<AppState>()
@@ -1365,7 +1435,7 @@ impl ChatView {
     }
 
     /// The latest choices become the defaults of the next new chat.
-    fn remember(&self, cx: &mut Context<Self>) {
+    pub(super) fn remember(&self, cx: &mut Context<Self>) {
         use canopy_desktop::settings::{Change, PreferenceKey};
         let mut changes = vec![
             match &self.settings.model {
@@ -1424,6 +1494,8 @@ impl ChatView {
         }
         self.generation += 1;
         self.starting = false;
+        // Stopped on purpose: not a session that failed to continue.
+        self.resuming_switch = false;
         self.pump = None;
         let start = self.start_task.take();
         self.finish_agent(false, false, cx);

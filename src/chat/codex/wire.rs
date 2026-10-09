@@ -174,10 +174,20 @@ fn sandbox_policy(mode: Mode) -> Value {
     }
 }
 
-/// A user message as Codex input: text, images by path (from the chat's attachment
-/// folder `images`), files and folders as mentions.
-pub fn input(text: &str, attachments: &[Attachment], images: Option<&Path>) -> Vec<Value> {
+/// A user message as Codex input: text with quotes as quote blocks, images by path (from
+/// the chat's attachment folder `images`), files and folders as mentions.
+pub fn input(
+    text: &str,
+    attachments: &[Attachment],
+    context: Option<&str>,
+    images: Option<&Path>,
+) -> Vec<Value> {
     let mut input = vec![];
+    // After a switch, the conversation so far comes first, apart from the message.
+    if let Some(context) = context {
+        input.push(json!({"type": "text", "text": context, "text_elements": []}));
+    }
+    let text = crate::chat::quotes::expand(text, attachments);
     if !text.is_empty() {
         input.push(json!({"type": "text", "text": text, "text_elements": []}));
     }
@@ -188,6 +198,7 @@ pub fn input(text: &str, attachments: &[Attachment], images: Option<&Path>) -> V
                     input.push(json!({"type": "localImage", "path": folder.join(file)}));
                 }
             }
+            Attachment::Quote { .. } => {}
             Attachment::Path { path, .. } => {
                 let name = path
                     .file_name()
@@ -374,7 +385,7 @@ mod tests {
         let turn = turn_start(
             "c3",
             "t",
-            input("hi", &attachments, Some(Path::new("/data/chat"))),
+            input("hi", &attachments, None, Some(Path::new("/data/chat"))),
             &TurnOptions {
                 mode: Mode::FullAccess,
                 model: None,
@@ -388,6 +399,14 @@ mod tests {
                 {"type":"localImage","path":"/data/chat/a.png"},
                 {"type":"mention","name":"notes.txt","path":"/repo/notes.txt"}
             ])
+        );
+        let quote = crate::chat::quotes::quote("line one\nline two").unwrap();
+        let text = format!("{} explain", quote.label().unwrap());
+        assert_eq!(
+            input(&text, &[quote], None, None),
+            vec![
+                json!({"type":"text","text":"> line one\n> line two\n\nexplain","text_elements":[]})
+            ]
         );
         assert_eq!(turn["params"]["approvalPolicy"], "never");
         assert_eq!(turn["params"]["sandboxPolicy"]["type"], "dangerFullAccess");

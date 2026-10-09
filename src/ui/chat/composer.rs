@@ -17,8 +17,6 @@ use gpui_kit::component::{
 use gpui_kit::*;
 use std::time::Instant;
 
-const ACCOUNT_LOCKED: &str = "Switching accounts in an ongoing chat isn't available yet.";
-
 /// Accounts are the Claude Code and Codex profiles configured in Preferences.
 struct Account {
     provider: Provider,
@@ -95,7 +93,6 @@ impl ChatView {
                         .child(self.mode_picker(cx))
                         .children(super::actions::context_ring(self))
                         .child(div().flex_1())
-                        .child(super::dev_bench::button(cx, ended)) // dev_bench
                         .child(
                             Button::new("chat-attach")
                                 .ghost()
@@ -222,7 +219,8 @@ impl ChatView {
         let models = self.models();
         let model = self.settings.model.clone();
         let (account_name, model_name) = self.selection_label(cx);
-        let locked = self.account_locked();
+        let ongoing = self.account_locked();
+        let can_switch = self.can_switch_agent();
         let view = cx.entity().downgrade();
         let picker = picker_button(
             "chat-model",
@@ -231,11 +229,7 @@ impl ChatView {
             None,
             cx,
         );
-        let picker = if locked && accounts.len() > 1 {
-            picker.tooltip(ACCOUNT_LOCKED)
-        } else {
-            picker.tooltip("Account and model")
-        };
+        let picker = picker.tooltip("Account and model");
         picker.dropdown_menu_with_anchor(Anchor::BottomLeft, move |mut menu, _, _| {
             for (position, account) in accounts.iter().enumerate() {
                 if position > 0 {
@@ -267,15 +261,20 @@ impl ChatView {
                     let id = account.id.clone();
                     let provider = account.provider;
                     menu = menu.item(
-                        PopupMenuItem::new(if locked {
-                            ACCOUNT_LOCKED.to_owned()
-                        } else {
-                            format!("Use {} (restarts this chat)", account.name)
+                        PopupMenuItem::new(match (ongoing, can_switch) {
+                            (false, _) => format!("Use {} (restarts this chat)", account.name),
+                            (true, true) => {
+                                format!("Switch to {} — continues with context", account.name)
+                            }
+                            (true, false) => {
+                                format!("Switch to {} once the agent is done", account.name)
+                            }
                         })
-                        .disabled(locked)
+                        .disabled(ongoing && !can_switch)
                         .on_click(move |_, _, cx| {
-                            let _ = view
-                                .update(cx, |this, cx| this.set_account(provider, id.clone(), cx));
+                            let _ = view.update(cx, |this, cx| {
+                                this.choose_account(provider, id.clone(), cx)
+                            });
                         }),
                     );
                 }

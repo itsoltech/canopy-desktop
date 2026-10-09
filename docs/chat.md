@@ -267,7 +267,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   Drzewo zmian: `chat::tools::change_tree` (zagnieżdżone foldery, łączenie łańcuchów, sumy).
   Klawiatura: `KeyboardFocus::keyboard(label)` (tab_index + aria_label + focus_visible) dla klikalnych divów;
   przyciski GPUI obsługują Tab/Enter/Space same.
-- Wydajność: dev bench „Load long transcript” (nagrania ×60 → ~1260 wierszy, offline). Budowa wierszy
+- Wydajność: długa rozmowa z nagrań (×60 → ~1260 wierszy, offline, w teście). Budowa wierszy
   od zera ~13 ms w release (`long_transcript_rows_build_quickly`, ignorowany); profil klatek w GUI
   wymaga przewijania w aplikacji (`./scripts/run-macos.sh profiling --features frame-profile`).
 
@@ -327,3 +327,54 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   (`CANOPY_LIVE_CODEX=1`): rozmowa, zgoda+odmowa, wznowienie, fork, komenda+patch, obraz.
 - Granice: zmiany robione komendami nie trafiają do podsumowania zmian; Codex 0.161 często pyta tekstem zamiast
   narzędziem pytań; `app-server` jest eksperymentalny w Codexie.
+
+## Etap 8: kilku agentów w jednej rozmowie
+
+- Picker konta działa też w trakcie rozmowy (DEC-061): inne konto = przełączenie od następnej wiadomości
+  (`ChatView::switch_agent`, `src/ui/chat/handoff.rs`). Wymaga spokojnego czatu (nic nie pracuje, brak decyzji
+  i edycji); proces jest zamykany, nowa epoka dostaje separator `Boundary::SwitchedToClaude|SwitchedToCodex`,
+  pane — narzędzie, konto i sesję do wznowienia (`Workspace::switch_chat_agent`). Niewysłana kolejka przechodzi
+  wstrzymana (Resume). Przed pierwszą wiadomością zostaje zwykła zmiana konta (`set_account`).
+- Epoki zapisują agenta (DEC-065): `EpochMeta.agent = AgentRef{tool, profile, session, settings}` — zapis przy
+  starcie i ponownie, gdy sesja dostawcy dostanie id albo zmienią się wybory (`record_meta`). Starsze historie bez
+  agenta przypisują wcześniejsze epoki pierwszemu znanemu agentowi czatu. Id sesji zapisujemy dopiero, gdy sesja
+  ma wiadomość (pusta sesja CLI nie istnieje na dysku).
+- Kontekst (DEC-062/066/067): `chat::handoff::summary` buduje deterministycznie skrót ≤ 24 KB — wiadomości
+  (z nazwami załączników), końcowe odpowiedzi z nazwą agenta, zmienione pliki tury, notki przerwanych tur
+  i ostatni plan; bez wyników narzędzi i thinking; najnowsze tury w całości, starsze skracane, najstarsze pomijane.
+  Owinięty w `<canopy-context>`, idzie jako osobny pierwszy blok tekstu następnej wiadomości (`Draft.context` /
+  `UserMessage.context`; Claude: blok `text` w `content`, Codex: element `text` w `input`). Sesja trzyma oczekujący
+  kontekst (`ChatSession::set_handoff`) i dokleja go do pierwszej wiadomości rozpoczynającej turę (także z kolejki).
+  Retry i Edit tej wiadomości wysyłają go ponownie.
+- Powrót (DEC-063): agent z wcześniejszą sesją w tej rozmowie (to samo narzędzie i konto) ją wznawia i dostaje tylko
+  części od swojej ostatniej; bez sesji — nowa sesja z pełnym skrótem i jego poprzednie wybory (model/effort/tryb),
+  a za pierwszym razem domyślne konta z odpowiednikiem trybu. Gdy wznowienie się nie uda (proces kończy się przed
+  pierwszą udaną turą; Claude: `No conversation found…`, kod 1), czat startuje od nowa z pełnym skrótem, ponawia
+  wiadomość i mówi o tym notką.
+- Podgląd (DEC-064): tacka „Context for X · N KB — sent with your next message” nad composerem (rozwijana,
+  `AnimatedHeight`; ustępuje decyzji, edycji i kolejce). Po wysłaniu pod wiadomością jest zwinięty wiersz
+  „Context from earlier in the conversation”. Kontekst nie jest zapisywany: po restarcie przed pierwszą wiadomością
+  jest budowany ponownie z historii. Wiadomości z części innego agenta mają na hover „Sent to X” (Edit działa
+  w części bieżącego agenta).
+- Limit (DEC-064): notka limitu ostatniej, nieudanej tury ma „Continue with Codex/Claude Code”, gdy drugi dostawca
+  jest dostępny: przełączenie na jego domyślne konto + ponowienie ostatniej wiadomości z kontekstem.
+- Testy: `tests/chat_handoff.rs` (bloki kontekstu obu dostawców, kolejka/Retry, meta epok i stare historie, pane),
+  live `tests/chat_handoff_live.rs` (`CANOPY_LIVE_CLAUDE=1 CANOPY_LIVE_CODEX=1`): Claude → Codex (zna słowo) →
+  powrót do sesji Claude (wie, co utworzył Codex).
+- Granice: reguły „Allow for this chat” działają tylko u Claude; skrót nie zawiera wyników narzędzi; kółko kontekstu,
+  metryki i notch dotyczą bieżącego agenta.
+- Grupowanie akcji (DEC-068): ciąg ≥ 2 akcji (thinking + udane narzędzia) zamknięty odpowiedzią tekstową agenta
+  zwija się pod nagłówkiem „Ran 3 commands, read 2 files …” (`presentation::groups` / `actions_label`,
+  `RowExtra.group/grouped_by` jak `fold/folded_by`, tworzone w `Rows::insert` przy wstawieniu tekstu). Edycje
+  z diffem, plan (TodoWrite), subagenci, nieudane narzędzia, zgody i komunikaty przerywają ciąg i zostają widoczne;
+  ostatni ciąg bez odpowiedzi zostaje rozwinięty. Działa w „Worked for”, wątkach subagentów i historii.
+- Wyszukiwanie ⌘F (DEC-069, `ui/chat/find.rs`): pasek w prawym górnym rogu rozmowy, ⌘G / ⇧⌘G i Enter / ⇧Enter,
+  Esc zamyka. Szuka (bez wielkości liter) w widokach tekstu wierszy (`MarkdownView::text_views`: wiadomości,
+  odpowiedzi z kodem, thinking, plan, raport subagenta, części archiwalne) pokazanej rozmowy; karty narzędzi pomija.
+  Trafienia to `TextViewState::set_range_highlights`, bieżące przewija `Rows::uncover` (otwiera fold/grupę/thinking)
+  → `ChatScrollerState::reveal_row` → `reveal_range`. Liczenie tylko w handlerach, po zmianach treści z debounce.
+- Cytowanie (DEC-070, `ui/chat/quote.rs`, `chat::quotes`): puszczenie myszy w rozmowie z zaznaczeniem
+  (`TextSelection::selected_text`) pokazuje przycisk „Quote”; znika po odznaczeniu, przewinięciu, pisaniu i Esc.
+  Cytat to `Attachment::Quote` z wzmianką `[❝ …]` w tekście (badge jak załącznik, tooltip z całością, ≤ 4 000 znaków),
+  więc przeżywa kolejkę, Edit i historię. `quotes::expand` zamienia wzmiankę na blok `> …` w wire Claude/Codex
+  i w skrócie handoff. Klik w badge wysłanej wiadomości przewija do źródła i na chwilę je podświetla.

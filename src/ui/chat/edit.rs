@@ -24,6 +24,8 @@ pub(super) struct Editing {
     /// The edited message, waiting for the restore to finish.
     pub sending: Option<Draft>,
     pub error: Option<String>,
+    /// Context sent with the edited message (after a switch); it goes again.
+    pub context: Option<String>,
 }
 
 impl ChatView {
@@ -46,6 +48,7 @@ impl ChatView {
                 Body::User(message) if i.id == item => Some(Draft {
                     text: message.text.clone(),
                     attachments: message.attachments.clone(),
+                    context: message.context.clone(),
                 }),
                 _ => None,
             })
@@ -64,6 +67,7 @@ impl ChatView {
             restore: false,
             sending: None,
             error: None,
+            context: message.context.clone(),
         });
         self.set_composer_draft(message, window, cx);
         cx.notify();
@@ -94,13 +98,14 @@ impl ChatView {
         self.with_images(draft, cx, |this, draft, cx| this.send_edit_draft(draft, cx));
     }
 
-    fn send_edit_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
+    fn send_edit_draft(&mut self, mut draft: Draft, cx: &mut Context<Self>) {
         let Some(editing) = &mut self.editing else {
             return;
         };
         if editing.sending.is_some() {
             return;
         }
+        draft.context = editing.context.clone();
         let item = editing.item;
         let restore = editing.restore && editing.preview.as_ref().is_some_and(|p| p.possible);
         editing.sending = Some(draft);

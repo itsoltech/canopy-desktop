@@ -1096,6 +1096,7 @@ fn an_attached_image_reaches_the_model() {
         .submit_draft(canopy_desktop::chat::session::Draft {
             text: "What single color fills this image? Answer with one English word.".into(),
             attachments: vec![image],
+            ..Default::default()
         });
     live.write(lines);
     live.pump(TURN, |s| {

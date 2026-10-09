@@ -21,6 +21,8 @@ pub(super) struct Archived {
     /// Stable session number of the chat (saved history, turn diff targets).
     pub epoch: u64,
     pub transcript: Transcript,
+    /// Who ran it (to come back to its session after a switch).
+    pub agent: Option<canopy_desktop::chat::history::AgentRef>,
 }
 
 /// Where a row's item lives: the running session or a session replaced by Restart.
@@ -76,6 +78,10 @@ pub(super) struct RowExtra {
     pub fold: Option<Fold>,
     /// Index of the row whose `fold` hides this one while it is closed.
     pub folded_by: Option<usize>,
+    /// First row of a run of actions the agent's reply closed (DEC-068).
+    pub group: Option<Group>,
+    /// Index of the row whose `group` hides this one while it is closed.
+    pub grouped_by: Option<usize>,
     /// The final reply of an ended turn: transcript index of its turn end, for the
     /// message actions and the turn's numbers.
     pub turn_end: Option<usize>,
@@ -88,6 +94,15 @@ pub(super) struct Fold {
     pub duration_ms: Option<u64>,
     /// Row of the final reply; work rows are the header row up to this one.
     pub reply: usize,
+}
+
+/// Thinking and tool calls in a row, under one "Ran 3 commands and read 2 files" header
+/// once a reply follows them.
+pub(super) struct Group {
+    pub disclosure: Disclosure,
+    pub label: String,
+    /// The row after the last grouped one.
+    pub end: usize,
 }
 
 pub(super) struct ToolCard {
@@ -238,6 +253,13 @@ impl Rows {
                 Change::Updated(index) => {
                     if let Some(&row) = self.current.get(&index) {
                         self.refresh(transcript, index, row, cx);
+                        if let (Some(markdown), Some(Body::Thinking(block))) = (
+                            self.rows[row].markdown.clone(),
+                            transcript.get(index).map(|item| &item.body),
+                        ) {
+                            let text: Arc<str> = block.text.trim().into();
+                            markdown.update(cx, |view, cx| view.stream(text, cx));
+                        }
                         if let (Some(markdown), Some(Body::Text(block))) = (
                             self.rows[row].markdown.clone(),
                             transcript.get(index).map(|item| &item.body),
@@ -376,18 +398,19 @@ impl Rows {
                 (!block.streaming).then(|| self.cwd.clone()),
                 cx,
             )),
-            // Attachments mentioned in a sent message stay badges.
-            Body::User(message) => self.badges.as_ref().and_then(|badges| {
+            // Selectable and searchable; mentioned attachments and quotes stay badges.
+            Body::User(message) => self.badges.as_ref().map(|badges| {
                 let source =
-                    super::attachments::badge_markdown(&message.text, &message.attachments)?;
+                    super::attachments::message_markdown(&message.text, &message.attachments);
                 let renderer = badges(&message.attachments);
-                Some(cx.new(|cx| {
+                cx.new(|cx| {
                     let mut view = MarkdownView::chat(cx);
                     view.set_badges(renderer);
                     view.set_content(source.into(), String::new(), true, cx);
                     view
-                }))
+                })
             }),
+            Body::Thinking(block) => Some(thinking_markdown(block.text.as_str().into(), cx)),
             _ => None,
         };
         let now = Instant::now();
@@ -414,6 +437,9 @@ impl Rows {
             self.rows[at].extra.thought = Some((block.streaming.then_some(now), None));
         }
         self.refresh(transcript, index, at, cx);
+        if matches!(item.body, Body::Text(_)) {
+            self.group_before(transcript, at, remeasure);
+        }
         // A turn that stopped or failed shows its end; its reply still gets actions.
         self.fold_turn(transcript, index, remeasure);
         self.summarize_turn(transcript, index);
@@ -487,12 +513,120 @@ impl Rows {
         remeasure.extend(start..reply);
     }
 
-    /// Whether the row is hidden inside a closed "Worked for …" fold.
+    /// Folds the actions right above the reply at row `reply` under one header, when
+    /// there are at least two.
+    fn group_before(&mut self, transcript: &Transcript, reply: usize, remeasure: &mut Vec<usize>) {
+        let mut start = reply;
+        while start > 0 {
+            let row = &self.rows[start - 1];
+            let Kind::Item(Source::Current(index)) = row.kind else {
+                break;
+            };
+            if row.extra.group.is_some()
+                || row.extra.grouped_by.is_some()
+                || !transcript.get(index).is_some_and(presentation::groups)
+            {
+                break;
+            }
+            start -= 1;
+        }
+        if reply - start < 2 {
+            return;
+        }
+        let label = presentation::actions_label(self.rows[start..reply].iter().filter_map(|row| {
+            match row.kind {
+                Kind::Item(Source::Current(index)) => transcript.get(index),
+                _ => None,
+            }
+        }));
+        self.rows[start].extra.group = Some(Group {
+            disclosure: Disclosure::new(false, Instant::now()),
+            label,
+            end: reply,
+        });
+        for row in &mut self.rows[start + 1..reply] {
+            row.extra.grouped_by = Some(start);
+        }
+        remeasure.extend(start..reply);
+    }
+
+    /// Whether the row is hidden inside a closed "Worked for …" fold or action group.
     pub fn folded(&self, row: &Row) -> bool {
-        row.extra
+        let fold = row
+            .extra
             .folded_by
             .and_then(|header| self.rows.get(header)?.extra.fold.as_ref())
-            .is_some_and(|fold| !fold.disclosure.open)
+            .is_some_and(|fold| !fold.disclosure.open);
+        let group = row
+            .extra
+            .grouped_by
+            .and_then(|header| self.rows.get(header)?.extra.group.as_ref())
+            .is_some_and(|group| !group.disclosure.open);
+        fold || group
+    }
+
+    /// Opens what hides row `row` (a search match): the "Worked for" fold and the action
+    /// group it is in, and its own text (a thinking block or plan). Nothing closes
+    /// again by itself.
+    pub fn uncover(&mut self, row: usize, cx: &mut App) {
+        let Some(entry) = self.rows.get(row) else {
+            return;
+        };
+        let now = Instant::now();
+        let mut remeasure = vec![];
+        let fold = entry
+            .extra
+            .folded_by
+            .or(entry.extra.fold.is_some().then_some(row));
+        if let Some(at) = fold
+            && let Some(fold) = &mut self.rows[at].extra.fold
+            && !fold.disclosure.open
+        {
+            fold.disclosure.toggle(now, cx);
+            remeasure.push(at..fold.reply);
+        }
+        let entry = &self.rows[row];
+        let group = entry
+            .extra
+            .grouped_by
+            .or(entry.extra.group.is_some().then_some(row));
+        if let Some(at) = group
+            && let Some(group) = &mut self.rows[at].extra.group
+            && !group.disclosure.open
+        {
+            group.disclosure.toggle(now, cx);
+            remeasure.push(at..group.end);
+        }
+        let entry = &mut self.rows[row];
+        if entry.markdown.is_some()
+            && let Some(output) = &mut entry.output
+            && !output.open
+        {
+            output.toggle(now, cx);
+            entry.extra.touched = true;
+            remeasure.push(row..row + 1);
+        }
+        for range in remeasure {
+            self.scroller
+                .update(cx, |state, cx| state.remeasure_items(range, cx));
+        }
+    }
+
+    pub fn toggle_group(&mut self, key: u64, policy: MotionPolicy, cx: &mut App) {
+        let now = Instant::now();
+        let Some(start) = self.rows.iter().position(|row| row.key == key) else {
+            return;
+        };
+        let Some(group) = &mut self.rows[start].extra.group else {
+            return;
+        };
+        group.disclosure.toggle(now, cx);
+        let (open, end) = (group.disclosure.open, group.end);
+        if open {
+            self.reveal.begin(start + 1, end - start - 1, now, policy);
+        }
+        self.scroller
+            .update(cx, |state, cx| state.remeasure_items(start..end, cx));
     }
 
     pub fn toggle_fold(&mut self, key: u64, policy: MotionPolicy, cx: &mut App) {
@@ -676,6 +810,7 @@ impl Rows {
         &mut self,
         transcript: Transcript,
         epoch: u64,
+        agent: Option<canopy_desktop::chat::history::AgentRef>,
         label: &'static str,
         cx: &mut App,
     ) {
@@ -685,7 +820,11 @@ impl Rows {
             self.scroller
                 .update(cx, |state, cx| state.splice(at..at + 1, 0, cx));
         }
-        self.freeze(Arc::new(Archived { epoch, transcript }));
+        self.freeze(Arc::new(Archived {
+            epoch,
+            transcript,
+            agent,
+        }));
         if self.has_items() {
             let key = self.key();
             self.rows.push(Row {
@@ -733,12 +872,13 @@ impl Rows {
         &mut self,
         mut transcript: Transcript,
         epoch: u64,
+        agent: Option<canopy_desktop::chat::history::AgentRef>,
         label: &'static str,
         cx: &mut App,
     ) {
         let changes = transcript.take_changes();
         self.sync(&transcript, &changes, false, MotionPolicy::Reduced, cx);
-        self.archive(transcript, epoch, label, cx);
+        self.archive(transcript, epoch, agent, label, cx);
     }
 
     /// The conversation of a subagent of an earlier session (read-only, nothing more
@@ -812,6 +952,15 @@ impl Rows {
 pub(super) type BadgeFactory = std::rc::Rc<
     dyn Fn(&[canopy_desktop::chat::transcript::Attachment]) -> crate::ui::markdown::BadgeRenderer,
 >;
+
+/// A thinking summary: quieter chat Markdown, selectable and searchable.
+fn thinking_markdown(text: Arc<str>, cx: &mut App) -> Entity<MarkdownView> {
+    cx.new(|cx| {
+        let mut view = MarkdownView::thinking(cx);
+        view.stream(text.trim().into(), cx);
+        view
+    })
+}
 
 /// `finished` carries the folder for file links once the text is final.
 fn chat_markdown(
@@ -1070,12 +1219,44 @@ mod long_tests {
     use super::*;
     use core::prelude::v1::test;
 
-    /// Row building for a long conversation (dev bench transcript). Timing only:
+    /// Recorded sessions replayed into a long offline conversation.
+    const RECORDED: [&str; 3] = [
+        include_str!("../../../tests/fixtures/chat/claude-2.1.294/tools.jsonl"),
+        include_str!("../../../tests/fixtures/chat/claude-2.1.294/thinking.jsonl"),
+        include_str!("../../../tests/fixtures/chat/claude-2.1.294/parallel-subagents.jsonl"),
+    ];
+    const ROUNDS: usize = 60;
+
+    /// A long conversation built offline from recorded sessions (no CLI process).
+    fn long_session() -> canopy_desktop::chat::session::ChatSession {
+        use canopy_desktop::chat::{claude::wire, session::ChatSession};
+        let (mut session, _) = ChatSession::new();
+        for round in 0..ROUNDS {
+            for (index, recorded) in RECORDED.iter().enumerate() {
+                session.submit(&format!("Long transcript, round {round}, part {index}"));
+                let idle = r#"{"type":"system","subtype":"session_state_changed","state":"idle"}"#;
+                // Each recording ends idle, so the next round starts a turn of its own.
+                for line in recorded.lines().chain([idle]) {
+                    // Every round gets its own message and tool ids, or it would update
+                    // the first round's rows.
+                    let line = line
+                        .replace("msg_", &format!("msg_r{round}_"))
+                        .replace("toolu_", &format!("toolu_r{round}_"));
+                    if let Ok(Some(message)) = wire::parse_line(line.as_bytes()) {
+                        session.on_message(message);
+                    }
+                }
+            }
+        }
+        session
+    }
+
+    /// Row building for a long conversation. Timing only:
     /// `cargo test --release --locked long_transcript -- --ignored --nocapture`.
     #[gpui_kit::test]
     #[ignore = "timing"]
     fn long_transcript_rows_build_quickly(cx: &mut TestAppContext) {
-        let mut session = crate::ui::chat::dev_bench::long_session();
+        let mut session = long_session();
         let changes = session.take_changes();
         let transcript = session.transcript();
         cx.update(|cx| {

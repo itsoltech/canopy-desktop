@@ -83,6 +83,7 @@ impl ChatSession {
         let input = wire::input(
             &draft.text,
             &draft.attachments,
+            draft.context.as_deref(),
             self.codex.start.images.as_deref(),
         );
         vec![wire::turn_start(
@@ -105,6 +106,7 @@ impl ChatSession {
         let input = wire::input(
             &draft.text,
             &draft.attachments,
+            draft.context.as_deref(),
             self.codex.start.images.as_deref(),
         );
         self.codex.steers.insert(id.clone(), id.clone());

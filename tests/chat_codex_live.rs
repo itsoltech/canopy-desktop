@@ -250,6 +250,7 @@ fn auto_mode_runs_commands_and_an_image_reaches_the_model() {
     let draft = canopy_desktop::chat::session::Draft {
         text: "What single color fills this image? One English word.".into(),
         attachments: vec![attachment],
+        ..Default::default()
     };
     let lines = live.session.submit_draft(draft);
     // This session was opened without an image folder: send the path ourselves.

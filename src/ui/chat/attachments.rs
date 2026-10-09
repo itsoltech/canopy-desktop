@@ -136,6 +136,7 @@ impl ChatView {
                     }
                 })
                 .collect(),
+            context: None,
         }
     }
 
@@ -163,6 +164,9 @@ impl ChatView {
                     .unwrap_or_else(|| match &attachment {
                         Attachment::Image { file, .. } => format!("[{file}]"),
                         Attachment::Path { path, .. } => format!("[{}]", path.display()),
+                        Attachment::Quote { text, .. } => {
+                            canopy_desktop::chat::quotes::mention(text)
+                        }
                     });
             let start = match text[from..].find(&mention) {
                 Some(at) => from + at,
@@ -241,7 +245,13 @@ impl ChatView {
     }
 
     /// A new attachment and its badge, put into the text at the cursor.
-    fn add_pending(&mut self, name: &str, mention: String, state: AttachState, image: bool) -> u64 {
+    pub(super) fn add_pending(
+        &mut self,
+        name: &str,
+        mention: String,
+        state: AttachState,
+        image: bool,
+    ) -> u64 {
         let id = self.next_attachment();
         self.attachments
             .insert
@@ -475,6 +485,7 @@ impl ChatView {
                     Ok::<_, String>(Draft {
                         text: draft.text,
                         attachments,
+                        context: draft.context,
                     })
                 })
                 .await;
@@ -571,12 +582,15 @@ impl ChatView {
         true
     }
 
-    /// A badge clicked in the composer: its image full size.
+    /// A badge clicked in the composer: its image full size, or where a quote is from.
     pub(super) fn badge_clicked(&mut self, event: &InlineTokenClickEvent, cx: &mut Context<Self>) {
-        if let Some(image) = id_of(event.token())
-            .and_then(|id| self.pending(id))
-            .and_then(|pending| pending.preview.clone())
-        {
+        let Some(pending) = id_of(event.token()).and_then(|id| self.pending(id)) else {
+            return;
+        };
+        if let AttachState::Ready(Attachment::Quote { text, .. }) = &pending.state {
+            let text = text.clone();
+            self.show_quote(&text, None, cx);
+        } else if let Some(image) = pending.preview.clone() {
             self.open_lightbox(image, cx);
         }
     }
@@ -584,6 +598,22 @@ impl ChatView {
     /// One badge in the composer's text: thumbnail (or spinner, warning, file icon) and name.
     pub(super) fn badge(&self, context: &InlineTokenContext) -> AnyElement {
         let pending = id_of(context.token()).and_then(|id| self.pending(id));
+        if let Some(Pending {
+            id,
+            state: AttachState::Ready(Attachment::Quote { text, .. }),
+            ..
+        }) = pending
+        {
+            return super::quote::quote_badge(
+                ("chat-composer-quote", *id),
+                context.token().label().clone(),
+                text,
+                context.line_height(),
+                context.is_selected(),
+            )
+            .max_w(context.available_width())
+            .into_any_element();
+        }
         let failed = pending.is_some_and(|p| matches!(p.state, AttachState::Failed(_)));
         let size = context.line_height() - px(6.);
         let leading = match pending {
@@ -844,6 +874,23 @@ pub(super) fn sent_attachments(
                     Attachment::Path { path, .. } => {
                         path_chip(id, &name_of(path), path).into_any_element()
                     }
+                    // Only a quote whose badge left the text shows here.
+                    Attachment::Quote { text, label } => {
+                        let quote = text.clone();
+                        let view = view.downgrade();
+                        super::quote::quote_badge(
+                            id,
+                            badge_name(attachment, label.as_deref().unwrap_or_default()),
+                            text,
+                            px(28.),
+                            false,
+                        )
+                        .on_click(move |_, _, cx| {
+                            let _ =
+                                view.update(cx, |this, cx| this.show_quote(&quote, Some(key), cx));
+                        })
+                        .into_any_element()
+                    }
                 }
             })),
     )
@@ -891,6 +938,15 @@ pub(super) fn badge_markdown(text: &str, attachments: &[Attachment]) -> Option<S
     Some(out)
 }
 
+/// A sent message as Markdown: its text read literally, attachment mentions as badges.
+pub(super) fn message_markdown(text: &str, attachments: &[Attachment]) -> String {
+    badge_markdown(text, attachments).unwrap_or_else(|| {
+        let mut out = String::new();
+        literal(text, &mut out);
+        out
+    })
+}
+
 /// Whether the message text mentions this attachment (it then shows as a badge there).
 pub(super) fn mentioned_in(text: &str, attachment: &Attachment) -> bool {
     attachment.label().is_some_and(|label| text.contains(label))
@@ -909,19 +965,37 @@ pub(super) fn badge_factory(view: WeakEntity<ChatView>) -> super::rows::BadgeFac
                 .label()
                 .map(|mention| badge_name(attachment, mention))
                 .unwrap_or_default();
+            if let Attachment::Quote { text, .. } = attachment {
+                let quote = text.clone();
+                let view = view.clone();
+                return super::quote::quote_badge(
+                    ElementId::Name(format!("chat-quote-{index}-{}", text.len()).into()),
+                    name,
+                    text,
+                    height,
+                    false,
+                )
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    let _ = view.update(cx, |this, cx| this.show_quote(&quote, None, cx));
+                })
+                .into_any_element();
+            }
             let preview = match attachment {
                 Attachment::Image { file, .. } => view
                     .upgrade()
                     .and_then(|view| view.read(cx).attachments.previews.get(file).cloned()),
-                Attachment::Path { .. } => None,
+                Attachment::Path { .. } | Attachment::Quote { .. } => None,
             };
             let key = match attachment {
                 Attachment::Image { file, .. } => file.clone(),
                 Attachment::Path { path, .. } => path.display().to_string(),
+                Attachment::Quote { text, .. } => text.clone(),
             };
             let tooltip: SharedString = match attachment {
                 Attachment::Image { .. } => name.clone(),
                 Attachment::Path { path, .. } => path.display().to_string(),
+                Attachment::Quote { text, .. } => text.clone(),
             }
             .into();
             let size = height - px(6.);

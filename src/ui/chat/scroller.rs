@@ -55,6 +55,33 @@ impl ChatScrollerState {
             && !self.list.is_scrolled_to_end().unwrap_or(false)
     }
 
+    /// Where the list is scrolled to (a selection's Quote button goes when it moves).
+    pub fn position(&self) -> (usize, Pixels) {
+        let top = self.list.logical_scroll_top();
+        (top.item_ix, top.offset_in_item)
+    }
+
+    /// Brings `row` into view at once (find): new output no longer pulls the view down;
+    /// a row already on screen stays put, its text view reveals the line itself.
+    pub fn reveal_row(&mut self, row: usize, cx: &mut Context<Self>) {
+        if row >= self.list.item_count() {
+            return;
+        }
+        self.glide = None;
+        self.list.pause_following_tail();
+        let viewport = self.list.viewport_bounds();
+        let shown = self.list.bounds_for_item(row).is_some_and(|bounds| {
+            bounds.top() < viewport.bottom() && bounds.bottom() > viewport.top()
+        });
+        if !shown {
+            self.list.scroll_to(ListOffset {
+                item_ix: row,
+                offset_in_item: px(0.),
+            });
+        }
+        cx.notify();
+    }
+
     /// The first row at the top of the viewport.
     pub fn top_row(&self) -> usize {
         self.list.logical_scroll_top().item_ix

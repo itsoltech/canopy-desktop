@@ -405,7 +405,7 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   bez projektu. Paleta wyboru projektu jest pod ⌘⇧N.
   Tools pozostają drugorzędne i wymagają projektu.
 - Czat ma dwóch dostawców: Claude Code headless (stream-json) i Codex (`codex app-server`, JSON-RPC); wybór
-  przez picker konta przed pierwszą wiadomością (`Pane.tool`). Nie dodawaj ścieżek, które zakładają tylko Claude —
+  przez picker konta (`Pane.tool`). Nie dodawaj ścieżek, które zakładają tylko Claude —
   rdzeń sesji jest wspólny, protokół w `chat::claude` / `chat::codex`. Codex w czacie nie używa hooków (zaufanie
   wymaga jego TUI); stan do notcha idzie przez `AgentsState::chat_activity`.
 - Claude Code działa headless (stream-json przez potoki), nie w PTY. Protokół, proces
@@ -442,9 +442,20 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   po restarcie aplikacji; zamknięcie taba czatu usuwa ją razem z załącznikami (nie ma listy czatów).
   Zapis idzie przez `AppState.chat_history`; render nie czyta bazy. Obrazy do modelu skaluje
   `chat::attachments`; inne pliki idą jako ścieżki. Nowa rozmowa to zawsze New chat (nowy tab).
+- Inne konto w trakcie rozmowy przełącza agenta (`ChatView::switch_agent`): nowa epoka z `EpochMeta.agent`,
+  separator „Switched to …”, kontekst ze skrótu `chat::handoff` (≤ 24 KB, bez wyników narzędzi) doklejany jako
+  osobny blok do następnej wiadomości (`Draft.context`). Agent z wcześniejszą sesją w tej rozmowie ją wznawia
+  i dostaje tylko to, co zdarzyło się później; nieudane wznowienie = nowa sesja z pełnym skrótem i notką.
+  Skrótu nie piszemy agentem, nie zapisujemy w SQLite (po restarcie budowany ponownie) i nie przenosimy zgód.
 - Akcje przy wiadomościach (Copy/Edit/Retry + metryki) są na hover. Edit rozgałęzia sesję
   (`--resume-session-at` + `--fork-session`) od końca poprzedniej tury; pliki cofa tylko jawnie wybrane
   `rewind_files` (checkpointing w środowisku czatu). Kwotę pokazujemy tylko przy koncie API.
+- Ciąg akcji (thinking + udane narzędzia) zamknięty odpowiedzią tekstową agenta zwija się do jednego nagłówka
+  z licznikami (`presentation::groups`, `RowExtra.group`). Edycje z diffem, plan, subagenci, błędy, zgody
+  i komunikaty zostają widoczne; trwający ciąg bez odpowiedzi nie jest chowany.
+- ⌘F szuka w tekście pokazanej rozmowy (widoki tekstu wierszy, bez kart narzędzi) i podświetla trafienia przez
+  range highlights TextView; nawigacja otwiera fold/grupę/thinking. Zaznaczenie w rozmowie daje przycisk „Quote”:
+  cytat to `Attachment::Quote` (badge w tekście), agent dostaje go jako blok `> …` (`chat::quotes::expand`).
 - Zakończona (Completed) tura głównej rozmowy składa pracę między wiadomością użytkownika a ostatnią
   odpowiedzią pod „Worked for …” (czas z `TurnEnd.duration_ms`); widoczne zostają prompt, odpowiedź
   i podsumowanie zmian. Przerwana/błędna tura lub tura bez końcowej odpowiedzi zostaje rozwinięta.
@@ -506,7 +517,7 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 
 Terminal/PTY, projekty i worktree, pełny layout, persist/restore, narzędzia oraz
 profile mają działające integracje. Czat z Claude Code (headless) ma pane, pickery
-i cykl życia, karty narzędzi i historię po restarcie, także z Codexem; przełączanie dostawcy w rozmowie to kolejny etap. Files ma backend rzeczywistych plików, a edytor obsługuje zapis, konflikty i restore
+i cykl życia, karty narzędzi i historię po restarcie, także z Codexem, oraz przełączanie agenta w rozmowie z przekazaniem kontekstu. Files ma backend rzeczywistych plików, a edytor obsługuje zapis, konflikty i restore
 ([zakres i ograniczenia](docs/files-editor.md)). Git Changes/diffy i commit mają integrację
 ([szczegóły i ograniczenia](docs/git-changes.md)). Inspektor, notch i resume mają
 integrację sesji Claude/Codex ([zakres kwalifikacji](docs/agents.md)); część

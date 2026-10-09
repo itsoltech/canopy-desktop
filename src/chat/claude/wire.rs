@@ -537,11 +537,12 @@ pub fn initialize(request_id: &str) -> Value {
     })
 }
 
-/// A user message: images as image blocks (their data must be loaded), files and folders
-/// listed after the text for the agent to read.
+/// A user message: images as image blocks (their data must be loaded), quotes as quote
+/// blocks in the text, files and folders listed after it for the agent to read.
 pub fn user_message(
     text: &str,
     attachments: &[Attachment],
+    context: Option<&str>,
     uuid: &str,
     priority: Priority,
 ) -> Value {
@@ -571,8 +572,9 @@ pub fn user_message(
             _ => None,
         })
         .collect();
+    let text = crate::chat::quotes::expand(text, attachments);
     let text = if paths.is_empty() {
-        text.to_owned()
+        text
     } else {
         let list = paths.join("\n");
         let header = "Attached files (read them as needed):";
@@ -582,6 +584,10 @@ pub fn user_message(
             format!("{text}\n\n{header}\n{list}")
         }
     };
+    // After a switch, the conversation so far comes first, apart from the message.
+    if let Some(context) = context {
+        content.insert(0, json!({"type": "text", "text": context}));
+    }
     if !text.is_empty() {
         content.push(json!({"type": "text", "text": text}));
     }
@@ -933,11 +939,11 @@ mod tests {
     #[test]
     fn outbound_shapes_match_the_sdk_contract() {
         assert_eq!(
-            user_message("hi", &[], "u1", Priority::Later),
+            user_message("hi", &[], None, "u1", Priority::Later),
             json!({"type":"user","session_id":"","message":{"role":"user","content":[{"type":"text","text":"hi"}]},"parent_tool_use_id":null,"uuid":"u1","priority":"later"})
         );
         assert_eq!(
-            user_message("hi", &[], "u2", Priority::Next)["priority"],
+            user_message("hi", &[], None, "u2", Priority::Next)["priority"],
             "next"
         );
         let attachments = [
@@ -955,11 +961,18 @@ mod tests {
             },
         ];
         assert_eq!(
-            user_message("look", &attachments, "u3", Priority::Later)["message"]["content"],
+            user_message("look", &attachments, None, "u3", Priority::Later)["message"]["content"],
             json!([
                 {"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJD"}},
                 {"type":"text","text":"look\n\nAttached files (read them as needed):\n- /tmp/notes.txt"}
             ])
+        );
+        // A quote is a quote block where its badge is.
+        let quote = crate::chat::quotes::quote("KIWI is the word").unwrap();
+        let text = format!("what is {} about?", quote.label().unwrap());
+        assert_eq!(
+            user_message(&text, &[quote], None, "u4", Priority::Later)["message"]["content"],
+            json!([{"type":"text","text":"what is\n\n> KIWI is the word\n\nabout?"}])
         );
         assert_eq!(
             allow("r1", Some("toolu_1"), &json!({"command":"ls"})),

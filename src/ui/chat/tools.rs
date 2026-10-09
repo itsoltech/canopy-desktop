@@ -435,16 +435,20 @@ pub(super) fn thinking_row(
                 .map(|disclosure| {
                     disclosure.measured_body(
                         ("chat-thinking-body", key),
+                        // Capped while it streams; once done the list scrolls through it,
+                        // so search can reveal any line of it.
                         div()
                             .id(("chat-thinking-scroll", key))
-                            .max_h(px(240.))
-                            .overflow_y_scroll()
+                            .when(streaming, |body| body.max_h(px(240.)).overflow_y_scroll())
                             .pl(px(22.))
                             .pt(px(2.))
                             .text_size(px(13.))
                             .line_height(px(20.))
                             .text_color(t::muted())
-                            .child(text.trim().to_owned()),
+                            .map(|body| match &entry.markdown {
+                                Some(markdown) => body.child(markdown.clone()),
+                                None => body.child(text.trim().to_owned()),
+                            }),
                         now,
                     )
                 }),

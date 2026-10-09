@@ -459,15 +459,33 @@ impl ProjectsState {
         profile: String,
         cx: &mut Context<Self>,
     ) {
-        let update = |workspace: &mut Workspace, pane: PaneId, profile: &str| {
+        self.update_pane(cx, |workspace| {
             workspace
-                .set_chat_account(pane, tool, profile)
+                .set_chat_account(pane, tool, &profile)
                 .unwrap_or(false)
-        };
+        });
+    }
+    /// Moves a chat pane to another agent mid-conversation, with the session to resume.
+    pub fn switch_chat_agent(
+        &mut self,
+        pane: PaneId,
+        tool: &str,
+        profile: &str,
+        resume: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_pane(cx, |workspace| {
+            workspace
+                .switch_chat_agent(pane, tool, profile, resume)
+                .unwrap_or(false)
+        });
+    }
+    /// Applies `update` to the active workspace and every cached one.
+    fn update_pane(&mut self, cx: &mut Context<Self>, update: impl Fn(&mut Workspace) -> bool) {
         let active = cx.global::<AppState>().workspace.clone();
         let mut changed = false;
         active.update(cx, |workspace, cx| {
-            if update(workspace, pane, &profile) {
+            if update(workspace) {
                 changed = true;
                 cx.notify();
             }
@@ -477,7 +495,7 @@ impl ProjectsState {
             .values_mut()
             .chain(std::iter::once(&mut self.scratch))
         {
-            changed |= update(workspace, pane, &profile);
+            changed |= update(workspace);
         }
         if changed {
             self.changed(cx);

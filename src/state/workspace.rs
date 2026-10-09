@@ -439,6 +439,39 @@ impl Workspace {
             .replace(pane, SplitTree::Leaf(value));
         Ok(true)
     }
+    /// A chat going on with another agent mid-conversation (DEC-061): its tool,
+    /// account and the provider session to continue (`None` starts a new one).
+    pub fn switch_chat_agent(
+        &mut self,
+        pane: PaneId,
+        tool: &str,
+        profile: &str,
+        resume: Option<&str>,
+    ) -> Result<bool, StateError> {
+        let (tab, current) = self.locate(pane)?;
+        if current.metadata.kind != PaneKind::Chat
+            || crate::chat::provider::Provider::from_tool(tool).is_none()
+        {
+            return Err(StateError::InvalidMetadata);
+        }
+        if current.tool == tool
+            && current.metadata.profile_id.as_deref() == Some(profile)
+            && current.metadata.resume_id.as_deref() == resume
+        {
+            return Ok(false);
+        }
+        let mut value = current;
+        value.tool = tool.to_owned();
+        value.metadata.profile_id = Some(profile.to_owned());
+        value.metadata.resume_id = resume.map(str::to_owned);
+        if !value.metadata.valid() {
+            return Err(StateError::InvalidMetadata);
+        }
+        self.tab_mut(tab)?
+            .root
+            .replace(pane, SplitTree::Leaf(value));
+        Ok(true)
+    }
     /// Renames the pane's tab only while it still has the `placeholder` title.
     pub fn retitle_placeholder(
         &mut self,
