@@ -20,8 +20,10 @@ v2.1.284 and v2.1.285 runs did not probe). The v2.1.286 to v2.1.293 runs' sessio
 mode instead (an observation about those runs; nothing in the workflow sets it), and `gh api` against both `marckrenn/claude-code-changelog` and `anthropics/claude-code`, `npm pack`,
 `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `python3` and `node` all ran. The v2.1.294
 run's session was held again, the twenty-second run to have its probe denied: the compare call, `WebFetch`,
-`python3`, `npm run lint` and Bash `grep` on a path outside the working tree were all refused, so
-expect either. Record which way the one probe went in the PR body. **If it runs, use point 6.**
+`python3`, `npm run lint` and Bash `grep` on a path outside the working tree were all refused. The
+v2.1.295 run's was held too, the twenty-third: its compare call, its one `WebFetch` and
+`npm run lint` were refused. So expect either. Record which way the one probe went in the PR body.
+**If it runs, use point 6.**
 
 **If it is denied, everything below about the denial applies.** It was denied against every shape
 of path, flag and quoting. The rule in `.github/workflows/claude-code-compat.yml` ends mid-token and
@@ -738,7 +740,8 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > (15,193 at 2.1.292, then −4,650 at 2.1.293, so 10,543). Subtracting it from the "before" total leaves only the "after"
 > share's rounding, which took the v2.1.294 run's band from ±57 to ±31. That was tight enough to
 > match the system step, +6,973, to a predicted ninth `User Memory Project One` copy of 6,976, since
-> each copy has added 389 tokens to the last.
+> each copy has added 389 tokens to the last. When the previous figure was itself derived, the two
+> bands add: 2.1.294's tools total, 12,047, carried ±31, so the v2.1.295 run's band was ±68.
 >
 > **Check for the truncation marker before drawing any inference from a metadata/changelog mismatch —
 > it decides whether the mismatch is evidence or just a gap.** Several notes in this range record a
@@ -842,7 +845,7 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > so `-o` with a context window returns the minified source around a literal. **Keep the window near
 > 300 characters** — a longer match comes back as "[Omitted long matching line]" — and walk forward
 > with a second search anchored on the tail of the first. `output_mode: count` answers presence
-> questions in one call. Four kinds of question it settles that nothing else here can:
+> questions in one call. Six kinds of question it settles that nothing else here can:
 >
 > - **Settings schemas, including transforms and defaults.** 2.1.281's `attribution` schema — the
 >   `union([boolean, object])` and the transform that turns the new boolean into the object form —
@@ -859,6 +862,18 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 >   three interpolate one shared block; anchor on its text (`decides what happens next`), since its
 >   minified name will differ. The vendored build gives an older wording to compare against, which
 >   is how the v2.1.294 run dated that block to "after 2.1.207" and no closer.
+> - **What a failing hook does.** `What a failure of this hook does` returns `onFailure`'s schema
+>   text and its default. `blocking because onFailure is "block"` finds the code that applies it,
+>   and `userHooksConfig` the test for "the user's own hooks", which reads user settings only. The
+>   v2.1.295 run settled from these three that Canopy's `--settings` hooks still fail open.
+> - **Which terminal probes the CLI sends.** `PROGRAM_STATUS:7501` returns the CLI's table of OSC
+>   codes, and `probe: no reply to` the probes that decide whether it uses each. Check each code
+>   against `node_modules/@xterm/xterm/lib/xterm.js`: an OSC code with no registered handler goes to
+>   a no-op fallback (`_handlerFb=()=>{}`), so a Canopy pane sends no reply.
+>
+> **A highlight can read an opt-in as a default.** The archive's 2.1.295 highlight said failing
+> hooks "now block the action". The entry adds `onFailure: "block"`, and the schema calls `continue`
+> the default. Read the entry and the schema's `.describe()` text before calling a default changed.
 >
 > **It cannot recover the changelog.** Three phrases from 2.1.281's visible entries returned no match,
 > so the entries behind "… +N more" are not in the binary, and there is no previous build on disk to
