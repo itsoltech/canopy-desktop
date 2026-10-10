@@ -28,6 +28,8 @@ const CLAUDE_HOOK_EVENTS = [
   'TeammateIdle',
   'PreCompact',
   'PostCompact',
+  'PreModelSwitch',
+  'PostModelSwitch',
   'SessionEnd',
 ]
 
@@ -48,6 +50,12 @@ const EVENT_MAP: Record<string, NormalizedEventName> = {
   TaskCompleted: 'TaskCompleted',
   TeammateIdle: 'TeammateIdle',
   SessionEnd: 'SessionEnd',
+  // Model switches have no session-status meaning, so they stay unnamed and are
+  // consumed only for PostModelSwitch's `to_model` (see normalizeEvent) — same as
+  // Gemini's BeforeModel/AfterModel. `toNotchStatus` returns null for 'Unknown',
+  // which keeps a switch from overwriting the pane's thinking/toolCalling status.
+  PreModelSwitch: 'Unknown',
+  PostModelSwitch: 'Unknown',
 }
 
 const INTERNAL_BLOCKED = new Set([
@@ -56,6 +64,28 @@ const INTERNAL_BLOCKED = new Set([
   'CANOPY_HOOK_TOKEN',
   'ELECTRON_RUN_AS_NODE',
 ])
+
+// Claude Code 2.1.281 accepts `attribution: true | false` as shorthand, but older
+// CLIs reject the boolean and skip the whole settings file. Profile overrides share
+// this file with Canopy's hooks and status line, so one `"attribution": false` read
+// by an older `claude` would silently drop both. Desugar it the way 2.1.281's own
+// parser does, so every version reads the object form it already accepts.
+function desugarAttribution(overrides: Record<string, unknown>): Record<string, unknown> {
+  if (typeof overrides.attribution !== 'boolean') return overrides
+  return {
+    ...overrides,
+    attribution: overrides.attribution ? {} : { commit: '', pr: '', sessionUrl: false },
+  }
+}
+
+// Claude Code runs every command hook and the status line through a shell (Git Bash on
+// Windows, `/bin/sh -c` elsewhere), so a bare script path splits at a space, as it does
+// for a per-user Windows install under a profile folder such as C:/Users/Jan Kowalski.
+// Double-quote it and escape what a double-quoted word still expands. On Windows the CLI
+// reads the quoted first word, sees `.sh` and runs `bash "<path>"` (2.1.207 to 2.1.291).
+function shellQuote(path: string): string {
+  return `"${path.replace(/["$`\\]/g, '\\$&')}"`
+}
 
 export const claudeAdapter: AgentAdapter = {
   agentType: 'claude',
@@ -75,17 +105,18 @@ export const claudeAdapter: AgentAdapter = {
       string,
       Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>
     > = {}
+    const hookCommand = shellQuote(hookScriptPath)
     for (const event of CLAUDE_HOOK_EVENTS) {
-      hooks[event] = [{ matcher: '', hooks: [{ type: 'command', command: hookScriptPath }] }]
+      hooks[event] = [{ matcher: '', hooks: [{ type: 'command', command: hookCommand }] }]
     }
 
     const settings: Record<string, unknown> = {
-      ...(overrides ?? {}),
+      ...desugarAttribution(overrides ?? {}),
       hooks,
     }
 
     if (statusLineScriptPath) {
-      settings.statusLine = { type: 'command', command: statusLineScriptPath }
+      settings.statusLine = { type: 'command', command: shellQuote(statusLineScriptPath) }
     }
 
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8')
@@ -120,7 +151,10 @@ export const claudeAdapter: AgentAdapter = {
       agentId: raw.agent_id as string | undefined,
       agentSubtype: raw.agent_type as string | undefined,
       reason: raw.reason as string | undefined,
-      model: raw.model as string | undefined,
+      // Neither model-switch payload has a top-level `model` (2.1.282's hook schema).
+      // PostModelSwitch names the model it landed on `to_model`; PreModelSwitch's is
+      // only proposed, since a user's own hook can still refuse it, so it is not read.
+      model: (rawName === 'PostModelSwitch' ? raw.to_model : raw.model) as string | undefined,
       permissionMode: raw.permission_mode as string | undefined,
       compactSummary: raw.compact_summary as string | undefined,
       prompt: raw.prompt as string | undefined,
@@ -178,11 +212,16 @@ export const claudeAdapter: AgentAdapter = {
     const permMode = prefs.get('claude.permissionMode')
     const effort = prefs.get('claude.effortLevel')
     const appendPrompt = prefs.get('claude.appendSystemPrompt')
+    const promptSnapshot = prefs.get('claude.systemPromptSnapshot')
 
     if (model) args.push('--model', model)
     if (permMode) args.push('--permission-mode', permMode)
     if (effort) args.push('--effort', effort)
     if (appendPrompt) args.push('--append-system-prompt', appendPrompt)
+    // Only ever emit the documented 'off' value. Anything else (including the
+    // implicit default) omits the flag, so panes running a CLI older than
+    // 2.1.267 — which does not know the flag — start normally.
+    if (promptSnapshot === 'off') args.push('--system-prompt-snapshot', 'off')
 
     return args
   },

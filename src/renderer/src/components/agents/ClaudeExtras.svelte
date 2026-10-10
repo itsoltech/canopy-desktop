@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
+
   let { extra }: { extra: Record<string, unknown> } = $props()
 
   let rateLimitFiveHour = $derived((extra.rateLimitFiveHour as number | null) ?? null)
@@ -8,6 +10,17 @@
   )
   let rateLimitSevenDayResetsAt = $derived(
     (extra.rateLimitSevenDayResetsAt as number | null) ?? null,
+  )
+  let rateLimitSpend = $derived((extra.rateLimitSpend as number | null) ?? null)
+  let rateLimitSpendResetsAt = $derived((extra.rateLimitSpendResetsAt as number | null) ?? null)
+  let rateLimitSpendUsedUsd = $derived((extra.rateLimitSpendUsedUsd as number | null) ?? null)
+  let rateLimitSpendLimitUsd = $derived((extra.rateLimitSpendLimitUsd as number | null) ?? null)
+  let rateLimitSpendLabel = $derived(
+    match(extra.rateLimitSpendPeriod)
+      .with('daily', () => 'Daily spend')
+      .with('weekly', () => 'Weekly spend')
+      .with('monthly', () => 'Monthly spend')
+      .otherwise(() => 'Spend limit'),
   )
 
   function formatResetTime(resetsAt: number | null): string {
@@ -30,6 +43,14 @@
     return `in ${hours}h ${mins}min`
   }
 
+  function formatSpend(pct: number, usedUsd: number | null, limitUsd: number | null): string {
+    if (usedUsd != null && limitUsd != null) {
+      return `$${usedUsd.toFixed(2)} / $${limitUsd.toFixed(2)}`
+    }
+    // Remaining, like the windows above. used_percentage passes 100 once exceeded.
+    return `${Math.max(Math.round(100 - pct), 0)}%`
+  }
+
   function rateLimitBarClass(pct: number): string {
     if (pct >= 90) return 'bg-danger'
     if (pct >= 70) return 'bg-warning'
@@ -37,7 +58,7 @@
   }
 </script>
 
-{#if rateLimitFiveHour != null || rateLimitSevenDay != null}
+{#if rateLimitFiveHour != null || rateLimitSevenDay != null || rateLimitSpend != null}
   <div class="flex flex-col gap-1.5">
     <h4 class="text-2xs font-semibold tracking-[0.5px] uppercase text-text-faint m-0">
       Rate Limits
@@ -80,6 +101,31 @@
               rateLimitSevenDay,
             )}"
             style="width: {Math.max(100 - rateLimitSevenDay, 0)}%"
+          ></div>
+        </div>
+      </div>
+    {/if}
+    {#if rateLimitSpend != null}
+      <div class="flex flex-col gap-[3px]">
+        <div class="flex justify-between items-baseline">
+          <span class="text-sm text-text-muted">{rateLimitSpendLabel}</span>
+          <span class="text-xs text-text-secondary"
+            >{formatSpend(
+              rateLimitSpend,
+              rateLimitSpendUsedUsd,
+              rateLimitSpendLimitUsd,
+            )}{#if formatResetTime(rateLimitSpendResetsAt)}
+              <span class="text-text-faint ml-[0.3em]"
+                >{formatResetTime(rateLimitSpendResetsAt)}</span
+              >{/if}</span
+          >
+        </div>
+        <div class="h-1 rounded-xs bg-active overflow-hidden">
+          <div
+            class="h-full rounded-xs transition-[width] duration-slow {rateLimitBarClass(
+              rateLimitSpend,
+            )}"
+            style="width: {Math.max(100 - rateLimitSpend, 0)}%"
           ></div>
         </div>
       </div>
