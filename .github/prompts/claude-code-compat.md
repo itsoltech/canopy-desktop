@@ -22,7 +22,9 @@ mode instead (an observation about those runs; nothing in the workflow sets it),
 run's session was held again, the twenty-second run to have its probe denied: the compare call, `WebFetch`,
 `python3`, `npm run lint` and Bash `grep` on a path outside the working tree were all refused. The
 v2.1.295 run's was held too, the twenty-third: its compare call, its one `WebFetch` and
-`npm run lint` were refused. So expect either. Record which way the one probe went in the PR body.
+`npm run lint` were refused. The v2.1.296 run's was held, the twenty-fourth: its compare call went
+out twice before the checkout, first inside a pipe and then bare, and both were refused, as were
+its one `WebFetch` and `npm run lint`. So expect either. Record which way the one probe went in the PR body.
 **If it runs, use point 6.**
 
 **If it is denied, everything below about the denial applies.** It was denied against every shape
@@ -743,6 +745,12 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > each copy has added 389 tokens to the last. When the previous figure was itself derived, the two
 > bands add: 2.1.294's tools total, 12,047, carried ±31, so the v2.1.295 run's band was ±68.
 >
+> **When the system half falls back to about 4.2k, the archive has dropped its copies.** The original
+> `User Memory Project One` is 4,192 tokens and copy k is 4,253 + 389 × (k − 2), so copies 2 to N
+> add to 4,253 × (N − 1) + 389 × (N − 1)(N − 2) / 2. That gives 2.1.265's −31,353 (copies 2 to 7),
+> 2.1.283's −13,926 (copies 2 to 4) and 2.1.296's −52,281 (copies 2 to 10), and each drop removed
+> exactly that many files: six, three and nine.
+>
 > **Check for the truncation marker before drawing any inference from a metadata/changelog mismatch —
 > it decides whether the mismatch is evidence or just a gap.** Several notes in this range record a
 > prompt-file count rising while the changelog names no new tool (2.1.272, 2.1.276, 2.1.277). In every
@@ -845,7 +853,7 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > so `-o` with a context window returns the minified source around a literal. **Keep the window near
 > 300 characters** — a longer match comes back as "[Omitted long matching line]" — and walk forward
 > with a second search anchored on the tail of the first. `output_mode: count` answers presence
-> questions in one call. Six kinds of question it settles that nothing else here can:
+> questions in one call. Seven kinds of question it settles that nothing else here can:
 >
 > - **Settings schemas, including transforms and defaults.** 2.1.281's `attribution` schema — the
 >   `union([boolean, object])` and the transform that turns the new boolean into the object form —
@@ -872,6 +880,12 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 >   a fallback that only logs `Unknown OSC code` at debug level, so a Canopy pane sends no reply.
 >   Anchor on that log text: xterm.js replaces the parser's own `_handlerFb=()=>{}` when it builds
 >   each terminal.
+> - **Which `Stop` hooks a turn's end runs.** `reason:"hook_stopped"` returns the exit a turn takes
+>   when a hook prevents continuation during a tool call. In 2.1.296 it first runs the `Stop` runner
+>   in `turn_end_reactions` mode, and that mode sets `sessionFunctionHooksOnly`, so only in-process
+>   function hooks run and Canopy's `--settings` `Stop` hook does not. The same return in 2.1.207
+>   runs no `Stop` hook. When an entry changes when or how a turn ends, find its exit this way and
+>   check whether Canopy's idle signal still arrives (finding #33).
 >
 > **A highlight can read an opt-in as a default.** The archive's 2.1.295 highlight said failing
 > hooks "now block the action". The entry adds `onFailure: "block"`, and the schema calls `continue`
