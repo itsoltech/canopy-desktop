@@ -3583,24 +3583,26 @@ run, because `gh api` and web fetches were both refused. On this branch, `npm ci
 **2.1.296 makes a managed hook end the turn it stops, and Canopy's `Stop` hook does not run on
 that path.** The entry reads "Fixed managed-settings PreToolUse hooks that deny a tool call with
 "continue": false, and managed prompt hooks that block one, refusing the call but not ending the
-turn". Before 2.1.296 such a hook refused the call and the turn went on, so Canopy's `Stop` hook
-ran when it ended. From 2.1.296 the turn ends at the refusal. The 2.1.296 build on the runner shows
-what that path skips:
+turn". By that entry, such a hook used to refuse the call and let the turn go on, so Canopy's
+`Stop` hook ran when the turn ended. From 2.1.296 the turn ends at the refusal. The 2.1.296 build
+on the runner shows what that path skips:
 
 - **A stopped turn runs no settings `Stop` hook.** When a hook prevents continuation during a tool
-  call, the query loop returns `hook_stopped`. Before that it runs the `Stop` hooks in
-  `turn_end_reactions` mode, which sets `sessionFunctionHooksOnly`: only in-process function hooks
-  run, and hooks from settings files, Canopy's among them, do not. The vendored 2.1.207 build
-  returns `hook_stopped` without running any `Stop` hook.
+  call, the query loop returns `hook_stopped`. Before that it calls the `Stop` runner in
+  `turn_end_reactions` mode. That mode returns at once unless an in-process function hook is
+  registered for `Stop`, and it sets `sessionFunctionHooksOnly`, so hooks from settings files,
+  Canopy's among them, never run. The vendored 2.1.207 build returns `hook_stopped` without
+  running any `Stop` hook.
 - **So the pane stays busy.** Canopy clears a pane's busy state only on `Stop`, `StopFailure` and
   `SessionEnd` (`claude.ts:95`), and none of them fires. The refused call's `PreToolUse` left the
   pane in `busySessions` (`AgentSessionManager.ts:104-108`), which the window and tab close
-  confirmations read, and its status reads as working. It gets no "Finished" peek and no `unread`
-  badge. The next prompt starts a normal turn, whose `Stop` clears it.
-- **The path is older than 2.1.296; the fix adds managed hooks to it.** A command hook from any
-  other source that returns `"continue": false` already ended the turn this way, and so did a
-  prompt hook that blocks: `continueOnBlock` reads "Default false (turn ends)" in the 2.1.207 build
-  too.
+  confirmations read, and its status reads as working. It gets no "Finished" peek, and an `unread`
+  badge only if an earlier tool call in the turn set one. The next prompt starts a normal turn,
+  whose `Stop` clears it.
+- **The path is older than 2.1.296.** A command hook from any other source that returns
+  `"continue": false` already ended the turn this way, and so did a prompt hook that blocks:
+  `continueOnBlock` reads "Default false (turn ends)" in the 2.1.207 build too. By the changelog
+  entry, 2.1.296 adds managed hooks to that path; no 2.1.295 build was on the runner to show it.
 - **No other event marks the end.** `PermissionDenied`, which Canopy does not subscribe to, fires
   only when the auto-mode classifier denies a call. Canopy's own hooks never stop a turn: the hook
   server answers only `SessionStart`, with `hookSpecificOutput`.
@@ -3608,8 +3610,8 @@ what that path skips:
 **The Read tool's `allow_large` does not reach the notch.** 2.1.296 "Added an allow_large option to
 the Read tool so Claude can read a text file past the usual size limits in one call". The build's
 Read tool lists `allow_large` among its input fields and keeps `file_path`. `summarizeToolInput`
-returns `file_path` before any other key, and `allow_large` is a boolean, so a Read still
-summarizes as its path.
+returns a Read's `file_path`, and its fallback loop takes only strings, so the boolean
+`allow_large` cannot change a summary.
 
 **The other visible entries do not reach Canopy.**
 
