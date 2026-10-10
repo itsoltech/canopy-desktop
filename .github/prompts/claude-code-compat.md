@@ -881,10 +881,10 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 >   Anchor on that log text: xterm.js replaces the parser's own `_handlerFb=()=>{}` when it builds
 >   each terminal.
 > - **Which `Stop` hooks a turn's end runs.** `reason:"hook_stopped"` returns the exit a turn takes
->   when a hook prevents continuation during a tool call. In 2.1.296 it first runs the `Stop` runner
->   in `turn_end_reactions` mode, and that mode sets `sessionFunctionHooksOnly`, so only in-process
->   function hooks run and Canopy's `--settings` `Stop` hook does not. The same return in 2.1.207
->   runs no `Stop` hook. When an entry changes when or how a turn ends, find its exit this way and
+>   when a hook prevents continuation during a tool call. In 2.1.296 it first calls the `Stop`
+>   runner in `turn_end_reactions` mode, which returns at once unless an in-process function hook
+>   is registered for `Stop` and sets `sessionFunctionHooksOnly`, so Canopy's `--settings` `Stop`
+>   hook never runs. The same return in 2.1.207 runs no `Stop` hook. When an entry changes when or how a turn ends, find its exit this way and
 >   check whether Canopy's idle signal still arrives (finding #33).
 >
 > **A highlight can read an opt-in as a default.** The archive's 2.1.295 highlight said failing
