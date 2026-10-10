@@ -3580,6 +3580,84 @@ behind "… +131 more". The changelog archive and the official `CHANGELOG.md` we
 run, because `gh api` and web fetches were both refused. On this branch, `npm ci` now installs
 `0.3.295`, which vendors CLI 2.1.295.
 
+**2.1.296 makes a managed hook end the turn it stops, and Canopy's `Stop` hook does not run on
+that path.** The entry reads "Fixed managed-settings PreToolUse hooks that deny a tool call with
+"continue": false, and managed prompt hooks that block one, refusing the call but not ending the
+turn". Before 2.1.296 such a hook refused the call and the turn went on, so Canopy's `Stop` hook
+ran when it ended. From 2.1.296 the turn ends at the refusal. The 2.1.296 build on the runner shows
+what that path skips:
+
+- **A stopped turn runs no settings `Stop` hook.** When a hook prevents continuation during a tool
+  call, the query loop returns `hook_stopped`. Before that it runs the `Stop` hooks in
+  `turn_end_reactions` mode, which sets `sessionFunctionHooksOnly`: only in-process function hooks
+  run, and hooks from settings files, Canopy's among them, do not. The vendored 2.1.207 build
+  returns `hook_stopped` without running any `Stop` hook.
+- **So the pane stays busy.** Canopy clears a pane's busy state only on `Stop`, `StopFailure` and
+  `SessionEnd` (`claude.ts:95`), and none of them fires. The refused call's `PreToolUse` left the
+  pane in `busySessions` (`AgentSessionManager.ts:104-108`), which the window and tab close
+  confirmations read, and its status reads as working. It gets no "Finished" peek and no `unread`
+  badge. The next prompt starts a normal turn, whose `Stop` clears it.
+- **The path is older than 2.1.296; the fix adds managed hooks to it.** A command hook from any
+  other source that returns `"continue": false` already ended the turn this way, and so did a
+  prompt hook that blocks: `continueOnBlock` reads "Default false (turn ends)" in the 2.1.207 build
+  too.
+- **No other event marks the end.** `PermissionDenied`, which Canopy does not subscribe to, fires
+  only when the auto-mode classifier denies a call. Canopy's own hooks never stop a turn: the hook
+  server answers only `SessionStart`, with `hookSpecificOutput`.
+
+**The Read tool's `allow_large` does not reach the notch.** 2.1.296 "Added an allow_large option to
+the Read tool so Claude can read a text file past the usual size limits in one call". The build's
+Read tool lists `allow_large` among its input fields and keeps `file_path`. `summarizeToolInput`
+returns `file_path` before any other key, and `allow_large` is a boolean, so a Read still
+summarizes as its path.
+
+**The other visible entries do not reach Canopy.**
+
+- **Two new environment variables.** `CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL` and
+  `CLAUDE_CODE_OVERLOADED_RETRY_MAX_DELAY_MS` are read from the environment, and Canopy sets
+  neither. Its env blocklist names neither, so a profile's custom env vars can pass both to a pane.
+- **Subagent `autoCompactWindow`.** It goes in subagent frontmatter or `--agents` definitions.
+  Canopy writes no agent definitions and passes no `--agents`.
+- **Headless MCP servers.** The fix covers headless sessions that started a folder's `.mcp.json` or
+  plugin MCP server that was switched off for that folder. The commit-message turn sets
+  `strictMcpConfig: true`, so it starts none of them.
+- **Not used by Canopy.** The gateway's `code` policy key, its `allowedProviders` and sign-in
+  fixes, managed `PostToolUse` hooks' `updatedMCPToolOutput`, the `/plugin` note on left-out
+  hooks, `--teleport`, and the redaction fix for shared transcripts and debug logs.
+
+**Canopy's contract against 2.1.296, by presence.** The 2.1.296 build was on the runner at
+`~/.local/share/claude/versions/2.1.296`. No 2.1.295 build was reachable, so nothing below is a
+diff:
+
+- **Hook events.** The array names the same 33 events, the 18 Canopy subscribes to among them.
+  `Stop` still carries `stop_hook_active` and `last_assistant_message`, `StopFailure` carries
+  `error` and `error_details`, and `TaskCompleted` and `TeammateIdle` still carry the deprecated
+  `team_name`.
+- **`Stop`'s `background_tasks` and `session_crons`.** They let a hook tell "session is done" from
+  "session is paused waiting for background work to wake it". Both are in the vendored 2.1.207
+  build and its SDK types, so they are not new, and Canopy reads neither.
+- **Flags and status line.** All seven flags Canopy emits are present, and
+  `--system-prompt-snapshot` still takes `<on|off>`. The status-line builder still starts at
+  `model:{id:` and still sends the `cost` totals and `context_window`'s `used_percentage` and
+  `context_window_size`.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The metadata step is the archive dropping its duplicates, by arithmetic.** The archive reports
+−55,053 prompt tokens (−72.9%), nine fewer prompt files (−32.1%) and a +338.7 kB bundle. That
+gives 75,553 → 20,500 tokens and 28 → 19 files, and 75,553 is the 2.1.295 note's total. With the
+tools share going from 25.3% to 79.6%, the system half fell by about 52,256 and the tools half by
+about 2,797, each ±48. The system step is the `User Memory Project One` series leaving: copies 2
+to 10 add to 52,281, inside that band, and they are nine files. What is left of the system half,
+about 4,182 (±10), is the original's 4,192 at the band's edge. The same series gives 2.1.265's
+−31,353 (copies 2 to 7, six files) and 2.1.283's −13,926 (copies 2 to 4, three files). The tools
+step is not attributed. `meta/prompt-stats.md` would settle both, and was not reachable.
+
+**12 of 2.1.296's 79 CLI changelog entries were read.** The pasted notes list 12 and hide 67 behind
+"… +67 more". The changelog archive and the official `CHANGELOG.md` were unreachable this run,
+because `gh api` and web fetches were both refused. On this branch, `npm ci` now installs
+`0.3.296`, which vendors CLI 2.1.296.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
