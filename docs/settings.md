@@ -46,7 +46,13 @@ Baza `canopy-dev` ma migracje do 18 i jest obecnie nieobsługiwana.
 Kopia do dalszej integracji na macOS:
 `~/Library/Application Support/Canopy Rust/canopy.db`.
 Aplikacja desktopowa otwiera ją automatycznie przez SettingsState. Na Windows
-baza znajduje się w `FOLDERID_LocalAppData/Canopy Rust/canopy.db`. Jawny
+baza znajduje się w `FOLDERID_LocalAppData/Canopy Rust/canopy.db`. Na Linuxie
+korzystamy z `$XDG_DATA_HOME/canopy-rust/canopy.db`, domyślnie
+`~/.local/share/canopy-rust/canopy.db`. Zgodnie z
+[XDG Base Directory Specification](https://specifications.freedesktop.org/basedir/latest/)
+brak zmiennej, pusta wartość lub ścieżka względna powodują użycie domyślnego
+katalogu pod `HOME`; bez poprawnego katalogu bazowego aplikacja zgłasza błąd.
+Katalog aplikacji zachowuje uprawnienia `0700` na Unix. Jawny
 `CANOPY_DATA_DIR` zastępuje katalog platformowy, głównie dla izolowanych testów.
 Wybór katalogu nie zmienia automatycznie ścieżek cwd ani danych workspace'u i
 nigdy nie uruchamia fallbacku do bazy Electrona.

@@ -49,7 +49,34 @@ fn platform_data_dir() -> Result<PathBuf, String> {
         .map(|path| path.join("Canopy Rust"))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+fn platform_data_dir() -> Result<PathBuf, String> {
+    linux_data_dir(std::env::var_os("XDG_DATA_HOME"), user_home)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_data_dir(
+    xdg_data_home: Option<std::ffi::OsString>,
+    home: impl FnOnce() -> Result<PathBuf, String>,
+) -> Result<PathBuf, String> {
+    // XDG requires absolute paths; empty and relative values use the HOME fallback.
+    let base = match xdg_data_home
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    {
+        Some(path) => path,
+        None => {
+            let home = home()?;
+            if !home.is_absolute() {
+                return Err("User home directory must be absolute.".into());
+            }
+            home.join(".local/share")
+        }
+    };
+    Ok(base.join("canopy-rust"))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn platform_data_dir() -> Result<PathBuf, String> {
     Err("Application data directory is unavailable on this platform.".into())
 }
@@ -153,6 +180,32 @@ mod tests {
         let path = parent.path().join("private");
         ensure_private_dir(&path).unwrap();
         assert!(path.is_dir());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_data_directory_uses_absolute_xdg_without_requiring_home() {
+        let path = linux_data_dir(Some("/custom/data".into()), || {
+            Err("HOME unavailable".into())
+        })
+        .unwrap();
+        assert_eq!(path, PathBuf::from("/custom/data/canopy-rust"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_data_directory_defaults_for_missing_empty_or_relative_xdg() {
+        for xdg in [None, Some("".into()), Some("relative/data".into())] {
+            let path = linux_data_dir(xdg, || Ok(PathBuf::from("/home/test"))).unwrap();
+            assert_eq!(path, PathBuf::from("/home/test/.local/share/canopy-rust"));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_data_directory_requires_a_valid_home_when_xdg_is_unavailable() {
+        assert!(linux_data_dir(None, || Err("HOME unavailable".into())).is_err());
+        assert!(linux_data_dir(None, || Ok(PathBuf::from("relative/home"))).is_err());
     }
 
     #[cfg(target_os = "windows")]

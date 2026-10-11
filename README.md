@@ -29,6 +29,10 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked
 ```
 
+Na Linuxie wersję release uruchomisz przez `cargo run --release --locked`.
+Katalog danych to `$XDG_DATA_HOME/canopy-rust` lub domyślnie
+`~/.local/share/canopy-rust`; `CANOPY_DATA_DIR` pozwala jawnie go zastąpić.
+
 `./scripts/run-macos.sh` domyślnie buduje i otwiera **zoptymalizowany release**:
 `target/release/Canopy.app`. `./scripts/run-macos.sh dev` uruchamia build
 bez optymalizacji; `cargo dev` również pozostaje poleceniem debug.
