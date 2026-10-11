@@ -8,6 +8,7 @@ mod find;
 mod handoff;
 mod mentions;
 mod navigator;
+mod page;
 mod queue;
 mod quote;
 mod recall;
@@ -20,6 +21,7 @@ mod suggest;
 mod tools;
 mod turn_diff;
 mod view;
+pub(crate) use page::serve_previews;
 pub use turn_diff::TurnDiffView;
 pub use view::{ChatStateChanged, ChatView};
 

@@ -11,6 +11,7 @@ pub(crate) mod file_icons;
 mod file_nodes;
 pub(crate) mod font_preview;
 mod history;
+mod html_native;
 pub(crate) mod image_preview;
 mod inspector;
 mod jira;

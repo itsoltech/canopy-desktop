@@ -163,6 +163,10 @@ pub struct ChatView {
     pub(super) composer_was_empty: bool,
     /// ↑ in the composer: which earlier message is shown, and its text (DEC-075).
     pub(super) recall: Option<super::recall::Recall>,
+    /// Pages agents showed, by tool call (DEC-076).
+    pub(super) pages: super::page::Pages,
+    /// The running session's token for the page service (`preview_html`).
+    page_token: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -291,6 +295,8 @@ impl ChatView {
             shell: false,
             composer_was_empty: true,
             recall: None,
+            pages: Default::default(),
+            page_token: None,
             _subscriptions: vec![subscription],
             pane,
         }
@@ -601,13 +607,32 @@ impl ChatView {
         let pane = self.pane.clone();
         let settings = self.settings.clone();
         let generation = self.generation;
+        // Canopy's page tools for the agent (DEC-076); a fresh token per process. The
+        // registry is a global: this runs inside `Chats` updates.
+        let tokens = cx
+            .try_global::<crate::app_state::PageTokens>()
+            .map(|tokens| tokens.0.clone());
+        if let (Some(token), Some(tokens)) = (self.page_token.take(), &tokens) {
+            tokens.remove(&token);
+        }
+        let pages = tokens.map(|tokens| tokens.register());
+        self.page_token = pages.as_ref().map(|access| access.token.clone());
         self.start_task = Some(cx.spawn(async move |this, cx| {
             let started = cx
                 .background_executor()
                 .spawn(async move {
+                    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
                     if provider == Provider::Codex {
                         // Codex picks the conversation over the protocol; no hooks (DEC-059).
-                        let launch = prepare_codex(&catalog, &pane, &env)?;
+                        let mut launch = prepare_codex(&catalog, &pane, &env)?;
+                        if let Some(access) = &pages {
+                            canopy_desktop::chat::launch::add_page_tools(
+                                &mut launch,
+                                provider,
+                                &executable,
+                                access,
+                            )?;
+                        }
                         return Process::start(
                             launch.spec,
                             launch.files,
@@ -615,7 +640,6 @@ impl ChatView {
                             codex_wire::MAX_LINE_BYTES,
                         );
                     }
-                    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
                     let helper = hook_launch::helper_path(&executable);
                     hook_launch::validate_helper(&helper)?;
                     let mut launch = prepare_claude(
@@ -630,6 +654,14 @@ impl ChatView {
                     )?;
                     if let Some(at) = &fork {
                         fork_at(&mut launch, at);
+                    }
+                    if let Some(access) = &pages {
+                        canopy_desktop::chat::launch::add_page_tools(
+                            &mut launch,
+                            provider,
+                            &executable,
+                            access,
+                        )?;
                     }
                     Process::start(
                         launch.spec,
@@ -1544,6 +1576,13 @@ impl ChatView {
         self.generation += 1;
         self.starting = false;
         self.stop_shells();
+        self.drop_live_pages();
+        // A global, not `Chats`: closing runs inside a `Chats` update.
+        if let Some(token) = self.page_token.take()
+            && let Some(tokens) = cx.try_global::<crate::app_state::PageTokens>()
+        {
+            tokens.0.remove(&token);
+        }
         // Stopped on purpose: not a session that failed to continue.
         self.resuming_switch = false;
         self.pump = None;

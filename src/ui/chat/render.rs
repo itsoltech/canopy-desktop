@@ -48,6 +48,7 @@ impl Render for ChatView {
                 window.on_next_frame(move |window, cx| focus.focus(window, cx));
             }
         }
+        self.sync_pages(window.scale_factor(), window, cx);
         let now = Instant::now();
         motion::request_frame(
             window,
@@ -100,6 +101,7 @@ impl Render for ChatView {
                 }),
             )
             .child(body)
+            .children(self.page_layer(window, cx))
             .children(self.navigator(window, cx))
             .children(self.find_bar(window, cx))
             .children(self.quote_button(window, cx));
@@ -678,6 +680,12 @@ fn item_row(
                         .then(|| actions::reply_actions(view, this, entry, end, &block.text, last)),
                 )
                 .into_any_element()
+        }
+        Body::Tool(tool)
+            if tool.name == canopy_desktop::chat::page::SHOW_TOOL
+                && tool.state != ToolState::Failed =>
+        {
+            super::page::page_card(view, this, entry, tool).into_any_element()
         }
         Body::Tool(tool) if presentation::is_subagent(tool) => {
             subagent::card(view, this, rows, entry.key, source, tool, cx)

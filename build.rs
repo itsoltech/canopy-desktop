@@ -3,6 +3,7 @@ fn main() {
         cc::Build::new()
             .file("native/video_preview.m")
             .file("native/attachment_preview.m")
+            .file("native/html_page.m")
             .flag("-fobjc-arc")
             .compile("canopy_video");
         println!("cargo:rustc-link-lib=framework=AVFoundation");
@@ -10,6 +11,8 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=QuartzCore");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=Quartz");
+        println!("cargo:rustc-link-lib=framework=WebKit");
+        println!("cargo:rerun-if-changed=native/html_page.m");
         println!("cargo:rerun-if-changed=native/attachment_preview.m");
         println!("cargo:rerun-if-changed=native/video_preview.m");
     }

@@ -3,7 +3,7 @@ mod task_drafts;
 pub use integrations::{IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
 mod editors;
-pub use chats::ChatGuardRequest;
+pub use chats::{ChatGuardRequest, PageTokens};
 pub use editors::{Editors, GuardRequest};
 mod files;
 pub use files::FilesState;
@@ -326,6 +326,7 @@ impl AppState {
         state.files.update(cx, |files, cx| files.bind(cx));
         state.integrations.update(cx, |state, cx| state.bind(cx));
         state.agents.update(cx, |agents, cx| agents.bind(cx));
+        state.chats.update(cx, |chats, cx| chats.start_pages(cx));
         state.diffs.update(cx, |diffs, cx| diffs.bind(&state, cx));
         state
             .changes

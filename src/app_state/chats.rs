@@ -24,6 +24,10 @@ pub enum ChatTarget {
     Project(WorkspaceId),
 }
 
+/// Session tokens of the page service (`preview_html`), reachable without `Chats`.
+pub struct PageTokens(pub canopy_desktop::chat::pages::Registry);
+impl Global for PageTokens {}
+
 /// Closing panes whose chats would lose something: their conversation (closing deletes
 /// a chat), or messages still queued (also on quit).
 pub struct ChatGuardRequest {
@@ -66,6 +70,9 @@ pub struct Chats {
     /// an empty "No project" space starts a chat, closing its last tab does not.
     last_space: Option<Option<WorkspaceId>>,
     opening: Option<Task<()>>,
+    /// Renders pages for agents' `preview_html` (DEC-077); `None` where unsupported.
+    pages: Option<canopy_desktop::chat::pages::PageService>,
+    _previews: Option<Task<()>>,
 }
 
 impl Chats {
@@ -218,6 +225,21 @@ impl Chats {
             agents_ready: false,
             last_space: None,
             opening: None,
+            pages: None,
+            _previews: None,
+        }
+    }
+
+    /// Starts the page service; a failure only leaves agents without page previews. Its
+    /// token registry is a global: chats start and close from inside `Chats` updates.
+    pub fn start_pages(&mut self, cx: &mut Context<Self>) {
+        match canopy_desktop::chat::pages::PageService::start() {
+            Ok((service, requests)) => {
+                cx.set_global(PageTokens(service.registry()));
+                self.pages = Some(service);
+                self._previews = Some(crate::ui::chat::serve_previews(requests, cx));
+            }
+            Err(error) => eprintln!("Page previews unavailable: {error}"),
         }
     }
 

@@ -191,6 +191,61 @@ pub fn prepare_codex(
     })
 }
 
+/// Adds Canopy's MCP server (`<exe> --chat-tools`, pages in the chat) to a launch, in
+/// argv only: Claude through `--mcp-config` with its two tools allowed (they only show
+/// pages), Codex through `-c mcp_servers.canopy.*` overrides.
+pub fn add_page_tools(
+    launch: &mut Launch,
+    provider: crate::chat::provider::Provider,
+    executable: &std::path::Path,
+    access: &crate::chat::pages::Access,
+) -> Result<(), String> {
+    use crate::chat::{page, pages};
+    let command = executable
+        .to_str()
+        .ok_or("The Canopy executable path is not UTF-8.")?;
+    let socket = access
+        .socket
+        .to_str()
+        .ok_or("The page service path is not UTF-8.")?;
+    let arguments = &mut launch.spec.arguments;
+    match provider {
+        crate::chat::provider::Provider::Claude => {
+            let config = serde_json::json!({"mcpServers": {page::SERVER: {
+                "type": "stdio",
+                "command": command,
+                "args": ["--chat-tools"],
+                "env": {pages::SOCKET_ENV: socket, pages::TOKEN_ENV: access.token},
+            }}});
+            arguments.extend([
+                "--mcp-config".to_owned(),
+                config.to_string(),
+                "--allowedTools".to_owned(),
+                format!("{},{}", page::SHOW_TOOL, page::PREVIEW_TOOL),
+            ]);
+        }
+        crate::chat::provider::Provider::Codex => {
+            let key = format!("mcp_servers.{}", page::SERVER);
+            arguments.extend([
+                "-c".to_owned(),
+                format!("{key}.command={}", toml_string(command)),
+                "-c".to_owned(),
+                format!("{key}.args=[\"--chat-tools\"]"),
+                "-c".to_owned(),
+                format!(
+                    "{key}.env={{{}={},{}={}}}",
+                    pages::SOCKET_ENV,
+                    toml_string(socket),
+                    pages::TOKEN_ENV,
+                    toml_string(&access.token)
+                ),
+            ]);
+        }
+    }
+    launch.spec.secrets.push(access.token.clone());
+    Ok(())
+}
+
 /// A TOML basic string.
 fn toml_string(text: &str) -> String {
     let mut out = String::from("\"");
@@ -316,6 +371,61 @@ fn reserved_argument(arguments: &[String]) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn page_tools_go_in_argv_for_both_agents() {
+        use crate::chat::{pages::Access, provider::Provider};
+        let launch = || Launch {
+            spec: Spec {
+                program: "/bin/agent".into(),
+                arguments: vec!["--x".into()],
+                cwd: "/repo".into(),
+                environment: Default::default(),
+                secrets: vec![],
+            },
+            files: None,
+        };
+        let access = Access {
+            socket: "/tmp/canopy-pages-a/pages.sock".into(),
+            token: "tok\"en".into(),
+        };
+        let exe = std::path::Path::new("/Apps/Canopy.app/Contents/MacOS/canopy-desktop");
+        let value = |args: &[String], flag: &str| {
+            let at = args.iter().position(|a| a == flag).unwrap();
+            args[at + 1].clone()
+        };
+        let mut claude = launch();
+        add_page_tools(&mut claude, Provider::Claude, exe, &access).unwrap();
+        let args = &claude.spec.arguments;
+        let config: serde_json::Value = serde_json::from_str(&value(args, "--mcp-config")).unwrap();
+        let server = &config["mcpServers"]["canopy"];
+        assert_eq!(server["command"], exe.to_str().unwrap());
+        assert_eq!(server["args"], serde_json::json!(["--chat-tools"]));
+        assert_eq!(server["env"]["CANOPY_PAGES_TOKEN"], "tok\"en");
+        assert_eq!(
+            value(args, "--allowedTools"),
+            "mcp__canopy__show_html,mcp__canopy__preview_html"
+        );
+        assert_eq!(claude.spec.secrets, ["tok\"en"]);
+        let mut codex = launch();
+        add_page_tools(&mut codex, Provider::Codex, exe, &access).unwrap();
+        let overrides: Vec<&String> = codex
+            .spec
+            .arguments
+            .windows(2)
+            .filter(|pair| pair[0] == "-c")
+            .map(|pair| &pair[1])
+            .collect();
+        assert_eq!(
+            overrides,
+            [
+                "mcp_servers.canopy.command=\"/Apps/Canopy.app/Contents/MacOS/canopy-desktop\"",
+                "mcp_servers.canopy.args=[\"--chat-tools\"]",
+                "mcp_servers.canopy.env={CANOPY_PAGES_SOCKET=\"/tmp/canopy-pages-a/pages.sock\",CANOPY_PAGES_TOKEN=\"tok\\\"en\"}",
+            ]
+        );
+    }
+
     use super::*;
     use crate::state::workspace::{PaneId, PaneMetadata};
 

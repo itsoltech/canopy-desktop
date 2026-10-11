@@ -85,6 +85,8 @@ pub(super) struct RowExtra {
     /// The final reply of an ended turn: transcript index of its turn end, for the
     /// message actions and the turn's numbers.
     pub turn_end: Option<usize>,
+    /// A page the agent showed: like a reply, it stays in view under "Worked for".
+    pub page: bool,
 }
 
 /// A completed turn's work (thinking, tools, interim text, subagents) under one header,
@@ -433,6 +435,9 @@ impl Rows {
             },
         );
         self.current.insert(index, at);
+        if let Body::Tool(tool) = &item.body {
+            self.rows[at].extra.page = tool.name == canopy_desktop::chat::page::SHOW_TOOL;
+        }
         if let Body::Thinking(block) = &item.body {
             self.rows[at].extra.thought = Some((block.streaming.then_some(now), None));
         }
@@ -552,11 +557,12 @@ impl Rows {
 
     /// Whether the row is hidden inside a closed "Worked for …" fold or action group.
     pub fn folded(&self, row: &Row) -> bool {
-        let fold = row
-            .extra
-            .folded_by
-            .and_then(|header| self.rows.get(header)?.extra.fold.as_ref())
-            .is_some_and(|fold| !fold.disclosure.open);
+        let fold = !row.extra.page
+            && row
+                .extra
+                .folded_by
+                .and_then(|header| self.rows.get(header)?.extra.fold.as_ref())
+                .is_some_and(|fold| !fold.disclosure.open);
         let group = row
             .extra
             .grouped_by

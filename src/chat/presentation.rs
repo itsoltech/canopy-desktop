@@ -186,6 +186,7 @@ pub fn groups(item: &Item) -> bool {
         Body::Tool(tool) => {
             tool.state == ToolState::Succeeded
                 && !is_subagent(tool)
+                && tool.name != crate::chat::page::SHOW_TOOL
                 && !matches!(
                     tool_kind(&tool.name),
                     ToolKind::Edit | ToolKind::Plan | ToolKind::Agent
@@ -289,6 +290,7 @@ pub fn tool_summary(tool: &ToolCall, cwd: &Path) -> String {
         "WebFetch" => text("url"),
         "WebSearch" => text("query"),
         "Agent" | "Task" => text("description").or_else(|| text("prompt")),
+        crate::chat::page::PREVIEW_TOOL => Some("page preview".to_owned()),
         "TodoWrite" => input
             .get("todos")
             .and_then(Value::as_array)

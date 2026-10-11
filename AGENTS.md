@@ -465,6 +465,11 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   Command/Path/Pull`). Tekst dla agenta składa wyłącznie `chat::compose::expand`. `!cmd` uruchamia jedno polecenie
   (`chat::shell`, `$SHELL -c`, własna grupa procesów), kartę `Body::Shell` i wiadomość z wynikiem do agenta;
   działające polecenia kończą się z sesją czatu. ↑ w pustym composerze przywraca wcześniejsze wiadomości.
+- Strony HTML w rozmowie: Canopy jest serwerem MCP `canopy` (`--chat-tools`) wpinanym tylko argv
+  (`add_page_tools`). `show_html` daje kartę z wywołania, a `preview_html` render poza ekranem przez `chat::pages`
+  (token per proces). Karta pokazuje zrzut; żywy WKWebView tylko pod kursorem i niezasłonięty (warstwy GPUI są
+  zawsze nad nim); izolacja: nietrwały store, origin `page.invalid`, linki do przeglądarki. Zgodę Codexa
+  akceptujemy tylko dla serwera `canopy`.
 - Zakończona (Completed) tura głównej rozmowy składa pracę między wiadomością użytkownika a ostatnią
   odpowiedzią pod „Worked for …” (czas z `TurnEnd.duration_ms`); widoczne zostają prompt, odpowiedź
   i podsumowanie zmian. Przerwana/błędna tura lub tura bez końcowej odpowiedzi zostaje rozwinięta.

@@ -12,6 +12,11 @@ fn main() {
             canopy_desktop::agents::relay::forward();
             return;
         }
+        // Canopy's MCP server for chat agents (pages in the conversation).
+        if argument == "--chat-tools" {
+            canopy_desktop::chat::mcp::serve();
+            return;
+        }
         if argument == "--canopy-hook-version" {
             println!("{}", canopy_desktop::agents::launch::HOOK_HELPER_VERSION);
             return;

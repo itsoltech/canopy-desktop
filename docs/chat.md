@@ -431,3 +431,46 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   - pusty czat zamyka się bez pytania;
   - quit niczego nie usuwa i pyta tylko o kolejkę;
   - usuwanie worktree mówi o czatach w kroku zamykania procesów.
+
+## Etap 10: strony HTML w rozmowie
+
+- Narzędzia agenta (DEC-076…078): Canopy jest serwerem MCP `canopy` (`canopy-desktop --chat-tools`, `chat::mcp`).
+  Wpinamy go wyłącznie argumentami (`chat::launch::add_page_tools`):
+  - Claude: `--mcp-config` i `--allowedTools mcp__canopy__show_html,mcp__canopy__preview_html`;
+  - Codex: `-c mcp_servers.canopy.*`. Prośbę Codexa o zgodę na narzędzie (`mcpServer/elicitation/request`
+    z `codex_approval_kind: mcp_tool_call`) adapter akceptuje tylko dla serwera `canopy`.
+- `show_html {title, html, height?}` sprawdza limit 512 KB i odpowiada tekstem. Kartę rysuje czat z wywołania
+  (`chat::page::SHOW_TOOL`), więc strona jest w historii SQLite. Karta nie wchodzi do grup akcji i zostaje widoczna
+  pod zwiniętym „Worked for” (`RowExtra.page`). Skrót handoff ma tylko tytuł.
+- `preview_html {html, width?}` idzie przez usługę stron (`chat::pages`):
+  - gniazdo Unix 0700 w `/tmp/canopy-pages-*`;
+  - token per proces czatu (env `CANOPY_PAGES_SOCKET`/`CANOPY_PAGES_TOKEN`), zwalniany przy zamknięciu;
+  - termin 30 s;
+  - render poza ekranem w aplikacji (`ui::chat::page::serve_previews`).
+  Agent dostaje PNG 1x, `contentHeight` i konsolę.
+- WKWebView (`native/html_page.m`, `ui::html_native`):
+  - nietrwały magazyn danych;
+  - origin `https://page.invalid/` (prawdziwe błędy JS, brak dostępu do `file:`);
+  - linki i popupy do przeglądarki (http(s)/mailto);
+  - kamera i mikrofon zablokowane, pobierania anulowane;
+  - motyw jako zmienne CSS (`--background`, `--foreground`, `--muted-foreground`, `--card`, `--border`, `--accent`,
+    `--red`/`--green`/`--yellow`, `--radius`, `--font-sans`/`--font-mono`), przezroczyste tło;
+  - wysokość z `body` przez `ResizeObserver`, konsola przez `WKScriptMessageHandler`.
+- Karta (`ui::chat::page`):
+  - lokalne obrazy inline'owane w tle (`chat::page::inline_images`);
+  - zrzut renderowany poza ekranem w skali okna, ponawiany przy zmianie szerokości;
+  - karta widoczna na ekranie od razu dostaje żywą stronę, która się „rozgrzewa”: przezroczysta (`alphaValue` 0),
+    przepuszcza kliknięcia i kółko (`hitTest` nil), ale ładuje się i odtwarza animacje. Pod kursorem, gdy nic jej
+    nie zasłania (find, Quote, lightbox, dialog, prompt, drill), jest tylko odsłaniana (`set_active`), już
+    ustabilizowana. Maks. 6 żywych; jako pierwsze odchodzą strony spoza ekranu;
+  - zrzut powstaje po fontach i animacjach strony (`getAnimations().finished`, maks. 1,5 s), więc zgadza się
+    z odsłoniętą stroną;
+  - natywny widok ustawia warstwa malowana po wierszach (`page_layer`): przycięcie do rozmowy, chowanie
+    niemalowanych w tej klatce;
+  - kółko myszy nad stroną bez własnego przewijania przewija rozmowę;
+  - ukryta strona oddaje fokus klawiatury;
+  - akcje „Open in browser” (plik 0600 w `<dane>/pages`) i „Copy HTML”.
+- Granice:
+  - strona przyjmuje mysz tylko pod kursorem; poza nim widać zrzut;
+  - pełne wsparcie tylko na macOS;
+  - pliki w `<dane>/pages` nie są jeszcze sprzątane razem z czatem.

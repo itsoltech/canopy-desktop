@@ -730,6 +730,17 @@ impl Adapter {
                     None,
                 )
             }
+            // Canopy's own page tools only show pages: their approval is given here
+            // (DEC-076); other servers' requests still go unanswered.
+            "mcpServer/elicitation/request"
+                if text(params, "serverName") == Some(crate::chat::page::SERVER)
+                    && params["_meta"]["codex_approval_kind"] == "mcp_tool_call" =>
+            {
+                return vec![Signal::Reply(wire::reply(
+                    &id,
+                    json!({"action": "accept", "content": null}),
+                ))];
+            }
             "mcpServer/elicitation/request" => {
                 t.push(
                     None,

@@ -24,6 +24,7 @@ struct Turn {
     message: String,
     reply: Option<String>,
     files: Vec<String>,
+    pages: Vec<String>,
     note: Option<&'static str>,
 }
 
@@ -108,11 +109,27 @@ fn turns(parts: &[Part]) -> Vec<Turn> {
                     )
                 })
                 .collect();
+            // Pages the agent showed: their titles, not their HTML.
+            let pages = of_turn
+                .iter()
+                .filter_map(|item| match &item.body {
+                    Body::Tool(tool)
+                        if tool.name == crate::chat::page::SHOW_TOOL
+                            && tool.state == crate::chat::transcript::ToolState::Succeeded =>
+                    {
+                        crate::chat::page::Page::from_input(&tool.input)
+                            .ok()
+                            .map(|page| page.title)
+                    }
+                    _ => None,
+                })
+                .collect();
             turns.push(Turn {
                 agent: part.agent.to_owned(),
                 message,
                 reply,
                 files,
+                pages,
                 note,
             });
         }
@@ -170,6 +187,9 @@ fn render(turn: &Turn, short: bool) -> String {
     }
     if !turn.files.is_empty() {
         out.push_str(&format!("Changed files: {}\n", turn.files.join(", ")));
+    }
+    if !turn.pages.is_empty() {
+        out.push_str(&format!("Showed pages: {}\n", turn.pages.join(", ")));
     }
     if let Some(note) = turn.note {
         out.push_str(&format!("({note})\n"));

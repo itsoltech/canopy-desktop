@@ -260,3 +260,25 @@ fn a_resume_and_a_fork_reopen_the_saved_thread() {
         assert_eq!(sent.last().unwrap()["params"]["threadId"], "thread-10");
     }
 }
+
+#[test]
+fn canopy_page_tools_are_approved_and_other_servers_are_not() {
+    let (mut session, _) = opened(Mode::Auto);
+    session.submit("Show me a page");
+    let ask = |server: &str| {
+        json!({"id": 41, "method": "mcpServer/elicitation/request", "params": {
+            "threadId": "t", "turnId": "u", "serverName": server, "mode": "form",
+            "_meta": {"codex_approval_kind": "mcp_tool_call"}
+        }})
+    };
+    let lines = session.on_codex(message(ask("canopy")));
+    assert_eq!(lines[0]["id"], 41);
+    assert_eq!(lines[0]["result"]["action"], "accept");
+    let before = session.transcript().items().len();
+    let lines = session.on_codex(message(ask("someone-else")));
+    assert_eq!(lines[0]["result"]["action"], "cancel");
+    assert!(
+        session.transcript().items().len() > before,
+        "a notice says it went unanswered"
+    );
+}
