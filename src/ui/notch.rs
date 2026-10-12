@@ -163,7 +163,7 @@ fn project_sessions(cx: &App) -> Vec<NotchSession> {
                         {
                             "Finished".into()
                         } else {
-                            session.status.label().into()
+                            session.status_label().into()
                         }
                     })
                     .into(),

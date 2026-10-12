@@ -472,6 +472,16 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   (token per proces). Karta pokazuje zrzut; żywy WKWebView tylko pod kursorem i niezasłonięty (warstwy GPUI są
   zawsze nad nim); izolacja: nietrwały store, origin `page.invalid`, linki do przeglądarki. Zgodę Codexa
   akceptujemy tylko dla serwera `canopy`.
+- Cel `/goal`: natywny mechanizm CLI.
+  - Claude: wiadomość `/goal …`, a stan z jego syntetycznych odpowiedzi i feedbacku Stop hooka.
+  - Codex: `thread/goal/*` z `origin: "user"`.
+  - Ustawia go tryb celu w composerze. Wiersz celu nad composerem ma stan i akcje, a koniec celu to karta
+    `Body::GoalEnd`.
+  - Seria tur Codexa to jedna praca: kolejka nie wysyła między turami i trafia do tury celu przez steer.
+  - Stop wstrzymuje cel Codexa przed przerwaniem tury. Claude zostawia cel ustawiony.
+  - Cel nigdy nie rusza sam po restarcie: Codex jest pauzowany przed `thread/resume`.
+  - Przełączenie agenta i edycja wiadomości kończą cel.
+  - Notch pokazuje „Goal” i powiadamia raz, na koniec. Budżetu tokenów nie ustawiamy.
 - Zakończona (Completed) tura głównej rozmowy składa pracę między wiadomością użytkownika a ostatnią
   odpowiedzią pod „Worked for …” (czas z `TurnEnd.duration_ms`); widoczne zostają prompt, odpowiedź
   i podsumowanie zmian. Przerwana/błędna tura lub tura bez końcowej odpowiedzi zostaje rozwinięta.

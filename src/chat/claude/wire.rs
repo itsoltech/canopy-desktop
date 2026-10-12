@@ -413,6 +413,14 @@ pub struct ApiMessage {
     pub id: String,
     #[serde(default)]
     pub content: Vec<Block>,
+    /// `<synthetic>` for the CLI's own replies (local commands such as `/goal`).
+    #[serde(default)]
+    pub model: Option<String>,
+}
+impl ApiMessage {
+    pub fn synthetic(&self) -> bool {
+        self.model.as_deref() == Some("<synthetic>")
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -422,6 +430,9 @@ pub struct UserMessage {
     pub parent_tool_use_id: Option<String>,
     #[serde(default)]
     pub tool_use_result: Option<Value>,
+    /// Written by the CLI itself (e.g. a Stop hook's feedback), not by us.
+    #[serde(default, rename = "isSynthetic")]
+    pub is_synthetic: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -437,6 +448,10 @@ pub struct ToolResult<'a> {
     pub text: String,
 }
 impl UserMessage {
+    /// Its text (string content or text blocks).
+    pub fn text(&self) -> String {
+        content_text(Some(&self.message.content))
+    }
     pub fn tool_results(&self) -> Vec<ToolResult<'_>> {
         let Some(blocks) = self.message.content.as_array() else {
             return vec![];
@@ -478,6 +493,12 @@ fn content_text(content: Option<&Value>) -> String {
 #[derive(Clone, Debug, Deserialize)]
 pub struct ResultMessage {
     pub subtype: String,
+    /// Why the run ended: `completed`, `aborted_streaming` (interrupted), …
+    #[serde(default)]
+    pub terminal_reason: Option<String>,
+    /// Model requests in the run; 0 for a local command such as `/goal`.
+    #[serde(default)]
+    pub num_turns: Option<u64>,
     #[serde(default)]
     pub is_error: bool,
     #[serde(default)]

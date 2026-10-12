@@ -236,23 +236,40 @@ fn questions_answer_by_id_and_stop_interrupts_the_turn() {
 
 #[test]
 fn a_resume_and_a_fork_reopen_the_saved_thread() {
-    for (fork, method) in [(None, "thread/resume"), (Some("turn-1"), "thread/fork")] {
+    // A saved thread's active goal is paused before it opens: Codex would otherwise
+    // start working on it by itself (live-verified with 0.161).
+    let active = json!({"goal": {"threadId": "thread-9", "objective": "tests pass",
+        "status": "active", "tokensUsed": 10, "timeUsedSeconds": 3,
+        "createdAt": 1, "updatedAt": 2}});
+    for (fork, method, goal) in [
+        (None, "thread/resume", active),
+        (Some("turn-1"), "thread/fork", json!({"goal": null})),
+    ] {
         let (mut session, lines) = ChatSession::codex(
             ChatSettings::default(),
             CodexStart {
                 cwd: "/tmp/x".into(),
                 resume: Some("thread-9".into()),
                 fork_at: fork.map(str::to_owned),
-                images: None,
+                ..Default::default()
             },
         );
         let id = lines[0]["id"].as_str().unwrap().to_owned();
         let lines = session.on_codex(message(json!({"id": id, "result": {}})));
-        assert_eq!(lines[1]["method"], method);
+        assert_eq!(lines[1]["method"], "thread/goal/get");
         assert_eq!(lines[1]["params"]["threadId"], "thread-9");
+        let asked = lines[1]["id"].as_str().unwrap().to_owned();
+        let mut lines = session.on_codex(message(json!({"id": asked, "result": goal})));
+        if lines[0]["method"] == "thread/goal/set" {
+            assert_eq!(lines[0]["params"]["status"], "paused");
+            let paused = lines[0]["id"].as_str().unwrap().to_owned();
+            lines = session.on_codex(message(json!({"id": paused, "result": {}})));
+        }
+        assert_eq!(lines[0]["method"], method);
+        assert_eq!(lines[0]["params"]["threadId"], "thread-9");
         // A message typed while the thread opens waits for it.
         assert!(session.submit("hello").is_empty());
-        let thread = lines[1]["id"].as_str().unwrap().to_owned();
+        let thread = lines[0]["id"].as_str().unwrap().to_owned();
         let sent = session.on_codex(message(
             json!({"id": thread, "result": {"thread": {"id": "thread-10"}}}),
         ));

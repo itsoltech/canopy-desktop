@@ -111,6 +111,12 @@ pub struct ChatView {
     pub(super) attachments: super::attachments::Attachments,
     /// Working (true) or idle last told to the notch, for agents without hooks.
     reported_activity: Option<bool>,
+    /// Whether the notch was last told the chat pursues its goal.
+    pub(super) reported_goal: Option<bool>,
+    /// Lets a Codex goal hold go when Codex starts no further turn.
+    pub(super) goal_hold_timer: Option<Task<()>>,
+    /// Ends of Claude goals already checked against its session file.
+    pub(super) goal_records: HashSet<canopy_desktop::chat::transcript::ItemId>,
     pub(super) navigator: super::navigator::Navigator,
     /// Separator shown above the replaced session at the next start.
     pub(super) boundary: Boundary,
@@ -173,6 +179,9 @@ pub struct ChatView {
     pub(super) shell_error: Option<String>,
     /// The composer runs shell commands: `!` typed into an empty field turned it on.
     pub(super) shell: bool,
+    /// The composer sets the chat's goal: `/goal ` typed or picked turned it on.
+    pub(super) goal_mode: bool,
+    pub(super) goal_row: super::goal::GoalRow,
     /// The composer was empty before its latest change (a typed `!` starts shell mode).
     pub(super) composer_was_empty: bool,
     /// ↑ in the composer: which earlier message is shown, and its text (DEC-075).
@@ -283,6 +292,9 @@ impl ChatView {
             send_on_start: None,
             attachments: Default::default(),
             reported_activity: None,
+            reported_goal: None,
+            goal_hold_timer: None,
+            goal_records: HashSet::new(),
             navigator: Default::default(),
             boundary: Boundary::Restarted,
             epoch: 0,
@@ -314,6 +326,8 @@ impl ChatView {
             stopped_shells: HashSet::new(),
             shell_error: None,
             shell: false,
+            goal_mode: false,
+            goal_row: Default::default(),
             composer_was_empty: true,
             recall: None,
             pages: Default::default(),
@@ -520,9 +534,11 @@ impl ChatView {
         self.threads.clear();
         // Unsent messages survive Restart and wait for the user again.
         let mut queued = vec![];
+        let mut carried_goal = None;
         let replaced = self.session.is_some();
         if let Some(session) = &mut self.session {
             queued = session.take_queue();
+            carried_goal = session.goal().cloned();
             let transcript = session.take_transcript();
             let agent = self.epoch_meta.agent.clone();
             self.rows
@@ -538,6 +554,12 @@ impl ChatView {
             .fork_at
             .take()
             .filter(|_| self.pane.metadata.resume_id.is_some());
+        // Restart keeps the goal (it doesn't run on its own); a switch back or an edit
+        // continues a conversation whose goal ended here: the agent's copy is cleared.
+        let carried_goal = carried_goal.filter(|_| boundary == Boundary::Restarted);
+        let stale_goal = replaced
+            && carried_goal.is_none()
+            && (fork.is_some() || self.pane.metadata.resume_id.is_some());
         self.generation += 1;
         self.closing = None;
         self.error = None;
@@ -555,6 +577,7 @@ impl ChatView {
                         let data = canopy_desktop::platform::directories::data_dir().ok()?;
                         Some(canopy_desktop::chat::history::attachments_dir(&data, chat))
                     }),
+                    clear_goal: stale_goal,
                 },
             ),
         };
@@ -574,6 +597,8 @@ impl ChatView {
                     before: replaced.then_some(boundary),
                     continued,
                     agent: Some(self.agent_ref()),
+                    goal: carried_goal,
+                    previous_goal: self.goal_row.previous.clone(),
                 }
             }
         };
@@ -582,6 +607,11 @@ impl ChatView {
             session.set_handoff(Some(handoff.text.clone()));
         }
         session.set_base(meta.base());
+        session.restore_goal(meta.goal.clone());
+        self.goal_row.previous = meta.previous_goal.clone();
+        if stale_goal {
+            lines.extend(session.clear_stale_goal());
+        }
         if let Some(epoch) = restored {
             self.history_skip = epoch.items.len();
             session.restore_history_after(epoch.items, self.item_floor);
@@ -842,6 +872,7 @@ impl ChatView {
         self.sync_decision(policy, cx);
         self.report_decision(cx);
         self.report_activity(working, cx);
+        self.sync_goal(cx);
         self.sync_edit(cx);
         self.tick(cx);
         if self
@@ -999,6 +1030,10 @@ impl ChatView {
     }
 
     pub(super) fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.goal_mode() {
+            self.submit_goal(window, cx);
+            return;
+        }
         if self.shell_mode(cx) {
             let text = self.composer.read(cx).value().to_string();
             match self.run_shell(&text, cx) {

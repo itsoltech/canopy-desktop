@@ -215,7 +215,7 @@ fn session_choices(cx: &App) -> Vec<SessionChoice> {
                     .title
                     .as_deref()
                     .unwrap_or(&session.pane.tool),
-                session.status.label()
+                session.status_label()
             )
             .into(),
             selected: selected == Some(session.pane.id),

@@ -5,7 +5,7 @@
 use super::{mentions, view::ChatView};
 use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::chat::{config::CommandInfo, transcript::Attachment};
+use canopy_desktop::chat::{config::CommandInfo, goal, transcript::Attachment};
 use canopy_desktop::motion::{self, Presence, PresenceSpec, presets};
 use gpui_kit::component::IconName;
 use gpui_kit::{prelude::FluentBuilder, *};
@@ -273,12 +273,26 @@ impl ChatView {
                     .as_ref()
                     .map(|s| s.commands())
                     .unwrap_or_default();
+                // `/goal` is Canopy's too (goal mode): offered even where the agent
+                // doesn't list it (Codex).
+                let mut listed = commands.to_vec();
+                let reported = !commands.is_empty();
+                if !listed.iter().any(|c| c.name == goal::COMMAND) {
+                    listed.push(CommandInfo {
+                        name: goal::COMMAND.into(),
+                        description: "Keep working until a condition is met".into(),
+                        hint: Some("<condition>".into()),
+                        path: None,
+                        skill: false,
+                    });
+                }
+                let commands = listed.as_slice();
                 suggest.choices = rank_commands(commands, &trigger.query)
                     .into_iter()
                     .map(|command| command_choice(command, false))
                     .collect();
                 // The agent reports them once it has started.
-                suggest.loading = commands.is_empty()
+                suggest.loading = !reported
                     && self.session.as_ref().is_none_or(|s| {
                         matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
                     });
@@ -456,6 +470,19 @@ impl ChatView {
         };
         let range = suggest.trigger.range.clone();
         self.close_suggest(cx);
+        if matches!(&choice.attachment, Attachment::Command { name, skill: false, .. } if name == goal::COMMAND)
+        {
+            // Goal mode instead of a badge: the rest of the message is the condition.
+            let value = self.composer.read(cx).value().to_string();
+            let rest = value
+                .get(range.end..)
+                .unwrap_or_default()
+                .trim_start()
+                .to_owned();
+            self.enter_goal_mode(rest, window, cx);
+            cx.notify();
+            return;
+        }
         self.put_mention(range, choice.attachment, &choice.name, window, cx);
         cx.notify();
     }

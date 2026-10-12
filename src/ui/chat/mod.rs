@@ -5,6 +5,7 @@ mod composer;
 mod decision;
 mod edit;
 mod find;
+mod goal;
 mod handoff;
 mod mentions;
 mod model_picker;

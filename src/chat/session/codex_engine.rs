@@ -23,6 +23,9 @@ pub struct CodexStart {
     pub fork_at: Option<String>,
     /// The chat's attachment folder: images go to Codex by path.
     pub images: Option<PathBuf>,
+    /// The goal the conversation carried ends (an edited message): cleared once the
+    /// thread is open.
+    pub clear_goal: bool,
 }
 
 #[derive(Default)]
@@ -35,7 +38,19 @@ pub(super) struct CodexEngine {
     account_request: Option<String>,
     rate_request: Option<String>,
     /// Our `turn/start` in flight, to report its failure.
-    turn_request: Option<String>,
+    pub(super) turn_request: Option<String>,
+    /// Setting a goal: the steps still to send and the one awaiting its answer.
+    pub(super) goal_steps: std::collections::VecDeque<super::goal_engine::GoalStep>,
+    pub(super) goal_step: Option<String>,
+    /// Before a saved thread opens its goal is paused, or Codex would start working on
+    /// it by itself: the goal asked for, the pause, and the open request waiting.
+    restore_goal: Option<String>,
+    restore_pause: Option<String>,
+    thread_line: Option<Value>,
+    /// The thread's goal is being cleared (`CodexStart::clear_goal`): its reports until
+    /// then are not this chat's goal.
+    pub(super) discarding_goal: bool,
+    discard_request: Option<String>,
     /// Steers in flight: request id → the queued message's steering id.
     steers: HashMap<String, String>,
     /// `account/read`: "chatgpt" or "apiKey".
@@ -276,9 +291,11 @@ impl ChatSession {
                 Signal::State(CliState::Running) => {
                     self.cli_idle = false;
                     if !self.turn_open {
-                        // Codex continued on its own (a subagent reported back).
+                        // Codex continued on its own: toward its goal, or a subagent
+                        // reported back.
                         let turn = self.transcript.allocate_turn();
                         self.start_turn(turn);
+                        self.goal_turn_started();
                     }
                 }
                 // The turn ends with `turn/completed`; idle only says nothing else runs.
@@ -293,6 +310,11 @@ impl ChatSession {
                     self.status = Status::Working;
                 }
                 Signal::TurnFinished => {
+                    let completed = self.transcript.items().last().is_some_and(|item| {
+                        matches!(&item.body, Body::TurnEnd(end)
+                            if end.outcome == crate::chat::transcript::Outcome::Completed)
+                    });
+                    let interrupted = self.interrupting;
                     self.turn_open = false;
                     self.interrupting = false;
                     self.cli_idle = true;
@@ -303,8 +325,10 @@ impl ChatSession {
                     if !self.status.ended() {
                         self.status = Status::Ready;
                     }
+                    self.hold_for_goal(completed && !interrupted);
                 }
                 Signal::Reply(line) => lines.push(line),
+                Signal::Goal(event) => lines.extend(self.on_goal(event)),
                 _ => {}
             }
         }
@@ -320,6 +344,47 @@ impl ChatSession {
     ) -> Vec<Value> {
         let result = response.unwrap_or(Value::Null);
         let mut lines = vec![];
+        if self.codex.discard_request.as_deref() == Some(request) {
+            // Cleared (or there was none): later reports are the chat's own again.
+            self.codex.discard_request = None;
+            self.codex.discarding_goal = false;
+            return lines;
+        }
+        if self.codex.goal_step.as_deref() == Some(request) {
+            let setting = matches!(
+                self.codex.goal_steps.front(),
+                Some(super::goal_engine::GoalStep::Turn(_))
+            );
+            if let (true, Some(error)) = (setting, &error) {
+                // Codex took no goal (an older Codex): the message still goes as a turn.
+                self.codex
+                    .goal_steps
+                    .retain(|step| !matches!(step, super::goal_engine::GoalStep::Activate));
+                self.goal = None;
+                self.goal_changed = true;
+                self.note(format!("Codex couldn't set the goal: {error}"));
+            }
+            lines.extend(self.next_goal_step());
+        }
+        if self.codex.restore_goal.as_deref() == Some(request) {
+            self.codex.restore_goal = None;
+            let active =
+                error.is_none() && wire::goal(&result).is_some_and(|goal| goal.status == "active");
+            match (active, self.codex.start.resume.clone()) {
+                (true, Some(thread)) => {
+                    let id = self.request_id();
+                    lines.push(wire::goal_set(&id, &thread, None, Some("paused")));
+                    self.codex.restore_pause = Some(id);
+                }
+                _ => lines.extend(self.codex.thread_line.take()),
+            }
+            return lines;
+        }
+        if self.codex.restore_pause.as_deref() == Some(request) {
+            self.codex.restore_pause = None;
+            lines.extend(self.codex.thread_line.take());
+            return lines;
+        }
         if request == self.initialize_id {
             if let Some(error) = error {
                 self.status = Status::Failed(format!("Codex could not start: {error}"));
@@ -333,8 +398,17 @@ impl ChatSession {
                 (Some(thread), None) => wire::thread_resume(&id, thread, &options),
                 (None, _) => wire::thread_start(&id, &options),
             };
-            lines.push(line);
             self.codex.thread_request = Some(id);
+            match self.codex.start.resume.clone() {
+                // A saved thread may hold an active goal: paused first (`restore_goal`).
+                Some(thread) => {
+                    let id = self.request_id();
+                    lines.push(wire::goal_get(&id, &thread));
+                    self.codex.restore_goal = Some(id);
+                    self.codex.thread_line = Some(line);
+                }
+                None => lines.push(line),
+            }
             let id = self.request_id();
             lines.push(wire::skills_list(&id, &self.codex.start.cwd, false));
             self.codex.skills_request = Some(id);
@@ -367,6 +441,12 @@ impl ChatSession {
             };
             self.codex.adapter.thread = Some(thread.to_owned());
             self.info.session_id = Some(thread.to_owned());
+            if std::mem::take(&mut self.codex.start.clear_goal) {
+                let id = self.request_id();
+                lines.push(wire::goal_clear(&id, thread));
+                self.codex.discarding_goal = true;
+                self.codex.discard_request = Some(id);
+            }
             if let Some(model) = result["model"].as_str() {
                 self.info.model = Some(model.to_owned());
             }

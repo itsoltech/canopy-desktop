@@ -198,6 +198,7 @@ fn saved_sessions_know_their_agent_and_older_ones_still_load() {
         )),
         continued: false,
         agent: Some(agent.clone()),
+        ..Default::default()
     };
     let rows = ChatHistoryRows {
         epochs: vec![

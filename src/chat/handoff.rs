@@ -271,6 +271,7 @@ mod tests {
                     uuid: None,
                     attachments: vec![],
                     context: None,
+                    goal: false,
                 }),
             );
             t.push_in(
@@ -290,6 +291,7 @@ mod tests {
                     cost_usd: None,
                     duration_ms: None,
                     resume_at: None,
+                    quiet: false,
                 }),
             );
         }

@@ -10,7 +10,7 @@ use canopy_desktop::{
         config::{ChatSettings, Effort, Mode},
         launch::prepare_codex,
         process::{Event, Process},
-        session::{ChatSession, CodexStart, Incoming, Response, Status, parse_codex},
+        session::{ChatSession, CodexStart, Draft, Incoming, Response, Status, parse_codex},
         transcript::{Body, Decision, ToolState},
     },
     state::{
@@ -68,6 +68,7 @@ impl Live {
                 resume: resume.map(str::to_owned),
                 fork_at: fork_at.map(str::to_owned),
                 images: None,
+                clear_goal: false,
             },
         );
         let live = Self {
@@ -267,5 +268,47 @@ fn auto_mode_runs_commands_and_an_image_reaches_the_model() {
     eprintln!("image: {reply:?}");
     assert!(reply.contains("red"), "{reply:?}");
     assert!(live.session.context().is_some_and(|c| c.max > 0));
+    live.finish();
+}
+
+#[test]
+#[ignore = "live Codex; set CANOPY_LIVE_CODEX=1"]
+fn a_goal_continues_over_turns_until_complete() {
+    if !enabled() {
+        return;
+    }
+    let (_dir, cwd) = folder();
+    let mut live = Live::start(&cwd, Mode::FullAccess, None, None);
+    live.pump(|s| *s.status() == Status::Ready);
+    let lines = live.session.set_goal(Draft::text(
+        "Two files exist in the current directory: a.txt containing A and b.txt containing \
+         B. Create at most one file per turn, then end your turn. When both exist, mark the \
+         goal complete.",
+    ));
+    live.write(lines);
+    live.pump(|s| {
+        s.goal().is_none()
+            && *s.status() == Status::Ready
+            && s.transcript()
+                .items()
+                .iter()
+                .any(|item| matches!(item.body, Body::GoalEnd(_)))
+    });
+    let items = live.session.transcript().items();
+    let end = items
+        .iter()
+        .find_map(|item| match &item.body {
+            Body::GoalEnd(end) => Some(end.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(end.reason, canopy_desktop::chat::goal::EndReason::Achieved);
+    assert!(end.turns >= 2, "Codex continued the goal by itself");
+    assert!(
+        items
+            .iter()
+            .any(|item| matches!(item.body, Body::GoalTurn(_)))
+    );
+    assert!(cwd.join("a.txt").exists() && cwd.join("b.txt").exists());
     live.finish();
 }

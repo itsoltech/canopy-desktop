@@ -137,6 +137,7 @@ impl ChatView {
                 })
                 .collect(),
             context: None,
+            goal: false,
         }
     }
 
@@ -520,6 +521,7 @@ impl ChatView {
                         text: draft.text,
                         attachments,
                         context: draft.context,
+                        goal: false,
                     })
                 })
                 .await;

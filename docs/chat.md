@@ -548,3 +548,54 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   - strona przyjmuje mysz tylko pod kursorem; poza nim widać zrzut;
   - pełne wsparcie tylko na macOS;
   - pliki w `<dane>/pages` nie są jeszcze sprzątane razem z czatem.
+
+## Etap 11: cel `/goal`
+
+Natywne `/goal` obu CLI (Claude Code ≥ 2.1.139, Codex ≥ 0.128). Agent pracuje turami, sam zaczynając kolejne,
+aż warunek jest spełniony. Sprawdzone na żywo z Claude Code 2.1.295 i codex-cli 0.161.0 (DEC-079…082).
+
+- Model (`chat::goal`): `Goal` (warunek, `GoalStatus`, liczniki), `GoalEnd` (karta), `GoalEvent` (co zgłosił
+  agent). Stan celu żyje w `ChatSession::goal` (`session/goal_engine.rs`) i w `EpochMeta.goal` (restore).
+- Tryb celu w composerze (`ui/chat/goal.rs`):
+  - włącza go `/goal ` na początku wiadomości albo wybór `goal` z podpowiedzi `/` (wbudowane dla obu agentów);
+  - `/goal` nie zostaje w tekście, a Backspace/Esc w pustym polu wychodzi z trybu (wspólne z trybem shell);
+  - turkus `t::goal()`, etykieta „Goal” z licznikiem od 3600/4000 znaków, załączniki nieaktywne;
+  - badge'e zamieniane na zwykły tekst (`plain_condition`).
+- Claude (`/goal <warunek>` jako wiadomość):
+  - cała praca nad celem to jedna tura i jeden `result`;
+  - syntetyczne odpowiedzi CLI (`model: "<synthetic>"`) z `Goal set:`, `Goal active:`, `Goal cleared:`
+    i `No goal set` zmieniają stan celu i nie są pokazywane jako odpowiedź;
+  - syntetyczne wiadomości `Stop hook feedback:\n[<warunek>]: <powód>` to werdykty „not yet” (`Body::GoalCheck`);
+  - po `result` z `terminal_reason: completed` Canopy cicho pyta `/goal`: `No goal set` kończy cel kartą;
+  - Stop (`aborted_streaming`) zostawia cel ustawiony, a następna wiadomość wznawia pętlę;
+  - werdykt met/impossible i liczby dopisuje odczyt `goal_status` z pliku sesji (`chat::claude::goal_record`,
+    w tle, best-effort; bez pliku karta mówi „achieved”).
+- Ciche komendy (`send_quiet`): `/goal`, `/goal clear` idą przed kolejką, bez dymka; ich `TurnEnd.quiet` jest ukryte.
+- Codex (`thread/goal/*`, `origin: "user"`):
+  - ustawienie to kroki `GoalStep`, każdy po odpowiedzi na poprzedni: `set {objective, paused}`, `turn/start`
+    z warunkiem, `set {active}`;
+  - kolejne tury Codex zaczyna sam: po `turn/completed` przy aktywnym celu sesja zostaje w `Working`
+    (`goal_hold`, limit 5 s z widoku), kolejka nie wysyła, a nowa tura dostaje `Body::GoalTurn(n)`;
+  - wiadomość z kolejki idzie do tury celu przez `turn/steer`;
+  - `turn/interrupt` nie wstrzymuje celu, więc Stop najpierw wysyła `set {paused}`; Pause tylko wstrzymuje;
+    Resume (`set {active}`) sam zaczyna turę;
+  - przed `thread/resume`/`fork` jest `goal/get` i ewentualne `set {paused}`: wątek z aktywnym celem po
+    wznowieniu sam zaczyna turę.
+- Wiersz celu (`goal_bar`) nad tacką i composerem:
+  - wysuwa się jak panel decyzji, pokazuje stan, zużycie (`goal::usage`), warunek (klik rozwija) i ostatni powód „Not yet”;
+  - przyciski: Pause (Codex w pracy), Clear (Claude w pracy), Resume, Edit i ×;
+  - po przełączeniu agenta zamiast niego wiersz „Previous goal … · Set goal” (`EpochMeta.previous_goal`).
+- Koniec celu to karta `Body::GoalEnd`: achieved, impossible, cleared, przy przełączeniu agenta, przy edycji
+  wiadomości albo po błędzie.
+  - Przełączenie agenta kończy cel i wspomina go w skrócie.
+  - Edycja wiadomości kończy cel przed rozwidleniem.
+  - Kontynuowana rozmowa (powrót do agenta, edycja) czyści kopię celu w CLI: Claude cichym `/goal clear`,
+    Codex `CodexStart.clear_goal` z pominięciem jego zgłoszeń do odpowiedzi.
+  - Restart zachowuje cel bez uruchamiania go.
+- Notch i inspektor sesji pokazują „Goal” zamiast „Working” (`AgentsState::chat_goal`). `Idle` z hooków
+  w trakcie celu jest pomijane, więc powiadomienie przychodzi raz, na koniec.
+- Granice:
+  - teksty Claude nie są API (parsery i fixture `claude-2.1.295/goal.jsonl`);
+  - bez ustawiania budżetu tokenów (DEC-081);
+  - źle sformułowany cel Codexa potrafi kręcić tury bez końca: Pause/Stop zawsze dostępne;
+  - zakładki i sidebar nie mają statusu czatu, więc „Goal” widać tylko w notchu i inspektorze.

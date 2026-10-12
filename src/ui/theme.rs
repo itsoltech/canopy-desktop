@@ -88,6 +88,10 @@ pub fn yellow() -> Hsla {
 pub fn skill() -> Hsla {
     oklch(0.76, 0.13, 305., 1.)
 }
+/// Teal of the chat's goal (`/goal`): its composer mode, row and badge.
+pub fn goal() -> Hsla {
+    oklch(0.80, 0.13, 185., 1.)
+}
 /// Neutral light travelling inside the reasoning slider's gradient.
 pub fn effort_sheen() -> Hsla {
     white()

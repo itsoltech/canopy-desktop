@@ -296,6 +296,39 @@ pub fn turn_steer(id: &str, thread: &str, turn: &str, input: Vec<Value>) -> Valu
     )
 }
 
+/// Sets the thread's goal: a new `objective` replaces it, `status` moves it (active,
+/// paused). Always on the user's behalf: Codex takes no unattributed changes.
+pub fn goal_set(id: &str, thread: &str, objective: Option<&str>, status: Option<&str>) -> Value {
+    let mut params = json!({"threadId": thread, "origin": "user"});
+    if let Some(objective) = objective {
+        params["objective"] = json!(objective);
+    }
+    if let Some(status) = status {
+        params["status"] = json!(status);
+    }
+    request(id, "thread/goal/set", params)
+}
+
+pub fn goal_get(id: &str, thread: &str) -> Value {
+    request(id, "thread/goal/get", json!({"threadId": thread}))
+}
+
+pub fn goal_clear(id: &str, thread: &str) -> Value {
+    request(id, "thread/goal/clear", json!({"threadId": thread}))
+}
+
+/// The thread's goal in an answer or notification (`goal`), `None` when it has none.
+pub fn goal(value: &Value) -> Option<crate::chat::goal::CodexGoal> {
+    let goal = value.get("goal").filter(|goal| goal.is_object())?;
+    Some(crate::chat::goal::CodexGoal {
+        objective: goal["objective"].as_str()?.trim().to_owned(),
+        status: goal["status"].as_str().unwrap_or("active").to_owned(),
+        tokens: goal["tokensUsed"].as_u64().unwrap_or(0),
+        seconds: goal["timeUsedSeconds"].as_u64().unwrap_or(0),
+        budget: goal["tokenBudget"].as_u64(),
+    })
+}
+
 pub fn turn_interrupt(id: &str, thread: &str, turn: &str) -> Value {
     request(
         id,

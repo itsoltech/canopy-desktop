@@ -342,6 +342,7 @@ mod tests {
             cost_usd: Some(0.214),
             duration_ms: Some(161_000),
             resume_at: None,
+            quiet: false,
         };
         assert_eq!(turn_numbers(&end, false), "2m 41s · 12k in · 1.2k out");
         assert_eq!(

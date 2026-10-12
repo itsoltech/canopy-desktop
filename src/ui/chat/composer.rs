@@ -44,8 +44,10 @@ impl ChatView {
         self.insert_badges(window, cx);
         let empty = self.composer.read(cx).value().trim().is_empty();
         let ended = self.status().is_some_and(|status| status.ended());
-        // `!command`: the island turns burgundy and Enter runs it (DEC-072).
+        // `!command`: the island turns burgundy and Enter runs it (DEC-072); in goal
+        // mode it turns teal and Enter sets the goal (DEC-079).
         let shell = self.shell_mode(cx);
+        let goal = self.goal_mode();
         let now = Instant::now();
         let resting = self.resting.on;
         motion::request_frame(window, self.resting.height(now).is_some());
@@ -89,11 +91,15 @@ impl ChatView {
             .border_0()
             .accessibility_label("Attach images or files")
             .tooltip("Attach images or files")
-            .disabled(ended)
+            .disabled(ended || goal)
             .child(custom_icon("paperclip").size(px(14.)))
             .on_click(cx.listener(|this, _, _, cx| this.pick_attachments(cx)));
         let action = (!deciding).then(|| {
-            self.action_button(working, empty || ended || self.attachments_blocked(cx), cx)
+            self.action_button(
+                working,
+                empty || ended || self.attachments_blocked(cx) || self.goal_too_long(cx),
+                cx,
+            )
         });
         centered(
             column()
@@ -102,11 +108,15 @@ impl ChatView {
                 .border_1()
                 .border_color(if shell {
                     t::shell().opacity(0.7)
+                } else if goal {
+                    t::goal().opacity(0.55)
                 } else {
                     t::control_border()
                 })
                 .bg(if shell {
                     t::bg().blend(t::shell().opacity(0.12))
+                } else if goal {
+                    t::bg().blend(t::goal().opacity(0.08))
                 } else {
                     t::composer_surface()
                 })
@@ -190,6 +200,7 @@ impl ChatView {
                                 .w_full()
                                 .gap(px(6.))
                                 .children(shell.then(super::shell::shell_label))
+                                .children(goal.then(|| self.goal_label(cx)))
                                 .child(field)
                                 .children(self.attachment_errors(cx))
                                 .children(self.shell_error.clone().map(|error| {

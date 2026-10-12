@@ -62,7 +62,7 @@ pub fn visible(item: &Item) -> bool {
         Body::Thinking(_) => true,
         // Delivers the subagent's report, which its card and conversation already show.
         Body::Tool(tool) if tool.name == HANDBACK_TOOL => false,
-        Body::TurnEnd(end) => end.outcome != Outcome::Completed,
+        Body::TurnEnd(end) => !end.quiet && end.outcome != Outcome::Completed,
         _ => true,
     }
 }
@@ -564,6 +564,7 @@ mod tests {
                     cost_usd: None,
                     duration_ms: None,
                     resume_at: None,
+                    quiet: false,
                 }),
             );
         }
@@ -584,6 +585,7 @@ mod tests {
                 uuid: None,
                 attachments: vec![],
                 context: None,
+                goal: false,
             }),
         );
         let text = transcript.push(

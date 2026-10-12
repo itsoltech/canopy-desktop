@@ -63,6 +63,7 @@ impl Render for ChatView {
                 || self.decision.animating(now)
                 || self.drill.is_animating(now)
                 || self.navigator.animating(now)
+                || self.goal_animating(now)
                 || self.handoff_animating(now),
         );
         let in_thread = !self.threads.is_empty();
@@ -144,6 +145,7 @@ impl Render for ChatView {
         let suggest = (decision.is_none() && !in_thread)
             .then(|| self.suggest_bar(window, cx))
             .flatten();
+        let goal = (!in_thread).then(|| self.goal_bar(cx)).flatten();
         let tray = match decision {
             Some(panel) => Some(panel),
             None => match (!in_thread).then(|| self.edit_bar(cx)).flatten() {
@@ -206,7 +208,7 @@ impl Render for ChatView {
                     .flex_col()
                     .relative()
                     .child(body)
-                    .child(self.composer_overlay(composer, tray, suggest, cx)),
+                    .child(self.composer_overlay(composer, goal, tray, suggest, cx)),
             )
             // Files dropped anywhere on the chat, the message field included, attach.
             .children((!in_thread).then(|| self.drop_target(cx)))
@@ -223,6 +225,7 @@ impl ChatView {
     fn composer_overlay(
         &mut self,
         composer: Div,
+        goal: Option<Div>,
         tray: Option<Div>,
         suggest: Option<Div>,
         cx: &mut Context<Self>,
@@ -271,6 +274,7 @@ impl ChatView {
                     ),
             )
             .children(self.banner(cx))
+            .children(goal)
             .children(tray)
             .child(
                 div()
@@ -714,6 +718,11 @@ fn item_row(
         Body::Shell(run) => {
             super::shell::shell_card(view, this, entry, item.id, run, live).into_any_element()
         }
+        Body::GoalCheck(check) => super::goal::check_row(check).into_any_element(),
+        Body::GoalTurn(n) => super::goal::turn_row(*n).into_any_element(),
+        Body::GoalEnd(end) => {
+            super::goal::end_card(("chat-goal-end", entry.key), end).into_any_element()
+        }
         Body::User(message) => column()
             // A steered message continues the running turn: less space above it.
             .pt(px(if message.delivery == Delivery::Steered {
@@ -725,9 +734,21 @@ fn item_row(
             .gap(px(4.))
             .group(actions::MESSAGE_GROUP)
             // Attachments and quotes mentioned in the text show as badges inside it.
-            .children((!message.text.is_empty()).then(|| match &entry.markdown {
-                Some(markdown) => user_bubble(markdown.clone()),
-                None => user_bubble(message.text.clone()),
+            .children((!message.text.is_empty()).then(|| {
+                match (&entry.markdown, message.goal) {
+                    // The goal's condition, after a "Goal" chip.
+                    (_, true) => user_bubble(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(super::goal::goal_chip())
+                            .child(message.text.clone()),
+                    ),
+                    (Some(markdown), false) => user_bubble(markdown.clone()),
+                    (None, false) => user_bubble(message.text.clone()),
+                }
             }))
             .children(
                 message

@@ -152,6 +152,7 @@ impl ChatView {
                     text: format!("{mention} {answer}"),
                     attachments: vec![quote],
                     context: None,
+                    goal: false,
                 },
                 cx,
             );

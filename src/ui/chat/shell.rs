@@ -51,7 +51,9 @@ impl ChatView {
     pub(super) fn composer_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let value = self.composer.read(cx).value().to_string();
         let was_empty = std::mem::replace(&mut self.composer_was_empty, value.is_empty());
+        self.goal_typed(&value, window, cx);
         if self.shell
+            || self.goal_mode
             || !was_empty
             || !value.starts_with('!')
             || self.editing.is_some()
@@ -70,12 +72,13 @@ impl ChatView {
         });
     }
 
-    /// Backspace or Esc in an empty field leaves shell mode.
+    /// Backspace or Esc in an empty field leaves shell (or goal) mode.
     pub(super) fn leave_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if !self.shell || !self.composer.read(cx).value().is_empty() {
+        if !(self.shell || self.goal_mode) || !self.composer.read(cx).value().is_empty() {
             return false;
         }
         self.set_shell(false, window, cx);
+        self.set_goal_mode(false, window, cx);
         true
     }
 

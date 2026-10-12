@@ -158,6 +158,7 @@ impl ChatView {
             && self.suggest.as_ref().is_none_or(|s| !s.open)
             && self.shell_error.is_none()
             && !self.shell_mode(cx)
+            && !self.goal_mode()
             && !self.composer.read(cx).value().contains('\n')
             && self.attachment_errors(cx).is_none()
     }

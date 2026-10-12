@@ -15,7 +15,7 @@ use canopy_desktop::{
         config::{ChatSettings, Effort, Mode},
         launch::{HookConfig, prepare_claude},
         process::{Event, Process},
-        session::{ChatSession, Response, Status},
+        session::{ChatSession, Draft, Response, Status},
         transcript::{Body, Decision, Delivery, Outcome, ToolState},
     },
     state::{
@@ -1105,5 +1105,51 @@ fn an_attached_image_reaches_the_model() {
     let reply = live.assistant_text().to_lowercase();
     eprintln!("image: {reply:?}");
     assert!(reply.contains("blue"), "{reply:?}");
+    live.finish();
+}
+
+#[test]
+#[ignore = "live Claude Code; set CANOPY_LIVE_CLAUDE=1"]
+fn a_goal_runs_until_its_condition_holds() {
+    if !enabled() {
+        return;
+    }
+    let settings = ChatSettings {
+        mode: Mode::Yolo,
+        ..Default::default()
+    };
+    let mut live = Live::start_settings("goal", None, None, None, "haiku", &settings);
+    live.pump(TURN, |s| *s.status() == Status::Ready);
+    let lines = live.session.set_goal(Draft::text(
+        "The file counter.txt in the current folder contains the number 2. Each turn may only \
+         raise the number in it by exactly 1 (create it with 1 when it is missing); then end \
+         the turn without doing anything else.",
+    ));
+    live.write(lines);
+    let ended = |s: &ChatSession| {
+        s.goal().is_none()
+            && *s.status() == Status::Ready
+            && s.transcript()
+                .items()
+                .iter()
+                .any(|item| matches!(item.body, Body::GoalEnd(_)))
+    };
+    live.pump(Duration::from_secs(300), ended);
+    let end = live
+        .session
+        .transcript()
+        .items()
+        .iter()
+        .find_map(|item| match &item.body {
+            Body::GoalEnd(end) => Some(end.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(end.reason, canopy_desktop::chat::goal::EndReason::Achieved);
+    assert!(end.checks >= 1, "the first step leaves the condition unmet");
+    let counter = std::fs::read_to_string(live.cwd.join("counter.txt")).unwrap();
+    assert_eq!(counter.trim(), "2");
+    // Claude's own goal replies are not shown as its replies.
+    assert!(!live.assistant_text().contains("Goal set:"));
     live.finish();
 }

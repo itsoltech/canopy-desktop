@@ -77,6 +77,12 @@ pub struct EpochMeta {
     /// Who ran it (none in histories from before agents could be switched).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<AgentRef>,
+    /// The chat's goal while one is set; it comes back without running on its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<crate::chat::goal::Goal>,
+    /// The previous agent's goal, offered again after a switch to this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_goal: Option<String>,
 }
 impl EpochMeta {
     pub fn base(&self) -> Base {
@@ -307,6 +313,7 @@ pub fn settle(items: &mut Vec<Item>) -> Vec<usize> {
                 cost_usd: None,
                 duration_ms: None,
                 resume_at: None,
+                quiet: false,
             }),
         ] {
             next += 1;
@@ -369,6 +376,7 @@ mod tests {
             uuid: Some("u1".into()),
             attachments: vec![],
             context: None,
+            goal: false,
         })
     }
 
@@ -408,6 +416,7 @@ mod tests {
                     before: Some(Boundary::NewSession),
                     continued: false,
                     agent: None,
+                    ..Default::default()
                 }),
             )],
             items: vec![

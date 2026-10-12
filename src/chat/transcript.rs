@@ -36,6 +36,19 @@ pub enum Body {
     TurnEnd(TurnEnd),
     /// A shell command the user ran from the composer (`!cmd`), with its output.
     Shell(ShellRun),
+    /// Claude checked the chat's goal after a step: not yet met, with why.
+    GoalCheck(GoalCheck),
+    /// A turn the agent started on its own for the chat's goal (Codex).
+    GoalTurn(u32),
+    /// The chat's goal ended: achieved or cleared.
+    GoalEnd(crate::chat::goal::GoalEnd),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GoalCheck {
+    /// The check's number within its goal.
+    pub n: u32,
+    pub reason: String,
 }
 
 /// A `!` command: run by Canopy in the chat's folder, then its result goes to the agent.
@@ -69,6 +82,9 @@ pub struct UserMessage {
     /// as the message).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
+    /// Sets the chat's goal: `text` is its condition (sent as `/goal <text>`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub goal: bool,
 }
 
 /// Something sent along with a user message.
@@ -327,6 +343,9 @@ pub struct TurnEnd {
     /// conversation here.
     #[serde(default)]
     pub resume_at: Option<String>,
+    /// Ended a command Canopy sent on its own (e.g. `/goal clear`): not shown.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quiet: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -7,17 +7,19 @@ use super::{
         wire::{self, ContextUsage, Inbound, Lifecycle, Priority},
     },
     config::{ChatSettings, Effort, Mode, ModelInfo, valid_rule},
+    goal::{EndReason, Goal},
     presentation,
     process::{Event, Exit},
     transcript::{
         Attachment, Body, Decision, Delivery, Item, ItemId, Notice, NoticeKind, Outcome,
-        PermissionKind, Remember, Resolution, Rule, Transcript, TurnEnd, UserMessage,
+        PermissionKind, Remember, Resolution, Rule, Transcript, TurnEnd, TurnId, UserMessage,
     },
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 mod codex_engine;
+mod goal_engine;
 pub use codex_engine::CodexStart;
 
 /// A line from either agent's process.
@@ -111,6 +113,8 @@ pub struct Draft {
     pub attachments: Vec<Attachment>,
     /// The conversation so far for an agent switched to (sent before the text).
     pub context: Option<String>,
+    /// Sets the chat's goal: the text is its condition.
+    pub goal: bool,
 }
 impl Draft {
     pub fn text(text: impl Into<String>) -> Self {
@@ -125,6 +129,7 @@ impl Draft {
             text,
             attachments: self.attachments,
             context: self.context,
+            goal: self.goal,
         })
     }
 }
@@ -138,6 +143,8 @@ pub struct Queued {
     pub context: Option<String>,
     /// Uuid of the Steer already written to the CLI; it can no longer be edited.
     pub steering: Option<String>,
+    /// Sets the chat's goal once sent (never steered).
+    pub goal: bool,
 }
 
 pub struct ChatSession {
@@ -191,6 +198,22 @@ pub struct ChatSession {
     codex: codex_engine::CodexEngine,
     /// The conversation so far for an agent switched to: goes with the next message.
     handoff: Option<String>,
+    /// The chat's goal (`/goal`) while it is set.
+    goal: Option<Goal>,
+    /// The goal changed since the owner last saved it.
+    goal_changed: bool,
+    /// Why the goal's next removal happens, when not the user's Clear.
+    goal_clearing: Option<EndReason>,
+    /// Claude finished a goal turn on its own: the status asked after it says whether
+    /// the goal ended.
+    goal_settling: bool,
+    /// Codex: the goal continues after the turn that ended; the session stays working
+    /// until Codex starts the next one (or the owner lets it go, `expire_goal_hold`).
+    goal_hold: bool,
+    /// Commands Canopy sends on its own (Claude `/goal …`), oldest first; they go before
+    /// the queue and leave no message in the conversation.
+    quiet: VecDeque<String>,
+    quiet_turns: HashSet<TurnId>,
 }
 
 #[derive(Clone, Debug)]
@@ -215,6 +238,7 @@ impl Queued {
             text: self.text,
             attachments: self.attachments,
             context: self.context,
+            goal: self.goal,
         }
     }
 }
@@ -269,6 +293,13 @@ impl ChatSession {
             provider,
             codex: Default::default(),
             handoff: None,
+            goal: None,
+            goal_changed: false,
+            goal_clearing: None,
+            goal_settling: false,
+            goal_hold: false,
+            quiet: VecDeque::new(),
+            quiet_turns: HashSet::new(),
         }
     }
 
@@ -409,6 +440,7 @@ impl ChatSession {
                 attachments: vec![],
                 context: None,
                 steering: None,
+                goal: false,
             });
         }
         self.flush()
@@ -427,7 +459,8 @@ impl ChatSession {
             return vec![];
         }
         self.hold_queue = false;
-        if self.queue.is_empty() && self.accepts_turn() {
+        // Canopy's own commands go first (`quiet`).
+        if self.queue.is_empty() && self.quiet.is_empty() && self.accepts_turn() {
             return self.send(draft);
         }
         self.enqueue(draft);
@@ -645,6 +678,15 @@ impl ChatSession {
         // Only the CLI's own state says it is still busy: a stale task count must not
         // leave the session interrupting with nothing to end it.
         let waiting = !self.cli_idle;
+        if self.goal_hold {
+            // Between Codex's goal turns: pausing the goal is the whole stop.
+            let (lines, _) = self.codex_stop_goal();
+            // Held first: nothing waiting goes out as the hold ends.
+            self.hold_queue = true;
+            self.stopped = true;
+            let _ = self.expire_goal_hold();
+            return self.outgoing(lines);
+        }
         if !self.initialized || self.interrupting || !(self.turn_open || waiting) {
             return vec![];
         }
@@ -653,7 +695,10 @@ impl ChatSession {
             self.status = Status::Interrupting;
         }
         if self.provider == Provider::Codex {
-            let lines = self.codex_interrupt();
+            let (mut lines, cancelled) = self.codex_stop_goal();
+            if !cancelled {
+                lines.extend(self.codex_interrupt());
+            }
             self.hold_queue = true;
             self.stopped = true;
             return lines;
@@ -855,6 +900,7 @@ impl ChatSession {
                         text: message.text.clone(),
                         attachments: message.attachments.clone(),
                         context: message.context.clone(),
+                        goal: message.goal,
                     })
                 }
                 _ => None,
@@ -1162,6 +1208,7 @@ impl ChatSession {
                     }
                 }
                 Signal::TurnFinished => {
+                    self.hide_quiet_end();
                     self.turn_open = false;
                     self.interrupting = false;
                     if !self.status.ended() {
@@ -1171,6 +1218,7 @@ impl ChatSession {
                 Signal::BackgroundTasks(count) => self.background_tasks = count,
                 Signal::Reply(line) => lines.push(line),
                 Signal::Lifecycle { uuid, state } => self.on_lifecycle(uuid, state),
+                Signal::Goal(event) => lines.extend(self.on_goal(event)),
             }
         }
         lines.extend(self.flush());
@@ -1228,6 +1276,7 @@ impl ChatSession {
                     cost_usd: None,
                     duration_ms: None,
                     resume_at: None,
+                    quiet: false,
                 }),
             );
             self.turn_open = false;
@@ -1313,6 +1362,7 @@ impl ChatSession {
     fn accepts_turn(&self) -> bool {
         !self.turn_open
             && !self.interrupting
+            && !self.goal_hold
             && self.cli_idle
             && (!self.tracks_lifecycle() || self.outstanding.is_empty())
             && self.pending_requests().is_empty()
@@ -1338,6 +1388,7 @@ impl ChatSession {
             attachments: draft.attachments,
             context: draft.context,
             steering: None,
+            goal: draft.goal,
         });
         id
     }
@@ -1354,7 +1405,17 @@ impl ChatSession {
         self.stopped = false;
         let turn = self.transcript.allocate_turn();
         let uuid = uuid::Uuid::new_v4().to_string();
+        if draft.goal {
+            self.start_goal(&draft.text);
+        }
         let line = match self.provider {
+            Provider::Claude if draft.goal => wire::user_message(
+                &format!("/{} {}", super::goal::COMMAND, draft.text),
+                &[],
+                draft.context.as_deref(),
+                &uuid,
+                Priority::Later,
+            ),
             Provider::Claude => wire::user_message(
                 &draft.text,
                 &draft.attachments,
@@ -1362,6 +1423,9 @@ impl ChatSession {
                 &uuid,
                 Priority::Later,
             ),
+            Provider::Codex if draft.goal => {
+                self.codex_goal_send(&draft).pop().unwrap_or(Value::Null)
+            }
             Provider::Codex => self.codex_send(&draft, &uuid).pop().unwrap_or(Value::Null),
         };
         self.transcript.push_in(
@@ -1373,6 +1437,7 @@ impl ChatSession {
                 uuid: Some(uuid.clone()),
                 attachments: draft.attachments,
                 context: draft.context,
+                goal: draft.goal,
             }),
         );
         self.start_turn(turn);
@@ -1392,6 +1457,7 @@ impl ChatSession {
                     uuid: None,
                     attachments: draft.attachments,
                     context: draft.context.clone(),
+                    goal: false,
                 }),
             );
         } else {
@@ -1405,6 +1471,7 @@ impl ChatSession {
                     uuid: None,
                     attachments: draft.attachments,
                     context: draft.context.clone(),
+                    goal: false,
                 }),
             );
             self.start_turn(turn);
@@ -1413,6 +1480,12 @@ impl ChatSession {
 
     /// Sends the oldest waiting message once the agent has finished everything.
     fn flush(&mut self) -> Vec<Value> {
+        if let Some(lines) = self.flush_quiet() {
+            return lines;
+        }
+        if let Some(lines) = self.steer_into_goal() {
+            return lines;
+        }
         if self.hold_queue
             || !self.initialized
             || self.status.ended()

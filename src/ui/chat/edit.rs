@@ -49,6 +49,7 @@ impl ChatView {
                     text: message.text.clone(),
                     attachments: message.attachments.clone(),
                     context: message.context.clone(),
+                    goal: message.goal,
                 }),
                 _ => None,
             })
@@ -196,6 +197,11 @@ impl ChatView {
             placeholder: super::decision::COMPOSER_PLACEHOLDER,
         });
         self.attachments.pending.clear();
+        // The branch continues from before the goal's end: the goal ends with the edit.
+        if let Some(session) = self.session.as_mut().filter(|s| s.goal().is_some()) {
+            session.drop_goal(canopy_desktop::chat::goal::EndReason::ClearedOnEdit);
+            self.after_change(cx);
+        }
         self.switching = true;
         self.fork_at = editing.fork.clone();
         self.send_on_start = Some(draft);

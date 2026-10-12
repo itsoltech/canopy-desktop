@@ -6,6 +6,7 @@
 use super::wire::{self, Message, id_text};
 use crate::chat::claude::adapter::{CliState, Signal};
 use crate::chat::claude::wire::ContextUsage;
+use crate::chat::goal::GoalEvent;
 use crate::chat::transcript::{
     Body, Decision, Notice, NoticeKind, Outcome, Permission, PermissionKind, Remember, Resolution,
     TextBlock, ToolCall, ToolOutput, ToolState, Transcript, TurnEnd, Usage,
@@ -161,6 +162,17 @@ impl Adapter {
                 self.rate = rate_limit(&params["rateLimits"]).or(self.rate);
                 return vec![];
             }
+            // Goals belong to the conversation's thread.
+            "thread/goal/updated" | "thread/goal/cleared"
+                if self.thread.as_deref() == text(params, "threadId") =>
+            {
+                return match wire::goal(params) {
+                    Some(goal) if method == "thread/goal/updated" => {
+                        vec![Signal::Goal(GoalEvent::Codex(goal))]
+                    }
+                    _ => vec![Signal::Goal(GoalEvent::CodexCleared)],
+                };
+            }
             "serverRequest/resolved" => {
                 let request = params.get("requestId").map(id_text).unwrap_or_default();
                 return if self.resolve_with(&request, Decision::Cancelled, None, t) {
@@ -221,6 +233,7 @@ impl Adapter {
                         cost_usd: None,
                         duration_ms: turn["durationMs"].as_u64(),
                         resume_at: turn["id"].as_str().map(str::to_owned),
+                        quiet: false,
                     }),
                 );
                 vec![Signal::TurnFinished]

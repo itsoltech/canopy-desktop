@@ -1,6 +1,7 @@
 //! Folds Claude stream-json messages into the provider-neutral transcript.
 //! Pure: no I/O, so recorded sessions replay deterministically in tests.
 use super::wire::{self, ApiEvent, Block, Delta, Inbound, System};
+use crate::chat::goal::{self, GoalEvent};
 use crate::chat::presentation::HANDBACK_TOOL;
 use crate::chat::transcript::{
     Body, Decision, Notice, NoticeKind, Outcome, Permission, PermissionKind, Resolution, TextBlock,
@@ -54,6 +55,8 @@ pub enum Signal {
         uuid: String,
         state: wire::Lifecycle,
     },
+    /// What the agent reported about the chat's goal.
+    Goal(GoalEvent),
 }
 
 #[derive(Default)]
@@ -120,11 +123,29 @@ impl Adapter {
                 vec![]
             }
             Inbound::Assistant(message) => {
+                // The CLI's own reply to `/goal` becomes goal state, not a reply.
+                if message.parent_tool_use_id.is_none() && message.message.synthetic() {
+                    let text: String = message
+                        .message
+                        .content
+                        .iter()
+                        .filter_map(|block| match block {
+                            Block::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    if let Some(event) = goal::parse_reply(&text) {
+                        return vec![Signal::Goal(event)];
+                    }
+                }
                 self.assistant(message, transcript);
                 vec![]
             }
             Inbound::User(message) => {
                 self.tool_results(&message, transcript);
+                if message.is_synthetic && message.parent_tool_use_id.is_none() {
+                    return vec![Signal::Goal(GoalEvent::Feedback(message.text()))];
+                }
                 vec![]
             }
             Inbound::Result(result) => self.result(result, transcript, interrupted),
@@ -760,6 +781,7 @@ impl Adapter {
             _ => Outcome::Failed(errors()),
         };
         self.close_turn(transcript, &outcome);
+        let completed = outcome == Outcome::Completed;
         transcript.push(
             None,
             Body::TurnEnd(TurnEnd {
@@ -773,13 +795,21 @@ impl Adapter {
                 cost_usd: result.total_cost_usd,
                 duration_ms: result.duration_ms,
                 resume_at: self.last_message.clone(),
+                quiet: false,
             }),
         );
+        // A local command (`/goal`) runs no model request: nothing was pursued.
+        let ran = result.num_turns != Some(0);
         let mut signals: Vec<_> = result
             .session_id
             .into_iter()
             .map(Signal::SessionId)
             .collect();
+        if ran {
+            signals.push(Signal::Goal(GoalEvent::TurnEnded {
+                completed: completed && result.terminal_reason.as_deref() == Some("completed"),
+            }));
+        }
         signals.push(Signal::TurnFinished);
         signals
     }

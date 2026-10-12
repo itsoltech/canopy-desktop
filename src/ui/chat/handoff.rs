@@ -70,10 +70,17 @@ impl ChatView {
             return;
         }
         let agent = Some(self.agent_ref());
-        if self.epoch_meta.agent == agent {
+        let goal = self.session.as_ref().and_then(|s| s.goal()).cloned();
+        let previous = self.goal_row.previous.clone();
+        if self.epoch_meta.agent == agent
+            && self.epoch_meta.goal == goal
+            && self.epoch_meta.previous_goal == previous
+        {
             return;
         }
         self.epoch_meta.agent = agent;
+        self.epoch_meta.goal = goal;
+        self.epoch_meta.previous_goal = previous;
         let Some(chat) = self.settings.id.clone() else {
             return;
         };
@@ -193,7 +200,26 @@ impl ChatView {
         {
             return false;
         }
+        // The goal belongs to the agent pursuing it (DEC-082): it ends here and is
+        // offered to the next one.
+        let goal = self.session.as_mut().and_then(|session| {
+            let objective = session.goal()?.objective.clone();
+            session.drop_goal(canopy_desktop::chat::goal::EndReason::ClearedOnSwitch);
+            Some(objective)
+        });
+        if goal.is_some() {
+            self.goal_row.previous = goal.clone();
+            self.after_change(cx);
+        }
         let (summary, earlier) = self.handoff_for(provider, &profile);
+        let summary = match (summary, goal) {
+            (summary, Some(goal)) => Some(format!(
+                "{}The previous agent was working toward this goal when the user switched; \
+                 it was cleared, and the user may set it for you again: {goal}",
+                summary.map(|s| format!("{s}\n\n")).unwrap_or_default()
+            )),
+            (summary, None) => summary,
+        };
         let resume = earlier.as_ref().and_then(|agent| agent.session.clone());
         // Its own choices from before, else the account's defaults in the same mode.
         let mut settings = match earlier.and_then(|agent| agent.settings) {

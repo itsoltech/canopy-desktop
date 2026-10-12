@@ -31,6 +31,7 @@ impl ChatView {
                     text: message.text.clone(),
                     attachments: message.attachments.clone(),
                     context: None,
+                    goal: false,
                 })
             }
             _ => None,
@@ -54,7 +55,7 @@ impl ChatView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.shell {
+        if self.shell || self.goal_mode {
             return false;
         }
         let key = if older { "up" } else { "down" };

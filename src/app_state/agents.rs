@@ -34,6 +34,17 @@ pub struct AgentSession {
     pub event_count: u64,
     pub last_event: Option<String>,
     pub awaiting_events: bool,
+    /// A chat pursuing its goal (`/goal`): working across turns, shown as "Goal".
+    pub goal: bool,
+}
+impl AgentSession {
+    pub fn status_label(&self) -> &'static str {
+        if self.goal && self.status == Status::Working {
+            "Goal"
+        } else {
+            self.status.label()
+        }
+    }
 }
 pub struct AgentsState {
     pub ready: bool,
@@ -90,6 +101,7 @@ impl AgentsState {
                 event_count: 0,
                 last_event: None,
                 awaiting_events: false,
+                goal: false,
             },
         );
     }
@@ -172,6 +184,7 @@ impl AgentsState {
                 event_count: 0,
                 last_event: None,
                 awaiting_events: false,
+                goal: false,
             },
         );
         let run = registration.run.clone();
@@ -314,7 +327,12 @@ impl AgentsState {
         .then(|| (session.pane.id, event.clone()));
         session.attention.apply(&event);
         let previous = session.status;
-        session.base = event.status(session.base);
+        let base = event.status(session.base);
+        // A chat pursuing its goal stops between its steps: still working (it reports
+        // the goal's end itself).
+        if !(session.goal && base == Status::Idle) {
+            session.base = base;
+        }
         session.status = if session.attention.waiting() || session.decision.is_some() {
             Status::Waiting
         } else {
@@ -547,6 +565,44 @@ impl AgentsState {
         session.base = base;
         if session.decision.is_none() && !session.attention.waiting() {
             session.status = base;
+        }
+        if canopy_desktop::agents::should_notify(previous, session.status, visible) {
+            session.unseen = true;
+            self.notification_revision += 1;
+        }
+        cx.notify();
+    }
+
+    /// A chat's goal is pursued (`true`) or no longer: while it is, the chat counts as
+    /// working; at its end the chat reports where it stands (`working`).
+    pub fn chat_goal(
+        &mut self,
+        pane: PaneId,
+        run: &str,
+        pursuing: bool,
+        working: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let visible = self.visible(pane, cx);
+        let Some(session) = self
+            .sessions
+            .get_mut(&pane)
+            .filter(|session| session.run == run && session.active)
+        else {
+            return;
+        };
+        if session.goal == pursuing {
+            return;
+        }
+        session.goal = pursuing;
+        let previous = session.status;
+        session.base = if pursuing || working {
+            Status::Working
+        } else {
+            Status::Idle
+        };
+        if session.decision.is_none() && !session.attention.waiting() {
+            session.status = session.base;
         }
         if canopy_desktop::agents::should_notify(previous, session.status, visible) {
             session.unseen = true;

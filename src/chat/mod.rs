@@ -6,6 +6,7 @@ pub mod claude;
 pub mod codex;
 pub mod compose;
 pub mod config;
+pub mod goal;
 pub mod handoff;
 pub mod history;
 pub mod launch;
