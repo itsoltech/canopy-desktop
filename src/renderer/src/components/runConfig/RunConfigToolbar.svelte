@@ -223,6 +223,8 @@
                 selected?.name === item.name}
               onclick={() => selectAndClose(item.configDir, item.name)}
               onkeydown={(e) => {
+                // Let Enter/Space on the nested Run/Stop button activate it.
+                if (e.target !== e.currentTarget) return
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   selectAndClose(item.configDir, item.name)

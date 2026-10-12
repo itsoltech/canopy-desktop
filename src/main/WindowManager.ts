@@ -332,6 +332,13 @@ export class WindowManager {
   }
 
   setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {
+    // Callers register only after an awaited start(). If the window closed in
+    // the meantime, disposeWindow() has already run and nothing would ever
+    // stop this watcher, so stop it instead of registering it.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     let watchers = this.gitWatchers.get(wcId)
     if (!watchers) {
       watchers = new Map()
@@ -397,6 +404,11 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    // Same as setGitWatcher: never register a watcher for a closed window.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     this.fileWatchers.set(wcId, watcher)
   }
 

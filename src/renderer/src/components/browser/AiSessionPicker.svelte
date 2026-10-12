@@ -43,7 +43,7 @@
       ) {
         e.preventDefault()
         last.focus()
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && (active === last || !containerEl.contains(active))) {
         e.preventDefault()
         first.focus()
       }
