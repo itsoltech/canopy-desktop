@@ -183,9 +183,10 @@ impl ChatView {
                     .border_1()
                     .border_b_0()
                     .border_color(t::border())
-                    .bg(t::input_bg())
+                    .bg(t::composer_surface())
                     .when(held, |tray| tray.child(paused_row(cx)))
-                    .children(rows),
+                    .children(rows)
+                    .nested_scroll(),
             )
             // Cancels the composer island's top padding: the tray meets its border,
             // without covering the translucent surface.

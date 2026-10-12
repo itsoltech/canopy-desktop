@@ -100,9 +100,13 @@ pub enum Attachment {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         label: Option<String>,
     },
-    /// A command or skill of the agent (`/name`), at the start of the message.
+    /// A command or skill of the agent: `/name` at the start of the message, or a
+    /// skill (`$name`) anywhere in it.
     Command {
         name: String,
+        /// Typed as `$name`: a skill of the agent, drawn as a skill badge.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        skill: bool,
         /// Where a Codex skill lives (it is sent with it).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<PathBuf>,

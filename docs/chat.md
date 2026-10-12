@@ -137,11 +137,70 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   `MessageScrollerState::splice/remeasure_items`; każdy blok tekstu ma własny
   `MarkdownView::chat` (polityka `markdown::prepare`: bez obrazów i HTML, kopiowanie kodu,
   stream fade z tokenów MEDIUM/STAGGER, wyłączany przy Reduce Motion).
-- Pickery w composerze: konto → model (modele z odpowiedzi CLI na `initialize`),
-  reasoning (poziomy modelu), tryb (Ask / Accept edits / Plan / Auto / Yolo). Zmiany
+- Pickery w composerze: model z reasoningiem (modele z odpowiedzi CLI na `initialize`, poziomy modelu)
+  i tryb (Ask / Accept edits / Plan / Auto / Yolo).
+- Picker modelu (`ui/chat/model_picker.rs`, wzorem ChatGPT): przycisk „Model Effort” (effort wyciszony;
+  przy braku wyboru domyślny poziom konta, jeśli CLI go podaje) otwiera `Popover` sterowany przez
+  `ModelPicker.open` (panel 272 px). Strona reasoningu: ikona providera, nazwa poziomu, nazwa modelu z `›`
+  (przejście do listy), Reset (rotate-ccw, wraca do domyślnego; nieaktywny bez wyboru) i slider o stopach
+  `effort_levels` (bez Default). Bez wyboru gałka stoi na domyślnym poziomie, gdy CLI go podaje (Codex);
+  inaczej (Claude) gałki i wypełnienia nie ma, a nazwa brzmi „Default” — pojawiają się z przenikaniem przy
+  pierwszym wyborze; → zaczyna od najniższego poziomu, ← od najwyższego. Wypełnienie to gradient
+  `t::effort(0)` → `t::effort(intensywność)` (indygo → fiolet → róż), a przez nie płyną miękkie pasma światła
+  (`paint_sheen`, `t::effort_sheen`): 56 px szerokości co 88 px, stałe 12 px/s (zmiana poziomu nie szarpie
+  fazy), tylko w prostej części toru i wygaszane przed zaokrąglonymi końcami; jasność rośnie z poziomem
+  (5 → 18%); przy ograniczonym ruchu stoją.
+  Nazwa poziomu ma kolor końca gradientu i zmienia się animacją (stara odpływa, nowa wjeżdża o 8 px z dołu
+  przy wzroście, z góry przy spadku, z przenikaniem, `STATE_CHANGE`). Klik, przeciąganie (globalne
+  `MouseMove`/`MouseUp` z canvasu podczas trzymania) i ←/→ (focus panelu przez `track_focus`); `set_effort`
+  dopiero po puszczeniu, gałka jedzie `STATE_CHANGE`.
+  Strona modeli: „<konto> models”, Default z notą „Recommended · …”, modele z ✓, sekcja Accounts
+  (te same reguły co wcześniej: restart przed pierwszą wiadomością, przełączenie z kontekstem, nieaktywne
+  w trakcie pracy). Wybór modelu z poziomami wraca na stronę reasoningu, bez poziomów zamyka popover;
+  model bez poziomów otwiera popover od razu na liście. Zmiana strony: wysokość panelu z poprzedniej do
+  zmierzonej (RESIZE), treść wjeżdża o 14 px z prawej (do listy) lub z lewej (powrót) z przenikaniem. Zmiany
   w trakcie: `set_model`, `apply_flag_settings{effortLevel}`, `set_permission_mode`;
   odmowa CLI cofa wybór z notką. Konto można zmienić tylko przed pierwszą wiadomością
   (nowy proces). Ostatnie wybory zapisuje `SettingsState::remember` (klucze `chat.*`).
+- Pickery zajmują miejsce, które zostawiają przyciski (`ChatView::pickers`, `overflow_hidden`). Canvas zapisuje
+  szerokość tej grupy w `pickers_width`; render mierzy etykiety (`shape_line`, 12 px) i wybiera gęstość: pełne
+  etykiety (model z effortem i tryb), sama nazwa modelu (tryb jako ikonka) albo same ikonki. Ukryta etykieta trafia do tooltipa
+  i etykiety dostępności; załącznik i Send/Stop nigdy nie wychodzą poza composer.
+- Composer „odpoczywa” podczas scrollowania rozmowy (jak `resting` w T3 Code, `ui/chat/resting.rs`):
+  - liczy się zmiana pozycji listy, niezależnie od źródła (kółko, touchpad, przeciąganie scrollbara):
+    `sync_resting` w każdym renderze porównuje `ChatScrollerState::position` / `scroll_top` z poprzednią klatką;
+    ruch (zmiany w odstępach ≤ 200 ms) o łącznej drodze 24 px, gdy lista jest przewinięta w górę, zwija
+    composer do jednej linii: początek szkicu (`set_auto_grow(1, 1)`), Attach i Send; pickery i kółko
+    kontekstu znikają. Decyzję podejmuje czyste `Resting::observe` (testy w module);
+  - nie liczą się: dopisywanie treści przy śledzeniu końca (lista nie jest przewinięta w górę), glide
+    nawigatora i skoki na koniec (`ChatScrollerState::ends`);
+  - tylko zwykły jednoliniowy szkic: decyzja, edycja, otwarte podpowiedzi, shell, błędy załączników lub polecenia
+    oraz podwątek subagenta zostawiają pełny composer (i budzą zwinięty);
+  - pełny composer wraca po przewinięciu w dół do końca (każdym sposobem), kółku w dół na samym końcu, Jump to latest / ostatnim kroku
+    nawigatora, pisaniu i kliknięciu tekstu; pisanie w trakcie ruchu blokuje jego resztę (momentum);
+  - wysokość wyspy przechodzi płynnie (RESIZE) od poprzedniej do zmierzonej (canvas w `Resting::measured`),
+    bez animacji przy Reduce Motion.
+- Przewijane elementy w rozmowie i nad nią (output narzędzi, thinking w trakcie, prompt podwątku, banner,
+  decyzje, kolejka, kontekst handoffu) mają `.nested_scroll()`: kółko przewija je, a rozmowę dopiero na ich krawędzi.
+  Lista rozmowy bierze kółko w fazie capture (`ScrollableMask` w `ChatScroller`, żeby bloki kodu z przewijaniem
+  w poziomie nie zamieniały kółka na ruch w bok), więc zwykły listener wiersza nigdy by go nie dostał.
+- Composer jest nakładką na dół rozmowy (jak `position: fixed; bottom: 0` z paddingiem treści,
+  `ChatView::composer_overlay` w `render.rs`): banner, tacki i composer leżą w `absolute` kolumnie nad rozmową,
+  która przewija się pod nimi. Composer i tacki mają nieprzezroczystą powierzchnię (`t::composer_surface()`,
+  czyli `input_bg` zmieszane z `bg`), a pod nimi (bez 16 px paska scrollbara) rozmowa wygasa: 24 px
+  gradientu nad nakładką (`COMPOSER_FADE`, bez `occlude`, więc kliknięcia przechodzą do rozmowy), potem
+  prawie pełne `bg`. Obszar samej nakładki zatrzymuje kursor i kółko (`occlude`; jak element poza kontenerem
+  przewijania strony — przewijają się tylko listy tacek). Viewport listy ma zawsze pełną wysokość, więc zmiana
+  rozmiaru composera nie przesuwa przewiniętej rozmowy. Canvas mierzy wysokość nakładki do `overlay_height`,
+  ale nie podczas odpoczynku composera i jego animacji: zwinięty composer zostawia pod rozmową miejsce
+  pełnego, więc długość listy i scrollbar się nie zmieniają. Lista dostaje ją jako dolny padding (`ChatScroller::bottom_inset`), więc koniec rozmowy
+  stoi tuż nad gradientem composera (lista nie ma już własnego dolnego fade'u). Jump to latest siedzi na górnej krawędzi nakładki takiej, jaka jest narysowana (`overlay_drawn`, mierzone także podczas odpoczynku), więc schodzi razem ze zwijającym się composerem. Scrollbar i maska kółka listy
+  dostają `PaddedList` zamiast gołego `ListState`: jego liczby dla scrollbara pomijają padding, a na
+  śledzonym końcu podają wysokość wierszy zamiast końca, więc pierwszy krok kółka z końca skakał o całe
+  miejsce composera, a kciuk nie dochodził do końca. `PaddedList` liczy zakres z paddingiem (krótka lista:
+  z granic pierwszego i ostatniego wiersza), a na końcu zwraca pełny zakres. Strony HTML i rail
+  wiadomości są przycięte do widocznej części, a otwarte podpowiedzi, picker modelu i Reply chowają żywe
+  strony (`pages_covered`), bo natywny widok rysuje się nad GPUI.
 - Proces zawsze startuje z `--allow-dangerously-skip-permissions`, żeby Yolo dało się
   wybrać w dowolnym momencie; samo to nie omija zgód.
 - Restart w pane'ie zachowuje wiersze poprzedniej sesji nad separatorem „Session
@@ -378,15 +437,23 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   Cytat to `Attachment::Quote` z wzmianką `[❝ …]` w tekście (badge jak załącznik, tooltip z całością, ≤ 4 000 znaków),
   więc przeżywa kolejkę, Edit i historię. `quotes::expand` zamienia wzmiankę na blok `> …` w wire Claude/Codex
   i w skrócie handoff. Klik w badge wysłanej wiadomości przewija do źródła i na chwilę je podświetla.
+  - Pasek nad zaznaczeniem ma dwie akcje: „Quote” (badge do composera) i „Reply”. Reply otwiera popover
+    (`QuoteReply`, POPOVER, w miejscu zaznaczenia) z podglądem cytatu (3 linie) i własnym polem:
+    Enter / Send wysyła od razu `Draft` z cytatem i odpowiedzią przez `send_draft` (szkic composera zostaje
+    nietknięty; nieaktywne przy pustej odpowiedzi, czekającej decyzji, edycji i zakończonej sesji),
+    ⌘⏎ / Ctrl+Enter i „Add to message” wstawiają badge i odpowiedź przy kursorze composera. Esc, klik obok
+    i wysłanie zamykają popover, focus wraca do composera.
 
 ## Etap 9: komendy, wzmianki i polecenia w composerze
 
 - Podpowiedzi (DEC-071, `ui/chat/suggest.rs`): `suggest::trigger` wykrywa słowo przy kursorze. Wyzwalacze:
   - `/` tylko na początku wiadomości;
-  - `@` i `#` na początku słowa;
+  - `$`, `@` i `#` na początku słowa;
   - badge'e nie są częścią słowa.
   Tacka na górnej krawędzi composera, jak kolejka: wysuwa się (PANEL, `MotionReveal`), wysokość zmienia płynnie
-  (`AnimatedHeight`) i chowa się z animacją. Tacka ma pierwszeństwo przed edit, kolejką i kontekstem. ↑/↓, Enter/Tab
+  (`AnimatedHeight`) i chowa się z animacją. Tacka jest nakładką (`absolute`, `bottom: 100%` nad composerem,
+  `occlude`, pod półprzezroczystym `input_bg` pełne `bg`): przykrywa rozmowę i inne tacki (edit, kolejka, kontekst), a lista, oś wiadomości i scroll się nie
+  przesuwają. Prośba agenta (decision) chowa podpowiedzi. ↑/↓, Enter/Tab
   i Esc to akcje pola tekstowego (`MoveUp`, `MoveDown`, `Enter`, `IndentInline`, `Escape`), przechwytywane
   `capture_action` na composerze, bo akcje idą przed zwykłymi zdarzeniami klawiszy; tak samo działa ↑ historii.
   Lista jest liczona w subskrypcji `InputEvent::Change`, wyszukiwanie w tle z debounce i odrzucaniem starszych
@@ -397,6 +464,13 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   - Codex: `skills/list` przy starcie i ponownie po `skills/changed` (`codex::wire::skills`).
   - Badge `Attachment::Command`. `chat::compose::expand` zamienia go na `/name` (Claude) albo na `$name` + wejście
     `{"type":"skill"}` (Codex).
+- `$`: same skille (`CommandInfo.skill`) w dowolnym miejscu wiadomości.
+  - Codex: wszystko z `skills/list`. Claude: przed pierwszą wiadomością wpisy `initialize.commands` bez
+    `builtin`, potem dokładna lista `skills` z `system/init` (`config::mark_skills`; skill pluginu `plugin:name`
+    pasuje do komendy `name`).
+  - Badge `Attachment::Command { skill: true }` z wzmianką `[$name]`: fioletowy (`t::skill()`), ikona `box`,
+    nazwa czytelna (`gpui-kit` → „Gpui Kit”), w tooltipie `$name` i opis. Rozwinięcie w miejscu badge'a jak
+    przy `/`: `/name` dla Claude (model wywołuje skill narzędziem Skill), `$name` + wejście skill dla Codexa.
   - Lokalne komendy Claude (np. `/context`, `/compact`) odpowiadają syntetyczną wiadomością asystenta.
 - `@`: `files::search::mentions` (ignore rules jak ⌘P, pliki i foldery, trafienia w nazwie wyżej). Badge to
   `Attachment::Path` z wzmianką `@ścieżka`: agent dostaje tylko ścieżkę (DEC-073).

@@ -1,6 +1,7 @@
 //! Suggestions in the composer (DEC-071): `/` the agent's commands and skills at the
-//! start of the message, `@` files and folders of the chat's folder, `#` pull requests
-//! of its GitHub repository. The chosen one replaces the typed word with its badge.
+//! start of the message, `$` its skills in any word, `@` files and folders of the
+//! chat's folder, `#` pull requests of its GitHub repository. The chosen one replaces
+//! the typed word with its badge.
 use super::{mentions, view::ChatView};
 use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
@@ -23,6 +24,7 @@ const MAX: usize = 50;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
     Command,
+    Skill,
     File,
     Pull,
 }
@@ -36,8 +38,8 @@ pub(super) struct Trigger {
     pub query: String,
 }
 
-/// The trigger word ending at `cursor`: `/` only at the very start of the message, `@`
-/// and `#` at the start of any word. Badges (`tokens`) are never part of a word.
+/// The trigger word ending at `cursor`: `/` only at the very start of the message, `$`,
+/// `@` and `#` at the start of any word. Badges (`tokens`) are never part of a word.
 pub(super) fn trigger(text: &str, cursor: usize, tokens: &[Range<usize>]) -> Option<Trigger> {
     if cursor > text.len() || !text.is_char_boundary(cursor) {
         return None;
@@ -64,6 +66,7 @@ pub(super) fn trigger(text: &str, cursor: usize, tokens: &[Range<usize>]) -> Opt
     let word = &text[start..cursor];
     let kind = match word.chars().next()? {
         '/' if start == 0 => Kind::Command,
+        '$' => Kind::Skill,
         '@' => Kind::File,
         '#' => Kind::Pull,
         _ => return None,
@@ -119,7 +122,7 @@ pub(super) struct Choice {
 pub(super) struct Suggest {
     pub trigger: Trigger,
     /// Shown; false while the tray slides away.
-    open: bool,
+    pub open: bool,
     choices: Vec<Choice>,
     selected: usize,
     loading: bool,
@@ -130,15 +133,26 @@ pub(super) struct Suggest {
     _cancel: Option<canopy_desktop::files::CancelGuard>,
 }
 
-fn command_choice(command: &CommandInfo) -> Choice {
+/// A command after `/`, or a skill after `$` (`skill`), and the badge it becomes.
+fn command_choice(command: &CommandInfo, skill: bool) -> Choice {
     let description: String = command.description.chars().take(300).collect();
     let attachment = Attachment::Command {
         name: command.name.clone(),
+        skill,
         path: command.path.clone(),
         description: Some(description.clone()).filter(|d| !d.is_empty()),
         label: None,
     };
     let label = mentions::mention_of(&attachment);
+    if skill {
+        return Choice {
+            glyph: Glyph::Custom("box"),
+            title: format!("${}", command.name),
+            detail: description.lines().next().unwrap_or_default().to_owned(),
+            name: mentions::skill_title(&command.name),
+            attachment: attachment.with_label(label),
+        };
+    }
     Choice {
         glyph: Glyph::Custom("square-slash"),
         title: match &command.hint {
@@ -261,10 +275,29 @@ impl ChatView {
                     .unwrap_or_default();
                 suggest.choices = rank_commands(commands, &trigger.query)
                     .into_iter()
-                    .map(command_choice)
+                    .map(|command| command_choice(command, false))
                     .collect();
                 // The agent reports them once it has started.
                 suggest.loading = commands.is_empty()
+                    && self.session.as_ref().is_none_or(|s| {
+                        matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
+                    });
+            }
+            Kind::Skill => {
+                let skills: Vec<CommandInfo> = self
+                    .session
+                    .as_ref()
+                    .map(|s| s.commands())
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|command| command.skill)
+                    .cloned()
+                    .collect();
+                suggest.choices = rank_commands(&skills, &trigger.query)
+                    .into_iter()
+                    .map(|command| command_choice(command, true))
+                    .collect();
+                suggest.loading = skills.is_empty()
                     && self.session.as_ref().is_none_or(|s| {
                         matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
                     });
@@ -427,8 +460,9 @@ impl ChatView {
         cx.notify();
     }
 
-    /// The tray on the composer's top edge, like the queue: it slides out with the
-    /// first suggestions and eases its height as the list changes.
+    /// The tray on the composer's top edge, like the queue, laid over the conversation
+    /// (and any other tray): it slides out with the first suggestions and eases its
+    /// height as the list changes.
     pub(super) fn suggest_bar(
         &mut self,
         window: &mut Window,
@@ -445,6 +479,7 @@ impl ChatView {
         motion::request_frame(window, animating);
         let title = match suggest.trigger.kind {
             Kind::Command => format!("{} commands and skills", self.provider().name()),
+            Kind::Skill => format!("{} skills", self.provider().name()),
             Kind::File => "Files and folders".to_owned(),
             Kind::Pull => "Pull requests".to_owned(),
         };
@@ -499,7 +534,11 @@ impl ChatView {
                         .child(match &choice.glyph {
                             Glyph::Custom(name) => custom_icon(name)
                                 .size(px(14.))
-                                .text_color(t::muted())
+                                .text_color(if *name == "box" {
+                                    t::skill()
+                                } else {
+                                    t::muted()
+                                })
                                 .into_any_element(),
                             Glyph::Named(name) => icon(name.clone())
                                 .size(px(14.))
@@ -528,6 +567,9 @@ impl ChatView {
                 .into_any_element()
         };
         let panel = column()
+            .id("chat-suggest-panel")
+            // Clicks and the wheel between the rows don't reach the chat beneath.
+            .occlude()
             .w_full()
             .px(px(6.))
             .py(px(3.))
@@ -565,6 +607,10 @@ impl ChatView {
                 .relative()
                 .top(px(motion::distance::BASE * (1. - progress)))
                 .opacity(progress)
+                // The composer's tint is translucent; over the conversation it needs the
+                // window's solid background beneath it to stay readable.
+                .rounded_t(px(12.))
+                .bg(t::bg())
                 .child(panel)
                 .into_any_element(),
         );
@@ -601,6 +647,10 @@ mod tests {
         assert_eq!(
             at("fix #12").map(|t| (t.kind, t.query)),
             Some((Kind::Pull, "12".into()))
+        );
+        assert_eq!(
+            at("restyle it with $des").map(|t| (t.kind, t.range, t.query)),
+            Some((Kind::Skill, 16..20, "des".into()))
         );
         assert_eq!(at("mail a@b"), None);
         assert_eq!(

@@ -828,7 +828,8 @@ impl ChatView {
                     .overflow_y_scroll()
                     .gap(px(6.))
                     .children(self.preview(request, key))
-                    .child(self.options(request, active, cx)),
+                    .child(self.options(request, active, cx))
+                    .nested_scroll(),
             );
         let panel = column()
             .id("chat-decision")
@@ -841,7 +842,7 @@ impl ChatView {
             .border_b_0()
             .border_color(t::border())
             // The composer's surface: the panel reads as part of the message field.
-            .bg(t::input_bg())
+            .bg(t::composer_surface())
             .child(header)
             .child(self.decision.fold.measured_body(
                 ("chat-decision-fold-body", key),
@@ -884,6 +885,7 @@ impl ChatView {
                     .bg(t::elevated())
                     .text_color(t::text())
                     .child(plan.clone())
+                    .nested_scroll()
                     .into_any_element(),
             );
         }
@@ -901,6 +903,7 @@ impl ChatView {
                 .text_size(px(12.))
                 .text_color(t::text())
                 .child(command.clone())
+                .nested_scroll()
                 .into_any_element(),
             Proposal::Input(input) => div()
                 .id(("chat-decision-input", key))
@@ -914,6 +917,7 @@ impl ChatView {
                 .text_size(px(12.))
                 .text_color(t::secondary())
                 .child(input.clone())
+                .nested_scroll()
                 .into_any_element(),
             Proposal::Change(change) => {
                 let note = if change.created {
@@ -974,7 +978,8 @@ impl ChatView {
                                         "{} more lines not shown",
                                         change.lines.len() - PREVIEW_LINES
                                     ))
-                            })),
+                            }))
+                            .nested_scroll(),
                     )
                     .into_any_element()
             }

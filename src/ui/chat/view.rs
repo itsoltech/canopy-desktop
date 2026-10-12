@@ -147,10 +147,24 @@ pub struct ChatView {
     pub(super) lit: Vec<Entity<gpui_kit::base::TextViewState>>,
     /// Quote button for the selection in the conversation (DEC-070).
     pub(super) quote_offer: Option<super::quote::QuoteOffer>,
+    /// A reply to one quote, written in its popover.
+    pub(super) quote_reply: Option<super::quote::QuoteReply>,
     /// Suggestions for the word being typed (`/`, `@`, `#`, DEC-071).
     pub(super) suggest: Option<super::suggest::Suggest>,
     /// Esc closed the suggestions for the word starting here.
     pub(super) suggest_dismissed: Option<usize>,
+    /// The model and reasoning popover of the composer.
+    pub(super) model_picker: super::model_picker::ModelPicker,
+    /// The composer shrinks to one line while the reader scrolls the conversation.
+    pub(super) resting: super::resting::Resting,
+    /// Room for the composer's pickers in the last frame; they shorten to fit it.
+    pub(super) pickers_width: std::rc::Rc<std::cell::Cell<Pixels>>,
+    /// Height of the composer and the trays over the conversation's bottom edge in the
+    /// last frame: the list's bottom padding, so its end shows above them.
+    pub(super) overlay_height: std::rc::Rc<std::cell::Cell<Pixels>>,
+    /// The overlay's height as drawn, also while the composer rests: Jump to latest
+    /// sits on its top edge.
+    pub(super) overlay_drawn: std::rc::Rc<std::cell::Cell<Pixels>>,
     /// `!` commands running, by their card (DEC-072).
     pub(super) shells: HashMap<canopy_desktop::chat::transcript::ItemId, super::shell::Shell>,
     /// Commands the user (or closing) stopped, so the agent hears it.
@@ -198,6 +212,7 @@ impl ChatView {
                     this.dismiss_quote_offer(cx);
                     this.shell_error = None;
                     this.composer_changed(window, cx);
+                    this.wake_composer(cx);
                     this.update_suggest(cx);
                     this.end_recall(cx);
                     cx.notify()
@@ -287,8 +302,14 @@ impl ChatView {
             flash: None,
             lit: vec![],
             quote_offer: None,
+            quote_reply: None,
             suggest: None,
             suggest_dismissed: None,
+            resting: super::resting::Resting::new(Instant::now()),
+            model_picker: super::model_picker::ModelPicker::new(Instant::now(), cx),
+            pickers_width: std::rc::Rc::new(std::cell::Cell::new(Pixels::MAX)),
+            overlay_height: Default::default(),
+            overlay_drawn: Default::default(),
             shells: HashMap::new(),
             stopped_shells: HashSet::new(),
             shell_error: None,
@@ -1014,7 +1035,11 @@ impl ChatView {
         }
     }
 
-    fn send_draft(&mut self, draft: canopy_desktop::chat::session::Draft, cx: &mut Context<Self>) {
+    pub(super) fn send_draft(
+        &mut self,
+        draft: canopy_desktop::chat::session::Draft,
+        cx: &mut Context<Self>,
+    ) {
         let title = if draft.text.trim().is_empty() {
             "Image".to_owned()
         } else {

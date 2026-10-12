@@ -314,6 +314,8 @@ pub struct Init {
     pub api_key_source: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<Value>,
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 impl Init {
     pub fn capability_names(&self) -> Vec<String> {
@@ -652,6 +654,9 @@ pub fn commands(initialize: &Value) -> Vec<CommandInfo> {
                     description: text(command, "description"),
                     hint: Some(text(command, "argumentHint")).filter(|hint| !hint.is_empty()),
                     path: None,
+                    // Until `system/init` lists the skills: the user's, project and
+                    // plugin entries are skills, built-in ones commands.
+                    skill: command.get("builtin").and_then(Value::as_bool) != Some(true),
                 })
             })
             .collect(),

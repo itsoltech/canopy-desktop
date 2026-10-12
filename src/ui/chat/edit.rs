@@ -286,7 +286,7 @@ impl ChatView {
                     .border_1()
                     .border_b_0()
                     .border_color(t::border())
-                    .bg(t::input_bg())
+                    .bg(t::composer_surface())
                     .child(
                         row()
                             .gap(px(8.))

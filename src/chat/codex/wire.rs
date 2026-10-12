@@ -192,6 +192,7 @@ pub fn skills(result: &Value) -> Vec<crate::chat::config::CommandInfo> {
                     },
                     hint: None,
                     path: Some(path.into()),
+                    skill: true,
                 })
             })
             .collect(),
@@ -495,6 +496,7 @@ mod tests {
         );
         let skill = Attachment::Command {
             name: "deploy".into(),
+            skill: false,
             path: Some("/s/deploy/SKILL.md".into()),
             description: None,
             label: Some("[/deploy]".into()),

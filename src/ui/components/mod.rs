@@ -99,6 +99,8 @@ pub use notch::*;
 
 mod disclosure;
 pub use disclosure::Disclosure;
+mod nested_scroll;
+pub use nested_scroll::{NestedScroll, NestedScroller};
 
 mod pane_divider;
 pub use pane_divider::pane_divider;

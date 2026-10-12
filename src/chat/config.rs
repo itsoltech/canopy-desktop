@@ -246,6 +246,18 @@ pub struct CommandInfo {
     pub hint: Option<String>,
     /// Where a Codex skill lives (sent with it).
     pub path: Option<std::path::PathBuf>,
+    /// A skill (offered after `$`), not a built-in command.
+    pub skill: bool,
+}
+
+/// Marks the commands named in the agent's skill list. Plugin skills are listed as
+/// `plugin:name` and their commands by `name`.
+pub fn mark_skills(commands: &mut [CommandInfo], skills: &[String]) {
+    for command in commands {
+        command.skill = skills.iter().any(|skill| {
+            skill == &command.name || skill.rsplit(':').next() == Some(command.name.as_str())
+        });
+    }
 }
 
 /// Command names are typed after `/` and sent back as one word.

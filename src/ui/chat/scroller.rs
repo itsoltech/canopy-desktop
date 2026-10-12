@@ -1,5 +1,5 @@
-//! The conversation's virtual list: follows new output, offers "Jump to latest", fades
-//! the bottom edge while scrolled up (as gpui-kit's MessageScroller), and also tells
+//! The conversation's virtual list: follows new output, offers "Jump to latest" (as
+//! gpui-kit's MessageScroller; the composer above it fades the bottom edge), and also tells
 //! where the reader is and glides to a chosen row (the message navigator, DEC-050).
 use crate::ui::theme as t;
 use canopy_desktop::motion::{self, MotionPolicy, Transition, presets};
@@ -7,7 +7,7 @@ use gpui_kit::base::motion::{Transition as Fade, transition};
 use gpui_kit::component::{
     IconName,
     button::{Button, ButtonVariants},
-    scroll::{ScrollableElement, ScrollableMask},
+    scroll::{ScrollableElement, ScrollableMask, ScrollbarHandle},
 };
 use gpui_kit::{prelude::FluentBuilder, *};
 use std::{ops::Range, time::Duration, time::Instant};
@@ -29,6 +29,10 @@ struct Glide {
 pub(super) struct ChatScrollerState {
     list: ListState,
     glide: Option<Glide>,
+    /// Counts jumps to the end (Jump to latest, the navigator's last stop).
+    ends: u64,
+    /// The list's top and bottom padding in the last frame (the composer's room).
+    padding: Pixels,
 }
 
 impl ChatScrollerState {
@@ -46,13 +50,30 @@ impl ChatScrollerState {
                 });
             });
         });
-        Self { list, glide: None }
+        Self {
+            list,
+            glide: None,
+            ends: 0,
+            padding: px(0.),
+        }
     }
 
     pub fn is_scrolled_up(&self) -> bool {
-        self.list.max_offset_for_scrollbar().y > px(0.)
+        self.padded().max() > px(0.)
             && !self.list.is_following_tail()
             && !self.list.is_scrolled_to_end().unwrap_or(false)
+    }
+
+    /// How far the list is scrolled down, in pixels.
+    pub fn scroll_top(&self) -> f32 {
+        f32::from(self.padded().top())
+    }
+
+    fn padded(&self) -> PaddedList {
+        PaddedList {
+            list: self.list.clone(),
+            padding: self.padding,
+        }
     }
 
     /// Where the list is scrolled to (a selection's Quote button goes when it moves).
@@ -103,7 +124,12 @@ impl ChatScrollerState {
         cx.notify();
     }
 
+    pub fn ends(&self) -> u64 {
+        self.ends
+    }
+
     pub fn scroll_to_end(&mut self, cx: &mut Context<Self>) {
+        self.ends += 1;
         self.glide = None;
         self.list.set_follow_mode(FollowMode::Tail);
         self.list.scroll_to_end();
@@ -179,14 +205,97 @@ impl ChatScrollerState {
     }
 }
 
+/// The list's own padding above the first row and below the last (before the room the
+/// composer takes over the bottom edge).
+const TOP: f32 = 16.;
+const BOTTOM: f32 = 24.;
+
+/// The list as its scrollbar and wheel mask see it. `ListState`'s scrollbar figures leave
+/// out the list's padding, and at the followed end report the rows' height rather than
+/// the end: with the composer's room below the conversation, the mask's first wheel
+/// step from the end jumped by that room, and the thumb couldn't reach the end.
+#[derive(Clone)]
+struct PaddedList {
+    list: ListState,
+    /// Top and bottom padding together.
+    padding: Pixels,
+}
+
+impl PaddedList {
+    /// The rows' height.
+    fn content(&self) -> Pixels {
+        let viewport = self.list.viewport_bounds().size.height;
+        let over = self.list.max_offset_for_scrollbar().y;
+        if over > px(0.) {
+            return viewport + over;
+        }
+        // Shorter than the viewport: every row is laid out.
+        let last = self.list.item_count().checked_sub(1);
+        match (
+            self.list.bounds_for_item(0),
+            last.and_then(|last| self.list.bounds_for_item(last)),
+        ) {
+            (Some(first), Some(last)) => last.bottom() - first.top(),
+            _ => px(0.),
+        }
+    }
+
+    /// How far the list scrolls, padding included.
+    fn max(&self) -> Pixels {
+        (self.content() + self.padding - self.list.viewport_bounds().size.height).max(px(0.))
+    }
+
+    /// How far it is scrolled, in the list's own measure (rows above the top).
+    fn top(&self) -> Pixels {
+        let max = self.max();
+        if self.list.is_following_tail() || self.list.is_scrolled_to_end() == Some(true) {
+            return max;
+        }
+        (-self.list.scroll_px_offset_for_scrollbar().y).clamp(px(0.), max)
+    }
+}
+
+impl ScrollbarHandle for PaddedList {
+    fn viewport_bounds(&self) -> Bounds<Pixels> {
+        self.list.viewport_bounds()
+    }
+
+    fn offset(&self) -> Point<Pixels> {
+        point(px(0.), -self.top())
+    }
+
+    fn set_offset(&self, offset: Point<Pixels>) {
+        // Takes the same measure, padding included.
+        self.list.set_offset_from_scrollbar(offset);
+    }
+
+    fn content_size(&self) -> Size<Pixels> {
+        let viewport = self.list.viewport_bounds().size;
+        size(viewport.width, viewport.height + self.max())
+    }
+
+    fn start_drag(&self) {
+        self.list.scrollbar_drag_started();
+    }
+
+    fn end_drag(&self) {
+        self.list.scrollbar_drag_ended();
+    }
+}
+
 type RowRenderer = Box<dyn FnMut(usize, &mut Window, &mut App) -> AnyElement + 'static>;
 
-/// The list element with its scrollbar, bottom fade and jump-to-latest button.
+/// The list element with its scrollbar and jump-to-latest button.
 #[derive(IntoElement)]
 pub(super) struct ChatScroller {
     id: ElementId,
     state: Entity<ChatScrollerState>,
     renderer: RowRenderer,
+    /// What lies over the bottom edge (the composer): the list ends above it.
+    inset: Pixels,
+    /// Height of that overlay as drawn now (less while the composer rests): Jump to
+    /// latest sits on it.
+    overlay: Pixels,
 }
 
 impl ChatScroller {
@@ -199,16 +308,27 @@ impl ChatScroller {
             id: id.into(),
             state,
             renderer: Box::new(renderer),
+            inset: px(0.),
+            overlay: px(0.),
         }
+    }
+
+    pub fn bottom_inset(mut self, inset: Pixels, overlay: Pixels) -> Self {
+        self.inset = inset;
+        self.overlay = overlay;
+        self
     }
 }
 
 impl RenderOnce for ChatScroller {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id = self.id;
-        let (list_state, scrolled_up, gliding) = self.state.update(cx, |state, _| {
+        let inset = self.inset;
+        let overlay = self.overlay;
+        let (padded, scrolled_up, gliding) = self.state.update(cx, |state, _| {
             state.step(Instant::now());
-            (state.list.clone(), state.is_scrolled_up(), state.gliding())
+            state.padding = px(TOP + BOTTOM) + inset;
+            (state.padded(), state.is_scrolled_up(), state.gliding())
         });
         motion::request_frame(window, gliding);
         let jump = transition(
@@ -218,14 +338,8 @@ impl RenderOnce for ChatScroller {
             window,
             cx,
         );
-        let fade = transition(
-            (id.clone(), "bottom-fade"),
-            if scrolled_up { 1. } else { 0. },
-            Fade::new(FADE),
-            window,
-            cx,
-        );
         let mut renderer = self.renderer;
+        let list_state = padded.list.clone();
         let list = list(list_state.clone(), move |index, window, cx| {
             div()
                 .w_full()
@@ -235,9 +349,8 @@ impl RenderOnce for ChatScroller {
         })
         .size_full()
         .min_h_0()
-        .pt(px(16.))
-        .pb(px(24.));
-        let background = t::bg();
+        .pt(px(TOP))
+        .pb(px(BOTTOM) + inset);
         let viewport = div()
             .id((id.clone(), "viewport"))
             .role(Role::Log)
@@ -245,23 +358,7 @@ impl RenderOnce for ChatScroller {
             .min_h_0()
             .min_w_0()
             .child(list)
-            .when(fade > 0., |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .left_0()
-                        .right_0()
-                        .bottom_0()
-                        .h(rems(3.))
-                        .opacity(fade)
-                        .bg(linear_gradient(
-                            180.,
-                            linear_color_stop(background.opacity(0.), 0.),
-                            linear_color_stop(background, 1.),
-                        )),
-                )
-            })
-            .vertical_scrollbar(&list_state);
+            .vertical_scrollbar(&padded);
         let state = self.state.clone();
         div()
             .id(id.clone())
@@ -270,14 +367,14 @@ impl RenderOnce for ChatScroller {
             .min_h_0()
             .overflow_hidden()
             .child(viewport)
-            .child(ScrollableMask::new(Axis::Vertical, &list_state).id(id.clone()))
+            .child(ScrollableMask::new(Axis::Vertical, &padded).id(id.clone()))
             .when(jump > 0., |this| {
                 this.child(
                     div()
                         .absolute()
                         .left_0()
                         .right_0()
-                        .bottom(rems(0.5 + jump * 0.5))
+                        .bottom(overlay + window.rem_size() * (0.5 + jump * 0.5))
                         .flex()
                         .justify_center()
                         .opacity(jump)
@@ -300,5 +397,64 @@ impl RenderOnce for ChatScroller {
                         ),
                 )
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    /// A followed list of 50 rows, 100 px each, with the composer's room below it.
+    struct Probe {
+        list: PaddedList,
+    }
+
+    impl Render for Probe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .relative()
+                .size_full()
+                .child(
+                    list(self.list.list.clone(), |_, _, _| {
+                        div().h(px(100.)).into_any_element()
+                    })
+                    .size_full()
+                    .pt(px(TOP))
+                    .pb(px(BOTTOM + 200.)),
+                )
+                .child(ScrollableMask::new(Axis::Vertical, &self.list).id("mask"))
+        }
+    }
+
+    fn draw(cx: &mut VisualTestContext) {
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_wheel_step_from_the_end_moves_by_its_own_length(cx: &mut TestAppContext) {
+        let state = ListState::new(50, ListAlignment::Top, px(200.));
+        state.set_follow_mode(FollowMode::Tail);
+        let padded = PaddedList {
+            list: state,
+            padding: px(TOP + BOTTOM + 200.),
+        };
+        let handle = padded.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| Probe { list: handle });
+        draw(cx);
+        padded.list.scroll_to_end();
+        draw(cx);
+        let end = padded.top();
+        assert_eq!(end, padded.max());
+        cx.simulate_event(ScrollWheelEvent {
+            position: point(px(10.), px(10.)),
+            delta: ScrollDelta::Pixels(point(px(0.), px(20.))),
+            ..Default::default()
+        });
+        draw(cx);
+        assert_eq!(padded.top(), end - px(20.));
     }
 }

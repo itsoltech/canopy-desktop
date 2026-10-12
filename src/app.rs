@@ -23,6 +23,7 @@ pub fn run() {
             #[cfg(feature = "frame-profile")]
             crate::profiling::init(cx);
             crate::ui::theme::init(cx);
+            crate::ui::components::modal::init_prompts(cx);
             crate::app_state::AppState::init(cx);
             cx.text_system()
                 .add_fonts(vec![std::borrow::Cow::Borrowed(include_bytes!(

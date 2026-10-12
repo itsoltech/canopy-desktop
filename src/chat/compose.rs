@@ -9,7 +9,7 @@ use std::path::PathBuf;
 #[derive(Debug, Default, PartialEq)]
 pub struct Composed {
     pub text: String,
-    /// Codex skills to send along (`/name` badges): name and path.
+    /// Codex skills to send along (`/name` and `$name` badges): name and path.
     pub skills: Vec<(String, PathBuf)>,
 }
 
@@ -218,6 +218,7 @@ mod tests {
     fn commands_lead_the_message_for_each_agent() {
         let command = Attachment::Command {
             name: "review".into(),
+            skill: false,
             path: Some("/skills/review/SKILL.md".into()),
             description: None,
             label: Some("[/review]".into()),
@@ -235,6 +236,29 @@ mod tests {
             Composed {
                 text: "$review the last commit".into(),
                 skills: vec![("review".into(), "/skills/review/SKILL.md".into())],
+            }
+        );
+    }
+
+    #[test]
+    fn a_skill_inside_the_message_stays_where_it_was_typed() {
+        let skill = Attachment::Command {
+            name: "design".into(),
+            skill: true,
+            path: Some("/skills/design/SKILL.md".into()),
+            description: None,
+            label: Some("[$design]".into()),
+        };
+        let text = "restyle the dialog with [$design] please";
+        assert_eq!(
+            claude(text, std::slice::from_ref(&skill)),
+            "restyle the dialog with /design please"
+        );
+        assert_eq!(
+            expand(text, std::slice::from_ref(&skill), Provider::Codex),
+            Composed {
+                text: "restyle the dialog with $design please".into(),
+                skills: vec![("design".into(), "/skills/design/SKILL.md".into())],
             }
         );
     }

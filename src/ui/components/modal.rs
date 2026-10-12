@@ -60,3 +60,5 @@ pub fn modal_backdrop(progress: f32) -> Div {
 
 mod confirmation;
 pub use confirmation::Confirmation;
+mod prompt;
+pub use prompt::init as init_prompts;

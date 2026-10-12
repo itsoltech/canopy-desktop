@@ -31,6 +31,10 @@ use std::time::Instant;
 
 /// Readable line length for the conversation column.
 pub(super) const COLUMN: f32 = 760.;
+/// The conversation's scrollbar strip, which the composer overlay leaves uncovered.
+const SCROLLBAR: f32 = 16.;
+/// How far above the composer the conversation fades out beneath it.
+const COMPOSER_FADE: f32 = 24.;
 /// Tool output shown inline; longer results end with a truncation note.
 const OUTPUT_CHARS: usize = 20_000;
 
@@ -49,6 +53,7 @@ impl Render for ChatView {
             }
         }
         self.sync_pages(window.scale_factor(), window, cx);
+        self.sync_resting(cx);
         let now = Instant::now();
         motion::request_frame(
             window,
@@ -61,8 +66,12 @@ impl Render for ChatView {
                 || self.handoff_animating(now),
         );
         let in_thread = !self.threads.is_empty();
+        // The composer and its trays lie over the conversation's bottom edge (like a
+        // `position: fixed` footer), so their size never resizes the scrolled viewport;
+        // the conversation ends above them by their last measured height.
+        let inset = self.overlay_height.get();
         let body = if self.shown_rows().rows.is_empty() && !in_thread {
-            self.empty_state(cx).into_any_element()
+            self.empty_state(cx).pb(inset).into_any_element()
         } else {
             let view = cx.entity().downgrade();
             // Each conversation keeps its own scroller, so Back returns to the same place.
@@ -73,15 +82,18 @@ impl Render for ChatView {
             div()
                 .flex_1()
                 .min_h_0()
-                .child(super::scroller::ChatScroller::new(
-                    id,
-                    self.shown_rows().scroller.clone(),
-                    move |index, window, cx| {
-                        view.upgrade()
-                            .map(|view| render_row(&view, index, window, cx))
-                            .unwrap_or_else(|| div().into_any_element())
-                    },
-                ))
+                .child(
+                    super::scroller::ChatScroller::new(
+                        id,
+                        self.shown_rows().scroller.clone(),
+                        move |index, window, cx| {
+                            view.upgrade()
+                                .map(|view| render_row(&view, index, window, cx))
+                                .unwrap_or_else(|| div().into_any_element())
+                        },
+                    )
+                    .bottom_inset(inset, self.overlay_drawn.get()),
+                )
                 .into_any_element()
         };
         let drill = self.drill.value(now);
@@ -93,6 +105,12 @@ impl Render for ChatView {
             .opacity(drill)
             .left(px(8. * (1. - drill)))
             .relative()
+            // Wheeling down at the end wakes a resting composer (`resting.rs`).
+            .when(!in_thread, |body| {
+                body.on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
+                    this.composer_wheel(event, cx)
+                }))
+            })
             // A selection made in the conversation offers Quote where it ends.
             .on_mouse_up(
                 MouseButton::Left,
@@ -101,14 +119,40 @@ impl Render for ChatView {
                 }),
             )
             .child(body)
-            .children(self.page_layer(window, cx))
-            .children(self.navigator(window, cx))
+            // Pages and the message rail keep to the part the composer leaves visible.
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom(inset)
+                    .children(self.page_layer(window, cx))
+                    .children(self.navigator(window, cx)),
+            )
             .children(self.find_bar(window, cx))
-            .children(self.quote_button(window, cx));
+            .children(self.quote_button(window, cx))
+            .children(self.quote_reply_popover(window, cx));
         let composer = if in_thread {
             self.locked_composer(cx)
         } else {
             self.composer_island(window, cx)
+        };
+        // A waiting request takes the queue tray's place until it is answered; the
+        // context for a switched-to agent shows when nothing else does.
+        let decision = self.decision_bar(cx);
+        let suggest = (decision.is_none() && !in_thread)
+            .then(|| self.suggest_bar(window, cx))
+            .flatten();
+        let tray = match decision {
+            Some(panel) => Some(panel),
+            None => match (!in_thread).then(|| self.edit_bar(cx)).flatten() {
+                Some(bar) => Some(bar),
+                None => match (!in_thread).then(|| self.queue_bar(cx)).flatten() {
+                    Some(bar) => Some(bar),
+                    None => (!in_thread).then(|| self.handoff_bar(cx)).flatten(),
+                },
+            },
         };
         column()
             .id("chat")
@@ -138,6 +182,7 @@ impl Render for ChatView {
             .on_action(cx.listener(|this, _: &super::DenyPending, window, cx| {
                 // Esc leaves a subagent's conversation before it denies anything.
                 if this.close_lightbox(cx)
+                    || this.close_quote_reply(window, cx)
                     || this.dismiss_quote_offer(cx)
                     || this.close_find(window, cx)
                 {
@@ -153,25 +198,16 @@ impl Render for ChatView {
             .relative()
             .bg(t::bg())
             .children(self.thread_header(cx))
-            .child(body)
-            .children(self.banner(cx))
-            // A waiting request takes the queue tray's place until it is answered; the
-            // context for a switched-to agent shows when nothing else does.
-            .children(match self.decision_bar(cx) {
-                Some(panel) => Some(panel),
-                // Suggestions for the word being typed come before the other trays.
-                None => match (!in_thread).then(|| self.suggest_bar(window, cx)).flatten() {
-                    Some(bar) => Some(bar),
-                    None => match (!in_thread).then(|| self.edit_bar(cx)).flatten() {
-                        Some(bar) => Some(bar),
-                        None => match (!in_thread).then(|| self.queue_bar(cx)).flatten() {
-                            Some(bar) => Some(bar),
-                            None => (!in_thread).then(|| self.handoff_bar(cx)).flatten(),
-                        },
-                    },
-                },
-            })
-            .child(composer)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .relative()
+                    .child(body)
+                    .child(self.composer_overlay(composer, tray, suggest, cx)),
+            )
             // Files dropped anywhere on the chat, the message field included, attach.
             .children((!in_thread).then(|| self.drop_target(cx)))
             .children(self.lightbox(window, cx))
@@ -179,6 +215,92 @@ impl Render for ChatView {
 }
 
 impl ChatView {
+    /// The banner, trays and composer over the conversation's bottom edge, on the
+    /// window's background (the scrollbar's strip stays uncovered). The pointer and
+    /// the wheel stop there, as outside a page's scroll container; the trays' own
+    /// lists scroll. Suggestions for the word being typed float from the composer's
+    /// top edge over everything else.
+    fn composer_overlay(
+        &mut self,
+        composer: Div,
+        tray: Option<Div>,
+        suggest: Option<Div>,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let height = self.overlay_height.clone();
+        let drawn = self.overlay_drawn.clone();
+        // The resting composer (and its easing) keeps the full one's room below the
+        // conversation: the list's length and scrollbar don't change as it shrinks.
+        let frozen = self.resting.on || self.resting.height(Instant::now()).is_some();
+        let background = t::bg();
+        column()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .child(
+                div()
+                    .id("chat-composer-backdrop")
+                    .absolute()
+                    .flex()
+                    .flex_col()
+                    .top(px(-COMPOSER_FADE))
+                    .bottom_0()
+                    .left_0()
+                    .right(px(SCROLLBAR))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .h(px(COMPOSER_FADE))
+                            .bg(linear_gradient(
+                                180.,
+                                linear_color_stop(background.opacity(0.), 0.),
+                                linear_color_stop(background.opacity(0.9), 1.),
+                            )),
+                    )
+                    .child(
+                        div()
+                            .id("chat-composer-shade")
+                            .flex_1()
+                            .bg(linear_gradient(
+                                180.,
+                                linear_color_stop(background.opacity(0.9), 0.),
+                                linear_color_stop(background, 1.),
+                            ))
+                            .occlude(),
+                    ),
+            )
+            .children(self.banner(cx))
+            .children(tray)
+            .child(
+                div()
+                    .relative()
+                    .child(composer)
+                    .children(suggest.map(|bar| {
+                        div()
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .bottom(relative(1.))
+                            .child(bar)
+                    })),
+            )
+            .child(
+                canvas(
+                    |_, _, _| (),
+                    move |bounds, _, window, _| {
+                        let measured = bounds.size.height;
+                        let moved = drawn.replace(measured) != measured;
+                        if (!frozen && height.replace(measured) != measured) || moved {
+                            window.refresh();
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            )
+    }
+
     fn empty_state(&self, cx: &App) -> Div {
         let (account, model) = self.selection_label(cx);
         let cwd = self
@@ -254,6 +376,7 @@ impl ChatView {
                     .px(px(12.))
                     .py(px(8.))
                     .rounded(px(8.))
+                    .bg(t::bg())
                     .border_1()
                     .border_color(if danger {
                         t::red().opacity(0.4)
@@ -269,7 +392,8 @@ impl ChatView {
                             .overflow_y_scroll()
                             .text_size(px(12.))
                             .text_color(if danger { t::red() } else { t::secondary() })
-                            .child(text),
+                            .child(text)
+                            .nested_scroll(),
                     )
                     .child(restart),
             )
@@ -331,7 +455,8 @@ fn render_row(view: &Entity<ChatView>, index: usize, _: &mut Window, cx: &mut Ap
                             .w_full()
                             .items_end()
                             .child(user_bubble(prompt.clone())),
-                    ),
+                    )
+                    .nested_scroll(),
             )
             .into_any_element(),
         Kind::Report => column()
@@ -951,7 +1076,8 @@ fn tool_row(
                             .pt(px(6.))
                             .text_color(t::faint())
                             .child("Output truncated")
-                    })),
+                    }))
+                    .nested_scroll(),
                 now,
             ),
         ),

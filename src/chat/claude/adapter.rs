@@ -17,6 +17,8 @@ pub struct InitInfo {
     pub version: Option<String>,
     pub capabilities: Vec<String>,
     pub api_key_source: Option<String>,
+    /// Skills the CLI offers (`plugin:name` for plugin skills).
+    pub skills: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -328,6 +330,7 @@ impl Adapter {
                 permission_mode: init.permission_mode,
                 version: init.claude_code_version,
                 api_key_source: init.api_key_source,
+                skills: init.skills,
             })],
             System::SessionStateChanged { state, session_id } => {
                 let mut signals: Vec<_> = session_id.into_iter().map(Signal::SessionId).collect();

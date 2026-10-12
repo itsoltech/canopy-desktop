@@ -207,10 +207,12 @@ pub(super) fn body(view: &Entity<ChatView>, entry: &Row, card: &ToolCard) -> Div
                     )
                     .child(div().text_color(t::red()).child(clip(stderr)))
             }))
+            .nested_scroll()
             .into_any_element(),
         ToolView::Web { text, .. } | ToolView::Generic { output: text, .. } => output_box(key)
             .text_color(t::secondary())
             .child(clip(text))
+            .nested_scroll()
             .into_any_element(),
     };
     // Bodies start at the text column, like the prose around them.
@@ -448,7 +450,8 @@ pub(super) fn thinking_row(
                             .map(|body| match &entry.markdown {
                                 Some(markdown) => body.child(markdown.clone()),
                                 None => body.child(text.trim().to_owned()),
-                            }),
+                            })
+                            .nested_scroll(),
                         now,
                     )
                 }),

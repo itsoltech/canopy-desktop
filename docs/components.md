@@ -334,6 +334,19 @@ na rzeczywistym przycisku Commit staged bez staged zmian.
   modal_backdrop — elementy prezentacyjne modala, konfigurowalne przez Styled.
 - components/modal/text_prompt.rs — właściciel inputu, walidacji, focusu
   i Presence; elementy prezentacyjne nie posiadają tych stanów.
+- components/modal/prompt.rs — renderer `Window::prompt` (`set_prompt_builder`)
+  na platformach bez natywnych alertów (Linux); macOS i Windows zostają przy
+  natywnych. Ten sam modal_surface/backdrop i Presence co Confirmation: Cancel
+  po lewej, inne odpowiedzi dalej, `PromptButton::Ok` ostatni jako Primary;
+  Esc wybiera Cancel, Enter — Ok. Odpowiedź idzie po animacji wyjścia.
+- components/nested_scroll.rs — `.nested_scroll()` na przewijanym `Stateful<Div>`
+  (z id): scroll chaining jak w przeglądarce. Kółko przewija element, a do
+  przewijanych przodków (lista czatu) trafia dopiero, gdy element stoi już na
+  krawędzi w tym kierunku. `ScrollHandle` trzyma `use_keyed_state`. Element
+  dostaje wrapper (rozmiar, flex i marginesy przeniesione z elementu) z pionową
+  `ScrollableMask` obok: działa w fazie capture, a narysowana przed maską
+  przodka (np. listy czatu) rusza pierwsza, przewija, póki ma miejsce, i wtedy
+  `stop_propagation`; na krawędzi przepuszcza zdarzenie dalej.
 
 Odpowiednikiem class/merging w GPUI pozostaje Styled. Komponenty nie narzucają
 zewnętrznych marginesów. Kontrolki input i button są współdzielone z resztą UI.

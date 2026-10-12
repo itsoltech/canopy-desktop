@@ -59,6 +59,10 @@ pub fn control_border() -> Hsla {
 pub fn input_bg() -> Hsla {
     oklch(0., 0., 0., 0.3)
 }
+/// The message field's surface, opaque: the conversation scrolls beneath the composer.
+pub fn composer_surface() -> Hsla {
+    bg().blend(input_bg())
+}
 pub fn modal_overlay() -> Hsla {
     oklch(0., 0., 0., 0.4)
 }
@@ -79,6 +83,20 @@ pub fn red() -> Hsla {
 }
 pub fn yellow() -> Hsla {
     oklch(0.883, 0.165, 92.22, 1.)
+}
+/// Violet of the chat's skill badges (`$name`).
+pub fn skill() -> Hsla {
+    oklch(0.76, 0.13, 305., 1.)
+}
+/// Neutral light travelling inside the reasoning slider's gradient.
+pub fn effort_sheen() -> Hsla {
+    white()
+}
+/// The reasoning slider at `intensity` 0..1 (lowest to highest effort): a calm indigo
+/// warming through violet to a hot pink.
+pub fn effort(intensity: f32) -> Hsla {
+    let i = intensity.clamp(0., 1.);
+    oklch(0.6 + 0.08 * i, 0.16 + 0.05 * i, 268. + 92. * i, 1.)
 }
 /// Burgundy of the chat composer's shell mode (`!command`) and shell command cards.
 pub fn shell() -> Hsla {

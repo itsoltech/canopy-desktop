@@ -434,7 +434,7 @@ impl ChatView {
                     .border_1()
                     .border_b_0()
                     .border_color(t::border())
-                    .bg(t::input_bg())
+                    .bg(t::composer_surface())
                     .child(header)
                     .child(handoff.fold.measured_body(
                         "chat-handoff-body",
@@ -454,7 +454,7 @@ impl ChatView {
 }
 
 /// The context exactly as the agent gets it, scrollable.
-pub(super) fn context_text(id: impl Into<ElementId>, text: String) -> Stateful<Div> {
+pub(super) fn context_text(id: impl Into<ElementId>, text: String) -> NestedScroller {
     div()
         .id(id)
         .w_full()
@@ -466,4 +466,5 @@ pub(super) fn context_text(id: impl Into<ElementId>, text: String) -> Stateful<D
         .text_size(px(12.))
         .text_color(t::secondary())
         .child(text)
+        .nested_scroll()
 }

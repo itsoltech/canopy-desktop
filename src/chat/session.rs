@@ -988,6 +988,12 @@ impl ChatSession {
                             if let Some(response) = &response {
                                 self.models = wire::models(response);
                                 self.commands = wire::commands(response);
+                                if !self.info.skills.is_empty() {
+                                    crate::chat::config::mark_skills(
+                                        &mut self.commands,
+                                        &self.info.skills,
+                                    );
+                                }
                                 // A change queued before initialize is newer than the launch value.
                                 let queued_mode = self
                                     .pending_settings
@@ -1100,6 +1106,9 @@ impl ChatSession {
                 }
                 Signal::ControlAck { .. } => {}
                 Signal::Init(info) => {
+                    if !info.skills.is_empty() {
+                        crate::chat::config::mark_skills(&mut self.commands, &info.skills);
+                    }
                     let session = info.session_id.clone().or(self.info.session_id.take());
                     self.info = InitInfo {
                         session_id: session,

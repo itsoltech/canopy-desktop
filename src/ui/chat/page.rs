@@ -346,6 +346,9 @@ impl ChatView {
         use gpui_kit::component::WindowExt as _;
         self.find.is_some()
             || self.quote_offer.is_some()
+            || self.quote_reply.is_some()
+            || self.suggest.is_some()
+            || self.model_picker.open
             || self.attachments.lightbox.is_some()
             || self.drill.is_animating(std::time::Instant::now())
             || window.has_active_dialog(cx)
