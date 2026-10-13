@@ -8,6 +8,7 @@
   import { FolderOpen } from '@lucide/svelte'
   import { getFileIcon } from '../../lib/fileIcons'
   import FileIconDisplay from '../shared/FileIconDisplay.svelte'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -31,9 +32,18 @@
     fromMru: boolean
   }
 
+  // Restore focus to the element that opened Quick Open when it closes —
+  // unless opening a file already moved focus to the editor.
+  const restoreFocus = captureFocusReturn()
+
   onMount(() => {
     inputEl?.focus()
+    const root = dialogEl
     void forceReload(worktreePath)
+    return () => {
+      const active = document.activeElement
+      if (!active || active === document.body || root?.contains(active)) restoreFocus()
+    }
   })
 
   const matchedResults: Result[] = $derived.by(() => {

@@ -4,7 +4,7 @@
   import { REMOTE_PROTOCOL_VERSION } from '../../../renderer-shared/rpc/protocol'
   import { PeerController, type PeerPhase } from './lib/peer/PeerController'
   import type { RemoteApi } from './lib/api'
-  import { mirrorState } from './lib/state/mirrorState.svelte'
+  import { applyStateSnapshot, mirrorState } from './lib/state/mirrorState.svelte'
   import { createViewportTracker, type ViewportTracker } from './lib/viewportTracker.svelte'
   import RemoteTerminalView from './components/RemoteTerminalView.svelte'
   import ToolPickerSheet from './components/ToolPickerSheet.svelte'
@@ -95,6 +95,8 @@
       controller = new PeerController()
       controller.onPhaseChange = (p) => {
         phase = p
+        // Stop pinging a disposed RPC once the connection leaves the connected state
+        if (p.kind !== 'connected') stopPingLoop()
       }
       controller.onApiReady = (api) => {
         remoteApi = api
@@ -138,7 +140,23 @@
     }
   }
 
+  function retryHydrate(): void {
+    const api = remoteApi
+    if (!api) return
+    mirrorState.hydrateError = null
+    api.state
+      .getSnapshot()
+      .then(applyStateSnapshot)
+      .catch((e) => {
+        mirrorState.hydrateError = e instanceof Error ? e.message : String(e)
+      })
+  }
+
+  let pingInFlight = false
+
   async function runPing(api: RemoteApi): Promise<void> {
+    if (pingInFlight) return
+    pingInFlight = true
     const start = performance.now()
     try {
       const result = await api.diag.ping(pingCount + 1)
@@ -147,6 +165,8 @@
       pingError = null
     } catch (e) {
       pingError = e instanceof Error ? e.message : String(e)
+    } finally {
+      pingInFlight = false
     }
   }
 
@@ -395,8 +415,15 @@
   {:else if !mirrorState.hydrated}
     <section class="status-screen">
       <div class="status-screen-card">
-        <div class="big-dot" data-kind="progress"></div>
-        <h2>Loading host state…</h2>
+        {#if mirrorState.hydrateError}
+          <div class="big-dot" data-kind="error"></div>
+          <h2>Could not load host state</h2>
+          <p>{mirrorState.hydrateError}</p>
+          <button type="button" onclick={retryHydrate}>Retry</button>
+        {:else}
+          <div class="big-dot" data-kind="progress"></div>
+          <h2>Loading host state…</h2>
+        {/if}
       </div>
     </section>
   {:else}

@@ -59,11 +59,15 @@
 
   let showsTaskList = $derived(mode === 'browse' || (linkTab === 'existing' && !selectedLinkTask))
 
+  // True while BranchCreateForm is mid-flight; dismissing then would orphan its async flow.
+  let branchBusy = $state(false)
+
   function handleKeydown(e: KeyboardEvent): void {
     // When the branch-create sub-view is open, this window-level handler must not interfere.
     if (selectedTask) {
       if (e.key === 'Escape') {
         e.preventDefault()
+        if (branchBusy) return
         cancelBranchCreation()
       }
       return
@@ -260,7 +264,9 @@
      a click on this overlay (common ancestor of mousedown/mouseup) and would close it. -->
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
-  onmousedown={closeDialog}
+  onmousedown={() => {
+    if (!branchBusy) closeDialog()
+  }}
   role="presentation"
 >
   <div
@@ -278,6 +284,7 @@
         selectedBoardId=""
         task={selectedTask}
         onBack={cancelBranchCreation}
+        bind:busy={branchBusy}
       />
     {:else}
       <div
@@ -439,7 +446,7 @@
               {:else}
                 {#if hasActiveAgent}
                   <button
-                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
+                    class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 group-focus-within/task:opacity-100 focus-visible:opacity-100 hover:bg-hover-strong hover:text-generate"
                     onclick={(e) => sendTaskToAgent($state.snapshot(task) as TrackerTaskLite, e)}
                     disabled={Boolean(sendingTaskKey)}
                     title="Send to agent"
@@ -453,7 +460,7 @@
                   </button>
                 {/if}
                 <button
-                  class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 hover:bg-hover-strong hover:text-generate"
+                  class="flex items-center justify-center w-6 h-6 border-0 rounded-md bg-transparent text-text-faint cursor-pointer flex-shrink-0 opacity-0 transition-opacity duration-fast group-hover/task:opacity-100 group-focus-within/task:opacity-100 focus-visible:opacity-100 hover:bg-hover-strong hover:text-generate"
                   onclick={(e) => {
                     e.stopPropagation()
                     void copyTaskToClipboard($state.snapshot(task) as TrackerTaskLite, e)

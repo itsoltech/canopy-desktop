@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
 
@@ -14,6 +15,10 @@
   let entries: Array<{ version: string; date: string; body: string }> = $state([])
   let loading = $state(true)
   let error = $state(false)
+
+  // Restore focus to the element that opened the dialog when it closes.
+  const restoreFocus = captureFocusReturn()
+  onDestroy(restoreFocus)
 
   onMount(async () => {
     containerEl?.focus()

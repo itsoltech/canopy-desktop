@@ -16,6 +16,7 @@
   import { showRunConfigManager } from '../../lib/stores/dialogs.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { openRunConfigTab } from '../../lib/stores/tabs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
 
   let grouped = $derived(getGroupedConfigs())
   let running = $derived(getRunningProcesses())
@@ -49,7 +50,14 @@
       destructive: true,
     })
     if (confirmed) {
-      await deleteRunConfig(configDir, name)
+      try {
+        await deleteRunConfig(configDir, name)
+      } catch (e) {
+        addToast(
+          `Failed to delete "${name}": ${e instanceof Error ? e.message : String(e)}`,
+          'danger',
+        )
+      }
     }
   }
 
@@ -101,7 +109,9 @@
           >
             {config.name}
           </button>
-          <div class="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100">
+          <div
+            class="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+          >
             {#if runningCount > 0}
               <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
                 <button

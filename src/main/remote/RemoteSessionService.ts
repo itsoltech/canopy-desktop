@@ -532,7 +532,10 @@ export class RemoteSessionService {
    * `hostWcId`; this method just guards on session state.
    */
   forwardSignalToPeer(msg: Record<string, unknown>): ResultAsync<void, RemoteServerError> {
-    if (this.status.kind !== 'peerArrived' && this.status.kind !== 'paired') {
+    // WebRTC negotiation is only legitimate once the user has accepted the
+    // device (`paired`). Answering in `peerArrived` would let a peer that only
+    // knows the pairing token open the RPC data channel without approval.
+    if (this.status.kind !== 'paired') {
       return errAsync({ _tag: 'NoPendingPeer' })
     }
     this.resetIdleTimer()
@@ -694,6 +697,12 @@ export class RemoteSessionService {
     // every window would give other tabs a chance to race-reply to SDP/ICE,
     // which would confuse the peer. The host window is the one that called
     // `remote:start` and owns the RTCPeerConnection.
+    //
+    // SECURITY: drop peer signals until the user accepts the device. The
+    // legitimate client waits for `accepted` before sending its offer, but a
+    // hostile peer holding the pairing token could otherwise negotiate the
+    // RPC data channel while the accept prompt is still showing.
+    if (this.status.kind !== 'paired') return
     if (this.hostWcId === null) return
     const wc = webContentsNs.fromId(this.hostWcId)
     if (!wc || wc.isDestroyed()) return

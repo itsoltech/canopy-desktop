@@ -26,9 +26,9 @@
   let containerEl: HTMLElement | undefined = $state()
 
   onMount(async () => {
+    containerEl?.focus()
     await loadGlobalConfig()
     if (repoRoot) await loadRepoConfig(repoRoot)
-    containerEl?.focus()
   })
 
   function handleKeydown(e: KeyboardEvent): void {

@@ -325,6 +325,8 @@ export class HostRpcServer {
       if (!allowed) {
         throw new Error(`Action "${method}" was rejected on desktop`)
       }
+      // `params` comes from the remote peer: this cast is nominal only, so every handler
+      // must validate its input with the assert* helpers below.
       return handler(params as RpcMethods[M]['params'])
     })
   }

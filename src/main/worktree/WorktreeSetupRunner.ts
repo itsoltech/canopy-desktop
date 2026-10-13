@@ -59,18 +59,36 @@ export interface SetupContext {
   newWorktreePath: string
 }
 
+/** Runtime shape check for setup actions parsed from the stored JSON config. */
+export function isWorktreeSetupAction(value: unknown): value is WorktreeSetupAction {
+  if (typeof value !== 'object' || value === null) return false
+  const action = value as Record<string, unknown>
+  if (action.label !== undefined && typeof action.label !== 'string') return false
+  if (action.type === 'command') return typeof action.command === 'string'
+  if (action.type !== 'copy') return false
+  return (
+    typeof action.source === 'string' &&
+    (action.dest === undefined || typeof action.dest === 'string')
+  )
+}
+
 function shellQuote(s: string): string {
   if (process.platform === 'win32') {
-    return '"' + s.replace(/"/g, '\\"') + '"'
+    // Commands run under PowerShell (see spawnCommand), where double-quoted
+    // strings still expand `$var` / `$(...)` / backticks. Single quotes are
+    // literal; an embedded single quote is escaped by doubling it.
+    return "'" + s.replace(/'/g, "''") + "'"
   }
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }
 
 function substituteVars(command: string, ctx: SetupContext): string {
+  // Replacer functions: a string replacement would treat `$&`, `$'` or `$$`
+  // inside a path as substitution patterns and corrupt the command.
   return command
-    .replace(/\$MAIN_WORKTREE/g, shellQuote(ctx.mainWorktreePath))
-    .replace(/\$NEW_WORKTREE/g, shellQuote(ctx.newWorktreePath))
-    .replace(/\$REPO_ROOT/g, shellQuote(ctx.repoRoot))
+    .replace(/\$MAIN_WORKTREE/g, () => shellQuote(ctx.mainWorktreePath))
+    .replace(/\$NEW_WORKTREE/g, () => shellQuote(ctx.newWorktreePath))
+    .replace(/\$REPO_ROOT/g, () => shellQuote(ctx.repoRoot))
 }
 
 function getLabel(action: WorktreeSetupAction): string {

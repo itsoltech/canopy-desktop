@@ -64,8 +64,17 @@ export class RemoteClientHost {
    * the caller should fall through to other routes.
    */
   async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
-    const url = new URL(req.url ?? '/', 'http://placeholder.invalid')
-    const pathname = url.pathname
+    let pathname: string
+    try {
+      pathname = new URL(req.url ?? '/', 'http://placeholder.invalid').pathname
+    } catch {
+      // HTTP request parsing boundary: a malformed request target (e.g. `//[`)
+      // makes `new URL` throw, which would otherwise surface as an unhandled
+      // rejection from the async server callback and leave the socket hanging.
+      res.writeHead(400)
+      res.end()
+      return true
+    }
 
     // Anything outside /remote/* is not ours
     if (pathname !== '/remote' && !pathname.startsWith('/remote/')) return false

@@ -136,12 +136,12 @@ one of its known worktree paths. This lets inactive attached worktrees operate f
 Worktree setup actions are configured per workspace and stored in the preferences database under the key `workspace:<workspaceId>:worktreeSetup` as a JSON array.
 
 1. After a worktree is created, the renderer calls `window.api.runWorktreeSetup(workspaceId, repoRoot, newWorktreePath)`.
-2. The main process reads the setup configuration from preferences. If no config exists, it returns immediately with `{ success: true }`.
+2. The main process reads the setup configuration from preferences. If no config exists, it returns immediately with `{ success: true }`. A config that is not a JSON array of well-formed `command` / `copy` actions is rejected with `Invalid worktree setup config` before anything runs.
 3. `WorktreeSetupRunner.runWorktreeSetup()` iterates over each action sequentially.
-4. For `command` actions: a PTY is spawned in the new worktree directory running the command through the user's shell. The command string supports three variables: `$MAIN_WORKTREE`, `$NEW_WORKTREE`, and `$REPO_ROOT`, each shell-quoted. Output chunks stream back to the renderer via `worktree:setupProgress` push events. Each command has a 5-minute timeout.
+4. For `command` actions: a PTY is spawned in the new worktree directory running the command through the user's shell. The command string supports three variables: `$MAIN_WORKTREE`, `$NEW_WORKTREE`, and `$REPO_ROOT`, each shell-quoted as a literal (single quotes; on Windows the PowerShell single-quote form, so `$` and backticks in paths are never expanded). Output chunks stream back to the renderer via `worktree:setupProgress` push events. Each command has a 5-minute timeout.
 5. For `copy` actions: the file at `source` (relative to the main worktree) is copied to `dest` (relative to the new worktree, defaults to `source` if omitted). Parent directories are created automatically.
 6. Progress events include `{ actionIndex, totalActions, label, status, outputChunk?, error? }` where status is `running`, `done`, or `error`.
-7. The user can abort setup at any time by calling `window.api.abortWorktreeSetup()`, which triggers an AbortController. The currently running command's PTY is killed and the runner returns `{ success: false, errors: ['Setup aborted'] }`.
+7. The user can abort setup at any time by calling `window.api.abortWorktreeSetup()`, which triggers an AbortController. The currently running command's PTY is killed and the runner returns `{ success: false, errors: ['Setup aborted'] }`. Closing the window that started the setup aborts it the same way.
 8. If an individual action fails, its error is recorded but the runner continues with the remaining actions. The final result includes all errors.
 
 ### Agent worktree status

@@ -337,16 +337,18 @@ export function createGitHubActionsCiConfiguratorState({
 
   async function removeConfiguration(): Promise<void> {
     if (!repoRoot || !existingConfig || saving) return
-    const accepted = await confirm({
-      title: 'Remove CI configuration',
-      message: `Remove GitHub Actions (${existingConfig.repository}) from this repository?`,
-      details: 'This removes the shared ci block. Your personal GitHub token remains in Settings.',
-      confirmLabel: 'Remove configuration',
-      destructive: true,
-    })
-    if (!accepted) return
+    // Set before the confirm so a double-click cannot open a second one.
     saving = true
     try {
+      const accepted = await confirm({
+        title: 'Remove CI configuration',
+        message: `Remove GitHub Actions (${existingConfig.repository}) from this repository?`,
+        details:
+          'This removes the shared ci block. Your personal GitHub token remains in Settings.',
+        confirmLabel: 'Remove configuration',
+        destructive: true,
+      })
+      if (!accepted) return
       await window.api.ciSaveConfig(repoRoot, null)
       await loadCiRepoConfig(repoRoot)
       addToast('CI configuration removed')

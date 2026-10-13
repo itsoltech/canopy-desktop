@@ -13,6 +13,7 @@
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { openRunConfigTab } from '../../lib/stores/tabs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
 
   let {
     initialConfigDir,
@@ -90,7 +91,15 @@
       destructive: true,
     })
     if (confirmed) {
-      await deleteRunConfig(configDir, name)
+      try {
+        await deleteRunConfig(configDir, name)
+      } catch (e) {
+        addToast(
+          `Failed to delete "${name}": ${e instanceof Error ? e.message : String(e)}`,
+          'danger',
+        )
+        return
+      }
       if (selectedKey?.configDir === configDir && selectedKey?.name === name) {
         selectedKey = null
         isNew = false

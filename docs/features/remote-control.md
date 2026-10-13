@@ -91,6 +91,7 @@ reconnect/listen flow after the operating system wakes.
 
 1. User clicks Reject on the accept prompt.
 2. `rejectPendingDevice()` sends `{ type: "rejected", reason: "user rejected" }` to the peer, closes the WebSocket, and returns to `waiting` state. The QR code remains valid for another device to scan.
+3. On `waiting`, the desktop renderer disposes its `RemoteHostController`, so no WebRTC connection or RPC channel survives the rejection.
 
 ### Stopping a session
 
@@ -155,6 +156,8 @@ The trusted-device list (`remote.trustedDevices`) is the sole auth factor for tr
 The signaling server shuts down when the session is explicitly stopped or when the reaper / idle / expiry paths tear the session down. Changing the effective listener scope stops and rebinds any in-flight session so the new bind takes effect on the next pairing or trusted reconnect. Changing `remote.selectedInterface` while `remote.listenAllInterfaces` is `"true"` does not rebind because the selected adapter is ignored in that mode. With **listen mode** (feature enabled, listener scope configured, and ≥1 trusted device), the server also comes up automatically at app launch and stays bound in the background so trusted devices can reconnect without the user starting pairing first — see "Listen mode" under Behavior.
 
 Pairing tokens are 32 random bytes (hex-encoded, 64 characters). Token comparison uses Node.js `timingSafeEqual` to prevent timing attacks. Tokens are single-use per session.
+
+A valid token only gets a peer as far as the accept prompt. The host relays WebRTC signaling (SDP offer/answer and ICE) in either direction only while the session is `paired`; anything a peer sends before the user accepts it is dropped, so the RPC data channel cannot be negotiated without approval.
 
 WebSocket messages are capped at 256 KB per frame. Oversized frames cause immediate disconnection (close code 1009).
 
