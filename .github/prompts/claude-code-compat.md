@@ -24,7 +24,9 @@ run's session was held again, the twenty-second run to have its probe denied: th
 v2.1.295 run's was held too, the twenty-third: its compare call, its one `WebFetch` and
 `npm run lint` were refused. The v2.1.296 run's was held, the twenty-fourth: its compare call went
 out twice before the checkout, first inside a pipe and then bare, and both were refused, as were
-its one `WebFetch` and `npm run lint`. So expect either. Record which way the one probe went in the PR body.
+its one `WebFetch` and `npm run lint`. The v2.1.299 run's was held, the twenty-fifth: it checked out
+and re-read this file first, then sent one compare call and one `WebFetch`, and both were refused,
+as was `npm run lint`. So expect either. Record which way the one probe went in the PR body.
 **If it runs, use point 6.**
 
 **If it is denied, everything below about the denial applies.** It was denied against every shape
@@ -1073,6 +1075,18 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > a UI surface attached to it; two `Read`s removed it. **A literal is greppable, which is what makes
 > it cheap, and it is also what makes a same-spelling different-concept hit land in your lap
 > pre-confirmed. Read the declaration around the hit, not just the line.**
+>
+> **A fifth shape: an entry that adds a new trigger for an old event sequence. Ask what Canopy
+> assumed always surrounds that sequence.** 2.1.299's idle compaction runs `PreCompact`,
+> `PostCompact` and `SessionStart` (source `compact`) with no turn around them. Canopy's busy state
+> assumed a turn, whose `Stop` would clear it, so a parked pane stayed busy. The trace took three
+> steps. Find the trigger's call (`compactConversation`, the host's `compact`). Find which hook
+> runners it reaches: compaction marks each with `hookType:"pre_compact"`, `"post_compact"` or
+> `"session_start"`. Then order them with two `count` searches, `A.{0,4000}?B` and
+> `B.{0,4000}?A`. A 300-character `-o` window cannot hold two calls 2 kB apart, but a count can
+> show which comes first. Then read Canopy's handler for each event in that order, in the main
+> process and in the notch. The 2.1.291 note had found this path. It predicted the wrong end state
+> because it did not order `PostCompact` against `SessionStart`.
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
@@ -1096,6 +1110,11 @@ npm view @anthropic-ai/claude-agent-sdk dist-tags --json
 step used to prescribe returns every release ever published, and **`tail` is denied**, so there is no
 way to trim it. Reach for `versions --json` only when you need to prove a _gap_ — that some
 `0.3.N` was never published — which is the one question `dist-tags` cannot answer.
+
+The v2.1.299 run proved a gap more cheaply. It piped
+`npm view @anthropic-ai/claude-agent-sdk time --json` into `grep -E '"0\.3\.29[5-9]"'`, which ran
+and printed only `0.3.295`, `0.3.296` and `0.3.299`, with publish times for the commit body. `| tail -3` and `| head -40` also ran in that session as pipe stages
+after `git`, so the `tail` denial above may depend on the command around it.
 
 Cross-reference with what the changelog mentions. If a relevant update exists, bump the version in `package.json`.
 
