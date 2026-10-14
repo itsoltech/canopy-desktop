@@ -69,12 +69,19 @@ function createFileTreeStore() {
   // in O(1) instead of scanning the whole status map per directory render.
   const gitChangedDirs = new SvelteSet<string>()
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
+  // Bumped by reset(): reads that started under a previous root must not write into the
+  // new tree — stale dirs would be re-read on every refresh, and a late git status would
+  // badge the new worktree's files with the old worktree's changes.
+  let epoch = 0
 
   async function expandDir(dirPath: string): Promise<void> {
+    const startEpoch = epoch
     try {
       const entries = await window.api.fileTreeReadDir(dirPath)
+      if (startEpoch !== epoch) return
       expandedDirs[dirPath] = entries
     } catch (e) {
+      if (startEpoch !== epoch) return
       // Show empty rather than leaving in collapsed state
       expandedDirs[dirPath] = []
       console.warn('fileTreeReadDir failed:', dirPath, e)
@@ -104,9 +111,11 @@ function createFileTreeStore() {
 
   async function refreshGitStatus(repoRoot: string): Promise<void> {
     if (!rootPath) return
+    const startEpoch = epoch
     try {
       const previousPaths = [...gitFileStatus.keys()]
       const nextStatus = await window.api.fileTreeGetGitStatus(repoRoot, rootPath)
+      if (startEpoch !== epoch) return
       // eslint-disable-next-line svelte/prefer-svelte-reactivity
       const affectedPaths = new Set<string>(nextStatus.affectedPaths)
 
@@ -196,6 +205,7 @@ function createFileTreeStore() {
   function reset(newRoot: string | null): void {
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = null
+    epoch++
     expandedDirs = {}
     selectedFilePath = null
     gitFileStatus.clear()

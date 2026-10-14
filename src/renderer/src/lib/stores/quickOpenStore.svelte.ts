@@ -16,25 +16,42 @@ export function isLoading(worktreePath: string): boolean {
   return state[worktreePath]?.loading ?? false
 }
 
+// In-flight loads per worktree. Callers that arrive while a listing is running (the
+// terminal link provider on every hovered line, each LinkifiedText) share it instead of
+// each starting another full repo listing. Plain Map: bookkeeping only, never rendered.
+// eslint-disable-next-line svelte/prefer-svelte-reactivity
+const inFlight = new Map<string, Promise<string[]>>()
+
 export async function ensureLoaded(worktreePath: string): Promise<string[]> {
   if (!worktreePath) return []
   const cached = state[worktreePath]
   if (cached && !cached.loading && Date.now() - cached.fetchedAt < STALE_AFTER_MS) {
     return cached.files
   }
+  const pending = inFlight.get(worktreePath)
+  if (pending) return pending
   if (!state[worktreePath]) {
     state[worktreePath] = { files: [], fetchedAt: 0, loading: true }
   } else {
     state[worktreePath].loading = true
   }
-  try {
-    const files = await window.api.quickOpenListFiles(worktreePath)
-    state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
-    return files
-  } catch {
-    state[worktreePath].loading = false
-    return state[worktreePath].files
-  }
+  const load = (async () => {
+    try {
+      const files = await window.api.quickOpenListFiles(worktreePath)
+      state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
+      return files
+    } catch {
+      // The entry is gone if the cache was cleared (worktree detached) mid-load.
+      const entry = state[worktreePath]
+      if (!entry) return []
+      entry.loading = false
+      return entry.files
+    } finally {
+      inFlight.delete(worktreePath)
+    }
+  })()
+  inFlight.set(worktreePath, load)
+  return load
 }
 
 export async function forceReload(worktreePath: string): Promise<string[]> {

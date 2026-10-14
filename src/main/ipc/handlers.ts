@@ -792,9 +792,12 @@ export function registerIpcHandlers(
       // at the PTY's original cols/rows and any cursor positioning escape
       // sequence the shell/CLI emits lands in the wrong column on the
       // peer's screen.
+      // Rebuild the payload from validated fields: the raw renderer object may carry
+      // arbitrary extra properties that would otherwise reach every window.
+      const resized = { sessionId: payload.sessionId, cols, rows }
       for (const w of BrowserWindow.getAllWindows()) {
         if (!w.isDestroyed()) {
-          w.webContents.send('pty:resized', payload)
+          w.webContents.send('pty:resized', resized)
         }
       }
     },
@@ -2153,6 +2156,9 @@ export function registerIpcHandlers(
     if (filePath.startsWith('-')) throw new Error('Invalid file path: must not start with -')
     if (filePath.startsWith('/')) throw new Error('Invalid file path: must be relative')
     if (filePath.includes('..')) throw new Error('Invalid file path: must not contain ..')
+    // A leading `:` is git pathspec magic (`:/`, `:(top)`, `:!x`): `:/` alone would stage or
+    // revert the whole working tree instead of one file.
+    if (filePath.startsWith(':')) throw new Error('Invalid file path: must not start with :')
   }
 
   ipcMain.handle('changes:getDiff', async (event, payload: { worktreePath: string }) => {
@@ -4982,7 +4988,11 @@ export function registerIpcHandlers(
           controller.signal,
         )
       } finally {
-        setupAbortControllers.delete(sender.id)
+        // A later run from the same window may have replaced this entry: only remove our
+        // own, or that run could no longer be aborted.
+        if (setupAbortControllers.get(sender.id) === controller) {
+          setupAbortControllers.delete(sender.id)
+        }
       }
     },
   )
@@ -5185,6 +5195,13 @@ export function registerIpcHandlers(
       payload as Record<string, unknown>,
     )
     return unwrapOrThrow(result, remoteServerErrorMessage)
+  })
+
+  // Data-channel RPC traffic never passes through main, so the host window reports it here;
+  // otherwise the idle timeout would close a session that is in active use.
+  ipcMain.handle('remote:reportActivity', (event) => {
+    if (event.sender.id !== remoteSessionService.currentHostWcId) return
+    remoteSessionService.resetIdleTimer()
   })
 
   ipcMain.handle('remote:listTrustedDevices', () => {
@@ -5391,8 +5408,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('skills:deleteFile', async (event, payload: { filePath: string }) => {
     const filePath = path.normalize(path.resolve(payload.filePath))
+    const skillFileExts = ['.md', '.mdc', '.yaml', '.yml']
     const ext = path.extname(filePath).toLowerCase()
-    if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
+    if (!skillFileExts.includes(ext)) {
       unwrapOrThrow(
         err({
           _tag: 'InvalidSource',
@@ -5441,6 +5459,22 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
       return { success: false }
+    }
+    // The unlink below targets the resolved path, so a symlinked entry (e.g. a planted
+    // `.claude/commands/x.md -> ~/.ssh/id_rsa`) must not redirect the delete to a non-skill
+    // file: the resolved target has to pass the same extension and directory checks.
+    if (
+      !skillFileExts.includes(path.extname(resolvedTarget).toLowerCase()) ||
+      !skillDirPatterns.some((p) => p.test(resolvedTarget))
+    ) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Skill file resolves outside agent skill directories',
+        } as SkillError),
+        skillErrorMessage,
+      )
     }
     const homeReal = await fs.promises.realpath(os.homedir()).catch(() => os.homedir())
     const withinHome = resolvedTarget === homeReal || resolvedTarget.startsWith(homeReal + path.sep)

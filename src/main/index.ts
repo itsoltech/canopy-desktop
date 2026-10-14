@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BROWSER_PARTITION, BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -338,28 +338,45 @@ async function handleCanopyUrl(url: string): Promise<void> {
     })
     const dedupePaths = [gitInfo.repoRoot ?? resolved, ...gitInfo.worktrees.map((wt) => wt.path)]
 
-    // Dedupe: focus existing window for this path (no confirmation needed)
-    const existing = dedupePaths
-      .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
-      .find((win) => win !== null)
-    if (existing) {
+    // Dedupe: focus existing window for this path. Only a plain focus skips the
+    // confirmation — a `tool` launches a process in the workspace, so it is
+    // confirmed below like any other external request.
+    const findExisting = (): BrowserWindow | undefined =>
+      dedupePaths
+        .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
+        .find((win) => win !== null && !win.isDestroyed()) ?? undefined
+    const focusExisting = (existing: BrowserWindow): void => {
       ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
       existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
       existing.focus()
-      return
+    }
+    if (!tool) {
+      const existing = findExisting()
+      if (existing) {
+        focusExisting(existing)
+        return
+      }
     }
 
-    // Confirm before opening a new workspace from external deep link
+    // Confirm before opening a workspace or launching a tool from an external deep link
     const { response } = await dialog.showMessageBox({
       type: 'question',
       buttons: ['Open', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
-      message: 'Open workspace?',
-      detail: `An external application wants to open:\n${resolved}`,
+      message: tool ? 'Open workspace and launch tool?' : 'Open workspace?',
+      detail: tool
+        ? `An external application wants to open:\n${resolved}\n\nand launch the tool "${tool}".`
+        : `An external application wants to open:\n${resolved}`,
     })
     if (response !== 0) return
+
+    const existing = findExisting()
+    if (existing) {
+      focusExisting(existing)
+      return
+    }
 
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
@@ -639,6 +656,8 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('app:setAutoUpdate', (_e, enabled: boolean) => {
+      // Renderer input: a non-boolean (e.g. the string 'false') would be truthy below.
+      if (typeof enabled !== 'boolean') return
       autoUpdater.autoDownload = enabled
       preferencesStore.set('update.autoUpdate', enabled ? 'true' : 'false')
     })
@@ -704,6 +723,11 @@ app.whenReady().then(async () => {
       webPreferences.nodeIntegration = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      webPreferences.webSecurity = true
+      // Pin every guest to the isolated browser session (hardened by
+      // BrowserManager.ensurePartition) — a <webview> without the attribute
+      // would otherwise share the app's default session and its permissions.
+      webPreferences.partition = BROWSER_PARTITION
 
       // Only allow http(s) or about:blank as source
       const src = params.src

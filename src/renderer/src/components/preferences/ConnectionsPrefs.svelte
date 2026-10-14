@@ -68,6 +68,7 @@
 
   function cancelEdit(): void {
     editingId = null
+    editToken = ''
     testResult = ''
   }
 
@@ -165,6 +166,8 @@
     }
 
     editingId = null
+    // Don't keep the plaintext token in renderer state once it is in the keychain.
+    editToken = ''
     addToast('Connection saved')
   }
 

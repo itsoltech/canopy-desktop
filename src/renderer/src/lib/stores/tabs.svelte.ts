@@ -1002,7 +1002,13 @@ export async function closeAllTabsForWorktree(
 export async function killAllTabs(): Promise<void> {
   const allTabsList = Object.values(tabsByWorktree).flat()
   const allSessions = allTabsList.filter((t) => !t.suspended).flatMap((t) => allPanes(t.rootSplit))
-  for (const p of allSessions) disposeEphemeralPaneState(p)
+  // Same per-pane cleanup as closeAllTabsForWorktree: agent and browser state keyed by these
+  // (never reused) session ids would otherwise stay for the window's lifetime.
+  for (const p of allSessions) {
+    if (agentSessions[p.sessionId]) removeAgentSession(p.sessionId)
+    if (p.paneType === 'browser') delete browserSessions[p.sessionId]
+    disposeEphemeralPaneState(p)
+  }
   const result = await window.api.tabKillAll()
   applyTabsSnapshot(result, { replaceAll: true })
 }

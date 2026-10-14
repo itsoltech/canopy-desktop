@@ -43,7 +43,7 @@ const APP_SHORTCUTS = new Set([
   '9',
 ])
 
-const BROWSER_PARTITION = 'persist:browser'
+export const BROWSER_PARTITION = 'persist:browser'
 
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
@@ -111,8 +111,10 @@ export class BrowserManager {
     // `wcId` originates from the untrusted renderer. The privileged operations
     // wired up below (DevTools, debugger attach, credential injection) must
     // only ever target a <webview> guest — never a main renderer or another
-    // window's contents — so reject anything that isn't a webview guest.
+    // window's contents — so reject anything that isn't a webview guest, or a
+    // guest embedded in a different window than the requesting renderer.
     if (wc.getType() !== 'webview') return
+    if (wc.hostWebContents?.id !== sender.id) return
 
     // Idempotency guard: the listeners wired up below are anonymous closures
     // that teardown() cannot selectively remove. If this exact guest is already
@@ -130,6 +132,13 @@ export class BrowserManager {
       devToolsMode: 'bottom',
     }
     this.entries.set(browserId, entry)
+
+    // A guest can be destroyed without a `browser:teardown` (renderer reload or
+    // crash): drop its entry then, so the window/sender references and any
+    // DevTools view don't linger until the window closes.
+    wc.once('destroyed', () => {
+      if (this.entries.get(browserId)?.webContentsId === wcId) this.teardown(browserId)
+    })
 
     // target="_blank" / window.open → forward URL to renderer so it can open a new browser tab
     // Throttled to prevent a malicious page from flooding the app via window.open() in a loop

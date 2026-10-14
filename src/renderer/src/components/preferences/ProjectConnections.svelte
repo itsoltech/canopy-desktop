@@ -125,6 +125,7 @@
 
   function cancel(): void {
     connectingId = null
+    formToken = ''
     testResult = ''
   }
 
@@ -227,6 +228,8 @@
     }
     if (repoRoot) await loadRepoConfig(repoRoot)
     connectingId = null
+    // Don't keep the plaintext token in renderer state once it is in the keychain.
+    formToken = ''
     addToast('Credentials saved')
   }
 
