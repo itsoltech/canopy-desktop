@@ -34,7 +34,9 @@ const PREVIEW_LINES: usize = 300;
 /// A new request ignores input this long, so a double click or a key meant for the
 /// previous one never answers it unseen.
 const ARM: std::time::Duration = std::time::Duration::from_millis(400);
-pub(super) const COMPOSER_PLACEHOLDER: &str = "Ask anything";
+/// The empty field names its shortcuts: commands, files, skills, pull requests, shell.
+pub(super) const COMPOSER_PLACEHOLDER: &str =
+    "Ask anything — / commands, @ files, $ skills, # pull requests, ! shell";
 
 pub(super) struct Request {
     pub item: ItemId,
@@ -429,10 +431,10 @@ impl ChatView {
             return;
         };
         cx.defer_in(window, move |this, window, cx| {
+            if let Some(text) = change.text {
+                this.set_composer_content(text, window, cx);
+            }
             this.composer.update(cx, |state, cx| {
-                if let Some(text) = change.text {
-                    state.set_value(text, window, cx);
-                }
                 state.set_placeholder(change.placeholder, window, cx);
             });
         });
@@ -844,15 +846,20 @@ impl ChatView {
             // The composer's surface: the panel reads as part of the message field.
             .bg(t::composer_surface())
             .child(header)
-            .child(self.decision.fold.measured_body(
-                ("chat-decision-fold-body", key),
-                // Another question or preview size eases the panel's height.
-                AnimatedHeight::new(
-                    ("chat-decision-height", key),
-                    motion::policy(cx) == MotionPolicy::Full,
-                    content,
+            // The request's body lies over the conversation; its header keeps room.
+            .child(super::render::unfolds_over(
+                &self.overlay_unfolded,
+                px(0.),
+                self.decision.fold.measured_body(
+                    ("chat-decision-fold-body", key),
+                    // Another question or preview size eases the panel's height.
+                    AnimatedHeight::new(
+                        ("chat-decision-height", key),
+                        motion::policy(cx) == MotionPolicy::Full,
+                        content,
+                    ),
+                    now,
                 ),
-                now,
             ));
         // Panel reveal: the height opens with a short rise and fade, and closes the same
         // way, a little quicker (PANEL).

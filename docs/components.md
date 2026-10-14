@@ -595,3 +595,15 @@ the full/raw values in tooltips. The inspector header remains outside this viewp
 `MarkdownView::live` retains the previous rendered response while its replacement is
 prepared; changing pane/run clears it. `agents::presentation` maps raw tool/event IDs
 for display only, including server context for MCP tools and configured profile names.
+
+### Layout inspector (development only)
+
+The bottom bar has a `braces` button right of Settings (`dev_tools_button` in `ui/mod.rs`) that toggles GPUI's
+layout inspector (`window.toggle_inspector`, also ⌥⌘I from gpui-kit): pick an element to see its bounds and
+edit its style live. It exists only where GPUI compiles the inspector — `debug_assertions` builds
+(`cargo run`, `./scripts/build-macos.sh dev`) or the `dev-inspector` feature; release and profiling builds
+have neither the button nor the shortcut. Picking works like a browser's: GPUI picks the frontmost element under the pointer, and
+gpui-kit's `Root` always draws invisible full-window layers over the app (notifications, tooltips, menus), so
+`ui/dev_inspector.rs` replaces gpui-kit's inspector panel (`set_inspector_renderer`) and, while picking, steps
+past a full-window gpui-kit element under the pointer with GPUI's own pick-depth wheel step; the style editors
+are still gpui-kit's (`render_inspector_states`). Scrolling while picking still moves the depth by hand.

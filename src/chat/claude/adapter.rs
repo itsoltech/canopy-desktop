@@ -70,6 +70,8 @@ pub struct Adapter {
     tools: HashMap<String, usize>,
     /// Background tool calls outlive their turn until the task notification arrives.
     background: HashMap<String, usize>,
+    /// Background tool call → the CLI's task id, to stop it.
+    tasks: HashMap<String, String>,
     /// Tool call → the call that spawned it (subagent output), for background ancestry.
     parents: HashMap<String, Option<String>>,
     /// Subagent call → the report it handed back (`SubagentHandback`).
@@ -230,10 +232,16 @@ impl Adapter {
                 _ => {}
             });
         }
+        self.tasks.clear();
         self.streaming.clear();
         self.streamed.clear();
         self.parents.clear();
         self.handbacks.clear();
+    }
+
+    /// The CLI's task id of a background tool call still running.
+    pub fn background_task(&self, call: &str) -> Option<&str> {
+        self.tasks.get(call).map(String::as_str)
     }
 
     /// Output of a subagent running in the background, which outlives the main turn.
@@ -385,11 +393,15 @@ impl Adapter {
                 vec![]
             }
             System::TaskStarted {
+                task_id,
                 tool_use_id: Some(call),
                 is_backgrounded: Some(true),
                 ambient,
             } if ambient != Some(true) => {
                 if let Some(&index) = self.tools.get(&call) {
+                    if let Some(task) = task_id {
+                        self.tasks.insert(call.clone(), task);
+                    }
                     self.background.insert(call, index);
                     transcript.update(index, |body| {
                         if let Body::Tool(tool) = body {
@@ -424,6 +436,7 @@ impl Adapter {
                 else {
                     return vec![];
                 };
+                self.tasks.remove(&call);
                 self.close_children(&call, transcript);
                 // The handed-back report, not the CLI's note that it was delivered elsewhere.
                 let summary = self.handbacks.remove(&call).or(summary);

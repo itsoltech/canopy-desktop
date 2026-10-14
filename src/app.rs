@@ -16,6 +16,9 @@ pub fn run() {
         .with_assets(crate::ui::assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
+            // Development builds: the layout inspector picks what is visible.
+            #[cfg(any(debug_assertions, feature = "dev-inspector"))]
+            crate::ui::dev_inspector::init(cx);
             canopy_desktop::motion::init_system_policy();
             crate::ui::editor::init(cx);
             crate::ui::terminal::init(cx);

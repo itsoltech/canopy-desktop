@@ -170,27 +170,31 @@ impl ChatView {
                 Line::Waiting(waiting) => waiting_row(entry, waiting, now, cx),
             })
             .collect();
+        // One row keeps room under the conversation; more lie over it.
+        let tray = super::render::unfolds_over(
+            &self.overlay_unfolded,
+            px(ROW + 6.),
+            column()
+                .id("chat-queue")
+                .mx(px(14.))
+                .px(px(6.))
+                .py(px(3.))
+                .max_h(px(ROW * VISIBLE_ROWS + 6.))
+                .overflow_y_scroll()
+                .rounded_t(px(12.))
+                .border_1()
+                .border_b_0()
+                .border_color(t::border())
+                .bg(t::composer_surface())
+                .when(held, |tray| tray.child(paused_row(cx)))
+                .children(rows)
+                .nested_scroll(),
+        );
         Some(
-            centered(
-                column()
-                    .id("chat-queue")
-                    .mx(px(14.))
-                    .px(px(6.))
-                    .py(px(3.))
-                    .max_h(px(ROW * VISIBLE_ROWS + 6.))
-                    .overflow_y_scroll()
-                    .rounded_t(px(12.))
-                    .border_1()
-                    .border_b_0()
-                    .border_color(t::border())
-                    .bg(t::composer_surface())
-                    .when(held, |tray| tray.child(paused_row(cx)))
-                    .children(rows)
-                    .nested_scroll(),
-            )
-            // Cancels the composer island's top padding: the tray meets its border,
-            // without covering the translucent surface.
-            .mb(px(-4.)),
+            centered(tray)
+                // Cancels the composer island's top padding: the tray meets its border,
+                // without covering the translucent surface.
+                .mb(px(-4.)),
         )
     }
 }

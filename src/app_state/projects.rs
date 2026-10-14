@@ -465,21 +465,6 @@ impl ProjectsState {
                 .unwrap_or(false)
         });
     }
-    /// Moves a chat pane to another agent mid-conversation, with the session to resume.
-    pub fn switch_chat_agent(
-        &mut self,
-        pane: PaneId,
-        tool: &str,
-        profile: &str,
-        resume: Option<&str>,
-        cx: &mut Context<Self>,
-    ) {
-        self.update_pane(cx, |workspace| {
-            workspace
-                .switch_chat_agent(pane, tool, profile, resume)
-                .unwrap_or(false)
-        });
-    }
     /// Applies `update` to the active workspace and every cached one.
     fn update_pane(&mut self, cx: &mut Context<Self>, update: impl Fn(&mut Workspace) -> bool) {
         let active = cx.global::<AppState>().workspace.clone();

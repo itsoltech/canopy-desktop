@@ -448,11 +448,11 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   po restarcie aplikacji; zamknięcie taba czatu usuwa ją razem z załącznikami (nie ma listy czatów).
   Zapis idzie przez `AppState.chat_history`; render nie czyta bazy. Obrazy do modelu skaluje
   `chat::attachments`; inne pliki idą jako ścieżki. Nowa rozmowa to zawsze New chat (nowy tab).
-- Inne konto w trakcie rozmowy przełącza agenta (`ChatView::switch_agent`): nowa epoka z `EpochMeta.agent`,
-  separator „Switched to …”, kontekst ze skrótu `chat::handoff` (≤ 24 KB, bez wyników narzędzi) doklejany jako
-  osobny blok do następnej wiadomości (`Draft.context`). Agent z wcześniejszą sesją w tej rozmowie ją wznawia
-  i dostaje tylko to, co zdarzyło się później; nieudane wznowienie = nowa sesja z pełnym skrótem i notką.
-  Skrótu nie piszemy agentem, nie zapisujemy w SQLite (po restarcie budowany ponownie) i nie przenosimy zgód.
+- Agenta (dostawcę i konto) wybiera się tylko przed pierwszą wiadomością (DEC-087); po niej picker nie
+  pokazuje kont, a `Workspace::set_chat_account` odrzuca pane z sesją. Rozmowy zapisane, gdy przełączanie
+  w trakcie istniało, otwierają się z częściami poprzednich agentów i kontynuują z ostatnim.
+- Nad composerem pasek stanu: cel, lista zadań agenta i polecenia w tle, zwinięty do jednej linii; zakończone
+  znikają po następnej wiadomości albo ×, Stop pojedynczego zadania tylko w Claude (`stop_task`).
 - Akcje przy wiadomościach (Copy/Edit/Retry + metryki) są na hover. Edit rozgałęzia sesję
   (`--resume-session-at` + `--fork-session`) od końca poprzedniej tury; pliki cofa tylko jawnie wybrane
   `rewind_files` (checkpointing w środowisku czatu). Kwotę pokazujemy tylko przy koncie API.
@@ -480,7 +480,7 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   - Seria tur Codexa to jedna praca: kolejka nie wysyła między turami i trafia do tury celu przez steer.
   - Stop wstrzymuje cel Codexa przed przerwaniem tury. Claude zostawia cel ustawiony.
   - Cel nigdy nie rusza sam po restarcie: Codex jest pauzowany przed `thread/resume`.
-  - Przełączenie agenta i edycja wiadomości kończą cel.
+  - Edycja wiadomości kończy cel.
   - Notch pokazuje „Goal” i powiadamia raz, na koniec. Budżetu tokenów nie ustawiamy.
 - Zakończona (Completed) tura głównej rozmowy składa pracę między wiadomością użytkownika a ostatnią
   odpowiedzią pod „Worked for …” (czas z `TurnEnd.duration_ms`); widoczne zostają prompt, odpowiedź
@@ -545,7 +545,7 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 
 Terminal/PTY, projekty i worktree, pełny layout, persist/restore, narzędzia oraz
 profile mają działające integracje. Czat z Claude Code (headless) ma pane, pickery
-i cykl życia, karty narzędzi i historię po restarcie, także z Codexem, oraz przełączanie agenta w rozmowie z przekazaniem kontekstu. Files ma backend rzeczywistych plików, a edytor obsługuje zapis, konflikty i restore
+i cykl życia, karty narzędzi i historię po restarcie, także z Codexem (agent wybierany przed rozmową), pasek zadań i poleceń w tle nad composerem. Files ma backend rzeczywistych plików, a edytor obsługuje zapis, konflikty i restore
 ([zakres i ograniczenia](files-editor.md)). Git Changes/diffy i commit mają integrację
 ([szczegóły i ograniczenia](git-changes.md)). Inspektor, notch i resume mają
 integrację sesji Claude/Codex ([zakres kwalifikacji](agents.md)); część

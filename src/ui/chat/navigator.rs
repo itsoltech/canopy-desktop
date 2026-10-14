@@ -1,6 +1,6 @@
 //! Message navigator (DEC-048): a thin rail at the conversation's left edge with a mark
-//! per user message. The mark of the message being read stands out; hovering grows the
-//! marks near the pointer and previews the message; clicking glides to it.
+//! per user message. The marks of the user's messages on screen stand out; hovering grows the
+//! marks near the pointer and previews the message; clicking glides it to the top.
 use super::{
     rows::{Kind, Rows, Source},
     view::ChatView,
@@ -9,7 +9,7 @@ use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::transcript::{Body, Delivery, Transcript};
 use canopy_desktop::motion::{self, Transition, presets};
 use gpui_kit::{prelude::FluentBuilder, *};
-use std::time::Instant;
+use std::{ops::Range, time::Instant};
 
 /// Shown from this many user messages (with one there is nowhere to go).
 const MIN_MESSAGES: usize = 2;
@@ -72,9 +72,10 @@ fn marks(rows: &Rows, transcript: Option<&Transcript>) -> Vec<Mark> {
         .collect()
 }
 
-/// The message being read: the last one starting at or above the top of the view.
-fn current(marks: &[Mark], top: usize) -> usize {
-    marks.iter().rposition(|mark| mark.row <= top).unwrap_or(0)
+/// Whether the user's message of `mark` is on screen: every one in view is marked, as
+/// in ChatGPT (the agent's replies don't count).
+fn on_screen(mark: &Mark, visible: &Range<usize>) -> bool {
+    visible.contains(&mark.row)
 }
 
 /// The text of the message at `mark` and the start of the reply after it.
@@ -133,8 +134,7 @@ impl ChatView {
             return None;
         }
         let now = Instant::now();
-        let top = self.rows.scroller.read(cx).top_row();
-        let current = current(&marks, top);
+        let visible = self.rows.scroller.read(cx).visible_rows();
         // Marks share the height left for them, a little apart when there is room.
         let room = f32::from(window.viewport_size().height) - 240.;
         let step = (room / marks.len() as f32).clamp(3., 8.);
@@ -146,9 +146,10 @@ impl ChatView {
             .map(|index| preview(&self.rows, self.nav_transcript(), &marks, index));
         let marks_view = marks.iter().enumerate().map(|(index, mark)| {
             let near = (1. - (index as f32 - center).abs() / REACH).max(0.) * lift;
-            let base = if index == current { CURRENT } else { MARK };
+            let current = on_screen(mark, &visible);
+            let base = if current { CURRENT } else { MARK };
             let width = base + GROWTH * near;
-            let color = if index == current {
+            let color = if current {
                 t::text()
             } else if hovered == Some(index) {
                 t::secondary()

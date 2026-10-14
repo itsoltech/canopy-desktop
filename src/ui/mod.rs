@@ -5,6 +5,8 @@ mod attachment_preview;
 mod changes_panel;
 pub(crate) mod chat;
 pub mod components;
+#[cfg(any(debug_assertions, feature = "dev-inspector"))]
+pub mod dev_inspector;
 pub(crate) mod diff;
 pub(crate) mod editor;
 pub(crate) mod file_icons;
@@ -316,6 +318,15 @@ impl Workspace {
                 window,
                 |_, _, request: &crate::app_state::ChatGuardRequest, window, cx| {
                     crate::app_state::Chats::confirm(request, window, cx)
+                },
+            ),
+            // Fork under a reply: the same choice of project as "New chat in".
+            cx.subscribe_in(
+                &state.chats,
+                window,
+                |this, _, request: &crate::app_state::ChatForkRequested, window, cx| {
+                    let purpose = new_chat_palette::Purpose::Fork(Box::new(request.0.clone()));
+                    this.open_chat_palette(purpose, window, cx)
                 },
             ),
         ];
@@ -1015,26 +1026,7 @@ impl Render for Workspace {
                     .update(cx, |chats, cx| chats.open_new(target, cx));
             }))
             .on_action(cx.listener(|this, _: &NewChatIn, window, cx| {
-                if this.new_chat.is_some()
-                    || this.quick_open.is_some()
-                    || this.modal.is_some()
-                    || this.task_detail_modal.is_some()
-                    || this.task_editor_modal.is_some()
-                    || crate::app_state::Chats::unavailable(cx).is_some()
-                {
-                    return;
-                }
-                let view = cx.new(|cx| {
-                    new_chat_palette::NewChatPalette::new(this.focus.clone(), window, cx)
-                });
-                this.new_chat_events =
-                    Some(cx.subscribe(&view, |this, _, _: &ModalDismissed, cx| {
-                        this.new_chat = None;
-                        this.new_chat_events = None;
-                        cx.notify();
-                    }));
-                this.new_chat = Some(view);
-                cx.notify();
+                this.open_chat_palette(new_chat_palette::Purpose::NewChat, window, cx)
             }))
             .on_action(cx.listener(|this, _: &NewChatNoProject, _, cx| {
                 if this.modal.is_none() {
@@ -1279,6 +1271,7 @@ impl Render for Workspace {
                             }),
                         ),
                     )
+                    .children(dev_tools_button(window, cx))
             })
             .child(self.state.toasts.clone())
             .children(self.confirmation.clone())
@@ -1290,4 +1283,54 @@ impl Render for Workspace {
             .children(self.task_detail_modal.clone())
             .children(self.task_editor_modal.clone())
     }
+}
+
+impl Workspace {
+    /// "New chat in" / "Fork into": the projects to put the chat in.
+    fn open_chat_palette(
+        &mut self,
+        purpose: new_chat_palette::Purpose,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.new_chat.is_some()
+            || self.quick_open.is_some()
+            || self.modal.is_some()
+            || self.task_detail_modal.is_some()
+            || self.task_editor_modal.is_some()
+            || crate::app_state::Chats::unavailable(cx).is_some()
+        {
+            return;
+        }
+        let view = cx.new(|cx| {
+            new_chat_palette::NewChatPalette::new(purpose, self.focus.clone(), window, cx)
+        });
+        self.new_chat_events = Some(cx.subscribe(&view, |this, _, _: &ModalDismissed, cx| {
+            this.new_chat = None;
+            this.new_chat_events = None;
+            cx.notify();
+        }));
+        self.new_chat = Some(view);
+        cx.notify();
+    }
+}
+
+/// GPUI's layout inspector (⌥⌘I: pick an element, see and edit its box and styles), in
+/// development builds only; release builds don't have it (`debug_assertions`, or the
+/// `dev-inspector` feature on purpose).
+#[cfg(any(debug_assertions, feature = "dev-inspector"))]
+fn dev_tools_button(window: &Window, cx: &App) -> Option<AnyElement> {
+    let picking = window.is_inspector_picking(cx);
+    Some(
+        icon_button_base("dev-tools", "Layout inspector (⌥⌘I)")
+            .icon(custom_icon("braces").text_color(if picking { t::accent() } else { t::muted() }))
+            .tooltip("Layout inspector (⌥⌘I) — development builds only")
+            .on_click(|_, window, cx| window.toggle_inspector(cx))
+            .into_any_element(),
+    )
+}
+
+#[cfg(not(any(debug_assertions, feature = "dev-inspector")))]
+fn dev_tools_button(_: &Window, _: &App) -> Option<AnyElement> {
+    None
 }

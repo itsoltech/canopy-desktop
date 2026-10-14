@@ -55,6 +55,7 @@ impl ChatView {
         if self.shell
             || self.goal_mode
             || !was_empty
+            || self.has_code_blocks()
             || !value.starts_with('!')
             || self.editing.is_some()
             || self.decision.active().is_some()

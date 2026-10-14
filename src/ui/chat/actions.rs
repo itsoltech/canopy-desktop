@@ -148,7 +148,7 @@ pub(super) fn user_actions(
         }))
 }
 
-/// Under a turn's reply: Copy, Retry on the last one, and the turn's numbers.
+/// Under a turn's reply: Copy, Retry on the last one, Fork, and the turn's numbers.
 pub(super) fn reply_actions(
     view: &Entity<ChatView>,
     this: &ChatView,
@@ -156,6 +156,7 @@ pub(super) fn reply_actions(
     end: Option<&TurnEnd>,
     text: &str,
     last: bool,
+    fork: Option<super::rows::Source>,
 ) -> Div {
     let key = entry.key;
     let billing = this.session.as_ref().is_some_and(|s| s.api_billing());
@@ -172,6 +173,14 @@ pub(super) fn reply_actions(
             action(("chat-retry", key), IconName::RotateCw, "Retry").on_click(move |_, _, cx| {
                 let _ = view.update(cx, |this, cx| this.retry(cx));
             })
+        }))
+        .children(fork.map(|at| {
+            let view = view.downgrade();
+            action(("chat-fork", key), IconName::Copy, "Fork into a new chat")
+                .icon(custom_icon("git-branch"))
+                .on_click(move |_, _, cx| {
+                    let _ = view.update(cx, |this, cx| this.fork_reply(at, cx));
+                })
         }))
         .children(end.map(|end| {
             div()

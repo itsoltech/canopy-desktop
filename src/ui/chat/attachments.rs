@@ -5,6 +5,7 @@ use super::view::ChatView;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{
     attachments::{self as prepare, MAX_IMAGES},
+    fences::{self, Piece},
     history,
     session::Draft,
     transcript::Attachment,
@@ -107,11 +108,9 @@ fn clean(name: &str) -> String {
 impl ChatView {
     /// The ids of attachments whose badges are in the composer's text, in order.
     fn mentioned(&self, cx: &App) -> Vec<u64> {
-        self.composer
-            .read(cx)
-            .tokens()
+        self.composer_tokens(cx)
             .iter()
-            .filter_map(|span| id_of(span.token()))
+            .filter_map(|id| id.strip_prefix(TOKEN_PREFIX)?.parse().ok())
             .collect()
     }
 
@@ -119,10 +118,10 @@ impl ChatView {
         self.attachments.pending.iter().find(|p| p.id == id)
     }
 
-    /// The composer's text with the attachments its badges mention.
+    /// The composer's text (code blocks fenced) with the attachments its badges mention.
     pub(super) fn composer_draft(&self, cx: &App) -> Draft {
         Draft {
-            text: self.composer.read(cx).value().to_string(),
+            text: self.composer_text(cx),
             attachments: self
                 .mentioned(cx)
                 .into_iter()
@@ -218,10 +217,9 @@ impl ChatView {
         cx: &mut Context<Self>,
     ) {
         let content = self.draft_content(draft, cx);
-        self.composer.update(cx, |state, cx| {
-            state.set_value(content, window, cx);
-            state.focus(window, cx);
-        });
+        self.set_composer_content(content, window, cx);
+        self.composer
+            .update(cx, |state, cx| state.focus(window, cx));
     }
 
     /// `set_composer_draft` without a window at hand (applied at the next render).
@@ -237,6 +235,7 @@ impl ChatView {
     pub(super) fn clear_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer
             .update(cx, |state, cx| state.clean(window, cx));
+        self.clear_code_blocks(cx);
         self.attachments.pending.clear();
         self.attachments.insert.clear();
     }
@@ -969,41 +968,51 @@ fn literal(text: &str, out: &mut String) {
     }
 }
 
-/// A sent message whose text mentions its attachments, as Markdown with each mention a
-/// `canopy-attachment:<index>` link (drawn as a badge); `None` without mentions.
-pub(super) fn badge_markdown(text: &str, attachments: &[Attachment]) -> Option<String> {
+/// A sent message as Markdown: text read literally with each attachment mention a
+/// `canopy-attachment:<index>` link (drawn as a badge), and its fenced code blocks as
+/// code (DEC-088). Says whether any mention became a badge.
+fn sent_markdown(text: &str, attachments: &[Attachment]) -> (String, bool) {
     let mut out = String::new();
-    let mut from = 0;
-    for (index, attachment) in attachments.iter().enumerate() {
-        let Some(mention) = attachment.label() else {
-            continue;
-        };
-        let Some(at) = text[from..].find(mention).map(|at| from + at) else {
-            continue;
-        };
-        literal(&text[from..at], &mut out);
-        out.push('[');
-        literal(&badge_name(attachment, mention), &mut out);
-        out.push_str(&format!(
-            "]({}{index})",
-            crate::ui::markdown::attachment_badge::SCHEME
-        ));
-        from = at + mention.len();
+    let mut used = vec![false; attachments.len()];
+    for piece in fences::split(text) {
+        match piece {
+            Piece::Text(range) => {
+                let part = &text[range];
+                let mut from = 0;
+                for (index, attachment) in attachments.iter().enumerate() {
+                    let Some(mention) = attachment.label().filter(|_| !used[index]) else {
+                        continue;
+                    };
+                    let Some(at) = part[from..].find(mention).map(|at| from + at) else {
+                        continue;
+                    };
+                    used[index] = true;
+                    literal(&part[from..at], &mut out);
+                    out.push('[');
+                    literal(&badge_name(attachment, mention), &mut out);
+                    out.push_str(&format!(
+                        "]({}{index})",
+                        crate::ui::markdown::attachment_badge::SCHEME
+                    ));
+                    from = at + mention.len();
+                }
+                literal(&part[from..], &mut out);
+            }
+            Piece::Code { language, code } => {
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&format!("```{language}\n{code}\n```\n"));
+            }
+        }
     }
-    if from == 0 {
-        return None;
-    }
-    literal(&text[from..], &mut out);
-    Some(out)
+    (out, used.contains(&true))
 }
 
-/// A sent message as Markdown: its text read literally, attachment mentions as badges.
+/// A sent message as Markdown: its text read literally, attachment mentions as badges,
+/// code blocks as code.
 pub(super) fn message_markdown(text: &str, attachments: &[Attachment]) -> String {
-    badge_markdown(text, attachments).unwrap_or_else(|| {
-        let mut out = String::new();
-        literal(text, &mut out);
-        out
-    })
+    sent_markdown(text, attachments).0
 }
 
 /// Whether the message text mentions this attachment (it then shows as a badge there).
@@ -1138,12 +1147,19 @@ mod tests {
             label: Some("[/tmp/notes.txt]".into()),
         };
         let text = "what is *in* [shot.png (2 KB)]\nand [/tmp/notes.txt]?";
-        let markdown = badge_markdown(text, &[image.clone(), file]).expect("mentions");
+        let (markdown, badged) = sent_markdown(text, &[image.clone(), file]);
+        assert!(badged);
         assert_eq!(
             markdown,
             "what is \\*in\\* [shot\\.png \\(2 KB\\)](canopy-attachment:0)  \nand [notes\\.txt](canopy-attachment:1)\\?"
         );
-        assert!(badge_markdown("no mention", &[image]).is_none());
+        assert!(!sent_markdown("no mention", std::slice::from_ref(&image)).1);
+        // Fenced blocks stay code; the text around them still reads literally.
+        let text = "fix *this*:\n```rust\nlet a = [1];\n```\nsee [shot.png (2 KB)]";
+        assert_eq!(
+            message_markdown(text, &[image]),
+            "fix \\*this\\*\\:\n```rust\nlet a = [1];\n```\nsee [shot\\.png \\(2 KB\\)](canopy-attachment:0)"
+        );
         assert_eq!(size_label(840), "840 B");
         assert_eq!(size_label(120 * 1024), "120 KB");
     }

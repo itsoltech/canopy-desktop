@@ -64,7 +64,7 @@ impl Render for ChatView {
                 || self.drill.is_animating(now)
                 || self.navigator.animating(now)
                 || self.goal_animating(now)
-                || self.handoff_animating(now),
+                || self.activity_animating(now),
         );
         let in_thread = !self.threads.is_empty();
         // The composer and its trays lie over the conversation's bottom edge (like a
@@ -139,21 +139,17 @@ impl Render for ChatView {
         } else {
             self.composer_island(window, cx)
         };
-        // A waiting request takes the queue tray's place until it is answered; the
-        // context for a switched-to agent shows when nothing else does.
+        // A waiting request takes the queue tray's place until it is answered.
         let decision = self.decision_bar(cx);
         let suggest = (decision.is_none() && !in_thread)
             .then(|| self.suggest_bar(window, cx))
             .flatten();
-        let goal = (!in_thread).then(|| self.goal_bar(cx)).flatten();
+        let status = (!in_thread).then(|| self.status_bar(cx)).flatten();
         let tray = match decision {
             Some(panel) => Some(panel),
             None => match (!in_thread).then(|| self.edit_bar(cx)).flatten() {
                 Some(bar) => Some(bar),
-                None => match (!in_thread).then(|| self.queue_bar(cx)).flatten() {
-                    Some(bar) => Some(bar),
-                    None => (!in_thread).then(|| self.handoff_bar(cx)).flatten(),
-                },
+                None => (!in_thread).then(|| self.queue_bar(cx)).flatten(),
             },
         };
         column()
@@ -208,7 +204,7 @@ impl Render for ChatView {
                     .flex_col()
                     .relative()
                     .child(body)
-                    .child(self.composer_overlay(composer, goal, tray, suggest, cx)),
+                    .child(self.composer_overlay(composer, status, tray, suggest, cx)),
             )
             // Files dropped anywhere on the chat, the message field included, attach.
             .children((!in_thread).then(|| self.drop_target(cx)))
@@ -225,13 +221,14 @@ impl ChatView {
     fn composer_overlay(
         &mut self,
         composer: Div,
-        goal: Option<Div>,
+        status: Option<Div>,
         tray: Option<Div>,
         suggest: Option<Div>,
         cx: &mut Context<Self>,
     ) -> Div {
         let height = self.overlay_height.clone();
         let drawn = self.overlay_drawn.clone();
+        let unfolded = self.overlay_unfolded.clone();
         // The resting composer (and its easing) keeps the full one's room below the
         // conversation: the list's length and scrollbar don't change as it shrinks.
         let frozen = self.resting.on || self.resting.height(Instant::now()).is_some();
@@ -274,7 +271,7 @@ impl ChatView {
                     ),
             )
             .children(self.banner(cx))
-            .children(goal)
+            .children(status)
             .children(tray)
             .child(
                 div()
@@ -293,9 +290,11 @@ impl ChatView {
                 canvas(
                     |_, _, _| (),
                     move |bounds, _, window, _| {
+                        // Trays painted before this canvas, in the same frame.
+                        let room = bounds.size.height - unfolded.replace(px(0.));
                         let measured = bounds.size.height;
                         let moved = drawn.replace(measured) != measured;
-                        if (!frozen && height.replace(measured) != measured) || moved {
+                        if (!frozen && height.replace(room) != room) || moved {
                             window.refresh();
                         }
                     },
@@ -404,6 +403,27 @@ impl ChatView {
             .pb(px(8.)),
         )
     }
+}
+
+/// Tray content that lies over the conversation when it unfolds instead of lifting it:
+/// all but `keep` of its drawn height is left out of the list's bottom padding.
+pub(super) fn unfolds_over(
+    sink: &std::rc::Rc<std::cell::Cell<Pixels>>,
+    keep: Pixels,
+    content: impl IntoElement,
+) -> Div {
+    let sink = sink.clone();
+    div().relative().child(content).child(
+        canvas(
+            |_, _, _| (),
+            move |bounds, _, _, _| {
+                let over = (bounds.size.height - keep).max(px(0.));
+                sink.set(sink.get() + over);
+            },
+        )
+        .absolute()
+        .inset_0(),
+    )
 }
 
 /// Full-width row whose content is limited to the conversation column.
@@ -598,30 +618,6 @@ fn notice_text(notice: &canopy_desktop::chat::transcript::Notice) -> String {
     }
 }
 
-/// "Continue with Codex" beside a limit notice.
-fn limit_button(
-    id: impl Into<ElementId>,
-    label: String,
-    cx: &App,
-) -> gpui_kit::component::button::Button {
-    use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
-    Button::new(id)
-        .custom(
-            ButtonCustomVariant::new(cx)
-                .hover(t::hover())
-                .foreground(t::text()),
-        )
-        .compact()
-        .flex_shrink_0()
-        .h(px(24.))
-        .px(px(8.))
-        .rounded(px(6.))
-        .border_1()
-        .border_color(t::border())
-        .text_size(px(12.))
-        .child(label)
-}
-
 /// Under a message sent after a switch: the context that went with it, folded.
 fn sent_context(view: &Entity<ChatView>, entry: &Row, context: &str) -> Div {
     let key = entry.key;
@@ -795,17 +791,22 @@ fn item_row(
             ))
             .into_any_element(),
         Body::Text(block) => {
-            let end = entry.extra.turn_end.map(|index| match source {
+            let end_at = entry.extra.turn_end.map(|index| match source {
                 Source::Current(_) => Source::Current(index),
                 Source::Archived { epoch, .. } => Source::Archived { epoch, index },
             });
+            // Only the main conversation forks (a subagent's thread has no session).
+            let fork = end_at
+                .filter(|_| this.threads.is_empty())
+                .filter(|&at| this.fork_request(at).is_some());
             let transcript = this.session.as_ref().map(|s| s.transcript());
-            let end = end
-                .and_then(|end| rows.item(end, transcript))
-                .and_then(|item| match &item.body {
-                    Body::TurnEnd(end) => Some(end),
-                    _ => None,
-                });
+            let end =
+                end_at
+                    .and_then(|end| rows.item(end, transcript))
+                    .and_then(|item| match &item.body {
+                        Body::TurnEnd(end) => Some(end),
+                        _ => None,
+                    });
             // Retry answers the newest turn only: its end is the conversation's last.
             let last = live
                 && entry.extra.turn_end.is_some()
@@ -818,13 +819,9 @@ fn item_row(
                 .pt(px(12.))
                 .group(actions::MESSAGE_GROUP)
                 .child(div().text_color(t::text()).children(entry.markdown.clone()))
-                .children(
-                    entry
-                        .extra
-                        .turn_end
-                        .is_some()
-                        .then(|| actions::reply_actions(view, this, entry, end, &block.text, last)),
-                )
+                .children(entry.extra.turn_end.is_some().then(|| {
+                    actions::reply_actions(view, this, entry, end, &block.text, last, fork)
+                }))
                 .into_any_element()
         }
         Body::Tool(tool)
@@ -865,7 +862,6 @@ fn item_row(
                 NoticeKind::RateLimit | NoticeKind::ApiRetry => (t::yellow(), IconName::RefreshCw),
                 NoticeKind::Compacted | NoticeKind::Diagnostic => (t::muted(), IconName::Info),
             };
-            let elsewhere = live.then(|| this.limit_switch(item, cx)).flatten();
             row()
                 .pt(px(8.))
                 .gap(px(8.))
@@ -879,17 +875,6 @@ fn item_row(
                         .text_color(t::secondary())
                         .child(notice_text(notice)),
                 )
-                .children(elsewhere.map(|provider| {
-                    let view = view.downgrade();
-                    limit_button(
-                        ("chat-limit-switch", entry.key),
-                        format!("Continue with {}", provider.name()),
-                        cx,
-                    )
-                    .on_click(move |_, _, cx| {
-                        let _ = view.update(cx, |this, cx| this.continue_elsewhere(cx));
-                    })
-                }))
                 .into_any_element()
         }
         Body::TurnEnd(end) => {

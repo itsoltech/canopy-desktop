@@ -1,10 +1,13 @@
 //! Chat pane: a conversation with a headless coding agent (Claude Code).
 mod actions;
+mod activity;
 mod attachments;
+mod code_blocks;
 mod composer;
 mod decision;
 mod edit;
 mod find;
+mod fork;
 mod goal;
 mod handoff;
 mod mentions;

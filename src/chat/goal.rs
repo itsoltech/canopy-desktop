@@ -102,6 +102,7 @@ pub enum EndReason {
     /// The agent judged the condition impossible to meet.
     Impossible,
     ClearedByUser,
+    /// Kept so conversations saved with it still load (DEC-087).
     ClearedOnSwitch,
     ClearedOnEdit,
     /// The agent hit an error it can't get past (auth, credits, context).

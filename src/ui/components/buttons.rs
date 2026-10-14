@@ -74,7 +74,8 @@ pub fn icon_button(
     icon_button_base(id, label).icon(icon(name))
 }
 
-fn icon_button_base(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
+/// `icon_button` without its mark, for an app icon (`custom_icon`).
+pub fn icon_button_base(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
     let label = label.into();
     Button::new(id)
         .small()

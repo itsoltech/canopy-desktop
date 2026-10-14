@@ -655,7 +655,8 @@ impl ChatView {
         self.set_effort(Some(model.effort_levels[stop as usize]), cx);
     }
 
-    /// The account's models, Default first, then the other accounts.
+    /// The account's models, Default first, then the other accounts before the first
+    /// message.
     fn models_page(&self, cx: &mut Context<Self>) -> Div {
         let (accounts, current) = self.accounts(cx);
         let models = self.models();
@@ -668,8 +669,8 @@ impl ChatView {
         let back = self
             .current_model()
             .is_some_and(|model| model.supports_effort());
-        let ongoing = self.account_locked();
-        let can_switch = self.can_switch_agent();
+        // The agent is chosen before the first message only (DEC-087).
+        let locked = self.account_locked();
         let mut list = column().w_full().child(model_row(
             "chat-model-default",
             "Default".to_owned(),
@@ -698,33 +699,22 @@ impl ChatView {
             );
         }
         let others: Vec<_> = accounts.iter().filter(|a| a.id != current).collect();
-        if !others.is_empty() {
+        if !locked && !others.is_empty() {
             list = list
                 .child(div().mx(px(10.)).my(px(6.)).h(px(1.)).bg(t::border()))
                 .child(section_label("Accounts"));
             for (index, other) in others.into_iter().enumerate() {
                 let (provider, id) = (other.provider, other.id.clone());
-                let label = match (ongoing, can_switch) {
-                    (false, _) => format!("Use {} (restarts this chat)", other.name),
-                    (true, true) => format!("Switch to {} — continues with context", other.name),
-                    (true, false) => format!("Switch to {} once the agent is done", other.name),
-                };
-                let enabled = !ongoing || can_switch;
-                list = list.child(
-                    model_row(
-                        ("chat-model-account", index),
-                        label,
-                        None,
-                        false,
-                        cx.listener(move |this, _, _, cx| {
-                            if enabled {
-                                this.set_model_picker_open(false, cx);
-                                this.choose_account(provider, id.clone(), cx);
-                            }
-                        }),
-                    )
-                    .when(!enabled, |row| row.opacity(0.5).cursor_default()),
-                );
+                list = list.child(model_row(
+                    ("chat-model-account", index),
+                    format!("Use {} (restarts this chat)", other.name),
+                    None,
+                    false,
+                    cx.listener(move |this, _, _, cx| {
+                        this.set_model_picker_open(false, cx);
+                        this.set_account(provider, id.clone(), cx);
+                    }),
+                ));
             }
         }
         column()

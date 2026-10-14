@@ -15,32 +15,7 @@ pub type Highlighter = dyn Fn(&CodeBlock) -> Vec<(Range<usize>, HighlightStyle)>
 
 /// The grammar for a fence tag; `None` keeps the block plain.
 pub fn language(tag: &str) -> Option<&'static str> {
-    // Info strings like `rust,ignore` or `{.python}` carry the language first.
-    let tag = tag
-        .trim()
-        .trim_start_matches(['{', '.'])
-        .split([',', ' ', '}'])
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    Some(match tag.as_str() {
-        "rust" | "rs" => "rust",
-        // The bundled TSX grammar barely captures anything; TypeScript recovers from
-        // JSX well, and the JavaScript grammar parses JSX natively.
-        "typescript" | "ts" | "mts" | "cts" | "tsx" => "typescript",
-        "javascript" | "js" | "mjs" | "cjs" | "node" | "jsx" => "javascript",
-        "python" | "py" | "python3" | "py3" => "python",
-        "bash" | "sh" | "shell" | "zsh" | "console" | "shellscript" | "shell-session"
-        | "terminal" => "bash",
-        "html" | "htm" => "html",
-        "css" | "scss" => "css",
-        "json" | "jsonc" | "json5" => "json",
-        "toml" => "toml",
-        "yaml" | "yml" => "yaml",
-        "markdown" | "md" | "mdx" => "markdown",
-        "svelte" => "svelte",
-        _ => return None,
-    })
+    canopy_desktop::chat::fences::grammar(tag)
 }
 
 /// One highlighter per theme: a code block keeps its highlights while the `Arc` is

@@ -33,6 +33,8 @@ pub(super) struct ChatScrollerState {
     ends: u64,
     /// The list's top and bottom padding in the last frame (the composer's room).
     padding: Pixels,
+    /// What lies over the bottom edge (the composer) in the last frame.
+    inset: Pixels,
 }
 
 impl ChatScrollerState {
@@ -55,6 +57,7 @@ impl ChatScrollerState {
             glide: None,
             ends: 0,
             padding: px(0.),
+            inset: px(0.),
         }
     }
 
@@ -106,6 +109,23 @@ impl ChatScrollerState {
     /// The first row at the top of the viewport.
     pub fn top_row(&self) -> usize {
         self.list.logical_scroll_top().item_ix
+    }
+
+    /// Rows on screen, without those under the composer.
+    pub fn visible_rows(&self) -> Range<usize> {
+        let count = self.list.item_count();
+        let top = self.top_row().min(count);
+        let bottom = self.list.viewport_bounds().bottom() - px(BOTTOM) - self.inset;
+        let mut end = top;
+        while end < count
+            && self
+                .list
+                .bounds_for_item(end)
+                .is_some_and(|bounds| bounds.top() < bottom)
+        {
+            end += 1;
+        }
+        top..end.max((top + 1).min(count))
     }
 
     pub fn splice(&mut self, range: Range<usize>, count: usize, cx: &mut Context<Self>) {
@@ -327,6 +347,7 @@ impl RenderOnce for ChatScroller {
         let overlay = self.overlay;
         let (padded, scrolled_up, gliding) = self.state.update(cx, |state, _| {
             state.step(Instant::now());
+            state.inset = inset;
             state.padding = px(TOP + BOTTOM) + inset;
             (state.padded(), state.is_scrolled_up(), state.gliding())
         });

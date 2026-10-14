@@ -1,7 +1,7 @@
 //! "New chat in…" palette: choose an open project or "No project", like Cmd+P.
 use super::components::files::{SEARCH_ROW_HEIGHT, SEARCH_VIEWPORT_HEIGHT, file_message};
 use super::{components::modal::*, components::*, theme as t};
-use crate::app_state::{AppState, ChatTarget};
+use crate::app_state::{AppState, ChatTarget, ForkRequest};
 use canopy_desktop::motion::{self, Presence, presets};
 use gpui_kit::{
     component::{
@@ -20,7 +20,14 @@ struct Choice {
     shortcut: Option<&'static str>,
 }
 
+/// What the chosen project gets: a new chat, or a fork of a conversation.
+pub enum Purpose {
+    NewChat,
+    Fork(Box<ForkRequest>),
+}
+
 pub struct NewChatPalette {
+    purpose: Purpose,
     input: Entity<InputState>,
     choices: Vec<Choice>,
     visible: Vec<usize>,
@@ -37,7 +44,12 @@ impl EventEmitter<ModalDismissed> for NewChatPalette {}
 const PROJECT_SHORTCUTS: [&str; 9] = ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"];
 
 impl NewChatPalette {
-    pub fn new(return_focus: FocusHandle, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        purpose: Purpose,
+        return_focus: FocusHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search projects…"));
         let events = vec![
             cx.subscribe(&input, |this, _, event: &InputEvent, cx| match event {
@@ -82,6 +94,7 @@ impl NewChatPalette {
             None => 0,
         };
         Self {
+            purpose,
             input,
             visible: (0..choices.len()).collect(),
             choices,
@@ -141,10 +154,14 @@ impl NewChatPalette {
         };
         let target = choice.target;
         self.close(cx);
-        cx.global::<AppState>()
-            .chats
-            .clone()
-            .update(cx, |chats, cx| chats.open_new(target, cx));
+        let chats = cx.global::<AppState>().chats.clone();
+        match &self.purpose {
+            Purpose::NewChat => chats.update(cx, |chats, cx| chats.open_new(target, cx)),
+            Purpose::Fork(request) => {
+                let request = (**request).clone();
+                chats.update(cx, |chats, cx| chats.fork(target, request, cx))
+            }
+        }
     }
 
     fn keystroke(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
@@ -229,7 +246,10 @@ impl Render for NewChatPalette {
                             .pt(px(4.))
                             .text_size(px(11.))
                             .text_color(t::muted())
-                            .child("New chat in"),
+                            .child(match self.purpose {
+                                Purpose::NewChat => "New chat in",
+                                Purpose::Fork(_) => "Fork into",
+                            }),
                     )
                     .child(
                         column()

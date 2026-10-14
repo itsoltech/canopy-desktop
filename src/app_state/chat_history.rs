@@ -63,6 +63,88 @@ impl ChatHistory {
         })
     }
 
+    /// Copies `source`'s conversation up to `cut` into the new chat `target` (a fork,
+    /// DEC-092): saved rows with what is still waiting to be written, and the attached
+    /// images its messages name. Written at once, so the new chat finds it on opening.
+    pub fn fork(
+        &self,
+        source: &str,
+        target: &str,
+        cut: canopy_desktop::chat::fork::Cut,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let client = self.client.clone();
+        let (source, target) = (source.to_owned(), target.to_owned());
+        // Not written yet: the newest rows win over the saved ones.
+        let (epochs, items) = self
+            .pending
+            .get(&source)
+            .map_or_else(Default::default, |p| (p.epochs.clone(), p.items.clone()));
+        cx.background_spawn(async move {
+            let client = client.ok_or("Chat history is unavailable")?;
+            let rows = client
+                .load_chat_history(source.clone())
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut saved = history::parse(rows);
+            for (index, meta) in epochs {
+                match saved.epochs.iter().position(|e| e.index == index) {
+                    Some(at) => saved.epochs[at].meta = meta,
+                    None => saved.epochs.push(history::SavedEpoch {
+                        index,
+                        meta,
+                        items: vec![],
+                    }),
+                }
+            }
+            saved.epochs.sort_by_key(|epoch| epoch.index);
+            for ((index, _), item) in items {
+                let Some(at) = saved.epochs.iter().position(|e| e.index == index) else {
+                    continue;
+                };
+                let epoch = &mut saved.epochs[at];
+                match epoch.items.iter().position(|old| old.id == item.id) {
+                    Some(at) => epoch.items[at] = item,
+                    None => epoch.items.push(item),
+                }
+            }
+            for epoch in &mut saved.epochs {
+                epoch.items.sort_by_key(|item| item.id.0);
+            }
+            let parts = canopy_desktop::chat::fork::cut(saved.epochs, &cut)
+                .ok_or("This part of the conversation can't be forked")?;
+            if let Ok(data) = canopy_desktop::platform::directories::data_dir() {
+                let from = history::attachments_dir(&data, &source);
+                let to = history::attachments_dir(&data, &target);
+                for file in canopy_desktop::chat::fork::images(&parts) {
+                    // A missing file only loses its preview, as in the source chat.
+                    if std::fs::create_dir_all(&to).is_ok() {
+                        let _ = std::fs::copy(from.join(&file), to.join(&file));
+                    }
+                }
+            }
+            let batch = ChatHistoryBatch {
+                chat: target,
+                epochs: parts
+                    .iter()
+                    .map(|epoch| (epoch.index, history::meta_json(&epoch.meta)))
+                    .collect(),
+                items: parts
+                    .iter()
+                    .flat_map(|epoch| {
+                        epoch.items.iter().filter_map(|item| {
+                            Some((epoch.index, item.id.0, history::item_json(item)?))
+                        })
+                    })
+                    .collect(),
+            };
+            client
+                .save_chat_history(vec![batch])
+                .await
+                .map_err(|error| error.to_string())
+        })
+    }
+
     /// Remembers items (latest version wins) and how their session began; `urgent`
     /// writes sooner (a turn ended).
     pub fn record(

@@ -1,6 +1,6 @@
 //! `/goal` in the chat (DEC-079…082): the composer's goal mode, the goal's row over the
 //! composer, and its marks in the conversation.
-use super::{render::centered, view::ChatView};
+use super::view::ChatView;
 use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::{
@@ -23,14 +23,12 @@ const COUNTER_FROM: usize = goal::LIMIT - 400;
 /// How long a Codex goal waits for the next turn Codex starts by itself.
 const HOLD: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// The goal's row on the composer: open while the chat has a goal, and the goal before
-/// a switch to this agent, offered again.
+/// The goal's row on the composer: open while the chat has a goal.
 pub(super) struct GoalRow {
     presence: Presence,
     /// The goal drawn; kept while the row closes.
     shown: Option<Goal>,
     expanded: bool,
-    pub(super) previous: Option<String>,
 }
 impl Default for GoalRow {
     fn default() -> Self {
@@ -38,7 +36,6 @@ impl Default for GoalRow {
             presence: Presence::new(false, presets::PANEL, Instant::now()),
             shown: None,
             expanded: false,
-            previous: None,
         }
     }
 }
@@ -79,6 +76,7 @@ impl ChatView {
         let prefix = format!("/{} ", goal::COMMAND);
         if self.goal_mode
             || self.shell
+            || self.has_code_blocks()
             || self.editing.is_some()
             || self.decision.active().is_some()
             || !self.threads.is_empty()
@@ -119,7 +117,6 @@ impl ChatView {
         }
         self.clear_composer(window, cx);
         self.set_goal_mode(false, window, cx);
-        self.goal_row.previous = None;
         self.send_draft(
             Draft {
                 text,
@@ -185,50 +182,26 @@ impl ChatView {
         }
     }
 
-    /// The goal's row on the composer's top edge (like the queue), or the goal from
-    /// before a switch, offered again.
-    pub(super) fn goal_bar(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        if !self.threads.is_empty() {
-            return None;
-        }
+    /// The goal's row in the status bar on the composer's top edge (like the queue).
+    pub(super) fn goal_section(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.sync_goal_row(cx);
-        let now = Instant::now();
-        let progress = self.goal_row.presence.progress(now);
-        let content = match self.goal_row.shown.clone() {
-            Some(goal) => self.goal_line(&goal, cx),
-            None => self.previous_goal_line(cx)?,
-        };
-        let reveal = gpui_kit::base::MotionReveal::new(
-            "chat-goal-reveal",
-            if self.goal_row.shown.is_some() {
-                progress
-            } else {
-                1.
-            },
-            div()
-                .w_full()
-                .relative()
-                .top(px(motion::distance::BASE * (1. - progress)))
-                .opacity(progress.max(if self.goal_row.shown.is_some() {
-                    0.
-                } else {
-                    1.
-                }))
-                .child(
-                    div()
-                        .id("chat-goal")
-                        .px(px(10.))
-                        .py(px(8.))
-                        .rounded_t(px(12.))
-                        .border_1()
-                        .border_b_0()
-                        .border_color(t::border())
-                        .bg(t::composer_surface())
-                        .child(content),
-                )
-                .into_any_element(),
-        );
-        Some(centered(div().mx(px(14.)).child(reveal)).mb(px(-4.)))
+        let progress = self.goal_row.presence.progress(Instant::now());
+        let goal = self.goal_row.shown.clone()?;
+        let content = self.goal_line(&goal, cx);
+        Some(
+            gpui_kit::base::MotionReveal::new(
+                "chat-goal-reveal",
+                progress,
+                div()
+                    .w_full()
+                    .relative()
+                    .top(px(motion::distance::BASE * (1. - progress)))
+                    .opacity(progress)
+                    .child(div().id("chat-goal").px(px(10.)).py(px(8.)).child(content))
+                    .into_any_element(),
+            )
+            .into_any_element(),
+        )
     }
 
     fn goal_line(&self, goal: &Goal, cx: &mut Context<Self>) -> Div {
@@ -385,42 +358,6 @@ impl ChatView {
             .child(row().flex_shrink_0().gap(px(2.)).children(buttons))
     }
 
-    /// After a switch: the previous agent's goal, set here with one click.
-    fn previous_goal_line(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let previous = self.goal_row.previous.clone()?;
-        if self.session.as_ref().is_none_or(|s| s.status().ended()) {
-            return None;
-        }
-        Some(
-            row()
-                .w_full()
-                .gap(px(9.))
-                .child(custom_icon("target").size(px(14.)).text_color(t::muted()))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(12.))
-                        .text_color(t::secondary())
-                        .child(format!("Previous goal: {previous}")),
-                )
-                .child(
-                    tray_button("chat-goal-again", icon(IconName::Plus), "Set goal", cx)
-                        .tooltip(tip("Set the same goal for this agent"))
-                        .on_click(cx.listener(|this, _, _, cx| this.set_previous_goal(cx))),
-                )
-                .child(
-                    icon_button("chat-goal-dismiss", IconName::Close, "Dismiss").on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.goal_row.previous = None;
-                            cx.notify();
-                        }),
-                    ),
-                ),
-        )
-    }
-
     /// Mirrors the goal outside the chat: the notch shows "Goal" while it is pursued
     /// (and one alert at its end); Codex's wait for its next goal turn is bounded; a
     /// finished Claude goal is checked against its session's record.
@@ -561,20 +498,6 @@ impl ChatView {
         };
         self.enter_goal_mode(objective, window, cx);
     }
-
-    fn set_previous_goal(&mut self, cx: &mut Context<Self>) {
-        let Some(text) = self.goal_row.previous.take() else {
-            return;
-        };
-        self.send_draft(
-            Draft {
-                text,
-                goal: true,
-                ..Default::default()
-            },
-            cx,
-        );
-    }
 }
 
 /// The condition as the agent reads it: badges in the text become plain mentions.
@@ -598,12 +521,12 @@ pub(super) fn plain_condition(draft: &Draft) -> String {
     text.trim().to_owned()
 }
 
-fn tip(text: &'static str) -> impl Fn(&mut Window, &mut App) -> AnyView {
+pub(super) fn tip(text: &'static str) -> impl Fn(&mut Window, &mut App) -> AnyView {
     move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text).build(window, cx)
 }
 
-fn tray_button(
-    id: &'static str,
+pub(super) fn tray_button(
+    id: impl Into<ElementId>,
     mark: gpui_kit::component::Icon,
     label: &'static str,
     _: &Context<ChatView>,

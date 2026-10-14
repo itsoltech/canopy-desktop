@@ -155,8 +155,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   `MouseMove`/`MouseUp` z canvasu podczas trzymania) i ←/→ (focus panelu przez `track_focus`); `set_effort`
   dopiero po puszczeniu, gałka jedzie `STATE_CHANGE`.
   Strona modeli: „<konto> models”, Default z notą „Recommended · …”, modele z ✓, sekcja Accounts
-  (te same reguły co wcześniej: restart przed pierwszą wiadomością, przełączenie z kontekstem, nieaktywne
-  w trakcie pracy). Wybór modelu z poziomami wraca na stronę reasoningu, bez poziomów zamyka popover;
+  („Use X (restarts this chat)”) tylko przed pierwszą wiadomością (DEC-087). Wybór modelu z poziomami wraca na stronę reasoningu, bez poziomów zamyka popover;
   model bez poziomów otwiera popover od razu na liście. Zmiana strony: wysokość panelu z poprzedniej do
   zmierzonej (RESIZE), treść wjeżdża o 14 px z prawej (do listy) lub z lewej (powrót) z przenikaniem. Zmiany
   w trakcie: `set_model`, `apply_flag_settings{effortLevel}`, `set_permission_mode`;
@@ -181,12 +180,14 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   - wysokość wyspy przechodzi płynnie (RESIZE) od poprzedniej do zmierzonej (canvas w `Resting::measured`),
     bez animacji przy Reduce Motion.
 - Przewijane elementy w rozmowie i nad nią (output narzędzi, thinking w trakcie, prompt podwątku, banner,
-  decyzje, kolejka, kontekst handoffu) mają `.nested_scroll()`: kółko przewija je, a rozmowę dopiero na ich krawędzi.
+  decyzje, kolejka, kontekst wysłany ze starszą wiadomością) mają `.nested_scroll()`: kółko przewija je, a rozmowę dopiero na ich krawędzi.
   Lista rozmowy bierze kółko w fazie capture (`ScrollableMask` w `ChatScroller`, żeby bloki kodu z przewijaniem
   w poziomie nie zamieniały kółka na ruch w bok), więc zwykły listener wiersza nigdy by go nie dostał.
 - Composer jest nakładką na dół rozmowy (jak `position: fixed; bottom: 0` z paddingiem treści,
   `ChatView::composer_overlay` w `render.rs`): banner, tacki i composer leżą w `absolute` kolumnie nad rozmową,
-  która przewija się pod nimi. Composer i tacki mają nieprzezroczystą powierzchnię (`t::composer_surface()`,
+  która przewija się pod nimi. Rozwinięta treść tacek (lista paska zadań, treść panelu decyzji, kolejka ponad pierwszy
+  wiersz) zachodzi na rozmowę zamiast ją podnosić: `render::unfolds_over` odlicza ją od dolnego paddingu listy
+  (`overlay_unfolded`, sumowane w tej samej klatce przed canvasem nakładki); nagłówki i composer zostawiają miejsce. Composer i tacki mają nieprzezroczystą powierzchnię (`t::composer_surface()`,
   czyli `input_bg` zmieszane z `bg`), a pod nimi (bez 16 px paska scrollbara) rozmowa wygasa: 24 px
   gradientu nad nakładką (`COMPOSER_FADE`, bez `occlude`, więc kliknięcia przechodzą do rozmowy), potem
   prawie pełne `bg`. Obszar samej nakładki zatrzymuje kursor i kółko (`occlude`; jak element poza kontenerem
@@ -357,7 +358,9 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   (`Textarea::on_paste`; obraz z przeglądarki — tekst-URL + natywny `NSPasteboard`), drop plików z Findera
   (GPUI nie przyjmuje przeciągania obrazów z przeglądarki), spinacz (`prompt_for_paths`). Limit 10 obrazów.
 - Nawigator (DEC-048/050): własny `ChatScroller` (port `MessageScroller` z dostępem do `ListState`) +
-  `navigator.rs`: kreska na wiadomość użytkownika od 2 wiadomości, wyróżniona bieżąca, hover wydłuża kreski
+  `navigator.rs`: kreska na wiadomość użytkownika od 2 wiadomości, wyróżnione wszystkie wiadomości użytkownika widoczne na ekranie
+  (`ChatScrollerState::visible_rows`, bez części pod composerem; jak w ChatGPT), klik przewija wiadomość na górę widoku (ostatnie,
+  pod którymi brakuje treści, tylko tyle, ile pozwala koniec rozmowy — bez sztucznego miejsca), hover wydłuża kreski
   i pokazuje kartę, klik/⌥⌘↑/⌥⌘↓ płynnie przewija (skok blisko celu + RESIZE; ręczny scroll przerywa,
   Reduce Motion → natychmiast).
 
@@ -387,41 +390,19 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 - Granice: zmiany robione komendami nie trafiają do podsumowania zmian; Codex 0.161 często pyta tekstem zamiast
   narzędziem pytań; `app-server` jest eksperymentalny w Codexie.
 
-## Etap 8: kilku agentów w jednej rozmowie
+## Etap 8: kilku agentów w jednej rozmowie (wycofane, DEC-087)
 
-- Picker konta działa też w trakcie rozmowy (DEC-061): inne konto = przełączenie od następnej wiadomości
-  (`ChatView::switch_agent`, `src/ui/chat/handoff.rs`). Wymaga spokojnego czatu (nic nie pracuje, brak decyzji
-  i edycji); proces jest zamykany, nowa epoka dostaje separator `Boundary::SwitchedToClaude|SwitchedToCodex`,
-  pane — narzędzie, konto i sesję do wznowienia (`Workspace::switch_chat_agent`). Niewysłana kolejka przechodzi
-  wstrzymana (Resume). Przed pierwszą wiadomością zostaje zwykła zmiana konta (`set_account`).
-- Epoki zapisują agenta (DEC-065): `EpochMeta.agent = AgentRef{tool, profile, session, settings}` — zapis przy
-  starcie i ponownie, gdy sesja dostawcy dostanie id albo zmienią się wybory (`record_meta`). Starsze historie bez
-  agenta przypisują wcześniejsze epoki pierwszemu znanemu agentowi czatu. Id sesji zapisujemy dopiero, gdy sesja
-  ma wiadomość (pusta sesja CLI nie istnieje na dysku).
-- Kontekst (DEC-062/066/067): `chat::handoff::summary` buduje deterministycznie skrót ≤ 24 KB — wiadomości
-  (z nazwami załączników), końcowe odpowiedzi z nazwą agenta, zmienione pliki tury, notki przerwanych tur
-  i ostatni plan; bez wyników narzędzi i thinking; najnowsze tury w całości, starsze skracane, najstarsze pomijane.
-  Owinięty w `<canopy-context>`, idzie jako osobny pierwszy blok tekstu następnej wiadomości (`Draft.context` /
-  `UserMessage.context`; Claude: blok `text` w `content`, Codex: element `text` w `input`). Sesja trzyma oczekujący
-  kontekst (`ChatSession::set_handoff`) i dokleja go do pierwszej wiadomości rozpoczynającej turę (także z kolejki).
-  Retry i Edit tej wiadomości wysyłają go ponownie.
-- Powrót (DEC-063): agent z wcześniejszą sesją w tej rozmowie (to samo narzędzie i konto) ją wznawia i dostaje tylko
-  części od swojej ostatniej; bez sesji — nowa sesja z pełnym skrótem i jego poprzednie wybory (model/effort/tryb),
-  a za pierwszym razem domyślne konta z odpowiednikiem trybu. Gdy wznowienie się nie uda (proces kończy się przed
-  pierwszą udaną turą; Claude: `No conversation found…`, kod 1), czat startuje od nowa z pełnym skrótem, ponawia
-  wiadomość i mówi o tym notką.
-- Podgląd (DEC-064): tacka „Context for X · N KB — sent with your next message” nad composerem (rozwijana,
-  `AnimatedHeight`; ustępuje decyzji, edycji i kolejce). Po wysłaniu pod wiadomością jest zwinięty wiersz
-  „Context from earlier in the conversation”. Kontekst nie jest zapisywany: po restarcie przed pierwszą wiadomością
-  jest budowany ponownie z historii. Wiadomości z części innego agenta mają na hover „Sent to X” (Edit działa
-  w części bieżącego agenta).
-- Limit (DEC-064): notka limitu ostatniej, nieudanej tury ma „Continue with Codex/Claude Code”, gdy drugi dostawca
-  jest dostępny: przełączenie na jego domyślne konto + ponowienie ostatniej wiadomości z kontekstem.
-- Testy: `tests/chat_handoff.rs` (bloki kontekstu obu dostawców, kolejka/Retry, meta epok i stare historie, pane),
-  live `tests/chat_handoff_live.rs` (`CANOPY_LIVE_CLAUDE=1 CANOPY_LIVE_CODEX=1`): Claude → Codex (zna słowo) →
-  powrót do sesji Claude (wie, co utworzył Codex).
-- Granice: reguły „Allow for this chat” działają tylko u Claude; skrót nie zawiera wyników narzędzi; kółko kontekstu,
-  metryki i notch dotyczą bieżącego agenta.
+- Agenta i konto wybiera się tylko przed pierwszą wiadomością (`ChatView::set_account`, sekcja Accounts pickera
+  znika, gdy `account_locked()`); `Workspace::set_chat_account` odrzuca pane z `resume_id`. Przełączenie w trakcie
+  rozmowy, skrót kontekstu dla nowego agenta (`chat::handoff`), tacka kontekstu, „Continue with …” przy limicie
+  i propozycja „Previous goal” zostały usunięte (etap 12).
+- Rozmowy zapisane z przełączeniami nadal się otwierają (`tests/chat_saved_switches.rs`): separatory
+  `Boundary::SwitchedToClaude|SwitchedToCodex`, agent każdej części (`EpochMeta.agent = AgentRef{tool, profile,
+  session, settings}`, zapis w `record_meta`; starsze historie bez agenta przypisują wcześniejsze epoki pierwszemu
+  znanemu agentowi), „Sent to X” na hover wiadomości z części innego agenta, zwinięty wiersz „Context from earlier
+  in the conversation” pod wiadomością wysłaną z kontekstem (`UserMessage.context`; Retry i Edit wysyłają go
+  ponownie) i zakończenia celu `ClearedOnSwitch`. Kontynuują z ostatnim agentem. Czat zapisany po przełączeniu,
+  a przed pierwszą wiadomością, wraca do ostatniego agenta bez skrótu.
 - Grupowanie akcji (DEC-068): ciąg ≥ 2 akcji (thinking + udane narzędzia) zamknięty odpowiedzią tekstową agenta
   zwija się pod nagłówkiem „Ran 3 commands, read 2 files …” (`presentation::groups` / `actions_label`,
   `RowExtra.group/grouped_by` jak `fold/folded_by`, tworzone w `Rows::insert` przy wstawieniu tekstu). Edycje
@@ -436,7 +417,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   (`TextSelection::selected_text`) pokazuje przycisk „Quote”; znika po odznaczeniu, przewinięciu, pisaniu i Esc.
   Cytat to `Attachment::Quote` z wzmianką `[❝ …]` w tekście (badge jak załącznik, tooltip z całością, ≤ 4 000 znaków),
   więc przeżywa kolejkę, Edit i historię. `quotes::expand` zamienia wzmiankę na blok `> …` w wire Claude/Codex
-  i w skrócie handoff. Klik w badge wysłanej wiadomości przewija do źródła i na chwilę je podświetla.
+. Klik w badge wysłanej wiadomości przewija do źródła i na chwilę je podświetla.
   - Pasek nad zaznaczeniem ma dwie akcje: „Quote” (badge do composera) i „Reply”. Reply otwiera popover
     (`QuoteReply`, POPOVER, w miejscu zaznaczenia) z podglądem cytatu (3 linie) i własnym polem:
     Enter / Send wysyła od razu `Draft` z cytatem i odpowiedzią przez `send_draft` (szkic composera zostaje
@@ -490,7 +471,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   - po zakończeniu `end_shell` wysyła (albo kolejkuje) wiadomość z `Attachment::Shell`: polecenie, kod wyjścia,
     output skrócony do ~5 KB z każdej strony. Wiadomość nie ma własnego dymka ani znacznika w nawigatorze, a tacka
     kolejki pokazuje ją jako „Output of !cmd” bez Edit;
-  - Restart, przełączenie agenta i zamknięcie zatrzymują działające polecenia; po restarcie aplikacji karta
+  - Restart i zamknięcie zatrzymują działające polecenia; po restarcie aplikacji karta
     pokazuje „Interrupted”.
 - ↑ (DEC-075, `ui/chat/recall.rs`): w pustym composerze przywraca wcześniejsze wiadomości z badge'ami (również
   z archiwalnych części, bez wyników `!`). ↓ idzie do przodu, a edycja tekstu kończy przeglądanie.
@@ -515,7 +496,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
     z `codex_approval_kind: mcp_tool_call`) adapter akceptuje tylko dla serwera `canopy`.
 - `show_html {title, html, height?}` sprawdza limit 512 KB i odpowiada tekstem. Kartę rysuje czat z wywołania
   (`chat::page::SHOW_TOOL`), więc strona jest w historii SQLite. Karta nie wchodzi do grup akcji i zostaje widoczna
-  pod zwiniętym „Worked for” (`RowExtra.page`). Skrót handoff ma tylko tytuł.
+  pod zwiniętym „Worked for” (`RowExtra.page`).
 - `preview_html {html, width?}` idzie przez usługę stron (`chat::pages`):
   - gniazdo Unix 0700 w `/tmp/canopy-pages-*`;
   - token per proces czatu (env `CANOPY_PAGES_SOCKET`/`CANOPY_PAGES_TOKEN`), zwalniany przy zamknięciu;
@@ -581,15 +562,13 @@ aż warunek jest spełniony. Sprawdzone na żywo z Claude Code 2.1.295 i codex-c
     Resume (`set {active}`) sam zaczyna turę;
   - przed `thread/resume`/`fork` jest `goal/get` i ewentualne `set {paused}`: wątek z aktywnym celem po
     wznowieniu sam zaczyna turę.
-- Wiersz celu (`goal_bar`) nad tacką i composerem:
+- Wiersz celu (`goal_section`, pierwsza część paska stanu z etapu 12) nad tacką i composerem:
   - wysuwa się jak panel decyzji, pokazuje stan, zużycie (`goal::usage`), warunek (klik rozwija) i ostatni powód „Not yet”;
-  - przyciski: Pause (Codex w pracy), Clear (Claude w pracy), Resume, Edit i ×;
-  - po przełączeniu agenta zamiast niego wiersz „Previous goal … · Set goal” (`EpochMeta.previous_goal`).
-- Koniec celu to karta `Body::GoalEnd`: achieved, impossible, cleared, przy przełączeniu agenta, przy edycji
-  wiadomości albo po błędzie.
-  - Przełączenie agenta kończy cel i wspomina go w skrócie.
+  - przyciski: Pause (Codex w pracy), Clear (Claude w pracy), Resume, Edit i ×.
+- Koniec celu to karta `Body::GoalEnd`: achieved, impossible, cleared, przy edycji wiadomości albo po błędzie
+  (starsze rozmowy mają też `ClearedOnSwitch`).
   - Edycja wiadomości kończy cel przed rozwidleniem.
-  - Kontynuowana rozmowa (powrót do agenta, edycja) czyści kopię celu w CLI: Claude cichym `/goal clear`,
+  - Kontynuowana rozmowa (edycja) czyści kopię celu w CLI: Claude cichym `/goal clear`,
     Codex `CodexStart.clear_goal` z pominięciem jego zgłoszeń do odpowiedzi.
   - Restart zachowuje cel bez uruchamiania go.
 - Notch i inspektor sesji pokazują „Goal” zamiast „Working” (`AgentsState::chat_goal`). `Idle` z hooków
@@ -599,3 +578,81 @@ aż warunek jest spełniony. Sprawdzone na żywo z Claude Code 2.1.295 i codex-c
   - bez ustawiania budżetu tokenów (DEC-081);
   - źle sformułowany cel Codexa potrafi kręcić tury bez końca: Pause/Stop zawsze dostępne;
   - zakładki i sidebar nie mają statusu czatu, więc „Goal” widać tylko w notchu i inspektorze.
+
+## Etap 12: zadania agenta nad composerem
+
+- Pasek stanu (`ChatView::status_bar`, `src/ui/chat/activity.rs`) to jedna powierzchnia na górnej krawędzi
+  composera: wiersz celu (etap 11), a pod nim praca agenta. Model jest czysty i testowany (`chat::activity`):
+  - `todos` — lista z `TodoWrite` (Claude, plan Codexa z `turn/plan/updated`) albo `TaskCreate` (id z wyniku
+    `{task:{id}}`) i `TaskUpdate` (`status`, `subject`, `activeForm`; `deleted` usuwa); `version` to pozycja
+    ostatniej zmiany listy;
+  - `jobs` — wywołania głównego wątku z `tool.background`; subagenci w tle zostają w tacce „waiting for”, więc
+    panel pokazuje polecenia i monitory.
+- Linia zwinięta (DEC-084): chevron, postęp listy `2/5`, bieżące zadanie (`activeForm`, shimmer w pracy) albo
+  pierwsze polecenie w tle, „N in background” albo „N finished in background” i × po zakończeniu wszystkiego.
+  Rozwinięcie (`Disclosure` + `AnimatedHeight`) pokazuje sekcje Tasks i Background; czas działających poleceń
+  liczy widok (`Instant` pierwszego zobaczenia, ticker co sekundę tylko przy otwartym panelu), zakończonych —
+  `elapsed_seconds` albo ten pomiar. Klik w polecenie przewija do jego karty (`Rows::uncover` + `reveal_row`).
+- Odczyt w `after_change` tylko po zmianie `Transcript::revision` lub sesji (`sync_activity`); render nie liczy list.
+  Wysłanie wiadomości albo × chowa zakończone polecenia i ukończoną listę (DEC-085); nowa sesja (start, restart,
+  restore) zaczyna z odłożonym tym, co już się skończyło.
+- Stop (DEC-086): Claude zapisuje `task_id` z `system/task_started` (`Adapter::background_task`),
+  `ChatSession::stop_background` wysyła `control_request {subtype: stop_task}`; odmowa daje notkę błędu,
+  karta kończy się z `task_notification`. Codex nie ma żądania na pojedynczy terminal — bez przycisku.
+- Codex: `commandExecution` wciąż `inProgress` po `turn/completed` (sesja unified exec) zostaje w mapie elementów
+  jako `background`; `outputDelta` i `item/completed` po turze trafiają do tej samej karty (wcześniej spinner
+  zostawał na zawsze, a wynik dublował się na końcu). Przerwanie, błąd tury i koniec procesu je anulują.
+- Lista todo Claude: Claude Code 2.1.x wyłącza narzędzia list zadań dla nowych modeli
+  (`CLAUDE_CODE_ENABLE_TODO_TOOLS`); Canopy ich nie włącza (DEC-083), panel pokazuje listę, gdy agent jej używa.
+- Testy: `src/chat/activity.rs` (sekwencje list), `tests/chat_activity.rs` (nagrania
+  `fixtures/chat/claude-2.1.296/{background,tasks}.jsonl`: polecenie w tle i `stop_task`, lista z TaskCreate/Update),
+  `tests/chat_codex.rs::a_command_running_past_its_turn_ends_in_its_own_card`
+  (`fixtures/chat/codex-0.161/background.jsonl`).
+
+## Etap 13: bloki kodu w composerze
+
+- ```` ``` ```` (opcjonalnie z językiem, `fences::opening`) i ⇧Enter w polu tekstowym (`ChatView::fence_enter`,
+  capture `input::Enter` na wyspie) dzielą pole wokół nowego bloku kodu (DEC-088). Główne pole (`ChatView.composer`)
+  zostaje ostatnie, pod wszystkimi blokami: podpowiedzi, badge'e, ↑, shell i cel działają jak wcześniej i tylko
+  tam. `ChatView.code_parts` to bloki w kolejności, każdy z polem tekstu nad sobą (`ui/chat/code_blocks.rs`);
+  puste pole nad blokiem (także między dwoma blokami) rysuje się tylko z fokusem — bloki stoją obok siebie,
+  a strzałki otwierają między nimi linię, która znika, gdy zostanie pusta. Nie w trybie shell, celu i przy czekającej decyzji.
+- Blok: lekkie pole `TextareaState` (`auto_grow(1, 12)`, Enter = nowa linia, `t::MONO` 13 px) w karcie z chipem
+  języka (`picker_button` + menu `fences::LANGUAGES`). Bez podświetlania składni w composerze (DEC-090: edytor kodu
+  gpui-kit był zbyt ciężki — powolne nowe linie, rynna numerów linii); wysłana wiadomość podświetla kod jak zwykle.
+  Aliasy tagów (`rs`, `ts`, `py`, `sh`…) w `fences::grammar`, wspólne z podświetlaniem kodu w rozmowie.
+- Klawisze (DEC-089/091, capture na karcie bloku): Enter i ⇧Enter — nowa linia, Tab — tabulator,
+  ⌘Enter — `command_enter`; z bloku wychodzi się tylko strzałkami: ↑ na pierwszej / ↓ na ostatniej linii — pole
+  nad / pod blokiem; wchodzi strzałkami (↑/↓ na krawędzi pola tekstowego) albo Backspace na początku pola pod
+  blokiem (`field_backspace`); Backspace w pustym bloku — usuwa blok i łączy pola z badge'ami (`concat`).
+- Szkic: `composer_draft` składa części `fences::join` (blok w fence'ach na własnych liniach), załączniki
+  z tokenów wszystkich pól (`composer_tokens`). `set_composer_content` (Edit, ↑, Edit z kolejki, odzyskanie
+  szkicu, `ComposerChange`) dzieli tekst `fences::split` (fence od początku linii, niezamknięty zostaje tekstem)
+  i przenosi badge'e do pól (`slice`). `clear_composer` usuwa bloki; ↑ (recall), resting, `!` i `/goal` nie działają,
+  gdy są bloki.
+- Wiadomość użytkownika w rozmowie: `sent_markdown` escapuje tekst dosłownie, a fenced blocks przepuszcza jako kod
+  (karta z językiem i Copy jak w odpowiedziach).
+- Testy: `chat::fences` (split/join/aliasy), `ui::chat::code_blocks` (badge'e przy podziale i łączeniu),
+  `ui::chat::attachments` (markdown wiadomości z blokiem). Klawisze i wygląd — QA w GUI.
+
+## Etap 14: fork rozmowy do nowego czatu
+
+- Pod zakończoną odpowiedzią agenta (akcje na hover) przycisk Fork (`git-branch`, „Fork into a new chat”),
+  gdy tura ma punkt wznowienia (`TurnEnd.resume_at`), część ma zapisaną sesję agenta, a czat historię
+  (`ChatView::fork_request`, `ui/chat/fork.rs`); także w częściach sprzed Restart/Edit, nie w wątkach subagentów.
+- Klik: `ChatForkRequested` → `Chats` → widok workspace otwiera „New chat in” w trybie „Fork into”
+  (`NewChatPalette` z `Purpose::Fork`). Wybór → `Chats::fork(target, request)`.
+- Kopia (DEC-092): `ChatHistory::fork` czyta historię źródła z bazy razem z wierszami czekającymi na zapis,
+  tnie ją `chat::fork::cut` (wcześniejsze części całe, cięta do `TurnEnd` odpowiedzi włącznie, z wyjściem
+  subagentów; ostatnia: `continued`, bez celu, `fork_at = resume_at`), kopiuje obrazy, które nazywają skopiowane
+  wiadomości (`fork::images`), i zapisuje od razu pod nowym id czatu. Dopiero wtedy powstaje tab „<tytuł> (fork)”
+  z tym samym narzędziem, kontem i wyborami, `resume_id` = sesja źródłowej części, bez zapamiętanych zgód.
+- Agent (DEC-093): `start()` bierze `fork_at` z mety przywróconej części (albo z `ChatView.fork_at`) i rozgałęzia
+  sesję jak Edit: Claude `--resume <źródło> --resume-session-at <uuid> --fork-session`, Codex `thread/fork`
+  z `cwd` nowego projektu. Punkt trzyma się, dopóki nowa sesja nie dostanie id (`save_session` czyści
+  `fork_at`, `record_meta` zapisuje): Restart przed pierwszą wiadomością i restart aplikacji rozgałęziają znowu,
+  zamiast kontynuować sesję źródła. Nowa część po Restart zapisuje ten sam punkt (`EpochMeta.fork_at`).
+- Sondy (2026-10-14): Claude 2.1.296 rozgałęzia sesję z innego folderu projektu (także w punkcie) i zachowuje uuid
+  wiadomości; Codex 0.161 `thread/fork` z innym `cwd` wie tylko to, co było do punktu, i zachowuje id tur —
+  Edit/Retry w forku działają u obu.
+- Testy: `chat::fork` (cięcie, obrazy, zapis `fork_at` i stare mety). GUI — QA.

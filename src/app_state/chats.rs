@@ -24,6 +24,25 @@ pub enum ChatTarget {
     Project(WorkspaceId),
 }
 
+/// A chat's conversation up to an agent reply, to go on in a new chat (DEC-092/093).
+#[derive(Clone)]
+pub struct ForkRequest {
+    /// The chat forked (`ChatSettings.id`).
+    pub source: String,
+    pub cut: canopy_desktop::chat::fork::Cut,
+    pub provider: Provider,
+    pub profile: Option<String>,
+    /// Its choices (model, effort, mode); the new chat gets its own id.
+    pub settings: ChatSettings,
+    /// The forked part's agent session, branched off at `cut`.
+    pub session: String,
+    pub title: String,
+}
+
+/// Fork asked under a reply: the workspace asks where the new chat goes.
+pub struct ChatForkRequested(pub ForkRequest);
+impl EventEmitter<ChatForkRequested> for Chats {}
+
 /// Session tokens of the page service (`preview_html`), reachable without `Chats`.
 pub struct PageTokens(pub canopy_desktop::chat::pages::Registry);
 impl Global for PageTokens {}
@@ -62,7 +81,7 @@ pub struct Chats {
     pub turn_diffs: HashMap<PaneId, (String, bool, Entity<TurnDiffView>)>,
     pub error: Option<String>,
     workspaces: HashMap<PaneId, WorkspaceId>,
-    events: HashMap<PaneId, Subscription>,
+    events: HashMap<PaneId, [Subscription; 2]>,
     retiring: Vec<Retiring>,
     stopping: bool,
     agents_ready: bool,
@@ -342,7 +361,13 @@ impl Chats {
             let view = cx.new(|cx| ChatView::new(pane.clone(), window, cx));
             self.events.insert(
                 *id,
-                cx.subscribe(&view, |_, _, _: &ChatStateChanged, cx| cx.notify()),
+                [
+                    cx.subscribe(&view, |_, _, _: &ChatStateChanged, cx| cx.notify()),
+                    // A fork goes on where the user picks; the workspace asks.
+                    cx.subscribe(&view, |_, _, request: &ChatForkRequested, cx| {
+                        cx.emit(ChatForkRequested(request.0.clone()))
+                    }),
+                ],
             );
             if start {
                 view.update(cx, |view, cx| view.start(cx));
@@ -564,6 +589,85 @@ impl Chats {
         }
     }
 
+    /// Opens a fork of a conversation in `target`: its copy is saved first, then the
+    /// tab opens and its agent branches the session off at the reply.
+    pub fn fork(&mut self, target: ChatTarget, request: ForkRequest, cx: &mut Context<Self>) {
+        if Self::unavailable(cx).is_some() || self.opening.is_some() {
+            return;
+        }
+        let project = match target {
+            ChatTarget::Project(id) => match project_cwd(id, cx) {
+                Some(cwd) => Some((id, cwd)),
+                None => {
+                    self.error = Some("This project is no longer open.".into());
+                    cx.notify();
+                    return;
+                }
+            },
+            ChatTarget::NoProject => None,
+        };
+        let id = ChatSettings::new_id();
+        let mut settings = request.settings.clone();
+        settings.id = Some(id.clone());
+        // Permissions remembered for a chat stay with it.
+        settings.allowed.clear();
+        let copy = cx
+            .global::<AppState>()
+            .chat_history
+            .clone()
+            .update(cx, |history, cx| {
+                history.fork(&request.source, &id, request.cut.clone(), cx)
+            });
+        self.opening = Some(cx.spawn(async move |this, cx| {
+            let copied = copy.await;
+            let cwd = match &project {
+                Some((_, cwd)) => Ok(cwd.clone()),
+                None => {
+                    cx.background_executor()
+                        .spawn(async {
+                            let data = canopy_desktop::platform::directories::data_dir()?;
+                            canopy_desktop::chat::scratch::create(&data)
+                        })
+                        .await
+                }
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.opening = None;
+                let cwd = match (copied, cwd) {
+                    (Ok(()), Ok(cwd)) => cwd,
+                    (Err(error), _) => {
+                        this.error = Some(format!("Could not fork the chat: {error}"));
+                        cx.notify();
+                        return;
+                    }
+                    (_, Err(error)) => {
+                        this.error = Some(format!("Could not create the chat folder: {error}"));
+                        cx.notify();
+                        return;
+                    }
+                };
+                let title = format!("{} (fork)", request.title);
+                let metadata = PaneMetadata {
+                    cwd: Some(cwd),
+                    profile_id: request.profile.clone(),
+                    // The session to branch off; the new one replaces it once it has an id.
+                    resume_id: Some(request.session.clone()),
+                    title: Some(title.clone()),
+                    kind: PaneKind::Chat,
+                    chat: Some(Box::new(settings)),
+                    ..Default::default()
+                };
+                this.place_titled(
+                    project.map(|(id, _)| id),
+                    request.provider,
+                    metadata,
+                    &title,
+                    cx,
+                );
+            });
+        }));
+    }
+
     fn place(
         &mut self,
         target: Option<WorkspaceId>,
@@ -571,9 +675,20 @@ impl Chats {
         metadata: PaneMetadata,
         cx: &mut Context<Self>,
     ) {
+        self.place_titled(target, provider, metadata, NEW_CHAT_TITLE, cx);
+    }
+
+    fn place_titled(
+        &mut self,
+        target: Option<WorkspaceId>,
+        provider: Provider,
+        metadata: PaneMetadata,
+        title: &str,
+        cx: &mut Context<Self>,
+    ) {
         let projects = cx.global::<AppState>().projects.clone();
         let result = projects.update(cx, |projects, cx| {
-            projects.open_chat(target, NEW_CHAT_TITLE, provider.tool(), metadata, cx)
+            projects.open_chat(target, title, provider.tool(), metadata, cx)
         });
         self.error = result.err();
         cx.notify();

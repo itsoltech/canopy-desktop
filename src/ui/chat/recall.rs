@@ -55,7 +55,8 @@ impl ChatView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.shell || self.goal_mode {
+        // A draft with code blocks isn't swapped for an earlier message.
+        if self.shell || self.goal_mode || self.has_code_blocks() {
             return false;
         }
         let key = if older { "up" } else { "down" };

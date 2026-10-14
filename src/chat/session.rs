@@ -111,7 +111,8 @@ pub const RESUME_PROMPT: &str = "Continue where you left off.";
 pub struct Draft {
     pub text: String,
     pub attachments: Vec<Attachment>,
-    /// The conversation so far for an agent switched to (sent before the text).
+    /// Context sent before the text; only messages saved from an agent switch (withdrawn,
+    /// DEC-087) carry one, and Retry or Edit sends it again.
     pub context: Option<String>,
     /// Sets the chat's goal: the text is its condition.
     pub goal: bool,
@@ -178,6 +179,8 @@ pub struct ChatSession {
     /// File restores asked for (request id → item, dry run) and the latest outcome.
     rewinds: HashMap<String, (ItemId, bool)>,
     rewind: Option<(ItemId, Rewind)>,
+    /// `stop_task` requests in flight, to report a refusal.
+    task_stops: HashSet<String>,
     base: Base,
     /// Oldest first. Sent one at a time once the agent has finished everything.
     queue: VecDeque<Queued>,
@@ -196,8 +199,6 @@ pub struct ChatSession {
     provider: Provider,
     /// Codex protocol state (unused for Claude).
     codex: codex_engine::CodexEngine,
-    /// The conversation so far for an agent switched to: goes with the next message.
-    handoff: Option<String>,
     /// The chat's goal (`/goal`) while it is set.
     goal: Option<Goal>,
     /// The goal changed since the owner last saved it.
@@ -281,6 +282,7 @@ impl ChatSession {
             context_request: None,
             rewinds: HashMap::new(),
             rewind: None,
+            task_stops: HashSet::new(),
             base: Base::Fresh,
             queue: VecDeque::new(),
             next_queued: 0,
@@ -292,7 +294,6 @@ impl ChatSession {
             cli_idle: true,
             provider,
             codex: Default::default(),
-            handoff: None,
             goal: None,
             goal_changed: false,
             goal_clearing: None,
@@ -654,21 +655,36 @@ impl ChatSession {
     pub fn take_queue(&mut self) -> Vec<Draft> {
         self.queue.drain(..).map(|q| q.draft()).collect()
     }
-    /// The conversation so far, sent with the next message that starts a turn (after a
-    /// switch to this agent).
-    pub fn set_handoff(&mut self, text: Option<String>) {
-        self.handoff = text;
-    }
-    /// The context still waiting for the next message.
-    pub fn handoff(&self) -> Option<&str> {
-        self.handoff.as_deref()
-    }
     /// Restores messages taken from a previous session; they wait for the user.
     pub fn restore_queue(&mut self, drafts: Vec<Draft>) {
         for draft in drafts {
             self.enqueue(draft);
         }
         self.hold_queue = !self.queue.is_empty();
+    }
+
+    /// Whether one background task (`call`) can be stopped on its own: Claude only, while
+    /// it runs; Codex has no request for it.
+    pub fn can_stop_background(&self, call: &str) -> bool {
+        self.provider == Provider::Claude
+            && self.initialized
+            && !self.status.ended()
+            && self.adapter.background_task(call).is_some()
+    }
+
+    /// Stops one background task; its card ends when the CLI reports it stopped.
+    pub fn stop_background(&mut self, call: &str) -> Vec<Value> {
+        if !self.can_stop_background(call) {
+            return vec![];
+        }
+        let task = self
+            .adapter
+            .background_task(call)
+            .expect("checked above")
+            .to_owned();
+        let id = self.request_id();
+        self.task_stops.insert(id.clone());
+        self.outgoing(vec![wire::stop_task(&id, &task)])
     }
 
     /// Stops the current turn. Pending permissions are denied so the CLI is not left waiting.
@@ -1150,6 +1166,20 @@ impl ChatSession {
                         }),
                     );
                 }
+                Signal::ControlAck {
+                    request_id, error, ..
+                } if self.task_stops.remove(&request_id) => {
+                    if let Some(error) = error {
+                        self.transcript.push(
+                            None,
+                            Body::Notice(Notice {
+                                kind: NoticeKind::Error,
+                                text: format!("Couldn't stop the background task: {error}"),
+                                until: None,
+                            }),
+                        );
+                    }
+                }
                 Signal::ControlAck { .. } => {}
                 Signal::Init(info) => {
                     if !info.skills.is_empty() {
@@ -1394,13 +1424,10 @@ impl ChatSession {
     }
 
     /// Starts a turn with `draft`.
-    fn send(&mut self, mut draft: Draft) -> Vec<Value> {
+    fn send(&mut self, draft: Draft) -> Vec<Value> {
         // Codex needs its thread; `accepts_turn` waits for it, this keeps it so.
         if self.provider == Provider::Codex && self.codex_thread().is_none() {
             return vec![];
-        }
-        if draft.context.is_none() {
-            draft.context = self.handoff.take();
         }
         self.stopped = false;
         let turn = self.transcript.allocate_turn();

@@ -66,7 +66,7 @@ pub struct ChatView {
     /// Lines produced before the process exists (initialize, early messages).
     outbox: Vec<serde_json::Value>,
     pub(super) agent_run: Option<String>,
-    generation: u64,
+    pub(super) generation: u64,
     pub(super) starting: bool,
     pub(super) error: Option<String>,
     start_task: Option<Task<()>>,
@@ -104,7 +104,8 @@ pub struct ChatView {
     pub(super) copied_reset: Option<Task<()>>,
     /// A sent message being edited in the composer.
     pub(super) editing: Option<Editing>,
-    /// The next start forks the session after this message (an edit).
+    /// Starts fork the session after this point (an edit, or a forked chat) until the
+    /// new session has its own id.
     pub(super) fork_at: Option<String>,
     /// Sent as soon as the next session starts (the edited message).
     pub(super) send_on_start: Option<canopy_desktop::chat::session::Draft>,
@@ -124,10 +125,6 @@ pub struct ChatView {
     pub(super) epoch: u64,
     /// How the running session began and who runs it, as saved (DEC-065).
     pub(super) epoch_meta: EpochMeta,
-    /// The conversation so far for the agent switched to, until a message takes it.
-    pub(super) handoff: Option<super::handoff::Handoff>,
-    /// A switch continues the agent's earlier session; if that fails, it starts anew.
-    pub(super) resuming_switch: bool,
     pub(super) history: History,
     /// The last saved session, continued by the first start.
     pub(super) restored: Option<SavedEpoch>,
@@ -166,8 +163,12 @@ pub struct ChatView {
     /// Room for the composer's pickers in the last frame; they shorten to fit it.
     pub(super) pickers_width: std::rc::Rc<std::cell::Cell<Pixels>>,
     /// Height of the composer and the trays over the conversation's bottom edge in the
-    /// last frame: the list's bottom padding, so its end shows above them.
+    /// last frame, without what trays unfold over it: the list's bottom padding, so its
+    /// end shows above them.
     pub(super) overlay_height: std::rc::Rc<std::cell::Cell<Pixels>>,
+    /// Tray content drawn this frame that lies over the conversation instead of
+    /// lifting it (`render::unfolds_over`); the overlay's canvas takes and clears it.
+    pub(super) overlay_unfolded: std::rc::Rc<std::cell::Cell<Pixels>>,
     /// The overlay's height as drawn, also while the composer rests: Jump to latest
     /// sits on its top edge.
     pub(super) overlay_drawn: std::rc::Rc<std::cell::Cell<Pixels>>,
@@ -182,6 +183,11 @@ pub struct ChatView {
     /// The composer sets the chat's goal: `/goal ` typed or picked turned it on.
     pub(super) goal_mode: bool,
     pub(super) goal_row: super::goal::GoalRow,
+    /// The agent's task list and background work over the composer.
+    pub(super) activity: super::activity::ActivityPanel,
+    /// Code blocks in the composer, each with the text above it; the main field is
+    /// under them all (DEC-088).
+    pub(super) code_parts: Vec<super::code_blocks::CodePart>,
     /// The composer was empty before its latest change (a typed `!` starts shell mode).
     pub(super) composer_was_empty: bool,
     /// ↑ in the composer: which earlier message is shown, and its text (DEC-075).
@@ -198,7 +204,7 @@ impl ChatView {
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
-                .placeholder("Ask anything")
+                .placeholder(super::decision::COMPOSER_PLACEHOLDER)
                 .submit_on_enter(true)
         });
         let subscription = cx.subscribe_in(
@@ -299,8 +305,6 @@ impl ChatView {
             boundary: Boundary::Restarted,
             epoch: 0,
             epoch_meta: EpochMeta::default(),
-            handoff: None,
-            resuming_switch: false,
             history,
             restored: None,
             history_note: None,
@@ -321,6 +325,7 @@ impl ChatView {
             model_picker: super::model_picker::ModelPicker::new(Instant::now(), cx),
             pickers_width: std::rc::Rc::new(std::cell::Cell::new(Pixels::MAX)),
             overlay_height: Default::default(),
+            overlay_unfolded: Default::default(),
             overlay_drawn: Default::default(),
             shells: HashMap::new(),
             stopped_shells: HashSet::new(),
@@ -328,6 +333,8 @@ impl ChatView {
             shell: false,
             goal_mode: false,
             goal_row: Default::default(),
+            activity: Default::default(),
+            code_parts: vec![],
             composer_was_empty: true,
             recall: None,
             pages: Default::default(),
@@ -430,7 +437,6 @@ impl ChatView {
             self.restored = Some(last);
             // The conversation is on screen; nothing is missing anymore.
             self.resumed = false;
-            self.restore_handoff();
         }
         // Sessions kept for a newer version: this run starts after them.
         if let Some(unread) = saved.last_epoch.filter(|&unread| unread >= self.epoch) {
@@ -549,13 +555,22 @@ impl ChatView {
         if let Some(editing) = self.editing.take() {
             self.restore_draft(editing.draft, cx);
         }
-        // Forking needs the session it continues.
+        // Forking needs the session it continues. An edit, or a forked chat (its point is
+        // saved with its last part, DEC-093), branches off until the new session has an
+        // id: a Restart before that branches again instead of going on in the source's.
         let fork = self
             .fork_at
-            .take()
+            .clone()
+            .or_else(|| {
+                self.restored
+                    .as_ref()
+                    .filter(|_| !replaced)
+                    .and_then(|restored| restored.meta.fork_at.clone())
+            })
             .filter(|_| self.pane.metadata.resume_id.is_some());
-        // Restart keeps the goal (it doesn't run on its own); a switch back or an edit
-        // continues a conversation whose goal ended here: the agent's copy is cleared.
+        self.fork_at = fork.clone();
+        // Restart keeps the goal (it doesn't run on its own); an edit continues a
+        // conversation whose goal ended here: the agent's copy is cleared.
         let carried_goal = carried_goal.filter(|_| boundary == Boundary::Restarted);
         let stale_goal = replaced
             && carried_goal.is_none()
@@ -598,17 +613,13 @@ impl ChatView {
                     continued,
                     agent: Some(self.agent_ref()),
                     goal: carried_goal,
-                    previous_goal: self.goal_row.previous.clone(),
+                    fork_at: fork.clone(),
                 }
             }
         };
         self.epoch_meta = meta.clone();
-        if let Some(handoff) = &self.handoff {
-            session.set_handoff(Some(handoff.text.clone()));
-        }
         session.set_base(meta.base());
         session.restore_goal(meta.goal.clone());
-        self.goal_row.previous = meta.previous_goal.clone();
         if stale_goal {
             lines.extend(session.clear_stale_goal());
         }
@@ -759,8 +770,6 @@ impl ChatView {
 
     fn fail_start(&mut self, error: String, cx: &mut Context<Self>) {
         self.starting = false;
-        // Not the session's fault: nothing to start anew without it.
-        self.resuming_switch = false;
         self.error = Some(error);
         if let Some(draft) = self.edit_recovery.take() {
             self.restore_draft(draft, cx);
@@ -873,6 +882,7 @@ impl ChatView {
         self.report_decision(cx);
         self.report_activity(working, cx);
         self.sync_goal(cx);
+        self.sync_activity(cx);
         self.sync_edit(cx);
         self.tick(cx);
         if self
@@ -895,9 +905,7 @@ impl ChatView {
         }
         self.resolve_tool_files(files, cx);
         self.save_session(cx);
-        self.sync_handoff();
         self.record_meta(cx);
-        self.check_resumed_switch(cx);
         self.refresh_find(cx);
         cx.notify();
     }
@@ -981,6 +989,9 @@ impl ChatView {
                 projects.record_agent_session(&pane, &id, cx)
             });
         self.pane.metadata.resume_id = Some(id);
+        // Branched: the new session is the one to go on in (`record_meta` saves it).
+        self.fork_at = None;
+        self.epoch_meta.fork_at = None;
     }
 
     /// Checks off the UI thread which tool paths are files Canopy can open.
@@ -1085,6 +1096,7 @@ impl ChatView {
         };
         let lines = session.submit_draft(draft);
         self.write(lines);
+        self.activity_sent();
         if !self.sent_any {
             self.sent_any = true;
             cx.global::<AppState>()
@@ -1553,7 +1565,7 @@ impl ChatView {
         .detach();
     }
 
-    /// The conversation has messages: another account means a switch with context.
+    /// The conversation has messages: its agent and account are fixed (DEC-087).
     pub fn account_locked(&self) -> bool {
         self.resumed
             || self.sent_any
@@ -1643,8 +1655,6 @@ impl ChatView {
         {
             tokens.0.remove(&token);
         }
-        // Stopped on purpose: not a session that failed to continue.
-        self.resuming_switch = false;
         self.pump = None;
         let start = self.start_task.take();
         self.finish_agent(false, false, cx);

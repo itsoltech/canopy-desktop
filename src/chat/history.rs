@@ -28,7 +28,8 @@ pub enum Boundary {
     Edited,
     /// Kept so histories saved with it still load (New session was removed).
     NewSession,
-    /// The conversation went on with another agent.
+    /// The conversation went on with another agent; kept so histories saved with it
+    /// still load (switching mid-conversation was withdrawn, DEC-087).
     SwitchedToClaude,
     SwitchedToCodex,
 }
@@ -40,12 +41,6 @@ impl Boundary {
             Self::NewSession => "New session",
             Self::SwitchedToClaude => "Switched to Claude Code",
             Self::SwitchedToCodex => "Switched to Codex",
-        }
-    }
-    pub fn switched_to(provider: super::provider::Provider) -> Self {
-        match provider {
-            super::provider::Provider::Claude => Self::SwitchedToClaude,
-            super::provider::Provider::Codex => Self::SwitchedToCodex,
         }
     }
 }
@@ -74,15 +69,17 @@ pub struct EpochMeta {
     /// It continues a conversation it doesn't hold (resumed or forked).
     #[serde(default)]
     pub continued: bool,
-    /// Who ran it (none in histories from before agents could be switched).
+    /// Who ran it (none in histories from before agents could be switched); labels the
+    /// parts of conversations saved with a switch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<AgentRef>,
     /// The chat's goal while one is set; it comes back without running on its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<crate::chat::goal::Goal>,
-    /// The previous agent's goal, offered again after a switch to this one.
+    /// A forked chat (DEC-093): its agent's session branches off `agent.session` at this
+    /// point when it starts; cleared once the new session has its own id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub previous_goal: Option<String>,
+    pub fork_at: Option<String>,
 }
 impl EpochMeta {
     pub fn base(&self) -> Base {

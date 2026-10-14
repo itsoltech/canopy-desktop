@@ -3,7 +3,7 @@ mod task_drafts;
 pub use integrations::{IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
 mod editors;
-pub use chats::{ChatGuardRequest, PageTokens};
+pub use chats::{ChatForkRequested, ChatGuardRequest, ForkRequest, PageTokens};
 pub use editors::{Editors, GuardRequest};
 mod files;
 pub use files::FilesState;

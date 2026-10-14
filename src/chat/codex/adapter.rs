@@ -88,11 +88,31 @@ impl Adapter {
             self.resolve_with(&request, Decision::Cancelled, None, transcript);
         }
         let cancel = *outcome != Outcome::Completed;
-        let open: Vec<usize> = self
-            .items
-            .drain()
-            .flat_map(|(_, indices)| indices)
-            .collect();
+        // A command still running after a completed turn goes on in the background (a
+        // unified exec session): its card stays and later gets its output and end.
+        let mut kept = HashMap::new();
+        let mut open = vec![];
+        for (id, indices) in self.items.drain() {
+            let running = !cancel
+                && matches!(
+                    indices.as_slice(),
+                    [index] if matches!(
+                        transcript.get(*index).map(|item| &item.body),
+                        Some(Body::Tool(tool)) if tool.name == "Bash" && tool.state == ToolState::Running
+                    )
+                );
+            if running {
+                transcript.update(indices[0], |body| {
+                    if let Body::Tool(tool) = body {
+                        tool.background = true;
+                    }
+                });
+                kept.insert(id, indices);
+            } else {
+                open.extend(indices);
+            }
+        }
+        self.items = kept;
         for index in open {
             transcript.update(index, |body| match body {
                 Body::Text(block) | Body::Thinking(block) => block.streaming = false,
@@ -613,6 +633,7 @@ impl Adapter {
                         let streamed = tool.output.take();
                         *tool = ToolCall {
                             output: call.output.or(streamed),
+                            background: tool.background,
                             ..call
                         };
                     }

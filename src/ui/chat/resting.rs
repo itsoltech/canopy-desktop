@@ -159,6 +159,7 @@ impl ChatView {
             && self.shell_error.is_none()
             && !self.shell_mode(cx)
             && !self.goal_mode()
+            && !self.has_code_blocks()
             && !self.composer.read(cx).value().contains('\n')
             && self.attachment_errors(cx).is_none()
     }

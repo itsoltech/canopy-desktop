@@ -267,7 +267,8 @@ pub fn tool_kind(name: &str) -> ToolKind {
         "Grep" | "Glob" | "LS" | "ToolSearch" => ToolKind::Search,
         "WebFetch" | "WebSearch" => ToolKind::Web,
         "Agent" | "Task" | "SendMessage" | "TaskStop" => ToolKind::Agent,
-        "TodoWrite" | "ExitPlanMode" | "EnterPlanMode" => ToolKind::Plan,
+        "TodoWrite" | "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet" | "ExitPlanMode"
+        | "EnterPlanMode" => ToolKind::Plan,
         _ => ToolKind::Other,
     }
 }
@@ -291,6 +292,17 @@ pub fn tool_summary(tool: &ToolCall, cwd: &Path) -> String {
         "WebSearch" => text("query"),
         "Agent" | "Task" => text("description").or_else(|| text("prompt")),
         crate::chat::page::PREVIEW_TOOL => Some("page preview".to_owned()),
+        "TaskCreate" => text("subject"),
+        "TaskUpdate" => {
+            let id = match input.get("taskId") {
+                Some(Value::Number(id)) => Some(id.to_string()),
+                _ => text("taskId"),
+            };
+            id.map(|id| match text("status") {
+                Some(status) => format!("#{id} → {}", status.replace('_', " ")),
+                None => format!("#{id}"),
+            })
+        }
         "TodoWrite" => input
             .get("todos")
             .and_then(Value::as_array)

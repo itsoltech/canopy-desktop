@@ -42,7 +42,7 @@ impl ChatView {
         let working = self.is_working();
         let deciding = self.decision.active().is_some();
         self.insert_badges(window, cx);
-        let empty = self.composer.read(cx).value().trim().is_empty();
+        let empty = self.composer_empty(cx);
         let ended = self.status().is_some_and(|status| status.ended());
         // `!command`: the island turns burgundy and Enter runs it (DEC-072); in goal
         // mode it turns teal and Enter sets the goal (DEC-079).
@@ -52,6 +52,36 @@ impl ChatView {
         let resting = self.resting.on;
         motion::request_frame(window, self.resting.height(now).is_some());
         let measured = self.resting.measured.clone();
+        // Text written above code blocks: the same field, badges included.
+        let blocks = if resting {
+            vec![]
+        } else {
+            let view = cx.entity().downgrade();
+            self.code_part_elements(
+                move |state| {
+                    let badges = view.clone();
+                    let clicks = view.clone();
+                    Textarea::new(state)
+                        .appearance(false)
+                        .disabled(ended)
+                        .w_full()
+                        .text_size(px(14.))
+                        .px(px(4.))
+                        .token(move |context, _, cx| {
+                            badges
+                                .upgrade()
+                                .map(|view| view.read(cx).badge(context))
+                                .unwrap_or_else(|| div().into_any_element())
+                        })
+                        .on_token_click(move |event, _, cx| {
+                            let _ = clicks.update(cx, |this, cx| this.badge_clicked(event, cx));
+                        })
+                        .into_any_element()
+                },
+                window,
+                cx,
+            )
+        };
         let field = {
             let view = cx.entity().downgrade();
             let badges = view.clone();
@@ -123,48 +153,66 @@ impl ChatView {
                 // The field binds ↑/↓/Enter/Tab/Esc to its own actions, which run before
                 // key listeners: the open suggestions (and ↑ in an empty field, recalling
                 // earlier messages) take them first.
+                // Suggestions, recall and the modes act in the main field only; ↑/↓ at a
+                // field's edge and Backspace at its start move into the code block next to it.
                 .capture_action(cx.listener(|this, _: &input::MoveUp, window, cx| {
-                    if this.suggest_key(SuggestKey::Up, window, cx) || this.recall(true, window, cx)
+                    let main = this.main_field_focused(window, cx);
+                    if (main
+                        && (this.suggest_key(SuggestKey::Up, window, cx)
+                            || this.recall(true, window, cx)))
+                        || this.field_up(window, cx)
                     {
                         cx.stop_propagation();
                     }
                 }))
                 .capture_action(cx.listener(|this, _: &input::MoveDown, window, cx| {
-                    if this.suggest_key(SuggestKey::Down, window, cx)
-                        || this.recall(false, window, cx)
+                    let main = this.main_field_focused(window, cx);
+                    if (main
+                        && (this.suggest_key(SuggestKey::Down, window, cx)
+                            || this.recall(false, window, cx)))
+                        || this.field_down(window, cx)
                     {
                         cx.stop_propagation();
                     }
                 }))
                 .capture_action(cx.listener(|this, enter: &input::Enter, window, cx| {
-                    if !enter.secondary
-                        && !enter.shift
-                        && this.suggest_key(SuggestKey::Accept, window, cx)
+                    let main = this.main_field_focused(window, cx);
+                    // ```lang and ⇧Enter open a code block (DEC-088).
+                    if (enter.shift && !enter.secondary && this.fence_enter(window, cx))
+                        || (main
+                            && !enter.secondary
+                            && !enter.shift
+                            && this.suggest_key(SuggestKey::Accept, window, cx))
                     {
                         cx.stop_propagation();
                     }
                 }))
                 .capture_action(cx.listener(|this, _: &input::IndentInline, window, cx| {
-                    if this.suggest_key(SuggestKey::Accept, window, cx) {
+                    if this.main_field_focused(window, cx)
+                        && this.suggest_key(SuggestKey::Accept, window, cx)
+                    {
                         cx.stop_propagation();
                     }
                 }))
                 .capture_action(cx.listener(|this, _: &input::Escape, window, cx| {
-                    if this.suggest_key(SuggestKey::Close, window, cx)
-                        || this.leave_shell(window, cx)
+                    if this.main_field_focused(window, cx)
+                        && (this.suggest_key(SuggestKey::Close, window, cx)
+                            || this.leave_shell(window, cx))
                     {
                         cx.stop_propagation();
                     }
                 }))
                 // Backspace in an empty field leaves shell mode.
                 .capture_action(cx.listener(|this, _: &input::Backspace, window, cx| {
-                    if this.leave_shell(window, cx) {
+                    if (this.main_field_focused(window, cx) && this.leave_shell(window, cx))
+                        || this.field_backspace(window, cx)
+                    {
                         cx.stop_propagation();
                     }
                 }))
                 // Number keys pick an option and ⌘⌫ denies while a request waits.
                 .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                    if this.decision_key(event, window, cx) {
+                    if this.main_field_focused(window, cx) && this.decision_key(event, window, cx) {
                         cx.stop_propagation();
                     }
                 }))
@@ -201,6 +249,7 @@ impl ChatView {
                                 .gap(px(6.))
                                 .children(shell.then(super::shell::shell_label))
                                 .children(goal.then(|| self.goal_label(cx)))
+                                .children(blocks)
                                 .child(field)
                                 .children(self.attachment_errors(cx))
                                 .children(self.shell_error.clone().map(|error| {
@@ -604,8 +653,8 @@ pub(super) enum Density {
 /// Quiet composer control: optional mark, muted label and a chevron, highlighted on
 /// hover. Without a label it is a mark and a chevron, named by `name` for assistive
 /// technology.
-fn picker_button(
-    id: &'static str,
+pub(super) fn picker_button(
+    id: impl Into<ElementId>,
     leading: Option<AnyElement>,
     label: Option<String>,
     name: String,

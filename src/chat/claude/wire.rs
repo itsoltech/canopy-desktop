@@ -262,6 +262,8 @@ pub enum System {
     },
     TaskStarted {
         #[serde(default)]
+        task_id: Option<String>,
+        #[serde(default)]
         tool_use_id: Option<String>,
         #[serde(default)]
         is_backgrounded: Option<bool>,
@@ -645,6 +647,11 @@ pub fn set_effort(request_id: &str, effort: Option<Effort>) -> Value {
             "settings": {"effortLevel": effort.map(Effort::key)},
         }),
     )
+}
+
+/// Stops one background task (a shell, subagent or monitor) the CLI runs.
+pub fn stop_task(request_id: &str, task: &str) -> Value {
+    control(request_id, json!({"subtype": "stop_task", "task_id": task}))
 }
 
 fn control(request_id: &str, request: Value) -> Value {

@@ -11,6 +11,9 @@ use canopy_desktop::chat::{
 use serde_json::{Value, json};
 
 const RECORDING: &str = include_str!("fixtures/chat/codex-0.161/session.jsonl");
+/// A turn that leaves `sleep 30; echo done` running (a unified exec session) and ends;
+/// the command's output and end come after it.
+const BACKGROUND: &str = include_str!("fixtures/chat/codex-0.161/background.jsonl");
 
 fn message(value: Value) -> Message {
     wire::parse_line(value.to_string().as_bytes())
@@ -20,6 +23,10 @@ fn message(value: Value) -> Message {
 
 /// A session with its thread open (`thread` from the recording).
 fn opened(mode: Mode) -> (ChatSession, Vec<Value>) {
+    opened_with(mode, RECORDING)
+}
+
+fn opened_with(mode: Mode, recording: &str) -> (ChatSession, Vec<Value>) {
     let settings = ChatSettings {
         mode,
         ..Default::default()
@@ -39,7 +46,7 @@ fn opened(mode: Mode) -> (ChatSession, Vec<Value>) {
     assert_eq!(lines[1]["method"], "thread/start");
     assert_eq!(lines[1]["params"]["approvalPolicy"], mode.codex().0);
     let thread = lines[1]["id"].as_str().unwrap().to_owned();
-    let thread_id = RECORDING
+    let thread_id = recording
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter_map(|v| v["params"]["thread"]["id"].as_str().map(str::to_owned))
@@ -148,6 +155,41 @@ fn a_recorded_session_builds_the_conversation() {
     assert!(session.context().is_some_and(|c| c.max > 0));
     assert!(session.rate_limit().is_some());
     assert_eq!(*session.status(), Status::Ready);
+}
+
+#[test]
+fn a_command_running_past_its_turn_ends_in_its_own_card() {
+    let (mut session, _) = opened_with(Mode::Auto, BACKGROUND);
+    session.submit("Start sleep 30 in the background");
+    let commands = |session: &ChatSession| -> Vec<(ToolState, bool, Option<String>)> {
+        session
+            .transcript()
+            .items()
+            .iter()
+            .filter_map(|item| match &item.body {
+                Body::Tool(tool) if tool.name == "Bash" => Some((
+                    tool.state,
+                    tool.background,
+                    tool.output.as_ref().map(|o| o.text.clone()),
+                )),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut turn_ended = false;
+    for line in BACKGROUND.lines() {
+        session.on_codex(wire::parse_line(line.as_bytes()).unwrap().unwrap());
+        if line.contains("\"turn/completed\"") {
+            turn_ended = true;
+            assert_eq!(*session.status(), Status::Ready);
+            assert_eq!(commands(&session), [(ToolState::Running, true, None)]);
+        }
+    }
+    assert!(turn_ended);
+    assert_eq!(
+        commands(&session),
+        [(ToolState::Succeeded, true, Some("done\n".to_owned()))]
+    );
 }
 
 #[test]
