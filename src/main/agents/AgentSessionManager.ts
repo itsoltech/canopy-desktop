@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto'
 import { EventEmitter } from 'events'
 import { is } from '@electron-toolkit/utils'
 import { AgentHookRouter } from './AgentHookServer'
+import { BusySessions } from './busySessions'
 import type { AgentAdapter, AgentType, NormalizedHookEvent, SettingsSetup } from './types'
 import type { NotchSessionStatus } from '../notch/types'
 import { getAdapter, registerAdapter, isAgentTool as isRegistered } from './registry'
@@ -38,7 +39,7 @@ export interface AgentSessionManagerEvents {
 
 export class AgentSessionManager extends EventEmitter {
   private sessions = new Map<string, AgentSession>()
-  private busySessions = new Set<string>()
+  private busySessions = new BusySessions()
   private hooksDir: string
   private router = new AgentHookRouter()
 
@@ -101,11 +102,12 @@ export class AgentSessionManager extends EventEmitter {
 
         // Track busy state
         const rawName = (rawEvent.hook_event_name as string) ?? ''
-        if (adapter.busyEvents.has(rawName)) {
-          this.busySessions.add(sessionRef.ptySessionId)
-        } else if (adapter.idleEvents.has(rawName)) {
-          this.busySessions.delete(sessionRef.ptySessionId)
-        }
+        const idleCompaction = this.busySessions.track(
+          sessionRef.ptySessionId,
+          adapter,
+          rawName,
+          normalized.event,
+        )
 
         if (ownerWindow.isDestroyed()) return
 
@@ -115,14 +117,17 @@ export class AgentSessionManager extends EventEmitter {
           event: normalized,
         })
 
-        // Emit status change for notch overlay
-        this.emitStatusChange(
-          normalized,
-          sessionRef.ptySessionId,
-          ownerWindow,
-          workspaceName,
-          branch,
-        )
+        // Emit status change for notch overlay. A compaction that starts while the pane is idle
+        // shows neither end there, or a parked pane would peek out as finished once it is done.
+        if (!idleCompaction) {
+          this.emitStatusChange(
+            normalized,
+            sessionRef.ptySessionId,
+            ownerWindow,
+            workspaceName,
+            branch,
+          )
+        }
 
         // Show notification if adapter requests it
         if (adapter.formatNotification) {
@@ -251,9 +256,7 @@ export class AgentSessionManager extends EventEmitter {
     // Busy state is keyed by ptySessionId; migrate it too, otherwise a session
     // that went busy under the temp id leaks a stale entry and isBusy() reports
     // the wrong value after rekey.
-    if (this.busySessions.delete(tempId)) {
-      this.busySessions.add(realPtySessionId)
-    }
+    this.busySessions.rekey(tempId, realPtySessionId)
   }
 
   isBusy(ptySessionId: string): boolean {
