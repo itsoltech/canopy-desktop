@@ -91,6 +91,8 @@ notifications, and counters across tab/layout updates.
 
 Each adapter declares `busyEvents` and `idleEvents` sets. The `AgentSessionManager` tracks busy state per session so the notch overlay and other UI elements can reflect whether the agent is actively working.
 
+A compaction normally runs inside a turn, and the turn's `Stop` settles the pane. Claude Code 2.1.299 also compacts a parked conversation between turns, and no `Stop` follows. So a compaction that starts while the pane is not busy is settled by its own `PostCompact`, and the notch shows neither end of it, so a parked pane does not peek out as finished. A compaction that starts mid-turn still waits for the turn's `Stop`.
+
 Claude Code runs Canopy's `Stop` hook in parallel with any `Stop` hook from the user's own settings, so Canopy cannot see whether one of those blocks the stop. When one does, Claude keeps working while the pane reads idle, the notch peeks out with "Finished" if the pane is out of view, and the close confirmations count the pane as not busy, until its next tool call or its next stop. A blocked `SubagentStop` likewise removes the subagent from `activeSubagents` while it keeps running.
 
 ### Notifications
@@ -3659,6 +3661,108 @@ step is not attributed. `meta/prompt-stats.md` would settle both, and was not re
 "… +67 more". The changelog archive and the official `CHANGELOG.md` were unreachable this run,
 because `gh api` and web fetches were both refused. On this branch, `npm ci` now installs
 `0.3.296`, which vendors CLI 2.1.296.
+
+**2.1.299 compacts parked panes between turns, and Canopy now settles that compaction.** The
+entry reads "Added idle compaction in the terminal: a 200K+ token conversation left idle for about
+54 minutes is compacted before its one-hour prompt cache expires". The 2.1.291 note found this code
+behind a server flag. The 2.1.299 build on the runner shows how it reaches a Canopy pane:
+
+- **When it fires.** The server flag `tengu_sunny_locket` must set mode `compact`; the build's own
+  default is `off`, so the entry implies the server now sends it. The `idleCompaction` setting must
+  not be false. The last main request must have used a one-hour cache that is still warm, and the
+  context must hold at least 200,000 tokens (`CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` changes that,
+  but not below 100,000). The timer fires at 90% of the TTL. It refuses while a turn runs, and
+  while the user has interacted with the session in the last 60 seconds.
+- **Which panes qualify.** An unset `promptCacheTtl` means one hour on a Claude subscription within
+  its usage limits, and five minutes on an API key, Bedrock, Vertex or Foundry. So a profile that
+  leaves API key, Base URL and Provider blank qualifies by default. So does one whose Settings JSON
+  sets `promptCacheTtl: "1h"`, which this page recommends for parked panes.
+- **What it runs.** The session calls its compaction directly, not through the prompt queue, with
+  trigger `auto`. So no `UserPromptSubmit` comes first. The compaction runs `PreCompact`, then
+  `PostCompact`, then `SessionStart` with source `compact`. No `Stop` hook runs. The transcript
+  gains "Compacted while idle, before the prompt cache expired".
+- **What Canopy did with it.** `PreCompact` put the pane in `busySessions`, and only `Stop`,
+  `StopFailure` or `SessionEnd` took it out. Closing the tab or window then asked for confirmation
+  as if Claude were working, until the pane's next turn ended. The notch saw idle → compacting →
+  thinking → idle, and the last step peeks out as finished when the pane is not in view. The
+  2.1.291 note expected the pane to keep reading "thinking". The `SessionStart` after `PostCompact`
+  sets it back to idle instead.
+- **The fix.** `BusySessions` (`busySessions.ts`) remembers a compaction that starts while the pane
+  is not busy. Its `PostCompact` takes the pane out of the busy set, and the notch is sent neither
+  end. A compaction inside a turn still waits for the turn's `Stop`. The fix does not depend on the
+  CLI version. Whether a `/compact` typed at an idle prompt sends `UserPromptSubmit` first was not
+  traced. If it does not, it takes the same path. So does a turn that starts without
+  `UserPromptSubmit`, such as a wake-up after a background task, and compacts before its first tool
+  call. That pane reads as not busy from its `PostCompact` until the tool call.
+- **Opting out.** `{ "idleCompaction": false }` in a profile's Settings JSON turns it off. The
+  build reads settings keys from the `--settings` file as well as user settings.
+
+**`SessionStart` with source `compact` still resets the Agent Inspector.** This is older than
+2.1.299. The compaction paths read here end with that event, inside a turn or between turns.
+Canopy does not read `source`, so the renderer treats it as a new session. It empties the task list, notifications
+and subagents, and it clears the counters, cost and context figures (`agentState.svelte.ts:183-199`).
+The status line restores cost and context on its next update. The task list stays empty until the
+next `TaskCreate`, because `TaskUpdate` ignores ids it does not know. `PostCompact` increments
+`compactCount` just before the reset, so the Inspector's Compactions row does not stay up. Inside a turn
+the pane also reads idle until the next tool call, and the notch peeks out as finished. Fixing it
+means passing `source` through `normalizeEvent` and skipping `compact` in the renderer and in
+`toNotchStatus`. With that change, a compaction between turns would end on `PostCompact`'s
+"thinking", so the renderer would need the same between-turns rule as `BusySessions`. Neither change
+is in this increment.
+
+**`CLAUDE_CODE_DISABLE_FILE_MENTIONS` reaches Canopy's task context.** The entry reads "Claude gets
+the paths of @ file mentions to read with its file tools, not the files' contents". Canopy's task
+context lists each downloaded attachment as an `@<path>` line (`taskContext.ts:89`). By default,
+Claude Code attaches those files' contents when the prompt is submitted. With the variable in a
+profile's custom env vars, which the blocklist lets through, Claude gets the paths and reads the
+attachments only if it decides to. Canopy sets neither way.
+
+**Plan mode in a pane started with bypass permissions does not ask.** 2.1.299 adds a one-time
+notice: "Session was started with bypass permissions, so plan mode won't ask before most edits or
+commands". A profile whose Permission mode is Bypass permissions starts its panes that way, so
+Shift+Tab into plan mode there does not ask either. Only the notice is new: the vendored 2.1.207
+build already treats plan mode as bypass when bypass is available. The Permission mode hint's
+"Plan = read-only" describes a pane that starts in Plan.
+
+**The other visible entries do not reach Canopy.**
+
+- **Mods.** `$.prompt.media`, `$.session.identity()`, the new `Text` and `Box` props and the extra
+  `skill.prompt` fields apply to mods. Canopy writes none.
+- **The system prompt's security paragraph.** The archive reports it replaced by a short
+  `AskUserQuestion` directive. Canopy panes run the CLI's own prompt plus at most a profile's
+  `--append-system-prompt`, and nothing in Canopy reads that text.
+- **Not used by Canopy.** `--shutdown-drain-sec` for the self-hosted runner orchestrator, `/effort`
+  and `/fast` in agent view, its safe-mode line, and `--disallow-tools` for `claude plugin eval`.
+
+**Canopy's contract against 2.1.299, by presence.** The 2.1.299 build was on the runner at
+`~/.local/share/claude/versions/2.1.299`. No 2.1.296 build was reachable, so nothing below is a
+diff:
+
+- **Hook events.** The array names 33 events, the 18 Canopy subscribes to among them. `Stop` still
+  carries `stop_hook_active` and `last_assistant_message`, and `StopFailure` carries `error` and
+  `error_details`. `PreCompact` and `PostCompact` carry `trigger` (`manual` or `auto`),
+  `PostCompact` carries `compact_summary`, and `PostModelSwitch` carries `to_model`.
+- **Tools.** `TaskCreate` still takes `subject` and `activeForm` and returns `task.id`, and
+  `TaskUpdate` still takes `taskId`.
+- **Flags and scripts.** All seven flags Canopy emits are present. On Windows, a quoted first word
+  ending in `.sh` still runs as `bash "<path>"`. The status-line builder still starts at
+  `model:{id:` and still sends the `cost` totals and `context_window`.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The metadata step is not attributed, by arithmetic.** The archive reports +12,046 prompt tokens
+(+58.8%), five more prompt files (+26.3%) and a +1,117.6 kB bundle. That gives 20,500 → 32,546
+tokens and 19 → 24 files, and 20,500 is the 2.1.296 note's total. From the 2.1.296 system half,
+about 4,182 (±10), and the new 25.5% system share, the system half grew about +4,117 and the tools
+half about +7,929, each ±26. Neither a second `User Memory Project One` copy (4,253) nor the
+original's 4,192 fits the system band. 12,046 tokens is about 48 kB of text, so most of the bundle
+growth is code. `meta/prompt-stats.md` would settle both, and was not reachable.
+
+**12 of 2.1.299's 190 CLI changelog entries were read.** The pasted notes list 12 and hide 178
+behind "… +178 more". The changelog archive and the official `CHANGELOG.md` were unreachable this
+run, because `gh api` and web fetches were both refused. The pasted notes cover 2.1.299 only, and
+SDK `0.3.297` and `0.3.298` were never published. On this branch, `npm ci` now installs `0.3.299`,
+which vendors CLI 2.1.299.
 
 ## Error states
 
