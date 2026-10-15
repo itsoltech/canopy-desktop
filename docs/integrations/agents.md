@@ -3764,6 +3764,82 @@ run, because `gh api` and web fetches were both refused. The pasted notes cover 
 SDK `0.3.297` and `0.3.298` were never published. On this branch, `npm ci` now installs `0.3.299`,
 which vendors CLI 2.1.299.
 
+**2.1.300 sends `SessionEnd` from more exits, and Canopy needs no change for it.** The entry reads
+"Fixed SessionEnd hooks sometimes not running when you exit while a background command is still
+running". What a missed `SessionEnd` cost a Canopy pane:
+
+- **Busy state and the notch did not depend on it.** `SessionEnd` clears the pane's busy state
+  (`claude.ts:95`) and sends the notch `ended`, which drops the pane's entry. When the pane's process
+  exits, `tabCommands.ts:204-206` calls `destroySession` too, which does both whether or not
+  `SessionEnd` came.
+- **The Agent Inspector and the worktree status did.** The pane stays open after its process
+  exits, and only `SessionEnd` sets its status to `ended`, with the reason
+  (`agentState.svelte.ts:314-316`). Without it, the exited pane kept the status of its last event,
+  usually idle, and `getWorktreeAgentStatus` still counted it. From 2.1.300 it reads `ended` after
+  this exit too.
+- **The bound.** In the 2.1.300 build, `shutdown()` runs the `SessionEnd` hooks after its cleanup
+  steps. Each gets 1.5 s unless `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` or a hook's own `timeout`
+  says otherwise. Canopy's hook entries set no `timeout`, and its hook is one local `curl`.
+
+No 2.1.299 build was on the runner, so the fix itself was not located.
+
+**The other visible entries do not reach Canopy.**
+
+- **`/advisor` on Claude Platform on AWS.** The Provider field offers Bedrock, Vertex and Foundry. A
+  profile reaches Claude Platform on AWS only through `CLAUDE_CODE_USE_ANTHROPIC_AWS=1` in its custom
+  env vars, which the blocklist lets through and which the vendored 2.1.207 build already reads.
+  There no advisor runs until one is picked, and Canopy passes no `--advisor` and writes no
+  `advisorModel`.
+- **OpenTelemetry.** The cache-write split on `api_request` and the GenAI span attributes apply only
+  when telemetry is on. Canopy sets no telemetry variable, though a profile's custom env vars can.
+- **Mods.** `virtualText`, `$.ui.view`, the `dir` prop on `Text`, the `prompt.change` hook and
+  rewrites in `agent.spawn` apply to mods. Canopy writes none.
+- **Not used by Canopy.** `--restricted`'s help text, the cloud-session network message and the
+  `/autocompact` warning.
+- **The system prompt.** The archive reports the `AskUserQuestion` directive replaced by a
+  `claude-mermaid-runtime-begin` marker. In the 2.1.300 build that string opens an HTML comment the
+  artifact runtime uses. Canopy reads neither the system prompt nor artifacts.
+
+**Canopy's contract against 2.1.300, by presence.** The 2.1.300 build was on the runner at
+`~/.local/share/claude/versions/2.1.300`. No 2.1.299 build was reachable, so nothing below is a
+diff:
+
+- **Hook events.** The array names the same 33 events, the 18 Canopy subscribes to among them.
+  `Stop` still carries `stop_hook_active` and `last_assistant_message`, and `StopFailure` carries
+  `error` and `error_details`. `PostCompact` carries `compact_summary`, `PostModelSwitch` carries
+  `to_model`, and `SessionEnd` carries `reason`: `clear`, `resume`, `logout`, `prompt_input_exit`
+  or `other`.
+- **Compaction.** Idle compaction is still in the build, and a compaction still runs `PreCompact`,
+  then `PostCompact`, then `SessionStart`. So the between-turns rule above still holds, and so does
+  the Agent Inspector reset recorded under 2.1.299.
+- **Tools.** `TaskCreate` still takes `subject` and `activeForm` and returns `task.id`, and
+  `TaskUpdate` still takes `taskId`.
+- **Flags, scripts and status line.** All seven flags Canopy emits are present. On Windows, a
+  quoted first word ending in `.sh` still runs as `bash "<path>"`. The status line still sends the
+  `cost` totals, `context_window`'s `used_percentage` and `context_window_size`, and the
+  `five_hour`, `seven_day` and `spend_limit` windows.
+- **A documented field no payload carries.** The schema gives `UserPromptSubmit` a `source`
+  (`user`, `sdk`, `loop_wakeup`, `schedule_wakeup`, `system` or `poll_event`). Both places that
+  build the payload spread it as `...!1`, so the 2.1.300 build never sends it. Canopy does not read
+  it.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The metadata step is the archive dropping a duplicate, by arithmetic.** The archive reports
+−19,045 prompt tokens (−58.5%), 13 fewer prompt files (−54.2%) and a +620.9 kB bundle. That gives
+32,546 → 13,501 tokens and 24 → 11 files, and 32,546 is the 2.1.299 note's total. With the system
+share going from 25.5% to 30.0%, the system half fell by about 4,249 to about 4,050, and the tools
+half by about 14,796 to about 9,451, each step ±23. The system step fits one `User Memory Project
+One` copy, 4,253 tokens. The system half now sits about 132 (±17) below 2.1.296's 4,182, so
+2.1.299's +4,117 fits that copy arriving and about 136 tokens leaving elsewhere. The tools step is
+not attributed. The two tools Canopy reads by name are checked above, and `summarizeToolInput`
+reads generic input keys. `meta/prompt-stats.md` would settle both steps, and was not reachable.
+
+**12 of 2.1.300's 88 CLI changelog entries were read.** The pasted notes list 12 and hide 76 behind
+"… +76 more". The changelog archive and the official `CHANGELOG.md` were unreachable this run,
+because `gh api` and web fetches were both refused. On this branch, `npm ci` now installs
+`0.3.300`, which vendors CLI 2.1.300.
+
 ## Error states
 
 Agent errors surface through the normalized event system rather than a dedicated error type.
