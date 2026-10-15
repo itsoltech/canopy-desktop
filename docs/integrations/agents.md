@@ -87,6 +87,11 @@ idempotent for an existing PTY session and `paneFromSnapshot()` rekeys the rende
 running agent pane receives a new `sessionId`, preserving status, badges, model/context data, tasks,
 notifications, and counters across tab/layout updates.
 
+When a pane's process exits, `handlePtyExit` sets its agent status to `ended`. `SessionEnd` usually
+does that first. The fallback covers a CLI that crashes or is killed outright, Claude Code before
+2.1.300 exiting with a background command still running, and Codex, which has no `SessionEnd`. A
+detached pane is skipped, because its tmux session and the agent in it are still running.
+
 ### Busy/idle tracking
 
 Each adapter declares `busyEvents` and `idleEvents` sets. The `AgentSessionManager` tracks busy state per session so the notch overlay and other UI elements can reflect whether the agent is actively working.
@@ -1363,7 +1368,7 @@ gives up. Canopy subscribes to `Notification` (`claude.ts:26`), maps it to the n
 `'Notification'` (`claude.ts:49`) and captures `raw.message` as `event.message` (`claude.ts:138`).
 `AgentSessionManager` forwards every normalized event to the renderer over `agent:hookEvent`
 (`AgentSessionManager.ts:112`), and `handleHookEvent`'s `Notification` branch appends it to
-`session.notifications` (`agentState.svelte.ts:279`), which the Agent Inspector lists. Nothing else
+`session.notifications` (`agentState.svelte.ts:291`), which the Agent Inspector lists. Nothing else
 surfaces it: `formatNotification` returns `null` for anything that is not `PermissionRequest`
 (`claude.ts:267`) and `toNotchStatus` ends in `.otherwise(() => null)` (`claude.ts:292`). A user whose
 MCP server dies mid-session sees the CLI's own in-pane message and an Inspector entry, but no OS
@@ -3700,7 +3705,7 @@ behind a server flag. The 2.1.299 build on the runner shows how it reaches a Can
 **`SessionStart` with source `compact` still resets the Agent Inspector.** This is older than
 2.1.299. The compaction paths read here end with that event, inside a turn or between turns.
 Canopy does not read `source`, so the renderer treats it as a new session. It empties the task list, notifications
-and subagents, and it clears the counters, cost and context figures (`agentState.svelte.ts:183-199`).
+and subagents, and it clears the counters, cost and context figures (`agentState.svelte.ts:195-211`).
 The status line restores cost and context on its next update. The task list stays empty until the
 next `TaskCreate`, because `TaskUpdate` ignores ids it does not know. `PostCompact` increments
 `compactCount` just before the reset, so the Inspector's Compactions row does not stay up. Inside a turn
@@ -3764,24 +3769,29 @@ run, because `gh api` and web fetches were both refused. The pasted notes cover 
 SDK `0.3.297` and `0.3.298` were never published. On this branch, `npm ci` now installs `0.3.299`,
 which vendors CLI 2.1.299.
 
-**2.1.300 sends `SessionEnd` from more exits, and Canopy needs no change for it.** The entry reads
-"Fixed SessionEnd hooks sometimes not running when you exit while a background command is still
-running". What a missed `SessionEnd` cost a Canopy pane:
+**2.1.300 sends `SessionEnd` from more exits, and Canopy now ends an exited pane without it.** The
+entry reads "Fixed SessionEnd hooks sometimes not running when you exit while a background command
+is still running". What a missed `SessionEnd` cost a Canopy pane:
 
 - **Busy state and the notch did not depend on it.** `SessionEnd` clears the pane's busy state
   (`claude.ts:95`) and sends the notch `ended`, which drops the pane's entry. When the pane's process
   exits, `tabCommands.ts:204-206` calls `destroySession` too, which does both whether or not
   `SessionEnd` came.
 - **The Agent Inspector and the worktree status did.** The pane stays open after its process
-  exits, and only `SessionEnd` sets its status to `ended`, with the reason
-  (`agentState.svelte.ts:314-316`). Without it, the exited pane kept the status of its last event,
-  usually idle, and `getWorktreeAgentStatus` still counted it. From 2.1.300 it reads `ended` after
-  this exit too.
+  exits, and only `SessionEnd` set its status to `ended`, with the reason
+  (`agentState.svelte.ts:326-328`). Without it, the exited pane kept the status of its last event,
+  and `getWorktreeAgentStatus` still counted it as idle or working. `waitForAgentIdle`, which waits
+  for an agent started from a task to become idle, waited out its 30 seconds when that agent exited
+  first.
+- **The fix.** The CLI's fix covers this one exit, on 2.1.300 and later. A CLI that crashes or is
+  killed outright still sends no `SessionEnd` on any version, and Codex has no such event. So
+  `handlePtyExit` now sets an exited pane's agent status to `ended`, unless the pane is detached
+  (see Session state tracking). A `SessionEnd` that arrived first keeps its reason.
 - **The bound.** In the 2.1.300 build, `shutdown()` runs the `SessionEnd` hooks after its cleanup
   steps. Each gets 1.5 s unless `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` or a hook's own `timeout`
   says otherwise. Canopy's hook entries set no `timeout`, and its hook is one local `curl`.
 
-No 2.1.299 build was on the runner, so the fix itself was not located.
+No 2.1.299 build was on the runner, so the CLI's fix itself was not located.
 
 **The other visible entries do not reach Canopy.**
 
@@ -3849,6 +3859,7 @@ Agent errors surface through the normalized event system rather than a dedicated
 | No adapter for tool        | "No agent adapter for tool: {toolId}"                   | Tool ID not registered in the adapter registry                     |
 | `IdleFailure` event        | Error badge on tab; status shows error type and details | Agent process hit an unrecoverable error (API auth failure, crash) |
 | `SessionEnd` event         | Status shows "ended" with reason                        | Agent process exited (user quit, context exhausted, error)         |
+| Exit without `SessionEnd`  | Status shows "ended"                                    | CLI crashed or was killed, or a Codex pane exited                  |
 | Hook server body too large | Event silently dropped                                  | Hook payload exceeds 1 MB limit                                    |
 | Hook auth mismatch         | 403 response to agent                                   | Stale or invalid `X-Canopy-Auth` token                             |
 
