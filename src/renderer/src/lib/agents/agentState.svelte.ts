@@ -130,6 +130,18 @@ export function removeAgentSession(ptySessionId: string): void {
   delete agentBadges[ptySessionId]
 }
 
+/**
+ * Ends an agent pane whose process has exited. SessionEnd usually does this first, but a CLI that
+ * crashes or is killed outright sends none, Claude Code before 2.1.300 could skip it when a
+ * background command was still running, and Codex has no such event. The exited pane stays open,
+ * so without this it would keep its last status, and the worktree status would still count it.
+ */
+export function markAgentSessionExited(ptySessionId: string): void {
+  const session = agentSessions[ptySessionId]
+  if (!session || session.status.type === 'ended') return
+  session.status = { type: 'ended', reason: 'exited' }
+}
+
 /** Normalized hook event from the main process */
 interface NormalizedHookEvent {
   agentType: string
