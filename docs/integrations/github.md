@@ -12,7 +12,7 @@ The GitHub integration provides PR awareness across the Canopy UI. It fetches op
 
 This integration is separate from the task tracker's GitHub Issues provider. The task tracker handles issue browsing and branch/PR creation via templates and the `gh` CLI. This `GitHubService` handles PR status display and GraphQL-based PR creation for the general Git workflow.
 
-Authentication uses a GitHub token obtained from a matching task tracker connection (provider `github` with a matching host or `projectKey`). The service looks up connections via `TaskTrackerManager.getConnections()` and reads the token from the preferences store.
+Authentication uses a GitHub token obtained from a matching task tracker connection (provider `github` with a matching host or `projectKey`). The service looks up connections via `TaskTrackerManager.getConnections()` and reads the token from the preferences store, only from the connection's own token key (`taskTracker.token.<connectionId>`); a connection record whose `authPrefKey` points anywhere else is treated as having no token.
 
 ## Behavior
 

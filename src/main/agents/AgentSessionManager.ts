@@ -230,6 +230,9 @@ export class AgentSessionManager extends EventEmitter {
 
   /** Get resume args for the agent */
   getResumeArgs(toolId: string, resumeSessionId: string): string[] {
+    // The id arrives from the renderer: one starting with '-' would be parsed by the agent CLI
+    // as an option (e.g. a permission-bypass flag) instead of a session id.
+    if (typeof resumeSessionId !== 'string' || resumeSessionId.startsWith('-')) return []
     const adapter = getAdapter(toolId)
     return adapter?.buildResumeArgs?.(resumeSessionId) ?? []
   }

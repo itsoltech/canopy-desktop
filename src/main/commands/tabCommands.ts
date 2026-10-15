@@ -166,6 +166,13 @@ export class ToolSessionService {
       args = attach.args
     }
 
+    // The window may have closed during the awaits above. Its PTY bookkeeping is gone by then,
+    // so a process spawned now would run untracked (never killed) until quit.
+    if (sender.isDestroyed()) {
+      if (agentTempId) this.deps.agentSessionManager.destroySession(agentTempId)
+      throw new Error('Window closed before the tool started')
+    }
+
     const session = this.deps.ptyManager.spawn({
       command,
       args,

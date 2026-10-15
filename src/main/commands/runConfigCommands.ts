@@ -131,6 +131,12 @@ export class RunConfigCommandService {
         })
       }
 
+      // The window may have closed during the awaits above (pre_run alone can take 30s). Its
+      // PTY bookkeeping is gone by then, so a process spawned now would never be killed.
+      if (sender.isDestroyed()) {
+        throw new Error('Window closed before the run configuration started')
+      }
+
       // Run main command through shell so PATH is resolved
       const main = shellExecArgs(fullCommand)
       const session = this.deps.ptyManager.spawn({

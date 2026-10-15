@@ -268,9 +268,14 @@
           <span
             class="flex-shrink-0 w-4 text-center font-semibold text-xs font-mono {statusClass(
               file.status,
-            )}">{statusIcon(file.status)}</span
+            )}"
+            role="img"
+            aria-label={file.status}>{statusIcon(file.status)}</span
           >
-          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span
+            class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+            title={file.path}
+          >
             <span class="text-text-faint">{dirname(file.path)}</span><span class="text-text"
               >{basename(file.path)}</span
             >

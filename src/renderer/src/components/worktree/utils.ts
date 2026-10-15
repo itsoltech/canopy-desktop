@@ -16,6 +16,15 @@ export function isRemoteOnly(
 }
 
 /**
+ * Set form of `isRemoteOnly` for whole-list rendering: calling `isRemoteOnly` per row
+ * scans both arrays each time, which is quadratic on repos with thousands of refs.
+ */
+export function remoteOnlyBranchSet(branches: { local: string[]; remote: string[] }): Set<string> {
+  const local = new Set(branches.local)
+  return new Set(branches.remote.filter((b) => !local.has(b.slice(b.indexOf('/') + 1))))
+}
+
+/**
  * Whether the combobox renders expanded on its FIRST frame. `startCollapsed` beats every
  * other condition, including "nothing selected yet" — which is otherwise the strongest
  * reason to open, and would leave a trigger dialog covered by a full-height branch list
