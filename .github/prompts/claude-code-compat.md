@@ -26,7 +26,9 @@ v2.1.295 run's was held too, the twenty-third: its compare call, its one `WebFet
 out twice before the checkout, first inside a pipe and then bare, and both were refused, as were
 its one `WebFetch` and `npm run lint`. The v2.1.299 run's was held, the twenty-fifth: it checked out
 and re-read this file first, then sent one compare call and one `WebFetch`, and both were refused,
-as was `npm run lint`. So expect either. Record which way the one probe went in the PR body.
+as was `npm run lint`. The v2.1.300 run's was held, the twenty-sixth, in the same order and with
+the same three refusals; `npm run lint` was refused before each of its two code commits. So expect
+either. Record which way the one probe went in the PR body.
 **If it runs, use point 6.**
 
 **If it is denied, everything below about the denial applies.** It was denied against every shape
@@ -56,7 +58,12 @@ update, so the next run gets the same `FROM_VERSION`/`TO_VERSION`. The v2.1.285 
 `29b53f5`, the `0.3.285` bump, on the branch tip, pushed at 07:14 UTC during the 06:17 run, with no
 documentation commit and a description still ending at v2.1.284, which fits a run that stopped
 inside the analysis step. Compare `git log -3 --oneline` after
-the checkout with the PR title's upper bound. If the branch is ahead, verify the commit that is there
+the checkout with the PR title's upper bound. Check the last run's end-of-run rebase too, before
+repeating any claim about hashes: `git log --format='%h %an | %cn %ci' -3` shows
+`github-actions[bot]` as committer once the rebase ran. After the v2.1.299 run it had not: its
+commits kept `claude[bot]`, and `git fetch origin --unshallow` (allowed as `git fetch origin:*`)
+followed by `git merge-base HEAD origin/next` showed the branch still on the v2.1.296 tracker
+commit. `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
@@ -855,7 +862,7 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > so `-o` with a context window returns the minified source around a literal. **Keep the window near
 > 300 characters** — a longer match comes back as "[Omitted long matching line]" — and walk forward
 > with a second search anchored on the tail of the first. `output_mode: count` answers presence
-> questions in one call. Seven kinds of question it settles that nothing else here can:
+> questions in one call. Eight kinds of question it settles that nothing else here can:
 >
 > - **Settings schemas, including transforms and defaults.** 2.1.281's `attribution` schema — the
 >   `union([boolean, object])` and the transform that turns the new boolean into the object form —
@@ -888,6 +895,10 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 >   is registered for `Stop` and sets `sessionFunctionHooksOnly`, so Canopy's `--settings` `Stop`
 >   hook never runs. The same return in 2.1.207 runs no `Stop` hook. When an entry changes when or how a turn ends, find its exit this way and
 >   check whether Canopy's idle signal still arrives (finding #33).
+> - **Whether a documented field is ever sent.** A hook schema's `.describe()` can name a field
+>   the build compiles out. In 2.1.300 the schema gives `UserPromptSubmit` a `source`, but both
+>   payload builders, found with `hook_event_name:"UserPromptSubmit",prompt:`, spread it as `...!1`.
+>   Read the builder before relying on a schema field.
 >
 > **A highlight can read an opt-in as a default.** The archive's 2.1.295 highlight said failing
 > hooks "now block the action". The entry adds `onFailure: "block"`, and the schema calls `continue`
@@ -1087,6 +1098,15 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > show which comes first. Then read Canopy's handler for each event in that order, in the main
 > process and in the notch. The 2.1.291 note had found this path. It predicted the wrong end state
 > because it did not order `PostCompact` against `SessionStart`.
+>
+> **A sixth shape: an entry that makes an event arrive more often. Ask what Canopy does when it
+> still does not arrive.** 2.1.300 runs `SessionEnd` hooks on one more exit. Canopy's main process
+> never relied on that event, because a pane's PTY exit calls `destroySession`. The renderer did:
+> only `SessionEnd` set an exited pane to `ended`, so a crash, a kill, an older CLI or Codex left
+> the pane on its last status. The fix was a fallback in the renderer's own exit handler, which
+> covers every route and every CLI version. Read each consumer of the event, in each process,
+> and the path that runs when it is missing. That trace also corrected finding #1, which had
+> assumed the main process was the gap.
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
