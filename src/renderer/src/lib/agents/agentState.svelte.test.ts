@@ -1,12 +1,58 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   agentSessions,
+  handleHookEvent,
   handleStatusUpdate,
   initAgentSession,
+  markAgentSessionExited,
   removeAgentSession,
 } from './agentState.svelte'
 
 const PTY = 'pty-status'
+
+// A pane's process can exit without SessionEnd: after a crash, from Claude Code before 2.1.300
+// with a background command still running, and always for Codex.
+describe('markAgentSessionExited', () => {
+  beforeEach(() => {
+    removeAgentSession(PTY)
+    initAgentSession(PTY, 'claude')
+  })
+
+  it('ends a pane whose process exited mid-turn', () => {
+    handleHookEvent(PTY, {
+      agentType: 'claude',
+      sessionId: 's1',
+      event: 'PromptSubmit',
+      rawEventName: 'UserPromptSubmit',
+    })
+
+    markAgentSessionExited(PTY)
+
+    expect(agentSessions[PTY].status).toEqual({ type: 'ended', reason: 'exited' })
+  })
+
+  it("keeps the reason from the CLI's own SessionEnd", () => {
+    handleHookEvent(PTY, {
+      agentType: 'claude',
+      sessionId: 's1',
+      event: 'SessionEnd',
+      rawEventName: 'SessionEnd',
+      reason: 'prompt_input_exit',
+    })
+
+    markAgentSessionExited(PTY)
+
+    expect(agentSessions[PTY].status).toEqual({ type: 'ended', reason: 'prompt_input_exit' })
+  })
+
+  it('ignores a pane with no agent session', () => {
+    removeAgentSession(PTY)
+
+    markAgentSessionExited(PTY)
+
+    expect(agentSessions[PTY]).toBeUndefined()
+  })
+})
 
 // The Claude adapter forwards the status line's `rate_limits` whole as
 // `extra.rateLimits`. The spend_limit shape is the 2.1.284 build's own

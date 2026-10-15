@@ -12,6 +12,7 @@ import { recordFileOpen } from './quickOpenMru.svelte'
 import { workspaceState, getProjectForWorktree, selectWorktree } from './workspace.svelte'
 import {
   initAgentSession,
+  markAgentSessionExited,
   rekeyAgentSession,
   removeAgentSession,
   agentSessions,
@@ -857,6 +858,11 @@ export async function handlePtyExit(
           tmuxSessionName,
         )
         applyTabCommandResult(result)
+        // A detached pane's tmux session, and the agent in it, is still running.
+        const exited = tabsByWorktree[worktreePath]
+          ?.flatMap((t) => allPanes(t.rootSplit))
+          .find((p) => p.sessionId === sessionId)
+        if (!exited?.detached) markAgentSessionExited(sessionId)
         // Persist updated state so dead tabs are excluded from saved layout
         scheduleSave(worktreePath)
         return
