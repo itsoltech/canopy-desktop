@@ -3848,7 +3848,131 @@ reads generic input keys. `meta/prompt-stats.md` would settle both steps, and wa
 **12 of 2.1.300's 88 CLI changelog entries were read.** The pasted notes list 12 and hide 76 behind
 "… +76 more". The changelog archive and the official `CHANGELOG.md` were unreachable this run,
 because `gh api` and web fetches were both refused. On this branch, `npm ci` now installs
-`0.3.300`, which vendors CLI 2.1.300.
+`0.3.300`, which vendors CLI 2.1.300. The 2.1.301 section below reads the other 76.
+
+**2.1.301 stops offering Canopy panes the artifact update that Canopy's hooks made the CLI refuse.**
+The entry reads "Fixed artifact updates being refused where a PreToolUse hook covers Edit or Write;
+Claude now edits the file and then republishes instead of changing it in the publish call". Every
+Canopy pane is in that group:
+
+- **Why every pane qualifies.** `setupSettings` registers each hook with `matcher: ''`
+  (`claude.ts:110`), which matches every tool. In the 2.1.301 build, `fileEditHookLoaded` is true
+  when any `PreToolUse` matcher covers `Edit` or `Write`, so it is always true in a Canopy pane.
+- **What was refused, and when.** 2.1.300 added the one-call update: "Improved artifact updates:
+  Claude now applies a small change and republishes the artifact in one call". In a Canopy pane on
+  2.1.300 that call was refused. The changelogs of 2.1.291 to 2.1.299 name no earlier one-call
+  update.
+- **What 2.1.301 does instead.** The Artifact tool decides once whether to offer edits inside the
+  publish call, and logs `Artifact publish edits offer frozen: edit_hook=…`. When it finds an edit
+  hook, it does not offer them. Claude then changes the file with `Edit` or `Write`, which Canopy's
+  hook sees like any other edit, and publishes again.
+- **A second check Canopy also meets.** `preToolUseHookMayCoverArtifact` is true when a `PreToolUse`
+  matcher covers the Artifact tool, and the build then skips its artifact-opening prefetch
+  (`[artifactOpeningPrefetch] skipped: hooked`). What the prefetch saves was not traced.
+- **No change in Canopy.** A narrower matcher would cost those tools their `toolCalling` status and
+  detail. The fix is in the CLI, on 2.1.301 and later.
+
+**`WorktreeCreate` must not join the subscribed events.** The entry "Fixed quitting removing a
+worktree made by a WorktreeCreate hook without asking when it may hold unpushed commits" does not
+reach Canopy, which creates its worktrees with git and passes no `--worktree`. But the build shows
+what subscribing would do. A configured `WorktreeCreate` hook replaces git whenever the CLI creates a
+worktree: for `--worktree`, and for a subagent's worktree isolation ("Cannot create agent worktree:
+… no WorktreeCreate hooks are configured"). The CLI then needs the hook to print the worktree's path.
+It fails with "WorktreeCreate hook failed: hook succeeded but returned no worktree path" when the
+hook prints nothing, and `canopy-agent-hook.sh` prints nothing for a `{}` answer. So subscribing
+Canopy's hook would break worktree creation in every pane. The CLI names `WorktreeRemove` beside it
+as the pair for other version-control systems; what a silent `WorktreeRemove` hook does was not
+traced. The unsubscribed-event list recorded under 2.1.260 includes both, and neither is an
+observer.
+
+**The usage-limit bound is opt-in, and Canopy sets neither variable.** The archive's highlight reads
+"Unattended retry mode now aborts requests when the next usage-limit reset is far in the future".
+In the 2.1.301 build, `CLAUDE_CODE_RETRY_WATCHDOG` is a plain boolean. The new
+`CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS` is an integer, and an unset value means no
+bound (`?? 1/0`). It applies to a 429 whose `anthropic-ratelimit-unified-status` is `rejected`,
+which is a subscription's usage limit. A profile's custom env vars can set both, and the blocklist
+lets them through. The commit-message turn takes them from Canopy's own environment.
+
+**The other visible entries do not change what Canopy shows.**
+
+- **Grep and Glob.** A search program that fails now gives an error, not "no matches". In Canopy,
+  `PostToolUse` and `PostToolUseFailure` both count one tool call and set the pane back to
+  thinking, so the pane reads the same either way.
+- **The `fable` fallback.** On the Anthropic API, `fable` and `best` now retry once on the previous
+  Fable model when the newest one is not available to the organization. The Model field accepts
+  `fable`. Whether the status line then names the fallback model was not traced.
+- **Multi-line mod inputs.** In a mod `Input` with `rows`, Shift+Enter types a newline. A Canopy
+  pane sends Shift+Enter as `ESC CR` (`TerminalInstance.svelte:598-602`), the bytes
+  `/terminal-setup` binds Shift+Enter to for VS Code and Zed. Whether a mod `Input` reads them as
+  Shift+Enter was not traced. A backslash before Enter works either way.
+- **Vim mode's `%`.** It is a plain key. Canopy's window shortcuts act only with Cmd or Ctrl held
+  (`MainLayout.svelte:457`), so it reaches the pane.
+- **OpenTelemetry.** `classifier_verdict`, `permission_mode` and `classifier_category` on
+  `tool_decision` apply only when telemetry is on. Canopy sets no telemetry variable.
+- **Not used by Canopy.** The `claude-api` skill's tracing guidance, the full-disk sign-in message
+  and the workflow-agent fix.
+- **The system prompt.** The archive reports a paragraph scoping security testing. Canopy panes run
+  the CLI's own prompt plus at most a profile's `--append-system-prompt`, and nothing in Canopy
+  reads that text.
+
+**Canopy's contract against 2.1.301, by presence.** The 2.1.301 build was on the runner at
+`~/.local/share/claude/versions/2.1.301`. No 2.1.300 build was reachable, so nothing below is a
+diff:
+
+- **Hook events.** The array names the same 33 events, the 18 Canopy subscribes to among them.
+  `PostToolUseFailure` carries `error`, `StopFailure` carries `error` and `error_details`,
+  `PostModelSwitch` carries `to_model`, and `SessionEnd` carries `reason`: `clear`, `resume`,
+  `logout`, `prompt_input_exit` or `other`.
+- **Tools.** `TaskCreate` still takes `subject` and `activeForm`, and `TaskUpdate` still takes
+  `taskId`.
+- **Flags and status line.** All seven flags Canopy emits are present. The status-line schema still
+  has the `cost` totals, `context_window`'s `used_percentage` and `context_window_size`, and the
+  `five_hour`, `seven_day` and `spend_limit` windows.
+- **Hook answers.** Canopy's hook server answers only `SessionStart`, with `additionalContext`, so
+  2.1.300's validation of `updatedInput` from `PreToolUse` and `PermissionRequest` hooks does not
+  reach it.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The metadata step is mostly on the tools side, and is not attributed.** The archive reports
++1,177 prompt tokens (+8.7%), two more prompt files (+18.2%) and a +384.3 kB bundle. That gives
+13,501 → 14,678 tokens and 11 → 13 files, and 13,501 is the 2.1.300 note's total. With the tools
+share going from 70.0% to 71.8%, the tools half grew about +1,088 and the system half about +89,
+each ±14. The notes hide 39 entries, so the two files may belong to an announced change. 1,177
+tokens is about 5 kB of text, so most of the bundle growth is code. The two tools Canopy reads by
+name are checked above, and `summarizeToolInput` reads generic input keys. `meta/prompt-stats.md`
+would settle it, and was not reachable.
+
+**All 88 of 2.1.300's entries are now read, one release late.** The 2.1.301 build carries the full
+changelogs of 2.1.291 to 2.1.300 as one string, which starts at `## 2.1.300`. The `Grep` tool reads
+it one entry at a time. Of the 76 entries the 2.1.300 run could not read:
+
+- **The one-call artifact update.** It is the 2.1.300 entry quoted above, which 2.1.301 then fixed
+  for hooked sessions.
+- **Hook answers are validated.** "Changed hooks: `updatedInput` from PreToolUse and
+  PermissionRequest hooks is now validated like Claude's own input". Canopy returns no
+  `updatedInput` (see the contract above).
+- **Exit stops background commands.** "Changed exit to force-kill background commands still running
+  1.5 seconds after being asked to stop". It sits beside 2.1.300's `SessionEnd` fix. Canopy's exit
+  handling does not depend on either.
+- **Resume after a crash.** "Fixed the first transcript entry written after resuming a session being
+  lost when a crash had cut the transcript's last line short". That is the `--resume` path
+  `buildResumeArgs` uses, fixed in the CLI. Two fixes for resuming headless and Agent SDK sessions
+  do not reach the commit-message turn, which never resumes.
+- **Transcripts record each request.** "Changed local session transcripts to also record each API
+  request's system prompt, tools and parameters". Canopy reads no transcript.
+- **MCP schemas.** "Fixed a conversation failing on every turn with a 400 error when the API
+  rejected an MCP tool's input schema" applies to panes, in the CLI. The commit-message turn starts
+  no MCP servers.
+- **The rest.** The VS Code, Claude Tag, cloud-session, Remote Control and Code Review entries, the
+  self-hosted runner, `claude daemon`, `--worktree`, mods, the agents view, gzip request bodies to
+  `api.anthropic.com` and reftable repositories do not reach Canopy.
+
+**12 of 2.1.301's 51 CLI changelog entries were read.** The pasted notes list 12 and hide 39 behind
+"… +39 more". The changelog archive and the official `CHANGELOG.md` were unreachable this run,
+because `gh api` and web fetches were both refused. The 2.1.301 build carries only earlier
+releases' changelogs; the 2.1.302 build should carry these. On this branch, `npm ci` now installs
+`0.3.301`, which vendors CLI 2.1.301.
 
 ## Error states
 
