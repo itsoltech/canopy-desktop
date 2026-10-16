@@ -39,6 +39,10 @@
 
   let containerEl: HTMLDivElement
   let termRef: Terminal | null = null
+  // termRef is a plain (non-reactive) let. The preference effects below gate on this flag
+  // instead: returning early on termRef alone left them with no dependencies, so they never
+  // re-ran and theme/font changes never reached terminals that were already open.
+  let termReady = $state(false)
   let fitAddonRef: FitAddon | null = null
   let cleanupPtyDataSubscription: (() => void) | null = null
   let webglAddonRef: WebglAddon | null = null
@@ -149,7 +153,7 @@
 
   // React to preference changes for theme/font
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const themeName = prefs.theme || 'Default'
     const theme = getTheme(themeName)
     termRef.options.theme = theme
@@ -158,15 +162,29 @@
     }
   })
 
+  // A new font changes the cell size, so the grid has to be refitted to the container —
+  // otherwise rows stay clipped (or the pane underfilled) until the next resize.
+  function refitToContainer(): void {
+    requestAnimationFrame(() => {
+      if (!containerEl?.clientWidth || !containerEl.clientHeight) return
+      fitAddonRef?.fit()
+    })
+  }
+
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
+    if (termRef.options.fontSize === size) return
     termRef.options.fontSize = size
+    refitToContainer()
   })
 
   $effect(() => {
-    if (!termRef) return
-    termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    if (!termReady || !termRef) return
+    const family = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    if (termRef.options.fontFamily === family) return
+    termRef.options.fontFamily = family
+    refitToContainer()
   })
 
   function shellEscape(path: string): string {
@@ -562,6 +580,7 @@
       // Defer initial fit to after browser layout is complete
       requestAnimationFrame(() => fitAddon.fit())
       termRef = term
+      termReady = true
 
       dataDisposable = term.onData((data) => {
         writeInput(data)
@@ -723,6 +742,7 @@
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
       termRef = null
+      termReady = false
       fitAddonRef = null
       if (resizeDebounceTimer !== null) clearTimeout(resizeDebounceTimer)
       if (resizeObserver) resizeObserver.disconnect()

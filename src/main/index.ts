@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BROWSER_PARTITION, BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -324,7 +324,11 @@ async function handleCanopyUrl(url: string): Promise<void> {
     }
     if (!resolved.startsWith(home + sep)) return
 
-    const tool = parsed.searchParams.get('tool') ?? undefined
+    // Only a registered tool may be requested, and the confirmation names it from the registry
+    // rather than echoing text from the link.
+    const requestedTool = parsed.searchParams.get('tool')
+    const toolDef = requestedTool ? toolRegistry.get(requestedTool) : undefined
+    const tool = toolDef?.id
     const worktree = parsed.searchParams.get('worktree') ?? undefined
     const action = parsed.hostname === 'run' ? 'run' : 'open'
 
@@ -338,28 +342,35 @@ async function handleCanopyUrl(url: string): Promise<void> {
     })
     const dedupePaths = [gitInfo.repoRoot ?? resolved, ...gitInfo.worktrees.map((wt) => wt.path)]
 
-    // Dedupe: focus existing window for this path (no confirmation needed)
+    // Dedupe: focus existing window for this path
     const existing = dedupePaths
       .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
       .find((win) => win !== null)
+
+    // Any web page can fire a canopy:// link. Focusing an already-open workspace needs no
+    // confirmation, but opening a new one or starting a tool from the link does.
+    if (!existing || toolDef) {
+      const { response } = await dialog.showMessageBox({
+        type: 'question',
+        buttons: ['Open', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: toolDef ? `Start ${toolDef.name}?` : 'Open workspace?',
+        detail: toolDef
+          ? `An external application wants to start ${toolDef.name} in:\n${resolved}`
+          : `An external application wants to open:\n${resolved}`,
+      })
+      if (response !== 0) return
+    }
+
     if (existing) {
+      if (existing.isDestroyed()) return
       ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
       existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
       existing.focus()
       return
     }
-
-    // Confirm before opening a new workspace from external deep link
-    const { response } = await dialog.showMessageBox({
-      type: 'question',
-      buttons: ['Open', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-      message: 'Open workspace?',
-      detail: `An external application wants to open:\n${resolved}`,
-    })
-    if (response !== 0) return
 
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
@@ -702,8 +713,14 @@ app.whenReady().then(async () => {
 
       // Force secure defaults
       webPreferences.nodeIntegration = false
+      webPreferences.nodeIntegrationInSubFrames = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      // A `disablewebsecurity` attribute or a different `partition` would otherwise turn off
+      // the same-origin policy or move the guest onto the app's own session.
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      webPreferences.partition = BROWSER_PARTITION
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -1181,8 +1198,12 @@ app.whenReady().then(async () => {
   app.on('activate', function () {
     if (!canCreateApplicationWindow()) return
 
-    if (BrowserWindow.getAllWindows().length === 0)
+    if (BrowserWindow.getAllWindows().length === 0) {
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
+      // On macOS the app outlives its windows, but the notch overlay was disposed with the
+      // last one — bring it back alongside the new window, as startup does.
+      if (preferencesStore.get('notch.enabled') === 'true') notchOverlay?.initialize()
+    }
   })
 })
 
