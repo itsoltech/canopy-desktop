@@ -3857,11 +3857,13 @@ Canopy pane is in that group:
 
 - **Why every pane qualifies.** `setupSettings` registers each hook with `matcher: ''`
   (`claude.ts:110`), which matches every tool. In the 2.1.301 build, `fileEditHookLoaded` is true
-  when any `PreToolUse` matcher covers `Edit` or `Write`, so it is always true in a Canopy pane.
+  when a mod's `tool.call` hook or any `PreToolUse` matcher covers `Edit` or `Write`, so Canopy's
+  hooks make it true in every pane. The Artifact tool's own check first returns false under two
+  conditions this run did not identify.
 - **What was refused, and when.** 2.1.300 added the one-call update: "Improved artifact updates:
   Claude now applies a small change and republishes the artifact in one call". In a Canopy pane on
-  2.1.300 that call was refused. The changelogs of 2.1.291 to 2.1.299 name no earlier one-call
-  update.
+  2.1.300 that call was refused. The build's other embedded changelogs, back to 2.1.291, name no
+  earlier one-call update.
 - **What 2.1.301 does instead.** The Artifact tool decides once whether to offer edits inside the
   publish call, and logs `Artifact publish edits offer frozen: edit_hook=…`. When it finds an edit
   hook, it does not offer them. Claude then changes the file with `Edit` or `Write`, which Canopy's
@@ -3875,9 +3877,11 @@ Canopy pane is in that group:
 **`WorktreeCreate` must not join the subscribed events.** The entry "Fixed quitting removing a
 worktree made by a WorktreeCreate hook without asking when it may hold unpushed commits" does not
 reach Canopy, which creates its worktrees with git and passes no `--worktree`. But the build shows
-what subscribing would do. A configured `WorktreeCreate` hook replaces git whenever the CLI creates a
-worktree: for `--worktree`, and for a subagent's worktree isolation ("Cannot create agent worktree:
-… no WorktreeCreate hooks are configured"). The CLI then needs the hook to print the worktree's path.
+what subscribing would do. A configured `WorktreeCreate` hook replaces git when the CLI creates a
+worktree: for `--worktree`, and on the path the build labels "agent worktree", which runs the hook
+whenever one is configured (`Gse()||Toe("WorktreeCreate")`). That label, and the same path's error
+"Cannot create agent worktree", point at a subagent's worktree isolation; its caller was not traced.
+The CLI then needs the hook to print the worktree's path.
 It fails with "WorktreeCreate hook failed: hook succeeded but returned no worktree path" when the
 hook prints nothing, and `canopy-agent-hook.sh` prints nothing for a `{}` answer. So subscribing
 Canopy's hook would break worktree creation in every pane. The CLI names `WorktreeRemove` beside it
