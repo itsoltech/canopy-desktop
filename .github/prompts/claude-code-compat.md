@@ -27,8 +27,10 @@ out twice before the checkout, first inside a pipe and then bare, and both were 
 its one `WebFetch` and `npm run lint`. The v2.1.299 run's was held, the twenty-fifth: it checked out
 and re-read this file first, then sent one compare call and one `WebFetch`, and both were refused,
 as was `npm run lint`. The v2.1.300 run's was held, the twenty-sixth, in the same order and with
-the same three refusals; `npm run lint` was refused before each of its two code commits. So expect
-either. Record which way the one probe went in the PR body.
+the same three refusals; `npm run lint` was refused before each of its two code commits. The
+v2.1.301 run's was held, the twenty-seventh: its compare call went out twice before the checkout,
+inside a pipe and then bare, and both were refused, as were its one `WebFetch` and `npm run lint`.
+So expect either. Record which way the one probe went in the PR body.
 **If it runs, use point 6.**
 
 **If it is denied, everything below about the denial applies.** It was denied against every shape
@@ -51,6 +53,8 @@ and on the v2.1.280 → v2.1.281 run that directory held `2.1.281`, `TO_VERSION`
 `Glob`, pattern `*` with that directory as the path).
 "The CLI binary running this job" under step 2 says how to read it and what it can and cannot settle.
 An older build ships inside the vendored SDK in `node_modules`; the same section says what it is for.
+**The build also carries the full changelogs of the releases before it**, so it recovers every
+entry the last run could not read; "It cannot recover its own release's changelog" there says how.
 
 **5. Check whether an earlier run already started this increment, and push the description early.**
 The job has `timeout-minutes: 120`, and a run that stops inside the analysis step skips the tracker
@@ -63,7 +67,8 @@ repeating any claim about hashes: `git log --format='%h %an | %cn %ci' -3` shows
 `github-actions[bot]` as committer once the rebase ran. After the v2.1.299 run it had not: its
 commits kept `claude[bot]`, and `git fetch origin --unshallow` (allowed as `git fetch origin:*`)
 followed by `git merge-base HEAD origin/next` showed the branch still on the v2.1.296 tracker
-commit. `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
+commit. After the v2.1.300 run it had: every commit carried `github-actions[bot]` at 2026-10-15
+07:13:19 UTC, and the branch forked from that run's tracker commit. `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
@@ -903,10 +908,22 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > **A highlight can read an opt-in as a default.** The archive's 2.1.295 highlight said failing
 > hooks "now block the action". The entry adds `onFailure: "block"`, and the schema calls `continue`
 > the default. Read the entry and the schema's `.describe()` text before calling a default changed.
+> 2.1.301's highlight said unattended retry mode "now aborts" at a far-off usage-limit reset. The
+> new variable is typed `H.int({min:1,digitsOnly:!0})`, and its unset value reads as `?? 1/0`, no
+> bound. Read the typed accessor (`NAME:()=>` names it) and the use site.
 >
-> **It cannot recover the changelog.** Three phrases from 2.1.281's visible entries returned no match,
-> so the entries behind "… +N more" are not in the binary, and there is no previous build on disk to
-> diff against. Use it to test Canopy's contract, not to reconstruct what changed.
+> **It cannot recover its own release's changelog, but it carries the ones before it.** Three
+> phrases from 2.1.281's visible entries returned no match in the 2.1.281 build, and 2.1.301's are
+> not in the 2.1.301 build either. The v2.1.301 run found that the build embeds the full changelogs
+> of the releases before it, as one string that starts `## 2.1.300` and ends after `## 2.1.291`. So
+> the `TO_VERSION` build recovers every entry that `FROM_VERSION`'s run could not read, one release
+> late. With the `Grep` tool, `output_mode: content`, `-o` and the pattern
+> `## 2\.1\.300\\n|\\n- (?:[^\\]|\\[^n]){1,330}|\\n\\n## 2\.1\.299`, each entry comes back on its own
+> line, cut at 330 characters. Substitute the two version numbers. About 18 lines from other
+> embedded documents come first, so page with `head_limit` and `offset`. The v2.1.301 run read all
+> 88 of 2.1.300's entries this way, where the v2.1.300 run had read 12. Do it every run, and say in
+> the PR body how many entries it recovered. There is still no previous build on disk to diff
+> against, so use the build for the contract and for these entries, not for a diff.
 >
 > **Correction from v2.1.281 → v2.1.282: there _is_ an older build on disk, just not the previous
 > one.** The SDK vendored in `node_modules` ships its own `claude` binary
@@ -1107,6 +1124,14 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > covers every route and every CLI version. Read each consumer of the event, in each process,
 > and the path that runs when it is missing. That trace also corrected finding #1, which had
 > assumed the main process was the gap.
+>
+> **A seventh shape: an entry conditioned on a hook covering a tool. Canopy always qualifies.**
+> `setupSettings` registers its 18 events with `matcher: ''`, which covers every tool. So 2.1.301's
+> "where a PreToolUse hook covers Edit or Write" describes every Canopy pane. Find the predicate in
+> the build (2.1.301's is `fileEditHookLoaded`, exported beside `preToolUseHookMayCoverArtifact`),
+> confirm that it reads matchers, and then trace what the CLI withholds or skips for a hooked
+> session. The same trace runs the other way before anyone subscribes a new event: a
+> `WorktreeCreate` hook replaces git and must print the worktree's path, so it is not an observer.
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
