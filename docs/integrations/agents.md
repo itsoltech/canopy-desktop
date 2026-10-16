@@ -3886,8 +3886,8 @@ It fails with "WorktreeCreate hook failed: hook succeeded but returned no worktr
 hook prints nothing, and `canopy-agent-hook.sh` prints nothing for a `{}` answer. So subscribing
 Canopy's hook would break worktree creation in every pane. The CLI names `WorktreeRemove` beside it
 as the pair for other version-control systems; what a silent `WorktreeRemove` hook does was not
-traced. The unsubscribed-event list recorded under 2.1.260 includes both, and neither is an
-observer.
+traced. The unsubscribed-event list recorded under 2.1.260 includes both. `WorktreeCreate` is not
+an observer, and `WorktreeRemove` needs the same reading before anyone wires it.
 
 **The usage-limit bound is opt-in, and Canopy sets neither variable.** The archive's highlight reads
 "Unattended retry mode now aborts requests when the next usage-limit reset is far in the future".
