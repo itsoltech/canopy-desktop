@@ -1123,7 +1123,7 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > **A server-picked mode can split the same sequence, with no entry announcing it.** The 2.1.302
 > build lists idle compaction's modes as `["log","compact","compact_on_return"]`. In the third, the
 > idle timer only writes the summary, which runs `PreCompact`; `PostCompact` comes when the next
-> turn applies it. So, by the trace, a parked pane reads busy until the user's next prompt. Grep a
+> turn applies it. So, by the trace, a parked pane reads busy until its next turn ends. Grep a
 > feature's mode list as well as the changelog, and trace each mode's hook runners separately. The
 > anchors were
 > `tengu_idle_compact_fired`, the gate whose reasons include `precompute_compaction_off`, and

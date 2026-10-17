@@ -98,7 +98,7 @@ Each adapter declares `busyEvents` and `idleEvents` sets. The `AgentSessionManag
 
 A compaction normally runs inside a turn, and the turn's `Stop` settles the pane. Claude Code 2.1.299 also compacts a parked conversation between turns, and no `Stop` follows. So a compaction that starts while the pane is not busy is settled by its own `PostCompact`, and the notch shows neither end of it, so a parked pane does not peek out as finished. A compaction that starts mid-turn still waits for the turn's `Stop`.
 
-In the 2.1.302 build the server can instead have Claude Code write a parked conversation's summary and apply it only in the next turn. Writing it runs `PreCompact`, and the `PostCompact` comes with the next turn. Until the user's next prompt, the parked pane counts as busy and reads as compacting (see the 2.1.302 notes under Configuration).
+In the 2.1.302 build the server can instead have Claude Code write a parked conversation's summary and apply it only in the next turn. Writing it runs `PreCompact`, and the `PostCompact` comes inside the next turn. Until that turn ends, the parked pane counts as busy and reads as compacting (see the 2.1.302 notes under Configuration).
 
 Claude Code runs Canopy's `Stop` hook in parallel with any `Stop` hook from the user's own settings, so Canopy cannot see whether one of those blocks the stop. When one does, Claude keeps working while the pane reads idle, the notch peeks out with "Finished" if the pane is out of view, and the close confirmations count the pane as not busy, until its next tool call or its next stop. A blocked `SubagentStop` likewise removes the subagent from `activeSubagents` while it keeps running.
 
@@ -3988,9 +3988,9 @@ runner:
 - **Where the row writes.** It writes `idleCompaction` to user settings, `~/.claude/settings.json`.
   Turning it off there applies to every pane and to the user's other Claude Code sessions.
 - **When the row is shown.** Only while the server has idle compaction on, and only when the value
-  in effect comes from user settings or from nothing at all. A profile whose Settings JSON sets
-  `idleCompaction` puts it in the `--settings` file, which outranks user settings. Its panes show
-  no row, and the profile's value wins.
+  in effect comes from user settings, or from nothing with user settings enabled. A profile whose
+  Settings JSON sets `idleCompaction` puts it in the `--settings` file, which outranks user
+  settings. Its panes show no row, and the profile's value wins.
 - **The notice.** "Compacted while idle, before the prompt cache expired" now ends "turn off with
   "idleCompaction": false in settings.json". For a Canopy pane, that is the user's settings file or
   the profile's Settings JSON field. The per-session `--settings` file is rewritten at every spawn.
@@ -4006,13 +4006,15 @@ mode the timer does not compact:
   settings `PreCompact` hooks, with trigger `auto`, before it writes the summary. A blocking
   `PreCompact` hook cancels it ("Precomputed compact blocked by PreCompact hook"). No other hook
   runs then.
-- **On return.** The next turn applies the stored summary, after its `UserPromptSubmit`. Its
-  `PostCompact` runs then.
+- **On return.** The next turn's query applies the stored summary, and its `PostCompact` runs then.
+  A user's prompt starts that turn, or a scheduled wakeup can. Its order against
+  `UserPromptSubmit` was not traced.
 - **What Canopy does.** The `PreCompact` arrives while the pane is idle, so `BusySessions` treats it
-  as an idle compaction. The pane joins the busy set until its `PostCompact`, which now comes only
-  inside the user's next turn. Until the next prompt, the tab and window close confirmations count
-  the parked pane as working. The renderer shows it as compacting (`agentState.svelte.ts:319-320`),
-  and the worktree status reads working. The notch shows neither end, as for any idle compaction.
+  as an idle compaction and the pane joins the busy set. A turn's busy event clears that mark, so
+  the pane leaves the set with the next turn's `Stop`, not with the `PostCompact` inside it. Until
+  the next turn, the tab and window close confirmations count the parked pane as working. The
+  renderer shows it as compacting (`agentState.svelte.ts:319-320`), and the worktree status reads
+  working. The notch skips the `PreCompact`, as for any idle compaction.
 - **Why there is no fix in this increment.** The job's `PreCompact` payload is the same as a
   compaction's (`trigger` and `custom_instructions`), so Canopy cannot tell them apart. A fix would
   stop counting any compaction that starts while the pane is idle as busy or as compacting, which
@@ -4022,9 +4024,9 @@ mode the timer does not compact:
   trigger, below.
 - **When it arrived.** The background summary job is older than the mode. The vendored 2.1.207 build
   already runs it behind a separate server flag, ahead of an auto-compact that is coming. That
-  trigger starts inside a turn, where the pane is already busy. `compact_on_return` is not in the
-  2.1.207 build, and the 2.1.299 notes above name only `compact`. When it arrived between them was
-  not traced.
+  trigger arms on a token estimate, so presumably inside a turn, where the pane is already busy;
+  that was not traced. `compact_on_return` is not in the 2.1.207 build, and the 2.1.299 notes above
+  name only `compact`. When it arrived between them was not traced.
 
 **WebFetch and WebSearch calls in a Canopy pane cannot be moved to the background.** In the 2.1.302
 build both tools declare `backgrounding: "detach"`. The CLI's low-latency submit path
@@ -4050,8 +4052,11 @@ it". Canopy sets neither way.
   longer fails with "Prompt is too long". Fixed in the CLI.
 - **Subcommands.** `claude plugin` and other subcommands now wait for a queued settings write
   before they exit, and 2.1.301 fixed sign-outs after a short command exited mid-refresh. Canopy
-  runs no `claude` subcommand. It only looks the binary up with `which` or `where`
-  (`commitMessageGenerator.ts:13-18`, `handlers.ts:1247-1258`).
+  runs no `claude` subcommand; it looks the binary up with `which` or `where`
+  (`commitMessageGenerator.ts:13-18`, `handlers.ts:1247-1258`). Its one short `claude` run is the
+  commit-message turn, a headless query through the SDK (`commitMessageGenerator.ts:74-98`).
+  Whether that run could exit in the middle of a token refresh, and so whether 2.1.301's fix
+  matters to it, was not traced. The bundled CLI has carried that fix since the `0.3.301` bump.
 - **Gateways.** `/autocompact` and `/effort` saved to the wrong model when a gateway names Opus 4 or
   4.1 with a prefix. A profile's Effort level is passed as `--effort` at every spawn either way.
 - **Not used by Canopy.** The Read tool's 128 MB image limit, the fix for switching to Vertex or
@@ -4100,7 +4105,7 @@ changelogs of 2.1.292 to 2.1.301 as one string, which starts at `## 2.1.301`. Of
   reached Canopy as
   `PreCompact`, `PostCompact` and `SessionStart` with source `compact`, and the last resets the
   Agent Inspector (see 2.1.299). Fixed in the CLI.
-- **Sign-outs after short commands.** Canopy runs no `claude` subcommand (see above).
+- **Sign-outs after short commands.** See Subcommands above.
 - **Terminals.** The stray `>0q` and `>4m` text is for VTE older than 0.53, and the stray `GOK`
   text for some iTerm2 versions. Canopy panes run xterm.js. Whether the `GOK` fix depends on the
   iTerm2 detection a pane can inherit (see 2.1.292) was not traced.
