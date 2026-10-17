@@ -30,6 +30,8 @@ as was `npm run lint`. The v2.1.300 run's was held, the twenty-sixth, in the sam
 the same three refusals; `npm run lint` was refused before each of its two code commits. The
 v2.1.301 run's was held, the twenty-seventh: its compare call went out twice before the checkout,
 inside a pipe and then bare, and both were refused, as were its one `WebFetch` and `npm run lint`.
+The v2.1.302 run's was held, the twenty-eighth: its compare call went out once, bare, in the first
+batch before the checkout, and was refused, as were its one `WebFetch` and `npm run lint`.
 So expect either. Record which way the one probe went in the PR body.
 **If it runs, use point 6.**
 
@@ -68,7 +70,8 @@ repeating any claim about hashes: `git log --format='%h %an | %cn %ci' -3` shows
 commits kept `claude[bot]`, and `git fetch origin --unshallow` (allowed as `git fetch origin:*`)
 followed by `git merge-base HEAD origin/next` showed the branch still on the v2.1.296 tracker
 commit. After the v2.1.300 run it had: every commit carried `github-actions[bot]` at 2026-10-15
-07:13:19 UTC, and the branch forked from that run's tracker commit. `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
+07:13:19 UTC, and the branch forked from that run's tracker commit. After the v2.1.301 run it had
+too, at 2026-10-16 07:07:03 UTC. `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
@@ -921,8 +924,9 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > `## 2\.1\.300\\n|\\n- (?:[^\\]|\\[^n]){1,330}|\\n\\n## 2\.1\.299`, each entry comes back on its own
 > line, cut at 330 characters. Substitute the two version numbers. About 18 lines from other
 > embedded documents come first, so page with `head_limit` and `offset`. The v2.1.301 run read all
-> 88 of 2.1.300's entries this way, where the v2.1.300 run had read 12. Do it every run, and say in
-> the PR body how many entries it recovered. There is still no previous build on disk to diff
+> 88 of 2.1.300's entries this way, where the v2.1.300 run had read 12, and the v2.1.302 run all 51
+> of 2.1.301's, after the same 18 lines. Do it every run, and say in the PR body how many entries it
+> recovered. There is still no previous build on disk to diff
 > against, so use the build for the contract and for these entries, not for a diff.
 >
 > **Correction from v2.1.281 → v2.1.282: there _is_ an older build on disk, just not the previous
@@ -1116,6 +1120,15 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > process and in the notch. The 2.1.291 note had found this path. It predicted the wrong end state
 > because it did not order `PostCompact` against `SessionStart`.
 >
+> **A server-picked mode can split the same sequence, with no entry announcing it.** The 2.1.302
+> build lists idle compaction's modes as `["log","compact","compact_on_return"]`. In the third, the
+> idle timer only writes the summary, which runs `PreCompact`; `PostCompact` comes when the next
+> turn applies it. So, by the trace, a parked pane reads busy until the user's next prompt. Grep a
+> feature's mode list as well as the changelog, and trace each mode's hook runners separately. The
+> anchors were
+> `tengu_idle_compact_fired`, the gate whose reasons include `precompute_compaction_off`, and
+> `Precomputed compact blocked by PreCompact hook`.
+>
 > **A sixth shape: an entry that makes an event arrive more often. Ask what Canopy does when it
 > still does not arrive.** 2.1.300 runs `SessionEnd` hooks on one more exit. Canopy's main process
 > never relied on that event, because a pane's PTY exit calls `destroySession`. The renderer did:
@@ -1132,6 +1145,14 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > confirm that it reads matchers, and then trace what the CLI withholds or skips for a hooked
 > session. The same trace runs the other way before anyone subscribes a new event: a
 > `WorktreeCreate` hook replaces git and must print the worktree's path, so it is not an observer.
+>
+> **Enumerate the matcher predicate's callers every run; an entry is not needed.** The function that
+> asks "does a hook of event E cover tool T" is called as `Pse({hookEvent:` in the 2.1.302 build;
+> the minified name changes, so search `\(\{hookEvent:` without it. The v2.1.302 run listed its
+> six call sites with `.{0,160}Pse\(\{hookEvent:.{0,60}` and read each. One, the tool-detach check,
+> refuses to move a running WebFetch or WebSearch call to the background when a `PostToolUse` or
+> `PostToolUseFailure` hook covers it, so Canopy panes never get that, and no readable entry names
+> it. Compare the count of call sites with the last run's before reading them.
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
