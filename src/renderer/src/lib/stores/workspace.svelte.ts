@@ -72,7 +72,6 @@ interface WorkspaceState {
   sidebarOpen: boolean
   rightPanelOpen: boolean
   rightPanelTab: 'session' | 'changes' | 'task'
-  changesCount: number
   diffScrollTarget: { path: string; ts: number } | null
   diffVisibleFile: string | null
 }
@@ -91,7 +90,6 @@ const initial: WorkspaceState = {
   sidebarOpen: true,
   rightPanelOpen: false,
   rightPanelTab: 'session',
-  changesCount: 0,
   diffScrollTarget: null,
   diffVisibleFile: null,
 }

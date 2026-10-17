@@ -1,4 +1,4 @@
-import { match } from 'ts-pattern'
+import { isMatching, match, P } from 'ts-pattern'
 import {
   ipcMain,
   dialog,
@@ -792,9 +792,11 @@ export function registerIpcHandlers(
       // at the PTY's original cols/rows and any cursor positioning escape
       // sequence the shell/CLI emits lands in the wrong column on the
       // peer's screen.
+      // Send only the validated fields, not the renderer's raw payload object.
+      const resized = { sessionId: payload.sessionId, cols, rows }
       for (const w of BrowserWindow.getAllWindows()) {
         if (!w.isDestroyed()) {
-          w.webContents.send('pty:resized', payload)
+          w.webContents.send('pty:resized', resized)
         }
       }
     },
@@ -1113,6 +1115,9 @@ export function registerIpcHandlers(
 
     try {
       await fs.promises.writeFile(saveResult.filePath, json, { encoding: 'utf8', mode: 0o600 })
+      // `mode` only applies when the file is created; overwriting an existing
+      // file keeps its old permissions, and this export holds plaintext secrets.
+      await fs.promises.chmod(saveResult.filePath, 0o600)
     } catch (e) {
       throw new Error(
         settingsExportErrorMessage({
@@ -2139,7 +2144,11 @@ export function registerIpcHandlers(
     'git:statusPorcelain',
     async (event, payload: { repoRoot: string; worktreePath?: string }) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      return GitRepository.getStatusPorcelain(resolvedRepo, payload.worktreePath).unwrapOr('')
+      // git runs in worktreePath when given, so it needs the same scope check.
+      const resolvedWorktree = payload.worktreePath
+        ? await validateWorktreeScopedPathAccess(event.sender.id, payload.worktreePath)
+        : undefined
+      return GitRepository.getStatusPorcelain(resolvedRepo, resolvedWorktree).unwrapOr('')
     },
   )
 
@@ -3496,6 +3505,12 @@ export function registerIpcHandlers(
         }
       }
       const { connectionId, token, ...updates } = payload
+      // A new endpoint needs a new token: otherwise taskTracker:testConnection
+      // would send the stored token to whatever host the caller supplied.
+      const existing = taskTrackerManager.getConnections().find((conn) => conn.id === connectionId)
+      if (existing && payload.baseUrl && payload.baseUrl !== existing.baseUrl && !token) {
+        throw new Error('Changing the base URL requires re-entering the token')
+      }
       const c = taskTrackerManager.updateConnection(connectionId, updates, token)
       if (!c) return null
       return {
@@ -4709,7 +4724,14 @@ export function registerIpcHandlers(
     if (!(bytes instanceof ArrayBuffer) || bytes.byteLength === 0) throw new Error('Invalid image')
     if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('Image too large (max 20 MB)')
     const dir = path.join(os.tmpdir(), 'canopy-agent-images')
-    await fs.promises.mkdir(dir, { recursive: true })
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 })
+    // The name is fixed and os.tmpdir() can be shared (Linux /tmp): refuse a
+    // directory another user pre-created, or a symlink, so pasted images can't
+    // be read or redirected by them.
+    const dirStat = await fs.promises.lstat(dir)
+    if (!dirStat.isDirectory() || (process.getuid && dirStat.uid !== process.getuid())) {
+      throw new Error(`Refusing to use ${dir}: not a directory owned by the current user`)
+    }
     // The images only need to survive until the agent has read them — cap the directory at the
     // newest few files so repeated sends can't grow the temp dir without bound.
     try {
@@ -4730,7 +4752,7 @@ export function registerIpcHandlers(
       // Best-effort cleanup — never fail the save over it.
     }
     const filePath = path.join(dir, `image-${Date.now()}.png`)
-    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)))
+    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)), { mode: 0o600 })
     return filePath
   })
 
@@ -4930,6 +4952,16 @@ export function registerIpcHandlers(
 
   const setupAbortControllers = new Map<number, AbortController>()
 
+  function isWorktreeSetupAction(value: unknown): value is WorktreeSetupAction {
+    return isMatching(
+      P.union(
+        { type: 'command', command: P.string, label: P.optional(P.string) },
+        { type: 'copy', source: P.string, dest: P.optional(P.string), label: P.optional(P.string) },
+      ),
+      value,
+    )
+  }
+
   ipcMain.handle(
     'worktree:runSetup',
     async (event, payload: { workspaceId: string; repoRoot: string; newWorktreePath: string }) => {
@@ -4951,7 +4983,13 @@ export function registerIpcHandlers(
 
       let actions: WorktreeSetupAction[]
       try {
-        actions = JSON.parse(configJson) as WorktreeSetupAction[]
+        const parsed: unknown = JSON.parse(configJson)
+        // Check the shape too: `null`, an object, or a malformed action would
+        // otherwise fail mid-run with a TypeError instead of this message.
+        if (!Array.isArray(parsed) || !parsed.every(isWorktreeSetupAction)) {
+          return { success: false, errors: ['Invalid worktree setup config'] }
+        }
+        actions = parsed
       } catch {
         return { success: false, errors: ['Invalid worktree setup config'] }
       }
@@ -4965,6 +5003,10 @@ export function registerIpcHandlers(
       const sender = event.sender
       const controller = new AbortController()
       setupAbortControllers.set(sender.id, controller)
+      // Closing the window mid-setup must stop the remaining setup commands too;
+      // only an explicit worktree:abortSetup from the renderer did so before.
+      const abortOnDestroy = (): void => controller.abort()
+      sender.once('destroyed', abortOnDestroy)
 
       try {
         return await runWorktreeSetup(
@@ -4983,6 +5025,7 @@ export function registerIpcHandlers(
         )
       } finally {
         setupAbortControllers.delete(sender.id)
+        sender.removeListener('destroyed', abortOnDestroy)
       }
     },
   )
@@ -5391,8 +5434,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('skills:deleteFile', async (event, payload: { filePath: string }) => {
     const filePath = path.normalize(path.resolve(payload.filePath))
+    const skillExtensions = ['.md', '.mdc', '.yaml', '.yml']
     const ext = path.extname(filePath).toLowerCase()
-    if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
+    if (!skillExtensions.includes(ext)) {
       unwrapOrThrow(
         err({
           _tag: 'InvalidSource',
@@ -5441,6 +5485,19 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
       return { success: false }
+    }
+    // The extension check above ran on the requested path, but the unlink below
+    // targets the realpath: a `skill.md` symlink pointing at e.g. ~/.bashrc
+    // must not delete that file.
+    if (!skillExtensions.includes(path.extname(resolvedTarget).toLowerCase())) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Can only delete skill files (.md, .mdc, .yaml, .yml)',
+        } as SkillError),
+        skillErrorMessage,
+      )
     }
     const homeReal = await fs.promises.realpath(os.homedir()).catch(() => os.homedir())
     const withinHome = resolvedTarget === homeReal || resolvedTarget.startsWith(homeReal + path.sep)

@@ -690,6 +690,11 @@ export class RemoteSessionService {
   }
 
   private handlePeerSignal(msg: unknown): void {
+    // Until the device is accepted (or auto-accepted as trusted) the peer has
+    // only presented a pairing token. Forwarding its `offer` now would let it
+    // open the data channel, and the RPC surface behind it, while the accept
+    // modal is still showing. A well-behaved peer waits for `accepted`.
+    if (this.status.kind !== 'paired') return
     // Peer signals are forwarded *only* to the host renderer. Broadcasting to
     // every window would give other tabs a chance to race-reply to SDP/ICE,
     // which would confuse the peer. The host window is the one that called

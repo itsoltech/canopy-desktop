@@ -5,6 +5,7 @@
   import { Search, RotateCw, ChevronRight, Copy } from '@lucide/svelte'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'
 
   let {
@@ -355,7 +356,13 @@
     ].join('\n')
 
     const sessionId = sessions[0].sessionId
-    await window.api.agentSendReviewContext({ text: message, worktreePath, sessionId })
+    try {
+      await window.api.agentSendReviewContext({ text: message, worktreePath, sessionId })
+    } catch (e) {
+      // Keep the comment box open so the text isn't lost, and say why.
+      addToast(`Failed to send comment: ${e instanceof Error ? e.message : String(e)}`)
+      return
+    }
     focusSessionByPtyId(sessionId)
     window.dispatchEvent(
       new CustomEvent('canopy:focus-terminal', {

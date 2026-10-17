@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BrowserManager, BROWSER_PARTITION } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -34,7 +34,7 @@ import { GitHubService } from './github/GitHubService'
 import semver from 'semver'
 import { isSafeExternalUrl } from './security/validateUrl'
 import { fetchChangelogRange, resolveUpdateChannel } from './changelog/fetchChangelog'
-import { validateBounds, cascadeBounds } from './windowBounds'
+import { validateBounds, cascadeBounds, isWindowConfig } from './windowBounds'
 import { TelemetryManager } from './telemetry/TelemetryManager'
 import { RemoteSessionService } from './remote/RemoteSessionService'
 import { PerfHudService } from './perf/PerfHudService'
@@ -343,10 +343,30 @@ async function handleCanopyUrl(url: string): Promise<void> {
       .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
       .find((win) => win !== null)
     if (existing) {
-      ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
-      existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
       existing.focus()
+      // Focusing is harmless, but launching a tool spawns a process, so it
+      // needs the same confirmation as opening a new workspace below.
+      let launchTool = tool
+      if (launchTool) {
+        const { response } = await dialog.showMessageBox(existing, {
+          type: 'question',
+          buttons: ['Run', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          message: 'Run tool?',
+          detail: `An external application wants to run "${launchTool}" in:\n${resolved}`,
+        })
+        if (response !== 0) launchTool = undefined
+        if (existing.isDestroyed()) return
+      }
+      ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
+      existing.webContents.send('url:action', {
+        action,
+        path: resolved,
+        tool: launchTool,
+        worktree,
+      })
       return
     }
 
@@ -696,14 +716,28 @@ app.whenReady().then(async () => {
   // Even if an attacker modifies webview attributes in the DOM, this handler
   // forces safe webPreferences and blocks non-http(s) sources.
   app.on('web-contents-created', (_event, contents) => {
+    // Deny popups from a guest until BrowserManager.setup() replaces this with
+    // its throttled http(s)-only handler; otherwise a page that calls
+    // window.open() before `browser:setup` runs gets an unguarded window.
+    if (contents.getType() === 'webview') {
+      contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    }
+
     contents.on('will-attach-webview', (event, webPreferences, params) => {
       // Strip preload scripts — browser webviews must not have preload
       delete webPreferences.preload
 
       // Force secure defaults
       webPreferences.nodeIntegration = false
+      webPreferences.nodeIntegrationInSubFrames = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      // Pin the isolated browser session: a missing or altered `partition`
+      // attribute would otherwise put the guest in the app's default session.
+      webPreferences.partition = BROWSER_PARTITION
+      params.partition = BROWSER_PARTITION
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -1004,7 +1038,10 @@ app.whenReady().then(async () => {
 
     if (configsJson) {
       try {
-        windowConfigs = JSON.parse(configsJson) as WindowConfig[]
+        const parsed: unknown = JSON.parse(configsJson)
+        // Keep only well-formed entries: a `null` or malformed value would
+        // otherwise throw below and break restoring windows on every launch.
+        if (Array.isArray(parsed)) windowConfigs = parsed.filter(isWindowConfig)
       } catch {
         // Invalid JSON
       }
