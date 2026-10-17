@@ -436,7 +436,7 @@
       <span>Loading tracker metadata…</span>
     </div>
   {:else if metaError}
-    <div class="flex flex-col items-center gap-2 p-2.5 py-4 text-sm text-danger-text">
+    <div class="flex flex-col items-center gap-2 p-2.5 py-4 text-sm text-danger-text" role="alert">
       <span class="break-all">{metaError}</span>
       <button
         class="px-3 py-1 border border-border rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover"
@@ -517,7 +517,7 @@
             }}
           />
           {#if titleError}
-            <p class="m-0 text-sm text-danger-text">{titleError}</p>
+            <p class="m-0 text-sm text-danger-text" role="alert">{titleError}</p>
           {/if}
         </div>
         <div class="flex flex-col gap-1">
@@ -555,7 +555,7 @@
             </div>
           {/if}
           {#if imageError}
-            <p class="m-0 text-sm text-danger-text">{imageError}</p>
+            <p class="m-0 text-sm text-danger-text" role="alert">{imageError}</p>
           {/if}
         </div>
         {#if users.length > 0}
@@ -680,7 +680,10 @@
         </div>
       {/if}
       {#if submitError}
-        <p class="m-0 px-2.5 py-2 rounded-md bg-danger-bg text-sm text-danger-text break-words">
+        <p
+          class="m-0 px-2.5 py-2 rounded-md bg-danger-bg text-sm text-danger-text break-words"
+          role="alert"
+        >
           {submitError}
         </p>
       {/if}

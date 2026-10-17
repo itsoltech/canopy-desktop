@@ -3,6 +3,7 @@ import type { KeychainTokenStore } from './KeychainTokenStore'
 import type { RepoConfig, BranchTemplateConfig, PRTemplateConfig } from './types'
 import type { TaskTrackerConnection } from './types'
 import { getBranchTemplate, getPRTemplate } from './configDefaults'
+import { connectionTokenPrefKey } from './TaskTrackerManager'
 import { trackerBindingKey } from '../../renderer-shared/credentialBindings'
 
 const GLOBAL_CONFIG_KEY = 'taskTracker.globalConfig'
@@ -197,6 +198,9 @@ export class GlobalConfigManager {
 
       // Migrate ALL tokens: old key (taskTracker.token.{uuid}) → new key (provider:baseUrl)
       for (const conn of connections) {
+        // Only the connection's own legacy key: a crafted record must not move (and then
+        // delete) some other secret, such as an agent API key.
+        if (conn.authPrefKey !== connectionTokenPrefKey(conn.id)) continue
         const oldToken = this.preferencesStore.get(conn.authPrefKey)
         if (oldToken && conn.baseUrl) {
           const existingCreds = this.keychainTokenStore.getCredentials(conn.provider, conn.baseUrl)

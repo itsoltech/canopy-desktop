@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
+  import { match } from 'ts-pattern'
   import { X, ExternalLink, Copy, GitPullRequest, LoaderCircle, RefreshCw } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
@@ -66,18 +67,19 @@
 
   let stateChip = $derived(prStateChip(pr?.state, pr?.isDraft))
 
-  let reviewChip = $derived.by(() => {
-    switch (pr?.reviewDecision) {
-      case 'APPROVED':
-        return { label: 'Approved', cls: 'bg-success-bg text-success-text' }
-      case 'CHANGES_REQUESTED':
-        return { label: 'Changes requested', cls: 'bg-danger-bg text-danger-text' }
-      case 'REVIEW_REQUIRED':
-        return { label: 'Review required', cls: 'bg-warning-bg text-warning-text' }
-      default:
-        return null
-    }
-  })
+  let reviewChip = $derived(
+    match(pr?.reviewDecision)
+      .with('APPROVED', () => ({ label: 'Approved', cls: 'bg-success-bg text-success-text' }))
+      .with('CHANGES_REQUESTED', () => ({
+        label: 'Changes requested',
+        cls: 'bg-danger-bg text-danger-text',
+      }))
+      .with('REVIEW_REQUIRED', () => ({
+        label: 'Review required',
+        cls: 'bg-warning-bg text-warning-text',
+      }))
+      .otherwise(() => null),
+  )
 
   // statusCheckRollup entries mix check-runs (status/conclusion) and statuses (state).
   let checksChip = $derived.by(() => {
@@ -114,16 +116,14 @@
   })
 
   function reviewerChip(state: string): { label: string; cls: string } {
-    switch (state) {
-      case 'APPROVED':
-        return { label: 'approved', cls: 'bg-success-bg text-success-text' }
-      case 'CHANGES_REQUESTED':
-        return { label: 'changes requested', cls: 'bg-danger-bg text-danger-text' }
-      case 'PENDING':
-        return { label: 'pending', cls: 'bg-warning-bg text-warning-text' }
-      default:
-        return { label: 'commented', cls: 'bg-active text-text-muted' }
-    }
+    return match(state)
+      .with('APPROVED', () => ({ label: 'approved', cls: 'bg-success-bg text-success-text' }))
+      .with('CHANGES_REQUESTED', () => ({
+        label: 'changes requested',
+        cls: 'bg-danger-bg text-danger-text',
+      }))
+      .with('PENDING', () => ({ label: 'pending', cls: 'bg-warning-bg text-warning-text' }))
+      .otherwise(() => ({ label: 'commented', cls: 'bg-active text-text-muted' }))
   }
 
   let assigneeNames = $derived(
@@ -172,17 +172,23 @@
     armed = null
     acting = kind
     try {
-      if (kind === 'merge') {
-        await window.api.taskTrackerPRMerge(repoRoot, pr.number, mergeStrategy, deleteBranchAfter)
-        addToast(`PR #${pr.number} merged`)
-      } else if (kind === 'close') {
-        await window.api.taskTrackerPRClose(repoRoot, pr.number, deleteBranchAfter)
-        addToast(`PR #${pr.number} closed`)
-      } else {
-        await window.api.taskTrackerPRDeleteBranch(repoRoot, pr.headRefName)
-        addToast(`Remote branch ${pr.headRefName} deleted`)
-        remoteBranchAlive = false
-      }
+      // Read before the awaits: a concurrent refresh can replace (or clear) `pr` mid-action.
+      const { number: prNumber, headRefName } = pr
+      await match(kind)
+        .with('merge', async () => {
+          await window.api.taskTrackerPRMerge(repoRoot, prNumber, mergeStrategy, deleteBranchAfter)
+          addToast(`PR #${prNumber} merged`)
+        })
+        .with('close', async () => {
+          await window.api.taskTrackerPRClose(repoRoot, prNumber, deleteBranchAfter)
+          addToast(`PR #${prNumber} closed`)
+        })
+        .with('delete', async () => {
+          await window.api.taskTrackerPRDeleteBranch(repoRoot, headRefName)
+          addToast(`Remote branch ${headRefName} deleted`)
+          remoteBranchAlive = false
+        })
+        .exhaustive()
       if (kind !== 'delete') invalidatePRFallback(repoRoot, branch)
       void loadBranchPRs(repoRoot, true)
       await load()
@@ -293,7 +299,7 @@
         aria-label="Refresh"
         title="Refresh from GitHub"
       >
-        <RefreshCw size={13} class={loading ? 'animate-spin' : ''} />
+        <RefreshCw size={13} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} />
       </button>
       <button
         class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
@@ -308,12 +314,13 @@
     <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
       {#if loading && !pr}
         <div class="flex items-center justify-center gap-2 py-8 text-md text-text-muted">
-          <LoaderCircle size={16} class="animate-spin" />
+          <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
           <span>Loading pull request…</span>
         </div>
       {:else if error}
         <div
           class="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-xs text-danger-text leading-snug"
+          role="alert"
         >
           {error}
         </div>
@@ -435,7 +442,7 @@
               title="Close this pull request without merging"
             >
               {#if acting === 'close'}
-                <LoaderCircle size={13} class="animate-spin" />
+                <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
               {/if}
               {armed === 'close' ? 'Confirm close' : 'Close PR'}
             </button>
@@ -446,7 +453,7 @@
               title={mergeBlockReason ?? 'Merge this pull request'}
             >
               {#if acting === 'merge'}
-                <LoaderCircle size={13} class="animate-spin" />
+                <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
               {/if}
               {armed === 'merge' ? 'Confirm merge' : 'Merge'}
             </button>
@@ -460,7 +467,7 @@
               title={`Delete the remote branch ${pr.headRefName}`}
             >
               {#if acting === 'delete'}
-                <LoaderCircle size={13} class="animate-spin" />
+                <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
               {/if}
               {armed === 'delete' ? 'Confirm delete' : 'Delete source branch'}
             </button>

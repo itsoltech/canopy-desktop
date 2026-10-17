@@ -37,6 +37,15 @@ import type {
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
 
 /**
+ * The only pref a legacy connection's token may live in (see addConnection). The connections
+ * list is renderer-writable, so an `authPrefKey` pointing anywhere else (an API key, another
+ * connection's token) must never be followed.
+ */
+export function connectionTokenPrefKey(connectionId: string): string {
+  return `taskTracker.token.${connectionId}`
+}
+
+/**
  * Returns true when `url` targets the same origin as `baseUrl`. Uses `URL.origin`
  * rather than a string-prefix check so that a baseUrl of `https://jira.example.com`
  * does not also match `https://jira.example.com.evil.com/...`.
@@ -672,6 +681,9 @@ export class TaskTrackerManager {
   }
 
   private getToken(connection: TaskTrackerConnection): Result<string, TaskTrackerError> {
+    if (connection.authPrefKey !== connectionTokenPrefKey(connection.id)) {
+      return err({ _tag: 'AuthTokenMissing', connectionName: connection.name })
+    }
     const token = this.preferencesStore.get(connection.authPrefKey)
     if (!token) return err({ _tag: 'AuthTokenMissing', connectionName: connection.name })
     return ok(token)
@@ -721,7 +733,7 @@ export class TaskTrackerManager {
     token: string,
   ): TaskTrackerConnection {
     const id = crypto.randomUUID()
-    const authPrefKey = `taskTracker.token.${id}`
+    const authPrefKey = connectionTokenPrefKey(id)
 
     const newConn: TaskTrackerConnection = {
       ...connection,

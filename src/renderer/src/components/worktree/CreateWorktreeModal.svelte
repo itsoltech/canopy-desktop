@@ -733,7 +733,7 @@
           }}
         />
         {#if taskBranchNameError}
-          <p class="m-0 text-sm text-danger-text">{taskBranchNameError}</p>
+          <p class="m-0 text-sm text-danger-text" role="alert">{taskBranchNameError}</p>
         {/if}
         <p class="m-0 text-xs text-text-muted leading-snug">
           Generated from the branch naming template in this project's tracker configuration (Project
@@ -875,7 +875,7 @@
               }}
             />
             {#if branchNameError}
-              <p class="mt-1.5 mb-0 text-sm text-danger-text">{branchNameError}</p>
+              <p class="mt-1.5 mb-0 text-sm text-danger-text" role="alert">{branchNameError}</p>
             {/if}
             {#if worktreeDir}
               <p class="mt-1.5 mb-0 text-xs text-text-faint font-mono break-all">
@@ -981,7 +981,7 @@
           />
           {#if mode === 'existing'}
             {#if existingModeError}
-              <p class="mt-1.5 mb-0 text-sm text-danger-text">{existingModeError}</p>
+              <p class="mt-1.5 mb-0 text-sm text-danger-text" role="alert">{existingModeError}</p>
             {/if}
             {#if selectedBase && worktreeDir}
               <p class="mt-1.5 mb-0 text-xs text-text-faint font-mono break-all">
@@ -1033,8 +1033,9 @@
           <div class="h-[220px] p-2 box-border" use:setupTerminalAction></div>
         </div>
         {#if setupErrors.length > 0}
-          {#each setupErrors as err (err)}
-            <p class="mt-1.5 mb-0 text-sm text-danger-text">{err}</p>
+          <!-- Append-only list; identical messages (same label + error) would collide as keys. -->
+          {#each setupErrors as err, i (i)}
+            <p class="mt-1.5 mb-0 text-sm text-danger-text" role="alert">{err}</p>
           {/each}
         {/if}
         <div class="flex justify-end gap-2 mt-4">
@@ -1050,7 +1051,7 @@
         {#if setupErrors.length > 0}
           <div class="mt-2 flex flex-col gap-1 items-center">
             <p class="text-md text-warning-text m-0">Setup completed with warnings:</p>
-            {#each setupErrors as err (err)}
+            {#each setupErrors as err, i (i)}
               <p class="text-sm text-danger-text m-0">{err}</p>
             {/each}
           </div>

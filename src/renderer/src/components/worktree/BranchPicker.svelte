@@ -3,7 +3,7 @@
   import {
     branchPickerEnterTarget,
     initialBranchListOpen,
-    isRemoteOnly,
+    remoteOnlyBranchSet,
     shouldOfferExactRef,
     shouldReopenBranchList,
   } from './utils'
@@ -63,6 +63,7 @@
   }
 
   let allBranches = $derived([...branches.local, ...branches.remote])
+  let remoteOnlyBranches = $derived(showRemoteOnlyTag ? remoteOnlyBranchSet(branches) : null)
   let filteredBranches = $derived(
     query ? allBranches.filter((b) => fuzzyMatch(b, query.toLowerCase())) : allBranches,
   )
@@ -271,7 +272,7 @@
             <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{branch}</span
             >
-            {#if showRemoteOnlyTag && isRemoteOnly(branch, branches)}
+            {#if remoteOnlyBranches?.has(branch)}
               <span class="ml-2 text-xs text-text-faint flex-shrink-0">(remote only)</span>
             {/if}
           </div>

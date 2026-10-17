@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
 
@@ -7,14 +7,19 @@
   let version = $state('')
   let homepage = $state('')
   let licenseText = $state('')
+  let previouslyFocused: HTMLElement | null = null
 
   onMount(async () => {
+    // activeElement is an Element; only HTMLElements (the opener) have focus().
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     const info = await window.api.getAboutInfo()
     version = info.version
     homepage = info.homepage
     licenseText = info.license
   })
+  // Return focus to the opener on close (the async onMount above cannot return a cleanup).
+  onDestroy(() => previouslyFocused?.focus?.())
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
