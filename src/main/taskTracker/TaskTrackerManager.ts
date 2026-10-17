@@ -37,6 +37,15 @@ import type {
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
 
 /**
+ * Token preference owned by a legacy connection. Derived from the id instead of trusting the
+ * stored `authPrefKey`: the connection list is renderer-writable, and a forged key would let a
+ * connection read (and send to its own baseUrl), overwrite or delete any decrypted secret.
+ */
+function connectionTokenPrefKey(connectionId: string): string {
+  return `taskTracker.token.${connectionId}`
+}
+
+/**
  * Returns true when `url` targets the same origin as `baseUrl`. Uses `URL.origin`
  * rather than a string-prefix check so that a baseUrl of `https://jira.example.com`
  * does not also match `https://jira.example.com.evil.com/...`.
@@ -655,7 +664,11 @@ export class TaskTrackerManager {
     const raw = this.preferencesStore.get(CONNECTIONS_PREF_KEY)
     if (!raw) return []
     try {
-      return JSON.parse(raw) as TaskTrackerConnection[]
+      // Renderer-writable pref: a non-array value throws in map() and lands in the catch below.
+      return (JSON.parse(raw) as TaskTrackerConnection[]).map((c) => ({
+        ...c,
+        authPrefKey: connectionTokenPrefKey(c.id),
+      }))
     } catch {
       return []
     }
@@ -721,7 +734,7 @@ export class TaskTrackerManager {
     token: string,
   ): TaskTrackerConnection {
     const id = crypto.randomUUID()
-    const authPrefKey = `taskTracker.token.${id}`
+    const authPrefKey = connectionTokenPrefKey(id)
 
     const newConn: TaskTrackerConnection = {
       ...connection,
@@ -748,7 +761,8 @@ export class TaskTrackerManager {
     if (idx < 0) return null
 
     const conn = connections[idx]
-    connections[idx] = { ...conn, ...updates }
+    // `updates` comes from IPC, so its static type does not stop it carrying identity fields.
+    connections[idx] = { ...conn, ...updates, id: conn.id, authPrefKey: conn.authPrefKey }
 
     if (newToken) {
       this.preferencesStore.set(conn.authPrefKey, newToken)

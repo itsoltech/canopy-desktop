@@ -1,6 +1,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import { pipeline } from 'node:stream'
 import { match } from 'ts-pattern'
 
 const CSP_HEADER =
@@ -64,8 +65,16 @@ export class RemoteClientHost {
    * the caller should fall through to other routes.
    */
   async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
-    const url = new URL(req.url ?? '/', 'http://placeholder.invalid')
-    const pathname = url.pathname
+    // The WHATWG parser throws on targets such as `//`. Any LAN client can send one, so answer
+    // 400 here instead of rejecting the request handler and leaving the socket hanging.
+    let pathname: string
+    try {
+      pathname = new URL(req.url ?? '/', 'http://placeholder.invalid').pathname
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return true
+    }
 
     // Anything outside /remote/* is not ours
     if (pathname !== '/remote' && !pathname.startsWith('/remote/')) return false
@@ -147,12 +156,11 @@ export class RemoteClientHost {
       return true
     }
 
-    const stream = fs.createReadStream(requested)
-    stream.on('error', () => {
-      // Connection may already be closed; just end quietly.
-      res.end()
+    // pipeline() destroys the file stream when the client aborts mid-transfer; pipe() alone
+    // leaves it paused with its file descriptor open.
+    pipeline(fs.createReadStream(requested), res, () => {
+      // Read or connection failure: the response is already torn down, nothing left to send.
     })
-    stream.pipe(res)
     return true
   }
 }

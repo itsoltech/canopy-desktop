@@ -357,14 +357,14 @@
     return window.api.onShowOnboarding(async (data) => {
       const { initOnboarding, onboardingState } = await import('../../lib/stores/onboarding.svelte')
       await initOnboarding(data.mode, data.fromVersion)
-      if (onboardingState.mode === 'none' && data.fromVersion) {
-        // No onboarding steps to show, fall back to changelog
-        showChangelog(data.fromVersion)
-      } else if (onboardingState.mode === 'first-launch') {
-        showOnboardingWizard()
-      } else if (onboardingState.mode === 'upgrade') {
-        showFeatureOnboarding(data.fromVersion ?? '')
-      }
+      match(onboardingState.mode)
+        .with('none', () => {
+          // No onboarding steps to show, fall back to changelog
+          if (data.fromVersion) showChangelog(data.fromVersion)
+        })
+        .with('first-launch', () => showOnboardingWizard())
+        .with('upgrade', () => showFeatureOnboarding(data.fromVersion ?? ''))
+        .exhaustive()
     })
   })
 
@@ -559,13 +559,13 @@
       )
     }
 
-    // Cmd+Shift+[ and Cmd+Shift+]
-    if (e.key === '[' && e.shiftKey && path) {
+    // Cmd+Shift+[ and Cmd+Shift+] — with Shift held, US-style layouts report the brace instead
+    if ((e.key === '[' || e.key === '{') && e.shiftKey && path) {
       e.preventDefault()
       prevTab(path).catch((err) => console.error('prevTab failed:', err))
     }
 
-    if (e.key === ']' && e.shiftKey && path) {
+    if ((e.key === ']' || e.key === '}') && e.shiftKey && path) {
       e.preventDefault()
       nextTab(path).catch((err) => console.error('nextTab failed:', err))
     }

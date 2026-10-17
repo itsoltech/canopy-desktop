@@ -8,7 +8,8 @@ export function isAppShortcut(key: string, shiftKey: boolean, altKey: boolean): 
     return true
   }
   if (normalized >= '1' && normalized <= '9') return true
-  if (shiftKey && ['n', 'i', '[', ']'].includes(normalized)) return true
+  // Shift+[ and Shift+] report as braces on US-style layouts.
+  if (shiftKey && ['n', 'i', '[', ']', '{', '}'].includes(normalized)) return true
   if (normalized === 'p') return !shiftKey
   if (['b', 'l', 'o', 'w'].includes(normalized)) return !shiftKey
   return ['k', ',', 't', 'd'].includes(normalized)

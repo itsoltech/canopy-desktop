@@ -5,6 +5,7 @@
   import { Search, RotateCw, ChevronRight, Copy } from '@lucide/svelte'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { createLatestRequestGuard } from '../../lib/async/latestRequest'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'
 
   let {
@@ -44,18 +45,25 @@
   let commentFilePath = $state('')
   let commentLineNum = $state(0)
 
+  // Refreshes overlap on worktree switches and git/file-watcher bursts. Only the latest may
+  // update the pane, so a slow earlier response cannot show a stale or another worktree's diff.
+  const refreshGuard = createLatestRequestGuard()
+
   async function refresh(): Promise<void> {
+    const token = refreshGuard.begin(worktreePath)
     loading = true
     loadError = false
     try {
       const result = await window.api.changesGetDiff({ worktreePath })
+      if (!refreshGuard.isLatest(token)) return
       files = result.files
     } catch (e) {
+      if (!refreshGuard.isLatest(token)) return
       files = []
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (refreshGuard.isLatest(token)) loading = false
     }
   }
 
@@ -582,7 +590,7 @@
                       >
                         {#if hasAgent}
                           <button
-                            class="comment-trigger absolute left-px top-1/2 -translate-y-1/2 w-5.5 h-5.5 rounded-lg border-0 bg-accent text-bg text-base font-bold leading-none cursor-pointer opacity-0 z-10 flex items-center justify-center transition-opacity duration-fast motion-reduce:transition-none hover:brightness-110 active:brightness-85"
+                            class="comment-trigger absolute left-px top-1/2 -translate-y-1/2 w-5.5 h-5.5 rounded-lg border-0 bg-accent text-bg text-base font-bold leading-none cursor-pointer opacity-0 focus-visible:opacity-100 z-10 flex items-center justify-center transition-opacity duration-fast motion-reduce:transition-none hover:brightness-110 active:brightness-85"
                             title="Add review comment"
                             aria-label="Add review comment"
                             onclick={() =>

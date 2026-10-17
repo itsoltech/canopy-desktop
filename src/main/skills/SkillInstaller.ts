@@ -19,6 +19,8 @@ interface SourceResolution {
   sourceUri: string
 }
 
+const GIT_CLONE_TIMEOUT_MS = 120_000
+
 export class SkillInstaller {
   constructor(private store: SkillStore) {}
 
@@ -226,6 +228,9 @@ export class SkillInstaller {
           execFile(
             'git',
             ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            // A private or missing repo makes git ask for credentials; without a prompt guard
+            // and a timeout the install (and its git process) would wait forever.
+            { timeout: GIT_CLONE_TIMEOUT_MS, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
             (error) => {
               if (error) reject(error)
               else resolve()
