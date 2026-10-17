@@ -6,7 +6,7 @@ import { getLoginEnv } from '../shell/loginEnv'
 import { BLOCKED_ENV_VARS } from '../security/envBlocklist'
 import type { AiError } from './errors'
 import type { ResultAsyncType } from '../errors'
-import { fromExternalCall } from '../errors'
+import { errAsync, fromExternalCall, okAsync } from '../errors'
 
 let cachedClaudePath: string | undefined
 
@@ -63,6 +63,11 @@ function generateCommitMessageInner(
   // Use a replacer function so `$` sequences in the diff (e.g. `$&`, `$1`, `$$`)
   // are inserted literally instead of being interpreted as replacement patterns.
   const prompt = PROMPT_TEMPLATE.replace('{diff}', () => truncatedDiff)
+  // Claude Code before 2.1.290 ends a turn whose last request fails after the structured
+  // output was delivered with `is_error: true` on that `success` result and a non-zero exit,
+  // so the SDK throws "Claude Code returned an error result" after yielding it. The output
+  // was already validated against OUTPUT_SCHEMA, so the `orElse` below keeps it.
+  let structuredOutput: CommitOutput | null = null
 
   return fromExternalCall(
     (async () => {
@@ -75,10 +80,23 @@ function generateCommitMessageInner(
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
           env,
+          // This is Canopy's only non-interactive CLI turn, and without this it
+          // inherits the user's entire MCP fleet: omitting `settingSources`
+          // loads all filesystem settings, so project `.mcp.json`, user
+          // settings, plugins and agent frontmatter all contribute servers.
+          // The turn is one structured-output call over a truncated diff
+          // against a fixed schema — it can never call an MCP tool — but the
+          // CLI still connects them before the first turn, and nothing here
+          // bounds that: `git:generateCommitMessage` awaits this with no
+          // timeout, `query()` gets no `maxTurns` or abort signal, and
+          // `unwrapOr(null)` only catches a throw, not a hang. 2.1.274 added
+          // CLAUDE_CODE_MCP_STARTUP_WAIT_MS to cap the wait, but the executable
+          // is whatever `claude` resolves to on PATH and may predate it, so
+          // drop the servers instead of timing them out.
+          strictMcpConfig: true,
         },
       })
 
-      let structuredOutput: CommitOutput | null = null
       for await (const message of q) {
         if (message.type === 'result' && (message as { subtype?: string }).subtype === 'success') {
           structuredOutput = (message as Record<string, unknown>)
@@ -92,11 +110,17 @@ function generateCommitMessageInner(
       _tag: 'AiRequestFailed',
       message: e instanceof Error ? e.message : String(e),
     }),
-  ).map((output) => {
-    if (!output?.subject) return null
-    const { subject, body } = output
-    return body ? `${subject}\n\n${body}` : subject
-  })
+  )
+    .orElse((error) =>
+      structuredOutput
+        ? okAsync<CommitOutput | null, AiError>(structuredOutput)
+        : errAsync<CommitOutput | null, AiError>(error),
+    )
+    .map((output) => {
+      if (!output?.subject) return null
+      const { subject, body } = output
+      return body ? `${subject}\n\n${body}` : subject
+    })
 }
 
 // Serializes the global process.env mutation below. Mutating process.env around
