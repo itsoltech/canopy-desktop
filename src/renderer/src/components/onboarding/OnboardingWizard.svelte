@@ -96,7 +96,8 @@
       }
     } else if (e.key === 'Tab' && containerEl) {
       const focusable = containerEl.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        // Disabled controls can't take focus; counting one as first/last lets Tab escape.
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
       )
       if (focusable.length === 0) return
       const first = focusable[0]

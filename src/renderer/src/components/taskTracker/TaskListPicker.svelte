@@ -332,6 +332,7 @@
             )
               ? 'bg-transparent border-border text-text-muted opacity-40 line-through hover:text-text-secondary'
               : `border-transparent ${statusChipClass(statusCategoryOf(status))}`}"
+            aria-pressed={!excludedStatuses.has(status)}
             onclick={() => toggleStatus(status)}
           >
             {status}
@@ -354,6 +355,7 @@
             class:!text-accent-text={!excludedSprints.has(sprint)}
             class:!opacity-40={excludedSprints.has(sprint)}
             class:line-through={excludedSprints.has(sprint)}
+            aria-pressed={!excludedSprints.has(sprint)}
             onclick={() => toggleSprint(sprint)}
           >
             {sprint}

@@ -519,4 +519,15 @@
   .keystroke-overlay.inferno {
     animation: none;
   }
+
+  /* Looping Tailwind animation utilities — covers elements that don't pair
+     them with `motion-reduce:animate-none` (spinners, status badges). */
+  .animate-spin,
+  .animate-spin-slow,
+  .animate-pulse,
+  .animate-badge-pulse,
+  .animate-badge-pulse-fast,
+  .animate-progress-indeterminate {
+    animation: none;
+  }
 }

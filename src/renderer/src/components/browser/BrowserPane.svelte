@@ -33,6 +33,7 @@
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
+  import { sanitizePtyInput } from '../../lib/pty/paste'
 
   let {
     browserId,
@@ -793,7 +794,13 @@
     try {
       const html = await w.executeJavaScript(ELEMENT_PICK_JS)
       pickMode = 'none'
-      if (html) sendToClaude('```html\n' + html + '\n```\n')
+      // Page-controlled markup is typed into the agent's input: strip control characters
+      // (an embedded CR would submit mid-snippet and type the rest as a new prompt) and
+      // cap the size of the single PTY write.
+      if (typeof html === 'string' && html) {
+        const snippet = html.length > 20_000 ? html.slice(0, 20_000) + '\n<!-- truncated -->' : html
+        sendToClaude('```html\n' + sanitizePtyInput(snippet) + '\n```\n')
+      }
     } catch {
       pickMode = 'none'
     }

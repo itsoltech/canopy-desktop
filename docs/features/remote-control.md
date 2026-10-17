@@ -71,7 +71,7 @@ reconnect/listen flow after the operating system wakes.
 6. On success, the session transitions to `peerArrived`. The desktop renderer shows the accept/reject prompt with the device name and an 8-character fingerprint (hex prefix of the device ID).
 7. User clicks Accept (optionally checking "Remember this device").
 8. `acceptPendingDevice()` transitions to `paired`, sends `{ type: "accepted" }` to the peer, and starts the idle timeout (15 minutes). If "Remember" was checked, the device is persisted in the `TrustedDeviceStore`.
-9. The peer receives `accepted` and begins WebRTC offer/answer/ICE negotiation through the signaling WebSocket. The desktop renderer's `RemoteHostController` handles the SDP exchange.
+9. The peer receives `accepted` and begins WebRTC offer/answer/ICE negotiation through the signaling WebSocket. The desktop renderer's `RemoteHostController` handles the SDP exchange. Peer signaling frames are forwarded to the host window only while the session is `paired`, so a peer that sends an offer before the user accepts is ignored.
 
 ### Device pairing (trusted device)
 
@@ -90,7 +90,7 @@ reconnect/listen flow after the operating system wakes.
 ### Rejecting a device
 
 1. User clicks Reject on the accept prompt.
-2. `rejectPendingDevice()` sends `{ type: "rejected", reason: "user rejected" }` to the peer, closes the WebSocket, and returns to `waiting` state. The QR code remains valid for another device to scan.
+2. `rejectPendingDevice()` sends `{ type: "rejected", reason: "user rejected" }` to the peer, closes the WebSocket, and returns to `waiting` state. The QR code remains valid for another device to scan. Entering `waiting` also tears down the renderer's WebRTC host controller, so no data channel outlives the rejected peer.
 
 ### Stopping a session
 
@@ -99,7 +99,7 @@ reconnect/listen flow after the operating system wakes.
 
 ### Idle timeout
 
-While paired, an idle timer of 15 minutes runs. Each signaling message (SDP, ICE, or data-channel relay) resets the timer. If no activity occurs for 15 minutes, the same listen-mode calculus from the disconnect reaper applies: when eligible, the session drops back to `listening` and keeps the port bound for trusted reconnects; otherwise it fully tears down to `idle`. QR expiry (the 10-minute `waiting` deadline) follows the same rule — it drops back to `listening` when eligible.
+While paired, an idle timer of 15 minutes runs. Each outbound signaling message (SDP, ICE) resets the timer. Data-channel RPC traffic never reaches the main process, so the host window reports it through `remote:reportActivity` (at most once a minute, accepted only from the session's host window), which also resets the timer. If no activity occurs for 15 minutes, the same listen-mode calculus from the disconnect reaper applies: when eligible, the session drops back to `listening` and keeps the port bound for trusted reconnects; otherwise it fully tears down to `idle`. QR expiry (the 10-minute `waiting` deadline) follows the same rule — it drops back to `listening` when eligible.
 
 ### Mobile terminal text selection
 

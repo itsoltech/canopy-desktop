@@ -3,6 +3,7 @@
   import { Pencil, ShieldAlert, Trash2 } from '@lucide/svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomRadio from '../shared/CustomRadio.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -79,6 +80,8 @@
       await loadTrustedDevices()
     } catch (e) {
       console.warn('[remote] removeTrustedDevice failed:', e)
+      // A revocation that silently fails would leave the user believing the device is gone.
+      addToast(`Could not remove "${name}" from trusted devices`)
     }
   }
 
@@ -98,6 +101,7 @@
       await loadTrustedDevices()
     } catch (e) {
       console.warn('[remote] renameTrustedDevice failed:', e)
+      addToast(`Could not rename "${name}"`)
     }
   }
 

@@ -75,6 +75,26 @@ function generateCommitMessageInner(
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
           env,
+          // The prompt embeds an untrusted diff (prompt-injection surface) and only text is
+          // needed back: remove the tools that touch files, the shell, or the network, ignore
+          // configured MCP servers, and run from a neutral directory (the packaged app's cwd
+          // can be `/`, which would put every file inside the session's working directory).
+          disallowedTools: [
+            'Bash',
+            'Read',
+            'Write',
+            'Edit',
+            'MultiEdit',
+            'NotebookEdit',
+            'Glob',
+            'Grep',
+            'WebFetch',
+            'WebSearch',
+            'Task',
+            'Agent',
+          ],
+          strictMcpConfig: true,
+          cwd: os.tmpdir(),
         },
       })
 

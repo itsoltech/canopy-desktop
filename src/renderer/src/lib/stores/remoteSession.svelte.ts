@@ -84,8 +84,15 @@ function applyStatus(status: RemoteSessionStatus): void {
   // via returnToListening); leaving a dangling RTCPeerConnection alive
   // would leak resources and run stale ICE timers into the void. A fresh
   // pair attempt later will rebuild the controller via the
-  // offer-arrived-first branch in `onSignal` below.
-  if (status.kind === 'idle' || status.kind === 'error' || status.kind === 'listening') {
+  // offer-arrived-first branch in `onSignal` below. `waiting` (device rejected,
+  // or the pending peer left) must also drop it: WebRTC outlives the signaling
+  // socket, so a live data channel would otherwise keep serving RPCs.
+  if (
+    status.kind === 'idle' ||
+    status.kind === 'error' ||
+    status.kind === 'listening' ||
+    status.kind === 'waiting'
+  ) {
     teardownHostController()
   }
 
@@ -173,7 +180,11 @@ export function initRemoteSessionListeners(): () => void {
       ensureHostController()
     }
     const ctl = ensureHostController()
-    void ctl.handleSignal(msg)
+    // Peer-supplied SDP/ICE can make setRemoteDescription/addIceCandidate
+    // reject; handle it here instead of leaving an unhandled rejection.
+    ctl.handleSignal(msg).catch((e) => {
+      console.warn('[remote] failed to apply peer signal:', e)
+    })
   })
 
   return () => {

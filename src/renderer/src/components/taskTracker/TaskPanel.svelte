@@ -618,6 +618,7 @@
       rows="2"
       autofocus
       placeholder="Add your instructions (optional) — paste an image to attach it"
+      aria-label="Instructions for the agent"
       spellcheck="false"></textarea>
     {#if composeImageUrl}
       <div class="flex items-center gap-2">
@@ -908,6 +909,7 @@
       {:else if loadError}
         <div
           class="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-xs text-danger-text leading-snug"
+          role="alert"
         >
           {loadError}
         </div>
@@ -989,6 +991,7 @@
                 placeholder={commentRequired
                   ? 'Required by the workflow'
                   : 'Optional — the workflow may still require one'}
+                aria-label="Transition comment"
                 spellcheck="false"></textarea>
             </div>
 
@@ -1059,6 +1062,7 @@
             bind:value={newComment}
             rows="1"
             placeholder="Add a comment…"
+            aria-label="New comment"
             spellcheck="false"></textarea>
           <button
             class="flex items-center justify-center size-7 rounded-md border-0 bg-accent-bg text-accent-text cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default shrink-0"

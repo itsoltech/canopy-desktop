@@ -146,35 +146,53 @@ export class ToolSessionService {
       agentTempId = agentSession.tempId
     }
 
+    // createSession above registered a hook-router entry and wrote per-session settings (for
+    // Codex, into the repo's .codex/hooks.json and .gitignore). If the process never starts,
+    // release them before rethrowing — nothing else would until the app quits.
+    const releaseAgentSession = (): void => {
+      if (agentTempId) this.deps.agentSessionManager.destroySession(agentTempId)
+    }
+
     let tmuxSessionName: string | undefined
     const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
     if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
       tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
       const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
-      await this.deps.tmuxManager.newSession({
-        name: tmuxSessionName,
-        cwd: payload.worktreePath,
-        shell: command,
-        shellArgs: args,
-        cols: payload.cols,
-        rows: payload.rows,
-        mouse: tmuxMouse,
-        env,
-      })
+      await this.deps.tmuxManager
+        .newSession({
+          name: tmuxSessionName,
+          cwd: payload.worktreePath,
+          shell: command,
+          shellArgs: args,
+          cols: payload.cols,
+          rows: payload.rows,
+          mouse: tmuxMouse,
+          env,
+        })
+        .catch((error: unknown) => {
+          releaseAgentSession()
+          throw error
+        })
       const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
       command = attach.command
       args = attach.args
     }
 
-    const session = this.deps.ptyManager.spawn({
-      command,
-      args,
-      cwd: payload.worktreePath,
-      cols: payload.cols,
-      rows: payload.rows,
-      env,
-      tmuxSessionName,
-    })
+    let session: ReturnType<PtyManager['spawn']>
+    try {
+      session = this.deps.ptyManager.spawn({
+        command,
+        args,
+        cwd: payload.worktreePath,
+        cols: payload.cols,
+        rows: payload.rows,
+        env,
+        tmuxSessionName,
+      })
+    } catch (error) {
+      releaseAgentSession()
+      throw error
+    }
 
     if (isAgent && agentTempId) {
       this.deps.agentSessionManager.rekey(agentTempId, session.id)
@@ -3478,17 +3496,29 @@ export class TabCommandService {
       }
     }
 
-    const [first, second] = await Promise.all([
+    const [first, second] = await Promise.allSettled([
       this.restoreSerializedSplitSnapshot(sender, worktreePath, node.first, options),
       this.restoreSerializedSplitSnapshot(sender, worktreePath, node.second, options),
     ])
+    if (first.status === 'rejected' || second.status === 'rejected') {
+      // The side that did restore already spawned PTYs/agent sessions that now belong to no
+      // tab state — kill them before surfacing the failure instead of leaking them.
+      await this.cleanupPanes(
+        sender,
+        [first, second].flatMap((side) =>
+          side.status === 'fulfilled' ? allPaneSnapshots(side.value) : [],
+        ),
+      )
+      if (first.status === 'rejected') throw first.reason
+      if (second.status === 'rejected') throw second.reason
+    }
     return {
       type: 'split',
       id: splitId(),
       direction: node.type === 'hsplit' ? 'horizontal' : 'vertical',
       ratio: node.ratio,
-      first,
-      second,
+      first: first.value,
+      second: second.value,
     }
   }
 

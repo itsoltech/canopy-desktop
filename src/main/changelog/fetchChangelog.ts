@@ -31,7 +31,11 @@ function fetchGitHubReleases(): ResultAsyncType<GitHubRelease[], ChangelogError>
         signal: AbortSignal.timeout(15_000),
       })
       if (!response.ok) throw new Error(`GitHub API ${response.status}`)
-      return (await response.json()) as GitHubRelease[]
+      // Validate the shape inside the wrapped call: a non-array body (proxy or captive
+      // portal page) would otherwise throw later in .map/.filter, outside the ResultAsync.
+      const releases: unknown = await response.json()
+      if (!Array.isArray(releases)) throw new Error('Unexpected GitHub releases response')
+      return releases as GitHubRelease[]
     })(),
     (e): ChangelogError => ({ _tag: 'FetchFailed', message: errorMessage(e) }),
   )

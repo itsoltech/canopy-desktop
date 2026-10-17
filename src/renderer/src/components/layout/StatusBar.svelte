@@ -70,12 +70,13 @@
 
   let focusedPaneKind: PaneKind = $derived.by(() => {
     if (!focusedPane) return 'none'
-    if (focusedPane.paneType === 'browser') return 'browser'
-    if (focusedPane.paneType === 'editor') return 'editor'
-    if (focusedPane.paneType === 'notes') return 'notes'
-    if (focusedPane.paneType === 'drawing') return 'drawing'
-    if (isAiToolId(focusedPane.toolId)) return 'agent'
-    return 'shell'
+    const pane = focusedPane
+    return match(pane.paneType)
+      .with('browser', () => 'browser' as const)
+      .with('editor', () => 'editor' as const)
+      .with('notes', () => 'notes' as const)
+      .with('drawing', () => 'drawing' as const)
+      .otherwise(() => (isAiToolId(pane.toolId) ? ('agent' as const) : ('shell' as const)))
   })
 
   // --- Derived: worktree display ---
