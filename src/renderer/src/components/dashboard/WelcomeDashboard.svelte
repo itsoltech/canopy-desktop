@@ -27,6 +27,8 @@
   let selectedIndex = $state(0)
   let contextMenu = $state<{ x: number; y: number; workspace: WorkspaceRow } | null>(null)
   let disposed = false
+  // Avoid flashing the empty state before the first listWorkspaces resolves
+  let loaded = $state(false)
 
   let filterInputEl: HTMLInputElement | undefined = $state()
   let openFolderBtnEl: HTMLButtonElement | undefined = $state()
@@ -57,6 +59,8 @@
       addToast(
         `Failed to load recent workspaces: ${err instanceof Error ? err.message : String(err)}`,
       )
+    } finally {
+      loaded = true
     }
 
     await tick()
@@ -268,7 +272,9 @@
 
 <div class="flex items-start justify-center h-full overflow-y-auto py-12 px-5">
   <div class="w-full max-w-160 flex flex-col gap-6">
-    {#if workspaces.length === 0}
+    {#if !loaded}
+      <!-- loading: render nothing until recents are known -->
+    {:else if workspaces.length === 0}
       <WelcomeEmpty
         {modKey}
         onOpenFolder={handleOpenFolder}

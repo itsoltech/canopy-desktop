@@ -37,7 +37,13 @@ export async function initSkillStore(): Promise<void> {
   if (initialized) return
   initialized = true
 
-  skills = await window.api.listSkills()
+  try {
+    skills = await window.api.listSkills()
+  } catch (e) {
+    initialized = false
+    console.warn('initSkillStore failed:', e)
+    return
+  }
 
   unsubscribe = window.api.onSkillsChanged((updated) => {
     // The skills:changed IPC payload is produced from the typed SkillStore in the

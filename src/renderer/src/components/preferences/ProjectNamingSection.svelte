@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { Pencil, Plus, Check, X, Trash2, RotateCcw } from '@lucide/svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import {
     getResolvedConfig,
     getRepoConfig,
@@ -93,7 +94,14 @@
 
   async function cancelEdit(): Promise<void> {
     editorRef?.discardPending()
-    if (editSnapshot && repoRoot) await saveRepoConfig(repoRoot, editSnapshot)
+    if (editSnapshot && repoRoot) {
+      try {
+        await saveRepoConfig(repoRoot, editSnapshot)
+      } catch (e) {
+        addToast(e instanceof Error ? e.message : 'Failed to revert naming changes', 'danger')
+        return
+      }
+    }
     editing = null
     editSnapshot = null
   }
@@ -120,7 +128,12 @@
     const updated = $state.snapshot(cfg) as typeof cfg
     if (type === 'branch') updated!.branchTemplate = undefined
     else updated!.prTemplate = undefined
-    await saveRepoConfig(repoRoot, updated!)
+    try {
+      await saveRepoConfig(repoRoot, updated!)
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to reset template', 'danger')
+      return
+    }
     resetTick++
   }
 
@@ -128,6 +141,14 @@
   async function removeOverride(type: Group, scope: string): Promise<void> {
     const cfg = getRepoConfig()
     if (!cfg || scope === 'default') return
+    const ok = await confirm({
+      title: 'Remove project override',
+      message: `Remove the ${type === 'branch' ? 'branch' : 'PR'} template override for ${scope}?`,
+      details: `Removes the override from .canopy/config.json — the base ${type === 'branch' ? 'branch' : 'PR'} template will apply.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     const updated = $state.snapshot(cfg) as typeof cfg
     const entry = updated!.projectOverrides[scope]
     if (entry) {
@@ -135,7 +156,12 @@
       else delete entry.prTemplate
       if (Object.keys(entry).length === 0) delete updated!.projectOverrides[scope]
     }
-    await saveRepoConfig(repoRoot, updated!)
+    try {
+      await saveRepoConfig(repoRoot, updated!)
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to remove override', 'danger')
+      return
+    }
     editing = null
     editSnapshot = null
   }

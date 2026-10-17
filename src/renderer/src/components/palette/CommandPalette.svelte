@@ -37,6 +37,7 @@
   } from '../../lib/stores/dialogs.svelte'
   import { getTools, getToolAvailability } from '../../lib/stores/tools.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
   import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
 
   let { onClose }: { onClose: () => void } = $props()
@@ -57,12 +58,21 @@
 
   let tmuxAvailable = $state(false)
 
+  // Restore focus to the element that opened the palette when it closes —
+  // unless the chosen action already moved focus somewhere else.
+  const restoreFocus = captureFocusReturn()
+
   onMount(() => {
     inputEl?.focus()
+    const input = inputEl
     window.api
       .tmuxIsAvailable()
       .then((v) => (tmuxAvailable = v))
       .catch(() => {})
+    return () => {
+      const active = document.activeElement
+      if (!active || active === document.body || active === input) restoreFocus()
+    }
   })
 
   const isMac = navigator.userAgent.includes('Mac')

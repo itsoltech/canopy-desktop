@@ -98,7 +98,12 @@
     // Everything (or nothing) selected = no whitelist — the field disappears from config.json.
     tracker.projects =
       picked.length === 0 || picked.length === projectOptions.length ? undefined : picked.sort()
-    await saveRepoConfig(repoRoot, updated!)
+    try {
+      await saveRepoConfig(repoRoot, updated!)
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to save project selection', 'danger')
+      return
+    }
     editingProjectsFor = null
     addToast('Project selection saved')
   }

@@ -20,7 +20,11 @@
   // way the changes panel refreshes (git metadata events + debounced filesystem events).
   let changeCount = $state(0)
 
+  // Out-of-order guard: a slow response for a previous worktree must not overwrite a newer count.
+  let countSeq = 0
+
   async function refreshChangeCount(): Promise<void> {
+    const seq = ++countSeq
     const path = workspaceState.selectedWorktreePath ?? workspaceState.repoRoot
     if (!path) {
       changeCount = 0
@@ -28,8 +32,10 @@
     }
     try {
       const status = await window.api.fileTreeGetGitStatus(path, path)
+      if (seq !== countSeq) return
       changeCount = Object.keys(status.statuses).length
     } catch {
+      if (seq !== countSeq) return
       changeCount = 0
     }
   }

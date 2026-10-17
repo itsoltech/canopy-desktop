@@ -175,6 +175,8 @@ export const confirmState: {
 } = $state({ current: null })
 
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
+  // Resolve a superseded confirmation as cancelled so its caller does not await forever
+  confirmState.current?.onCancel()
   return new Promise((resolve) => {
     confirmState.current = {
       ...opts,
@@ -191,6 +193,8 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
 }
 
 export function prompt(opts: PromptOptions): Promise<PromptResult | null> {
+  // Resolve a superseded prompt as cancelled so its caller does not await forever
+  if (dialogState.current.type === 'input') dialogState.current.props.onCancel()
   return new Promise((resolve) => {
     dialogState.current = {
       type: 'input',

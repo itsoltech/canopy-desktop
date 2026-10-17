@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { Readable } from 'stream'
-import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
+import { mkdtemp, readFile, stat, readdir, access, rm, realpath } from 'fs/promises'
 import { join, basename, resolve, normalize, extname, sep } from 'path'
 import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
@@ -17,6 +17,17 @@ interface SourceResolution {
   fileName: string
   sourceType: 'github' | 'url' | 'local'
   sourceUri: string
+}
+
+/**
+ * True when `target`, with symlinks resolved, is `root` or a path inside it.
+ * Paths that cannot be resolved count as outside.
+ */
+async function resolvesWithin(root: string, target: string): Promise<boolean> {
+  const real = await fromExternalCall(Promise.all([realpath(root), realpath(target)]), () => null)
+  if (real.isErr()) return false
+  const [realRoot, realTarget] = real.value
+  return realTarget === realRoot || realTarget.startsWith(realRoot + sep)
 }
 
 export class SkillInstaller {
@@ -72,7 +83,9 @@ export class SkillInstaller {
 
     // 6. Deploy to each agent directory (before saving to DB — partial deploy must not persist)
     // Global skills deploy to globalDir (no workspacePath needed); project skills require it
-    const targetRoot = opts.workspacePath ?? (skill.scope === 'global' ? '' : null)
+    // `||` (not `??`): an empty workspacePath must count as missing, otherwise a
+    // project-scoped deploy would resolve against the process cwd.
+    const targetRoot = opts.workspacePath || (skill.scope === 'global' ? '' : null)
     if (targetRoot === null && skill.scope === 'project') {
       return err({
         _tag: 'InstallFailed',
@@ -130,7 +143,7 @@ export class SkillInstaller {
     }
 
     // Deploy before updating DB
-    const updateTarget = workspacePath ?? (existing.scope === 'global' ? '' : null)
+    const updateTarget = workspacePath || (existing.scope === 'global' ? '' : null)
     if (updateTarget === null && existing.scope === 'project') {
       return err({
         _tag: 'InstallFailed',
@@ -165,7 +178,7 @@ export class SkillInstaller {
     if (!skill) return err({ _tag: 'SkillNotFound', skillId })
 
     // Undeploy from all agent directories
-    const removeTarget = workspacePath ?? (skill.scope === 'global' ? '' : null)
+    const removeTarget = workspacePath || (skill.scope === 'global' ? '' : null)
     if (removeTarget === null && skill.scope === 'project') {
       return err({
         _tag: 'InstallFailed',
@@ -226,6 +239,9 @@ export class SkillInstaller {
           execFile(
             'git',
             ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            // Bound the clone and never block on a credential prompt (private or
+            // missing repos would otherwise wait for terminal input forever).
+            { timeout: 120_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
             (error) => {
               if (error) reject(error)
               else resolve()
@@ -254,7 +270,7 @@ export class SkillInstaller {
           reason: 'Subpath escapes repository root',
         })
       }
-      return await this.readSkillDir(resolvedDir, `github:${ref}`, 'github')
+      return await this.readSkillDir(resolvedDir, `github:${ref}`, 'github', resolvedTmp)
     } finally {
       // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
@@ -401,7 +417,16 @@ export class SkillInstaller {
     dir: string,
     sourceUri: string,
     sourceType: 'github' | 'local',
+    confineTo?: string,
   ): Promise<Result<SourceResolution, SkillError>> {
+    // A cloned repository is untrusted: a tracked symlink (e.g. `SKILL.md` ->
+    // ~/.aws/credentials, or a symlinked subpath directory) must not pull a
+    // file from outside the clone into the skill prompt.
+    const outsideRepoError = (): SkillError => ({
+      _tag: 'InvalidSource',
+      source: sourceUri,
+      reason: 'Skill file resolves outside the repository',
+    })
     const candidates = ['SKILL.md', 'canopy-skill.yaml', 'skill.md']
     for (const candidate of candidates) {
       const filePath = join(dir, candidate)
@@ -409,6 +434,9 @@ export class SkillInstaller {
         await access(filePath)
       } catch {
         continue
+      }
+      if (confineTo !== undefined && !(await resolvesWithin(confineTo, filePath))) {
+        return err(outsideRepoError())
       }
       const readResult = await fromExternalCall(readFile(filePath, 'utf-8'), (e): SkillError => ({
         _tag: 'FetchFailed',
@@ -429,14 +457,15 @@ export class SkillInstaller {
     const allFiles = readdirResult.value
     const files = allFiles.filter((f) => f.endsWith('.md'))
     if (files.length > 0) {
-      const readResult = await fromExternalCall(
-        readFile(join(dir, files[0]), 'utf-8'),
-        (e): SkillError => ({
-          _tag: 'FetchFailed',
-          source: sourceUri,
-          cause: e instanceof Error ? e.message : String(e),
-        }),
-      )
+      const mdPath = join(dir, files[0])
+      if (confineTo !== undefined && !(await resolvesWithin(confineTo, mdPath))) {
+        return err(outsideRepoError())
+      }
+      const readResult = await fromExternalCall(readFile(mdPath, 'utf-8'), (e): SkillError => ({
+        _tag: 'FetchFailed',
+        source: sourceUri,
+        cause: e instanceof Error ? e.message : String(e),
+      }))
       if (readResult.isErr()) return err(readResult.error)
       const fileName = basename(dir)
       return ok({ content: readResult.value, fileName, sourceType, sourceUri })

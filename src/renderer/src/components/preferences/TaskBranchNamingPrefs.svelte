@@ -7,6 +7,7 @@
   import { onMount } from 'svelte'
   import BranchTokenBuilder from './BranchTokenBuilder.svelte'
   import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import { RENDERER_DEFAULT_BRANCH_TEMPLATE } from './_partials/configScopeLabels'
 
   // Branch template editor for ONE project scope of the repo config. Naming is owned by the
@@ -53,7 +54,12 @@
 
   async function persistConfig(updated: typeof config): Promise<void> {
     if (!updated) return
-    await saveRepoConfig(repoRoot, updated)
+    // Callers include debounced/fire-and-forget saves, so failures are surfaced here.
+    try {
+      await saveRepoConfig(repoRoot, updated)
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to save branch naming', 'danger')
+    }
   }
 
   async function saveBranchTemplate(): Promise<void> {

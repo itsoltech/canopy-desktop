@@ -1241,6 +1241,18 @@ export async function closePane(
     if (!confirmed) return
   }
 
+  // Editor dirty state lives in the renderer, so the main-process close
+  // warning above cannot see it — guard unsaved buffers separately.
+  if (pane.paneType === 'editor' && (pane.editorFiles ?? []).some((f) => f.dirty === true)) {
+    const confirmed = await confirm({
+      title: 'Close pane?',
+      message: 'This pane has unsaved changes that will be lost.',
+      confirmLabel: 'Discard & Close',
+      destructive: true,
+    })
+    if (!confirmed) return
+  }
+
   const result = await window.api.tabClosePane(worktreePath, tabId, paneId)
   if (!result.closedPaneId) return
 

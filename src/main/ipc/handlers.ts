@@ -35,7 +35,7 @@ import { GitWatcher, type GitRefreshFlags } from '../git/GitWatcher'
 import { FileTreeWatcher } from '../fileWatcher/FileTreeWatcher'
 import { DEFAULT_IGNORE_PATTERNS } from '../fileWatcher/defaults'
 import { fileWatcherErrorMessage } from '../fileWatcher/errors'
-import { runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
+import { isWorktreeSetupAction, runWorktreeSetup } from '../worktree/WorktreeSetupRunner'
 import { classifyWorktreeRemoveError, REMOVE_RETRY_DELAYS_MS } from '../git/worktreeRemoval'
 import { comparableWorkspacePath } from '../db/workspacePaths'
 
@@ -1113,6 +1113,9 @@ export function registerIpcHandlers(
 
     try {
       await fs.promises.writeFile(saveResult.filePath, json, { encoding: 'utf8', mode: 0o600 })
+      // `mode` only applies when the file is created. The export holds
+      // decrypted secrets, so also tighten an existing file chosen as target.
+      await fs.promises.chmod(saveResult.filePath, 0o600)
     } catch (e) {
       throw new Error(
         settingsExportErrorMessage({
@@ -2139,7 +2142,12 @@ export function registerIpcHandlers(
     'git:statusPorcelain',
     async (event, payload: { repoRoot: string; worktreePath?: string }) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      return GitRepository.getStatusPorcelain(resolvedRepo, payload.worktreePath).unwrapOr('')
+      // worktreePath is renderer-supplied too: confine it like repoRoot so git
+      // never runs in (or reports on) an arbitrary repository on disk.
+      const resolvedWorktree = payload.worktreePath
+        ? await validateWorktreeScopedPathAccess(event.sender.id, payload.worktreePath)
+        : undefined
+      return GitRepository.getStatusPorcelain(resolvedRepo, resolvedWorktree).unwrapOr('')
     },
   )
 
@@ -4949,12 +4957,18 @@ export function registerIpcHandlers(
       const configJson = preferencesStore.get(`workspace:${payload.workspaceId}:worktreeSetup`)
       if (!configJson) return { success: true, errors: [] }
 
-      let actions: WorktreeSetupAction[]
+      let parsed: unknown
       try {
-        actions = JSON.parse(configJson) as WorktreeSetupAction[]
+        parsed = JSON.parse(configJson)
       } catch {
         return { success: false, errors: ['Invalid worktree setup config'] }
       }
+      // The preference is renderer-writable: check the shape before anything is
+      // spawned or copied rather than trusting a cast.
+      if (!Array.isArray(parsed) || !parsed.every(isWorktreeSetupAction)) {
+        return { success: false, errors: ['Invalid worktree setup config'] }
+      }
+      const actions: WorktreeSetupAction[] = parsed
 
       if (actions.length === 0) return { success: true, errors: [] }
 
@@ -4965,6 +4979,10 @@ export function registerIpcHandlers(
       const sender = event.sender
       const controller = new AbortController()
       setupAbortControllers.set(sender.id, controller)
+      // Closing the window mid-setup must stop the remaining actions too; the
+      // renderer can no longer send `worktree:abortSetup` once it is gone.
+      const abortOnDestroyed = (): void => controller.abort()
+      sender.once('destroyed', abortOnDestroyed)
 
       try {
         return await runWorktreeSetup(
@@ -4982,6 +5000,7 @@ export function registerIpcHandlers(
           controller.signal,
         )
       } finally {
+        if (!sender.isDestroyed()) sender.removeListener('destroyed', abortOnDestroyed)
         setupAbortControllers.delete(sender.id)
       }
     },

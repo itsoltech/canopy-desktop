@@ -113,6 +113,9 @@ export class BrowserManager {
     // only ever target a <webview> guest — never a main renderer or another
     // window's contents — so reject anything that isn't a webview guest.
     if (wc.getType() !== 'webview') return
+    // ...and only a guest embedded in the requesting window, so one window
+    // cannot attach listeners, DevTools or autofill to another window's webview.
+    if (wc.hostWebContents?.id !== sender.id) return
 
     // Idempotency guard: the listeners wired up below are anonymous closures
     // that teardown() cannot selectively remove. If this exact guest is already

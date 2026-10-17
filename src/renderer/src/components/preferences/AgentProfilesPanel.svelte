@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { tick, type Component } from 'svelte'
+  import { tick, untrack, type Component } from 'svelte'
+  import CredentialStorageNote from './_partials/CredentialStorageNote.svelte'
   import { Plus, Trash2 } from '@lucide/svelte'
   import type { AgentType } from '../../../../main/agents/types'
   import type { AgentProfileMasked, ProfilePrefs } from '../../../../main/profiles/types'
@@ -46,20 +47,25 @@
   let saving = $state(false)
   let dirty = $state(false)
 
+  // Boolean derived only notifies on change, so store broadcasts (which replace the profiles
+  // array) do not re-run the draft reset below — only a selection change does.
+  let hasSelected = $derived(selected !== null)
+
   $effect(() => {
-    if (!selected) {
-      draftName = ''
-      draftPrefs = {}
+    void selectedId
+    void hasSelected
+    untrack(() => {
+      if (!selected) {
+        draftName = ''
+        draftPrefs = {}
+      } else {
+        draftName = selected.name
+        draftPrefs = { ...selected.prefs }
+      }
       draftApiKey = ''
       draftApiKeyTouched = false
       dirty = false
-      return
-    }
-    draftName = selected.name
-    draftPrefs = { ...selected.prefs }
-    draftApiKey = ''
-    draftApiKeyTouched = false
-    dirty = false
+    })
   })
 
   function markDirty(): void {
@@ -100,6 +106,7 @@
       })
       selectedId = saved.id
       dirty = false
+      draftApiKey = ''
       draftApiKeyTouched = false
       addToast(`Saved profile "${saved.name}"`)
     } catch (e) {
@@ -120,6 +127,15 @@
   }
 
   async function handleNew(): Promise<void> {
+    if (dirty) {
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message: 'You have unsaved changes in the current profile. Create a new profile anyway?',
+        confirmLabel: 'Discard',
+        destructive: true,
+      })
+      if (!ok) return
+    }
     saving = true
     try {
       const created = await saveProfile({
@@ -270,6 +286,9 @@
           {onPrefsChange}
           {onApiKeyChange}
         />
+        <div class="mt-4">
+          <CredentialStorageNote sharingNote={false} />
+        </div>
       </div>
     {:else}
       <div class="text-md text-text-faint p-6 text-center">
