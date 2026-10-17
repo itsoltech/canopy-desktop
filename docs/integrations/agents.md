@@ -98,6 +98,8 @@ Each adapter declares `busyEvents` and `idleEvents` sets. The `AgentSessionManag
 
 A compaction normally runs inside a turn, and the turn's `Stop` settles the pane. Claude Code 2.1.299 also compacts a parked conversation between turns, and no `Stop` follows. So a compaction that starts while the pane is not busy is settled by its own `PostCompact`, and the notch shows neither end of it, so a parked pane does not peek out as finished. A compaction that starts mid-turn still waits for the turn's `Stop`.
 
+In the 2.1.302 build the server can instead have Claude Code write a parked conversation's summary and apply it only in the next turn. Writing it runs `PreCompact`, and the `PostCompact` comes with the next turn. Until the user's next prompt, the parked pane counts as busy and reads as compacting (see the 2.1.302 notes under Configuration).
+
 Claude Code runs Canopy's `Stop` hook in parallel with any `Stop` hook from the user's own settings, so Canopy cannot see whether one of those blocks the stop. When one does, Claude keeps working while the pane reads idle, the notch peeks out with "Finished" if the pane is out of view, and the close confirmations count the pane as not busy, until its next tool call or its next stop. A blocked `SubagentStop` likewise removes the subagent from `activeSubagents` while it keeps running.
 
 ### Notifications
@@ -3976,7 +3978,141 @@ it one entry at a time. Of the 76 entries the 2.1.300 run could not read:
 "… +39 more". The changelog archive and the official `CHANGELOG.md` were unreachable this run,
 because `gh api` and web fetches were both refused. The 2.1.301 build carries only earlier
 releases' changelogs; the 2.1.302 build should carry these. On this branch, `npm ci` now installs
-`0.3.301`, which vendors CLI 2.1.301.
+`0.3.301`, which vendors CLI 2.1.301. The 2.1.302 section below reads the other 39.
+
+**2.1.302 adds a `/config` row for idle compaction, and a profile's Settings JSON hides it.** The
+entry reads "Added an Idle compaction row to /config for turning idle compaction off or back on;
+the notices shown after an idle compaction now say how to turn it off". In the 2.1.302 build on the
+runner:
+
+- **Where the row writes.** It writes `idleCompaction` to user settings, `~/.claude/settings.json`.
+  Turning it off there applies to every pane and to the user's other Claude Code sessions.
+- **When the row is shown.** Only while the server has idle compaction on, and only when the value
+  in effect comes from user settings or from nothing at all. A profile whose Settings JSON sets
+  `idleCompaction` puts it in the `--settings` file, which outranks user settings. Its panes show
+  no row, and the profile's value wins.
+- **The notice.** "Compacted while idle, before the prompt cache expired" now ends "turn off with
+  "idleCompaction": false in settings.json". For a Canopy pane, that is the user's settings file or
+  the profile's Settings JSON field. The per-session `--settings` file is rewritten at every spawn.
+
+**The 2.1.302 build can write a parked conversation's summary without applying it, and Canopy then
+reads the pane as working.** The server flag behind idle compaction can pick a second mode,
+`compact_on_return`, beside 2.1.299's `compact`. Its notice reads "Compacted after an hour idle,
+using a summary written while you were away". The idle timer fires under the same conditions, and
+this mode also needs the `precomputeCompactionEnabled` setting, which is on by default. In this
+mode the timer does not compact:
+
+- **While the pane is parked.** The timer starts the CLI's background summary job. The job runs the
+  settings `PreCompact` hooks, with trigger `auto`, before it writes the summary. A blocking
+  `PreCompact` hook cancels it ("Precomputed compact blocked by PreCompact hook"). No other hook
+  runs then.
+- **On return.** The next turn applies the stored summary, after its `UserPromptSubmit`. Its
+  `PostCompact` runs then.
+- **What Canopy does.** The `PreCompact` arrives while the pane is idle, so `BusySessions` treats it
+  as an idle compaction. The pane joins the busy set until its `PostCompact`, which now comes only
+  inside the user's next turn. Until the next prompt, the tab and window close confirmations count
+  the parked pane as working. The renderer shows it as compacting (`agentState.svelte.ts:319-320`),
+  and the worktree status reads working. The notch shows neither end, as for any idle compaction.
+- **Why there is no fix in this increment.** The job's `PreCompact` payload is the same as a
+  compaction's (`trigger` and `custom_instructions`), so Canopy cannot tell them apart. A fix would
+  stop counting any compaction that starts while the pane is idle as busy or as compacting, which
+  also changes how a 2.1.299 idle compaction reads. Whether the server sends `compact_on_return` to
+  anyone was not traced. `{ "idleCompaction": false }` in a profile's Settings JSON turns both modes
+  off, and `{ "precomputeCompactionEnabled": false }` turns off this one along with the job's other
+  trigger, below.
+- **When it arrived.** The background summary job is older than the mode. The vendored 2.1.207 build
+  already runs it behind a separate server flag, ahead of an auto-compact that is coming. That
+  trigger starts inside a turn, where the pane is already busy. `compact_on_return` is not in the
+  2.1.207 build, and the 2.1.299 notes above name only `compact`. When it arrived between them was
+  not traced.
+
+**WebFetch and WebSearch calls in a Canopy pane cannot be moved to the background.** In the 2.1.302
+build both tools declare `backgrounding: "detach"`. The CLI's low-latency submit path
+(`[low-latency-submit]` in its debug log) uses that: when a message is typed mid-turn, it can move
+those running calls to the background and deliver the message early. It refuses for a call that
+any `PostToolUse` or `PostToolUseFailure` hook covers, and when a `PostToolBatch` hook, or a mod's
+`tool.call` hook for that tool, is loaded. Canopy's empty matchers cover every tool, so in its
+panes a message typed during either call waits for the call to finish. Neither literal is in the
+vendored 2.1.207 build, and no readable entry names the feature. No change in Canopy: a narrower
+matcher would cost both tools their `toolCalling` status and detail. It is the same class as
+2.1.301's artifact check.
+
+**`CLAUDE_CODE_AUTO_MODE_MODEL` picks the client-side auto mode classifier's model.** It passes the
+blocklist, so a profile's custom env vars can set it for panes whose Permission mode is Auto. It
+does not change server-side auto mode, which 2.1.278 made the default for API key, Bedrock, Vertex,
+Foundry and gateway users. In the build, a server-configured classifier model also overrides it,
+and the CLI ignores a model when "the API's safeguards refuse the classifier's escalated check on
+it". Canopy sets neither way.
+
+**The other visible entries need no Canopy change.**
+
+- **Stopping during a compaction.** Stopping a turn while its conversation is being compacted no
+  longer fails with "Prompt is too long". Fixed in the CLI.
+- **Subcommands.** `claude plugin` and other subcommands now wait for a queued settings write
+  before they exit, and 2.1.301 fixed sign-outs after a short command exited mid-refresh. Canopy
+  runs no `claude` subcommand. It only looks the binary up with `which` or `where`
+  (`commitMessageGenerator.ts:13-18`, `handlers.ts:1247-1258`).
+- **Gateways.** `/autocompact` and `/effort` saved to the wrong model when a gateway names Opus 4 or
+  4.1 with a prefix. A profile's Effort level is passed as `--effort` at every spawn either way.
+- **Not used by Canopy.** The Read tool's 128 MB image limit, the fix for switching to Vertex or
+  Bedrock mid-session, the ToolSearch cache fix, plugin marketplaces in reftable repositories, the
+  PowerShell tool, the desktop app's MCP pointers, the Claude Design notices and the credit-billed
+  prompt suggestions.
+
+**Canopy's contract against 2.1.302, by presence.** The 2.1.302 build was on the runner at
+`~/.local/share/claude/versions/2.1.302`. No 2.1.301 build was reachable, so nothing below is a
+diff:
+
+- **Hook events.** The array names the same 33 events, the 18 Canopy subscribes to among them.
+  `PostToolUseFailure` carries `error`, `StopFailure` carries `error` and `error_details`,
+  `PreCompact` and `PostCompact` carry `trigger`, `PostCompact` carries `compact_summary`,
+  `PostModelSwitch` carries `to_model`, and `SessionEnd` carries `reason`: `clear`, `resume`,
+  `logout`, `prompt_input_exit` or `other`.
+- **Tools.** `TaskCreate` still takes `subject` and `activeForm`, and `TaskUpdate` still takes
+  `taskId`.
+- **Flags and status line.** All seven flags Canopy emits are present. The status line still sends
+  the `cost` totals, `context_window`'s `used_percentage` and `context_window_size`, and the
+  `five_hour`, `seven_day` and `spend_limit` windows.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The metadata step fits a `User Memory Project One` copy coming back, by arithmetic.** The archive
+reports +5,755 prompt tokens (+39.2%), three more prompt files (+23.1%) and a +1,406.7 kB bundle.
+That gives 14,678 → 20,433 tokens and 13 → 16 files, and 14,678 is the 2.1.301 note's total. With
+the system share going from 28.2% to 41.1%, the system half grew about +4,259 and the tools half
+about +1,496, each ±18. The system step fits one `User Memory Project One` copy, 4,253 tokens, the
+size of the step 2.1.300 lost. The tools step is not attributed. The two tools Canopy reads by name
+are checked above, and `summarizeToolInput` reads generic input keys. 5,755 tokens is about 23 kB
+of text, so most of the bundle growth is code. `meta/prompt-stats.md` would settle both steps, and
+was not reachable.
+
+**All 51 of 2.1.301's entries are now read, one release late.** The 2.1.302 build carries the full
+changelogs of 2.1.292 to 2.1.301 as one string, which starts at `## 2.1.301`. Of the 39 entries the
+2.1.301 run could not read:
+
+- **Model-switch hooks.** "Fixed switching to a model whose name contains
+  `application-inference-profile` running your `awsAuthRefresh` command and delaying model-switch
+  hooks when the provider is not Bedrock". Canopy subscribes to both model-switch hooks, so its
+  `to_model` read waited with them. Fixed in the CLI.
+- **Repeated compaction behind a gateway.** "Fixed conversations being compacted over and over, on
+  a model you didn't pick, behind an LLM gateway whose responses name a different model than the
+  one requested". A profile whose Base URL points at such a gateway is that setup. Each compaction
+  reached Canopy as
+  `PreCompact`, `PostCompact` and `SessionStart` with source `compact`, and the last resets the
+  Agent Inspector (see 2.1.299). Fixed in the CLI.
+- **Sign-outs after short commands.** Canopy runs no `claude` subcommand (see above).
+- **Terminals.** The stray `>0q` and `>4m` text is for VTE older than 0.53, and the stray `GOK`
+  text for some iTerm2 versions. Canopy panes run xterm.js. Whether the `GOK` fix depends on the
+  iTerm2 detection a pane can inherit (see 2.1.292) was not traced.
+- **The rest.** The VS Code, self-hosted runner, mod, vim mode, skill, `/rewind`, `/diff`,
+  artifact, workflow, Markdown, theme, Read tool, permission-check and smaller-context model-switch
+  entries name no hook, flag or field Canopy uses.
+
+**12 of 2.1.302's 63 CLI changelog entries were read.** The pasted notes list 12 and hide 51 behind
+"… +51 more"; the archive's highlights name one of the 51, the credit-billed prompt suggestions.
+The changelog archive and the official `CHANGELOG.md` were unreachable this run, because `gh api`
+and the one web fetch were both refused. The 2.1.303 build should carry them. On this branch,
+`npm ci` now installs `0.3.302`, which vendors CLI 2.1.302.
 
 ## Error states
 
