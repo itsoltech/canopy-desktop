@@ -4117,7 +4117,52 @@ changelogs of 2.1.292 to 2.1.301 as one string, which starts at `## 2.1.301`. Of
 "… +51 more"; the archive's highlights name one of the 51, the credit-billed prompt suggestions.
 The changelog archive and the official `CHANGELOG.md` were unreachable this run, because `gh api`
 and the one web fetch were both refused. The 2.1.303 build should carry them. On this branch,
-`npm ci` now installs `0.3.302`, which vendors CLI 2.1.302.
+`npm ci` now installs `0.3.302`, which vendors CLI 2.1.302. The 2.1.303 build turned out not to
+carry them (see the 2.1.303 notes below).
+
+**2.1.303 lists one entry, and nothing in it reaches Canopy.** The pasted notes give "Bug fixes and
+reliability improvements" with no "… +N more" line, so the list is complete. The archive's
+highlight adds only that the fixes reduce crashes and command failures. No hook, flag, field, tool
+or setting is named. npm published `0.3.303` 52h 28m after `0.3.302`, and the archive reports
+a +6.2 kB bundle.
+
+**Canopy's contract against 2.1.303, by presence.** The 2.1.303 build was on the runner at
+`~/.local/share/claude/versions/2.1.303`. No 2.1.302 build was reachable, so nothing below is a
+diff:
+
+- **Hook events.** The array names the same 33 events, the 18 Canopy subscribes to among them, and
+  the union of hook-input schemas has 33 members. `PostToolUseFailure` carries `error`,
+  `StopFailure` carries `error` and `error_details`, `PreCompact` and `PostCompact` carry `trigger`,
+  `PostCompact` carries `compact_summary`, `PostModelSwitch` carries `to_model`, and `SessionEnd`
+  carries `reason`: `clear`, `resume`, `logout`, `prompt_input_exit` or `other`.
+- **Tools.** `TaskCreate` still takes `subject` and `activeForm`, and `TaskUpdate` still takes
+  `taskId`.
+- **Flags and status line.** All seven flags Canopy emits are present. The status line still sends
+  the `cost` totals, `context_window`'s `used_percentage` and `context_window_size`, and the
+  `five_hour`, `seven_day` and `spend_limit` windows.
+- **Hooked sessions.** The function that asks whether a hook covers a tool has the same six call
+  sites as in the 2.1.302 build, the tool-detach check among them, so the 2.1.302 notes on tool
+  detach still apply. Idle compaction still lists the modes `log`, `compact` and
+  `compact_on_return`.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The metadata step fits a third `User Memory Project One` copy, by arithmetic.** The archive
+reports +6,556 prompt tokens (+32.1%), three more prompt files (+18.8%) and a +6.2 kB bundle. That
+gives 20,433 → 26,989 tokens and 16 → 19 files, and 20,433 is the 2.1.302 note's total. With the
+system share going from 41.1% to 48.3%, the system half grew about +4,638 and the tools half
+about +1,918, each ±24. The system step fits `User Memory Project One 3`, 4,642 tokens (see
+2.1.288), the copy after the one that came back at 2.1.302. The tools step is not attributed. 6,556
+tokens is about 26 kB of text, four times the bundle's growth, so the build holds that much new
+text only if it lost about as much elsewhere. Most of the step is probably the archive's own
+extraction. The two tools Canopy reads by name are checked above, and `summarizeToolInput` reads
+generic input keys. `meta/prompt-stats.md` would settle both steps, and was not reachable.
+
+**2.1.302's 51 hidden entries are still unread.** The 2.1.303 build carries the changelogs of
+2.1.293 to 2.1.301 as one string. It starts at `## 2.1.301`, as in the 2.1.302 build, and has one
+release fewer. It has no `## 2.1.302` section, and the visible 2.1.302 entry about the `/config` row
+is not in it. The changelog archive, the official `CHANGELOG.md` and the one web fetch were refused
+again. On this branch, `npm ci` now installs `0.3.303`, which vendors CLI 2.1.303.
 
 ## Error states
 
