@@ -74,6 +74,10 @@ function generateCommitMessageInner(
           model: 'haiku',
           pathToClaudeCodeExecutable: claudePath,
           outputFormat: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+          // Pure text generation over an untrusted diff: disable every built-in
+          // tool (Bash, Read, Edit, WebFetch, …) so prompt-injected diff content
+          // cannot drive file reads or commands. Structured output is unaffected.
+          tools: [],
           env,
         },
       })

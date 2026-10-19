@@ -532,7 +532,10 @@ export class RemoteSessionService {
    * `hostWcId`; this method just guards on session state.
    */
   forwardSignalToPeer(msg: Record<string, unknown>): ResultAsync<void, RemoteServerError> {
-    if (this.status.kind !== 'peerArrived' && this.status.kind !== 'paired') {
+    // Only after the user accepted the device (or it auto-accepted as trusted):
+    // answering SDP/ICE during `peerArrived` would open the data channels
+    // before the accept prompt was answered.
+    if (this.status.kind !== 'paired') {
       return errAsync({ _tag: 'NoPendingPeer' })
     }
     this.resetIdleTimer()
@@ -615,10 +618,12 @@ export class RemoteSessionService {
       return { ok: false, reason: 'another device is already paired' }
     }
 
+    // Peer-supplied (before acceptance): bound it, since it is rendered in the
+    // accept prompt and persisted with remembered devices.
     const deviceName =
       trustedDevice?.name ??
-      (typeof msg.deviceName === 'string' && msg.deviceName.length > 0
-        ? msg.deviceName
+      (typeof msg.deviceName === 'string' && msg.deviceName.trim().length > 0
+        ? msg.deviceName.trim().slice(0, 64)
         : 'Remote device')
     const device: PendingDevice = {
       deviceId: incomingDeviceId ?? randomBytes(8).toString('hex'),
@@ -694,6 +699,12 @@ export class RemoteSessionService {
     // every window would give other tabs a chance to race-reply to SDP/ICE,
     // which would confuse the peer. The host window is the one that called
     // `remote:start` and owns the RTCPeerConnection.
+    //
+    // Legitimate peers only send their offer after receiving `accepted`, so
+    // anything arriving before the session is `paired` (e.g. an offer sent
+    // while the accept modal is still open) is dropped instead of letting the
+    // host negotiate WebRTC ahead of the user's decision.
+    if (this.status.kind !== 'paired') return
     if (this.hostWcId === null) return
     const wc = webContentsNs.fromId(this.hostWcId)
     if (!wc || wc.isDestroyed()) return

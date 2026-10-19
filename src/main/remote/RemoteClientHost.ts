@@ -4,7 +4,7 @@ import path from 'node:path'
 import { match } from 'ts-pattern'
 
 const CSP_HEADER =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:"
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:; base-uri 'none'; object-src 'none'; form-action 'none'"
 
 function contentTypeFor(ext: string): string {
   return match(ext.toLowerCase())
@@ -64,7 +64,16 @@ export class RemoteClientHost {
    * the caller should fall through to other routes.
    */
   async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
-    const url = new URL(req.url ?? '/', 'http://placeholder.invalid')
+    // Request-target is untrusted LAN input; `new URL('//', base)` and similar
+    // throw, so parse it at this boundary and answer 400 instead.
+    let url: URL
+    try {
+      url = new URL(req.url ?? '/', 'http://placeholder.invalid')
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return true
+    }
     const pathname = url.pathname
 
     // Anything outside /remote/* is not ours
@@ -152,6 +161,9 @@ export class RemoteClientHost {
       // Connection may already be closed; just end quietly.
       res.end()
     })
+    // `pipe` does not destroy the source when the client aborts mid-response,
+    // which would leave the file descriptor open.
+    res.on('close', () => stream.destroy())
     stream.pipe(res)
     return true
   }

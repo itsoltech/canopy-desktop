@@ -30,6 +30,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
   import { addToast, showUrlToast } from '../../lib/stores/toast.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
@@ -226,10 +227,20 @@
     }
   }
 
-  function handleStarRemoveAll(): void {
+  async function handleStarRemoveAll(): Promise<void> {
     const url = session?.url
-    if (url) removeFavoritesByHost(url)
     starDropdownOpen = false
+    if (!url) return
+    // Bulk delete sits right under "Add" in the dropdown: confirm before
+    // dropping every favorite for the host.
+    const ok = await confirm({
+      title: 'Remove favorites',
+      message: 'Remove all favorites for this site?',
+      details: url,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (ok) removeFavoritesByHost(url)
   }
 
   function handleStarAddNew(): void {

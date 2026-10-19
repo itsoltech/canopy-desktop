@@ -44,6 +44,7 @@ const APP_SHORTCUTS = new Set([
 ])
 
 const BROWSER_PARTITION = 'persist:browser'
+const MAX_FAVICON_BYTES = 1024 * 1024
 
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
@@ -58,6 +59,10 @@ export class BrowserManager {
   trackWindow(win: BrowserWindow): void {
     win.webContents.on('did-attach-webview', (_event, guestWc) => {
       this.guestContents.set(guestWc.id, guestWc)
+      // Deny popups until `setup()` installs the forwarding handler; the guest
+      // has `allowpopups`, so a window.open() before then would otherwise open
+      // a real BrowserWindow with Electron defaults.
+      guestWc.setWindowOpenHandler(() => ({ action: 'deny' }))
       guestWc.on('destroyed', () => {
         this.guestContents.delete(guestWc.id)
       })
@@ -122,6 +127,9 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // A new guest under the same browserId replaces the old one: release the
+    // previous entry's DevTools view/debugger instead of orphaning them.
+    if (existing) this.teardown(browserId)
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
@@ -250,13 +258,31 @@ export class BrowserManager {
         })
         return
       }
+      // The URL is page-controlled: never fetch file:/custom schemes from main,
+      // and bound the body so a huge or endless response is not buffered,
+      // base64-expanded and pushed over IPC.
+      if (!/^(https?|data):/i.test(faviconUrl)) return
       wc.session
         .fetch(faviconUrl)
         .then(async (response) => {
-          if (!response.ok) return
-          const buffer = await response.arrayBuffer()
+          if (!response.ok || !response.body) return
+          const declared = Number(response.headers.get('content-length'))
+          if (Number.isFinite(declared) && declared > MAX_FAVICON_BYTES) return
+          const reader = response.body.getReader()
+          const chunks: Uint8Array[] = []
+          let received = 0
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            received += value.byteLength
+            if (received > MAX_FAVICON_BYTES) {
+              void reader.cancel().catch(() => {})
+              return
+            }
+            chunks.push(value)
+          }
           const contentType = response.headers.get('content-type') ?? 'image/x-icon'
-          const base64 = Buffer.from(buffer).toString('base64')
+          const base64 = Buffer.concat(chunks).toString('base64')
           this.sendToRenderer(browserId, 'browser:faviconChanged', {
             browserId,
             favicon: `data:${contentType};base64,${base64}`,

@@ -423,7 +423,9 @@
         role="menuitem"
         onclick={ctxCopyPath}>Copy Path</button
       >
-      {#if ctxMenu.wt.branch !== '(detached)'}
+      <!-- Branch/worktree/CI actions need a git repo: a non-git project's menu
+           has no branch and no repoRoot to act on. -->
+      {#if ctxMenu.project.isGitRepo && ctxMenu.wt.branch !== '(detached)'}
         <button
           class="block w-full px-2.5 py-1.5 border-0 rounded-sm bg-transparent text-text text-md font-inherit cursor-pointer text-left transition-colors duration-fast hover:bg-hover"
           role="menuitem"

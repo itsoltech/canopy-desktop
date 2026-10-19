@@ -67,10 +67,17 @@ function shellQuote(s: string): string {
 }
 
 function substituteVars(command: string, ctx: SetupContext): string {
-  return command
-    .replace(/\$MAIN_WORKTREE/g, shellQuote(ctx.mainWorktreePath))
-    .replace(/\$NEW_WORKTREE/g, shellQuote(ctx.newWorktreePath))
-    .replace(/\$REPO_ROOT/g, shellQuote(ctx.repoRoot))
+  const values: Record<string, string> = {
+    MAIN_WORKTREE: ctx.mainWorktreePath,
+    NEW_WORKTREE: ctx.newWorktreePath,
+    REPO_ROOT: ctx.repoRoot,
+  }
+  // Single pass with a replacer function: `$&`-style sequences in a path are
+  // inserted literally, and an already-quoted path is never re-scanned for
+  // another variable (which could break out of its quoting).
+  return command.replace(/\$(MAIN_WORKTREE|NEW_WORKTREE|REPO_ROOT)/g, (_match, name: string) =>
+    shellQuote(values[name]),
+  )
 }
 
 function getLabel(action: WorktreeSetupAction): string {

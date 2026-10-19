@@ -166,7 +166,10 @@
     refreshing = false
   }
 
+  let destroyed = false
+
   onDestroy(() => {
+    destroyed = true
     if (finishTimer) clearTimeout(finishTimer)
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
@@ -532,7 +535,9 @@
   }
 
   function finishCreation(): void {
-    if (step === 'done') return
+    // An in-flight create that resolves after unmount must not arm a timer that
+    // later selects the worktree, launches a tool and calls a stale onClose().
+    if (destroyed || step === 'done') return
     step = 'done'
     if (finishTimer) clearTimeout(finishTimer)
     finishTimer = setTimeout(
@@ -591,11 +596,18 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      if (step === 'setup') {
-        skipSetup()
-      } else {
-        onClose()
-      }
+      handleDismiss()
+    }
+  }
+
+  function handleDismiss(): void {
+    // Closing mid-create would unmount while the IPC call is still running;
+    // let it finish (setup can still be skipped once it starts).
+    if (step === 'creating') return
+    if (step === 'setup') {
+      skipSetup()
+    } else {
+      onClose()
     }
   }
 
@@ -611,7 +623,7 @@
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
+  onmousedown={handleDismiss}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div

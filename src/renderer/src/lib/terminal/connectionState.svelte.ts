@@ -7,5 +7,7 @@ export function setConnectionStatus(sessionId: string, status: ConnectionStatus)
 }
 
 export function clearConnectionStatus(sessionId: string): void {
-  delete connectionStatus[sessionId]
+  // Called for every PTY output chunk: skip the proxy write (and the reactive
+  // version bump it causes) when there is nothing to clear.
+  if (sessionId in connectionStatus) delete connectionStatus[sessionId]
 }

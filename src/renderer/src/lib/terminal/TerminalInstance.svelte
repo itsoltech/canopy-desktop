@@ -147,10 +147,13 @@
     }
   })
 
-  // React to preference changes for theme/font
+  // React to preference changes for theme/font. Read the pref BEFORE the
+  // `termRef` guard: termRef is a plain let assigned later in initTerminal(), so
+  // an effect that returns before any reactive read tracks nothing and never
+  // re-runs (open terminals would keep the old theme/font until remounted).
   $effect(() => {
-    if (!termRef) return
     const themeName = prefs.theme || 'Default'
+    if (!termRef) return
     const theme = getTheme(themeName)
     termRef.options.theme = theme
     if (containerEl) {
@@ -158,15 +161,31 @@
     }
   })
 
+  // Cell size changed (font): recompute cols/rows — the container size did not
+  // change, so the ResizeObserver will not. Same guards as that observer so a
+  // hidden (display:none) terminal is not shrunk; it refits when shown again.
+  function refitAfterFontChange(): void {
+    requestAnimationFrame(() => {
+      const fit = fitAddonRef
+      if (disposed || !fit || !containerEl?.clientWidth || !containerEl.clientHeight) return
+      const dims = fit.proposeDimensions()
+      if (!dims || dims.cols < 10 || dims.rows < 3) return
+      fit.fit()
+    })
+  }
+
   $effect(() => {
-    if (!termRef) return
     const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
+    if (!termRef) return
     termRef.options.fontSize = size
+    refitAfterFontChange()
   })
 
   $effect(() => {
+    const fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
     if (!termRef) return
-    termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    termRef.options.fontFamily = fontFamily
+    refitAfterFontChange()
   })
 
   function shellEscape(path: string): string {

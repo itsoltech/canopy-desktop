@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
   import fuzzysort from 'fuzzysort'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { openFile } from '../../lib/stores/tabs.svelte'
@@ -32,8 +33,11 @@
   }
 
   onMount(() => {
+    // Return focus to the opener when Quick Open closes instead of <body>.
+    const restoreFocus = captureFocusReturn()
     inputEl?.focus()
     void forceReload(worktreePath)
+    return restoreFocus
   })
 
   const matchedResults: Result[] = $derived.by(() => {

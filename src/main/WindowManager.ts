@@ -162,26 +162,34 @@ export class WindowManager {
 
       event.preventDefault()
 
-      void this.getActiveSessionInfo(wcId).then(async (detail) => {
-        if (!detail) {
-          this.forceClosing.add(wcId)
-          win.close()
-          return
-        }
-        const { response } = await dialog.showMessageBox(win, {
-          type: 'warning',
-          buttons: ['Close Window', 'Cancel'],
-          defaultId: 1,
-          cancelId: 1,
-          title: 'Active Sessions',
-          message: 'This window has active sessions',
-          detail,
+      // The window can be destroyed while this is pending (e.g. quit destroys
+      // windows behind an open prompt); calling into it would then throw and
+      // surface as an unhandled rejection.
+      void this.getActiveSessionInfo(wcId)
+        .then(async (detail) => {
+          if (win.isDestroyed()) return
+          if (!detail) {
+            this.forceClosing.add(wcId)
+            win.close()
+            return
+          }
+          const { response } = await dialog.showMessageBox(win, {
+            type: 'warning',
+            buttons: ['Close Window', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'Active Sessions',
+            message: 'This window has active sessions',
+            detail,
+          })
+          if (response === 0 && !win.isDestroyed()) {
+            this.forceClosing.add(wcId)
+            win.close()
+          }
         })
-        if (response === 0) {
-          this.forceClosing.add(wcId)
-          win.close()
-        }
-      })
+        .catch(() => {
+          // Nothing left to close.
+        })
     })
 
     win.on('closed', () => {
@@ -332,11 +340,21 @@ export class WindowManager {
   }
 
   setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {
+    // The window may have closed while the watcher was starting (disposeWindow
+    // already ran): stop it instead of re-creating state for a dead window.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     let watchers = this.gitWatchers.get(wcId)
     if (!watchers) {
       watchers = new Map()
       this.gitWatchers.set(wcId, watchers)
     }
+    // Overlapping watch calls for the same repo: stop the watcher being replaced
+    // rather than orphaning its native subscription.
+    const previous = watchers.get(repoRoot)
+    if (previous && previous !== watcher) void previous.stop()
     watchers.set(repoRoot, watcher)
   }
 
@@ -397,6 +415,12 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
+    const previous = this.fileWatchers.get(wcId)
+    if (previous && previous !== watcher) void previous.stop()
     this.fileWatchers.set(wcId, watcher)
   }
 

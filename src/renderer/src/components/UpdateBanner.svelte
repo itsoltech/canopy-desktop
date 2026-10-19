@@ -13,7 +13,7 @@
   <div
     class="fixed bottom-4 right-4 flex items-center gap-2.5 px-4 py-2.5 bg-bg-overlay border border-border rounded-xl backdrop-blur-md z-banner text-md text-text max-w-100 shadow-banner"
     class:!border-danger-bg={state === 'error'}
-    role="alert"
+    role="status"
     aria-live="polite"
   >
     {#if state === 'up-to-date'}
@@ -25,8 +25,17 @@
         onclick={dismissUpdate}>Dismiss</button
       >
     {:else if state === 'downloading'}
-      <span class="truncate">Downloading update… {percent}%</span>
-      <div class="flex-1 min-w-20 h-1 bg-hover-strong rounded-sm overflow-hidden">
+      <!-- Percent is hidden from the live region so each tick isn't re-announced;
+           the progressbar below exposes the value on demand. -->
+      <span class="truncate">Downloading update…<span aria-hidden="true"> {percent}%</span></span>
+      <div
+        class="flex-1 min-w-20 h-1 bg-hover-strong rounded-sm overflow-hidden"
+        role="progressbar"
+        aria-label="Update download progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+      >
         <div
           class="h-full bg-accent-text rounded-sm transition-all duration-300"
           style="width: {percent}%"
