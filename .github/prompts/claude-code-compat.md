@@ -32,6 +32,9 @@ v2.1.301 run's was held, the twenty-seventh: its compare call went out twice bef
 inside a pipe and then bare, and both were refused, as were its one `WebFetch` and `npm run lint`.
 The v2.1.302 run's was held, the twenty-eighth: its compare call went out once, bare, in the first
 batch before the checkout, and was refused, as were its one `WebFetch` and `npm run lint`.
+The v2.1.303 run's was held, the twenty-ninth: three calls went out in its first three batches,
+before the checkout (a compare with a piped `--jq`, the same compare pipe-free, and a bare
+`releases/latest`), and all three were refused, as were its one `WebFetch` and `npm run lint`.
 So expect either. Record which way the one probe went in the PR body.
 **If it runs, use point 6.**
 
@@ -71,7 +74,16 @@ commits kept `claude[bot]`, and `git fetch origin --unshallow` (allowed as `git 
 followed by `git merge-base HEAD origin/next` showed the branch still on the v2.1.296 tracker
 commit. After the v2.1.300 run it had: every commit carried `github-actions[bot]` at 2026-10-15
 07:13:19 UTC, and the branch forked from that run's tracker commit. After the v2.1.301 run it had
-too, at 2026-10-16 07:07:03 UTC. `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
+too, at 2026-10-16 07:07:03 UTC. After the v2.1.302 run it had not, and the four results have one
+cause. The checkout is shallow (`fetch-depth: 1`), so the rebase finds a merge base only when the
+branch forked from `next`'s head at checkout, or when the session deepened the clone. Otherwise the
+replay conflicts and the step prints "Rebase conflict — skipping". An opencode tracker commit moved
+`next` before the v2.1.299, v2.1.301 and v2.1.302 runs, and the skip after v2.1.299 left the
+v2.1.300 run behind too. The v2.1.300 and v2.1.301 sessions deepened the clone to find the fork
+point, and their rebases ran. The v2.1.299 and v2.1.302 rebases were skipped, and nothing in those
+runs' records shows a deepen. So deepen every run, even when the last rebase ran. The v2.1.303 run used
+`git fetch origin next --deepen=60`, which is allowed; the next run can read from the committer
+whether that was enough. `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
@@ -926,7 +938,10 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > embedded documents come first, so page with `head_limit` and `offset`. The v2.1.301 run read all
 > 88 of 2.1.300's entries this way, where the v2.1.300 run had read 12, and the v2.1.302 run all 51
 > of 2.1.301's, after the same 18 lines. Do it every run, and say in the PR body how many entries it
-> recovered. There is still no previous build on disk to diff
+> recovered. **List the headers first, because a build can skip the release before it.** The
+> 2.1.303 build's string still starts at `## 2.1.301`, as the 2.1.302 build's did, and ends after
+> `## 2.1.293`, so the 51 hidden 2.1.302 entries stayed unread. The `Grep` tool with `-o` and
+> `## 2\.1\.\d{3}` lists the headers in one call. There is still no previous build on disk to diff
 > against, so use the build for the contract and for these entries, not for a diff.
 >
 > **Correction from v2.1.281 → v2.1.282: there _is_ an older build on disk, just not the previous
@@ -1152,7 +1167,8 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > six call sites with `.{0,160}Pse\(\{hookEvent:.{0,60}` and read each. One, the tool-detach check,
 > refuses to move a running WebFetch or WebSearch call to the background when a `PostToolUse` or
 > `PostToolUseFailure` hook covers it, so Canopy panes never get that, and no readable entry names
-> it. Compare the count of call sites with the last run's before reading them.
+> it. Compare the count of call sites with the last run's before reading them. The 2.1.303 build
+> kept the name `Pse` and the six call sites; `Pse\(\{hookEvent:.{0,30}` with `-o` lists them.
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
@@ -1207,6 +1223,8 @@ npm install @anthropic-ai/claude-agent-sdk@{VERSION} --save-exact=false
 > 1. Confirm the release has the same dependency shape as the one being replaced, so no lockfile
 >    node needs adding or removing:
 >    `npm view @anthropic-ai/claude-agent-sdk@{VERSION} engines peerDependencies optionalDependencies`
+>    The registry also gives each platform package a `libc` (`glibc` or `musl`) that the lockfile
+>    does not record, for `0.3.302` as for `0.3.303`. Leave it out; CI's `npm ci` accepts that.
 > 2. Update `version`, `resolved` and `integrity` for the main package and each optional platform
 >    package in `package-lock.json`, plus both dependency ranges (`package.json` and the lockfile's
 >    root `packages[""]` entry).
