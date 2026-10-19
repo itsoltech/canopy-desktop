@@ -4140,10 +4140,10 @@ diff:
 - **Flags and status line.** All seven flags Canopy emits are present. The status line still sends
   the `cost` totals, `context_window`'s `used_percentage` and `context_window_size`, and the
   `five_hour`, `seven_day` and `spend_limit` windows.
-- **Hooked sessions.** The function that asks whether a hook covers a tool has the same six call
-  sites as in the 2.1.302 build, the tool-detach check among them, so the 2.1.302 notes on tool
-  detach still apply. Idle compaction still lists the modes `log`, `compact` and
-  `compact_on_return`.
+- **Hooked sessions.** The function that asks whether a hook covers a tool has six call sites, the
+  count the 2.1.302 run found in its build, and the tool-detach check is still one of them. So the
+  2.1.302 notes on tool detach still apply. Idle compaction still lists the modes `log`, `compact`
+  and `compact_on_return`.
 - **Not checked.** Key, option and environment-name counts and the literal diff need the previous
   build and a script, and this run had neither.
 

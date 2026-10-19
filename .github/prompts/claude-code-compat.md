@@ -79,9 +79,10 @@ cause. The checkout is shallow (`fetch-depth: 1`), so the rebase finds a merge b
 branch forked from `next`'s head at checkout, or when the session deepened the clone. Otherwise the
 replay conflicts and the step prints "Rebase conflict — skipping". An opencode tracker commit moved
 `next` before the v2.1.299, v2.1.301 and v2.1.302 runs, and the skip after v2.1.299 left the
-v2.1.300 run behind too. The v2.1.300 and v2.1.301 sessions deepened the clone to find the fork
-point, and their rebases ran. The v2.1.299 and v2.1.302 rebases were skipped, and nothing in those
-runs' records shows a deepen. So deepen every run, even when the last rebase ran. The v2.1.303 run used
+v2.1.300 run behind too. The v2.1.300 session unshallowed the clone to find the fork point, and its
+rebase ran. The v2.1.301 rebase ran too, so by this reading that session also deepened the clone,
+though its records do not say so. The v2.1.299 and v2.1.302 rebases were skipped, and nothing in
+those runs' records shows a deepen. So deepen every run, even when the last rebase ran. The v2.1.303 run used
 `git fetch origin next --deepen=60`, which is allowed; the next run can read from the committer
 whether that was enough. `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
