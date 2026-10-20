@@ -125,6 +125,11 @@ when the CLI reports its real conversation/session ID. Resume commands always us
 `agentSessionId`; falling back to the internal hook route ID would make Claude/Codex report
 "session not found".
 
+From Claude Code 2.1.304, on Pro and Max plans, a resumed Claude pane can open on "Resume this
+conversation?" when resuming would use a noticeable share of the five-hour usage limit. "Start a
+new conversation" runs `/clear`, and `agentSessionId` follows the new session (see the 2.1.304
+notes below).
+
 ### Worktree-level status aggregation
 
 `getWorktreeAgentStatus()` scans all agent panes in a worktree's tabs and returns the highest-priority status: `waitingPermission` > `error` > `working` (thinking/toolCalling/compacting) > `idle` > `none`.
