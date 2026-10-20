@@ -65,8 +65,9 @@ function generateCommitMessageInner(
   const prompt = PROMPT_TEMPLATE.replace('{diff}', () => truncatedDiff)
   // Claude Code before 2.1.290 ends a turn whose last request fails after the structured
   // output was delivered with `is_error: true` on that `success` result and a non-zero exit,
-  // so the SDK throws "Claude Code returned an error result" after yielding it. The output
-  // was already validated against OUTPUT_SCHEMA, so the `orElse` below keeps it.
+  // so the SDK throws "Claude Code returned an error result" after yielding it. The loop
+  // below stops reading at that result, so the throw is not reached; the output was already
+  // validated against OUTPUT_SCHEMA, and the `orElse` still keeps it if the stream fails later.
   let structuredOutput: CommitOutput | null = null
 
   return fromExternalCall(
@@ -98,10 +99,18 @@ function generateCommitMessageInner(
       })
 
       for await (const message of q) {
-        if (message.type === 'result' && (message as { subtype?: string }).subtype === 'success') {
+        if (message.type !== 'result') continue
+        if ((message as { subtype?: string }).subtype === 'success') {
           structuredOutput = (message as Record<string, unknown>)
             .structured_output as CommitOutput | null
         }
+        // The first result is this turn's answer. A plugin or mod can keep a headless run
+        // going after it (Claude Code fixed that in 2.1.299 for mods that submit a prompt at
+        // the end of every turn, and in 2.1.304 for plugins that spawn subagents), and the
+        // executable may be an older `claude` on PATH. Leaving the loop returns the SDK's
+        // message stream, which closes the query: it ends stdin and stops the CLI if it is
+        // still running two seconds later.
+        break
       }
 
       return structuredOutput

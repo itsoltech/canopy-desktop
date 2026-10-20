@@ -60,4 +60,22 @@ describe('generateCommitMessage', () => {
     query.mockReturnValue(run([], new Error('Claude Code process exited with code 1')))
     await expect(generateCommitMessage('diff', prefs)).resolves.toBeNull()
   })
+
+  // A plugin or mod can keep a headless run going after its first result. Claude Code fixed
+  // that in 2.1.299 and 2.1.304, and the `claude` on PATH may be older.
+  it('returns the first result and ends a run that keeps going', async () => {
+    let ended = false
+    async function* keepsGoing(): AsyncGenerator<Record<string, unknown>> {
+      try {
+        yield result({ structured_output: { subject: 'feat: the first answer', body: '' } })
+        yield result({ structured_output: { subject: 'chore: a later turn', body: '' } })
+        await new Promise(() => {})
+      } finally {
+        ended = true
+      }
+    }
+    query.mockReturnValue(keepsGoing())
+    await expect(generateCommitMessage('diff', prefs)).resolves.toBe('feat: the first answer')
+    expect(ended).toBe(true)
+  })
 })
