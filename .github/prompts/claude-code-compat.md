@@ -35,6 +35,10 @@ batch before the checkout, and was refused, as were its one `WebFetch` and `npm 
 The v2.1.303 run's was held, the twenty-ninth: three calls went out in its first three batches,
 before the checkout (a compare with a piped `--jq`, the same compare pipe-free, and a bare
 `releases/latest`), and all three were refused, as were its one `WebFetch` and `npm run lint`.
+The v2.1.304 run's was held, the thirtieth: one compare call went out in its first batch, before
+the checkout and inside a pipe, and came back "contains multiple operations … requires approval:
+`gh api …`". It was not retried. Its one `WebFetch` and `npm run lint`, before each of two code
+commits, were refused too.
 So expect either. Record which way the one probe went in the PR body.
 **If it runs, use point 6.**
 
@@ -83,8 +87,10 @@ v2.1.300 run behind too. The v2.1.300 session unshallowed the clone to find the 
 rebase ran. The v2.1.301 rebase ran too, so by this reading that session also deepened the clone,
 though its records do not say so. The v2.1.299 and v2.1.302 rebases were skipped, and nothing in
 those runs' records shows a deepen. So deepen every run, even when the last rebase ran. The v2.1.303 run used
-`git fetch origin next --deepen=60`, which is allowed; the next run can read from the committer
-whether that was enough. `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
+`git fetch origin next --deepen=60`, which is allowed, and it was enough: after that run every
+commit carried `github-actions[bot]` at 2026-10-19 07:20:15 UTC, and the branch forked from that
+run's tracker commit. The v2.1.304 run deepened the same way. `git log -S` also runs after the
+unshallow. If the branch is ahead, verify the commit that is there
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
@@ -941,9 +947,13 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > of 2.1.301's, after the same 18 lines. Do it every run, and say in the PR body how many entries it
 > recovered. **List the headers first, because a build can skip the release before it.** The
 > 2.1.303 build's string still starts at `## 2.1.301`, as the 2.1.302 build's did, and ends after
-> `## 2.1.293`, so the 51 hidden 2.1.302 entries stayed unread. The `Grep` tool with `-o` and
-> `## 2\.1\.\d{3}` lists the headers in one call. There is still no previous build on disk to diff
-> against, so use the build for the contract and for these entries, not for a diff.
+> `## 2.1.293`, so the 51 hidden 2.1.302 entries stayed unread. A skip is not lasting: the 2.1.304
+> build's string starts at `## 2.1.303` and has the `## 2.1.302` section again, so the v2.1.304 run
+> read all 63 of 2.1.302's entries, two releases late. Read every section the last run could not.
+> The `Grep` tool with `-o` and `## 2\.1\.\d{3}` lists the headers in one call; substitute the
+> release numbers into the pattern above, as in `## 2\.1\.30[23]\\n|…|\\n\\n## 2\.1\.301`. There is
+> still no previous build on disk to diff against, so use the build for the contract and for these
+> entries, not for a diff.
 >
 > **Correction from v2.1.281 → v2.1.282: there _is_ an older build on disk, just not the previous
 > one.** The SDK vendored in `node_modules` ships its own `claude` binary
@@ -967,6 +977,11 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > same as `npm test`, so a test added here has CI as its first run. And the top block of this file works
 > when it is reached: the v2.1.282 run checked out the branch and read this copy before any fetch, and
 > spent **zero** `gh api` probes — the first run recorded here to do so.
+>
+> **Two tool facts from v2.1.304.** A `grep` with a `\{101,\}` interval was refused inside a pipe,
+> but `git diff -U0 -- <file> | grep '^+[^+]' | wc -L` ran. It prints the longest added line plus
+> one for the `+`, which is the check the 100-column docs need. `gh pr view … > /tmp/<file>` was
+> refused as a redirect. Print the body instead, and it spills to a file that `Read` opens.
 >
 > **Which input shape a hook receives can be read from the build, and it is the check to run whenever
 > a tool gains aliases.** The 2.1.280 note inferred that aliased `Write` input reached `PreToolUse`
@@ -1169,7 +1184,18 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > refuses to move a running WebFetch or WebSearch call to the background when a `PostToolUse` or
 > `PostToolUseFailure` hook covers it, so Canopy panes never get that, and no readable entry names
 > it. Compare the count of call sites with the last run's before reading them. The 2.1.303 build
-> kept the name `Pse` and the six call sites; `Pse\(\{hookEvent:.{0,30}` with `-o` lists them.
+> kept the name `Pse` and the six call sites; `Pse\(\{hookEvent:.{0,30}` with `-o` lists them. The
+> 2.1.304 build renamed it `hie` and kept six; search `.{0,40}\(\{hookEvent:.{0,40}` first and take
+> the name that recurs, since a pinned name finds nothing once it changes.
+>
+> **An eighth shape: an entry that fixes a run not ending. Ask where Canopy's consumer stops
+> reading.** 2.1.304 fixed "a plugin keeping a headless run going past --max-turns, Stop, or ended
+> input", after 2.1.299's mod fix. The commit-message turn is a headless run, and for a string
+> prompt the SDK ends its input at the first result (`closing stdin` in `sdk.mjs`). Canopy read on
+> to the CLI's exit, so on an older CLI the plugin held AI Generate. The fix was Canopy's own: leave
+> the loop at the first result. Before deciding that a `break` leaks the process, read the
+> generator, not only `Query.return()`: `Query[Symbol.asyncIterator]()` returns `sdkMessages`, and
+> `readSdkMessages`'s `finally` runs `cleanup()`, which ends stdin and sends SIGTERM after 2 s.
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
