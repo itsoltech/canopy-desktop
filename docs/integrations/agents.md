@@ -4253,9 +4253,9 @@ files (+26.3%) and a +853.1 kB bundle. That gives 26,989 → 39,495 tokens and 1
 26,989 is the 2.1.303 note's total. With the system share going from 48.3% to 45.7%, the system
 half grew about +5,013 and the tools half about +7,493, each ±34. The system step fits
 `User Memory Project One 4`, 5,031 tokens (see 2.1.288), after the copies that came back at 2.1.302
-and 2.1.303. The tools step is the largest in this range and is about 30 kB of text against an
-853 kB bundle. The two tools Canopy reads by name are checked above, and `summarizeToolInput`
-reads generic input keys. `meta/prompt-stats.md` would settle both steps, and was not reachable.
+and 2.1.303. The tools step is about 30 kB of text against an 853 kB bundle. The two tools Canopy
+reads by name are checked above, and `summarizeToolInput` reads generic input keys.
+`meta/prompt-stats.md` would settle both steps, and was not reachable.
 
 **All 63 of 2.1.302's entries are now read, two releases late.** The 2.1.304 build carries the
 changelogs of 2.1.294 to 2.1.303 as one string, which starts at `## 2.1.303` and, unlike the 2.1.303
