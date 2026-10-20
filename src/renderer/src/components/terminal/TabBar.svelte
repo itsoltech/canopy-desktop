@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match, P } from 'ts-pattern'
   import {
     tabsByWorktree,
     activeTabId,
@@ -69,10 +70,12 @@
       const t = session.status.type
       if (t === 'waitingPermission')
         return { color: 'var(--color-warning)', pulse: true, label: 'Permission required' }
-      if (t === 'error') priority = Math.max(priority, 5)
-      else if (t === 'thinking' || t === 'toolCalling' || t === 'compacting' || t === 'starting')
-        priority = Math.max(priority, 4)
-      else if (t === 'idle' || t === 'ended') priority = Math.max(priority, 3)
+      const statusPriority = match(t)
+        .with('error', () => 5)
+        .with(P.union('thinking', 'toolCalling', 'compacting', 'starting'), () => 4)
+        .with(P.union('idle', 'ended'), () => 3)
+        .otherwise(() => 0)
+      priority = Math.max(priority, statusPriority)
     }
 
     if (priority === 5) return { color: 'var(--color-danger)', pulse: false, label: 'Agent error' }

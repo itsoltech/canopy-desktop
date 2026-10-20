@@ -65,7 +65,9 @@
     const raw = getPref(prefKey, '')
     if (!raw) return []
     try {
-      return JSON.parse(raw) as SetupAction[]
+      const parsed: unknown = JSON.parse(raw)
+      // Valid JSON that isn't a list would make `actions.some` throw and break this pane.
+      return Array.isArray(parsed) ? (parsed as SetupAction[]) : []
     } catch {
       return []
     }

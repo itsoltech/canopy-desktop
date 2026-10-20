@@ -211,13 +211,17 @@
 
     <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
       {#if loading}
-        <div class="flex items-center justify-center gap-2 py-8 text-md text-text-muted">
+        <div
+          class="flex items-center justify-center gap-2 py-8 text-md text-text-muted"
+          role="status"
+        >
           <LoaderCircle size={16} class="animate-spin" />
           <span>{task ? 'Rendering from the PR template…' : 'Preparing the form…'}</span>
         </div>
       {:else if loadError}
         <div
           class="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-xs text-danger-text leading-snug"
+          role="alert"
         >
           {loadError}
         </div>
