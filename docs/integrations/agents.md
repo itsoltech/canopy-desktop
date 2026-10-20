@@ -4162,7 +4162,131 @@ generic input keys. `meta/prompt-stats.md` would settle both steps, and was not 
 2.1.293 to 2.1.301 as one string. It starts at `## 2.1.301`, as in the 2.1.302 build, and has one
 release fewer. It has no `## 2.1.302` section, and the visible 2.1.302 entry about the `/config` row
 is not in it. The changelog archive, the official `CHANGELOG.md` and the one web fetch were refused
-again. On this branch, `npm ci` now installs `0.3.303`, which vendors CLI 2.1.303.
+again. On this branch, `npm ci` now installs `0.3.303`, which vendors CLI 2.1.303. The 2.1.304
+build does carry them (see the 2.1.304 notes below).
+
+**2.1.304 fixes a plugin keeping a headless run going, and Canopy now ends its own headless turn at
+the first result.** The entry reads "Fixed a plugin keeping a headless run going past --max-turns,
+Stop, or ended input by spawning subagents or re-running a finished one". 2.1.299 had fixed "a mod
+that submits a prompt at the end of every turn keeping a headless run going past `--max-turns`,
+`--max-budget-usd`, an interrupt, or the end of the host's conversation".
+
+- **Canopy is in that population.** The commit-message turn is a headless run. It omits
+  `settingSources`, so it loads the user's plugins, and it runs whatever `claude` is on `PATH`,
+  which may predate both fixes. For a string prompt the SDK closes stdin when the first result
+  arrives ("First result received for single-turn query, closing stdin"), so the turn is an "ended
+  input" run. Canopy then read the stream until the CLI exited, with no timeout, so such a plugin
+  held the button while the run kept spending tokens.
+- **The fix.** The loop now leaves at the first result (`commitMessageGenerator.ts:101-114`).
+  Leaving it returns the SDK's message generator, whose `finally` runs the query's cleanup. That
+  ends stdin, waits up to two seconds for the CLI to exit, and then sends SIGTERM, with SIGKILL
+  five seconds later; on Windows the kill comes at seven seconds. This was read from the vendored
+  `0.3.207` SDK, because the `0.3.304` code was not on disk. It works with any CLI version.
+- **The trade-off.** A `SessionEnd` hook from the user's settings that runs longer than about two
+  seconds is now cut short in this turn. The CLI gives `SessionEnd` hooks 1.5 seconds, or the
+  longest configured hook timeout up to 60 seconds.
+- **Tests.** A new test feeds a run that never ends after two results and expects the first. The
+  older test for a stream that fails after its result now passes because the loop stops first;
+  the `orElse` fallback stays for a stream that fails while closing. CI is the first run of both.
+
+**A restored pane can open on "Resume this conversation?" on Pro and Max plans.** The entry reads
+"Added a warning on Pro and Max plans when resuming an inactive conversation would use a noticeable
+share of your 5-hour usage limit: resume anyway, or start a new conversation and Claude can look up
+the previous one if you refer to it". In the 2.1.304 build:
+
+- **When it is asked.** At startup when the session has no initial message, which is how Canopy
+  restores a pane (`claude --resume <id>`, `claude.ts:263-264`); after a resume from the picker;
+  and, with trigger `idle`, in a pane left idle, where "Your unsent message will still be there
+  after you answer". The CLI first offers its older idle-return dialog. Only when that has no
+  summary to offer does it estimate the share of the five-hour limit, and it asks when the share
+  reaches a server-set minimum.
+- **What Canopy sees.** "Resume" continues the session. "Start a new conversation" submits
+  `/clear`, so Canopy gets `SessionEnd` with reason `clear` and a new `SessionStart`, and
+  `updateAgentSessionId` (`AgentSessionManager.ts:101`) moves the pane's resume id to the new
+  session. Whether `SessionStart` arrives before the dialog on a restored pane was not traced.
+- **No change in Canopy.** The dialog is the user's to answer in the pane.
+
+**The other visible entries need no Canopy change.**
+
+- **API key approval.** A profile's API key reaches the pane as `ANTHROPIC_API_KEY`
+  (`claude.ts:237`), which is the startup approval the policy-refresh fix names. Fixed in the CLI.
+- **Mods.** Canopy ships no mod. A user mod's `decider: "person"` ask is refused with the mod's
+  reason where nobody can be asked, and the commit-message turn has no permission dialog or host
+  callback. Whether a mod's `tool.check` sees that turn's structured-output call was not traced.
+- **`/auto-mode-setup`.** Panes can run it, including on Bedrock, Vertex, Foundry and gateway
+  profiles, and an auto-mode pane may show a tip pointing to it. Where it saves what it learns was
+  not traced.
+- **The compaction summary.** The tool names are added in the transcript view (Ctrl+O). Canopy
+  reads `PostCompact`'s `compact_summary` (`claude.ts:159`); whether that text changed was not
+  traced.
+- **Not used by Canopy.** The sandbox `denyRead` fix (Canopy sets no Claude sandbox setting, though
+  a profile's Settings JSON can), `CLAUDE_CODE_TRANSCRIPT_LOCAL_GC` (Canopy does not set it), the
+  `rm -r` safety prompt, the skipped-hook transcript line, `e.isReadOnly` and
+  `/claude-api managed-agents-secure`.
+
+**Canopy's contract against 2.1.304, by presence.** The 2.1.304 build was on the runner at
+`~/.local/share/claude/versions/2.1.304`. No 2.1.303 build was reachable, so nothing below is a
+diff:
+
+- **Hook events.** The array names the same 33 events, the 18 Canopy subscribes to among them, and
+  the union of hook-input schemas has 33 members. `PostToolUseFailure` carries `error`,
+  `StopFailure` carries `error` and `error_details`, `PreCompact` and `PostCompact` carry `trigger`,
+  `PostCompact` carries `compact_summary`, `PostModelSwitch` carries `to_model`, and `SessionEnd`
+  carries `reason`: `clear`, `resume`, `logout`, `prompt_input_exit` or `other`.
+- **Tools.** `TaskCreate` still takes `subject` and `activeForm`, and `TaskUpdate` still takes
+  `taskId`.
+- **Flags and status line.** All seven flags Canopy emits are present. The status line still sends
+  the `cost` totals, `context_window`'s `used_percentage` and `context_window_size`, and the
+  `five_hour`, `seven_day` and `spend_limit` windows.
+- **Hooked sessions.** The function that asks whether a hook covers a tool is now minified as
+  `hie`, not `Pse`, so search `hie\(\{hookEvent:`. It still has six call sites, and the tool-detach
+  check is still one of them. Idle compaction still lists the modes `log`, `compact` and
+  `compact_on_return`.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The metadata step fits a fourth `User Memory Project One` copy on the system side, and the tools
+side is not attributed.** The archive reports +12,506 prompt tokens (+46.3%), five more prompt
+files (+26.3%) and a +853.1 kB bundle. That gives 26,989 → 39,495 tokens and 19 → 24 files, and
+26,989 is the 2.1.303 note's total. With the system share going from 48.3% to 45.7%, the system
+half grew about +5,013 and the tools half about +7,493, each ±34. The system step fits
+`User Memory Project One 4`, 5,031 tokens (see 2.1.288), after the copies that came back at 2.1.302
+and 2.1.303. The tools step is the largest in this range and is about 30 kB of text against an
+853 kB bundle. The two tools Canopy reads by name are checked above, and `summarizeToolInput`
+reads generic input keys. `meta/prompt-stats.md` would settle both steps, and was not reachable.
+
+**All 63 of 2.1.302's entries are now read, two releases late.** The 2.1.304 build carries the
+changelogs of 2.1.294 to 2.1.303 as one string, which starts at `## 2.1.303` and, unlike the 2.1.303
+build's, has a `## 2.1.302` section. Of the 51 entries the 2.1.302 run could not read:
+
+- **Headless permission mode.** "Changed `claude -p` and Agent SDK sessions with no permission mode
+  to start in `default` mode on third-party providers, with telemetry off or on a fresh install;
+  `--permission-mode auto` keeps auto". The commit-message turn sets no permission mode, and the
+  provider preference can put it on Bedrock, Vertex or Foundry
+  (`commitMessageGenerator.ts:153-155`). It calls no tool that needs approval, so its result does
+  not change. Panes are interactive sessions, which the entry does not cover.
+- **Fork subagents in the SDK.** "Changed fork subagents (`subagent_type: "fork"`) to be on by
+  default in `claude -p`, the Agent SDK, the desktop app and VS Code". That reaches the
+  commit-message turn's Agent tool, which the turn has never needed. `CLAUDE_CODE_FORK_SUBAGENT=0`
+  is not on Canopy's env blocklist (`envBlocklist.ts`).
+- **Foreground subagents.** "a subagent's own Agent calls in `claude -p`, the Agent SDK, the
+  desktop app and VS Code now run in the foreground by default". Canopy panes are terminal
+  sessions, where nothing changed.
+- **Prompt and agent hooks.** "at most 12 of one event run at a time". Canopy registers command
+  hooks only.
+- **Auto mode.** "a conversation too long for the safety check is now compacted, instead of every
+  checked tool call being denied". In an Auto pane that compaction runs inside a turn, where the
+  pane already reads busy.
+- **The rest.** The VS Code, cloud-session, Remote Control, Claude Tag, Code Review, self-hosted
+  runner, artifact, OpenTelemetry, agents-view, `/design`, MCP protocol, prompt-suggestion,
+  `claude plugin details`, wrapped-link, emoji, worktree-isolation, exFAT, plugin-startup,
+  background-session, Chrome, footer-hint and `/feedback` entries name no hook, flag or field
+  Canopy uses.
+
+**12 of 2.1.304's 76 CLI changelog entries were read.** The pasted notes list 12 and hide 64 behind
+"… +64 more". The changelog archive, the official `CHANGELOG.md` and the one web fetch were refused
+again. The 2.1.305 build should carry them, unless it skips a release as the 2.1.303 build did. On
+this branch, `npm ci` now installs `0.3.304`, which vendors CLI 2.1.304.
 
 ## Error states
 
