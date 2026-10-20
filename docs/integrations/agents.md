@@ -4174,9 +4174,10 @@ that submits a prompt at the end of every turn keeping a headless run going past
 - **Canopy is in that population.** The commit-message turn is a headless run. It omits
   `settingSources`, so it loads the user's plugins, and it runs whatever `claude` is on `PATH`,
   which may predate both fixes. For a string prompt the SDK closes stdin when the first result
-  arrives ("First result received for single-turn query, closing stdin"), so the turn is an "ended
-  input" run. Canopy then read the stream until the CLI exited, with no timeout, so such a plugin
-  held the button while the run kept spending tokens.
+  arrives ("First result received for single-turn query, closing stdin"), which is how "ended
+  input" reads for an SDK run; the entry's own text is not in the build. Canopy then read the
+  stream until the CLI exited, with no timeout, so such a plugin would hold the button while the
+  run kept spending tokens. No report shows a user hitting it.
 - **The fix.** The loop now leaves at the first result (`commitMessageGenerator.ts:101-114`).
   Leaving it returns the SDK's message generator, whose `finally` runs the query's cleanup. That
   ends stdin, waits up to two seconds for the CLI to exit, and then sends SIGTERM, with SIGKILL
@@ -4199,7 +4200,8 @@ the previous one if you refer to it". In the 2.1.304 build:
   session, unless it is a fork; and, with trigger `idle`, in a pane left idle, where "Your unsent
   message will still be there after you answer". On a resume, the CLI's older idle-return dialog
   goes first when it applies and has a summary to offer. Otherwise the CLI estimates the share of
-  the five-hour limit, and it asks when the share reaches a server-set minimum.
+  the five-hour limit, and it asks when the share reaches a configured minimum (`minPercent`),
+  whose source was not traced.
 - **What Canopy sees.** "Resume" continues the session. "Start a new conversation" submits
   `/clear`, so Canopy gets `SessionEnd` with reason `clear` and a new `SessionStart`, and
   `updateAgentSessionId` (`AgentSessionManager.ts:101`) moves the pane's resume id to the new
