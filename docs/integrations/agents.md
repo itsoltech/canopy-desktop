@@ -4195,11 +4195,11 @@ share of your 5-hour usage limit: resume anyway, or start a new conversation and
 the previous one if you refer to it". In the 2.1.304 build:
 
 - **When it is asked.** At startup when the session has no initial message, which is how Canopy
-  restores a pane (`claude --resume <id>`, `claude.ts:263-264`); after a resume from the picker;
-  and, with trigger `idle`, in a pane left idle, where "Your unsent message will still be there
-  after you answer". The CLI first offers its older idle-return dialog. Only when that has no
-  summary to offer does it estimate the share of the five-hour limit, and it asks when the share
-  reaches a server-set minimum.
+  restores a pane (`claude --resume <id>`, `claude.ts:263-264`); after a resume inside a running
+  session, unless it is a fork; and, with trigger `idle`, in a pane left idle, where "Your unsent
+  message will still be there after you answer". On a resume, the CLI's older idle-return dialog
+  goes first when it applies and has a summary to offer. Otherwise the CLI estimates the share of
+  the five-hour limit, and it asks when the share reaches a server-set minimum.
 - **What Canopy sees.** "Resume" continues the session. "Start a new conversation" submits
   `/clear`, so Canopy gets `SessionEnd` with reason `clear` and a new `SessionStart`, and
   `updateAgentSessionId` (`AgentSessionManager.ts:101`) moves the pane's resume id to the new
