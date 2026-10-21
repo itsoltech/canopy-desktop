@@ -4305,14 +4305,18 @@ rejects tool search, and behind gateways with ToolSearch disallowed or left out 
 
 - **Panes are in that population.** A pane gets its profile's Base URL and provider
   (`claude.ts:238-241`) and no `--tools`, though a profile's Settings JSON or the user's own
-  settings can deny ToolSearch. On a 2.1.304 `claude` behind an endpoint or gateway that refuses
-  tool search, every request failed until the user's CLI moved on. Canopy does not choose that CLI.
-- **So is the commit-message turn.** It takes a Base URL and Bedrock, Vertex or Foundry from the
-  global preferences or from Canopy's own environment (`commitMessageGenerator.ts:151-155` and
-  `:174`). It sets no `tools`, and it loads the user's settings, where a deny rule can disallow
-  ToolSearch. When `claude` is not on `PATH` it runs the bundled CLI, which the `0.3.304` bump in
-  the 2.1.304 increment made 2.1.304. By the entry, every request of that turn would then fail,
-  and AI Generate shows no error when it does.
+  settings can deny ToolSearch. By the entry, a pane on a 2.1.304 `claude` failed every request on
+  a Bedrock, Vertex or Foundry profile whose endpoint or gateway refused tool search, and on a Base
+  URL profile whose settings deny ToolSearch, until the user's CLI moved on. Canopy does not choose
+  that CLI.
+- **So is the commit-message turn.** It takes a Base URL and Bedrock, Vertex or Foundry from global
+  preferences saved before the profile migration, from Canopy's own environment, or from a Claude
+  settings file's `env` block (`commitMessageGenerator.ts:152-155` and `:174`). It sets no
+  `tools`, and it loads the user's settings, where a deny rule can disallow ToolSearch. When
+  `claude` is not on `PATH` it runs the bundled CLI, which the `0.3.304` bump in the 2.1.304
+  increment made 2.1.304. By the entry, every request of that turn then failed on a Bedrock,
+  Vertex or Foundry endpoint that refused tool search, or behind a Base URL gateway when a deny
+  rule removed ToolSearch, and AI Generate shows no error when it does.
 - **The fix.** "fix(deps): bump @anthropic-ai/claude-agent-sdk to 0.3.306" makes the bundled CLI
   2.1.306. No release carried `0.3.304`: this branch is unmerged, and `next` pins `^0.3.207`. Not
   reproduced: no 2.1.304 build and no such endpoint were on the runner.
@@ -4321,18 +4325,20 @@ rejects tool search, and behind gateways with ToolSearch disallowed or left out 
   models on a server-set list, which defaults to the Claude 3 models, and on Vertex any model older
   than Claude 4.5; the commit-message turn's `haiku` passes both checks. Behind a Base URL that is
   not Anthropic's, and on Bedrock, Vertex and Foundry, a 400 or 422 that is not a billing error is
-  sent again without deferred tools; two further exclusions were not traced. On Anthropic's own
-  endpoint the error must also name `defer_loading`, except in one auth state that was not traced.
-  The refusal then holds for the rest of the process. A ToolSearch removed by `disallowedTools`
-  turns tool search off instead ("may have been disallowed via disallowedTools").
-- **The cost that stays.** Each commit-message turn is a new process, so behind an endpoint that
-  refuses tool search every turn spends one refused request first, as with 2.1.288's
-  structured-output retry. The build's own log line names the way out: "ENABLE_TOOL_SEARCH=false
-  avoids the refused request". A pane takes it from its profile's env vars, and the
-  commit-message turn from the `env` block of the user's Claude Code settings. `BLOCKED_ENV_VARS`
-  passes it, and the name is in the 2.1.207 build too.
+  sent again without deferred tools; other exclusions were not traced. On Anthropic's own
+  endpoint, outside one auth state that was not traced, the error must name `defer_loading` or the
+  tool-search beta. The refusal then holds for the rest of the conversation, and for later
+  conversations in the process only when the error names that beta. A ToolSearch removed by
+  `disallowedTools` turns tool search off instead ("may have been disallowed via
+  disallowedTools").
+- **The cost that stays.** Each commit-message turn is a new process and a new conversation, so
+  behind an endpoint that refuses tool search every turn spends one refused request first, as with
+  2.1.288's structured-output retry. The build's own log line names the way out:
+  "ENABLE_TOOL_SEARCH=false avoids the refused request". A pane takes it from its profile's env
+  vars, and the commit-message turn from Canopy's own environment or the `env` block of the user's
+  Claude Code settings. `BLOCKED_ENV_VARS` passes it, and the name is in the 2.1.207 build too.
 
-**2.1.306's two entries do not reach Canopy.** The pasted notes list both, with no "… +N more"
+**2.1.306's two entries need no Canopy change.** The pasted notes list both, with no "… +N more"
 line, so the list is complete.
 
 - **Cloud sessions.** "Fixed claude -p inside cloud sessions reporting 'Not logged in' when started
@@ -4355,7 +4361,7 @@ line, so the list is complete.
   (`claude.ts:217-219`), and its effort select offers `low` to `max`
   (`ClaudeProfileForm.svelte:92-96`).
 - **Worktrees.** Canopy makes its own worktrees with git and passes no `--worktree`. Its worktree
-  list keeps every entry of `git worktree list --porcelain` (`GitRepository.ts:215-219` and
+  list keeps every entry of `git worktree list --porcelain` (`GitRepository.ts:215-222` and
   `:649-689`), so a subagent worktree the CLI left under `.claude/worktrees` would show there
   until removed. 2.1.305 cleans up unchanged ones more reliably. Read, not observed.
 - **Not used by Canopy.** The full-disk Bash error, `setMcpServers` (the commit-message turn calls
@@ -4374,10 +4380,10 @@ changelogs of 2.1.296 to 2.1.304 as one string, which starts at `## 2.1.304`. Of
 the 2.1.304 run could not read:
 
 - **Tool search behind a Base URL.** The entry quoted above, which 2.1.305 fixed.
-- **`context_management` behind gateways.** "Fixed `context_management: Extra inputs are not
-permitted` errors behind LLM gateways; Claude Code now resends the request without that field".
-  It reaches Base URL profiles and the commit-message turn behind a gateway, and the bundled CLI
-  has had it since `0.3.304`.
+- **`context_management` behind gateways.** "Fixed
+  `context_management: Extra inputs are not permitted` errors behind LLM gateways; Claude Code now
+  resends the request without that field". It reaches Base URL profiles and the commit-message turn
+  behind a gateway, and the bundled CLI has had it since `0.3.304`.
 - **Narrow panes.** "Fixed notes typed into a multiple-choice question with previews being cut off
   with '…' in terminals under about 100 columns, hiding what was typed". Split panes are often
   narrower than that. Fixed in the CLI.
@@ -4402,13 +4408,15 @@ permitted` errors behind LLM gateways; Claude Code now resends the request witho
 - **Agent teams.** "approving a shutdown request from the main session no longer exits the whole
   CLI". Before 2.1.304 that approval ended the pane's CLI, and Canopy marks an exited pane `ended`
   with or without `SessionEnd` (see the 2.1.300 notes).
-- **Skill hooks.** The per-source limits of 1,024 hooks and 16,384 matcher characters apply to
-  skill hooks. Canopy's 18 hooks are settings hooks.
+- **Skill hooks.** The per-source limits of 1,024 hooks and 16,384 matcher characters, and the
+  `allowed-tools` change under a policy that allows plugin hooks only, apply to skills. Canopy's
+  18 hooks are settings hooks.
 - **The rest.** The mod, Remote Control, Cowork, cloud-session, VS Code, Claude Tag, Code Review,
   OpenTelemetry, privacy, Consumer Terms, transcript-mode, `/loop`, `/usage`, artifact,
   self-hosted runner, Windows git, `/claude-api`, `claude plugin validate`, `/fast`, `--worktree`,
-  Read-interrupt, Bash output-file, agents-view, subagent, skill-list and large-resume entries
-  name no hook, flag or field Canopy uses.
+  Read-interrupt, Bash output-file, agents-view, subagent, skill-list, large-resume, Write-result
+  path, Desktop Code tab, stop-during-compaction, skill `once` hook, auto-mode file-size and
+  memory-use entries name no hook, flag or field Canopy uses.
 
 **Canopy's contract against 2.1.306, by presence.** The 2.1.306 build was on the runner at
 `~/.local/share/claude/versions/2.1.306`. No 2.1.305 or 2.1.304 build was reachable, so nothing
@@ -4444,9 +4452,9 @@ did not grow.**
   older than 2.1.305.
 - **2.1.306.** +9,115 tokens (+18.9%), three more files (+11.1%) and a +0.0 kB bundle: 48,347 →
   57,462 tokens and 27 → 30 files. With the system share going from 48.6% to 51.0%, the system half
-  grew about +5,809 and the tools half about +3,306, each ±53. The system step is
-  `User Memory Project One 6`, 5,809 tokens, to the token. The bundle grew by less than 0.05 kB, so
-  the step is not new text in the build unless as much text left it.
+  grew about +5,809 and the tools half about +3,306, each ±53. The system step's central figure
+  equals `User Memory Project One 6`, 5,809 tokens. The bundle grew by less than 0.05 kB, so the
+  step is not new text in the build unless as much text left it.
 - **Not attributed.** The tools steps. The two tools Canopy reads by name are checked above, and
   `summarizeToolInput` reads generic input keys. `meta/prompt-stats.md` would settle both steps,
   and was not reachable.
