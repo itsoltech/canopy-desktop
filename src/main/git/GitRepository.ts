@@ -1,6 +1,6 @@
 import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
-import { readFileSync, statSync } from 'fs'
+import { lstatSync, readFileSync } from 'fs'
 import { join } from 'path'
 import type { GitError } from './errors'
 import type { ParsedDiff, DiffFile } from './types'
@@ -45,8 +45,10 @@ function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<Diff
   const absPath = join(repoRoot, filePath)
   let content: string
   try {
-    const sz = statSync(absPath).size
-    if (sz > UNTRACKED_MAX_BYTES) {
+    // lstat, not stat: an untracked symlink must not be followed — its target can live outside
+    // the repo, or be a FIFO/device that would block this synchronous read indefinitely.
+    const st = lstatSync(absPath)
+    if (!st.isFile() || st.size > UNTRACKED_MAX_BYTES) {
       return ok({
         path: filePath,
         status: 'added' as const,

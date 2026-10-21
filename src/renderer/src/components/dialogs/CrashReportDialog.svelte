@@ -62,7 +62,9 @@
     }
   }
 
-  const formattedTime = $derived(formatDateTime(new Date(data.timestamp).toISOString()))
+  // formatDateTime returns '' for an invalid timestamp; `toISOString()` would throw and break
+  // rendering of the crash dialog itself.
+  const formattedTime = $derived(formatDateTime(data.timestamp))
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

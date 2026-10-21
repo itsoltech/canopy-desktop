@@ -345,7 +345,7 @@
           }}
           onauxclick={(e) => handleMiddleClick(e, tab.id)}
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
-          title={getTabDisplayName(tab)}
+          title={isExited ? `${getTabDisplayName(tab)} (exited)` : getTabDisplayName(tab)}
         >
           {#if favicon}
             <img class="flex-shrink-0 rounded-xs" src={favicon} alt="" width="12" height="12" />
@@ -367,7 +367,7 @@
             ></span>
           {/if}
           <span class="overflow-hidden text-ellipsis whitespace-nowrap flex-1 text-left"
-            >{getTabDisplayName(tab)}</span
+            >{getTabDisplayName(tab)}{#if isExited}<span class="sr-only"> (exited)</span>{/if}</span
           >
           {#if connState}
             <span
@@ -381,7 +381,7 @@
             ></span>
           {/if}
           <button
-            class="hidden group-hover/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
+            class="hidden group-hover/tab:flex group-focus-within/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
             onclick={(e: MouseEvent) => {
               e.stopPropagation()
               closeTab(tab.id)

@@ -90,7 +90,7 @@ reconnect/listen flow after the operating system wakes.
 ### Rejecting a device
 
 1. User clicks Reject on the accept prompt.
-2. `rejectPendingDevice()` sends `{ type: "rejected", reason: "user rejected" }` to the peer, closes the WebSocket, and returns to `waiting` state. The QR code remains valid for another device to scan.
+2. `rejectPendingDevice()` sends `{ type: "rejected", reason: "user rejected" }` to the peer, closes the WebSocket, and returns to `waiting` state. The QR code remains valid for another device to scan until the original 10-minute expiry; returning to `waiting` (after a rejection or a pending peer disconnecting) re-arms that deadline rather than extending it.
 
 ### Stopping a session
 

@@ -131,6 +131,9 @@ export class RunConfigCommandService {
         })
       }
 
+      // The window may have closed during pre_run; don't start the command for it.
+      if (sender.isDestroyed()) throw new Error('Window closed')
+
       // Run main command through shell so PATH is resolved
       const main = shellExecArgs(fullCommand)
       const session = this.deps.ptyManager.spawn({
@@ -198,7 +201,6 @@ export class RunConfigCommandService {
         }
       })
 
-      this.deps.windowManager.trackPtySession(senderId, session.id)
       this.runningProcesses.set(session.id, {
         sessionId: session.id,
         name: payload.name,
@@ -208,6 +210,8 @@ export class RunConfigCommandService {
       reserved = false
 
       try {
+        // Throws if the window closed during pre_run; the catch below then kills the process.
+        this.deps.windowManager.trackPtySession(senderId, session.id)
         this.deps.terminalStreamService.register(session.id, session.pty, senderId)
         return { sessionId: session.id, wsUrl: '', running: this.listRunning(sender) }
       } catch (error) {

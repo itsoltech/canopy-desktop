@@ -319,7 +319,10 @@ export class WindowManager {
 
   trackPtySession(wcId: number, sessionId: string): void {
     const set = this.ptySessions.get(wcId)
-    if (set) set.add(sessionId)
+    // The window closed while the PTY was being spawned and its teardown already ran: throw so
+    // the caller's rollback kills the PTY instead of leaving it untracked until app quit.
+    if (!set) throw new Error('Window closed')
+    set.add(sessionId)
   }
 
   untrackPtySession(wcId: number, sessionId: string): void {
@@ -337,6 +340,10 @@ export class WindowManager {
       watchers = new Map()
       this.gitWatchers.set(wcId, watchers)
     }
+    // Overlapping git:watch calls can both pass the dispose step; stop the one being replaced
+    // so its native subscription doesn't leak.
+    const existing = watchers.get(repoRoot)
+    if (existing && existing !== watcher) void existing.stop()
     watchers.set(repoRoot, watcher)
   }
 
@@ -397,6 +404,9 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    // Overlapping files:watch calls can both pass the dispose step; stop the replaced watcher.
+    const existing = this.fileWatchers.get(wcId)
+    if (existing && existing !== watcher) void existing.stop()
     this.fileWatchers.set(wcId, watcher)
   }
 

@@ -64,7 +64,16 @@ export class RemoteClientHost {
    * the caller should fall through to other routes.
    */
   async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
-    const url = new URL(req.url ?? '/', 'http://placeholder.invalid')
+    // An unparseable request target (e.g. `GET http://[`) makes `new URL` throw; answer 400
+    // instead of rejecting the caller's un-awaited request handler.
+    let url: URL
+    try {
+      url = new URL(req.url ?? '/', 'http://placeholder.invalid')
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return true
+    }
     const pathname = url.pathname
 
     // Anything outside /remote/* is not ours

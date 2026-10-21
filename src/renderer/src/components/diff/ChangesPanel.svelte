@@ -270,7 +270,10 @@
               file.status,
             )}">{statusIcon(file.status)}</span
           >
-          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span
+            class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+            title={file.path}
+          >
             <span class="text-text-faint">{dirname(file.path)}</span><span class="text-text"
               >{basename(file.path)}</span
             >
@@ -286,13 +289,13 @@
                 class="bg-transparent border-0 cursor-pointer px-0.5 py-px rounded-sm flex items-center justify-center text-success hover:bg-diff-add-bg"
                 onclick={(e) => handleStage(e, file.path)}
                 title="Stage"
-                aria-label="Stage file"><Check size={12} /></button
+                aria-label="Stage {file.path}"><Check size={12} /></button
               >
               <button
                 class="bg-transparent border-0 cursor-pointer px-0.5 py-px rounded-sm flex items-center justify-center text-danger hover:bg-diff-delete-bg"
                 onclick={(e) => handleRevert(e, file.path)}
                 title="Revert"
-                aria-label="Revert file"><X size={12} /></button
+                aria-label="Revert {file.path}"><X size={12} /></button
               >
             </span>
           {/if}

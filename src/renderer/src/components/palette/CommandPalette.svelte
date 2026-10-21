@@ -559,7 +559,7 @@
   })
 
   let groupedItems = $derived.by((): { category: string; items: PaletteItem[] }[] => {
-    const categoryOrder = ['Tools', 'Git', 'Worktrees', 'Tabs', 'App']
+    const categoryOrder = ['Tools', 'Git', 'Worktrees', 'Tabs', 'Terminal', 'App']
     const groups = new SvelteMap<string, PaletteItem[]>()
 
     for (const item of filteredItems) {

@@ -959,8 +959,8 @@ const api = {
     }) as Promise<string>,
 
   // Credential autofill (isolated world)
-  fillBrowserCredential: (browserId: string, username: string, password: string) =>
-    ipcRenderer.invoke('browser:fillCredential', { browserId, username, password }),
+  fillBrowserCredential: (browserId: string, username: string, password: string, host: string) =>
+    ipcRenderer.invoke('browser:fillCredential', { browserId, username, password, host }),
 
   // Credentials
   getCredentials: (domain: string) =>

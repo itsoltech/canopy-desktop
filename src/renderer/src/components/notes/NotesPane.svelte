@@ -166,6 +166,7 @@
         class:border-r={showPreview}
         class:border-border={showPreview}
         spellcheck="false"
+        aria-label="Notes"
         placeholder="# Notes — markdown supported. Lives only in memory (no file)."
         value={content}
         oninput={onInput}></textarea>

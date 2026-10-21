@@ -45,25 +45,33 @@
     prevStep()
   }
 
+  // Persisting the onboarding state can fail (IPC rejection); still close the dialog, otherwise
+  // `submitting` stays true and the full-screen modal can never be dismissed.
+  async function settle(task: Promise<void>): Promise<void> {
+    try {
+      await task
+    } catch (e) {
+      console.error('Failed to save onboarding state:', e)
+    }
+    closeDialog()
+  }
+
   async function handleSkip(): Promise<void> {
     if (submitting) return
     submitting = true
-    await skipOnboarding()
-    closeDialog()
+    await settle(skipOnboarding())
   }
 
   async function handleFinish(): Promise<void> {
     if (submitting) return
     submitting = true
-    await finishOnboarding()
-    closeDialog()
+    await settle(finishOnboarding())
   }
 
   async function handleOpenFolder(): Promise<void> {
     if (submitting) return
     submitting = true
-    await finishOnboarding()
-    closeDialog()
+    await settle(finishOnboarding())
     const path = await window.api.openFolder()
     if (path) openWorkspace(path)
   }

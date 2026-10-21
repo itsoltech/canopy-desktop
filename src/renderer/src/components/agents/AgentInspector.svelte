@@ -255,7 +255,9 @@
     <div class="flex flex-col gap-1.5">
       <h4 class={sectionLabelCls}>Notifications</h4>
       <div class="flex flex-col max-h-[200px] overflow-y-auto -mx-1" aria-live="polite">
-        {#each reversedNotifications as notif (notif.timestamp)}
+        <!-- Timestamps come from Date.now() and can repeat within a millisecond; a duplicate
+             key breaks the keyed each, so the index disambiguates. -->
+        {#each reversedNotifications as notif, i (`${notif.timestamp}:${i}`)}
           <div
             class="flex items-baseline justify-between gap-2 px-1 py-1 rounded-sm transition-colors duration-fast hover:bg-hover"
           >

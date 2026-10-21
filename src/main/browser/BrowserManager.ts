@@ -45,6 +45,25 @@ const APP_SHORTCUTS = new Set([
 
 const BROWSER_PARTITION = 'persist:browser'
 
+const FAVICON_PROTOCOLS = new Set(['http:', 'https:', 'data:'])
+const MAX_FAVICON_BYTES = 512 * 1024
+
+function safeProtocol(url: string): string {
+  try {
+    return new URL(url).protocol
+  } catch {
+    return ''
+  }
+}
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host
+  } catch {
+    return null
+  }
+}
+
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
   private guestContents = new Map<number, WebContents>()
@@ -122,6 +141,9 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // A new guest for an already-registered browserId: release the old entry's DevTools
+    // view and debugger before it is overwritten, or they leak until the window closes.
+    if (existing) this.teardown(browserId)
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
@@ -250,11 +272,16 @@ export class BrowserManager {
         })
         return
       }
+      // The URL is page-controlled: never let it make main read local files (file:) or other
+      // schemes, and skip oversized icons (declared size is checked before reading the body).
+      if (!FAVICON_PROTOCOLS.has(safeProtocol(faviconUrl))) return
       wc.session
         .fetch(faviconUrl)
         .then(async (response) => {
           if (!response.ok) return
+          if (Number(response.headers.get('content-length') ?? 0) > MAX_FAVICON_BYTES) return
           const buffer = await response.arrayBuffer()
+          if (buffer.byteLength > MAX_FAVICON_BYTES) return
           const contentType = response.headers.get('content-type') ?? 'image/x-icon'
           const base64 = Buffer.from(buffer).toString('base64')
           this.sendToRenderer(browserId, 'browser:faviconChanged', {
@@ -375,12 +402,15 @@ export class BrowserManager {
    * Fill credential into form fields using an isolated JS world (ID 999).
    * Page scripts cannot intercept values set from an isolated world.
    */
-  fillCredential(browserId: string, username: string, password: string): void {
+  fillCredential(browserId: string, username: string, password: string, host: string): void {
     const entry = this.entries.get(browserId)
     if (!entry) return
 
     const wc = this.guestContents.get(entry.webContentsId) ?? findWebContents(entry.webContentsId)
     if (!wc || wc.isDestroyed()) return
+    // The credential was decrypted for `host` (possibly after an OS auth prompt); if the guest
+    // navigated elsewhere meanwhile, never inject it into the new page.
+    if (hostOf(wc.getURL()) !== host) return
 
     const code = `
       (function() {

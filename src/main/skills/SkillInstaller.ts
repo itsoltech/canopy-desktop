@@ -225,7 +225,17 @@ export class SkillInstaller {
         new Promise<void>((resolve, reject) => {
           execFile(
             'git',
-            ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            // core.symlinks=false checks symlinks out as plain files, so a repo can't point
+            // SKILL.md (or a subpath) at files outside the clone, e.g. ~/.ssh keys.
+            [
+              '-c',
+              'core.symlinks=false',
+              'clone',
+              '--depth',
+              '1',
+              `https://github.com/${owner}/${repo}.git`,
+              tmpDir,
+            ],
             (error) => {
               if (error) reject(error)
               else resolve()

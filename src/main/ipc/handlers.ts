@@ -1113,6 +1113,9 @@ export function registerIpcHandlers(
 
     try {
       await fs.promises.writeFile(saveResult.filePath, json, { encoding: 'utf8', mode: 0o600 })
+      // `mode` only applies when the file is created; overwriting an existing export keeps its
+      // old (possibly world-readable) permissions, and the export can hold plaintext API keys.
+      await fs.promises.chmod(saveResult.filePath, 0o600)
     } catch (e) {
       throw new Error(
         settingsExportErrorMessage({
@@ -1422,6 +1425,12 @@ export function registerIpcHandlers(
       // can still query git state on demand if the watcher fails to start.
       console.warn(gitErrorMessage(startResult.error))
     }
+    // The window may have closed while the watcher started; its teardown already ran, so
+    // registering now would leak the native watcher.
+    if (event.sender.isDestroyed()) {
+      void watcher.stop()
+      return
+    }
     windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
   })
 
@@ -1485,6 +1494,11 @@ export function registerIpcHandlers(
     const result = await watcher.start()
     if (result.isErr()) {
       throw new Error(fileWatcherErrorMessage(result.error))
+    }
+    // Same race as git:watch: don't register a watcher for a window that closed meanwhile.
+    if (event.sender.isDestroyed()) {
+      void watcher.stop()
+      return
     }
     windowManager.setFileWatcher(senderId, watcher)
   })
@@ -2487,8 +2501,13 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'browser:fillCredential',
-    (_event, payload: { browserId: string; username: string; password: string }) => {
-      browserManager.fillCredential(payload.browserId, payload.username, payload.password)
+    (_event, payload: { browserId: string; username: string; password: string; host: string }) => {
+      browserManager.fillCredential(
+        payload.browserId,
+        payload.username,
+        payload.password,
+        payload.host,
+      )
     },
   )
 
@@ -2727,7 +2746,10 @@ export function registerIpcHandlers(
     // the last await between validatePathAccess and the fd trio. Operating on
     // the realpath'd target prevents a symlink swap between validation and
     // open from redirecting the read outside the workspace.
-    const size = fs.statSync(resolved).size
+    const stat = fs.statSync(resolved)
+    // Regular files only: openSync on a FIFO or device node would block the main process.
+    if (!stat.isFile()) throw new Error('Not a regular file')
+    const size = stat.size
     const readSize = Math.min(size, maxBytes)
 
     // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle
