@@ -39,6 +39,10 @@ The v2.1.304 run's was held, the thirtieth: one compare call went out in its fir
 the checkout and inside a pipe, and came back "contains multiple operations … requires approval:
 `gh api …`". It was not retried. Its one `WebFetch` and `npm run lint`, before each of two code
 commits, were refused too.
+The v2.1.306 run's was held, the thirty-first: three compare calls went out in its first three
+batches, before the checkout (`cd … &&` with a piped `--jq`, then bare with the same `--jq`, then
+with `--jq '.files[].filename'`), and all three came back "This command requires approval". Its
+one `WebFetch`, `npm run lint` and a `python3 -I -c` were refused too.
 So expect either. Record which way the one probe went in the PR body.
 **If it runs, use point 6.**
 
@@ -89,7 +93,9 @@ though its records do not say so. The v2.1.299 and v2.1.302 rebases were skipped
 those runs' records shows a deepen. So deepen every run, even when the last rebase ran. The v2.1.303 run used
 `git fetch origin next --deepen=60`, which is allowed, and it was enough: after that run every
 commit carried `github-actions[bot]` at 2026-10-19 07:20:15 UTC, and the branch forked from that
-run's tracker commit. The v2.1.304 run deepened the same way. `git log -S` also runs after the
+run's tracker commit. The v2.1.304 run deepened the same way, and its rebase ran too: every commit
+carried `github-actions[bot]` at 2026-10-20 07:24:58 UTC, and the branch forked from that run's
+tracker commit `fc5d969`. The v2.1.306 run deepened the same way. `git log -S` also runs after the
 unshallow. If the branch is ahead, verify the commit that is there
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
@@ -949,7 +955,9 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > 2.1.303 build's string still starts at `## 2.1.301`, as the 2.1.302 build's did, and ends after
 > `## 2.1.293`, so the 51 hidden 2.1.302 entries stayed unread. A skip is not lasting: the 2.1.304
 > build's string starts at `## 2.1.303` and has the `## 2.1.302` section again, so the v2.1.304 run
-> read all 63 of 2.1.302's entries, two releases late. Read every section the last run could not.
+> read all 63 of 2.1.302's entries, two releases late. The 2.1.306 build skipped again: its string
+> starts at `## 2.1.304`, so the v2.1.306 run read all 76 of 2.1.304's entries and none of the 26
+> that 2.1.305's notes hid. Read every section the last run could not.
 > The `Grep` tool with `-o` and `## 2\.1\.\d{3}` lists the headers in one call; substitute the
 > release numbers into the pattern above, as in `## 2\.1\.30[23]\\n|…|\\n\\n## 2\.1\.301`. There is
 > still no previous build on disk to diff against, so use the build for the contract and for these
@@ -1186,7 +1194,8 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > it. Compare the count of call sites with the last run's before reading them. The 2.1.303 build
 > kept the name `Pse` and the six call sites; `Pse\(\{hookEvent:.{0,30}` with `-o` lists them. The
 > 2.1.304 build renamed it `hie` and kept six; search `.{0,40}\(\{hookEvent:.{0,40}` first and take
-> the name that recurs, since a pinned name finds nothing once it changes.
+> the name that recurs, since a pinned name finds nothing once it changes. The 2.1.306 build renamed
+> it `zie` and kept six, with the tool-detach check still among them.
 >
 > **An eighth shape: an entry that fixes a run not ending. Ask where Canopy's consumer stops
 > reading.** 2.1.304 fixed "a plugin keeping a headless run going past --max-turns, Stop, or ended
@@ -1196,6 +1205,17 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > the loop at the first result. Before deciding that a `break` leaks the process, read the
 > generator, not only `Query.return()`: `Query[Symbol.asyncIterator]()` returns `sdkMessages`, and
 > `readSdkMessages`'s `finally` runs `cleanup()`, which ends stdin and sends SIGTERM after 2 s.
+>
+> **A ninth shape: an entry that fixes a regression from the release before. Ask whether this
+> branch's last bump put that release in the bundled CLI.** 2.1.305 fixed "every request failing on
+> Vertex, Bedrock and other providers when the endpoint or a gateway rejects tool search … (a
+> 2.1.304 regression)". The commit-message turn can run on those providers, and the 2.1.304
+> increment's `0.3.304` bump had made the bundled CLI 2.1.304, so the next bump was `fix(deps):`,
+> as at 2.1.268. Read the previous release's hidden entries before judging such a fix: its cause,
+> "Changed tool search to be on by default behind a custom `ANTHROPIC_BASE_URL`", was one of
+> 2.1.304's 64, and only the 2.1.306 build carried it. The anchors in that build were
+> `toolSearchRefusal`, `sending the request again without deferred tools` and
+> `may have been disallowed via disallowedTools`.
 
 The three endpoints this step wants are `compare/{FROM_VERSION}...{TO_VERSION}`,
 `contents/meta/flags.md?ref={TO_VERSION}` and `contents/meta/metadata.md?ref={TO_VERSION}`, under
