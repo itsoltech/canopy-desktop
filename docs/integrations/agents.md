@@ -4293,7 +4293,160 @@ build's, has a `## 2.1.302` section. Of the 51 entries the 2.1.302 run could not
 **12 of 2.1.304's 76 CLI changelog entries were read.** The pasted notes list 12 and hide 64 behind
 "… +64 more". The changelog archive, the official `CHANGELOG.md` and the one web fetch were refused
 again. The 2.1.305 build should carry them, unless it skips a release as the 2.1.303 build did. On
-this branch, `npm ci` now installs `0.3.304`, which vendors CLI 2.1.304.
+this branch, `npm ci` now installs `0.3.304`, which vendors CLI 2.1.304. No 2.1.305 build reached a
+runner, and the 2.1.306 build does carry them (see the 2.1.305 and 2.1.306 notes below).
+
+**2.1.305 fixes a tool-search regression from 2.1.304, and the bundled CLI on this branch had it.**
+2.1.304's changelog, read in full below, says "Changed tool search to be on by default behind a
+custom `ANTHROPIC_BASE_URL`; a 400 or 422 from the gateway is retried without it". 2.1.305's says
+"Fixed every request failing on Vertex, Bedrock and other providers when the endpoint or a gateway
+rejects tool search, and behind gateways with ToolSearch disallowed or left out of --tools (a
+2.1.304 regression): Claude Code now retries without it".
+
+- **Panes are in that population.** A pane gets its profile's Base URL and provider
+  (`claude.ts:238-241`) and no `--tools`, though a profile's Settings JSON or the user's own
+  settings can deny ToolSearch. On a 2.1.304 `claude` behind an endpoint or gateway that refuses
+  tool search, every request failed until the user's CLI moved on. Canopy does not choose that CLI.
+- **So is the commit-message turn.** It takes a Base URL and Bedrock, Vertex or Foundry from the
+  global preferences or from Canopy's own environment (`commitMessageGenerator.ts:151-155` and
+  `:174`). It sets no `tools`, and it loads the user's settings, where a deny rule can disallow
+  ToolSearch. When `claude` is not on `PATH` it runs the bundled CLI, which the `0.3.304` bump in
+  the 2.1.304 increment made 2.1.304. By the entry, every request of that turn would then fail,
+  and AI Generate shows no error when it does.
+- **The fix.** "fix(deps): bump @anthropic-ai/claude-agent-sdk to 0.3.306" makes the bundled CLI
+  2.1.306. No release carried `0.3.304`: this branch is unmerged, and `next` pins `^0.3.207`. Not
+  reproduced: no 2.1.304 build and no such endpoint were on the runner.
+- **What the 2.1.306 build does.** Tool search is on by default for every provider unless
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` is set or the CLI is in its HIPAA mode. Behind a Base
+  URL that is not Anthropic's, and on Bedrock, Vertex and Foundry, a 400 or 422 that is not a
+  billing error is sent again without deferred tools; two further exclusions were not traced. On
+  Anthropic's own endpoint the error must name `defer_loading`. The refusal then holds for the
+  rest of the process. A ToolSearch removed by `disallowedTools` turns tool search off instead
+  ("may have been disallowed via disallowedTools").
+- **The cost that stays.** Each commit-message turn is a new process, so behind an endpoint that
+  refuses tool search every turn spends one refused request first, as with 2.1.288's
+  structured-output retry. The build's own log line names the way out: "ENABLE_TOOL_SEARCH=false
+  avoids the refused request". A pane takes it from its profile's env vars, and the
+  commit-message turn from the `env` block of the user's Claude Code settings. `BLOCKED_ENV_VARS`
+  passes it, and the name is in the 2.1.207 build too.
+
+**2.1.306's two entries do not reach Canopy.** The pasted notes list both, with no "… +N more"
+line, so the list is complete.
+
+- **Cloud sessions.** "Fixed claude -p inside cloud sessions reporting 'Not logged in' when started
+  without the session's environment variables". Canopy runs no cloud session.
+- **Many MCP tools.** "Fixed an API error being replaced by 'prompt is too long', and an unneeded
+  compaction, in sessions with many MCP tools". A pane with many MCP tools now sees the real error.
+  The commit-message turn loads no MCP server (`strictMcpConfig: true`,
+  `commitMessageGenerator.ts:97`).
+
+**The other 11 visible 2.1.305 entries need no Canopy change.**
+
+- **`sandbox.allowNestedUserNamespaces`.** Canopy sets no Claude sandbox setting, though a
+  profile's Settings JSON can. The entry warns that it lets sandboxed commands get around the
+  sandbox's file protections.
+- **`CLAUDE_CODE_RETRY_WATCHDOG_USAGE_LIMIT_RECHECK_MS`.** In the 2.1.306 build it is read only in
+  unattended retry mode, when the CLI can tell whether a usage limit was lifted, and unset it
+  never rechecks. Canopy sets neither it nor `CLAUDE_CODE_RETRY_WATCHDOG` (see the 2.1.301 notes).
+- **`/effort` and `/autocompact` with `modelOverrides`.** Canopy writes no `modelOverrides`,
+  though a profile's Settings JSON can. Panes get `--model` and `--effort` from the profile
+  (`claude.ts:217-219`), and its effort select offers `low` to `max`
+  (`ClaudeProfileForm.svelte:92-96`).
+- **Worktrees.** Canopy makes its own worktrees with git and passes no `--worktree`. Its worktree
+  list keeps every entry of `git worktree list --porcelain` (`GitRepository.ts:215-219` and
+  `:649-689`), so a subagent worktree the CLI left under `.claude/worktrees` would show there
+  until removed. 2.1.305 cleans up unchanged ones more reliably. Read, not observed.
+- **Not used by Canopy.** The full-disk Bash error, `setMcpServers` (the commit-message turn calls
+  none and loads no MCP server), the fallback-model naming, the compaction notice for cloud
+  sessions and teammates, Cowork's WebFetch approvals, Workflow resume and Remote Control's
+  `/resume` entries. Canopy's remote control is its own feature, not Claude's Remote Control.
+
+**12 of 2.1.305's 38 CLI changelog entries were read.** The pasted notes list 12 and hide 26
+behind "… +26 more". The changelog archive and the one web fetch were refused, and the 2.1.306
+build's changelog string starts at `## 2.1.304`: it skips 2.1.305, as the 2.1.303 build skipped
+2.1.302. The 2.1.307 build should carry them. On this branch, `npm ci` now installs `0.3.306`,
+which vendors CLI 2.1.306.
+
+**All 76 of 2.1.304's entries are now read, two releases late.** The 2.1.306 build carries the
+changelogs of 2.1.296 to 2.1.304 as one string, which starts at `## 2.1.304`. Of the 64 entries
+the 2.1.304 run could not read:
+
+- **Tool search behind a Base URL.** The entry quoted above, which 2.1.305 fixed.
+- **`context_management` behind gateways.** "Fixed `context_management: Extra inputs are not
+permitted` errors behind LLM gateways; Claude Code now resends the request without that field".
+  It reaches Base URL profiles and the commit-message turn behind a gateway, and the bundled CLI
+  has had it since `0.3.304`.
+- **Narrow panes.** "Fixed notes typed into a multiple-choice question with previews being cut off
+  with '…' in terminals under about 100 columns, hiding what was typed". Split panes are often
+  narrower than that. Fixed in the CLI.
+- **Restored panes.** "Fixed resumed and cloud sessions sending Claude the whole skill list again
+  each time plugins reloaded at startup". Canopy restores a pane with `--resume`
+  (`claude.ts:263-265`). Fixed in the CLI.
+- **Flags.** The `--help` text for `--resume` and `--system-prompt-snapshot` now matches what they
+  do. The 2.1.306 build still defines `--system-prompt-snapshot <on|off>`, and Canopy emits only
+  `off` (`claude.ts:224`).
+- **Effort.** The effort-indicator fix applies when `CLAUDE_CODE_EFFORT_LEVEL` is `auto` or
+  `unset`. Canopy passes `--effort` with `low` to `max` only.
+- **`CLAUDE_CODE_AUTO_COMPACT_WINDOW`.** "Fixed `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200k` silently
+  setting a 100K window: the variable now accepts `k` and `M` suffixes like `--autocompact`". The
+  2.1.287 notes above suggest it for a profile that keeps 1M; for a CLI before 2.1.304, write the
+  value in digits.
+- **SDK runs.** The fixes for model switches waiting behind a context usage check and for a
+  `PreToolUse` deny reason replaced by an SDK callback hook's timeout, and the shorter `claude -p`
+  invalid-settings warning, reach SDK runs. The commit-message turn sends nothing after its
+  prompt, registers no SDK hook, and Canopy does not read its stderr. The VS Code fix for
+  "Subprocess initialization did not complete within 60000ms" names an error the vendored
+  `0.3.207` SDK raises only on its warm-start path, which Canopy does not use.
+- **Agent teams.** "approving a shutdown request from the main session no longer exits the whole
+  CLI". Before 2.1.304 that exit left the pane to Canopy's exit fallback (see the 2.1.300 notes).
+- **Skill hooks.** The per-source limits of 1,024 hooks and 16,384 matcher characters apply to
+  skill hooks. Canopy's 18 hooks are settings hooks.
+- **The rest.** The mod, Remote Control, Cowork, cloud-session, VS Code, Claude Tag, Code Review,
+  OpenTelemetry, privacy, Consumer Terms, transcript-mode, `/loop`, `/usage`, artifact,
+  self-hosted runner, Windows git, `/claude-api`, `claude plugin validate`, `/fast`, `--worktree`,
+  Read-interrupt, Bash output-file, agents-view, subagent, skill-list and large-resume entries
+  name no hook, flag or field Canopy uses.
+
+**Canopy's contract against 2.1.306, by presence.** The 2.1.306 build was on the runner at
+`~/.local/share/claude/versions/2.1.306`. No 2.1.305 or 2.1.304 build was reachable, so nothing
+below is a diff:
+
+- **Hook events.** The array names the same 33 events, the 18 Canopy subscribes to among them, and
+  the union of hook-input schemas has 33 members. The build holds the array twice, identically.
+  `PostToolUseFailure` carries `error`, `StopFailure` carries `error` and `error_details`,
+  `PreCompact` and `PostCompact` carry `trigger`, `PostCompact` carries `compact_summary`,
+  `PostModelSwitch` carries `to_model`, and `SessionEnd` carries `reason`: `clear`, `resume`,
+  `logout`, `prompt_input_exit` or `other`.
+- **Tools.** `TaskCreate` still takes `subject` and `activeForm`, and `TaskUpdate` still takes
+  `taskId`.
+- **Flags and status line.** All seven flags Canopy emits are present. The status line still sends
+  the `cost` totals, `context_window`'s `used_percentage` and `context_window_size`, and the
+  `five_hour`, `seven_day` and `spend_limit` windows.
+- **Hooked sessions.** The function that asks whether a hook covers a tool is now minified as
+  `zie`, not `hie`, so search `zie\(\{hookEvent:`. It still has six call sites, and the
+  tool-detach check is still one of them. Idle compaction still lists the modes `log`, `compact`
+  and `compact_on_return`.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The system steps fit the fifth and sixth `User Memory Project One` copies, and 2.1.306's bundle
+did not grow.**
+
+- **2.1.305.** The archive reports +8,852 prompt tokens (+22.4%), three more prompt files (+12.5%)
+  and a +655.2 kB bundle. That gives 39,495 → 48,347 tokens and 24 → 27 files, and 39,495 is the
+  2.1.304 note's total. With the tools share going from 54.3% to 51.4%, the system half grew about
+  +5,447 and the tools half about +3,405, each ±44. The system step fits
+  `User Memory Project One 5`, 5,420 tokens (see 2.1.288). The archive names the Bash and Agent
+  tool descriptions as added, and its first two highlights describe those files. Both tools are
+  older than 2.1.305.
+- **2.1.306.** +9,115 tokens (+18.9%), three more files (+11.1%) and a +0.0 kB bundle: 48,347 →
+  57,462 tokens and 27 → 30 files. With the system share going from 48.6% to 51.0%, the system half
+  grew about +5,809 and the tools half about +3,306, each ±53. The system step is
+  `User Memory Project One 6`, 5,809 tokens, to the token. The bundle grew by less than 0.05 kB, so
+  the step is not new text in the build unless as much text left it.
+- **Not attributed.** The tools steps. The two tools Canopy reads by name are checked above, and
+  `summarizeToolInput` reads generic input keys. `meta/prompt-stats.md` would settle both steps,
+  and was not reachable.
 
 ## Error states
 
