@@ -4317,12 +4317,14 @@ rejects tool search, and behind gateways with ToolSearch disallowed or left out 
   2.1.306. No release carried `0.3.304`: this branch is unmerged, and `next` pins `^0.3.207`. Not
   reproduced: no 2.1.304 build and no such endpoint were on the runner.
 - **What the 2.1.306 build does.** Tool search is on by default for every provider unless
-  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` is set or the CLI is in its HIPAA mode. Behind a Base
-  URL that is not Anthropic's, and on Bedrock, Vertex and Foundry, a 400 or 422 that is not a
-  billing error is sent again without deferred tools; two further exclusions were not traced. On
-  Anthropic's own endpoint the error must name `defer_loading`. The refusal then holds for the
-  rest of the process. A ToolSearch removed by `disallowedTools` turns tool search off instead
-  ("may have been disallowed via disallowedTools").
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` is set or the CLI is in its HIPAA mode. It then skips
+  models on a server-set list, which defaults to the Claude 3 models, and on Vertex any model older
+  than Claude 4.5; the commit-message turn's `haiku` passes both checks. Behind a Base URL that is
+  not Anthropic's, and on Bedrock, Vertex and Foundry, a 400 or 422 that is not a billing error is
+  sent again without deferred tools; two further exclusions were not traced. On Anthropic's own
+  endpoint the error must also name `defer_loading`, except in one auth state that was not traced.
+  The refusal then holds for the rest of the process. A ToolSearch removed by `disallowedTools`
+  turns tool search off instead ("may have been disallowed via disallowedTools").
 - **The cost that stays.** Each commit-message turn is a new process, so behind an endpoint that
   refuses tool search every turn spends one refused request first, as with 2.1.288's
   structured-output retry. The build's own log line names the way out: "ENABLE_TOOL_SEARCH=false
@@ -4336,8 +4338,8 @@ line, so the list is complete.
 - **Cloud sessions.** "Fixed claude -p inside cloud sessions reporting 'Not logged in' when started
   without the session's environment variables". Canopy runs no cloud session.
 - **Many MCP tools.** "Fixed an API error being replaced by 'prompt is too long', and an unneeded
-  compaction, in sessions with many MCP tools". A pane with many MCP tools now sees the real error.
-  The commit-message turn loads no MCP server (`strictMcpConfig: true`,
+  compaction, in sessions with many MCP tools". On 2.1.306 a pane with many MCP tools sees the
+  API's own error. The commit-message turn loads no MCP server (`strictMcpConfig: true`,
   `commitMessageGenerator.ts:97`).
 
 **The other 11 visible 2.1.305 entries need no Canopy change.**
@@ -4398,7 +4400,8 @@ permitted` errors behind LLM gateways; Claude Code now resends the request witho
   "Subprocess initialization did not complete within 60000ms" names an error the vendored
   `0.3.207` SDK raises only on its warm-start path, which Canopy does not use.
 - **Agent teams.** "approving a shutdown request from the main session no longer exits the whole
-  CLI". Before 2.1.304 that exit left the pane to Canopy's exit fallback (see the 2.1.300 notes).
+  CLI". Before 2.1.304 that approval ended the pane's CLI, and Canopy marks an exited pane `ended`
+  with or without `SessionEnd` (see the 2.1.300 notes).
 - **Skill hooks.** The per-source limits of 1,024 hooks and 16,384 matcher characters apply to
   skill hooks. Canopy's 18 hooks are settings hooks.
 - **The rest.** The mod, Remote Control, Cowork, cloud-session, VS Code, Claude Tag, Code Review,

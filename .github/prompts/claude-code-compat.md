@@ -94,9 +94,9 @@ those runs' records shows a deepen. So deepen every run, even when the last reba
 `git fetch origin next --deepen=60`, which is allowed, and it was enough: after that run every
 commit carried `github-actions[bot]` at 2026-10-19 07:20:15 UTC, and the branch forked from that
 run's tracker commit. The v2.1.304 run deepened the same way, and its rebase ran too: every commit
-carried `github-actions[bot]` at 2026-10-20 07:24:58 UTC, and the branch forked from that run's
-tracker commit `fc5d969`. The v2.1.306 run deepened the same way. `git log -S` also runs after the
-unshallow. If the branch is ahead, verify the commit that is there
+carried `github-actions[bot]`, stamped 07:24:56 to 07:24:58 UTC on 2026-10-20, and the branch
+forked from that run's tracker commit `fc5d969`. The v2.1.306 run deepened the same way.
+`git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
 then refine. `date -u` runs, so the budget is measurable.
