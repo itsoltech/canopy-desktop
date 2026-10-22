@@ -2631,9 +2631,10 @@ Canopy shows the window the status line reports. `normalizeStatus` reads `contex
 size of one million or more as "1M". So nothing changes here, though the same usage now reads as a
 smaller percentage. A profile keeps the 200K window with `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` in its
 env vars. Until 2.1.307 fixed it, requests then failed with a model-not-found error when the
-Model field ended in `[1m]` (see the 2.1.307 notes). It can instead keep 1M and cap where
-compaction starts with `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, which the build checks before any
-default. `BLOCKED_ENV_VARS` passes both. The commit-message turn pins `haiku`, which stays at 200K.
+Model field held an alias ending in `[1m]`, such as `opus[1m]` (see the 2.1.307 notes). It can
+instead keep 1M and cap where compaction starts with `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, which the
+build checks before any default. `BLOCKED_ENV_VARS` passes both. The commit-message turn pins
+`haiku`, which stays at 200K.
 
 **The dangerous-`rm` fix closes a gap that panes in Bypass permissions or Auto mode were in.** The
 build marks a dangerous removal, such as `rm` on `/`, on the home directory or on a possibly-empty
@@ -4470,30 +4471,33 @@ the [1m] suffix, such as opus[1m]".
   `--model` (`claude.ts:211-217`), so `opus[1m]` is a value a user can enter, though the field's
   help and placeholder name only plain aliases (`ClaudeProfileForm.svelte:45-57`). By the entry, a
   pane with such a value and the variable got model-not-found errors until its `claude` reached
-  2.1.307. A plain alias such as `opus` was not affected, and the 2.1.287 notes now say so.
+  2.1.307. The entry names only aliases with the suffix, and the 2.1.287 notes now carry that
+  caveat.
 - **The commit-message turn is not.** It pins `haiku` (`commitMessageGenerator.ts:80`).
 - **No change in Canopy.** The fix reaches panes through the user's binary. Refusing the pair in
   the profile form would need the version of the CLI the pane will run, which Canopy learns only
-  from a running pane's status line (finding #7).
+  from a running pane's status line.
 
 **The prompt-caching-scope beta header no longer goes to gateways or to Foundry, where the entry
 says it had no effect.** In the 2.1.308 build, `prompt-caching-scope-2026-01-05` is added only
-when `ANTHROPIC_BASE_URL` is unset or names `api.anthropic.com`, and the provider is first-party or
-Claude Platform on AWS. A profile's Base URL (`claude.ts:238`) or Foundry provider (`:241`) puts a
-pane outside that, and so do the commit-message turn's pre-migration Base URL and Foundry
-preferences (`commitMessageGenerator.ts:152` and `:155`). The bundled CLI stops sending it from
-`0.3.307`, and this increment's bump carries that. A gateway that rejects an unknown beta would
-have failed those requests; the entry names no such failure, and none was traced.
+for the first-party or Claude Platform on AWS provider, unless experimental betas are disabled or
+HIPAA mode is on. `ANTHROPIC_BASE_URL` must also be unset or name `api.anthropic.com`, unless the
+CLI is told to treat the Base URL as first-party. A profile's custom Base URL (`claude.ts:238`) or
+Foundry provider (`:241`) puts a pane outside that, and so do the commit-message turn's
+pre-migration Base URL and Foundry preferences (`commitMessageGenerator.ts:152` and `:155`). The
+bundled CLI stops sending it from `0.3.307`, which vendors CLI 2.1.307, and this increment's bump
+carries that. A gateway that rejects an unknown beta would have failed those requests; the entry
+names no such failure, and none was traced.
 
 **The other visible 2.1.307 entries need no Canopy change.**
 
 - **MCP.** HTTP MCP tool calls are no longer sent twice when the connection closes mid-call (only
-  read-only or idempotent tools are retried), servers no longer stay failed after the computer
-  slept while they connected, and `claude -p` now says why a server needs authentication while
-  the macOS login keychain is locked. These reach panes through the user's binary. The
-  commit-message turn loads no MCP server (`strictMcpConfig: true`,
-  `commitMessageGenerator.ts:97`), and Canopy registers no SDK MCP server, which the
-  background-task fix names.
+  read-only or idempotent tools are retried), servers are no longer reported as timed out, or
+  left failed in headless runs, when the computer slept while they connected, and `claude -p` now
+  says why a server needs authentication while the macOS login keychain is locked. These reach
+  panes through the user's binary. The commit-message turn loads no MCP server
+  (`strictMcpConfig: true`, `commitMessageGenerator.ts:97`), and Canopy registers no SDK MCP
+  server, which the background-task fix names.
 - **Compaction.** Fewer "Autocompact is thrashing" errors in turns that read many PDF pages,
   images or other large tool results. That reaches panes. Fixed in the CLI.
 - **Not used by Canopy.** `/claude-api api-version` (Canopy's one Claude call is the Agent SDK's
@@ -4529,7 +4533,7 @@ the 2.1.306 run could not read:
   with fullscreen rendering". The 2.1.308 build answers "yes only on an XTVERSION reply naming
   iTerm2 3.5 or later", not from the environment. xterm.js 6.0.0 registers no handler for that
   query (`CSI > q`), so a Canopy pane never qualifies, even when it inherits `ITERM_SESSION_ID`
-  (finding #28). Canopy ships no mod.
+  (see the 2.1.292 notes). Canopy ships no mod.
 - **The rest.** The self-hosted runner, `/usage` fix, Remote Control, `allowedMcpServers`, Claude
   Desktop plugin, `/artifacts`, mod docked-pane, screen reader, VS Code, cloud-session, Claude Tag
   and Code Review entries name no hook, flag or field Canopy uses. Code Review is Anthropic's
