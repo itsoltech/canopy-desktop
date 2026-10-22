@@ -43,6 +43,9 @@ The v2.1.306 run's was held, the thirty-first: three compare calls went out in i
 batches, before the checkout (`cd … &&` with a piped `--jq`, then bare with the same `--jq`, then
 with `--jq '.files[].filename'`), and all three came back "This command requires approval". Its
 one `WebFetch`, `npm run lint` and a `python3 -I -c` were refused too.
+The v2.1.308 run's was held, the thirty-second. It checked out and re-read this file first, then
+sent one compare call, bare with `--jq`, which came back "This command requires approval". Its one
+`WebFetch` and `npm run lint` were refused too.
 So expect either. Record which way the one probe went in the PR body.
 **If it runs, use point 6.**
 
@@ -95,7 +98,9 @@ those runs' records shows a deepen. So deepen every run, even when the last reba
 commit carried `github-actions[bot]` at 2026-10-19 07:20:15 UTC, and the branch forked from that
 run's tracker commit. The v2.1.304 run deepened the same way, and its rebase ran too: every commit
 carried `github-actions[bot]`, stamped 07:24:56 to 07:24:58 UTC on 2026-10-20, and the branch
-forked from that run's tracker commit `fc5d969`. The v2.1.306 run deepened the same way.
+forked from that run's tracker commit `fc5d969`. The v2.1.306 run deepened the same way, and its
+rebase ran: every commit carried `github-actions[bot]` at 07:23:02 UTC on 2026-10-21, and the
+branch forked from that run's tracker commit `0f07f6d`. The v2.1.308 run deepened the same way.
 `git log -S` also runs after the unshallow. If the branch is ahead, verify the commit that is there
 (`gh pr view <n> --json statusCheckRollup` shows CI for the head) rather than redoing it. Then order
 the rest so a timeout cannot strand it: commit and push the documentation, run `gh pr edit`, and only
@@ -250,7 +255,10 @@ where earlier runs read twelve.
   environment through, via `resolveLoginEnv()`'s login shell. 2.1.292's iTerm2 fix
   led to the detection function (anchor `inITerm2!==null`). It is true for a set `ITERM_SESSION_ID`,
   which is present whenever Canopy itself starts in iTerm2. Read the detection, then check each
-  variable it reads against that override list.
+  variable it reads against that override list. Some checks ask the terminal instead: 2.1.305's
+  mod-image path waits for an XTVERSION reply (anchor `XTVERSION reply naming`). For those, grep
+  `registerCsiHandler` in `node_modules/@xterm/xterm/lib/xterm.js`; 6.0.0 has no `>` `q` handler,
+  so a Canopy pane never answers.
 
 If `npm ci` and `npm run …` run too, use them. `npm ci` after a hand-edited bump is CI's own check
 of the lockfile, and it puts the branch's SDK types in `node_modules` for the typecheck. From 2.1.286
@@ -957,7 +965,10 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > build's string starts at `## 2.1.303` and has the `## 2.1.302` section again, so the v2.1.304 run
 > read all 63 of 2.1.302's entries, two releases late. The 2.1.306 build skipped again: its string
 > starts at `## 2.1.304`, so the v2.1.306 run read all 76 of 2.1.304's entries and none of the 26
-> that 2.1.305's notes hid. Read every section the last run could not.
+> that 2.1.305's notes hid. The 2.1.308 build skipped two: its string starts at `## 2.1.305`, so
+> the v2.1.308 run read all 38 of 2.1.305's entries and none of the 31 that 2.1.307's notes hid. The
+> lag can grow, so do not promise that the next build carries a section. Read every section the last
+> run could not.
 > The `Grep` tool with `-o` and `## 2\.1\.\d{3}` lists the headers in one call; substitute the
 > release numbers into the pattern above, as in `## 2\.1\.30[23]\\n|…|\\n\\n## 2\.1\.301`. There is
 > still no previous build on disk to diff against, so use the build for the contract and for these
@@ -1195,7 +1206,8 @@ pathToClaudeCodeExecutable` returns the doc comment for the _next_ option and re
 > kept the name `Pse` and the six call sites; `Pse\(\{hookEvent:.{0,30}` with `-o` lists them. The
 > 2.1.304 build renamed it `hie` and kept six; search `.{0,40}\(\{hookEvent:.{0,40}` first and take
 > the name that recurs, since a pinned name finds nothing once it changes. The 2.1.306 build renamed
-> it `zie` and kept six, with the tool-detach check still among them.
+> it `zie` and kept six, with the tool-detach check still among them. The 2.1.308 build renamed it
+> `Iae` and kept six, the tool-detach check among them.
 >
 > **An eighth shape: an entry that fixes a run not ending. Ask where Canopy's consumer stops
 > reading.** 2.1.304 fixed "a plugin keeping a headless run going past --max-turns, Stop, or ended
