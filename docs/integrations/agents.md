@@ -2630,9 +2630,10 @@ Canopy shows the window the status line reports. `normalizeStatus` reads `contex
 `used_percentage`, the 2.1.287 builder still sends both, and the Agent Inspector already prints a
 size of one million or more as "1M". So nothing changes here, though the same usage now reads as a
 smaller percentage. A profile keeps the 200K window with `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` in its
-env vars. It can instead keep 1M and cap where compaction starts with
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, which the build checks before any default. `BLOCKED_ENV_VARS`
-passes both. The commit-message turn pins `haiku`, which stays at 200K.
+env vars. Until 2.1.307 fixed it, requests then failed with a model-not-found error when the
+Model field ended in `[1m]` (see the 2.1.307 notes). It can instead keep 1M and cap where
+compaction starts with `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, which the build checks before any
+default. `BLOCKED_ENV_VARS` passes both. The commit-message turn pins `haiku`, which stays at 200K.
 
 **The dangerous-`rm` fix closes a gap that panes in Bypass permissions or Auto mode were in.** The
 build marks a dangerous removal, such as `rm` on `/`, on the home directory or on a possibly-empty
@@ -4373,7 +4374,8 @@ line, so the list is complete.
 behind "… +26 more". The changelog archive and the one web fetch were refused, and the 2.1.306
 build's changelog string starts at `## 2.1.304`: it skips 2.1.305, as the 2.1.303 build skipped
 2.1.302. The 2.1.307 build should carry them. On this branch, `npm ci` now installs `0.3.306`,
-which vendors CLI 2.1.306.
+which vendors CLI 2.1.306. No 2.1.307 build reached a runner, and the 2.1.308 build does carry
+them (see the 2.1.307 and 2.1.308 notes below).
 
 **All 76 of 2.1.304's entries are now read, two releases late.** The 2.1.306 build carries the
 changelogs of 2.1.296 to 2.1.304 as one string, which starts at `## 2.1.304`. Of the 64 entries
@@ -4458,6 +4460,121 @@ did not grow.**
 - **Not attributed.** The tools steps. The two tools Canopy reads by name are checked above, and
   `summarizeToolInput` reads generic input keys. `meta/prompt-stats.md` would settle both steps,
   and was not reachable.
+
+**2.1.307 fixes a `[1m]` Model value failing beside `CLAUDE_CODE_DISABLE_1M_CONTEXT`, which the
+2.1.287 notes above suggest for keeping 200K.** The entry reads "Fixed requests failing with a
+model-not-found error when CLAUDE_CODE_DISABLE_1M_CONTEXT is set and the model is an alias with
+the [1m] suffix, such as opus[1m]".
+
+- **Panes are in that population.** The profile's Model field is free text and reaches the pane as
+  `--model` (`claude.ts:211-217`), so `opus[1m]` is a value a user can enter, though the field's
+  help and placeholder name only plain aliases (`ClaudeProfileForm.svelte:45-57`). By the entry, a
+  pane with such a value and the variable got model-not-found errors until its `claude` reached
+  2.1.307. A plain alias such as `opus` was not affected, and the 2.1.287 notes now say so.
+- **The commit-message turn is not.** It pins `haiku` (`commitMessageGenerator.ts:80`).
+- **No change in Canopy.** The fix reaches panes through the user's binary. Refusing the pair in
+  the profile form would need the version of the CLI the pane will run, which Canopy learns only
+  from a running pane's status line (finding #7).
+
+**The prompt-caching-scope beta header no longer goes to gateways or to Foundry, where the entry
+says it had no effect.** In the 2.1.308 build, `prompt-caching-scope-2026-01-05` is added only
+when `ANTHROPIC_BASE_URL` is unset or names `api.anthropic.com`, and the provider is first-party or
+Claude Platform on AWS. A profile's Base URL (`claude.ts:238`) or Foundry provider (`:241`) puts a
+pane outside that, and so do the commit-message turn's pre-migration Base URL and Foundry
+preferences (`commitMessageGenerator.ts:152` and `:155`). The bundled CLI stops sending it from
+`0.3.307`, and this increment's bump carries that. A gateway that rejects an unknown beta would
+have failed those requests; the entry names no such failure, and none was traced.
+
+**The other visible 2.1.307 entries need no Canopy change.**
+
+- **MCP.** HTTP MCP tool calls are no longer sent twice when the connection closes mid-call (only
+  read-only or idempotent tools are retried), servers no longer stay failed after the computer
+  slept while they connected, and `claude -p` now says why a server needs authentication while
+  the macOS login keychain is locked. These reach panes through the user's binary. The
+  commit-message turn loads no MCP server (`strictMcpConfig: true`,
+  `commitMessageGenerator.ts:97`), and Canopy registers no SDK MCP server, which the
+  background-task fix names.
+- **Compaction.** Fewer "Autocompact is thrashing" errors in turns that read many PDF pages,
+  images or other large tool results. That reaches panes. Fixed in the CLI.
+- **Not used by Canopy.** `/claude-api api-version` (Canopy's one Claude call is the Agent SDK's
+  `query()`), the `claude_code.safety_event` OpenTelemetry event (Canopy sets no telemetry
+  variable, though a profile's env vars can, and its hooks never stop, prompt or send back a
+  call), `/autocompact` and `/clear` in cloud and self-hosted runner sessions, and
+  `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS` in Claude apps gateway sessions, for which the profile has
+  no provider option.
+- **The system prompt.** The archive's one note fixes a typo in the guidance on hook output.
+  Canopy's hook script prints only the `SessionStart` and `PermissionRequest` responses
+  (`canopy-agent-hook.sh:11-12`), and nothing changes for them.
+
+**12 of 2.1.307's 43 CLI changelog entries were read, and 2.1.308's one.** The pasted notes list
+12 of 2.1.307's and hide 31 behind "… +31 more". 2.1.308's one entry, "Bug fixes and reliability
+improvements", has no "… +N more" line, so that list is complete. The changelog archive and the
+one web fetch were refused, and the 2.1.308 build's changelog string starts at `## 2.1.305`: it
+skips 2.1.306 and 2.1.307, so none of the 31 is in it. On this branch, `npm ci` now installs
+`0.3.308`, which vendors CLI 2.1.308.
+
+**All 38 of 2.1.305's entries are now read, three releases late.** The 2.1.308 build carries the
+changelogs of 2.1.296 to 2.1.305 as one string, which starts at `## 2.1.305`. Of the 26 entries
+the 2.1.306 run could not read:
+
+- **Narrow panes.** "Fixed `/usage` rows being cut off in narrow terminals". Split panes are often
+  narrow. Fixed in the CLI.
+- **Startup warnings.** They "now go to the debug log, and permission rules that restrict nothing
+  show as warning rows under the banner". Canopy's settings file holds its hooks, its status line
+  and the profile's Settings JSON (`claude.ts:113-120`), so a warning row there comes from rules a
+  user wrote.
+- **MCP consent.** "an Enter meant for the prompt is less likely to be taken as Accept". That
+  reaches panes. Fixed in the CLI.
+- **Mod images in iTerm2.** "Improved a mod's `Image` to draw its picture in iTerm2 3.5 and later
+  with fullscreen rendering". The 2.1.308 build answers "yes only on an XTVERSION reply naming
+  iTerm2 3.5 or later", not from the environment. xterm.js 6.0.0 registers no handler for that
+  query (`CSI > q`), so a Canopy pane never qualifies, even when it inherits `ITERM_SESSION_ID`
+  (finding #28). Canopy ships no mod.
+- **The rest.** The self-hosted runner, `/usage` fix, Remote Control, `allowedMcpServers`, Claude
+  Desktop plugin, `/artifacts`, mod docked-pane, screen reader, VS Code, cloud-session, Claude Tag
+  and Code Review entries name no hook, flag or field Canopy uses. Code Review is Anthropic's
+  managed review; this repository's `code-review.yml` runs `anthropics/claude-code-action`.
+
+**Canopy's contract against 2.1.308, by presence.** The 2.1.308 build was on the runner at
+`~/.local/share/claude/versions/2.1.308`. No 2.1.307 or 2.1.306 build was reachable, so nothing
+below is a diff:
+
+- **Hook events.** The array names the same 33 events, the 18 Canopy subscribes to among them, and
+  the union of hook-input schemas has 33 members. The build holds the array twice, identically.
+  `PostToolUseFailure` carries `error`, `StopFailure` carries `error` and `error_details`,
+  `PreCompact` and `PostCompact` carry `trigger`, `PostCompact` carries `compact_summary`,
+  `PostModelSwitch` carries `to_model`, and `SessionEnd` carries `reason`: `clear`, `resume`,
+  `logout`, `prompt_input_exit` or `other`.
+- **Tools.** `TaskCreate` still takes `subject` and `activeForm`, and `TaskUpdate` still takes
+  `taskId`.
+- **Flags and status line.** All seven flags Canopy emits are present, and
+  `--system-prompt-snapshot` still takes `<on|off>`. The status line still sends `version` as a
+  string, the `cost` totals, `context_window`'s `used_percentage` and `context_window_size`, and
+  the `five_hour`, `seven_day` and `spend_limit` windows.
+- **Hooked sessions.** The function that asks whether a hook covers a tool is now minified as
+  `Iae`, not `zie`, so search `Iae\(\{hookEvent:`. It still has six call sites, and the
+  tool-detach check is still one of them. Idle compaction still lists the modes `log`, `compact`
+  and `compact_on_return`.
+- **Not checked.** Key, option and environment-name counts and the literal diff need the previous
+  build and a script, and this run had neither.
+
+**The system steps fit the seventh and eighth `User Memory Project One` copies, and neither tools
+step is attributed.**
+
+- **2.1.307.** The archive reports +4,281 prompt tokens (+7.5%), one more prompt file (+3.3%) and
+  a +483.1 kB bundle. That gives 57,462 → 61,743 tokens and 30 → 31 files, and 57,462 is the
+  2.1.306 note's total. With the system share going from 51.0% to 57.5%, the system half grew
+  about +6,197 and the tools half fell about 1,916, each ±60. The system step fits
+  `User Memory Project One 7`, 6,198 tokens (see 2.1.288), and so does the one new file.
+- **2.1.308.** +10,950 tokens (+17.7%), three more files (+9.7%) and a +10.1 kB bundle: 61,743 →
+  72,693 tokens and 31 → 34 files. With the system share going from 57.5% to 57.9%, the system
+  half grew about +6,587 and the tools half about +4,363, each ±67. The system step's central
+  figure equals `User Memory Project One 8`, 6,587 tokens. At about four bytes a token the tools
+  step is some 17 kB of text, more than the bundle grew, so by that reading most of it is not new
+  text in the build unless as much text left.
+- **Not attributed.** Both tools steps, and 2.1.308's two other files. The two tools Canopy reads
+  by name are checked above, and `summarizeToolInput` reads generic input keys.
+  `meta/prompt-stats.md` would settle them, and was not reachable.
 
 ## Error states
 
