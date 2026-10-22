@@ -305,7 +305,9 @@ export class NotchOverlayManager {
       peekSessionIds,
     }
 
-    if (state.sessions.length > 0) {
+    // Same rule as the display-change handler: never re-show the overlay on a primary display
+    // without a notch, even when an agent status update arrives.
+    if (state.sessions.length > 0 && this.hasNotch()) {
       this.overlayWindow.showInactive()
     } else {
       this.overlayWindow.hide()

@@ -19,7 +19,12 @@
   async function handleDismiss(): Promise<void> {
     if (submitting) return
     submitting = true
-    await finishOnboarding()
+    try {
+      await finishOnboarding()
+    } catch (e) {
+      // Still close: otherwise `submitting` stays true and the modal can't be dismissed.
+      console.error('Failed to save onboarding state:', e)
+    }
     closeDialog()
   }
 

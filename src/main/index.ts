@@ -338,28 +338,40 @@ async function handleCanopyUrl(url: string): Promise<void> {
     })
     const dedupePaths = [gitInfo.repoRoot ?? resolved, ...gitInfo.worktrees.map((wt) => wt.path)]
 
-    // Dedupe: focus existing window for this path (no confirmation needed)
+    const focusExisting = (win: BrowserWindow): void => {
+      ipcCommandBridge?.grantAttachPath(win.webContents.id, resolved)
+      win.webContents.send('url:action', { action, path: resolved, tool, worktree })
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+
+    // Dedupe: focusing an already-open workspace needs no confirmation, but a link that
+    // also launches a tool does — otherwise any page could start a tool in an open project.
     const existing = dedupePaths
       .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
       .find((win) => win !== null)
-    if (existing) {
-      ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
-      existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
-      if (existing.isMinimized()) existing.restore()
-      existing.focus()
+    if (existing && !tool) {
+      focusExisting(existing)
       return
     }
 
-    // Confirm before opening a new workspace from external deep link
+    // Confirm before opening a workspace or launching a tool from an external deep link
     const { response } = await dialog.showMessageBox({
       type: 'question',
       buttons: ['Open', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
       message: 'Open workspace?',
-      detail: `An external application wants to open:\n${resolved}`,
+      detail: tool
+        ? `An external application wants to open:\n${resolved}\n\nand launch the tool: ${tool}`
+        : `An external application wants to open:\n${resolved}`,
     })
     if (response !== 0) return
+
+    if (existing && !existing.isDestroyed()) {
+      focusExisting(existing)
+      return
+    }
 
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
@@ -702,8 +714,14 @@ app.whenReady().then(async () => {
 
       // Force secure defaults
       webPreferences.nodeIntegration = false
+      webPreferences.nodeIntegrationInSubFrames = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      // Pin guests to the permission-locked browser session; a tampered `partition`
+      // attribute must not move a guest into another session.
+      params.partition = 'persist:browser'
 
       // Only allow http(s) or about:blank as source
       const src = params.src

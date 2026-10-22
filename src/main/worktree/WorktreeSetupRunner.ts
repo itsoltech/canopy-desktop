@@ -66,11 +66,13 @@ function shellQuote(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }
 
+// Function replacers: a string replacement would interpret `$'`, `$&` or `$$` that a quoted
+// path can contain (e.g. a branch dir named `a$'b`) and silently corrupt the command.
 function substituteVars(command: string, ctx: SetupContext): string {
   return command
-    .replace(/\$MAIN_WORKTREE/g, shellQuote(ctx.mainWorktreePath))
-    .replace(/\$NEW_WORKTREE/g, shellQuote(ctx.newWorktreePath))
-    .replace(/\$REPO_ROOT/g, shellQuote(ctx.repoRoot))
+    .replace(/\$MAIN_WORKTREE/g, () => shellQuote(ctx.mainWorktreePath))
+    .replace(/\$NEW_WORKTREE/g, () => shellQuote(ctx.newWorktreePath))
+    .replace(/\$REPO_ROOT/g, () => shellQuote(ctx.repoRoot))
 }
 
 function getLabel(action: WorktreeSetupAction): string {

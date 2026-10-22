@@ -522,6 +522,7 @@ export class RemoteSessionService {
       port: pairing.port,
       expiresAt: pairing.expiresAt,
     })
+    this.rearmExpiry(pairing.expiresAt)
     return okAsync(undefined)
   }
 
@@ -715,6 +716,7 @@ export class RemoteSessionService {
           port: pairing.port,
           expiresAt: pairing.expiresAt,
         })
+        this.rearmExpiry(pairing.expiresAt)
       }
     } else if (this.status.kind === 'paired') {
       // Phase 10: enter reconnect window instead of immediate teardown.
@@ -925,6 +927,16 @@ export class RemoteSessionService {
         }
       }
     }, ms)
+  }
+
+  /**
+   * Re-arm the QR expiry after returning to `waiting`. The timer only acts in `waiting`, so if it
+   * fired while a peer was pending, the pairing token would otherwise never expire.
+   */
+  private rearmExpiry(expiresAt: number): void {
+    // Listening-mode sentinels use Infinity, which setTimeout would clamp to 1 ms.
+    if (!Number.isFinite(expiresAt)) return
+    this.scheduleExpiry(Math.max(0, expiresAt - Date.now()))
   }
 
   private clearExpiryTimer(): void {

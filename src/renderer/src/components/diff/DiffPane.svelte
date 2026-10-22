@@ -279,7 +279,8 @@
   function scrollToFocusedFile(): void {
     if (focusedFileIndex >= 0 && focusedFileIndex < files.length) {
       const file = files[focusedFileIndex]
-      const el = document.getElementById(`diff-file-${CSS.escape(file.path)}`)
+      // getElementById takes the raw id; CSS.escape would turn `src/a.ts` into `src\/a\.ts`.
+      const el = document.getElementById(`diff-file-${file.path}`)
       if (el && bodyEl) {
         suppressObserver = true
         workspaceState.diffVisibleFile = file.path
@@ -437,6 +438,7 @@
         <input
           class="bg-bg border border-border rounded-md text-text text-sm px-2 py-0.5 w-45 outline-none font-mono focus:border-accent"
           type="text"
+          aria-label="Search in diff"
           placeholder="Search in diff..."
           bind:value={searchQuery}
           onkeydown={(e) => {
@@ -629,6 +631,7 @@
                         >
                           <textarea
                             class="w-full min-h-16 px-4 py-2.5 border-0 bg-bg-elevated text-text font-inherit text-sm leading-normal resize-none outline-none box-border placeholder:text-text-muted"
+                            aria-label="Comment for agent on {file.path}:{getLineNum(change)}"
                             placeholder="Comment for agent — {file.path}:{getLineNum(change)}"
                             bind:value={commentText}
                             onkeydown={(e) => {

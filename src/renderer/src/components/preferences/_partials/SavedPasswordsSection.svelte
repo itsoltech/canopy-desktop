@@ -32,6 +32,12 @@
     })
     if (!ok) return
     await window.api.deleteCredential(id)
+    // Don't keep a deleted credential's plaintext in memory until the reveal timer fires.
+    if (revealedId === id) {
+      revealedId = null
+      revealedPassword = ''
+      if (revealTimer) clearTimeout(revealTimer)
+    }
     await loadCredentials()
   }
 

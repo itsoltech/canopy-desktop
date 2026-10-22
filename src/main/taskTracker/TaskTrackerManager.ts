@@ -37,6 +37,16 @@ import type {
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
 
 /**
+ * Connections live in a renderer-writable (and importable) preference, so a stored
+ * `authPrefKey` is untrusted: only ever resolve the connection's own token key, never an
+ * arbitrary preference such as another stored secret.
+ */
+export function connectionTokenKey(connection: TaskTrackerConnection): string | null {
+  const key = `taskTracker.token.${connection.id}`
+  return connection.authPrefKey === key ? key : null
+}
+
+/**
  * Returns true when `url` targets the same origin as `baseUrl`. Uses `URL.origin`
  * rather than a string-prefix check so that a baseUrl of `https://jira.example.com`
  * does not also match `https://jira.example.com.evil.com/...`.
@@ -594,7 +604,8 @@ export class TaskTrackerManager {
     dlErr: (reason: string) => TaskTrackerError,
   ): ResultAsync<string, TaskTrackerError> {
     const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
-    mkdirSync(dir, { recursive: true })
+    // Owner-only: tracker attachments can be confidential and tmp is shared on multi-user hosts.
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
 
     const safeName = basename(filename.replace(/[/\\]/g, '_'))
     const filePath = join(dir, safeName)
@@ -635,7 +646,8 @@ export class TaskTrackerManager {
             cb(null, chunk)
           },
         })
-        return fromExternalCall(pipeline(nodeStream, capGuard, createWriteStream(filePath)), (e) =>
+        const out = createWriteStream(filePath, { mode: 0o600 })
+        return fromExternalCall(pipeline(nodeStream, capGuard, out), (e) =>
           dlErr(errorMessage(e)),
         ).map(() => filePath)
       })
@@ -672,7 +684,8 @@ export class TaskTrackerManager {
   }
 
   private getToken(connection: TaskTrackerConnection): Result<string, TaskTrackerError> {
-    const token = this.preferencesStore.get(connection.authPrefKey)
+    const key = connectionTokenKey(connection)
+    const token = key ? this.preferencesStore.get(key) : null
     if (!token) return err({ _tag: 'AuthTokenMissing', connectionName: connection.name })
     return ok(token)
   }
@@ -748,10 +761,13 @@ export class TaskTrackerManager {
     if (idx < 0) return null
 
     const conn = connections[idx]
-    connections[idx] = { ...conn, ...updates }
+    // `updates` comes from the renderer unchecked at runtime: never let it repoint the
+    // connection's id or token key.
+    connections[idx] = { ...conn, ...updates, id: conn.id, authPrefKey: conn.authPrefKey }
 
-    if (newToken) {
-      this.preferencesStore.set(conn.authPrefKey, newToken)
+    const tokenKey = connectionTokenKey(conn)
+    if (newToken && tokenKey) {
+      this.preferencesStore.set(tokenKey, newToken)
     }
 
     this.saveConnections(connections)
@@ -761,8 +777,9 @@ export class TaskTrackerManager {
   removeConnection(connectionId: string): void {
     const connections = this.getConnections()
     const conn = connections.find((c) => c.id === connectionId)
-    if (conn) {
-      this.preferencesStore.delete(conn.authPrefKey)
+    const tokenKey = conn ? connectionTokenKey(conn) : null
+    if (tokenKey) {
+      this.preferencesStore.delete(tokenKey)
     }
     this.saveConnections(connections.filter((c) => c.id !== connectionId))
   }
@@ -936,8 +953,14 @@ export class TaskTrackerManager {
     const tmpBase = os.tmpdir()
     const dir = join(filePath, '..')
     // Anchor the tmp containment check to a path boundary: a bare
-    // startsWith(os.tmpdir()) also matches sibling dirs like `/tmpEVIL/...`.
-    if (!dir.startsWith(tmpBase + sep) || !basename(dir).startsWith('canopy-attachments-')) return
+    // startsWith(os.tmpdir()) also matches sibling dirs like `/tmpEVIL/...`. The attachment
+    // dir must also sit directly in tmp, as created above — not in any nested directory.
+    if (
+      !dir.startsWith(tmpBase + sep) ||
+      join(dir, '..') !== tmpBase ||
+      !basename(dir).startsWith('canopy-attachments-')
+    )
+      return
     try {
       rmSync(dir, { recursive: true, force: true })
     } catch {

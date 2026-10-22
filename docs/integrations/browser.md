@@ -38,7 +38,7 @@ The `BrowserManager` in the main process handles security enforcement (popup han
 ### Favicon detection
 
 1. When a page's favicon changes, the `page-favicon-updated` event fires with one or more favicon URLs.
-2. The main process fetches the first favicon URL using `session.fetch()` (bypassing CORS restrictions on the page's session).
+2. The main process fetches the first favicon URL using `session.fetch()` (bypassing CORS restrictions on the page's session). The URL is page-controlled, so only `http:`, `https:` and `data:` URLs are fetched (never `file:` or other schemes), and icons larger than 512 KB are skipped.
 3. The favicon is converted to a base64 data URL (`data:{contentType};base64,...`) and sent to the renderer via `browser:faviconChanged`.
 4. If favicon fetch fails or no favicon is available, `null` is sent.
 
@@ -92,8 +92,8 @@ Users can add custom viewport presets stored in the `viewports.custom` preferenc
 
 1. User triggers autofill for a stored credential on the current page.
 2. The renderer calls `getCredentialDecrypted(id, domain, 'autofill')`. On the first autofill of the session the main process prompts the OS for authentication (Touch ID on macOS, `UserConsentVerifier` on Windows, a confirmation dialog on Linux). After a successful prompt the session is flagged as authenticated and subsequent autofills within the same app session skip both the OS prompt and `safeStorage.decryptString()` — matching Chrome's autofill behavior. The flag and the in-memory decrypted credential cache live only in the main process and are cleared on app quit or on any credential save/delete/import. The `'reveal'` purpose used by Settings → Saved Passwords always re-authenticates and never consults the cache, so revealing a plaintext password in the UI always requires a fresh OS prompt — matching Chrome's `chrome://password-manager`.
-3. With the decrypted credential the renderer calls `fillBrowserCredential(browserId, username, password)`.
-4. `BrowserManager.fillCredential()` executes JavaScript in an isolated world (ID 999) that:
+3. With the decrypted credential the renderer calls `fillBrowserCredential(browserId, username, password, host)`, where `host` is the page host the credential was decrypted for.
+4. `BrowserManager.fillCredential()` first checks that the guest page is still on that host — if it navigated elsewhere during the OS prompt, nothing is filled. It then executes JavaScript in an isolated world (ID 999) that:
    - Finds the first `<input type="password">` on the page.
    - Locates the nearest username field within the same form (by type `email`/`text` or name attributes containing `user`/`email`/`login`, or `autocomplete="username"`).
    - Sets values on both fields and dispatches `input` and `change` events with `bubbles: true` so frameworks detect the change.
@@ -117,7 +117,7 @@ Users can bookmark pages as favorites. Favorites are stored in the `browser.favo
 
 - `addFavorite(fav)`: Adds or replaces a favorite by URL.
 - `removeFavorite(url)`: Removes a single favorite by exact URL.
-- `removeFavoritesByHost(url)`: Removes all favorites matching the URL's host.
+- `removeFavoritesByHost(url)`: Removes all favorites matching the URL's host. The star menu's "Remove all favorites for this site" asks for confirmation first, since there is no undo.
 - `updateFavorite(oldUrl, updated)`: Replaces a favorite entry.
 - `reorderFavorites(fromIndex, toIndex)`: Moves a favorite to a new position in the list.
 - `isFavorite(url)`: Checks if any favorite shares the same host as the given URL.

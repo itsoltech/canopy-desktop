@@ -30,6 +30,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
   import { addToast, showUrlToast } from '../../lib/stores/toast.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
@@ -226,10 +227,18 @@
     }
   }
 
-  function handleStarRemoveAll(): void {
+  async function handleStarRemoveAll(): Promise<void> {
     const url = session?.url
-    if (url) removeFavoritesByHost(url)
     starDropdownOpen = false
+    if (!url) return
+    // Bulk removal with no undo: confirm first.
+    const confirmed = await confirm({
+      title: 'Remove favorites?',
+      message: `Remove all favorites for ${new URL(url).host}?`,
+      confirmLabel: 'Remove all',
+      destructive: true,
+    })
+    if (confirmed) removeFavoritesByHost(url)
   }
 
   function handleStarAddNew(): void {
@@ -488,7 +497,7 @@
     const cred = await window.api.getCredentialDecrypted(credId, domain, 'autofill')
     if (!cred) return
     // Fill via main process isolated world — page scripts cannot intercept
-    await window.api.fillBrowserCredential(browserId, cred.username, cred.password)
+    await window.api.fillBrowserCredential(browserId, cred.username, cred.password, domain)
   }
 
   /** Inject early capture script — stores credentials on form submit/button click */

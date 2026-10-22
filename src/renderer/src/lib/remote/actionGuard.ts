@@ -48,6 +48,9 @@ let sessionGeneration = 0
  * user confirmation before it runs.
  */
 export async function checkAction(method: RpcMethodName, params: unknown): Promise<boolean> {
+  // The peer pings every 3s. A side-effect-free liveness probe must never prompt, or the
+  // "full" profile raises a confirm every few seconds that clobbers real action prompts.
+  if (method === 'diag.ping') return true
   const profile = getGuardProfile()
   return match(profile)
     .with('none', () => Promise.resolve(true))
@@ -168,18 +171,21 @@ async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promi
 
 function describeAction(method: RpcMethodName, params: unknown): string {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>
+  // Peer-supplied values: collapse whitespace and cap length so a long or multi-line value
+  // can't push the real request off-screen or make the prompt read as a different action.
+  const v = (key: string): string => String(p[key]).replace(/\s+/g, ' ').slice(0, 200)
   return match(method as string)
-    .with('tools.spawn', () => `spawn tool "${p.toolId}" in ${p.worktreePath}`)
-    .with('tabs.close', () => `close tab ${p.tabId}`)
-    .with('tabs.activate', () => `activate tab ${p.tabId}`)
-    .with('pty.write', () => `write to terminal ${p.sessionId}`)
-    .with('pty.kill', () => `kill terminal process ${p.sessionId}`)
-    .with('agent.sendInput', () => `send prompt to agent ${p.sessionId}`)
-    .with('workspace.selectWorktree', () => `switch worktree to ${p.worktreePath}`)
-    .with('browser.openExternal', () => `open URL externally: ${p.url}`)
-    .with('worktree.add', () => `create worktree "${p.branch}" at ${p.path}`)
-    .with('worktree.addCheckout', () => `check out worktree "${p.branch}" at ${p.path}`)
-    .with('worktree.remove', () => `remove the worktree at ${p.path}`)
-    .with('project.attach', () => `attach project folder ${p.path}`)
+    .with('tools.spawn', () => `spawn tool "${v('toolId')}" in ${v('worktreePath')}`)
+    .with('tabs.close', () => `close tab ${v('tabId')}`)
+    .with('tabs.activate', () => `activate tab ${v('tabId')}`)
+    .with('pty.write', () => `write to terminal ${v('sessionId')}`)
+    .with('pty.kill', () => `kill terminal process ${v('sessionId')}`)
+    .with('agent.sendInput', () => `send prompt to agent ${v('sessionId')}`)
+    .with('workspace.selectWorktree', () => `switch worktree to ${v('worktreePath')}`)
+    .with('browser.openExternal', () => `open URL externally: ${v('url')}`)
+    .with('worktree.add', () => `create worktree "${v('branch')}" at ${v('path')}`)
+    .with('worktree.addCheckout', () => `check out worktree "${v('branch')}" at ${v('path')}`)
+    .with('worktree.remove', () => `remove the worktree at ${v('path')}`)
+    .with('project.attach', () => `attach project folder ${v('path')}`)
     .otherwise(() => `execute ${method}`)
 }
