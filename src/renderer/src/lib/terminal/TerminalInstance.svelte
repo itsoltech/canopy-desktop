@@ -39,6 +39,10 @@
 
   let containerEl: HTMLDivElement
   let termRef: Terminal | null = null
+  // termRef is a plain let assigned once xterm exists (after fonts load). The
+  // preference effects read this flag first; otherwise their first run returns
+  // before reading `prefs` and they never re-run when a preference changes.
+  let termReady = $state(false)
   let fitAddonRef: FitAddon | null = null
   let cleanupPtyDataSubscription: (() => void) | null = null
   let webglAddonRef: WebglAddon | null = null
@@ -147,9 +151,19 @@
     }
   })
 
+  // A font change keeps the container size but changes the cell size, so the
+  // grid must be refit. Skipped while hidden; the visibility effect refits on show.
+  function refitAfterFontChange(): void {
+    requestAnimationFrame(() => {
+      if (disposed || !termRef || !fitAddonRef) return
+      if (!containerEl?.clientWidth || !containerEl.clientHeight) return
+      fitAddonRef.fit()
+    })
+  }
+
   // React to preference changes for theme/font
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const themeName = prefs.theme || 'Default'
     const theme = getTheme(themeName)
     termRef.options.theme = theme
@@ -159,14 +173,16 @@
   })
 
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
     termRef.options.fontSize = size
+    refitAfterFontChange()
   })
 
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    refitAfterFontChange()
   })
 
   function shellEscape(path: string): string {
@@ -562,6 +578,7 @@
       // Defer initial fit to after browser layout is complete
       requestAnimationFrame(() => fitAddon.fit())
       termRef = term
+      termReady = true
 
       dataDisposable = term.onData((data) => {
         writeInput(data)

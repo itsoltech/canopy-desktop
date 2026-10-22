@@ -2139,7 +2139,11 @@ export function registerIpcHandlers(
     'git:statusPorcelain',
     async (event, payload: { repoRoot: string; worktreePath?: string }) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      return GitRepository.getStatusPorcelain(resolvedRepo, payload.worktreePath).unwrapOr('')
+      // git runs in worktreePath when given, so it needs the same workspace check.
+      const resolvedWorktree = payload.worktreePath
+        ? await validateWorktreeScopedPathAccess(event.sender.id, payload.worktreePath)
+        : undefined
+      return GitRepository.getStatusPorcelain(resolvedRepo, resolvedWorktree).unwrapOr('')
     },
   )
 
@@ -4955,6 +4959,10 @@ export function registerIpcHandlers(
       } catch {
         return { success: false, errors: ['Invalid worktree setup config'] }
       }
+      // The pref is renderer-writable, so valid JSON is not necessarily a list.
+      if (!Array.isArray(actions)) {
+        return { success: false, errors: ['Invalid worktree setup config'] }
+      }
 
       if (actions.length === 0) return { success: true, errors: [] }
 
@@ -5292,6 +5300,20 @@ export function registerIpcHandlers(
     // The deploy target comes from the untrusted renderer; confine it to one of
     // this window's attached workspaces before writing skill files into it.
     if (payload.workspacePath) await validatePathAccess(event.sender.id, payload.workspacePath)
+    // agents/scope/method are persisted with the skill; reject values outside the
+    // known sets, as skills:toggleAgent does for its agent target.
+    if (
+      payload.agents !== undefined &&
+      !(Array.isArray(payload.agents) && payload.agents.every(isSkillAgentTarget))
+    ) {
+      throw new Error('Invalid skill agent targets')
+    }
+    if (payload.scope !== undefined && !['global', 'project'].includes(payload.scope)) {
+      throw new Error('Invalid skill scope')
+    }
+    if (payload.method !== undefined && !['copy', 'symlink'].includes(payload.method)) {
+      throw new Error('Invalid skill install method')
+    }
     const result = await skillInstaller.install(payload)
     const skill = unwrapOrThrow(result, skillErrorMessage)
     skillRegistry.refresh()

@@ -95,6 +95,14 @@
       controller = new PeerController()
       controller.onPhaseChange = (p) => {
         phase = p
+        // Once the session drops its RPC is dead (retry is a page reload): stop
+        // pinging it and close the fullscreen terminal that would cover the
+        // disconnected screen. `negotiating` is excluded: onApiReady fires then.
+        if (p.kind !== 'connected' && p.kind !== 'negotiating') {
+          stopPingLoop()
+          remoteApi = null
+          fullscreenSessionId = null
+        }
       }
       controller.onApiReady = (api) => {
         remoteApi = api

@@ -67,7 +67,10 @@ export function getFavorites(): BrowserFavorite[] {
   const raw = prefs['browser.favorites']
   if (!raw) return []
   try {
-    return JSON.parse(raw) as BrowserFavorite[]
+    const parsed: unknown = JSON.parse(raw)
+    // Entries are written by this module; only the container shape needs checking
+    // so callers' .filter/.some can't throw on an imported or hand-edited value.
+    return Array.isArray(parsed) ? (parsed as BrowserFavorite[]) : []
   } catch {
     return []
   }

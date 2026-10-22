@@ -49,6 +49,19 @@ function isSameOriginAs(url: string, baseUrl: string): boolean {
   }
 }
 
+/**
+ * Hostname a GitHub connection's token belongs to: its configured `baseUrl`, or github.com
+ * when empty (the provider default). Null when `baseUrl` does not parse.
+ */
+function gitHubConnectionHost(baseUrl: string): string | null {
+  if (!baseUrl) return 'github.com'
+  try {
+    return new URL(baseUrl).hostname
+  } catch {
+    return null
+  }
+}
+
 export class TaskTrackerManager {
   constructor(
     private preferencesStore: PreferencesStore,
@@ -708,6 +721,19 @@ export class TaskTrackerManager {
           })
         }
         const { owner, repo, host } = parsed.value
+        // Security: the remote URL is untrusted (a clone can point at any host), so it may
+        // pick owner/repo but never where the token goes. Same rule as
+        // GitHubService.findGitHubConnection — without it, a workspace whose remote is
+        // https://evil.example/o/r.git would receive this connection's token.
+        const connHost = gitHubConnectionHost(conn.baseUrl)
+        if (host.toLowerCase().replace(/:\d+$/, '') !== connHost) {
+          return errAsync<TaskTrackerConnection, TaskTrackerError>({
+            _tag: 'ProviderApiError',
+            status: 0,
+            message: `Workspace remote host ${host} does not match the tracker host ${connHost ?? conn.baseUrl}`,
+            provider: 'github',
+          })
+        }
         return okAsync({
           ...conn,
           projectKey: `${owner}/${repo}`,

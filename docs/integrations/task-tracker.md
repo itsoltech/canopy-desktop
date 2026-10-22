@@ -375,6 +375,8 @@ descriptor and binding storage, renderer isolation and migration of legacy
 
 When a GitHub tracker has an empty `projectKey`, Canopy reads the git remote URL from the workspace and parses `owner/repo` from it. This supports `git@`, `https://`, and `ssh://` URL formats. If the remote is not a GitHub URL, a `ProviderApiError` is returned.
 
+The remote only supplies `owner/repo`, never the API host. The remote's host must match the tracker's host — the hostname of its `baseUrl`, or `github.com` when `baseUrl` is empty — otherwise a `ProviderApiError` is returned and the token is not sent. A GitHub Enterprise tracker therefore needs its `baseUrl` set explicitly.
+
 ## Error states
 
 Note: `taskTracker:attachmentSave` additionally throws plain validation errors that surface

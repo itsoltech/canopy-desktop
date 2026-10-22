@@ -5,6 +5,7 @@
   import { Search, RotateCw, ChevronRight, Copy } from '@lucide/svelte'
   import { getAiSessions, focusSessionByPtyId } from '../../lib/stores/tabs.svelte'
   import { workspaceState } from '../../lib/stores/workspace.svelte'
+  import { createLatestRequestGuard } from '../../lib/async/latestRequest'
   import type { DiffChange, DiffFile } from '../../lib/types/diff'
 
   let {
@@ -44,18 +45,24 @@
   let commentFilePath = $state('')
   let commentLineNum = $state(0)
 
+  // Refreshes overlap (worktree switch, git and file events); only the latest may
+  // apply, or an older diff replaces a newer one.
+  const diffRequest = createLatestRequestGuard()
+
   async function refresh(): Promise<void> {
+    const request = diffRequest.begin(worktreePath)
     loading = true
     loadError = false
     try {
       const result = await window.api.changesGetDiff({ worktreePath })
-      files = result.files
+      if (diffRequest.isLatest(request)) files = result.files
     } catch (e) {
+      if (!diffRequest.isLatest(request)) return
       files = []
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (diffRequest.isLatest(request)) loading = false
     }
   }
 
@@ -279,7 +286,8 @@
   function scrollToFocusedFile(): void {
     if (focusedFileIndex >= 0 && focusedFileIndex < files.length) {
       const file = files[focusedFileIndex]
-      const el = document.getElementById(`diff-file-${CSS.escape(file.path)}`)
+      // getElementById matches the raw id; CSS.escape is only for selectors.
+      const el = document.getElementById(`diff-file-${file.path}`)
       if (el && bodyEl) {
         suppressObserver = true
         workspaceState.diffVisibleFile = file.path
