@@ -1,12 +1,13 @@
 use super::*;
 use crate::ui::worktree_dialog::WorktreeRequest;
 use canopy_desktop::git::{RemovalKind, RemoveWorktree};
-use gpui_kit::base::Disableable;
+use gpui_kit::base::{Disableable, Placement};
 use gpui_kit::component::{
     Sizable,
-    button::ButtonVariants,
-    menu::{DropdownMenu, PopupMenuItem},
+    button::{ButtonCustomVariant, ButtonVariants},
+    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
 };
+use std::rc::Rc;
 impl EventEmitter<WorktreeRequest> for Sidebar {}
 impl Sidebar {
     fn stop_workspace(id: canopy_desktop::state::workspace::WorkspaceId, cx: &mut App) {
@@ -37,7 +38,11 @@ impl Sidebar {
         if self.selected_workspace != catalog.active {
             self.selected_workspace = catalog.active;
             if let Some(project) = catalog.current() {
-                self.collapsed_worktrees.remove(&project.path);
+                if let Some(group) = self.worktree_groups.get_mut(&project.path)
+                    && !group.open
+                {
+                    group.toggle(Instant::now(), cx);
+                }
                 let root = project.repository_path.as_ref().unwrap_or(&project.path);
                 if let Some(group) = self.project_groups.get_mut(root)
                     && !group.open
@@ -48,55 +53,6 @@ impl Sidebar {
         }
         cx.notify();
     }
-    fn activity(
-        &self,
-        ids: &[canopy_desktop::state::workspace::WorkspaceId],
-        cx: &App,
-    ) -> Option<Div> {
-        use canopy_desktop::state::workspace::PaneKind;
-        let app = cx.global::<crate::app_state::AppState>();
-        let mut working = 0;
-        let mut attention = 0;
-        for pane in app
-            .projects
-            .read(cx)
-            .runtime_workspaces(cx)
-            .iter()
-            .filter(|w| ids.contains(&w.id))
-            .flat_map(|w| w.all_panes())
-            .filter(|p| {
-                p.metadata.kind == PaneKind::Chat
-                    || (p.metadata.kind == PaneKind::Terminal
-                        && canopy_desktop::chat::provider::Provider::from_tool(&p.tool).is_some())
-            })
-        {
-            match super::chats::navigation_status(pane.id, cx) {
-                "Working" | "Goal" => working += 1,
-                "Waiting" | "Needs attention" | "Error" => attention += 1,
-                _ => {}
-            }
-        }
-        if working + attention == 0 {
-            return None;
-        }
-        let text = match (working, attention) {
-            (0, n) => format!("{n} need attention"),
-            (n, 0) => format!("{n} working"),
-            (w, a) => format!("{w} working · {a} need attention"),
-        };
-        Some(
-            div()
-                .text_xs()
-                .line_height(rems(1.))
-                .text_color(if attention > 0 {
-                    t::yellow()
-                } else {
-                    t::secondary()
-                })
-                .child(text),
-        )
-    }
-
     pub(super) fn projects_content(&self, now: Instant, cx: &Context<Self>) -> Div {
         let state = self.projects.read(cx);
         let git = self.git.read(cx);
@@ -132,22 +88,14 @@ impl Sidebar {
                 .filter(|p| p.repository_path.as_ref().unwrap_or(&p.path) == &root)
                 .map(|p| p.workspace)
                 .collect();
-            let activity = (!disclosure.open)
-                .then(|| self.activity(&ids, cx))
+            let tally = (!disclosure.open)
+                .then(|| super::tally(&ids, cx).pips(&format!("tally-{key}"), false))
                 .flatten();
             let owner = cx.entity().downgrade();
             let repo = info.clone();
             let blocked = git.busy || state.busy || !self.sections[0].open;
-            let project_menu = Button::new(SharedString::from(format!("menu-{key}")))
-                .ghost()
-                .small()
-                .compact()
-                .size_6()
-                .p_0()
-                .icon(IconName::Ellipsis)
-                .tooltip("Project actions")
-                .disabled(blocked)
-                .dropdown_menu(move |menu, _, _| {
+            let items = Rc::new(
+                move |menu: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
                     let create = owner.clone();
                     let refresh = owner.clone();
                     let close = owner.clone();
@@ -177,19 +125,58 @@ impl Sidebar {
                             });
                         }),
                     )
+                },
+            );
+            let project_menu = Button::new(SharedString::from(format!("menu-{key}")))
+                .ghost()
+                .small()
+                .compact()
+                .size_6()
+                .p_0()
+                .icon(IconName::Ellipsis)
+                .accessibility_label(format!("Actions for {label}"))
+                .tooltip("Project actions")
+                .disabled(blocked)
+                .dropdown_menu({
+                    let items = items.clone();
+                    move |menu, window, cx| items(menu, window, cx)
                 });
+            let entry = git.entries.get(&root);
+            let card = Rc::new(super::cards::ProjectCard {
+                name: label.clone(),
+                repository: match (&info, entry) {
+                    (Some(info), _) => Ok((info.worktrees.len(), info.branches.len())),
+                    (None, Some(Ok(None))) => Err("Folder without Git"),
+                    (None, Some(Err(_))) => Err("Git unavailable"),
+                    (None, _) => Err("Reading Git…"),
+                },
+                folder: super::cards::Folder::new(root.clone()),
+                workspaces: ids.clone(),
+                error: entry.and_then(|entry| entry.as_ref().err().cloned()),
+            });
+            let group = SharedString::from(format!("group-{key}"));
             let header = row()
+                .id(SharedString::from(format!("header-{key}")))
+                .hover_card(key.clone(), Placement::Right, move |_, cx| {
+                    card.render(cx).into_any_element()
+                })
+                .group(group.clone())
                 .gap_1()
-                .min_h(t::navigation_height())
+                .pr_1()
+                .min_h(rems(2.))
+                .rounded(t::sidebar_row_radius())
+                .hover(|s| s.bg(t::hover()))
                 .child(
                     Button::new(SharedString::from(key.clone()))
-                        .ghost()
+                        .custom(quiet_row(cx))
                         .small()
                         .compact()
-                        .min_h(t::navigation_height())
+                        .min_h(rems(2.))
                         .flex_1()
                         .min_w_0()
-                        .px_0()
+                        .pl_1p5()
+                        .pr_0()
+                        .border_0()
                         .accessibility_label(format!(
                             "{} {label}",
                             if disclosure.open {
@@ -198,7 +185,6 @@ impl Sidebar {
                                 "Expand"
                             }
                         ))
-                        .tooltip(canopy_desktop::platform::paths::display(&root))
                         .on_click(cx.listener(move |s, _, _, cx| {
                             if let Some(group) = s.project_groups.get_mut(&toggle_root) {
                                 group.toggle(Instant::now(), cx);
@@ -206,26 +192,32 @@ impl Sidebar {
                             }
                         }))
                         .child(
-                            row().w_full().gap_2().child(disclosure.chevron(now)).child(
-                                row()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .text_sm()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(t::text())
-                                            .truncate()
-                                            .child(label),
-                                    )
-                                    .children(activity),
-                            ),
+                            row()
+                                .w_full()
+                                .gap_2()
+                                .child(div().text_color(t::faint()).child(disclosure.chevron(now)))
+                                .child(super::activity::project_tile(&label))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_sm()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(t::text())
+                                        .truncate()
+                                        .child(label.clone()),
+                                ),
                         ),
                 )
-                .child(project_menu);
+                .children(tally.map(|pips| aside(&format!("tally-{key}"), pips)))
+                .child(reveal_on_hover(&key, &group, false, project_menu));
+            let header = if blocked {
+                header.into_any_element()
+            } else {
+                header
+                    .context_menu(move |menu, window, cx| items(menu, window, cx))
+                    .into_any_element()
+            };
             let mut rows = vec![];
             if let Some(info) = info {
                 for wt in &info.worktrees {
@@ -239,7 +231,9 @@ impl Sidebar {
                         .map(|p| p.workspace);
                     let key = format!("worktree-{}", path.display());
                     let selected = workspace.is_some() && workspace == state.catalog.active;
-                    let expanded = !self.collapsed_worktrees.contains(&path);
+                    let main = path == info.root;
+                    let disclosure = self.worktree_groups.get(&path);
+                    let expanded = disclosure.is_none_or(|d| d.open);
                     let collapse_path = path.clone();
                     let open_root = repository.clone();
                     let open_path = path.clone();
@@ -264,15 +258,8 @@ impl Sidebar {
                         workspace.is_some_and(|id| self.terminals.read(cx).workspace_stopping(id));
                     let active = workspace.is_some_and(|id| running.contains(&id));
                     let owner = cx.entity().downgrade();
-                    let menu = Button::new(SharedString::from(format!("menu-{key}")))
-                        .ghost()
-                        .small()
-                        .compact()
-                        .size_6()
-                        .p_0()
-                        .icon(IconName::Ellipsis)
-                        .tooltip("Worktree actions")
-                        .dropdown_menu(move |menu, _, _| {
+                    let items = Rc::new(
+                        move |menu: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
                             let chat = owner.clone();
                             let terminal = owner.clone();
                             let remove_owner = owner.clone();
@@ -326,17 +313,46 @@ impl Sidebar {
                                         }
                                     }),
                             )
-                        });
-                    let action = Button::new(SharedString::from(key))
+                        },
+                    );
+                    let menu = Button::new(SharedString::from(format!("menu-{key}")))
                         .ghost()
+                        .small()
+                        .compact()
+                        .size_6()
+                        .p_0()
+                        .icon(IconName::Ellipsis)
+                        .accessibility_label(format!("Actions for {}", wt.label))
+                        .tooltip("Worktree actions")
+                        .dropdown_menu({
+                            let items = items.clone();
+                            move |menu, window, cx| items(menu, window, cx)
+                        });
+                    let card = Rc::new(super::cards::WorktreeCard {
+                        head: if wt.missing {
+                            wt.checkout_branch().unwrap_or(&wt.label).to_owned()
+                        } else {
+                            wt.head.description()
+                        },
+                        main,
+                        current: selected,
+                        locked: wt.locked,
+                        missing: wt.missing,
+                        available: wt.available,
+                        project: label.clone(),
+                        folder: super::cards::Folder::new(path.clone()),
+                        workspace,
+                    });
+                    let action = Button::new(SharedString::from(key.clone()))
+                        .custom(quiet_row(cx))
                         .small()
                         .compact()
                         .h_8()
                         .flex_1()
                         .min_w_0()
                         .px_0()
+                        .border_0()
                         .disabled(disabled)
-                        .tooltip(wt.tooltip())
                         .accessibility_label(format!(
                             "{}{}",
                             wt.label,
@@ -348,22 +364,49 @@ impl Sidebar {
                             })
                         }))
                         .child(
-                            div()
+                            row()
                                 .w_full()
-                                .text_left()
-                                .truncate()
-                                .text_sm()
-                                .text_color(if selected {
-                                    t::accent()
-                                } else {
-                                    t::secondary()
-                                })
-                                .child(branch_label(&wt.label)),
+                                .min_w_0()
+                                .gap_1p5()
+                                .child(
+                                    Icon::default()
+                                        .path("canopy/git-branch.svg")
+                                        .size_3p5()
+                                        .flex_shrink_0()
+                                        .text_color(if selected {
+                                            t::accent()
+                                        } else {
+                                            t::faint()
+                                        }),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_left()
+                                        .text_sm()
+                                        .text_color(if selected {
+                                            t::text()
+                                        } else {
+                                            t::secondary()
+                                        })
+                                        .child(branch_label(&wt.label)),
+                                )
+                                .when(main, |row| row.child(tag("default"))),
                         );
+                    let group = SharedString::from(format!("group-{key}"));
                     let row = row()
-                        .pl_3()
-                        .gap_1()
+                        .id(SharedString::from(format!("row-{key}")))
+                        .hover_card(key.clone(), Placement::Right, move |_, cx| {
+                            card.render(cx).into_any_element()
+                        })
+                        .group(group.clone())
+                        .pl_0p5()
+                        .pr_1()
+                        .gap_0p5()
                         .h_8()
+                        .rounded(t::sidebar_row_radius())
+                        .hover(|s| s.bg(t::hover()))
                         .child(
                             Button::new(SharedString::from(format!(
                                 "expand-worktree-{}",
@@ -374,11 +417,18 @@ impl Sidebar {
                             .compact()
                             .size_5()
                             .p_0()
-                            .icon(if expanded {
-                                IconName::ChevronDown
-                            } else {
-                                IconName::ChevronRight
-                            })
+                            .icon(
+                                disclosure
+                                    .map_or_else(
+                                        || {
+                                            Icon::new(IconName::ChevronRight)
+                                                .rotate(radians(std::f32::consts::FRAC_PI_2))
+                                        },
+                                        |d| d.chevron(now),
+                                    )
+                                    .size_3()
+                                    .text_color(t::faint()),
+                            )
                             .accessibility_label(format!(
                                 "{} {}",
                                 if expanded { "Collapse" } else { "Expand" },
@@ -386,53 +436,76 @@ impl Sidebar {
                             ))
                             .on_click(cx.listener(
                                 move |s, _, _, cx| {
-                                    if !s.collapsed_worktrees.remove(&collapse_path) {
-                                        s.collapsed_worktrees.insert(collapse_path.clone());
-                                    }
+                                    let now = Instant::now();
+                                    s.worktree_groups
+                                        .entry(collapse_path.clone())
+                                        .or_insert_with(|| Disclosure::new(true, now))
+                                        .toggle(now, cx);
                                     cx.notify();
                                 },
                             )),
                         )
                         .child(action)
-                        .children(
-                            workspace
-                                .filter(|_| !expanded)
-                                .and_then(|id| self.activity(&[id], cx)),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!(
-                                "terminal-worktree-{}",
-                                path.display()
-                            )))
-                            .ghost()
-                            .small()
-                            .compact()
-                            .size_6()
-                            .p_0()
-                            .icon(IconName::SquareTerminal)
-                            .tooltip("Open worktree terminal")
-                            .disabled(disabled)
-                            .on_click(cx.listener(
-                                move |s, _, _, cx| {
-                                    s.git.update(cx, |g, cx| {
-                                        g.open_terminal(
-                                            terminal_root.clone(),
-                                            terminal_path.clone(),
-                                            cx,
-                                        )
-                                    })
-                                },
-                            )),
-                        )
-                        .child(menu);
+                        .children(workspace.filter(|_| !expanded).and_then(|id| {
+                            super::tally(&[id], cx)
+                                .pips(&format!("tally-{key}"), false)
+                                .map(|pips| aside(&format!("tally-{key}"), pips))
+                        }))
+                        .child(reveal_on_hover(
+                            &key,
+                            &group,
+                            selected,
+                            row()
+                                .gap_0p5()
+                                .child(
+                                    Button::new(SharedString::from(format!(
+                                        "terminal-worktree-{}",
+                                        path.display()
+                                    )))
+                                    .ghost()
+                                    .small()
+                                    .compact()
+                                    .size_6()
+                                    .p_0()
+                                    .icon(
+                                        Icon::default()
+                                            .path("canopy/square-terminal.svg")
+                                            .size_3p5(),
+                                    )
+                                    .accessibility_label("Open worktree terminal")
+                                    .tooltip("Open worktree terminal")
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(move |s, _, _, cx| {
+                                        s.git.update(cx, |g, cx| {
+                                            g.open_terminal(
+                                                terminal_root.clone(),
+                                                terminal_path.clone(),
+                                                cx,
+                                            )
+                                        })
+                                    })),
+                                )
+                                .child(menu),
+                        ))
+                        .context_menu(move |menu, window, cx| items(menu, window, cx));
+                    // Same motion as a project group; without a disclosure yet the
+                    // worktree has never been toggled and is simply open.
+                    let chats = workspace.map(|id| self.workspace_chats(id, cx));
                     rows.push(
                         column()
                             .child(row)
-                            .children(
-                                workspace
-                                    .filter(|_| expanded)
-                                    .map(|id| self.workspace_chats(id, cx)),
-                            )
+                            .children(chats.map(|chats| {
+                                match disclosure {
+                                    Some(disclosure) => disclosure
+                                        .measured_body(
+                                            SharedString::from(format!("worktree-body-{key}")),
+                                            chats,
+                                            now,
+                                        )
+                                        .into_any_element(),
+                                    None => chats.into_any_element(),
+                                }
+                            }))
                             .into_any_element(),
                     );
                 }
@@ -443,52 +516,103 @@ impl Sidebar {
                     Some(Err(_)) => "Git unavailable",
                     _ => "Reading Git…",
                 };
+                let projects = self.projects.clone();
+                let items = Rc::new(
+                    move |menu: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
+                        let chat = projects.clone();
+                        let terminal = projects.clone();
+                        menu.item(PopupMenuItem::new("New chat").disabled(blocked).on_click(
+                            move |_, _, cx| chat.update(cx, |p, cx| p.create_chat_in(id, cx)),
+                        ))
+                        .item(
+                            PopupMenuItem::new("Open terminal")
+                                .disabled(blocked)
+                                .on_click(move |_, _, cx| {
+                                    terminal.update(cx, |p, cx| p.show_terminal(id, cx))
+                                }),
+                        )
+                    },
+                );
+                let group = SharedString::from(format!("group-folder-{key}"));
                 rows.push(
                     row()
-                        .pl_2()
-                        .gap_1()
+                        .id(SharedString::from(format!("row-folder-{key}")))
+                        .group(group.clone())
+                        .pl(rems(1.375))
+                        .pr_1()
+                        .gap_0p5()
                         .h_8()
+                        .rounded(t::sidebar_row_radius())
+                        .hover(|s| s.bg(t::hover()))
                         .child(
                             Button::new(SharedString::from(format!("folder-{key}")))
-                                .ghost()
+                                .custom(quiet_row(cx))
                                 .small()
                                 .compact()
                                 .flex_1()
                                 .min_w_0()
                                 .px_0()
-                                .label(message)
+                                .border_0()
+                                .tooltip("Folder without Git")
+                                .child(
+                                    row()
+                                        .w_full()
+                                        .gap_1p5()
+                                        .text_sm()
+                                        .text_color(t::secondary())
+                                        .child(
+                                            Icon::new(IconName::Folder)
+                                                .size_3p5()
+                                                .text_color(t::faint()),
+                                        )
+                                        .child(message),
+                                )
                                 .on_click(cx.listener(move |s, _, _, cx| {
                                     s.projects.update(cx, |p, cx| p.select(id, cx))
                                 })),
                         )
-                        .child(
-                            Button::new(SharedString::from(format!("terminal-{key}")))
-                                .ghost()
-                                .small()
-                                .compact()
-                                .size_6()
-                                .p_0()
-                                .icon(IconName::SquareTerminal)
-                                .tooltip("Open folder terminal")
-                                .disabled(blocked)
-                                .on_click(cx.listener(move |s, _, _, cx| {
-                                    s.projects.update(cx, |p, cx| p.show_terminal(id, cx))
-                                })),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("chat-{key}")))
-                                .ghost()
-                                .small()
-                                .compact()
-                                .size_6()
-                                .p_0()
-                                .icon(IconName::Plus)
-                                .tooltip("New chat in this folder")
-                                .disabled(blocked)
-                                .on_click(cx.listener(move |s, _, _, cx| {
-                                    s.projects.update(cx, |p, cx| p.create_chat_in(id, cx))
-                                })),
-                        )
+                        .child(reveal_on_hover(
+                            &format!("folder-{key}"),
+                            &group,
+                            false,
+                            row()
+                                .gap_0p5()
+                                .child(
+                                    Button::new(SharedString::from(format!("terminal-{key}")))
+                                        .ghost()
+                                        .small()
+                                        .compact()
+                                        .size_6()
+                                        .p_0()
+                                        .icon(
+                                            Icon::default()
+                                                .path("canopy/square-terminal.svg")
+                                                .size_3p5(),
+                                        )
+                                        .accessibility_label("Open folder terminal")
+                                        .tooltip("Open folder terminal")
+                                        .disabled(blocked)
+                                        .on_click(cx.listener(move |s, _, _, cx| {
+                                            s.projects.update(cx, |p, cx| p.show_terminal(id, cx))
+                                        })),
+                                )
+                                .child(
+                                    Button::new(SharedString::from(format!("chat-{key}")))
+                                        .ghost()
+                                        .small()
+                                        .compact()
+                                        .size_6()
+                                        .p_0()
+                                        .icon(IconName::Plus)
+                                        .accessibility_label("New chat in this folder")
+                                        .tooltip("New chat in this folder")
+                                        .disabled(blocked)
+                                        .on_click(cx.listener(move |s, _, _, cx| {
+                                            s.projects.update(cx, |p, cx| p.create_chat_in(id, cx))
+                                        })),
+                                ),
+                        ))
+                        .context_menu(move |menu, window, cx| items(menu, window, cx))
                         .into_any_element(),
                 );
                 rows.push(self.workspace_chats(id, cx).into_any_element());
@@ -498,7 +622,7 @@ impl Sidebar {
                     .child(header)
                     .child(disclosure.measured_body(
                         SharedString::from(format!("project-body-{}", root.display())),
-                        column().children(rows),
+                        column().gap_px().children(rows),
                         now,
                     ))
                     .into_any_element(),
@@ -556,8 +680,51 @@ impl Sidebar {
                     .into_any_element(),
             );
         }
-        column().gap_1().children(groups)
+        column().gap_1p5().children(groups)
     }
+}
+
+/// Row buttons draw no fill of their own: the whole row carries hover.
+fn quiet_row(cx: &App) -> ButtonCustomVariant {
+    ButtonCustomVariant::new(cx)
+        .foreground(t::text())
+        .hover(transparent_black())
+        .active(transparent_black())
+}
+
+/// Secondary row actions: shown on hover (always for `pinned`), and also in the
+/// row's context menu.
+fn reveal_on_hover(
+    key: &str,
+    group: &SharedString,
+    pinned: bool,
+    actions: impl IntoElement,
+) -> Stateful<Div> {
+    aside(&format!("actions-{key}"), actions).when(!pinned, |d| {
+        d.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.))
+    })
+}
+
+/// A part of a row with tooltips of its own: the row's hover card steps aside.
+fn aside(key: &str, child: impl IntoElement) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(format!("aside-{key}")))
+        .flex_shrink_0()
+        .hides_hover_card()
+        .child(child)
+}
+
+pub(super) fn tag(label: &'static str) -> Div {
+    div()
+        .flex_shrink_0()
+        .px_1()
+        .rounded(rems(0.25))
+        .border_1()
+        .border_color(t::border())
+        .text_size(rems(0.65625))
+        .line_height(rems(0.9375))
+        .text_color(t::faint())
+        .child(label)
 }
 
 /// Keep the distinguishing suffix visible even when a branch shares a long prefix.

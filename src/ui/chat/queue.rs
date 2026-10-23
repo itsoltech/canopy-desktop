@@ -1,6 +1,7 @@
 //! Tray on top of the composer: messages held until the agent has finished everything,
 //! and subagents the agent is still waiting for after its turn ended.
 use super::{render::centered, view::ChatView};
+use crate::ui::components::hover_card::content as card;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::{
     chat::session::{Queued, QueuedId},
@@ -259,6 +260,35 @@ fn status_dot(color: Hsla) -> Div {
 }
 
 /// `first` is the entry ⌘⏎ steers.
+/// The whole queued message, and when it goes out.
+fn queued_card(text: &str, held: bool) -> Div {
+    let (dot, label, detail) = if held {
+        (
+            t::yellow(),
+            "Paused",
+            "after Stop; Resume, send or steer to continue",
+        )
+    } else {
+        (t::faint(), "Queued", "sent when the agent finishes")
+    };
+    card::body()
+        .child(
+            div()
+                .text_sm()
+                .line_height(t::chat_title_line_height())
+                .text_color(t::text())
+                .line_clamp(8)
+                .child(text.to_owned()),
+        )
+        .child(card::separator())
+        .child(card::status(
+            dot,
+            label,
+            detail,
+            if held { dot } else { t::secondary() },
+        ))
+}
+
 fn queued_row(
     entry: &Entry,
     queued: &Queued,
@@ -314,11 +344,8 @@ fn queued_row(
         Some(command) => format!("Output of !{command}"),
         None => queued.text.clone(),
     };
-    let tip: SharedString = if held {
-        format!("{text}\n\nQueued — paused after Stop; Resume, send or steer to continue").into()
-    } else {
-        format!("{text}\n\nQueued — sent when the agent finishes").into()
-    };
+    let full = text.clone();
+    let owner = format!("queued-{}-{key}", cx.entity_id());
     let movable = active && queued.steering.is_none();
     shell(
         entry,
@@ -358,8 +385,8 @@ fn queued_row(
                     .text_size(px(13.))
                     .text_color(t::text())
                     .truncate()
-                    .tooltip(move |window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                    .hover_card(owner, gpui_kit::base::Placement::Top, move |_, _| {
+                        queued_card(&full, held).into_any_element()
                     })
                     .child(single_line(&text)),
             )

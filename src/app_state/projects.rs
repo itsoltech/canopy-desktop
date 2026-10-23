@@ -468,7 +468,7 @@ impl ProjectsState {
             self.select_target(id, Some(pane), cx);
         }
     }
-    /// Explicitly selecting a CLI agent gives its existing terminal the work area.
+    /// Selecting a CLI agent activates its existing terminal tab in the work area.
     pub fn focus_agent_terminal(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         cx.emit(AgentFocusRequested);
         let target = self
@@ -483,32 +483,7 @@ impl ProjectsState {
             })
             .map(|w| w.id);
         if let Some(id) = target {
-            self.select_then(
-                id,
-                Some(pane),
-                Some(|cx| {
-                    cx.global::<AppState>()
-                        .workspace
-                        .clone()
-                        .update(cx, |w, cx| {
-                            if w.active()
-                                .and_then(|t| t.root.find(t.focused))
-                                .is_some_and(|p| {
-                                    p.metadata.kind
-                                        == canopy_desktop::state::workspace::PaneKind::Terminal
-                                        && canopy_desktop::chat::provider::Provider::from_tool(
-                                            &p.tool,
-                                        )
-                                        .is_some()
-                                })
-                            {
-                                w.tool_panel_mut().set_maximized(true);
-                                cx.notify();
-                            }
-                        });
-                }),
-                cx,
-            );
+            self.select_target(id, Some(pane), cx);
         }
     }
     pub fn select(&mut self, id: WorkspaceId, cx: &mut Context<Self>) {

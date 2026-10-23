@@ -427,6 +427,19 @@ impl ChatView {
         }
     }
 
+    /// The model named under the chat's title in the sidebar: "Opus 5.5".
+    pub(crate) fn model_label(&self, cx: &App) -> Option<String> {
+        let label = match self.current_model(cx) {
+            Some(model) => model.label(),
+            None => self.settings.model.clone()?,
+        };
+        let label = label
+            .strip_prefix("Default (")
+            .and_then(|l| l.strip_suffix(')'))
+            .map_or(label.clone(), str::to_owned);
+        (label != "Default").then_some(label)
+    }
+
     /// Account and model names shown in the picker and the empty state.
     pub(super) fn selection_label(&self, cx: &App) -> (String, String) {
         let (accounts, current) = self.accounts(cx);

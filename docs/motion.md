@@ -10,6 +10,7 @@ pól motion w GPUI Kit. Dane animacji należą do widoku, nie do globalnego time
 | Grupa | Tokeny / wartości |
 | --- | --- |
 | `duration` | INSTANT 0, STAGGER 40, MICRO 80, QUICK 150, FAST 250, MEDIUM 350, SLOW 400, VERY_SLOW 500 ms |
+| `duration` (pętle) | ORBIT 1400, CRAWL 1100, PULSE 1600, SWEEP 900 ms — wskaźniki aktywności agentów w sidebarze |
 | `distance` | MICRO 4, SMALL 6, BASE 8, MEDIUM 12, LARGE 30 jednostek logicznych |
 | `scale` | MODAL 0.96, DROPDOWN 0.97, TOOLTIP 0.98, SUBTLE 0.99 |
 | `Easing` | SmoothOut, EaseInOut, EaseOut, Linear |
@@ -28,6 +29,7 @@ mechanizmu jego renderowania w GPUI.
 | CONTENT_REVEAL | 40 ms delay + 250 ms | 150 ms, bez delay |
 | RESIZE | 250 ms | zmiana liczbowego wymiaru |
 | STATE_CHANGE | 150 ms | zmiana wartości/stanu |
+| TOOLTIP | 150 ms EaseOut | 80 ms EaseOut; karty na hover ([komponenty](components.md#karty-na-hover)) |
 
 Profile wybieramy według zastosowania, nie najbliższej liczby ms.
 Nietypowy komponent może składać `PresenceSpec` i `TransitionSpec` z tokenów,

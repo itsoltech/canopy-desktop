@@ -155,6 +155,7 @@ pub struct Workspace {
     tab_scroll: workspace_tabs::TabScroll,
     hovered_tab: Option<canopy_desktop::state::workspace::TabId>,
     drop_hint: Option<(PaneId, Placement)>,
+    hover_cards: Entity<components::HoverCards>,
 }
 
 impl Workspace {
@@ -574,6 +575,7 @@ impl Workspace {
             hovered_tab: None,
             tab_scroll: workspace_tabs::TabScroll::new(),
             drop_hint: None,
+            hover_cards: components::HoverCards::install(window, cx),
         }
     }
 
@@ -1340,6 +1342,7 @@ impl Render for Workspace {
             .children(self.worktree_modal.clone())
             .children(self.task_detail_modal.clone())
             .children(self.task_editor_modal.clone())
+            .child(self.hover_cards.clone())
     }
 }
 

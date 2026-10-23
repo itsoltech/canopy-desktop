@@ -84,18 +84,6 @@ impl WorktreeInfo {
     pub fn checkout_branch(&self) -> Option<&str> {
         self.branch_name().or(self.registered_branch.as_deref())
     }
-    pub fn tooltip(&self) -> String {
-        format!(
-            "{}\n{}{}",
-            crate::platform::paths::display(&self.path),
-            if self.missing {
-                "Worktree directory is missing".into()
-            } else {
-                self.head.description()
-            },
-            if self.locked { " · locked" } else { "" }
-        )
-    }
 }
 fn directory_name(path: &Path) -> String {
     path.file_name()

@@ -1,5 +1,6 @@
 //! Badges of commands (`/name`), skills (`$name`) and pull requests (`#123`) in the
 //! composer and in sent messages (DEC-071), drawn like attachment and quote badges.
+use crate::ui::components::hover_card::content as card;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::transcript::Attachment;
 use gpui_kit::*;
@@ -51,48 +52,97 @@ pub(super) fn skill_title(name: &str) -> String {
         .join(" ")
 }
 
-/// Icon, text, tooltip and tint of a command, skill or pull request badge.
-pub(super) fn look(attachment: &Attachment) -> Option<(&'static str, String, String, Hsla)> {
+/// Icon, text and tint of a command, skill or pull request badge.
+pub(super) fn look(attachment: &Attachment) -> Option<(&'static str, String, Hsla)> {
+    match attachment {
+        Attachment::Command {
+            name, skill: true, ..
+        } => Some(("box", skill_title(name), t::skill())),
+        Attachment::Command { name, .. } => Some(("square-slash", format!("/{name}"), t::accent())),
+        Attachment::Pull {
+            number,
+            title,
+            state,
+            ..
+        } => Some((pull_icon(state), format!("#{number} {title}"), t::accent())),
+        _ => None,
+    }
+}
+
+/// What a badge stands for, on hover: the command's or skill's description, or
+/// the pull request's branches and the start of its description.
+fn mention_card(attachment: &Attachment) -> Div {
+    let Some((icon, _, tint)) = look(attachment) else {
+        return card::body();
+    };
+    let heading = |title: String, subtitle: String| {
+        row()
+            .items_start()
+            .gap_1p5()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .pt(rems(0.1875))
+                    .child(custom_icon(icon).size(rems(0.875)).text_color(tint)),
+            )
+            .child(
+                column().flex_1().min_w_0().child(card::title(title)).child(
+                    div()
+                        .text_xs()
+                        .line_height(t::chat_metadata_line_height())
+                        .text_color(t::muted())
+                        .child(subtitle),
+                ),
+            )
+    };
+    let prose = |text: &str| {
+        div()
+            .text_xs()
+            .line_height(t::chat_metadata_line_height())
+            .text_color(t::secondary())
+            .line_clamp(4)
+            .child(text.to_owned())
+    };
     match attachment {
         Attachment::Command {
             name,
             description,
-            skill: true,
+            skill,
             ..
-        } => Some((
-            "box",
-            skill_title(name),
-            match description.as_deref().filter(|d| !d.is_empty()) {
-                Some(description) => format!("${name}\n{description}"),
-                None => format!("${name}"),
-            },
-            t::skill(),
-        )),
-        Attachment::Command {
-            name, description, ..
-        } => Some((
-            "square-slash",
-            format!("/{name}"),
-            description
-                .clone()
-                .filter(|d| !d.is_empty())
-                .unwrap_or_else(|| format!("/{name}")),
-            t::accent(),
-        )),
+        } => card::body()
+            .child(if *skill {
+                heading(skill_title(name), format!("Skill · ${name}"))
+            } else {
+                heading(format!("/{name}"), "Command".into())
+            })
+            .children(description.as_deref().filter(|d| !d.is_empty()).map(prose)),
         Attachment::Pull {
             number,
             title,
             head,
             base,
             state,
+            body,
             ..
-        } => Some((
-            pull_icon(state),
-            format!("#{number} {title}"),
-            format!("#{number} {title}\n{head} → {base} · {state}"),
-            t::accent(),
-        )),
-        _ => None,
+        } => {
+            let mut state = state.clone();
+            if let Some(first) = state.get_mut(..1) {
+                first.make_ascii_uppercase();
+            }
+            card::body()
+                .child(heading(title.clone(), format!("#{number} · {state}")))
+                .child(card::separator())
+                .child(
+                    card::facts().child(
+                        card::fact(
+                            gpui_kit::component::Icon::default().path("canopy/git-branch.svg"),
+                        )
+                        .child(div().min_w_0().truncate().child(format!("{head} → {base}"))),
+                    ),
+                )
+                .children((!body.trim().is_empty()).then(|| prose(body.trim())))
+        }
+        _ => card::body(),
     }
 }
 
@@ -114,8 +164,10 @@ pub(super) fn mention_badge(
     height: Pixels,
     selected: bool,
 ) -> Option<Stateful<Div>> {
-    let (icon, text, tooltip, tint) = look(attachment)?;
-    let tooltip: SharedString = tooltip.into();
+    let (icon, text, tint) = look(attachment)?;
+    let id = id.into();
+    let owner = format!("mention-{id:?}");
+    let attachment = attachment.clone();
     Some(
         row()
             .id(id)
@@ -131,8 +183,8 @@ pub(super) fn mention_badge(
             .text_color(t::text())
             .child(custom_icon(icon).size(height - px(8.)).text_color(tint))
             .child(div().min_w_0().truncate().child(text))
-            .tooltip(move |window, cx| {
-                gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+            .hover_card(owner, gpui_kit::base::Placement::Top, move |_, _| {
+                mention_card(&attachment).into_any_element()
             }),
     )
 }

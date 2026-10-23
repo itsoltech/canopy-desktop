@@ -1,13 +1,14 @@
 //! Quiet actions under a message (DEC-042): copy, edit and retry, shown on hover with
 //! the turn's numbers. Hovering anywhere on the message reveals them.
 use super::{rows::Row, tools, view::ChatView};
+use crate::ui::components::hover_card::content as card;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{
     presentation,
     transcript::{ItemId, TurnEnd},
 };
 use gpui_kit::component::{IconName, button::Button};
-use gpui_kit::*;
+use gpui_kit::{prelude::FluentBuilder, *};
 use std::time::{Duration, Instant};
 
 /// Hover group of a message row; actions inside it show while it is hovered.
@@ -221,55 +222,50 @@ pub(super) fn context_ring(this: &ChatView) -> Option<Stateful<Div>> {
     if usage.is_none() && rate.is_none() {
         return None;
     }
-    let mut lines = vec![];
-    let mut percent = 0f32;
+    let mut meters = vec![];
     if let Some(usage) = usage {
         // The CLI compacts once the free space before its buffer runs out: the ring
         // fills toward that point.
         let limit = usage.max.saturating_sub(usage.buffer).max(1);
-        percent = (usage.used as f32 / limit as f32 * 100.).clamp(0., 100.);
-        lines.push(match session.provider() {
-            canopy_desktop::chat::provider::Provider::Claude => format!(
-                "{} / {} tokens of context used · Claude compacts the conversation near {}",
-                presentation::tokens(usage.used),
-                presentation::tokens(usage.max),
-                presentation::tokens(limit)
-            ),
-            canopy_desktop::chat::provider::Provider::Codex => format!(
-                "{} / {} tokens of context used",
-                presentation::tokens(usage.used),
-                presentation::tokens(usage.max),
-            ),
+        meters.push(Meter {
+            label: "Context".into(),
+            percent: (usage.used as f32 / limit as f32 * 100.).clamp(0., 100.),
+            detail: match session.provider() {
+                canopy_desktop::chat::provider::Provider::Claude => format!(
+                    "{} / {} tokens · Claude compacts the conversation near {}",
+                    presentation::tokens(usage.used),
+                    presentation::tokens(usage.max),
+                    presentation::tokens(limit)
+                ),
+                canopy_desktop::chat::provider::Provider::Codex => format!(
+                    "{} / {} tokens",
+                    presentation::tokens(usage.used),
+                    presentation::tokens(usage.max),
+                ),
+            },
         });
     }
     if let Some(rate) = rate {
         let window = match rate.window_mins {
-            Some(10080) => "weekly limit".to_owned(),
+            Some(10080) => "Weekly limit".to_owned(),
             Some(300) => "5-hour limit".to_owned(),
             Some(mins) if mins >= 1440 => format!("{}-day limit", mins / 1440),
             Some(mins) => format!("{}-hour limit", mins.div_ceil(60)),
-            None => "usage limit".to_owned(),
+            None => "Usage limit".to_owned(),
         };
-        let resets = rate
-            .resets_at
-            .and_then(reset_day)
-            .map(|at| format!(" · resets {at}"))
-            .unwrap_or_default();
-        lines.push(format!(
-            "{:.0}% of the {window} used{resets}",
-            rate.used_percent
-        ));
-        // The ring warns about whichever runs out first.
-        percent = percent.max(rate.used_percent as f32);
+        meters.push(Meter {
+            label: window,
+            percent: (rate.used_percent as f32).clamp(0., 100.),
+            detail: rate
+                .resets_at
+                .and_then(reset_day)
+                .map(|at| format!("Resets {at}"))
+                .unwrap_or_default(),
+        });
     }
-    let color = if percent >= 95. {
-        t::red()
-    } else if percent >= 80. {
-        t::yellow()
-    } else {
-        t::secondary()
-    };
-    let tip: SharedString = lines.join("\n").into();
+    // The ring warns about whichever runs out first.
+    let percent = meters.iter().map(|m| m.percent).fold(0., f32::max);
+    let color = severity(percent);
     Some(
         div()
             .id("chat-context")
@@ -283,9 +279,11 @@ pub(super) fn context_ring(this: &ChatView) -> Option<Stateful<Div>> {
                 "{percent:.0}% of the context before compaction used"
             ))
             .hover(|style| style.bg(t::hover()))
-            .tooltip(move |window, cx| {
-                gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
-            })
+            .hover_card(
+                format!("chat-context-{:?}", this.pane.id),
+                gpui_kit::base::Placement::Top,
+                move |_, _| meters_card(&meters).into_any_element(),
+            )
             .child(
                 gpui_kit::component::progress::ProgressCircle::new("chat-context-ring")
                     .value(percent)
@@ -294,6 +292,79 @@ pub(super) fn context_ring(this: &ChatView) -> Option<Stateful<Div>> {
                     .size(px(14.)),
             ),
     )
+}
+
+/// One quota behind the context ring: the context window or a plan's usage limit.
+struct Meter {
+    label: String,
+    percent: f32,
+    detail: String,
+}
+
+fn severity(percent: f32) -> Hsla {
+    if percent >= 95. {
+        t::red()
+    } else if percent >= 80. {
+        t::yellow()
+    } else {
+        t::secondary()
+    }
+}
+
+fn meters_card(meters: &[Meter]) -> Div {
+    card::body().children(meters.iter().enumerate().map(|(index, meter)| {
+        let color = severity(meter.percent);
+        column()
+            .gap_1()
+            .when(index > 0, |meter| {
+                meter.pt_2().border_t_1().border_color(t::border())
+            })
+            .child(
+                row()
+                    .justify_between()
+                    .gap_2()
+                    .text_xs()
+                    .line_height(t::chat_metadata_line_height())
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(t::text())
+                            .child(meter.label.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_color(if meter.percent >= 80. {
+                                color
+                            } else {
+                                t::muted()
+                            })
+                            .child(format!("{:.0}%", meter.percent)),
+                    ),
+            )
+            .child(
+                div()
+                    .h(px(4.))
+                    .w_full()
+                    .rounded_full()
+                    .bg(t::border())
+                    .child(
+                        div()
+                            .h_full()
+                            .rounded_full()
+                            .w(relative(meter.percent / 100.))
+                            .bg(color),
+                    ),
+            )
+            .when(!meter.detail.is_empty(), |line| {
+                line.child(
+                    div()
+                        .text_xs()
+                        .line_height(t::chat_metadata_line_height())
+                        .text_color(t::muted())
+                        .child(meter.detail.clone()),
+                )
+            })
+    }))
 }
 
 /// Seconds left until `until` (unix seconds), while it is in the future.

@@ -102,7 +102,6 @@ fn missing_worktree_cleanup_removes_only_its_registration_and_keeps_branches() {
     let missing = info.worktrees.iter().find(|w| w.path == path).unwrap();
     assert!(missing.missing && !missing.available);
     assert_eq!(missing.checkout_branch(), Some("missing-test"));
-    assert!(missing.tooltip().contains("directory is missing"));
     let mut duplicate = request(root, &dir.path().join("duplicate-missing"), "missing-test");
     duplicate.new_branch = false;
     assert!(git::create(&duplicate).is_err());
@@ -659,9 +658,10 @@ fn detached_worktrees_use_directory_context_and_keep_commit_identity() {
         assert_eq!(worktree.branch_name(), None);
         assert_eq!(worktree.label, format!("main ({container})"));
         assert_eq!(worktree.head, git::WorktreeHead::Detached(oid.to_string()));
-        assert!(worktree.tooltip().contains(&path.display().to_string()));
-        assert!(worktree.tooltip().contains("Detached HEAD"));
-        assert!(worktree.tooltip().contains(&oid.to_string()[..8]));
+        assert_eq!(
+            worktree.head.description(),
+            format!("Detached HEAD · {}", &oid.to_string()[..8])
+        );
     }
     // A detached checkout does not reserve its former branch name.
     let mut req = request(root, &dir.path().join("reuse"), "scratch/one");

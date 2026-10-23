@@ -126,7 +126,8 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 
 - Wiersz rozmowy pod worktree odpowiada jednemu Chat PaneId i pokazuje tytuł,
   agenta i status. Projekt oraz branch/worktree wynikają z rodzica; pełny kontekst
-  jest w tooltipie i etykiecie dostępności. Rodzice agregują pracę i potrzebę decyzji.
+  jest w karcie sesji na hover (fakty z ikonami) i etykiecie dostępności; projekt i worktree mają
+  analogiczne karty. Rodzice agregują pracę i potrzebę decyzji.
   HEAD pochodzi z istniejącego watchera; render nie wykonuje I/O. Private chats
   nie tworzy fikcyjnego projektu. Rename/Delete po WorkspaceId/PaneId zachowuje
   dotychczasowy guard i cleanup. `Open tabs…` przy prywatnych rozmowach daje dostęp
@@ -153,8 +154,13 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 - Stop processes jest w menu worktree, także dla folderu bez Git, i obejmuje
   wszystkie jego taby. Stop oraz Remove worktree mają jawne nazwy i stan disabled.
   Nie dodawaj kolejnych ikon kosztem czytelnej nazwy brancha.
-- Agenci w PTY są oznaczeni CLI. Wybór w drzewie pokazuje istniejący terminal
-  w głównym obszarze; wybór natywnego czatu przywraca układ dzielony.
+- Agenci w PTY są oznaczeni glifem terminala. Wybór w drzewie aktywuje istniejący
+  tab terminala w centrum i niczego nie maksymalizuje; panel narzędzi zachowuje stan.
+- Zaznaczenie wiersza to samo wypełnienie, bez paska przy krawędzi. Akcje wiersza
+  (menu, terminal) mogą pojawiać się dopiero na hover, ale te same komendy są zawsze
+  w menu kontekstowym wiersza; bieżący worktree i zaznaczona sesja pokazują je stale.
+- Done = Idle i `AgentSession::unseen`: znika, gdy sesja staje się widoczna.
+  Podsumowania rodziców i stopki liczą Working/Goal oraz Needs you/Error.
 - Ustal również min/max width/height małych przycisków. `compact()` może
   narzucić minimalną szerokość większą niż `.size()`, tworząc prostokąt.
 - Sidebar ma scrollbar. Zwijanie FileTree nie zmienia odstępów między nagłówkami.

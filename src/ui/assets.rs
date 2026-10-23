@@ -12,6 +12,7 @@ impl AssetSource for Assets {
             "canopy/claude.svg" => Some(include_bytes!("../../assets/icons/claude.svg")),
             "canopy/openai.svg" => Some(include_bytes!("../../assets/icons/openai.svg")),
             "canopy/gemini.svg" => Some(include_bytes!("../../assets/icons/gemini.svg")),
+            "canopy/bang.svg" => Some(include_bytes!("../../assets/icons/bang.svg")),
             "canopy/shield.svg" => Some(include_bytes!("../../assets/icons/shield.svg")),
             "canopy/keyboard.svg" => Some(include_bytes!("../../assets/icons/keyboard.svg")),
             "canopy/reply.svg" => Some(include_bytes!("../../assets/icons/reply.svg")),

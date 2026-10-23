@@ -1,18 +1,20 @@
 //! Conversations are nested under their worktree; private conversations retain context labels.
-mod context;
+pub(super) mod context;
+use super::activity::{self, Activity};
 use super::*;
 use crate::app_state::{AppState, ProjectsState};
 use canopy_desktop::chat::provider::Provider;
 use canopy_desktop::state::workspace::{PaneId, PaneKind, WorkspaceId};
 use context::ChatContext;
 use gpui_kit::{
-    base::Disableable,
+    base::{Disableable, Placement},
     component::{
         Selectable, Sizable,
         button::{ButtonCustomVariant, ButtonVariants},
-        menu::{DropdownMenu, PopupMenuItem},
+        menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
     },
 };
+use std::rc::Rc;
 
 pub struct RenameChat {
     pub workspace: WorkspaceId,
@@ -118,11 +120,7 @@ impl Sidebar {
 
             let workspace_id = workspace.id;
             for tab in workspace.tabs() {
-                for pane in tab.root.panes().into_iter().filter(|p| {
-                    p.metadata.kind == PaneKind::Chat
-                        || (p.metadata.kind == PaneKind::Terminal
-                            && Provider::from_tool(&p.tool).is_some())
-                }) {
+                for pane in tab.root.panes().into_iter().filter(is_session) {
                     let id = pane.id;
                     let cli = pane.metadata.kind == PaneKind::Terminal;
                     let title = if cli {
@@ -146,114 +144,133 @@ impl Sidebar {
                         Some(provider) => provider.name(),
                         None => &pane.tool,
                     };
-                    let status = navigation_status(id, cx);
-                    let status_color = status_color(status);
-                    let action =
-                        Button::new(SharedString::from(if cli {
-                            format!("agent-terminal-{id:?}")
-                        } else {
-                            format!("chat-{id:?}")
-                        }))
-                        .custom(
-                            ButtonCustomVariant::new(cx)
-                                .foreground(t::text())
-                                .hover(t::chat_hover())
-                                .active(t::chat_selected()),
-                        )
-                        .small()
-                        .compact()
-                        .selected(selected)
-                        .h(t::chat_row_height())
-                        .w_full()
-                        .min_w_0()
-                        .px_3()
-                        .border_0()
-                        .rounded(t::control_radius(cx))
-                        .disabled(!enabled)
-                        .accessibility_label(format!(
-                            "{}, {title}, {}, {agent}, {status}{}{}",
-                            context.project,
-                            context.checkout,
-                            if cli { ", CLI terminal" } else { "" },
-                            if selected { ", selected" } else { "" }
-                        ))
-                        .tooltip(format!(
-                            "{title}\n{}\nAgent: {agent}\nStatus: {status}",
-                            context.detail
-                        ))
-                        .child(
-                            column()
-                                .w_full()
-                                .items_start()
-                                .gap_1()
-                                .text_left()
-                                .child(
-                                    chat_text(id, "title", title.clone())
-                                        .w_full()
-                                        .when(!cli, |d| d.pr_5())
-                                        .text_sm()
-                                        .line_height(t::chat_title_line_height())
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(t::text()),
-                                )
-                                .child(
-                                    row()
-                                        .w_full()
-                                        .gap_2()
-                                        .text_xs()
-                                        .line_height(t::chat_metadata_line_height())
-                                        .child(
-                                            chat_text(
-                                                id,
-                                                "agent",
-                                                if cli {
-                                                    format!("{agent} · CLI")
-                                                } else {
-                                                    agent.to_owned()
-                                                },
+                    let activity = Activity::of(id, cx);
+                    let model = model_label(id, cli, cx);
+                    let group = SharedString::from(format!("session-{id:?}"));
+                    let index = rows.len();
+                    let card = Rc::new(super::cards::SessionCard {
+                        id,
+                        title: title.clone(),
+                        provider,
+                        agent: agent.to_owned(),
+                        model: model.clone(),
+                        cli,
+                        folder: super::cards::Folder::new(
+                            context.folder.clone().unwrap_or_default(),
+                        ),
+                        context: context.clone(),
+                    });
+                    let action = Button::new(SharedString::from(if cli {
+                        format!("agent-terminal-{id:?}")
+                    } else {
+                        format!("chat-{id:?}")
+                    }))
+                    .custom(
+                        ButtonCustomVariant::new(cx)
+                            .foreground(t::text())
+                            .hover(t::chat_hover())
+                            .active(t::chat_selected()),
+                    )
+                    .small()
+                    .compact()
+                    .selected(selected)
+                    .h(t::chat_row_height())
+                    .w_full()
+                    .min_w_0()
+                    .px_0()
+                    .border_0()
+                    .rounded(t::sidebar_row_radius())
+                    .disabled(!enabled)
+                    .accessibility_label(format!(
+                        "{}, {title}, {}, {agent}, {}{}{}",
+                        context.project,
+                        context.checkout,
+                        activity.label(),
+                        if cli { ", CLI terminal" } else { "" },
+                        if selected { ", selected" } else { "" }
+                    ))
+                    .child(
+                        // Padding lives inside the button's clipping label so
+                        // the activity edge can extend past the tile.
+                        row()
+                            .w_full()
+                            .min_w_0()
+                            .pl_2()
+                            .pr_1p5()
+                            .gap_2p5()
+                            .child(activity::agent_avatar(
+                                id,
+                                provider,
+                                activity,
+                                &group,
+                                selected,
+                                self.reduced,
+                            ))
+                            .child(
+                                column()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .items_start()
+                                    .gap_1()
+                                    .text_left()
+                                    .child(
+                                        row()
+                                            .w_full()
+                                            .min_w_0()
+                                            .gap_1p5()
+                                            .when(!cli, |d| d.pr_6())
+                                            .child(
+                                                chat_text(id, "title", title.clone())
+                                                    .text_sm()
+                                                    .line_height(t::chat_title_line_height())
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .text_color(t::text()),
                                             )
-                                            .flex_1()
-                                            .text_color(match provider {
-                                                Some(Provider::Claude) => t::claude_mark(),
-                                                _ => t::codex_mark(),
+                                            .when(cli, |d| {
+                                                d.child(
+                                                    Icon::default()
+                                                        .path("canopy/square-terminal.svg")
+                                                        .size_3()
+                                                        .flex_shrink_0()
+                                                        .text_color(t::faint()),
+                                                )
                                             }),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_shrink_0()
-                                                .text_color(status_color)
-                                                .child(status),
-                                        ),
-                                ),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.projects.update(cx, |p, cx| {
-                                if cli {
-                                    p.focus_agent_terminal(id, cx)
-                                } else {
-                                    p.focus_agent(id, cx)
-                                }
-                            });
-                        }));
+                                    )
+                                    .child(
+                                        row()
+                                            .w_full()
+                                            .min_w_0()
+                                            .gap_1()
+                                            .text_xs()
+                                            .line_height(t::chat_metadata_line_height())
+                                            .child(
+                                                chat_text(id, "agent", activity.label())
+                                                    .flex_shrink_0()
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .text_color(activity.color()),
+                                            )
+                                            .children(model.map(|model| {
+                                                div()
+                                                    .min_w_0()
+                                                    .truncate()
+                                                    .text_color(t::muted())
+                                                    .child(format!("· {model}"))
+                                            })),
+                                    ),
+                            ),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.projects.update(cx, |p, cx| {
+                            if cli {
+                                p.focus_agent_terminal(id, cx)
+                            } else {
+                                p.focus_agent(id, cx)
+                            }
+                        });
+                    }));
                     let owner = cx.entity().downgrade();
-                    let menu = Button::new(SharedString::from(format!("chat-menu-{id:?}")))
-                        .custom(
-                            ButtonCustomVariant::new(cx)
-                                .foreground(t::secondary())
-                                .hover(t::hover())
-                                .active(t::selected()),
-                        )
-                        .small()
-                        .compact()
-                        .size_6()
-                        .p_0()
-                        .border_0()
-                        .rounded(t::control_radius(cx))
-                        .accessibility_label(format!("Actions for {title}"))
-                        .tooltip("Chat actions")
-                        .icon(IconName::Ellipsis)
-                        .disabled(!enabled)
-                        .dropdown_menu(move |menu, _, _| {
+                    let items = Rc::new(
+                        move |menu: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
                             let rename = owner.clone();
                             menu.item(PopupMenuItem::new("Rename chat…").on_click(
                                 move |_, _, cx| {
@@ -271,40 +288,112 @@ impl Sidebar {
                                     ProjectsState::request_delete_chat(workspace_id, id, cx);
                                 }),
                             )
-                        });
-                    rows.push(
-                        div()
-                            .relative()
-                            .h(t::chat_row_height())
-                            .flex_shrink_0()
-                            .child(action)
-                            .when(selected, |row| {
-                                row.child(
-                                    div()
-                                        .absolute()
-                                        .left_0()
-                                        .top_2()
-                                        .bottom_2()
-                                        .w_0p5()
-                                        .rounded_full()
-                                        .bg(t::accent()),
-                                )
-                            })
-                            .children(
-                                (!cli).then(|| div().absolute().top_1().right_1p5().child(menu)),
-                            )
-                            .into_any_element(),
+                        },
                     );
+                    let menu = Button::new(SharedString::from(format!("chat-menu-{id:?}")))
+                        .custom(
+                            ButtonCustomVariant::new(cx)
+                                .foreground(t::secondary())
+                                .hover(t::hover())
+                                .active(t::selected()),
+                        )
+                        .small()
+                        .compact()
+                        .size_6()
+                        .p_0()
+                        .border_0()
+                        .rounded(t::control_radius(cx))
+                        .accessibility_label(format!("Actions for {title}"))
+                        .tooltip("Chat actions")
+                        .icon(IconName::Ellipsis)
+                        .disabled(!enabled)
+                        .dropdown_menu({
+                            let items = items.clone();
+                            move |menu, window, cx| items(menu, window, cx)
+                        });
+                    let session = div()
+                        .id(SharedString::from(format!("session-row-{id:?}")))
+                        .relative()
+                        .group(group.clone())
+                        .h(t::chat_row_height())
+                        .flex_shrink_0()
+                        // Button tooltips are text-only; the card needs its own host.
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("session-card-{id:?}")))
+                                .size_full()
+                                .hover_card(
+                                    format!("session-{id:?}"),
+                                    Placement::Right,
+                                    move |_, cx| card.render(cx).into_any_element(),
+                                )
+                                .child(action),
+                        )
+                        .when(activity == Activity::Attention && !self.reduced, |row| {
+                            row.child(
+                                div()
+                                    .absolute()
+                                    .inset_0()
+                                    .rounded(t::sidebar_row_radius())
+                                    .bg(t::attention_flash())
+                                    .with_animation(
+                                        SharedString::from(format!("attention-sweep-{id:?}")),
+                                        Animation::new(canopy_desktop::motion::duration::SWEEP),
+                                        |sweep, progress| {
+                                            sweep.opacity(
+                                                1. - canopy_desktop::motion::Easing::SmoothOut
+                                                    .sample(progress),
+                                            )
+                                        },
+                                    ),
+                            )
+                        })
+                        .when(!cli, |row| {
+                            row.child(
+                                div()
+                                    .id(SharedString::from(format!("session-menu-{id:?}")))
+                                    .absolute()
+                                    .top_0()
+                                    .bottom_0()
+                                    .right_1p5()
+                                    .hides_hover_card()
+                                    .flex()
+                                    .items_center()
+                                    .when(!selected, |d| {
+                                        d.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.))
+                                    })
+                                    .child(menu),
+                            )
+                        });
+                    let session = if enabled && !cli {
+                        session
+                            .context_menu(move |menu, window, cx| items(menu, window, cx))
+                            .into_any_element()
+                    } else {
+                        session.into_any_element()
+                    };
+                    rows.push(reveal(id, index, session, self.reduced));
                 }
             }
         }
         if nested {
+            if rows.is_empty() {
+                rows.push(
+                    div()
+                        .px_2()
+                        .py_1()
+                        .text_xs()
+                        .text_color(t::faint())
+                        .child("No sessions yet")
+                        .into_any_element(),
+                );
+            }
             return column()
-                .ml_8()
-                .pl_2()
+                .ml(rems(1.25))
+                .pl_1()
                 .border_l_1()
                 .border_color(t::border())
-                .gap_1()
+                .gap_px()
                 .children(rows);
         }
         if rows.is_empty() {
@@ -325,13 +414,7 @@ impl Sidebar {
         let other: Vec<_> = scratch
             .tabs()
             .iter()
-            .filter(|t| {
-                !t.root.panes().iter().any(|p| {
-                    p.metadata.kind == PaneKind::Chat
-                        || (p.metadata.kind == PaneKind::Terminal
-                            && Provider::from_tool(&p.tool).is_some())
-                })
-            })
+            .filter(|t| !t.root.panes().iter().any(is_session))
             .map(|t| (t.focused, t.title.clone()))
             .collect();
         if !other.is_empty() {
@@ -358,7 +441,7 @@ impl Sidebar {
             );
         }
         let _ = now;
-        column().pl_2().gap_1().children(rows)
+        column().gap_px().children(rows)
     }
 }
 
@@ -378,6 +461,47 @@ pub(in crate::ui) fn navigation_status(id: PaneId, cx: &App) -> &'static str {
     } else {
         status
     }
+}
+
+/// Chats and CLI agents: the panes the sidebar lists as sessions.
+pub(super) fn is_session(pane: &canopy_desktop::state::workspace::Pane) -> bool {
+    pane.metadata.kind == PaneKind::Chat
+        || (pane.metadata.kind == PaneKind::Terminal && Provider::from_tool(&pane.tool).is_some())
+}
+
+/// The chat's chosen model, else the model a CLI agent reported.
+fn model_label(id: PaneId, cli: bool, cx: &App) -> Option<String> {
+    let app = cx.global::<AppState>();
+    if !cli
+        && let Some(view) = app.chats.read(cx).views.get(&id)
+        && let Some(label) = view.read(cx).model_label(cx)
+    {
+        return Some(label);
+    }
+    app.agents.read(cx).sessions.get(&id)?.model.clone()
+}
+
+/// Rows rise into place, staggered, when their group opens or a session appears.
+fn reveal(id: PaneId, index: usize, row: AnyElement, reduced: bool) -> AnyElement {
+    use canopy_desktop::motion::{Easing, distance, duration};
+    if reduced {
+        return row;
+    }
+    let delay = duration::STAGGER * index.min(5) as u32;
+    let total = duration::FAST + delay;
+    let delay = delay.as_secs_f32() / total.as_secs_f32();
+    div()
+        .relative()
+        .child(row)
+        .with_animation(
+            SharedString::from(format!("session-reveal-{id:?}")),
+            Animation::new(total),
+            move |row, progress| {
+                let p = Easing::SmoothOut.sample(((progress - delay) / (1. - delay)).max(0.));
+                row.top(px(distance::MICRO * (1. - p))).opacity(p)
+            },
+        )
+        .into_any_element()
 }
 
 pub(in crate::ui) fn status_color(status: &str) -> Hsla {

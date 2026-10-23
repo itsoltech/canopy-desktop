@@ -116,30 +116,6 @@ pub fn loading_icon_button(
     }
 }
 
-/// Quiet toolbar action: foreground-only hover, no background fill.
-pub fn quiet_button(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    hovered: bool,
-    cx: &App,
-) -> Button {
-    use gpui_kit::component::button::ButtonCustomVariant;
-    let label = label.into();
-    Button::new(id)
-        .custom(ButtonCustomVariant::new(cx).foreground(if hovered {
-            t::text()
-        } else {
-            t::faint()
-        }))
-        .small()
-        .compact()
-        .h(px(20.))
-        .p_0()
-        .border_0()
-        .cursor_pointer()
-        .accessibility_label(label)
-}
-
 /// Accent action using the same dimensions and interaction API as button().
 pub fn primary_button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
     button_base(id).primary().label(label)

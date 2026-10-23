@@ -58,7 +58,7 @@ Zweryfikowany na CLI 2.1.294 (`@anthropic-ai/claude-agent-sdk` 0.3.293 jako refe
   `queued` → `started` (moment wczytania) → stan końcowy. Dymek Steer powstaje przy
   `started`. `session_state_changed idle` jest jedynym sygnałem „agent skończył wszystko”
   (po wstrzymanych wynikach i subagentach w tle).
-- Kolejka jest lokalna w `ChatSession`: wiadomości napisane podczas pracy czekają w Canopy
+- Kolejka jest lokalna w `ChatSession` (karta na hover wiersza: cała wiadomość i kiedy wyjdzie): wiadomości napisane podczas pracy czekają w Canopy
   i wysyłają się po jednej (`later`) po każdym `idle` (bez zdarzeń stanu: po `result`
   i stanach końcowych naszych uuid). Stop (`interrupt` z `cancel_queued`, gdy CLI ma
   `interrupt_cancel_queued_v1`) wstrzymuje kolejkę do kolejnej wysyłki lub Steer;
@@ -121,7 +121,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   katalog `<dane>/chats/<uuid>` (0700). Fork zachowuje tę samą paletę wyboru celu.
 - Rozmowy projektowe są pod właściwym worktree w drzewie Projects, prywatne
   w Private chats. Wiersz pokazuje tytuł, agenta i status; kontekst/HEAD jest
-  na rodzicu oraz w tooltipie. Jeden wiersz to jeden Chat PaneId. Rename/Delete
+  na rodzicu oraz w karcie na hover. Jeden wiersz to jeden Chat PaneId. Rename/Delete
   nadal działa na nieaktywnym workspace bez przełączania widoku. Centrum i panel
   narzędzi mają niezależny wybór, więc nawigacja rozmów nie zmienia terminala.
   Szczegóły: [układ workspace'u](features/workspace-layout.md).
@@ -338,7 +338,8 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   z opcją „Also restore N files”, domyślnie wyłączoną; właściwy przed forkiem). Uuid wiadomości użytkownika
   (`UserMessage.uuid`) to klucz cofnięcia.
 - Kontekst: `get_context_usage` po każdym `idle` (jedno zapytanie w locie, nie przy zamykaniu) →
-  kółko w composerze z podpowiedzią i ostrzeżeniem od 80% przestrzeni przed buforem autokompaktowania.
+  kółko w composerze z ostrzeżeniem od 80% przestrzeni przed buforem autokompaktowania. Karta na hover ma
+  miernik kontekstu i każdego limitu planu (procent, pasek, szczegół: tokeny / godzina odnowienia).
 - Notice: kompaktowanie z `compact_metadata` (trigger, pre_tokens), limit z godziną odnowienia
   i ponowienie API z odliczaniem (`Notice.until`, odświeżanie co 1 s tylko podczas odliczania).
 - `components::AnimatedHeight`: mierzona wysokość z animacją RESIZE (panel decyzji, „Show more” w kartach).
@@ -469,7 +470,8 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
     `builtin`, potem dokładna lista `skills` z `system/init` (`config::mark_skills`; skill pluginu `plugin:name`
     pasuje do komendy `name`).
   - Badge `Attachment::Command { skill: true }` z wzmianką `[$name]`: fioletowy (`t::skill()`), ikona `box`,
-    nazwa czytelna (`gpui-kit` → „Gpui Kit”), w tooltipie `$name` i opis. Rozwinięcie w miejscu badge'a jak
+    nazwa czytelna (`gpui-kit` → „Gpui Kit”), w karcie na hover `$name` i opis (komenda: `/name` i opis; PR:
+    tytuł, numer ze stanem, `head → base` i początek opisu). Rozwinięcie w miejscu badge'a jak
     przy `/`: `/name` dla Claude (model wywołuje skill narzędziem Skill), `$name` + wejście skill dla Codexa.
   - Lokalne komendy Claude (np. `/context`, `/compact`) odpowiadają syntetyczną wiadomością asystenta.
 - `@`: `files::search::mentions` (ignore rules jak ⌘P, pliki i foldery, trafienia w nazwie wyżej). Badge to

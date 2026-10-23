@@ -11,6 +11,12 @@ pub mod duration {
     pub const MEDIUM: Duration = Duration::from_millis(350);
     pub const SLOW: Duration = Duration::from_millis(400);
     pub const VERY_SLOW: Duration = Duration::from_millis(500);
+    /// Periods of ambient activity indicators: the working trace around an agent,
+    /// the starting crawl, one attention pulse and the row's attention sweep.
+    pub const ORBIT: Duration = Duration::from_millis(1400);
+    pub const CRAWL: Duration = Duration::from_millis(1100);
+    pub const PULSE: Duration = Duration::from_millis(1600);
+    pub const SWEEP: Duration = Duration::from_millis(900);
 }
 pub mod distance {
     pub const MICRO: f32 = 4.;
@@ -95,7 +101,15 @@ pub struct PresenceSpec {
 }
 
 pub mod presets {
-    use super::{Easing::SmoothOut, PresenceSpec, TransitionSpec as Spec, duration as d};
+    use super::{
+        Easing::{EaseOut, SmoothOut},
+        PresenceSpec, TransitionSpec as Spec, duration as d,
+    };
+    /// Hover cards: a quick appear, an even quicker leave, never delayed.
+    pub const TOOLTIP: PresenceSpec = PresenceSpec {
+        enter: Spec::new(d::QUICK, EaseOut),
+        exit: Spec::new(d::MICRO, EaseOut),
+    };
     pub const PANEL: PresenceSpec = PresenceSpec {
         enter: Spec::new(d::SLOW, SmoothOut),
         exit: Spec::new(d::MEDIUM, SmoothOut),

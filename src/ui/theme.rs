@@ -120,15 +120,63 @@ pub fn chat_hover() -> Hsla {
     rgb(0x1e252e).into()
 }
 
+/// Identity hues of project monogram tiles; a project keeps its hue by name.
+const PROJECT_HUES: [f32; 8] = [214., 300., 32., 150., 185., 262., 350., 95.];
+pub fn project_hue(name: &str) -> f32 {
+    let hash = name
+        .bytes()
+        .fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619));
+    PROJECT_HUES[hash as usize % PROJECT_HUES.len()]
+}
+pub fn project_tile(hue: f32) -> Hsla {
+    oklch(0.32, 0.06, hue, 1.)
+}
+pub fn project_tile_text(hue: f32) -> Hsla {
+    oklch(0.86, 0.09, hue, 1.)
+}
+/// Provider tile behind an agent's mark: a wash and a hairline of the mark's color.
+pub fn agent_tile(mark: Hsla) -> Hsla {
+    mark.opacity(0.14)
+}
+pub fn agent_tile_edge(mark: Hsla) -> Hsla {
+    mark.opacity(0.18)
+}
+/// Glyphs drawn on a bright status badge.
+pub fn badge_ink() -> Hsla {
+    rgb(0x10131a).into()
+}
+/// One soft sweep over a row whose agent starts waiting for the user.
+pub fn attention_flash() -> Hsla {
+    yellow().opacity(0.22)
+}
+
 pub const SPACING_UNIT: f32 = 4.;
 pub fn chat_row_height() -> Rems {
-    rems(3.25)
+    rems(2.75)
+}
+/// Provider tile of a session row; the activity edge is traced around it.
+pub fn agent_tile_size() -> Rems {
+    rems(1.5)
+}
+pub fn agent_tile_radius() -> Rems {
+    rems(0.4375)
+}
+pub fn project_tile_size() -> Rems {
+    rems(1.25)
+}
+/// Corner radius of sidebar rows and their primary controls.
+pub fn sidebar_row_radius() -> Pixels {
+    px(8.)
 }
 pub fn navigation_height() -> Rems {
     rems(2.25)
 }
 pub fn chat_metadata_line_height() -> Rems {
     rems(1.)
+}
+/// Hover cards: wide enough for a branch, a short path or a pull request title.
+pub fn hover_card_width() -> Rems {
+    rems(16.)
 }
 pub fn chat_title_line_height() -> Rems {
     rems(1.25)

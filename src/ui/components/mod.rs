@@ -14,6 +14,8 @@ pub mod git;
 pub mod git_network;
 pub mod git_tracking;
 pub mod history;
+pub mod hover_card;
+pub use hover_card::{HoverCardExt, HoverCards};
 pub mod integrations;
 pub mod media;
 pub mod session;

@@ -1,18 +1,21 @@
 # Nawigacja i obszar narzędzi worktree
 
 Lewy sidebar ma drzewo projekt → worktree → sesje oraz osobne Private chats.
-Sesja zajmuje dwie linie: tytuł 14/20 oraz agent i tekstowy status 12/16, skalowane
-przez rem. Marka agenta i status mają osobne znaczenia. Working jest neutralną
-etykietą, decyzje/błędy używają kolorów semantycznych; Starting nie zwiększa
-licznika pracy. Po braku telemetry przez czas handshake pojawia się No status,
-również w Agent. Nie rozpoznajemy stanu przez tekst TUI.
+Sesja ma wiersz 2.75rem: kafelek providera (znak Claude/OpenAI zamiast nazwy agenta,
+nazwa w karcie sesji na hover i etykiecie dostępności), tytuł 14/20 z glifem terminala dla CLI
+oraz status 12/16 z modelem („Working · Opus 5.5”), skalowane przez rem. Working
+jest neutralną etykietą, decyzje/błędy używają kolorów semantycznych; Starting nie
+zwiększa licznika pracy. Po braku telemetry przez czas handshake pojawia się
+No status, również w Agent. Nie rozpoznajemy stanu przez tekst TUI. Wygląd stanów
+i ruch: [komponenty](../components.md#sidebar-tożsamość-i-aktywność-agentów).
 
 New chat i nagłówek Projects pozostają nad przewijanym drzewem. Private chats ma
 własną listę o ograniczonej wysokości i nagłówek poza przewijaniem. Przy pierwszym
 pokazaniu otwarty jest aktywny projekt/worktree; pozostałe grupy można rozwinąć.
 Zmiana aktywnego worktree odsłania jego rodziców, a samo zwinięcie nie zmienia
 wybranej pracy. Zaznaczenie ma tło i pasek, rodzic wskazuje kontekst kolorem nazwy.
-Agregaty pracy/uwagi są w jednym wierszu zwiniętego rodzica.
+Agregaty pracy/uwagi są w jednym wierszu zwiniętego rodzica. Projekt, worktree
+i sesja mają karty na hover z faktami (folder, gałąź, sesje).
 
 Kliknięcie worktree przywraca ostatni widok. Przycisk terminala przy worktree
 przywraca istniejącą sesję, a dopiero przy jej braku tworzy Shell. Menu worktree:

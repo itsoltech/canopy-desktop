@@ -149,9 +149,12 @@ PANEL dla wysokości i CONTENT_REVEAL dla treści. `header` zwraca przycisk,
 `body` przycina treść do bieżącej wysokości i stosuje opacity/przesunięcie.
 Sidebar pokazuje projekty, ich worktree i zagnieżdżone rozmowy oraz osobne
 Private chats. Mierzone body zachowuje wysokość przy dowolnej liczbie rozmów.
-Wiersze rozmów projektowych i prywatnych mają ten sam tytuł i metadane
-agenta/statusu; kontekst jest na rodzicu oraz w tooltipie. Agenci w PTY są
-oznaczeni CLI; ich wybór skupia istniejący terminal. Rodzice agregują stan pracy. Files i Tasks nie mają kopii po lewej:
+Sekcje, projekty i worktree zwijają się tym samym `Disclosure` (wysokość, fade
+treści i obrót strzałki w obie strony). Worktree dostaje stan dopiero przy pierwszym
+przełączeniu (`Sidebar::worktree_groups`); brak wpisu oznacza otwarty.
+Wiersze rozmów projektowych i prywatnych mają ten sam układ (kafelek agenta, tytuł,
+status · model); kontekst jest na rodzicu oraz w karcie sesji na hover. Agenci w PTY mają glif
+terminala; ich wybór aktywuje istniejący tab terminala. Rodzice agregują stan pracy. Files i Tasks nie mają kopii po lewej:
 Files/Changes/Tasks/Agent renderuje dotychczasowy Inspector we wspólnym panelu
 narzędzi; terminale i CLI są tabami w centrum, obok rozmów. Wąski panel ma bieżącą
 nazwę strony i jej alternatywy w menu. Szczegóły interakcji i własności: [układ workspace'u](features/workspace-layout.md).
@@ -173,6 +176,76 @@ idle. Wysokości sekcji nie są ściskane przez flex; overflow sidebara przewija
 Dodane testy: retencja/usunięcie wychodzących pozycji, odwrócenie bez skoku
 oraz wirtualny zakres przy 10 000 wierszy. Łącznie 19 testów przechodzi;
 sprawdzone fmt, Clippy i build release. Użytkownik potwierdził poprawny hover.
+
+## Sidebar: tożsamość i aktywność agentów
+
+Kod: `sidebar/activity.rs` (stan, kafelki, obrys, znaczki, podsumowania), wiersze
+w `sidebar/chats.rs`, projekty i worktree w `sidebar/projects.rs`, tokeny w `theme.rs`.
+
+- `Activity` wynika ze wspólnego `navigation_status` i `AgentSession::unseen`.
+  Etykiety: Working, Goal, Needs you, Done, Idle, Error, Starting…, No status,
+  Loading…, Stopping…, Exited, Not started; karta sesji dopisuje wyjaśnienie.
+- Kafelek 1.5rem w kolorze znaku providera (`agent_tile`, `agent_tile_edge`).
+  Exited jest neutralny, Not started ma sam kontur.
+- Obrys aktywności rysuje `canvas` + `PathBuilder` po zaokrąglonym kwadracie
+  koncentrycznym z kafelkiem (nie okrąg): Working/Goal — jasny odcinek 24% obwodu
+  krąży w `duration::ORBIT` (`repeat_synced`, wszystkie w fazie); Starting/Loading/
+  Stopping — przerywany obrys przesuwa się w `CRAWL`; No status — nieruchome kreski.
+- Znaczki: Needs you (żółty, trzy impulsy halo `PULSE` i stop, jeden przebieg
+  `SWEEP` po wierszu), Error (czerwony „!”), Done (zielony ✓). Wejście znaczka:
+  QUICK SmoothOut. Wycięcie wokół znaczka ma kolor tła wiersza (także na hover).
+- Wiersze wchodzą z fade i 4 px, kolejne co STAGGER (maks. 5), przy rozwinięciu
+  grupy i nowej sesji. Reduced Motion (`motion::policy`, odświeżane przy zmianie
+  agentów) i `App::reduce_motion` pokazują stan końcowy bez pętli.
+- Projekt ma monogram na stałym odcieniu z nazwy (`project_hue`, `project_tile`).
+  Worktree ma ikonę gałęzi (bieżący w akcencie) i tag `default` dla checkoutu repo.
+- Akcje projektu/worktree/sesji są na hover (bieżący worktree i zaznaczona sesja
+  stale) i zawsze w menu kontekstowym. Zwinięte grupy i stopka pokazują kropki
+  Working/Needs you z liczbą i tooltipem.
+- Animacja pętli odświeża okno tylko, gdy widoczna sesja pracuje lub startuje.
+- Karty na hover (`sidebar/cards.rs`) zastępują wielolinijkowe tooltipy drzewa.
+  Układ: tytuł, kropka + status z wyjaśnieniem (jedno zawijane zdanie), separator
+  i fakty prowadzone ikoną zamiast etykiet.
+  - Sesja: znak providera z agentem i modelem (CLI: „Terminal”), projekt, HEAD
+    z tagiem `default`, folder, błąd Git; prywatny czat ma jedną linię „Private
+    chat, no project”. Status czytany przy pokazaniu, więc karta śledzi agenta.
+  - Worktree: gałąź (detached/unborn jak w Git) z tagami `default`/`locked`,
+    „Current worktree”, Missing/Unavailable, projekt, folder, sesje
+    (liczba, Working, Needs you) albo „Not opened yet”.
+  - Projekt: monogram, liczba worktree (i gałęzi, gdy są), folder, sesje
+    wszystkich worktree, błąd Git; bez repo „Folder without Git”/„Git unavailable”.
+  Folder jest skrócony do `~/…` przy pierwszym otwarciu karty (nie w renderze
+  sidebaru) i ucinany w środku, bo koniec ścieżki nazywa worktree.
+- Karta należy do całego wiersza i stoi przy krawędzi sidebara. Akcje wiersza
+  i kropki liczników mają własne tooltipy, więc są `aside` (`hides_hover_card`):
+  najechanie na nie chowa kartę zamiast pokazywać dwa dymki naraz.
+
+## Karty na hover
+
+`components::hover_card` to wspólny mechanizm kart z kilkoma faktami. `Button::tooltip`
+przyjmuje tylko tekst, a natywny tooltip GPUI pojawia się przy kursorze i znika
+bez animacji, więc karty mają własną warstwę.
+
+- `HoverCards::install(window, cx)`: jedna warstwa na okno, właścicielem jest
+  `Workspace`, który renderuje ją jako ostatnie dziecko (`deferred` + `Positioner`
+  z gpui-base, priorytet nad tooltipami). Wyzwalacze znajdują ją przez okno.
+- `HoverCardExt::hover_card(owner, placement, build)` na elemencie z id: karta
+  obok elementu (sidebar: `Right`, composer i kolejka: `Top`). `build` działa przy
+  każdym renderze widocznej karty, więc może czytać aktualny stan.
+- `hides_hover_card()` na kontrolce wewnątrz wyzwalacza: karta chowa się, gdy
+  kursor jest na kontrolce, i wraca po zejściu z niej.
+- Intencja 500 ms przed pierwszą kartą (jak tooltipy GPUI). Gdy karta jest
+  widoczna lub zniknęła mniej niż 300 ms temu, kolejny wyzwalacz otwiera się od
+  razu, a karta płynie do niego z miejsca, w którym była (STATE_CHANGE).
+  Kliknięcie i scroll zamykają ją bez okresu łaski.
+- Ruch: `presets::TOOLTIP` — wejście QUICK EaseOut, wyjście MICRO EaseOut, bez
+  opóźnienia zamknięcia. GPUI nie skaluje zwykłych elementów, więc skalę 0.98 z
+  przepisu tooltipu zastępuje wysunięcie o `distance::MICRO` od wyzwalacza
+  z fade. Reduced Motion pokazuje stan końcowy.
+- Treść składamy z `hover_card::content` (`body`, `title`, `status`,
+  `separator`, `facts`, `fact`, `error`), szerokość `t::hover_card_width()`.
+- Karty w czacie: kółko kontekstu (miernik na każdy limit), odznaki `/komend`,
+  `$skilli` i PR oraz wiadomości w kolejce.
 
 ## Zwijanie, resize i stałe szerokości paneli
 
@@ -316,8 +389,7 @@ W głównej aplikacji modal worktree zablokował zmianę workspace'u i toggle
 inspektora, a Escape przywrócił interakcje. Stan disabled sprawdzono również
 na rzeczywistym przycisku Commit staged bez staged zmian.
 
-- Nagłówki projektów używają Disclosure i standardowych przycisków; worktree korzystają
-  z list_button bez tła, z gwiazdką wskazującą aktywny katalog.
+- Nagłówki projektów i worktree używają Disclosure i standardowych przycisków.
 - empty_state(action, status, error) — centralny pusty stan; caller odpowiada
   za dostępność akcji, komunikaty oraz motion/pozycjonowanie.
 - primary_button(id, label) — akcentowany wariant istniejącego button.

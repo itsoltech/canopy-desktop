@@ -1,3 +1,5 @@
+mod activity;
+mod cards;
 mod chats;
 mod projects;
 use super::{components::*, theme as t};
@@ -13,13 +15,15 @@ pub struct Sidebar {
     git: Entity<crate::app_state::GitState>,
     terminals: Entity<crate::app_state::Terminals>,
     selected_workspace: Option<canopy_desktop::state::workspace::WorkspaceId>,
-    collapsed_worktrees: std::collections::HashSet<std::path::PathBuf>,
+    /// Worktrees by path; one missing from the map is open.
+    worktree_groups: std::collections::HashMap<std::path::PathBuf, Disclosure>,
     project_groups: std::collections::HashMap<std::path::PathBuf, Disclosure>,
     _tool_events: Vec<Subscription>,
     projects: Entity<crate::app_state::ProjectsState>,
     _projects_observer: Subscription,
     sections: [Disclosure; 2],
-    attach_hovered: bool,
+    /// Reduced motion, resolved when agent state changes rather than in render.
+    reduced: bool,
     focus: FocusHandle,
 }
 impl Sidebar {
@@ -39,7 +43,11 @@ impl Sidebar {
             }),
             cx.observe(&app.chats, |_, _, cx| cx.notify()),
             cx.observe(&app.workspace, |_, _, cx| cx.notify()),
-            cx.observe(&app.agents, |_, _, cx| cx.notify()),
+            cx.observe(&app.agents, |this, _, cx| {
+                this.reduced = canopy_desktop::motion::policy(cx)
+                    == canopy_desktop::motion::MotionPolicy::Reduced;
+                cx.notify()
+            }),
             cx.observe(&app.chat_history, |_, _, cx| cx.notify()),
             cx.observe(&app.settings, |_, _, cx| cx.notify()),
         ];
@@ -48,7 +56,7 @@ impl Sidebar {
             git: app.git.clone(),
             terminals,
             selected_workspace: projects.read(cx).catalog.active,
-            collapsed_worktrees: projects
+            worktree_groups: projects
                 .read(cx)
                 .catalog
                 .items
@@ -57,7 +65,7 @@ impl Sidebar {
                     projects.read(cx).catalog.active.is_some()
                         && Some(p.workspace) != projects.read(cx).catalog.active
                 })
-                .map(|p| p.path.clone())
+                .map(|p| (p.path.clone(), Disclosure::new(false, now)))
                 .collect(),
             project_groups: projects
                 .read(cx)
@@ -83,20 +91,25 @@ impl Sidebar {
             projects,
             _projects_observer: observer,
             sections: std::array::from_fn(|_| Disclosure::new(true, now)),
-            attach_hovered: false,
+            reduced: canopy_desktop::motion::policy(cx)
+                == canopy_desktop::motion::MotionPolicy::Reduced,
             focus: cx.focus_handle(),
         }
     }
     fn attach_project(&self, cx: &mut Context<Self>) -> Button {
-        quiet_button("attach-project", "Attach project", self.attach_hovered, cx)
-            .child(div().text_xs().text_color(t::secondary()).child("Open…"))
+        use gpui_kit::component::{Sizable, button::ButtonVariants};
+        Button::new("attach-project")
+            .ghost()
+            .small()
+            .compact()
+            .size_6()
+            .p_0()
+            .icon(Icon::new(IconName::Plus).size_3p5().text_color(t::muted()))
+            .accessibility_label("Open project…")
+            .tooltip("Open project…")
             .on_click(cx.listener(|this, _, window, cx| {
                 this.projects
                     .update(cx, |state, cx| state.open_folder(window, cx));
-            }))
-            .on_hover(cx.listener(|this, hovered, _, cx| {
-                this.attach_hovered = *hovered;
-                cx.notify();
             }))
     }
     fn header(
@@ -108,11 +121,12 @@ impl Sidebar {
     ) -> impl IntoElement {
         use gpui_kit::component::{Sizable, button::ButtonVariants};
         let section = &self.sections[index];
+        let group = SharedString::from(format!("section-{index}"));
         Button::new(label)
             .ghost()
             .small()
             .compact()
-            .h(t::navigation_height())
+            .h(rems(1.75))
             .w_full()
             .p_0()
             .accessibility_label(format!(
@@ -121,13 +135,21 @@ impl Sidebar {
             ))
             .child(
                 row()
+                    .group(group.clone())
                     .w_full()
-                    .gap_2()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(t::secondary())
-                    .child(section.chevron(now))
-                    .child(label),
+                    .gap_1p5()
+                    .text_size(rems(0.6875))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(t::faint())
+                    .child(label.to_uppercase())
+                    .child(
+                        div()
+                            .text_color(t::faint())
+                            .when(section.open, |d| {
+                                d.opacity(0.).group_hover(group, |s| s.opacity(1.))
+                            })
+                            .child(section.chevron(now)),
+                    ),
             )
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.focus.focus(window, cx);
@@ -184,7 +206,7 @@ impl Sidebar {
             .w_full()
             .h(t::navigation_height())
             .px_3()
-            .rounded(t::control_radius(cx))
+            .rounded(t::sidebar_row_radius())
             .border_1()
             .border_color(t::control_border())
             .accessibility_label("New chat")
@@ -200,6 +222,20 @@ impl Sidebar {
                         "Creating chat…"
                     } else {
                         "New chat"
+                    })
+                    .when(!opening, |row| {
+                        row.child(
+                            div()
+                                .ml_auto()
+                                .px_1()
+                                .rounded(t::control_radius(cx))
+                                .border_1()
+                                .border_color(t::border())
+                                .font_family(t::MONO)
+                                .text_size(rems(0.6875))
+                                .text_color(t::faint())
+                                .child(shortcut),
+                        )
                     }),
             )
             .tooltip(tooltip)
@@ -216,7 +252,7 @@ impl Sidebar {
             .w(t::navigation_height())
             .h(t::navigation_height())
             .p_0()
-            .rounded(t::control_radius(cx))
+            .rounded(t::sidebar_row_radius())
             .border_1()
             .border_color(t::control_border())
             .icon(IconName::ChevronDown)
@@ -236,7 +272,7 @@ impl Sidebar {
                     }),
                 )
             });
-        div().flex_shrink_0().px_3().pt_3().child(
+        div().flex_shrink_0().px_3().pt_3().pb_1().child(
             row()
                 .w_full()
                 .gap_1()
@@ -246,13 +282,30 @@ impl Sidebar {
     }
 }
 
+/// Agent sessions of the given workspaces, as counted in the tree and its cards.
+fn tally(ids: &[canopy_desktop::state::workspace::WorkspaceId], cx: &App) -> activity::Tally {
+    let panes: Vec<_> = cx
+        .global::<crate::app_state::AppState>()
+        .projects
+        .read(cx)
+        .runtime_workspaces(cx)
+        .iter()
+        .filter(|w| ids.contains(&w.id))
+        .flat_map(|w| w.all_panes())
+        .filter(chats::is_session)
+        .map(|p| p.id)
+        .collect();
+    activity::Tally::of(panes, cx)
+}
+
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
         canopy_desktop::motion::request_frame(
             window,
             self.sections.iter().any(|s| s.active(now))
-                || self.project_groups.values().any(|s| s.active(now)),
+                || self.project_groups.values().any(|s| s.active(now))
+                || self.worktree_groups.values().any(|s| s.active(now)),
         );
         let projects = self.projects_content(now, cx);
         use gpui_kit::component::{Sizable, button::ButtonVariants};
@@ -263,13 +316,19 @@ impl Render for Sidebar {
             .scratch_workspace(cx)
             .all_panes()
             .iter()
-            .filter(|p| {
-                p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Chat
-                    || (p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
-                        && canopy_desktop::chat::provider::Provider::from_tool(&p.tool).is_some())
-            })
+            .filter(|p| chats::is_session(p))
             .count();
-        let private_height = ((count.max(1) as f32 * 3.5).min(14.) + 0.5).max(2.5);
+        let private_height = ((count.max(1) as f32 * 2.875).min(14.) + 0.5).max(2.5);
+        let tally = activity::Tally::of(
+            self.projects
+                .read(cx)
+                .runtime_workspaces(cx)
+                .iter()
+                .flat_map(|w| w.all_panes())
+                .filter(chats::is_session)
+                .map(|p| p.id),
+            cx,
+        );
         column()
             .size_full()
             .track_focus(&self.focus)
@@ -280,7 +339,8 @@ impl Render for Sidebar {
             .child(self.chat_feedback(cx))
             .child(
                 row()
-                    .px_3()
+                    .pl(rems(0.875))
+                    .pr_3()
                     .pt_2()
                     .flex_shrink_0()
                     .child(
@@ -303,7 +363,7 @@ impl Render for Sidebar {
                             .size_full()
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
-                            .px_3()
+                            .px_2()
                             .pb_3()
                             .child(self.sections[0].measured_body("project-groups", projects, now)),
                     )
@@ -317,7 +377,8 @@ impl Render for Sidebar {
                     .pt_1()
                     .child(
                         row()
-                            .px_3()
+                            .pl(rems(0.875))
+                            .pr_3()
                             .flex_shrink_0()
                             .child(div().flex_1().min_w_0().child(self.header(
                                 1,
@@ -332,7 +393,10 @@ impl Render for Sidebar {
                                     .compact()
                                     .size_6()
                                     .p_0()
-                                    .icon(IconName::Plus)
+                                    .icon(
+                                        Icon::new(IconName::Plus).size_3p5().text_color(t::muted()),
+                                    )
+                                    .accessibility_label("New private chat")
                                     .tooltip("New private chat")
                                     .on_click(|_, window, cx| {
                                         window.dispatch_action(
@@ -355,7 +419,7 @@ impl Render for Sidebar {
                                         .size_full()
                                         .overflow_y_scroll()
                                         .track_scroll(&self.private_scroll)
-                                        .px_3()
+                                        .px_2()
                                         .pb_2()
                                         .child(private),
                                 )
@@ -368,17 +432,16 @@ impl Render for Sidebar {
                 row()
                     .h(t::navigation_height())
                     .flex_shrink_0()
-                    .px_3()
+                    .pl(rems(0.875))
+                    .pr_2()
                     .gap_2()
                     .border_t_1()
                     .border_color(t::border())
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_xs()
-                            .text_color(t::muted())
-                            .child("Canopy"),
-                    )
+                    .child(div().flex_1().min_w_0().child(
+                        tally.pips("sidebar-activity", true).unwrap_or_else(|| {
+                            div().text_xs().text_color(t::faint()).child("Canopy")
+                        }),
+                    ))
                     .child(
                         Button::new("settings")
                             .ghost()
@@ -386,7 +449,12 @@ impl Render for Sidebar {
                             .compact()
                             .size_6()
                             .p_0()
-                            .icon(IconName::Settings)
+                            .icon(
+                                Icon::new(IconName::Settings)
+                                    .size_3p5()
+                                    .text_color(t::muted()),
+                            )
+                            .accessibility_label("Settings")
                             .tooltip("Settings")
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(crate::ui::ShowPreferences), cx)
@@ -441,7 +509,8 @@ mod tests {
         .unwrap();
         cx.run_until_parked();
         cx.update_window(window.into(), |_, window, cx| {
-            assert!(app.workspace.read(cx).tool_panel().is_maximized());
+            // The CLI is a tab in the work area: selecting it doesn't maximize tools.
+            assert!(!app.workspace.read(cx).tool_panel().is_maximized());
             assert_eq!(app.workspace.read(cx).active().unwrap().focused, cli);
             window.render_frame(cx);
             window.click(gpui_kit::SharedString::from(format!("chat-{chat:?}")), cx);
@@ -633,6 +702,8 @@ mod tests {
                 );
                 let collapse =
                     gpui_kit::SharedString::from("expand-worktree-/worktrees/chats-sidebar");
+                // Collapsing animates like a project group; skip to its end state.
+                cx.set_reduce_motion(true);
                 window.click(collapse.clone(), cx);
                 window.render_frame(cx);
                 assert!(
