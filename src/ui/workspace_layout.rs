@@ -16,6 +16,26 @@ const TOOL_PAGES: [(ToolPage, &str); 5] = [
     (ToolPage::Agent, "Agent"),
 ];
 
+fn page_label(page: ToolPage) -> &'static str {
+    TOOL_PAGES
+        .iter()
+        .find(|(p, _)| *p == page)
+        .map(|(_, label)| *label)
+        .unwrap_or("Tools")
+}
+fn tool_shortcut(page: ToolPage) -> String {
+    let number = TOOL_PAGES.iter().position(|(p, _)| *p == page).unwrap_or(0) + 1;
+    format!(
+        "{}{}",
+        if cfg!(target_os = "macos") {
+            "⌥⌘"
+        } else {
+            "Ctrl+Alt+"
+        },
+        number
+    )
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct ToolResize {
     pub origin: Point<Pixels>,
@@ -108,73 +128,69 @@ impl Workspace {
             });
         }
     }
-    fn select_tool_page(&mut self, page: ToolPage, cx: &mut Context<Self>) {
+    pub(super) fn select_tool_page(&mut self, page: ToolPage, cx: &mut Context<Self>) {
         self.state.workspace.update(cx, |w, cx| {
             w.show_tools(page);
             cx.notify();
         });
     }
-    fn tool_toolbar(&mut self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> Div {
+    fn tool_menu(&self, cx: &Context<Self>) -> impl IntoElement {
         let model = self.state.workspace.read(cx);
-        let panel = model.tool_panel().clone();
-        let page = panel.page();
+        let page = model.tool_panel().page();
+        let open = model.tools_open();
+        let maximize = !model.tool_panel().is_maximized();
         let has_project = self.state.projects.read(cx).catalog.active.is_some();
         let terminal = model.tool_tab().is_some_and(|t| {
             t.root.find(t.focused).is_some_and(|p| {
                 p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
             })
         });
-        let compact = width < 280.;
-        let compact_navigation = width < f32::from(window.rem_size()) * 22.;
-        let reserved = f32::from(window.rem_size()) * if compact { 1.75 } else { 5.25 };
-        let tab_bar = self.render_tabs((width - reserved).max(0.), window, cx);
-        let maximize = !panel.is_maximized();
         let owner = cx.entity().downgrade();
         let tools = self.state.tools.read(cx).catalog.clone();
-        let menu = Button::new("tool-panel-menu")
+        Button::new("tool-panel-menu")
             .ghost()
             .small()
             .compact()
-            .size_6()
-            .p_0()
-            .icon(IconName::Ellipsis)
+            .h_7()
+            .px_2()
+            .label("Tools")
+            .dropdown_caret(true)
             .tooltip("Tools and layout")
             .dropdown_menu(move |menu, _, cx| {
                 let mut menu = menu;
-                if compact_navigation {
-                    for (page, label) in TOOL_PAGES {
-                        let target = owner.clone();
-                        menu = menu.item(
-                            PopupMenuItem::new(label)
-                                .disabled(
-                                    !has_project
-                                        && matches!(page, ToolPage::Files | ToolPage::Changes),
-                                )
-                                .on_click(move |_, _, cx| {
-                                    let _ = target.update(cx, |s, cx| s.select_tool_page(page, cx));
-                                }),
-                        );
-                    }
-                    menu = menu.separator();
+                for (target_page, label) in TOOL_PAGES {
+                    let target = owner.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(label)
+                            .checked(open && target_page == page)
+                            .disabled(
+                                !has_project
+                                    && matches!(target_page, ToolPage::Files | ToolPage::Changes),
+                            )
+                            .on_click(move |_, _, cx| {
+                                let _ =
+                                    target.update(cx, |s, cx| s.select_tool_page(target_page, cx));
+                            }),
+                    );
                 }
-                let new_owner = owner.clone();
+                let target = owner.clone();
                 menu = menu.separator().item(
                     PopupMenuItem::new("New terminal")
                         .disabled(!has_project)
                         .on_click(move |_, _, cx| {
-                            let _ = new_owner.update(cx, |w, cx| w.new_terminal(cx));
+                            let _ = target.update(cx, |s, cx| s.new_terminal(cx));
                         }),
                 );
                 for (label, axis) in [
                     ("Split terminal right", Axis::Horizontal),
                     ("Split terminal below", Axis::Vertical),
                 ] {
-                    let split_owner = owner.clone();
+                    let target = owner.clone();
                     menu = menu.item(
                         PopupMenuItem::new(label)
                             .disabled(!terminal || page != ToolPage::Tabs)
                             .on_click(move |_, _, cx| {
-                                let _ = split_owner.update(cx, |w, cx| w.split_terminal(axis, cx));
+                                let _ = target.update(cx, |s, cx| s.split_terminal(axis, cx));
                             }),
                     );
                 }
@@ -186,36 +202,35 @@ impl Workspace {
                         tool.profiles.iter().map(|p| Some(p.id.clone())).collect()
                     };
                     for profile in profiles {
-                        let mut label = tool.label(profile.as_deref());
+                        let id = tool.id.clone();
                         let running = cx.global::<AppState>().terminals.read(cx).running_count(
                             &tool.id,
                             profile.as_deref(),
                             cx,
                         );
-                        if running > 0 {
-                            label = format!("{label} · {running} running");
-                        }
-                        let id = tool.id.clone();
+                        let label = if running > 0 {
+                            format!("{} · {running} running", tool.label(profile.as_deref()))
+                        } else {
+                            tool.label(profile.as_deref())
+                        };
                         menu =
                             menu.item(PopupMenuItem::new(label).disabled(!has_project).on_click(
                                 move |_, _, cx| {
                                     cx.global::<AppState>()
                                         .tools
                                         .clone()
-                                        .update(cx, |tools, cx| {
-                                            tools.launch(&id, profile.as_deref(), cx)
-                                        })
+                                        .update(cx, |s, cx| s.launch(&id, profile.as_deref(), cx));
                                 },
                             ));
                     }
                 }
-                menu = menu.separator();
-                menu = menu.item(
+                menu = menu.separator().item(
                     PopupMenuItem::new(if maximize {
                         "Maximize tools"
                     } else {
                         "Restore split layout"
                     })
+                    .disabled(!open)
                     .on_click(move |_, _, cx| {
                         cx.global::<AppState>()
                             .workspace
@@ -237,125 +252,193 @@ impl Workspace {
                             .update(cx, |w, cx| {
                                 w.tool_panel_mut().set_position(position);
                                 cx.notify();
-                            })
+                            });
                     }));
                 }
-                menu.item(PopupMenuItem::new("Hide tools").on_click(|_, _, cx| {
-                    cx.global::<AppState>()
-                        .workspace
-                        .clone()
-                        .update(cx, |w, cx| {
-                            w.hide_tools();
-                            cx.notify();
-                        })
-                }))
-            });
-        let toolbar = row()
-            .h(px(t::TABS))
-            .flex_shrink_0()
-            .bg(t::sidebar())
-            .border_b_1()
-            .border_color(t::border())
-            .gap_1()
-            .child(div().flex_1().min_w_0().child(tab_bar))
-            .children((!compact).then(|| {
-                Button::new("new-terminal")
-                    .ghost()
-                    .small()
-                    .compact()
-                    .size_6()
-                    .p_0()
-                    .icon(IconName::Plus)
-                    .tooltip("New terminal")
-                    .disabled(!has_project)
-                    .on_click(cx.listener(|this, _, _, cx| this.new_terminal(cx)))
-            }))
-            .children((!compact).then(|| {
-                Button::new("split-terminal")
-                    .ghost()
-                    .small()
-                    .compact()
-                    .size_6()
-                    .p_0()
-                    .icon(IconName::PanelRight)
-                    .tooltip("Split terminal")
-                    .disabled(!terminal || page != ToolPage::Tabs)
-                    .on_click(
-                        cx.listener(|this, _, _, cx| this.split_terminal(Axis::Horizontal, cx)),
+                menu.separator()
+                    .item(
+                        PopupMenuItem::new("Hide tools")
+                            .disabled(!open)
+                            .on_click(|_, _, cx| {
+                                cx.global::<AppState>()
+                                    .workspace
+                                    .clone()
+                                    .update(cx, |w, cx| {
+                                        w.hide_tools();
+                                        cx.notify();
+                                    });
+                            }),
                     )
-            }))
-            .child(
-                Button::new("maximize-tools")
-                    .ghost()
-                    .small()
-                    .compact()
-                    .size_6()
-                    .p_0()
-                    .icon(if panel.is_maximized() {
-                        IconName::Minimize
-                    } else {
-                        IconName::Maximize
-                    })
-                    .tooltip("Maximize / restore tools")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.state.workspace.update(cx, |w, cx| {
-                            let value = !w.tool_panel().is_maximized();
-                            w.tool_panel_mut().set_maximized(value);
-                            cx.notify();
-                        })
-                    })),
-            );
-        column()
-            .child(self.tool_navigation(menu.into_any_element(), compact_navigation, cx))
-            .children((page == ToolPage::Tabs).then_some(toolbar))
+                    .item(PopupMenuItem::new("Settings…").on_click(|_, window, cx| {
+                        window.dispatch_action(Box::new(ShowPreferences), cx);
+                    }))
+            })
     }
-    fn tool_navigation(
+
+    pub(super) fn tool_navigation(
         &self,
-        menu: AnyElement,
-        compact: bool,
+        width: f32,
+        window: &Window,
         cx: &Context<Self>,
     ) -> Stateful<Div> {
         let model = self.state.workspace.read(cx);
         let selected = model.tool_panel().page();
+        let open = model.tools_open() && (selected != ToolPage::Tabs || model.tool_tab().is_some());
+        let compact = width < f32::from(window.rem_size()) * 36.;
+        let count = model
+            .all_panes()
+            .iter()
+            .filter(|p| p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal)
+            .count();
         row()
             .id("tool-navigation")
-            .h(t::navigation_height())
-            .flex_shrink_0()
-            .px_2()
+            .h_full()
             .gap_1()
-            .bg(t::sidebar())
+            .flex_shrink_0()
+            .children(
+                TOOL_PAGES
+                    .into_iter()
+                    .filter(|(page, _)| !compact || (open && *page == selected))
+                    .map(|(page, label)| {
+                        let label = if page == ToolPage::Tabs && count > 0 {
+                            format!("{label} · {count}")
+                        } else {
+                            label.into()
+                        };
+                        Button::new(SharedString::from(format!("tool-page-{page:?}")))
+                            .ghost()
+                            .small()
+                            .compact()
+                            .h_7()
+                            .px_2()
+                            .label(label)
+                            .selected(open && selected == page)
+                            .tooltip(format!("{} ({})", page_label(page), tool_shortcut(page)))
+                            .disabled(
+                                self.state.projects.read(cx).catalog.active.is_none()
+                                    && matches!(page, ToolPage::Files | ToolPage::Changes),
+                            )
+                            .on_click(cx.listener(move |s, _, _, cx| s.select_tool_page(page, cx)))
+                    }),
+            )
+            .child(self.tool_menu(cx))
+    }
+
+    fn tool_toolbar(&mut self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let model = self.state.workspace.read(cx);
+        let terminal = model.tool_tab().is_some_and(|t| {
+            t.root.find(t.focused).is_some_and(|p| {
+                p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
+            })
+        });
+        let tabs: Vec<_> = model
+            .tool_tabs()
+            .map(|t| {
+                (
+                    t.id,
+                    if canopy_desktop::chat::provider::Provider::from_tool(&t.root.first().tool)
+                        .is_some()
+                    {
+                        format!("CLI · {}", t.title)
+                    } else {
+                        t.title.clone()
+                    },
+                )
+            })
+            .collect();
+        let active = model.tool_tab().map(|t| t.id);
+        let maximized = model.tool_panel().is_maximized();
+        let owner = cx.entity().downgrade();
+        let all_tabs = Button::new("all-tool-tabs")
+            .ghost()
+            .small()
+            .compact()
+            .size_7()
+            .p_0()
+            .icon(IconName::ChevronDown)
+            .tooltip("All terminal and file tabs")
+            .dropdown_menu(move |menu, _, _| {
+                tabs.iter().fold(menu, |menu, (id, title)| {
+                    let id = *id;
+                    let owner = owner.clone();
+                    menu.item(
+                        PopupMenuItem::new(title.clone())
+                            .checked(active == Some(id))
+                            .on_click(move |_, _, cx| {
+                                let _ = owner.update(cx, |s, cx| {
+                                    s.state.workspace.update(cx, |w, cx| {
+                                        let _ = w.activate(id);
+                                        cx.notify();
+                                    })
+                                });
+                            }),
+                    )
+                })
+            });
+        let reserved = f32::from(window.rem_size()) * 7.75;
+        let tab_bar = self.render_tabs((width - reserved).max(0.), window, cx);
+        row()
+            .h(t::tabs_height())
+            .flex_shrink_0()
+            .bg(t::panel())
             .border_b_1()
             .border_color(t::border())
+            .gap_1()
+            .pr_1()
+            .child(div().flex_1().min_w_0().overflow_hidden().child(tab_bar))
             .child(
                 row()
-                    .id("tool-page-list")
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
+                    .flex_shrink_0()
                     .gap_1()
-                    .overflow_x_scroll()
-                    .children(
-                        TOOL_PAGES
-                            .into_iter()
-                            .filter(|(page, _)| !compact || *page == selected)
-                            .map(|(page, label)| {
-                                Button::new(SharedString::from(format!("tool-page-{page:?}")))
-                                    .ghost()
-                                    .small()
-                                    .compact()
-                                    .label(label)
-                                    .selected(selected == page)
-                                    .disabled(
-                                        self.state.projects.read(cx).catalog.active.is_none()
-                                            && matches!(page, ToolPage::Files | ToolPage::Changes),
-                                    )
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.select_tool_page(page, cx)
-                                    }))
-                            }),
+                    .child(all_tabs)
+                    .child(
+                        Button::new("new-terminal")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .size_7()
+                            .p_0()
+                            .icon(IconName::Plus)
+                            .tooltip("New terminal")
+                            .disabled(self.state.projects.read(cx).catalog.active.is_none())
+                            .on_click(cx.listener(|s, _, _, cx| s.new_terminal(cx))),
+                    )
+                    .child(
+                        Button::new("split-terminal")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .size_7()
+                            .p_0()
+                            .icon(IconName::PanelRight)
+                            .tooltip("Split terminal right")
+                            .disabled(!terminal)
+                            .on_click(
+                                cx.listener(|s, _, _, cx| s.split_terminal(Axis::Horizontal, cx)),
+                            ),
+                    )
+                    .child(
+                        Button::new("maximize-tools")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .size_7()
+                            .p_0()
+                            .icon(if maximized {
+                                IconName::Minimize
+                            } else {
+                                IconName::Maximize
+                            })
+                            .tooltip("Maximize / restore tools")
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                s.state.workspace.update(cx, |w, cx| {
+                                    let value = !w.tool_panel().is_maximized();
+                                    w.tool_panel_mut().set_maximized(value);
+                                    cx.notify();
+                                })
+                            })),
                     ),
             )
-            .child(menu)
     }
 
     pub(super) fn render_work_area(
@@ -368,18 +451,39 @@ impl Workspace {
     ) -> Div {
         let model = self.state.workspace.read(cx).clone();
         let panel = model.tool_panel();
-        let open = model.tools_open();
+        let requested_open = model.tools_open()
+            && (panel.page() != ToolPage::Tabs
+                || model.tool_tab().is_some()
+                || model.primary_tab().is_some());
+        let rem = f32::from(window.rem_size());
         let bottom = panel.position() == ToolPosition::Bottom;
-        let maximized = panel.is_maximized() && open;
+        let fits_split = if bottom {
+            height >= rem * 32.
+        } else {
+            width >= rem * 52.
+        };
+        let single = panel.is_maximized() || model.primary_tab().is_none() || !fits_split;
+        let open = requested_open
+            && (!single
+                || panel.is_focused()
+                || panel.is_maximized()
+                || model.primary_tab().is_none());
+        let maximized = single && open;
         let tool_width = if maximized || bottom {
             width
         } else {
-            panel.width().min((width - 160.).max(0.))
+            panel
+                .width()
+                .max(24. * rem)
+                .min((width - 28. * rem).max(0.))
         };
         let tool_height = if maximized || !bottom {
             height
         } else {
-            panel.height().min((height - 120.).max(0.))
+            panel
+                .height()
+                .max(12. * rem)
+                .min((height - 20. * rem).max(0.))
         };
         let main_width = if open && !bottom {
             width - tool_width
@@ -410,21 +514,79 @@ impl Workspace {
                 )
             } else {
                 let reason = crate::app_state::Chats::unavailable(cx);
+                let terminal_count = model
+                    .all_panes()
+                    .iter()
+                    .filter(|p| {
+                        p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
+                    })
+                    .count();
+                let context = self
+                    .state
+                    .projects
+                    .read(cx)
+                    .catalog
+                    .current()
+                    .map(|p| p.name.clone())
+                    .unwrap_or_else(|| "Private workspace".into());
                 empty_state(
-                    primary_button("open-empty-chat", "New chat")
-                        .disabled(reason.is_some())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.state
-                                .chats
-                                .update(cx, |chats, cx| chats.open_current(cx))
-                        })),
+                    column()
+                        .id("empty-worktree-content")
+                        .items_center()
+                        .gap_4()
+                        .child(
+                            div()
+                                .text_xl()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t::text())
+                                .child(context),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(t::secondary())
+                                .child("Start a conversation or open your worktree terminal."),
+                        )
+                        .child(
+                            row()
+                                .gap_3()
+                                .child(
+                                    primary_button("open-empty-chat", "New chat")
+                                        .disabled(reason.is_some())
+                                        .on_click(cx.listener(|s, _, _, cx| {
+                                            s.state
+                                                .chats
+                                                .update(cx, |chats, cx| chats.open_current(cx))
+                                        })),
+                                )
+                                .child(
+                                    Button::new("open-empty-terminal")
+                                        .ghost()
+                                        .small()
+                                        .label(if terminal_count > 0 {
+                                            format!("Show terminals ({terminal_count})")
+                                        } else {
+                                            "Open terminal".into()
+                                        })
+                                        .disabled(
+                                            self.state.projects.read(cx).catalog.active.is_none(),
+                                        )
+                                        .on_click(cx.listener(move |s, _, _, cx| {
+                                            if terminal_count > 0 {
+                                                s.select_tool_page(ToolPage::Tabs, cx);
+                                            } else {
+                                                s.new_terminal(cx);
+                                            }
+                                        })),
+                                ),
+                        ),
                     reason.map(Into::into),
                     None,
                 )
                 .into_any_element()
             };
             area = area.child(
-                div()
+                column()
                     .w(px(main_width))
                     .h(px(main_height))
                     .min_w_0()
@@ -434,14 +596,16 @@ impl Workspace {
         }
         if open {
             let error = self.state.tools.read(cx).error.clone();
-            let error_height = if error.is_some() { t::TABS } else { 0. };
-            let chrome_height = f32::from(window.rem_size()) * 2.25
+            let error_height = if error.is_some() { rem * 2.25 } else { 0. };
+            let return_bar = maximized && model.primary_tab().is_some();
+            let chrome_height = (if return_bar { rem * 2.25 } else { 0. })
                 + if panel.page() == ToolPage::Tabs {
-                    t::TABS
+                    rem * 2.25
                 } else {
                     0.
                 };
-            let toolbar = self.tool_toolbar(tool_width, window, cx);
+            let toolbar =
+                (panel.page() == ToolPage::Tabs).then(|| self.tool_toolbar(tool_width, window, cx));
             let content = if panel.page() == ToolPage::Tabs {
                 model
                     .tool_tab()
@@ -459,7 +623,7 @@ impl Workspace {
                                         } else {
                                             0.
                                         }
-                                        + t::TABS
+                                        + chrome_height
                                         + error_height),
                                 ),
                                 size(
@@ -472,9 +636,23 @@ impl Workspace {
                     })
                     .unwrap_or_else(|| {
                         div()
+                            .flex()
+                            .flex_col()
+                            .size_full()
+                            .items_center()
+                            .justify_center()
+                            .gap_3()
                             .p_4()
-                            .text_color(t::muted())
-                            .child("Open a terminal, file or tool from the menu.")
+                            .text_color(t::secondary())
+                            .child("No terminals in this worktree")
+                            .child(
+                                Button::new("open-first-terminal")
+                                    .ghost()
+                                    .small()
+                                    .label("Open terminal")
+                                    .disabled(self.state.projects.read(cx).catalog.active.is_none())
+                                    .on_click(cx.listener(|s, _, _, cx| s.new_terminal(cx))),
+                            )
                             .into_any_element()
                     })
             } else {
@@ -494,10 +672,39 @@ impl Workspace {
                 .border_color(t::border())
                 .when(bottom, |d| d.border_t_1())
                 .when(!bottom, |d| d.border_l_1())
-                .child(toolbar)
+                .bg(t::panel())
+                .children(return_bar.then(|| {
+                    let title = model
+                        .primary_tab()
+                        .map(|t| t.title.clone())
+                        .unwrap_or_else(|| "Workspace".into());
+                    row()
+                        .h(t::navigation_height())
+                        .flex_shrink_0()
+                        .px_2()
+                        .border_b_1()
+                        .border_color(t::border())
+                        .child(
+                            Button::new("return-to-work")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .h_7()
+                                .icon(IconName::ArrowLeft)
+                                .label(format!("Back to {title}"))
+                                .max_w(relative(1.))
+                                .on_click(cx.listener(|s, _, _, cx| {
+                                    s.state.workspace.update(cx, |w, cx| {
+                                        w.return_to_conversation();
+                                        cx.notify();
+                                    })
+                                })),
+                        )
+                }))
+                .children(toolbar)
                 .children(error.map(|error| {
                     row()
-                        .h(px(t::TABS))
+                        .h(t::tabs_height())
                         .flex_shrink_0()
                         .px_3()
                         .gap_2()
@@ -555,6 +762,12 @@ mod tests {
 
     fn choose_menu(label: &str, window: &mut gpui_kit::Window, cx: &mut gpui_kit::App) {
         window.render_frame(cx);
+        assert!(
+            window.try_find("popup-menu").is_some(),
+            "Menu did not open for {label}; button {:?}; viewport {:?}",
+            window.find("tool-panel-menu").bounds(),
+            window.viewport_size()
+        );
         let mut menu = window.within("popup-menu");
         let index = (0..64usize)
             .find(|i| {
@@ -658,12 +871,93 @@ mod tests {
             let maximize = window.find("maximize-tools").bounds();
             assert!(maximize.right() <= window.viewport_size().width);
             assert!(menu.right() <= window.viewport_size().width);
-            assert!(window.try_find("new-terminal").is_none());
+            assert!(window.find("new-terminal").bounds().right() <= window.viewport_size().width);
+        })
+        .unwrap();
+        // Let the previous popover finish dismissal and the font change settle.
+        cx.run_until_parked();
+        cx.update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
             window.click("tool-panel-menu", cx);
             choose_menu("New terminal", window, cx);
             assert_eq!(app.workspace.read(cx).tabs().len(), 4);
             assert_eq!(app.workspace.read(cx).primary_tab().unwrap().id, chat);
         })
         .unwrap();
+    }
+    #[gpui_kit::test]
+    fn responsive_tools_keep_actions_and_existing_sessions_accessible(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (width, font) in [(1280., 16.), (1280., 18.), (1280., 20.), (800., 20.)] {
+            let (app, pane, ids) = cx.update(|cx| {
+                crate::ui::theme::init(cx);
+                gpui_kit::component::Theme::global_mut(cx).font_size = px(font);
+                gpui_kit::component::Theme::sync_base(cx);
+                let mut model = Model::new();
+                model.open_conversation("Conversation A", "claude");
+                let pane = model.active().unwrap().focused;
+                for n in 1..8 {
+                    model.open(format!("Terminal {n}"), "shell");
+                }
+                model.show_tools(ToolPage::Tabs);
+                let ids = model.all_panes().iter().map(|p| p.id).collect::<Vec<_>>();
+                let app = AppState::install_test(model, cx);
+                app.projects.update(cx, |p, _| p.ready = true);
+                (app, pane, ids)
+            });
+            let window = cx.open_window(size(px(width), px(800.)), |window, cx| {
+                Root::new(cx.new(|cx| Workspace::new(window, cx)), window, cx)
+            });
+            cx.update_window(window.into(), |_, window, cx| {
+                window.render_frame(cx);
+                for id in [
+                    "new-terminal",
+                    "split-terminal",
+                    "all-tool-tabs",
+                    "tool-panel-menu",
+                ] {
+                    let bounds = window.find(id).bounds();
+                    assert!(
+                        bounds.left() >= px(0.) && bounds.right() <= px(width),
+                        "{id}: {bounds:?}"
+                    );
+                }
+                assert_eq!(app.workspace.read(cx).selected_pane().unwrap().id, pane);
+                let settings = app.workspace.read(cx).tool_panel().clone();
+                window.click("all-tool-tabs", cx);
+                window.render_frame(cx);
+                assert!(window.try_find("popup-menu").is_some());
+                window.press("escape", cx);
+                assert_eq!(app.workspace.read(cx).tool_panel(), &settings);
+                if width == 800. {
+                    assert!(window.try_find("sidebar-new-chat").is_none());
+                    let previous_focus = window.focused(cx);
+                    window.click("toggle-sidebar", cx);
+                    window.render_frame(cx);
+                    assert!(window.try_find("sidebar-new-chat").is_some());
+                    for _ in 0..12 {
+                        window.press("tab", cx);
+                    }
+                    let trap =
+                        gpui_kit::base::active_focus_trap(window, cx).expect("sidebar focus trap");
+                    assert!(trap.contains_focused(window, cx));
+                    window.press("escape", cx);
+                    assert_eq!(window.focused(cx), previous_focus);
+                    assert!(app.layout.read(cx).sidebar_open);
+                }
+                assert_eq!(
+                    app.workspace
+                        .read(cx)
+                        .all_panes()
+                        .iter()
+                        .map(|p| p.id)
+                        .collect::<Vec<_>>(),
+                    ids
+                );
+                assert!(app.terminals.read(cx).views.is_empty());
+            })
+            .unwrap();
+            cx.run_until_parked();
+        }
     }
 }

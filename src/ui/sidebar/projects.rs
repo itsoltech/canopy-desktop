@@ -33,6 +33,19 @@ impl Sidebar {
                 .entry(root)
                 .or_insert_with(|| Disclosure::new(true, Instant::now()));
         }
+        let catalog = &self.projects.read(cx).catalog;
+        if self.selected_workspace != catalog.active {
+            self.selected_workspace = catalog.active;
+            if let Some(project) = catalog.current() {
+                self.collapsed_worktrees.remove(&project.path);
+                let root = project.repository_path.as_ref().unwrap_or(&project.path);
+                if let Some(group) = self.project_groups.get_mut(root)
+                    && !group.open
+                {
+                    group.toggle(Instant::now(), cx);
+                }
+            }
+        }
         cx.notify();
     }
     fn activity(
@@ -58,7 +71,7 @@ impl Sidebar {
             })
         {
             match super::chats::navigation_status(pane.id, cx) {
-                "Working" | "Goal" | "Starting" => working += 1,
+                "Working" | "Goal" => working += 1,
                 "Waiting" | "Needs attention" | "Error" => attention += 1,
                 _ => {}
             }
@@ -78,7 +91,7 @@ impl Sidebar {
                 .text_color(if attention > 0 {
                     t::yellow()
                 } else {
-                    t::accent()
+                    t::secondary()
                 })
                 .child(text),
         )
@@ -119,7 +132,9 @@ impl Sidebar {
                 .filter(|p| p.repository_path.as_ref().unwrap_or(&p.path) == &root)
                 .map(|p| p.workspace)
                 .collect();
-            let activity = self.activity(&ids, cx);
+            let activity = (!disclosure.open)
+                .then(|| self.activity(&ids, cx))
+                .flatten();
             let owner = cx.entity().downgrade();
             let repo = info.clone();
             let blocked = git.busy || state.busy || !self.sections[0].open;
@@ -192,12 +207,14 @@ impl Sidebar {
                         }))
                         .child(
                             row().w_full().gap_2().child(disclosure.chevron(now)).child(
-                                column()
+                                row()
                                     .flex_1()
                                     .min_w_0()
-                                    .items_start()
+                                    .gap_2()
                                     .child(
                                         div()
+                                            .flex_1()
+                                            .min_w_0()
                                             .text_sm()
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(t::text())
@@ -341,10 +358,10 @@ impl Sidebar {
                                 } else {
                                     t::secondary()
                                 })
-                                .child(wt.label.clone()),
+                                .child(branch_label(&wt.label)),
                         );
                     let row = row()
-                        .pl_2()
+                        .pl_3()
                         .gap_1()
                         .h_8()
                         .child(
@@ -377,6 +394,11 @@ impl Sidebar {
                             )),
                         )
                         .child(action)
+                        .children(
+                            workspace
+                                .filter(|_| !expanded)
+                                .and_then(|id| self.activity(&[id], cx)),
+                        )
                         .child(
                             Button::new(SharedString::from(format!(
                                 "terminal-worktree-{}",
@@ -406,11 +428,6 @@ impl Sidebar {
                     rows.push(
                         column()
                             .child(row)
-                            .children(
-                                workspace
-                                    .and_then(|id| self.activity(&[id], cx))
-                                    .map(|activity| div().pl_8().child(activity)),
-                            )
                             .children(
                                 workspace
                                     .filter(|_| expanded)
@@ -539,6 +556,16 @@ impl Sidebar {
                     .into_any_element(),
             );
         }
-        column().gap_2().children(groups)
+        column().gap_1().children(groups)
     }
+}
+
+/// Keep the distinguishing suffix visible even when a branch shares a long prefix.
+fn branch_label(label: &str) -> Div {
+    div()
+        .w_full()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis_middle()
+        .child(label.to_owned())
 }

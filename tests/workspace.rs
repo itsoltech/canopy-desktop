@@ -328,3 +328,61 @@ fn conversation_navigation_preserves_the_worktrees_tool_selection_and_splits() {
     assert!(ws.valid());
     assert_eq!(ws.primary_tab().unwrap().id, second);
 }
+
+#[test]
+fn navigation_preview_preserves_the_conversations_terminal_and_inspector_target() {
+    let mut workspace = Workspace::new();
+    let chat = workspace.open_conversation("Review", "claude");
+    let conversation = workspace.active().unwrap().focused;
+    let shell = workspace.open("Shell", "shell");
+    let shell_pane = workspace.active().unwrap().focused;
+    let cli = workspace.open("Implementation", "codex");
+    let agent = workspace.active().unwrap().focused;
+    workspace.activate(shell).unwrap();
+    workspace.activate(chat).unwrap();
+    workspace.select_session(agent).unwrap();
+    assert_eq!(workspace.selected_pane().unwrap().id, agent);
+    assert_eq!(workspace.tool_tab().unwrap().id, cli);
+    // Geometry, focus and category changes don't select another agent.
+    workspace.tool_panel_mut().set_maximized(false);
+    workspace.focus(chat, conversation).unwrap();
+    assert_eq!(workspace.selected_pane().unwrap().id, agent);
+    workspace.show_tools(ToolPage::Files);
+    assert_eq!(workspace.selected_pane().unwrap().id, agent);
+    workspace.select_session(conversation).unwrap();
+    assert_eq!(workspace.tool_tab().unwrap().id, shell);
+    assert!(workspace.tools_open());
+    workspace.focus(shell, shell_pane).unwrap();
+    workspace.tool_panel_mut().set_maximized(true);
+    assert_eq!(workspace.selected_pane().unwrap().id, conversation);
+    assert_eq!(workspace.all_panes().len(), 3);
+}
+
+#[test]
+fn fresh_chat_does_not_inherit_a_cli_preview_and_preview_survives_restore() {
+    let mut workspace = Workspace::new();
+    let cli = workspace.open("Agent", "codex");
+    let pane = workspace.active().unwrap().focused;
+    workspace.select_session(pane).unwrap();
+    let json = serde_json::to_string(&workspace).unwrap();
+    let mut restored: Workspace = serde_json::from_str(&json).unwrap();
+    assert!(restored.valid());
+    assert_eq!(restored.selected_pane().unwrap().id, pane);
+    restored.open_conversation("New discussion", "claude");
+    assert!(!restored.tools_open());
+    assert_eq!(restored.tool_tab().unwrap().id, cli);
+    assert_ne!(restored.selected_pane().unwrap().id, pane);
+    restored.close(cli).unwrap();
+    assert!(restored.valid());
+}
+
+#[test]
+fn first_chat_after_direct_cli_launch_has_no_incidental_terminal_panel() {
+    let mut workspace = Workspace::new();
+    workspace.open("Codex", "codex");
+    let agent = workspace.active().unwrap().focused;
+    workspace.open_conversation("New chat", "claude");
+    assert!(!workspace.tools_open());
+    assert_eq!(workspace.all_panes().len(), 2);
+    assert!(workspace.all_panes().iter().any(|p| p.id == agent));
+}

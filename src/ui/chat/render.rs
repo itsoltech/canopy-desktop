@@ -22,7 +22,6 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     Icon, IconName, Sizable,
     bubble::{Bubble, BubbleContent},
-    button::ButtonVariants,
     message::MessageAlignment,
     shimmer::ShimmerText,
     spinner::Spinner,
@@ -306,18 +305,7 @@ impl ChatView {
     }
 
     fn empty_state(&self, cx: &App) -> Div {
-        let app = cx.global::<crate::app_state::AppState>();
-        let existing = app.workspace.read(cx).tool_tab().and_then(|tab| {
-            tab.root
-                .find(tab.focused)
-                .filter(|p| p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal)
-                .cloned()
-                .or_else(|| {
-                    tab.root.panes().into_iter().find(|p| {
-                        p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
-                    })
-                })
-        });
+        let _ = cx;
         column().flex_1().justify_end().items_center().px_6()
             .child(column().w_full().max_w(rems(44.)).pb_6().gap_2()
                 .child(div().text_lg().font_weight(FontWeight::MEDIUM).text_color(t::text())
@@ -326,15 +314,7 @@ impl ChatView {
                     "Earlier messages aren't shown yet. The agent still has the conversation context."
                 } else { "Describe a task, ask a question, or mention a file below." }))
                 .children((self.starting && self.error.is_none()).then(|| div().text_xs().text_color(t::muted()).child("Connecting to agent…")))
-                .children(existing.map(|pane| {
-                    let provider = Provider::from_tool(&pane.tool);
-                    let label = provider.map_or_else(|| "Focus open terminal".to_owned(), |p| format!("Continue {} in terminal", p.name()));
-                    gpui_kit::component::button::Button::new("chat-focus-terminal")
-                        .ghost().small().label(label).icon(IconName::SquareTerminal)
-                        .on_click(move |_, _, cx| { cx.global::<crate::app_state::AppState>().workspace.clone().update(cx, |w, cx| {
-                            if w.activate_pane(pane.id).is_ok() { w.tool_panel_mut().set_maximized(true); cx.notify(); }
-                        }); })
-                })))
+)
     }
 
     /// Session problems and ends sit right above the composer, with Restart.
@@ -1294,9 +1274,7 @@ mod empty_tests {
     use gpui_kit::{AppContext, TestAppContext, component::Root, px, size};
 
     #[gpui_kit::test]
-    fn empty_chat_offers_existing_terminal_near_the_composer_without_creating_a_session(
-        cx: &mut TestAppContext,
-    ) {
+    fn empty_chat_does_not_link_to_an_unrelated_agent_terminal(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let (app, chat, terminal) = cx.update(|cx| {
             crate::ui::theme::init(cx);
@@ -1314,12 +1292,9 @@ mod empty_tests {
         });
         cx.update_window(window.into(), |_, window, cx| {
             window.render_frame(cx);
-            let link = window.find("chat-focus-terminal");
-            assert!(link.bounds().top() > px(390.));
-            assert!(link.label().unwrap().contains("Codex"));
-            window.click("chat-focus-terminal", cx);
-            assert_eq!(app.workspace.read(cx).active().unwrap().focused, terminal);
-            assert!(app.workspace.read(cx).tool_panel().is_maximized());
+            assert!(window.try_find("chat-focus-terminal").is_none());
+            assert_ne!(app.workspace.read(cx).selected_pane().unwrap().id, terminal);
+            assert!(!app.workspace.read(cx).tool_panel().is_maximized());
             assert_eq!(app.workspace.read(cx).all_panes().len(), 2);
             assert!(app.terminals.read(cx).views.is_empty());
         })

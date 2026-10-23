@@ -2,14 +2,17 @@ mod chats;
 mod projects;
 use super::{components::*, theme as t};
 pub use chats::RenameChat;
+pub(super) use chats::{navigation_status, status_color};
 use gpui_kit::component::{Icon, IconName, button::Button, scroll::ScrollableElement};
 use gpui_kit::{prelude::FluentBuilder, *};
 use std::time::Instant;
 
 pub struct Sidebar {
     scroll: ScrollHandle,
+    private_scroll: ScrollHandle,
     git: Entity<crate::app_state::GitState>,
     terminals: Entity<crate::app_state::Terminals>,
+    selected_workspace: Option<canopy_desktop::state::workspace::WorkspaceId>,
     collapsed_worktrees: std::collections::HashSet<std::path::PathBuf>,
     project_groups: std::collections::HashMap<std::path::PathBuf, Disclosure>,
     _tool_events: Vec<Subscription>,
@@ -44,7 +47,18 @@ impl Sidebar {
         Self {
             git: app.git.clone(),
             terminals,
-            collapsed_worktrees: Default::default(),
+            selected_workspace: projects.read(cx).catalog.active,
+            collapsed_worktrees: projects
+                .read(cx)
+                .catalog
+                .items
+                .iter()
+                .filter(|p| {
+                    projects.read(cx).catalog.active.is_some()
+                        && Some(p.workspace) != projects.read(cx).catalog.active
+                })
+                .map(|p| p.path.clone())
+                .collect(),
             project_groups: projects
                 .read(cx)
                 .catalog
@@ -53,12 +67,19 @@ impl Sidebar {
                 .map(|p| {
                     (
                         p.repository_path.as_ref().unwrap_or(&p.path).clone(),
-                        Disclosure::new(true, now),
+                        Disclosure::new(
+                            projects.read(cx).catalog.current().is_none_or(|active| {
+                                active.repository_path.as_ref().unwrap_or(&active.path)
+                                    == p.repository_path.as_ref().unwrap_or(&p.path)
+                            }),
+                            now,
+                        ),
                     )
                 })
                 .collect(),
             _tool_events: tool_events,
             scroll,
+            private_scroll: ScrollHandle::new(),
             projects,
             _projects_observer: observer,
             sections: std::array::from_fn(|_| Disclosure::new(true, now)),
@@ -68,7 +89,7 @@ impl Sidebar {
     }
     fn attach_project(&self, cx: &mut Context<Self>) -> Button {
         quiet_button("attach-project", "Attach project", self.attach_hovered, cx)
-            .child(div().text_size(px(10.)).child("Open…"))
+            .child(div().text_xs().text_color(t::secondary()).child("Open…"))
             .on_click(cx.listener(|this, _, window, cx| {
                 this.projects
                     .update(cx, |state, cx| state.open_folder(window, cx));
@@ -131,10 +152,10 @@ impl Sidebar {
             .chats
             .read(cx)
             .is_opening();
-        let shortcut = if cfg!(target_os = "windows") {
-            "Ctrl+Shift+N"
-        } else {
+        let shortcut = if cfg!(target_os = "macos") {
             "⌘N"
+        } else {
+            "Ctrl+N"
         };
         let tooltip = reason.map(str::to_owned).unwrap_or_else(|| {
             self.projects.read(cx).catalog.current().map_or_else(
@@ -161,8 +182,8 @@ impl Sidebar {
             .small()
             .compact()
             .w_full()
-            .h_8()
-            .px_2()
+            .h(t::navigation_height())
+            .px_3()
             .rounded(t::control_radius(cx))
             .border_1()
             .border_color(t::control_border())
@@ -192,7 +213,8 @@ impl Sidebar {
             )
             .small()
             .compact()
-            .size_8()
+            .w(t::navigation_height())
+            .h(t::navigation_height())
             .p_0()
             .rounded(t::control_radius(cx))
             .border_1()
@@ -233,12 +255,42 @@ impl Render for Sidebar {
                 || self.project_groups.values().any(|s| s.active(now)),
         );
         let projects = self.projects_content(now, cx);
+        use gpui_kit::component::{Sizable, button::ButtonVariants};
+        let private = self.chats_content(now, cx);
+        let count = self
+            .projects
+            .read(cx)
+            .scratch_workspace(cx)
+            .all_panes()
+            .iter()
+            .filter(|p| {
+                p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Chat
+                    || (p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
+                        && canopy_desktop::chat::provider::Provider::from_tool(&p.tool).is_some())
+            })
+            .count();
+        let private_height = ((count.max(1) as f32 * 3.5).min(14.) + 0.5).max(2.5);
         column()
             .size_full()
             .track_focus(&self.focus)
             .bg(t::sidebar())
             .border_r_1()
             .border_color(t::border())
+            .child(self.new_chat(cx))
+            .child(self.chat_feedback(cx))
+            .child(
+                row()
+                    .px_3()
+                    .pt_2()
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(self.header(0, "Projects", now, cx)),
+                    )
+                    .child(self.attach_project(cx)),
+            )
             .child(
                 div()
                     .relative()
@@ -251,34 +303,95 @@ impl Render for Sidebar {
                             .size_full()
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
-                            .child(self.new_chat(cx))
-                            .child(self.chat_feedback(cx))
-                            .child(
-                                column()
-                                    .flex_shrink_0()
-                                    .px_3()
-                                    .pt_1()
-                                    .pb_3()
-                                    .child(
-                                        row()
-                                            .h(px(36.))
-                                            .flex_shrink_0()
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .child(self.header(0, "Projects", now, cx)),
-                                            )
-                                            .child(self.attach_project(cx)),
-                                    )
-                                    .child(self.sections[0].measured_body(
-                                        "project-groups",
-                                        projects,
-                                        now,
-                                    )),
-                            )
-                            .child(self.chats_content(now, cx)),
+                            .px_3()
+                            .pb_3()
+                            .child(self.sections[0].measured_body("project-groups", projects, now)),
                     )
                     .vertical_scrollbar(&self.scroll),
+            )
+            .child(
+                column()
+                    .flex_shrink_0()
+                    .border_t_1()
+                    .border_color(t::border())
+                    .pt_1()
+                    .child(
+                        row()
+                            .px_3()
+                            .flex_shrink_0()
+                            .child(div().flex_1().min_w_0().child(self.header(
+                                1,
+                                "Private chats",
+                                now,
+                                cx,
+                            )))
+                            .child(
+                                Button::new("new-private-chat")
+                                    .ghost()
+                                    .small()
+                                    .compact()
+                                    .size_6()
+                                    .p_0()
+                                    .icon(IconName::Plus)
+                                    .tooltip("New private chat")
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(
+                                            Box::new(crate::ui::NewChatNoProject),
+                                            cx,
+                                        )
+                                    }),
+                            ),
+                    )
+                    .child(
+                        self.sections[1].measured_body(
+                            "private-chat-region",
+                            div()
+                                .relative()
+                                .h(rems(private_height))
+                                .max_h(window.viewport_size().height * 0.32)
+                                .child(
+                                    column()
+                                        .id("private-chat-scroll")
+                                        .size_full()
+                                        .overflow_y_scroll()
+                                        .track_scroll(&self.private_scroll)
+                                        .px_3()
+                                        .pb_2()
+                                        .child(private),
+                                )
+                                .vertical_scrollbar(&self.private_scroll),
+                            now,
+                        ),
+                    ),
+            )
+            .child(
+                row()
+                    .h(t::navigation_height())
+                    .flex_shrink_0()
+                    .px_3()
+                    .gap_2()
+                    .border_t_1()
+                    .border_color(t::border())
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_xs()
+                            .text_color(t::muted())
+                            .child("Canopy"),
+                    )
+                    .child(
+                        Button::new("settings")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .size_6()
+                            .p_0()
+                            .icon(IconName::Settings)
+                            .tooltip("Settings")
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(crate::ui::ShowPreferences), cx)
+                            }),
+                    ),
             )
     }
 }

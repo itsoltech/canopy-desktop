@@ -48,6 +48,8 @@ mod upstream_dialog;
 mod video_native;
 #[cfg(target_os = "macos")]
 pub(crate) mod video_preview;
+#[cfg(test)]
+mod visual_tests;
 #[cfg(target_os = "windows")]
 mod windows_settings;
 mod workspace_layout;
@@ -63,7 +65,7 @@ use canopy_desktop::motion::{self, Presence, presets};
 use canopy_desktop::state::workspace::{Axis, PaneId, WorkspaceId};
 use components::file_tree::{FileTree, FileTreeEvent, FileTreeModel, FileTreeRequest};
 use components::*;
-use gpui_kit::base::Disableable;
+use gpui_kit::base::{Disableable, FocusTrapElement};
 use gpui_kit::component::{IconName, Root};
 use gpui_kit::*;
 use pane_layout::PanelSide;
@@ -79,6 +81,11 @@ actions!(
         ToggleSidebar,
         ShowChanges,
         ShowSession,
+        ShowTerminals,
+        ShowFiles,
+        ShowTasks,
+        ShowPreferences,
+        DismissNavigation,
         ShellTab,
         CodexTab,
         NewTab,
@@ -109,6 +116,10 @@ pub struct Workspace {
     screen_reveal: Presence,
     sidebar: Entity<sidebar::Sidebar>,
     sidebar_open: bool,
+    sidebar_overlay: bool,
+    sidebar_overlay_focus: FocusHandle,
+    sidebar_return_focus: Option<FocusHandle>,
+    navigation_selection: Option<PaneId>,
     sidebar_reveal: Presence,
     state: AppState,
     _state_observers: Vec<Subscription>,
@@ -177,6 +188,13 @@ impl Workspace {
             agents.window_active(window.is_window_active(), cx)
         });
         let observers = vec![
+            cx.observe_window_bounds(window, |this, window, cx| {
+                if this.sidebar_overlay
+                    && f32::from(window.viewport_size().width) >= f32::from(window.rem_size()) * 43.
+                {
+                    this.dismiss_navigation(window, cx);
+                }
+            }),
             cx.observe(&state.diffs, |_, _, cx| cx.notify()),
             cx.observe(&state.git, |_, _, cx| cx.notify()),
             cx.observe_in(&state.tools, window, |_, _, window, cx| {
@@ -199,7 +217,15 @@ impl Workspace {
                 }
                 cx.notify();
             }),
-            cx.observe_in(&state.workspace, window, |_, _, _, cx| cx.notify()),
+            cx.observe_in(&state.workspace, window, |this, _, _, cx| {
+                let selected = this.state.workspace.read(cx).selected_pane().map(|p| p.id);
+                if selected != this.navigation_selection {
+                    this.sidebar_overlay = false;
+                    this.sidebar_return_focus = None;
+                }
+                this.navigation_selection = selected;
+                cx.notify();
+            }),
             cx.observe_in(&state.notch_status, window, |_, _, window, cx| {
                 window.refresh();
                 cx.notify();
@@ -261,6 +287,30 @@ impl Workspace {
             KeyBinding::new("ctrl-shift-x", ClosePane, Some("Workspace")),
             KeyBinding::new("ctrl-shift-1", ShellTab, Some("Workspace")),
             KeyBinding::new("ctrl-shift-2", CodexTab, Some("Workspace")),
+        ]);
+        cx.bind_keys([KeyBinding::new(
+            "escape",
+            DismissNavigation,
+            Some("Workspace"),
+        )]);
+        let modifier = if cfg!(target_os = "macos") {
+            "cmd-alt"
+        } else {
+            "ctrl-alt"
+        };
+        cx.bind_keys([
+            KeyBinding::new(&format!("{modifier}-1"), ShowTerminals, Some("Workspace")),
+            KeyBinding::new(&format!("{modifier}-2"), ShowFiles, Some("Workspace")),
+            KeyBinding::new(&format!("{modifier}-3"), ShowChanges, Some("Workspace")),
+            KeyBinding::new(&format!("{modifier}-4"), ShowTasks, Some("Workspace")),
+            KeyBinding::new(&format!("{modifier}-5"), ShowSession, Some("Workspace")),
+        ]);
+        #[cfg(target_os = "linux")]
+        cx.bind_keys([
+            KeyBinding::new("ctrl-n", NewChat, Some("Workspace")),
+            KeyBinding::new("ctrl-shift-n", NewChatIn, Some("Workspace")),
+            KeyBinding::new("ctrl-alt-n", NewChatNoProject, Some("Workspace")),
+            KeyBinding::new("ctrl-alt-b", ToggleSidebar, Some("Workspace")),
         ]);
         let editor_observers = vec![
             cx.observe_in(&state.workspace, window, |this, _, window, cx| {
@@ -470,6 +520,10 @@ impl Workspace {
             screen_reveal: Presence::new(true, presets::CONTENT_REVEAL, Instant::now()),
             sidebar,
             sidebar_open: true,
+            sidebar_overlay: false,
+            sidebar_overlay_focus: cx.focus_handle(),
+            sidebar_return_focus: None,
+            navigation_selection: state.workspace.read(cx).selected_pane().map(|p| p.id),
             sidebar_reveal: Presence::new(true, presets::PANEL, Instant::now()),
             state,
             _state_observers: observers,
@@ -712,7 +766,25 @@ impl Workspace {
             inspector.focus_sessions(return_focus, window, cx)
         });
     }
+    fn dismiss_navigation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sidebar_overlay = false;
+        if let Some(focus) = self.sidebar_return_focus.take() {
+            focus.focus(window, cx);
+        }
+        cx.notify();
+    }
     fn toggle_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if f32::from(window.viewport_size().width) < f32::from(window.rem_size()) * 43. {
+            if self.sidebar_overlay {
+                self.dismiss_navigation(window, cx);
+            } else {
+                self.sidebar_return_focus = window.focused(cx);
+                self.sidebar_overlay = true;
+                self.sidebar_overlay_focus.focus(window, cx);
+                cx.notify();
+            }
+            return;
+        }
         self.sidebar_open = !self.sidebar_open;
         self.state.layout.update(cx, |state, cx| {
             state.sidebar_open = self.sidebar_open;
@@ -746,17 +818,43 @@ impl Render for Workspace {
         let sidebar_animating = self.sidebar_reveal.is_animating(now);
         let sidebar_progress = self.sidebar_reveal.progress(now);
         let widths = self.state.layout.read(cx).widths;
-        let layout = widths.layout(
-            f32::from(window.viewport_size().width),
-            sidebar_progress,
-            0.,
-        );
+        let viewport_width = f32::from(window.viewport_size().width);
+        let rem = f32::from(window.rem_size());
+        let narrow_sidebar = viewport_width < rem * 43.;
+        let sidebar_width = widths
+            .left
+            .max(rem * 15.)
+            .min((viewport_width - rem * 28.).max(rem * 15.));
+        let sidebar_width = if narrow_sidebar {
+            0.
+        } else {
+            sidebar_width * sidebar_progress
+        };
+        let sidebar_visible = sidebar_width > 0.;
+        let attention = if sidebar_visible {
+            0
+        } else {
+            self.state
+                .projects
+                .read(cx)
+                .runtime_workspaces(cx)
+                .iter()
+                .flat_map(|w| w.all_panes())
+                .filter(|p| {
+                    matches!(
+                        sidebar::navigation_status(p.id, cx),
+                        "Waiting" | "Needs attention" | "Error"
+                    )
+                })
+                .count()
+        };
+
         motion::request_frame(window, sidebar_animating);
         let inspector_open = self.state.workspace.read(cx).tools_open();
         let main = self.render_work_area(
-            layout.left,
-            layout.terminal,
-            (f32::from(window.viewport_size().height) - t::TITLEBAR - t::STATUS).max(0.),
+            sidebar_width,
+            (viewport_width - sidebar_width).max(0.),
+            (f32::from(window.viewport_size().height) - t::TITLEBAR).max(0.),
             window,
             cx,
         );
@@ -855,6 +953,37 @@ impl Render for Workspace {
             )
             .on_action(cx.listener(|this, _: &ToggleInspector, window, cx| {
                 this.set_inspector_open(!this.state.workspace.read(cx).tools_open(), window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &DismissNavigation, window, cx| {
+                if this.sidebar_overlay {
+                    this.dismiss_navigation(window, cx);
+                } else {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ShowTerminals, _, cx| {
+                this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Tabs, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ShowFiles, _, cx| {
+                if this.state.projects.read(cx).catalog.active.is_some() {
+                    this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Files, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ShowTasks, _, cx| {
+                this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Tasks, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ShowPreferences, _, cx| {
+                if let Some(handle) = this.preferences
+                    && handle
+                        .update(cx, |_, window, _| window.activate_window())
+                        .is_ok()
+                {
+                    return;
+                }
+                match preferences::open(cx) {
+                    Ok(handle) => this.preferences = Some(handle),
+                    Err(error) => eprintln!("Failed to open Preferences: {error:#}"),
+                }
             }))
             .on_action(cx.listener(|this, _: &ShowChanges, window, cx| {
                 if this.state.projects.read(cx).catalog.active.is_none() {
@@ -965,7 +1094,9 @@ impl Render for Workspace {
                     .h(px(t::TITLEBAR))
                     .flex_shrink_0()
                     .justify_start()
-                    .pl(px(titlebar_leading_inset() + 32.))
+                    .pl(px(titlebar_leading_inset()
+                        + 32.
+                        + if attention > 0 { 28. } else { 0. }))
                     .pr(px(titlebar_trailing_inset() + 44.))
                     .bg(t::sidebar())
                     .border_b_1()
@@ -974,67 +1105,100 @@ impl Render for Workspace {
                     .text_sm()
                     .child({
                         let workspace = self.state.workspace.read(cx);
-                        let title = if workspace.tool_panel().is_maximized() {
+                        let title = workspace.selected_pane().map(|pane| {
                             workspace
-                                .tool_tab()
-                                .map(|tab| match workspace.tool_panel().page() {
-                                    canopy_desktop::state::workspace::ToolPage::Tabs => {
-                                        format!("Terminal · {}", tab.title)
-                                    }
-                                    canopy_desktop::state::workspace::ToolPage::Files => {
-                                        "Files".into()
-                                    }
-                                    canopy_desktop::state::workspace::ToolPage::Changes => {
-                                        "Changes".into()
-                                    }
-                                    canopy_desktop::state::workspace::ToolPage::Tasks => {
-                                        "Tasks".into()
-                                    }
-                                    canopy_desktop::state::workspace::ToolPage::Agent => {
-                                        "Agent details".into()
-                                    }
+                                .pane_title(pane.id)
+                                .unwrap_or_else(|| {
+                                    pane.metadata.title.as_deref().unwrap_or(&pane.tool)
                                 })
-                        } else {
-                            workspace.primary_tab().map(|tab| {
-                                format!(
-                                    "Chat · {}",
-                                    workspace.chat_title(tab.focused).unwrap_or(&tab.title)
-                                )
-                            })
-                        }
-                        .unwrap_or_else(|| "Canopy".into());
-                        let label = active
+                                .to_owned()
+                        });
+                        let project = active
                             .as_ref()
                             .map(|p| {
+                                let root = p.repository_path.as_ref().unwrap_or(&p.path);
+                                let name = root.file_name().unwrap_or_default().to_string_lossy();
                                 let branch = self
                                     .state
                                     .git
                                     .read(cx)
-                                    .repository(&p.path)
+                                    .repository(root)
                                     .and_then(|r| r.worktrees.iter().find(|wt| wt.path == p.path))
                                     .map(|wt| wt.label.as_str());
-                                match branch {
-                                    Some(branch) => format!("{} / {} · {title}", p.name, branch),
-                                    None => format!("{} · {title}", p.name),
-                                }
+                                branch.map_or_else(
+                                    || name.to_string(),
+                                    |branch| format!("{name} / {branch}"),
+                                )
                             })
-                            .unwrap_or(title);
-                        div().flex_1().min_w_0().truncate().child(label)
+                            .unwrap_or_else(|| "Private chats".into());
+                        let show_context = title.is_none() || viewport_width >= rem * 52.;
+                        let project = if viewport_width < rem * 64. && title.is_some() {
+                            active
+                                .as_ref()
+                                .and_then(|p| {
+                                    self.state
+                                        .git
+                                        .read(cx)
+                                        .repository(p.repository_path.as_ref().unwrap_or(&p.path))
+                                        .and_then(|r| {
+                                            r.worktrees.iter().find(|wt| wt.path == p.path)
+                                        })
+                                        .map(|wt| wt.label.clone())
+                                })
+                                .unwrap_or(project)
+                        } else {
+                            project
+                        };
+                        row()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .gap_2()
+                            .window_control_area(WindowControlArea::Drag)
+                            .on_mouse_down(MouseButton::Left, |event, window, _| {
+                                #[cfg(target_os = "macos")]
+                                if event.click_count == 2 {
+                                    window.titlebar_double_click();
+                                }
+                                #[cfg(not(target_os = "macos"))]
+                                let _ = (event, window);
+                            })
+                            .children(show_context.then(|| {
+                                div()
+                                    .max_w(relative(0.4))
+                                    .text_color(t::muted())
+                                    .truncate()
+                                    .child(project)
+                            }))
+                            .children(title.map(|title| {
+                                row()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap_2()
+                                    .children(
+                                        show_context
+                                            .then(|| div().text_color(t::faint()).child("/")),
+                                    )
+                                    .child(div().truncate().text_color(t::text()).child(title))
+                            }))
                     })
+                    .child(self.tool_navigation(viewport_width - 150., window, cx))
+                    .children(dev_tools_button(window, cx))
                     .child({
-                        div()
+                        row()
+                            .gap_1()
                             .absolute()
                             .left(px(titlebar_leading_inset()))
                             .top(px(8.))
                             .child(
                                 icon_button(
                                     "toggle-sidebar",
-                                    if self.sidebar_open {
+                                    if sidebar_visible || self.sidebar_overlay {
                                         IconName::PanelLeftClose
                                     } else {
                                         IconName::PanelLeftOpen
                                     },
-                                    if self.sidebar_open {
+                                    if sidebar_visible || self.sidebar_overlay {
                                         "Hide sidebar"
                                     } else {
                                         "Show sidebar"
@@ -1047,6 +1211,15 @@ impl Render for Workspace {
                                     },
                                 )),
                             )
+                            .children((attention > 0).then(|| {
+                                div()
+                                    .px_1()
+                                    .rounded_sm()
+                                    .bg(t::yellow().opacity(0.12))
+                                    .text_xs()
+                                    .text_color(t::yellow())
+                                    .child(attention.to_string())
+                            }))
                     })
                     .child({
                         div()
@@ -1090,64 +1263,51 @@ impl Render for Workspace {
                     .items_stretch()
                     .child(
                         div()
-                            .w(px(layout.left))
+                            .w(px(sidebar_width))
                             .h_full()
                             .flex_shrink_0()
                             .overflow_hidden()
-                            .children((self.sidebar_open || sidebar_animating).then(|| {
-                                div()
-                                    .w(px(layout.panels.left))
-                                    .h_full()
-                                    .opacity(sidebar_progress)
-                                    .child(self.sidebar.clone())
-                            })),
+                            .children(
+                                (sidebar_visible || (sidebar_animating && !narrow_sidebar)).then(
+                                    || {
+                                        div()
+                                            .w(px(sidebar_width))
+                                            .h_full()
+                                            .opacity(sidebar_progress)
+                                            .child(self.sidebar.clone())
+                                    },
+                                ),
+                            ),
                     )
                     .child(main)
-                    .children((self.sidebar_open && !sidebar_animating).then(|| {
-                        pane_divider("resize-left", PanelSide::Left).left(px(layout.left - 4.))
+                    .children((sidebar_visible && !sidebar_animating).then(|| {
+                        pane_divider("resize-left", PanelSide::Left).left(px(sidebar_width - 4.))
                     }))
             })
-            .child({
-                row()
-                    .h(px(t::STATUS))
-                    .flex_shrink_0()
-                    .px(px(12.))
-                    .gap(px(14.))
-                    .border_t_1()
-                    .border_color(t::border())
-                    .bg(t::sidebar())
-                    .text_size(px(11.))
-                    .text_color(t::faint())
-                    .children(
-                        self.state
-                            .notch_status
-                            .read(cx)
-                            .error
-                            .clone()
-                            .map(|error| div().text_color(t::red()).child(error)),
+            .children((narrow_sidebar && self.sidebar_overlay).then(|| {
+                div()
+                    .absolute()
+                    .top(px(t::TITLEBAR))
+                    .bottom_0()
+                    .left_0()
+                    .right_0()
+                    .bg(t::navigation_overlay())
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|s, _, window, cx| s.dismiss_navigation(window, cx)),
                     )
-                    .child(div().flex_1())
                     .child(
-                        icon_button("settings", IconName::Settings, "Settings").on_click(
-                            cx.listener(|this, _, _, cx| {
-                                if let Some(handle) = this.preferences
-                                    && handle
-                                        .update(cx, |_, window, _| window.activate_window())
-                                        .is_ok()
-                                {
-                                    return;
-                                }
-                                match preferences::open(cx) {
-                                    Ok(handle) => this.preferences = Some(handle),
-                                    Err(error) => {
-                                        eprintln!("Failed to open Preferences: {error:#}")
-                                    }
-                                }
-                            }),
-                        ),
+                        div()
+                            .h_full()
+                            .w(rems(18.))
+                            .max_w(relative(0.8))
+                            .shadow(vec![t::navigation_shadow()])
+                            .occlude()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(self.sidebar.clone())
+                            .focus_trap("sidebar-overlay", &self.sidebar_overlay_focus),
                     )
-                    .children(dev_tools_button(window, cx))
-            })
+            }))
             .child(self.state.toasts.clone())
             .children(self.confirmation.clone())
             .children(self.upstream_modal.clone())

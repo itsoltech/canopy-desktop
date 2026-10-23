@@ -39,7 +39,9 @@ pub struct AgentSession {
 }
 impl AgentSession {
     pub fn status_label(&self) -> &'static str {
-        if self.goal && self.status == Status::Working {
+        if self.status == Status::Starting && self.awaiting_events {
+            "No status"
+        } else if self.goal && self.status == Status::Working {
             "Goal"
         } else {
             self.status.label()

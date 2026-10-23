@@ -38,7 +38,7 @@ impl StatusFilter {
         match self {
             Self::All => true,
             Self::Idle => matches!(status, Status::Idle | Status::Exited),
-            Self::Working => matches!(status, Status::Starting | Status::Working),
+            Self::Working => status == Status::Working,
             Self::Waiting => status == Status::Waiting,
             Self::Failed => status == Status::Failed,
         }

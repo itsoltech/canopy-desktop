@@ -604,7 +604,7 @@ impl ProjectsState {
     fn focus_selected(&self, pane: PaneId, cx: &mut Context<Self>) {
         let app = cx.global::<AppState>().clone();
         app.workspace.update(cx, |workspace, cx| {
-            if workspace.activate_pane(pane).is_ok() {
+            if workspace.select_session(pane).is_ok() {
                 cx.notify();
             }
         });
@@ -737,7 +737,7 @@ impl ProjectsState {
         }
         if self.scratch.id == id {
             if let Some(pane) = pane
-                && self.scratch.activate_pane(pane).is_err()
+                && self.scratch.select_session(pane).is_err()
             {
                 return;
             }
@@ -779,7 +779,7 @@ impl ProjectsState {
                                 cx.notify();
                                 return;
                             };
-                            if workspace.activate_pane(pane).is_err() {
+                            if workspace.select_session(pane).is_err() {
                                 cx.notify();
                                 return;
                             }

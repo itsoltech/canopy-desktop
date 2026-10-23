@@ -1,6 +1,7 @@
 use super::components::file_tree::FileTree;
 use super::{components::*, theme as t};
 use canopy_desktop::state::workspace::ToolPage;
+use gpui_kit::base::Disableable;
 use gpui_kit::component::scroll::ScrollableElement;
 mod transition;
 use canopy_desktop::motion;
@@ -203,6 +204,12 @@ impl Inspector {
         use gpui_kit::component::{Sizable, button::Button, button::ButtonVariants};
         let app = cx.global::<crate::app_state::AppState>();
         let files = app.files.read(cx);
+        let available = files.root.is_some();
+        let unavailable = if app.projects.read(cx).catalog.active.is_some() {
+            "Files are not available for this worktree."
+        } else {
+            "Select a project to browse files."
+        };
         column()
             .size_full()
             .child(
@@ -216,7 +223,12 @@ impl Inspector {
                             .ghost()
                             .small()
                             .icon(gpui_kit::component::IconName::Plus)
-                            .tooltip("New file…")
+                            .disabled(!available)
+                            .tooltip(if available {
+                                "New file…"
+                            } else {
+                                unavailable
+                            })
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(super::NewFile), cx)
                             }),
@@ -226,7 +238,12 @@ impl Inspector {
                             .ghost()
                             .small()
                             .icon(gpui_kit::component::IconName::RotateCw)
-                            .tooltip("Refresh files")
+                            .disabled(!available)
+                            .tooltip(if available {
+                                "Refresh files"
+                            } else {
+                                unavailable
+                            })
                             .on_click(|_, _, cx| {
                                 cx.global::<crate::app_state::AppState>()
                                     .files
@@ -246,7 +263,7 @@ impl Inspector {
                 files
                     .root
                     .is_none()
-                    .then(|| div().px_3().child("Select a project to browse files.")),
+                    .then(|| div().px_3().text_color(t::secondary()).child(unavailable)),
             )
             .child(
                 div()

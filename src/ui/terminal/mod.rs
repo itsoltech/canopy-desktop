@@ -81,6 +81,60 @@ pub struct TerminalView {
     pump: Option<Task<()>>,
 }
 impl TerminalView {
+    /// Real terminal painter with deterministic cells and no process, for native UI review.
+    #[cfg(test)]
+    pub(super) fn visual_fixture(pane: Pane, text: &str, cx: &mut Context<Self>) -> Self {
+        use alacritty_terminal::{
+            term::cell::Flags,
+            vte::ansi::{CursorShape, Rgb},
+        };
+        use canopy_desktop::terminal::session::Cell;
+        let mut view = Self::new(pane, Err(String::new()), cx);
+        view.error = None;
+        let lines: Vec<_> = text.lines().collect();
+        let cells = lines
+            .iter()
+            .enumerate()
+            .flat_map(|(row, line)| {
+                line.chars().enumerate().map(move |(column, ch)| Cell {
+                    row,
+                    column,
+                    text: ch.to_string(),
+                    width: 1,
+                    fg: if line.starts_with('$') {
+                        Rgb {
+                            r: 89,
+                            g: 211,
+                            b: 178,
+                        }
+                    } else {
+                        Rgb {
+                            r: 210,
+                            g: 216,
+                            b: 227,
+                        }
+                    },
+                    bg: Rgb {
+                        r: 25,
+                        g: 28,
+                        b: 34,
+                    },
+                    flags: Flags::empty(),
+                    selected: false,
+                })
+            })
+            .collect();
+        view.frame = Some(Frame {
+            cells,
+            cursor: (0, lines.len()),
+            cursor_shape: CursorShape::Block,
+            mode: Mode::SHOW_CURSOR,
+            offset: 0,
+            size: Size::bounded(90, 32),
+            revision: 1,
+        });
+        view
+    }
     pub fn pane_id(&self) -> canopy_desktop::state::workspace::PaneId {
         self.pane.id
     }

@@ -112,165 +112,214 @@ impl Workspace {
                 .position(|t| t.id == tab.id)
                 .map(|index| (tab.id, index))
         });
+        let labels: Vec<_> = workspace
+            .tool_tabs()
+            .map(|tab| {
+                let agent =
+                    canopy_desktop::chat::provider::Provider::from_tool(&tab.root.first().tool)
+                        .is_some();
+                let dirty = self.state.editors.read(cx).busy(
+                    &tab.root.panes().iter().map(|p| p.id).collect::<Vec<_>>(),
+                    cx,
+                );
+                format!(
+                    "{}{}{}",
+                    if agent { "CLI · " } else { "" },
+                    tab.title,
+                    if dirty { " •" } else { "" }
+                )
+            })
+            .collect();
+        let rem = f32::from(window.rem_size());
+        let font = window.text_style().font();
+        let minimum = f32::from(t::tab_min_width().to_pixels(window.rem_size()));
+        let maximum = f32::from(t::tab_max_width().to_pixels(window.rem_size()))
+            .min((width - rem * 2.5).max(minimum));
+        let metrics = scroll::TabMetrics {
+            widths: labels
+                .iter()
+                .map(|label| {
+                    let run = TextRun {
+                        len: label.len(),
+                        font: font.clone(),
+                        ..Default::default()
+                    };
+                    let text = window.text_system().shape_line(
+                        label.clone().into(),
+                        px(rem * 0.75),
+                        &[run],
+                        None,
+                    );
+                    (f32::from(text.width) + rem * 3.5).clamp(minimum, maximum)
+                })
+                .collect(),
+            viewport: width,
+            edge: rem * 1.25,
+        };
         let animating = self.tab_scroll.update(
             workspace.id,
             active,
-            workspace.tool_tabs().count(),
-            width,
+            &metrics,
             std::time::Instant::now(),
             canopy_desktop::motion::policy(cx),
         );
         canopy_desktop::motion::request_frame(window, animating);
-        let tabs = tab_strip("workspace-tabs")
-            .w_full()
-            .track_scroll(&self.tab_scroll.handle)
-            .on_scroll_wheel(cx.listener(|this, _, _, _| this.tab_scroll.interrupt()))
-            .children(self.state.workspace.read(cx).tool_tabs().map(|tab| {
-                let id = tab.id;
-                let active = self.state.workspace.read(cx).tool_panel().page()
-                    == canopy_desktop::state::workspace::ToolPage::Tabs
-                    && self
-                        .state
-                        .workspace
-                        .read(cx)
-                        .tool_tab()
-                        .is_some_and(|t| t.id == id);
-                let editor_pane = tab.focused;
-                let owner = cx.entity().downgrade();
-                let target = self.state.workspace.clone();
-                let workspace = target.read(cx).id;
-                workspace_tab(
-                    SharedString::from(format!("{id:?}")),
-                    format!(
-                        "{}{}",
-                        if canopy_desktop::chat::provider::Provider::from_tool(
-                            &tab.root.first().tool
-                        )
-                        .is_some()
-                        {
-                            format!("CLI · {}", tab.title)
-                        } else {
-                            tab.title.clone()
-                        },
-                        if self.state.editors.read(cx).busy(
-                            &tab.root.panes().iter().map(|p| p.id).collect::<Vec<_>>(),
-                            cx
-                        ) {
-                            " •"
-                        } else {
-                            ""
-                        }
-                    ),
-                    active,
-                    matches!(
-                        tab.root.first().metadata.kind,
-                        canopy_desktop::state::workspace::PaneKind::Terminal
-                            | canopy_desktop::state::workspace::PaneKind::Chat
-                    ) && tab.root.first().tool != "shell",
-                )
-                .on_hover(cx.listener(move |this, hovered, _, cx| {
-                    if *hovered {
-                        this.hovered_tab = Some(id);
-                    } else if this.hovered_tab == Some(id) {
-                        this.hovered_tab = None;
-                    } else {
-                        return;
-                    }
-                    cx.notify();
-                }))
-                .child(
-                    div()
-                        .id(SharedString::from(format!("close-hit-{id:?}")))
-                        .size(px(16.))
-                        .flex_shrink_0()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(
-                            close_tab_button(SharedString::from(format!("close-tab-{id:?}")), cx)
-                                .opacity(if self.hovered_tab == Some(id) { 1. } else { 0. })
-                                .disabled(self.hovered_tab != Some(id))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.close_workspace_tab(workspace, id, cx);
-                                })),
-                        ),
-                )
-                .on_mouse_down(
-                    MouseButton::Middle,
-                    cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.close_workspace_tab(workspace, id, cx);
-                    }),
-                )
-                .on_drag(ContentDrag::Tab(id), |_, _, _, cx| {
-                    cx.new(|_| DragPreview("Move tab"))
-                })
-                .on_drop(cx.listener(move |this, drag: &ContentDrag, _, cx| {
-                    this.state.workspace.update(cx, |state, cx| {
-                        let result = match *drag {
-                            ContentDrag::Tab(source) => state.reorder_tab(source, Some(id)),
-                            ContentDrag::Pane { tab, pane } => state
-                                .detach_pane(tab, pane)
-                                .and_then(|new| state.reorder_tab(new, Some(id))),
-                        };
-                        if result.is_ok() {
-                            cx.notify();
-                        }
-                    });
-                }))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.state.workspace.update(cx, |state, cx| {
-                        let _ = state.activate(id);
-                        cx.notify();
-                    });
-                }))
-                .context_menu(move |menu, _, cx| {
-                    let editor = cx
-                        .global::<crate::app_state::AppState>()
-                        .editors
-                        .read(cx)
-                        .views
-                        .get(&editor_pane)
-                        .cloned();
-                    let menu = if let Some(editor) = editor {
-                        menu.item(PopupMenuItem::new("Reload file from disk").on_click(
-                            move |_, window, cx| {
-                                editor.update(cx, |editor, cx| editor.request_reload(window, cx));
+        let tabs =
+            tab_strip("workspace-tabs")
+                .w_full()
+                .track_scroll(&self.tab_scroll.handle)
+                .on_scroll_wheel(cx.listener(|this, _, _, _| this.tab_scroll.interrupt()))
+                .children(self.state.workspace.read(cx).tool_tabs().enumerate().map(
+                    |(index, tab)| {
+                        let id = tab.id;
+                        let active = self.state.workspace.read(cx).tool_panel().page()
+                            == canopy_desktop::state::workspace::ToolPage::Tabs
+                            && self
+                                .state
+                                .workspace
+                                .read(cx)
+                                .tool_tab()
+                                .is_some_and(|t| t.id == id);
+                        let editor_pane = tab.focused;
+                        let owner = cx.entity().downgrade();
+                        let target = self.state.workspace.clone();
+                        let workspace = target.read(cx).id;
+                        workspace_tab(
+                            SharedString::from(format!("{id:?}")),
+                            labels[index].clone(),
+                            active,
+                            metrics.widths[index],
+                            if canopy_desktop::chat::provider::Provider::from_tool(
+                                &tab.root.first().tool,
+                            )
+                            .is_some()
+                            {
+                                let status =
+                                    super::sidebar::navigation_status(tab.root.first().id, cx);
+                                Some((status, super::sidebar::status_color(status)))
+                            } else {
+                                None
                             },
-                        ))
-                    } else {
-                        menu
-                    };
-                    let rename_target = owner.clone();
-                    let close_target = owner.clone();
-                    menu.item(
-                        PopupMenuItem::new("Rename tab…").on_click(move |_, window, cx| {
-                            let _ = rename_target
-                                .update(cx, |this, cx| this.rename_tab(workspace, id, window, cx));
-                        }),
-                    )
-                    .item(PopupMenuItem::new("Close tab").on_click(move |_, _, cx| {
-                        let _ = close_target
-                            .update(cx, |this, cx| this.close_workspace_tab(workspace, id, cx));
-                    }))
-                })
-            }))
-            .child(
-                tab_drop_slot("new-tab-drop")
-                    .drag_over::<ContentDrag>(|s, _, _, _| s.bg(t::hover()))
-                    .on_drop(cx.listener(|this, drag: &ContentDrag, _, cx| {
-                        this.state.workspace.update(cx, |state, cx| {
-                            let result = match *drag {
-                                ContentDrag::Tab(tab) => state.reorder_tab(tab, None),
-                                ContentDrag::Pane { tab, pane } => {
-                                    state.detach_pane(tab, pane).map(|_| ())
-                                }
-                            };
-                            if result.is_ok() {
-                                cx.notify();
+                        )
+                        .on_hover(cx.listener(move |this, hovered, _, cx| {
+                            if *hovered {
+                                this.hovered_tab = Some(id);
+                            } else if this.hovered_tab == Some(id) {
+                                this.hovered_tab = None;
+                            } else {
+                                return;
                             }
-                        });
-                    })),
-            );
+                            cx.notify();
+                        }))
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("close-hit-{id:?}")))
+                                .size(rems(1.))
+                                .flex_shrink_0()
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .child(
+                                    close_tab_button(
+                                        SharedString::from(format!("close-tab-{id:?}")),
+                                        cx,
+                                    )
+                                    .opacity(if active || self.hovered_tab == Some(id) {
+                                        1.
+                                    } else {
+                                        0.
+                                    })
+                                    .disabled(!active && self.hovered_tab != Some(id))
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            this.close_workspace_tab(workspace, id, cx);
+                                        },
+                                    )),
+                                ),
+                        )
+                        .on_mouse_down(
+                            MouseButton::Middle,
+                            cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.close_workspace_tab(workspace, id, cx);
+                            }),
+                        )
+                        .on_drag(ContentDrag::Tab(id), |_, _, _, cx| {
+                            cx.new(|_| DragPreview("Move tab"))
+                        })
+                        .on_drop(cx.listener(move |this, drag: &ContentDrag, _, cx| {
+                            this.state.workspace.update(cx, |state, cx| {
+                                let result = match *drag {
+                                    ContentDrag::Tab(source) => state.reorder_tab(source, Some(id)),
+                                    ContentDrag::Pane { tab, pane } => state
+                                        .detach_pane(tab, pane)
+                                        .and_then(|new| state.reorder_tab(new, Some(id))),
+                                };
+                                if result.is_ok() {
+                                    cx.notify();
+                                }
+                            });
+                        }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.state.workspace.update(cx, |state, cx| {
+                                let _ = state.activate(id);
+                                cx.notify();
+                            });
+                        }))
+                        .context_menu(move |menu, _, cx| {
+                            let editor = cx
+                                .global::<crate::app_state::AppState>()
+                                .editors
+                                .read(cx)
+                                .views
+                                .get(&editor_pane)
+                                .cloned();
+                            let menu = if let Some(editor) = editor {
+                                menu.item(PopupMenuItem::new("Reload file from disk").on_click(
+                                    move |_, window, cx| {
+                                        editor.update(cx, |editor, cx| {
+                                            editor.request_reload(window, cx)
+                                        });
+                                    },
+                                ))
+                            } else {
+                                menu
+                            };
+                            let rename_target = owner.clone();
+                            let close_target = owner.clone();
+                            menu.item(PopupMenuItem::new("Rename tab…").on_click(
+                                move |_, window, cx| {
+                                    let _ = rename_target.update(cx, |this, cx| {
+                                        this.rename_tab(workspace, id, window, cx)
+                                    });
+                                },
+                            ))
+                            .item(
+                                PopupMenuItem::new("Close tab").on_click(move |_, _, cx| {
+                                    let _ = close_target.update(cx, |this, cx| {
+                                        this.close_workspace_tab(workspace, id, cx)
+                                    });
+                                }),
+                            )
+                        })
+                    },
+                ))
+                .child(
+                    tab_drop_slot("new-tab-drop")
+                        .drag_over::<ContentDrag>(|s, _, _, _| s.bg(t::hover()))
+                        .on_drop(cx.listener(|this, drag: &ContentDrag, _, cx| {
+                            this.state.workspace.update(cx, |state, cx| {
+                                let result = match *drag {
+                                    ContentDrag::Tab(tab) => state.reorder_tab(tab, None),
+                                    ContentDrag::Pane { tab, pane } => {
+                                        state.detach_pane(tab, pane).map(|_| ())
+                                    }
+                                };
+                                if result.is_ok() {
+                                    cx.notify();
+                                }
+                            });
+                        })),
+                );
         tab_viewport(
             "workspace-tabs-viewport",
             tabs,

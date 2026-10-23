@@ -48,11 +48,11 @@ Zasady pracy: [AGENTS.md](../AGENTS.md). Dobór testów: [testing.md](testing.md
 
 ## Design tokeny
 
-- Kolory, typografia i odstępy mają źródło w `src/ui/theme.rs`. Zachowuj wartości
-  i przezroczystość tokenów Electrona; nie zaokrąglaj konwersji OKLCH do 8-bit
-  w pośrednich krokach ani nie zastępuj kolorów wizualnym przybliżeniem.
-- Podstawowa jednostka spacingu to 4; obecne wysokości: wiersz 28, tab strip 32,
-  status bar 24 jednostki logiczne. Przed zmianą sprawdź stałe w kodzie.
+- Kolory, typografia i odstępy mają źródło w `src/ui/theme.rs`. Zatwierdzona
+  paleta workspace'u używa nieprzezroczystych powierzchni i czytelnych tekstów;
+  pozostałe semantyczne akcenty zachowują konwersję OKLCH bez pośrednich zaokrągleń.
+- Podstawowa jednostka spacingu to 4. Nawigacja i karty mają 2.25rem, sesje
+  3.25rem, tytuł sesji 14/20, metadane 12/16. Nie ma pustego globalnego status bara.
 - Używaj semantycznych bg/sidebar/elevated/text/secondary/muted/faint/border,
   zamiast rozsiewać lokalne heksy. Brak tła w nagłówkach nie oznacza usuwania
   poprawnego selected background w FileTree czy innych kontrolkach.
@@ -99,8 +99,9 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 - Lewy sidebar ma drzewo projekt → worktree → rozmowy oraz osobne Private chats.
   Centrum pokazuje rozmowę, a panel narzędzi ma niezależne taby, domyślnie po prawej.
   Panel może być na dole, zmaksymalizowany lub schowany. Files, Changes, Tasks i Agent
-  są widocznymi zakładkami (wąski panel ma wybór stron w menu). Jednoliniowy
-  titlebar pokazuje projekt, branch i rodzaj pracy, zastępując osobne nagłówki.
+  są kategoriami w jednym nagłówku okna; wąskie okno ma nazwę aktywnej strony
+  i menu Tools. Osobny pasek kart terminali zachowuje przewijanie i stałe akcje.
+  Titlebar pokazuje projekt, branch i wybraną pracę, zastępując osobne nagłówki.
   Szczegóły: [układ workspace'u](features/workspace-layout.md).
 - Preferences otwieramy jako osobne okno aplikacji, nie modal całego workspace'u.
   Mniejsze formularze/potwierdzenia korzystają ze wspólnego systemu modali.
@@ -112,8 +113,11 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
   wysokości. Wyświetlana geometria zachowuje miejsce na rozmowę, bez nadpisywania
   preferencji. Ukrycie panelu nie zamyka tabów ani procesów. Separator działa także
   po zmianie położenia. Wybór rozmowy zachowuje terminale tego samego worktree.
-- Panel narzędzi używa powierzchni sidebar i ma opcje ukrycia oraz maksymalizacji.
-  Toggle jest w titlebarze; ustawienia aplikacji pozostają na dole.
+- Panel narzędzi ma własną powierzchnię i opcje ukrycia/maksymalizacji. Przy braku
+  miejsca przechodzi do jednego obszaru, a sidebar do nakładki z ograniczeniem
+  fokusu; zapisane preferencje zostają. Settings jest w sidebarze i menu Tools.
+- Wybór sesji, fokus i prezentacja panelu są niezależne. Powrót A+S → CLI B → A
+  zachowuje S. Agent używa jawnie wybranej sesji, nie maksymalizacji ani fokusu.
 - Używaj wspólnego `window_titlebar`; zachowuj natywne działanie podwójnego
   kliknięcia górnego paska zgodnie z ustawieniem macOS.
 

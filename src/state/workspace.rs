@@ -340,6 +340,10 @@ pub struct Workspace {
     last_chat: Option<TabId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_tool: Option<TabId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selected_pane: Option<PaneId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preview: Option<tools::ToolPreview>,
     #[serde(default)]
     panel: ToolPanel,
 }
@@ -367,6 +371,8 @@ impl Workspace {
             active: None,
             last_chat: None,
             last_tool: None,
+            selected_pane: None,
+            preview: None,
             panel: ToolPanel::default(),
         }
     }
@@ -378,6 +384,8 @@ impl Workspace {
             active: None,
             last_chat: None,
             last_tool: None,
+            selected_pane: None,
+            preview: None,
             panel: ToolPanel::default(),
         }
     }
@@ -422,6 +430,7 @@ impl Workspace {
             .ok_or(StateError::MissingPane)?;
         value.metadata = metadata;
         tab.root.replace(pane, SplitTree::Leaf(value));
+        self.reconcile_selection();
         Ok(())
     }
     /// Stores a chat pane's choices. Returns whether anything changed.
@@ -484,6 +493,20 @@ impl Workspace {
         Some(match value.metadata.title.as_deref() {
             Some(title) if title != "New chat" && !title.trim().is_empty() => title,
             _ => &tab.title,
+        })
+    }
+
+    /// Visible name of a pane, including a legacy chat name or a standalone tab title.
+    pub fn pane_title(&self, pane: PaneId) -> Option<&str> {
+        if let Some(title) = self.chat_title(pane) {
+            return Some(title);
+        }
+        let tab = self.tabs.iter().find(|t| t.root.find(pane).is_some())?;
+        let value = tab.root.find(pane)?;
+        Some(if matches!(tab.root, SplitTree::Leaf(_)) {
+            &tab.title
+        } else {
+            value.metadata.title.as_deref().unwrap_or(&tab.title)
         })
     }
 
@@ -597,6 +620,18 @@ impl Workspace {
         {
             return false;
         }
+        if self
+            .selected_pane
+            .is_some_and(|id| self.locate(id).is_err())
+            || self.preview.as_ref().is_some_and(|preview| {
+                !self
+                    .tabs
+                    .iter()
+                    .any(|t| t.id == preview.tab && !t.has_chat())
+            })
+        {
+            return false;
+        }
         let mut tabs = std::collections::HashSet::new();
         let mut panes = std::collections::HashSet::new();
         let mut splits = std::collections::HashSet::new();
@@ -622,7 +657,9 @@ impl Workspace {
             .map(|tab| tab.id)
             .ok_or(StateError::MissingPane)?;
         self.activate(tab)?;
-        self.focus(tab, pane)
+        self.focus(tab, pane)?;
+        self.selected_pane = Some(pane);
+        Ok(())
     }
     pub fn activate(&mut self, id: TabId) -> Result<(), StateError> {
         if !self.tabs.iter().any(|t| t.id == id) {
@@ -642,7 +679,14 @@ impl Workspace {
         self.open_in(title.into(), tool.into(), true)
     }
     fn open_in(&mut self, title: String, tool: String, chat: bool) -> TabId {
+        let first_chat_after_agent = chat
+            && self.primary_tab().is_none()
+            && self.tabs.iter().flat_map(|t| t.root.panes()).any(|p| {
+                p.metadata.kind == PaneKind::Terminal
+                    && crate::chat::provider::Provider::from_tool(&p.tool).is_some()
+            });
         self.remember_active();
+        self.restore_preview();
         let mut pane = Pane::new(tool);
         if chat {
             pane.metadata.kind = PaneKind::Chat;
@@ -660,6 +704,10 @@ impl Workspace {
             self.panel.show(ToolPage::Tabs);
         } else {
             self.panel.focus_conversation();
+            self.selected_pane = self.active().map(|tab| tab.focused);
+            if first_chat_after_agent {
+                self.hide_tools();
+            }
         }
         id
     }
@@ -704,6 +752,10 @@ impl Workspace {
                         .map(|t| t.id)
                 });
         }
+        self.reconcile_selection();
+        if self.tabs.is_empty() && self.panel.page() == ToolPage::Tabs {
+            self.hide_tools();
+        }
         Ok(())
     }
     fn tab_mut(&mut self, id: TabId) -> Result<&mut Tab, StateError> {
@@ -718,7 +770,15 @@ impl Workspace {
             return Err(StateError::MissingPane);
         }
         t.focused = pane;
-        self.select(tab);
+        let chat = t.has_chat();
+        self.remember_active();
+        self.active = Some(tab);
+        if chat {
+            self.last_chat = Some(tab);
+            self.panel.focus_conversation();
+        } else {
+            self.panel.show(ToolPage::Tabs);
+        }
         Ok(())
     }
     pub fn split(
@@ -752,6 +812,7 @@ impl Workspace {
                 t.focused = root.first().id;
             }
             t.root = root;
+            self.reconcile_selection();
             Ok(())
         } else {
             self.close(tab)
@@ -812,6 +873,8 @@ impl Workspace {
         }
         dest.focused = pane;
         next.select(destination);
+        next.selected_pane = Some(pane);
+        next.reconcile_selection();
         *self = next;
         Ok(())
     }
@@ -848,6 +911,8 @@ impl Workspace {
             focused: pane,
         });
         self.select(id);
+        self.selected_pane = Some(pane);
+        self.reconcile_selection();
         Ok(id)
     }
     pub fn dock_tab(
@@ -875,6 +940,8 @@ impl Workspace {
         dest.focused = source_tab.focused;
         next.close(source)?;
         next.select(destination);
+        next.selected_pane = Some(source_tab.focused);
+        next.reconcile_selection();
         *self = next;
         Ok(())
     }
@@ -934,6 +1001,8 @@ impl Workspace {
         }
         self.tab_mut(destination)?.focused = pane;
         self.select(destination);
+        self.selected_pane = Some(pane);
+        self.reconcile_selection();
         Ok(())
     }
     pub fn reorder_tab(&mut self, id: TabId, before: Option<TabId>) -> Result<(), StateError> {

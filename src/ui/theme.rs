@@ -1,8 +1,8 @@
 use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::*;
 
-// Original Electron tokens in OKLCH. Convert once at each token access without
-// rounding channels or alpha to 8-bit values. GPUI receives sRGB Hsla.
+// Shared application palette. Semantic accents use OKLCH; neutral surfaces and
+// text are opaque so their contrast is consistent across every layer.
 fn oklch(l: f32, c: f32, h: f32, alpha: f32) -> Hsla {
     let angle = h.to_radians();
     let a = c * angle.cos();
@@ -26,38 +26,38 @@ fn oklch(l: f32, c: f32, h: f32, alpha: f32) -> Hsla {
     .into()
 }
 pub fn bg() -> Hsla {
-    oklch(0.235, 0., 0., 1.)
+    rgb(0x191c22).into()
 }
 pub fn sidebar() -> Hsla {
-    rgb(0x1b1b1b).into()
+    rgb(0x15181d).into()
 }
 /// Neutral edge shadow, distinct from the sidebar without using pure black.
 pub fn scroll_edge_shadow() -> Hsla {
-    rgb(0x121212).into()
+    rgb(0x101318).into()
 }
 pub fn elevated() -> Hsla {
-    oklch(0.289, 0., 0., 1.)
+    rgb(0x232832).into()
 }
 pub fn text() -> Hsla {
-    oklch(0.907, 0., 0., 0.86)
+    rgb(0xe9edf3).into()
 }
 pub fn secondary() -> Hsla {
-    oklch(0.907, 0., 0., 0.6)
+    rgb(0xa9b1bd).into()
 }
 pub fn muted() -> Hsla {
-    oklch(0.907, 0., 0., 0.4)
+    rgb(0x9ca6b4).into()
 }
 pub fn faint() -> Hsla {
-    oklch(0.907, 0., 0., 0.25)
+    rgb(0x808b9a).into()
 }
 pub fn border() -> Hsla {
-    oklch(1., 0., 0., 0.06)
+    rgb(0x2b323d).into()
 }
 pub fn control_border() -> Hsla {
-    oklch(1., 0., 0., 0.12)
+    rgb(0x46515f).into()
 }
 pub fn input_bg() -> Hsla {
-    oklch(0., 0., 0., 0.3)
+    rgb(0x171b21).into()
 }
 /// The message field's surface, opaque: the conversation scrolls beneath the composer.
 pub fn composer_surface() -> Hsla {
@@ -67,22 +67,22 @@ pub fn modal_overlay() -> Hsla {
     oklch(0., 0., 0., 0.4)
 }
 pub fn hover() -> Hsla {
-    oklch(1., 0., 0., 0.06)
+    rgb(0x1e252e).into()
 }
 pub fn selected() -> Hsla {
-    oklch(1., 0., 0., 0.08)
+    rgb(0x25364b).into()
 }
 pub fn accent() -> Hsla {
-    oklch(0.782, 0.115, 243.83, 1.)
+    rgb(0x83b7ff).into()
 }
 pub fn green() -> Hsla {
-    oklch(0.802, 0.168, 147.32, 1.)
+    rgb(0x59d3b2).into()
 }
 pub fn red() -> Hsla {
     oklch(0.712, 0.181, 22.84, 1.)
 }
 pub fn yellow() -> Hsla {
-    oklch(0.883, 0.165, 92.22, 1.)
+    rgb(0xf2bf70).into()
 }
 /// Violet of the chat's skill badges (`$name`).
 pub fn skill() -> Hsla {
@@ -114,10 +114,10 @@ pub fn codex_mark() -> Hsla {
     oklch(0.80, 0.13, 162., 1.)
 }
 pub fn chat_selected() -> Hsla {
-    accent().opacity(0.12)
+    rgb(0x25364b).into()
 }
 pub fn chat_hover() -> Hsla {
-    accent().opacity(0.06)
+    rgb(0x1e252e).into()
 }
 
 pub const SPACING_UNIT: f32 = 4.;
@@ -138,7 +138,30 @@ pub fn control_radius(cx: &App) -> Pixels {
 }
 pub const TITLEBAR: f32 = 36.;
 pub const ROW: f32 = 28.;
-pub const TABS: f32 = 32.;
+pub fn tabs_height() -> Rems {
+    rems(2.25)
+}
+pub fn tab_min_width() -> Rems {
+    rems(7.)
+}
+pub fn tab_max_width() -> Rems {
+    rems(18.)
+}
+pub fn navigation_overlay() -> Hsla {
+    black().opacity(0.65)
+}
+pub fn navigation_shadow() -> BoxShadow {
+    BoxShadow {
+        inset: false,
+        color: black().opacity(0.5),
+        offset: point(px(8.), px(0.)),
+        blur_radius: px(24.),
+        spread_radius: px(0.),
+    }
+}
+pub fn panel() -> Hsla {
+    rgb(0x1c2027).into()
+}
 pub const STATUS: f32 = 24.;
 pub const MONO: &str = "JetBrains Mono";
 
@@ -174,16 +197,18 @@ pub fn init(cx: &mut App) {
     theme.colors.background = bg();
     theme.colors.foreground = text();
     theme.colors.muted_foreground = muted();
+    theme.colors.secondary = elevated();
+    theme.colors.secondary_foreground = secondary();
     theme.colors.border = border();
     theme.colors.primary = accent();
     theme.colors.primary_foreground = bg();
     theme.colors.input = control_border();
     theme.colors.muted = elevated();
-    theme.colors.popover = bg();
+    theme.colors.popover = panel();
     theme.colors.popover_foreground = text();
     theme.colors.accent = hover();
     theme.colors.accent_foreground = text();
-    theme.colors.ring = accent().opacity(0.45);
+    theme.colors.ring = accent();
     theme.colors.button = hover();
     theme.colors.button_foreground = secondary();
     theme.colors.button_hover = selected();

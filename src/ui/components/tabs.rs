@@ -1,17 +1,15 @@
 use super::super::theme as t;
-use super::{dot, row};
+use super::row;
 use gpui_kit::*;
-
-pub const TAB_WIDTH: f32 = 180.;
 
 /// Scrollable tab strip; callers supply tabs, trailing actions and drop behavior.
 pub fn tab_strip(id: impl Into<ElementId>) -> Stateful<Div> {
     row()
         .id(id)
         .overflow_x_scroll()
-        .h(px(t::TABS))
+        .h(t::tabs_height())
         .flex_shrink_0()
-        .bg(t::sidebar())
+        .bg(t::panel())
         .border_b_1()
         .border_color(t::border())
 }
@@ -21,27 +19,34 @@ pub fn workspace_tab(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     active: bool,
-    indicator: bool,
+    width: f32,
+    indicator: Option<(&'static str, Hsla)>,
 ) -> Stateful<Div> {
     row()
         .id(id)
-        .w(px(TAB_WIDTH))
+        .w(px(width))
         .flex_shrink_0()
         .h_full()
-        .px(px(8.))
-        .gap(px(6.))
+        .px_2()
+        .gap_2()
         .cursor_pointer()
-        .border_b_1()
-        .border_color(if active { t::accent() } else { t::border() })
-        .text_size(px(11.))
-        .text_color(t::secondary())
-        .children(indicator.then(dot))
+        .border_b_2()
+        .border_color(if active { t::accent() } else { t::panel() })
+        .text_xs()
+        .text_color(if active { t::text() } else { t::secondary() })
+        .children(indicator.map(|(_, color)| {
+            div()
+                .size(rems(0.375))
+                .flex_shrink_0()
+                .rounded_full()
+                .bg(color)
+        }))
         .child(div().flex_1().min_w_0().truncate().child(label.into()))
 }
 
 /// Remaining strip space. Event payloads and actions belong to its caller.
 pub fn tab_drop_slot(id: impl Into<ElementId>) -> Stateful<Div> {
-    row().id(id).min_w(px(40.)).flex_1().h_full()
+    row().id(id).min_w(rems(2.5)).flex_1().h_full()
 }
 
 /// Fixed edge hints painted after scrolling/clamping. Canvas adds no hit targets.
@@ -54,7 +59,7 @@ pub fn tab_viewport(
         .id(id)
         .relative()
         .w_full()
-        .h(px(t::TABS))
+        .h(t::tabs_height())
         .flex_shrink_0()
         .child(content)
         .child(

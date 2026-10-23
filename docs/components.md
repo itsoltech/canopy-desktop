@@ -231,7 +231,7 @@ DragPreview jest encją wymaganą przez API GPUI, zawierającą wyłącznie etyk
 `workspace_tabs.rs` łączy komponenty ze stanem i gestami tabów.
 `workspace_panes.rs` odpowiada za geometrię drzewa, klasyfikację dropu oraz
 wywołania operacji domenowych. Styl separatora jest wspólny z pane_divider,
-który nadal zachowuje linię sidebara i pusty podgląd resize.
+który jest przezroczystym obszarem trafienia; linię rysuje właściciel regionu.
 
 Po ekstrakcji: fmt, Clippy, 42 testy i build release przechodzą.
 W uruchomionym release sprawdzono render zagnieżdżonych splitów, nagłówków,
@@ -441,9 +441,12 @@ przekazuje komponentom gotowe wartości animacji. Pozycja stosu w oknie pozostaj
 w hoście. Ekstrakcja nie dodaje nowych encji ani timerów.
 
 
-Pasek tabów używa wspólnego `TAB_WIDTH` i kontrolera `workspace_tabs::TabScroll`.
-ScrollHandle oraz Transition są trwałym stanem Workspace; zmiana aktywnego
-TabId/WorkspaceId, indeksu, liczby kart lub szerokości odsłania aktywną kartę.
+Pasek tabów używa tokenów `theme::tab_min_width()` / `tab_max_width()` / `tabs_height()` w rem i kontrolera
+`workspace_tabs::TabScroll`. Menu wszystkich kart oraz przyciski są poza scrollerem.
+Szerokość karty wynika z pomiaru etykiety i dostępnego miejsca; kontroler rezerwuje
+miejsce na gradient, aby nie zakrywał przycisku zamknięcia. ScrollHandle oraz Transition
+są trwałym stanem Workspace; zmiana aktywnego
+TabId/WorkspaceId, indeksu, liczby kart, szerokości lub bazy fontu odsłania aktywną kartę.
 W pełni widoczna karta nie przesuwa paska. Ręczny scroll przerywa przejście;
 render nie odpytuje aktywnej karty w pętli i nie restartuje tego samego celu.
 
@@ -589,3 +592,13 @@ gpui-kit's `Root` always draws invisible full-window layers over the app (notifi
 `ui/dev_inspector.rs` replaces gpui-kit's inspector panel (`set_inspector_renderer`) and, while picking, steps
 past a full-window gpui-kit element under the pointer with GPUI's own pick-depth wheel step; the style editors
 are still gpui-kit's (`render_inspector_states`). Scrolling while picking still moves the depth by hand.
+
+## Wspólny nagłówek i responsywny workspace
+
+Kategorie narzędzi należą do `workspace_layout::tool_navigation`, montowanego
+w nagłówku okna. Tylko kontekst jest obszarem drag; przyciski nie dziedziczą
+hitboxa przeciągania. Lokalny pasek zawiera wyłącznie karty i ich akcje.
+Sidebar ma osobne scrolle projektów i Private chats, z przypiętymi nagłówkami.
+Wymuszone ograniczenia rozmiaru są prezentacją, nie mutacją preferencji.
+Nakładka wąskiego sidebara używa `gpui_kit::base::FocusTrapElement` i przywraca
+poprzedni fokus. Kontrakt: [workspace-layout](features/workspace-layout.md).

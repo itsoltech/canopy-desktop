@@ -11,7 +11,9 @@ pub const fn shortcut(mac: &'static str, windows: &'static str) -> &'static str 
 pub const fn interface_font() -> &'static str {
     if cfg!(target_os = "windows") {
         "Segoe UI"
-    } else {
+    } else if cfg!(target_os = "macos") {
         ".SystemUIFont"
+    } else {
+        "Adwaita Sans"
     }
 }

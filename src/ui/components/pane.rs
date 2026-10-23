@@ -17,18 +17,12 @@ pub enum DropHighlight {
     Bottom,
 }
 
-pub fn pane_surface(id: impl Into<ElementId>, focused: bool) -> Stateful<Div> {
-    column()
-        .id(id)
-        .relative()
-        .size_full()
-        .overflow_hidden()
-        .border_1()
-        .border_color(if focused { t::border() } else { t::bg() })
+pub fn pane_surface(id: impl Into<ElementId>, _focused: bool) -> Stateful<Div> {
+    column().id(id).relative().size_full().overflow_hidden()
 }
 pub fn pane_header(handle: impl IntoElement, actions: impl IntoElement) -> Div {
     row()
-        .h(px(24.))
+        .h(rems(1.75))
         .flex_shrink_0()
         .bg(t::sidebar())
         .border_b_1()
@@ -48,7 +42,7 @@ pub fn pane_handle(id: impl Into<ElementId>, label: impl Into<SharedString>) -> 
         .child(icon(IconName::Ellipsis))
         .child(
             div()
-                .text_size(px(10.))
+                .text_xs()
                 .text_color(t::secondary())
                 .truncate()
                 .child(label.into()),

@@ -77,7 +77,12 @@ Przełączenie projektu zachowuje odtworzone workspace'y w pamięci.
 wybraną rozmowę (o ile narzędzia nie są zmaksymalizowane) i wybrany tab narzędzi
 (o ile panel jest widoczny i pokazuje taby). Niewidoczne taby nie są uruchamiane,
 ale uruchomione zasoby nie są zatrzymywane przez zmianę widoczności.
-`last_chat`, `last_tool` i `panel` mają wartości domyślne dla starszych zapisów.
+`last_chat`, `last_tool`, `selected_pane`, `preview` i `panel` mają wartości domyślne
+przy odczycie starszych zapisów. `selected_pane` jest wyborem pracy niezależnym
+od fokusu. `preview` przechowuje tab CLI oraz poprzednią widoczność/stronę
+narzędzi, bez uchwytów procesów. Nie nadpisuje `last_tool`; powrót do rozmowy
+przywraca wcześniejszy układ. Resize i nakładka sidebara nie zapisują wymuszonych
+wymiarów ani widoczności.
 Taby, splity i PaneId nie są migrowane. Szczegóły: [układ](features/workspace-layout.md).
 
 Rejestr terminali realizuje już lazy-start PTY po odtworzeniu modeli:

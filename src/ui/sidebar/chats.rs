@@ -49,6 +49,8 @@ impl Sidebar {
             .error
             .iter()
             .chain(app.chat_history.read(cx).error.iter())
+            .map(String::as_str)
+            .chain(app.notch_status.read(cx).error.iter().map(|s| s.as_ref()))
         {
             rows.push(
                 div()
@@ -56,7 +58,7 @@ impl Sidebar {
                     .py_1()
                     .text_xs()
                     .text_color(t::red())
-                    .child(error.clone())
+                    .child(error.to_owned())
                     .into_any_element(),
             );
         }
@@ -100,7 +102,6 @@ impl Sidebar {
         let projects = self.projects.read(cx);
         let scratch = projects.scratch_workspace(cx);
         let enabled = projects.ready && !projects.busy && (nested || self.sections[1].open);
-        let focused = app.workspace.read(cx).primary_tab().map(|tab| tab.focused);
         let git = self.git.read(cx);
         let mut rows = vec![];
         for workspace in projects
@@ -138,27 +139,15 @@ impl Sidebar {
                     }
                     .to_owned();
                     let live = app.workspace.read(cx);
-                    let selected = if cli {
-                        live.id == workspace.id
-                            && live.tool_panel().is_maximized()
-                            && live.active().is_some_and(|t| t.focused == id)
-                    } else {
-                        focused == Some(id) && !live.tool_panel().is_maximized()
-                    };
+                    let selected =
+                        live.id == workspace.id && live.selected_pane().is_some_and(|p| p.id == id);
                     let provider = Provider::from_tool(&pane.tool);
                     let agent = match provider {
                         Some(provider) => provider.name(),
                         None => &pane.tool,
                     };
                     let status = navigation_status(id, cx);
-                    let status_color = match status {
-                        "Working" => t::accent(),
-                        "Goal" => t::goal(),
-                        "Needs attention" | "Waiting" => t::yellow(),
-                        "Error" => t::red(),
-                        "Idle" => t::green(),
-                        _ => t::secondary(),
-                    };
+                    let status_color = status_color(status);
                     let action =
                         Button::new(SharedString::from(if cli {
                             format!("agent-terminal-{id:?}")
@@ -302,7 +291,7 @@ impl Sidebar {
                                 )
                             })
                             .children(
-                                (!cli).then(|| div().absolute().top_2().right_1p5().child(menu)),
+                                (!cli).then(|| div().absolute().top_1().right_1p5().child(menu)),
                             )
                             .into_any_element(),
                     );
@@ -311,7 +300,7 @@ impl Sidebar {
         }
         if nested {
             return column()
-                .ml_5()
+                .ml_8()
                 .pl_2()
                 .border_l_1()
                 .border_color(t::border())
@@ -337,10 +326,11 @@ impl Sidebar {
             .tabs()
             .iter()
             .filter(|t| {
-                !t.root
-                    .panes()
-                    .iter()
-                    .any(|p| p.metadata.kind == PaneKind::Chat)
+                !t.root.panes().iter().any(|p| {
+                    p.metadata.kind == PaneKind::Chat
+                        || (p.metadata.kind == PaneKind::Terminal
+                            && Provider::from_tool(&p.tool).is_some())
+                })
             })
             .map(|t| (t.focused, t.title.clone()))
             .collect();
@@ -367,22 +357,13 @@ impl Sidebar {
                     .into_any_element(),
             );
         }
-        column()
-            .flex_shrink_0()
-            .px_3()
-            .pt_2()
-            .pb_2()
-            .child(self.header(1, "Private chats", now, cx))
-            .child(self.sections[1].measured_body(
-                "sidebar-chats-body",
-                column().gap_1().children(rows),
-                now,
-            ))
+        let _ = now;
+        column().pl_2().gap_1().children(rows)
     }
 }
 
 /// Shared by rows and collapsed parent summaries; an absent view is not an idle agent.
-pub(super) fn navigation_status(id: PaneId, cx: &App) -> &'static str {
+pub(in crate::ui) fn navigation_status(id: PaneId, cx: &App) -> &'static str {
     let app = cx.global::<AppState>();
     let status = app
         .chats
@@ -396,5 +377,14 @@ pub(super) fn navigation_status(id: PaneId, cx: &App) -> &'static str {
         session.status_label()
     } else {
         status
+    }
+}
+
+pub(in crate::ui) fn status_color(status: &str) -> Hsla {
+    match status {
+        "Needs attention" | "Waiting" => t::yellow(),
+        "Error" => t::red(),
+        "Goal" => t::goal(),
+        _ => t::secondary(),
     }
 }

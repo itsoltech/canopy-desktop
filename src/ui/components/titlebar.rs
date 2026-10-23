@@ -4,9 +4,11 @@ use super::icon;
 use super::row;
 #[cfg(any(target_os = "windows", test))]
 use crate::ui::theme as t;
+#[cfg(target_os = "macos")]
+use gpui_kit::base::InteractiveElementExt;
 #[cfg(any(target_os = "windows", test))]
 use gpui_kit::component::IconName;
-use gpui_kit::{base::InteractiveElementExt, *};
+use gpui_kit::{prelude::FluentBuilder, *};
 
 pub fn titlebar_options(title: impl Into<SharedString>) -> TitlebarOptions {
     TitlebarOptions {
@@ -93,7 +95,7 @@ fn windows_titlebar(
         .relative()
         // GPUI selects the first matching window-control hitbox. A Drag area on
         // this parent would cover every child and turn their clicks into HTCAPTION.
-        .child(
+        .children((!workspace_controls).then(|| {
             div()
                 .id("windows-titlebar-drag")
                 .absolute()
@@ -101,8 +103,8 @@ fn windows_titlebar(
                 .bottom_0()
                 .left(px(left))
                 .right(px(right))
-                .window_control_area(WindowControlArea::Drag),
-        )
+                .window_control_area(WindowControlArea::Drag)
+        }))
         .child(
             row()
                 .id("windows-caption-controls")
@@ -144,13 +146,15 @@ fn windows_titlebar(
 
 fn titlebar(id: impl Into<ElementId>, window: &Window, workspace_controls: bool) -> Stateful<Div> {
     #[cfg(not(target_os = "windows"))]
-    let _ = workspace_controls;
-    #[cfg(not(target_os = "windows"))]
-    let titlebar = row().id(id).window_control_area(WindowControlArea::Drag);
+    let titlebar = row().id(id).when(!workspace_controls, |row| {
+        row.window_control_area(WindowControlArea::Drag)
+    });
     #[cfg(target_os = "windows")]
     let titlebar = windows_titlebar(id, window, workspace_controls);
     #[cfg(target_os = "macos")]
-    let titlebar = titlebar.on_double_click(|_, window, _| window.titlebar_double_click());
+    let titlebar = titlebar.when(!workspace_controls, |row| {
+        row.on_double_click(|_, window, _| window.titlebar_double_click())
+    });
     #[cfg(not(target_os = "windows"))]
     let _ = window;
     titlebar

@@ -3,11 +3,49 @@ use canopy_desktop::{
     state::workspace::{TabId, WorkspaceId},
 };
 use gpui_kit::{ScrollHandle, point, px};
-use std::time::Instant;
+use std::{
+    hash::{Hash, Hasher},
+    time::Instant,
+};
+
+/// The same measured widths drive rendering and reveal, including room for edge hints.
+pub(super) struct TabMetrics {
+    pub widths: Vec<f32>,
+    pub viewport: f32,
+    pub edge: f32,
+}
+impl TabMetrics {
+    fn fingerprint(&self) -> u64 {
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        self.viewport.to_bits().hash(&mut hash);
+        self.edge.to_bits().hash(&mut hash);
+        for width in &self.widths {
+            width.to_bits().hash(&mut hash);
+        }
+        hash.finish()
+    }
+    fn reveal(&self, current: f32, index: usize) -> f32 {
+        let Some(width) = self.widths.get(index) else {
+            return 0.;
+        };
+        let start: f32 = self.widths[..index].iter().sum();
+        let end = start + width;
+        let maximum = (self.widths.iter().sum::<f32>() + self.edge * 2. - self.viewport).max(0.);
+        let current = current.clamp(0., maximum);
+        let target = if start < current + self.edge {
+            start - self.edge
+        } else if end > current + self.viewport - self.edge {
+            end - self.viewport + self.edge
+        } else {
+            current
+        };
+        target.clamp(0., maximum)
+    }
+}
 
 pub(in crate::ui) struct TabScroll {
     pub handle: ScrollHandle,
-    target: Option<(WorkspaceId, TabId, usize, usize, u32)>,
+    target: Option<(WorkspaceId, TabId, usize, u64)>,
     motion: Transition,
     running: bool,
 }
@@ -20,12 +58,11 @@ impl TabScroll {
             running: false,
         }
     }
-    pub fn update(
+    pub(super) fn update(
         &mut self,
         workspace: WorkspaceId,
         active: Option<(TabId, usize)>,
-        count: usize,
-        width: f32,
+        metrics: &TabMetrics,
         now: Instant,
         policy: MotionPolicy,
     ) -> bool {
@@ -35,14 +72,13 @@ impl TabScroll {
             self.handle.set_offset(point(px(0.), px(0.)));
             return false;
         };
-        let target = (workspace, tab, index, count, width.to_bits());
+        let target = (workspace, tab, index, metrics.fingerprint());
         if self.target != Some(target) {
             self.target = Some(target);
             let current = -f32::from(self.handle.offset().x);
-            let destination = reveal_offset(current, index, count, width);
             self.motion = Transition::new(current, now);
             self.motion
-                .retarget(destination, presets::RESIZE, now, policy);
+                .retarget(metrics.reveal(current, index), presets::RESIZE, now, policy);
             self.running = true;
         }
         if self.running {
@@ -56,35 +92,24 @@ impl TabScroll {
         self.running = false;
     }
 }
-fn reveal_offset(current: f32, index: usize, count: usize, width: f32) -> f32 {
-    let width = width.max(0.);
-    let tab_width = crate::ui::components::TAB_WIDTH;
-    let start = index as f32 * tab_width;
-    let end = start + tab_width;
-    let maximum = (count as f32 * tab_width + 40. - width).max(0.);
-    let current = current.clamp(0., maximum);
-    let target = if start < current || width < tab_width {
-        start
-    } else if end > current + width {
-        end - width
-    } else {
-        current
-    };
-    target.clamp(0., maximum)
-}
 #[cfg(test)]
 mod tests {
-    use super::reveal_offset;
+    use super::TabMetrics;
     #[test]
-    fn reveals_both_edges_without_moving_visible_tabs() {
-        assert_eq!(reveal_offset(0., 9, 10, 720.), 1080.);
-        assert_eq!(reveal_offset(1080., 0, 10, 720.), 0.);
-        assert_eq!(reveal_offset(180., 2, 10, 720.), 180.);
-    }
-    #[test]
-    fn resize_removal_and_narrow_viewports_stay_bounded() {
-        assert_eq!(reveal_offset(1080., 1, 2, 720.), 0.);
-        assert_eq!(reveal_offset(0., 3, 4, 360.), 360.);
-        assert_eq!(reveal_offset(0., 2, 3, 100.), 360.);
+    fn reveals_whole_active_tab_and_close_control_outside_edge_hints() {
+        let metrics = TabMetrics {
+            widths: vec![260., 112., 112., 180.],
+            viewport: 280.,
+            edge: 20.,
+        };
+        assert_eq!(metrics.reveal(0., 2), 224.);
+        assert_eq!(metrics.reveal(224., 0), 0.);
+        assert_eq!(metrics.reveal(224., 2), 224.);
+        let metrics = TabMetrics {
+            widths: vec![112., 112.],
+            viewport: 500.,
+            edge: 20.,
+        };
+        assert_eq!(metrics.reveal(224., 1), 0.);
     }
 }

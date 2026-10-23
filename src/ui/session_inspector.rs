@@ -31,6 +31,7 @@ struct SessionContent {
     run: Option<String>,
     title: String,
     status: Option<Status>,
+    status_label: &'static str,
     empty: String,
     info: Vec<Metadata>,
     health: Option<(String, Hsla, String)>,
@@ -43,12 +44,7 @@ impl SessionContent {
     fn read(cx: &App) -> Self {
         let app = cx.global::<AppState>();
         let workspace = app.workspace.read(cx);
-        let tab = if workspace.tool_panel().is_maximized() {
-            workspace.tool_tab()
-        } else {
-            workspace.primary_tab().or_else(|| workspace.active())
-        };
-        let pane = tab.and_then(|t| t.root.find(t.focused));
+        let pane = workspace.selected_pane();
         let agents = app.agents.read(cx);
         let session = pane.and_then(|p| agents.sessions.get(&p.id));
         let mut out = Self {
@@ -56,6 +52,7 @@ impl SessionContent {
             run: session.map(|s| s.run.clone()),
             title: String::new(),
             status: None,
+            status_label: "",
             empty: String::new(),
             info: vec![],
             health: None,
@@ -64,6 +61,14 @@ impl SessionContent {
             response: None,
             recent: vec![],
         };
+        out.title = pane
+            .map(|p| {
+                workspace
+                    .pane_title(p.id)
+                    .unwrap_or_else(|| p.metadata.title.as_deref().unwrap_or(&p.tool))
+                    .to_owned()
+            })
+            .unwrap_or_default();
         let Some(session) = session else {
             out.empty = match pane.map(|p| p.tool.as_str()) {
                 Some("claude" | "codex") => "Agent session has not started yet.",
@@ -83,8 +88,19 @@ impl SessionContent {
         let provider = tool
             .map(|t| t.name.clone())
             .unwrap_or_else(|| tool_label(&session.pane.tool));
-        out.title = format!("{provider} session");
+        out.title = format!(
+            "{provider} · {}",
+            workspace
+                .pane_title(session.pane.id)
+                .unwrap_or_else(|| session
+                    .pane
+                    .metadata
+                    .title
+                    .as_deref()
+                    .unwrap_or(&session.pane.tool))
+        );
         out.status = Some(session.status);
+        out.status_label = session.status_label();
         out.health = Some(health(session));
         out.focus_terminal = matches!(
             session.integration_health(),
@@ -203,7 +219,7 @@ struct SessionChoice {
 
 fn session_choices(cx: &App) -> Vec<SessionChoice> {
     let app = cx.global::<AppState>();
-    let selected = app.workspace.read(cx).active().map(|tab| tab.focused);
+    let selected = app.workspace.read(cx).selected_pane().map(|pane| pane.id);
     let mut sessions: Vec<_> = app
         .agents
         .read(cx)
@@ -387,6 +403,9 @@ impl Render for SessionInspector {
                 }),
             ));
         }
+        if !s.title.is_empty() {
+            body = body.child(caption(s.title.clone()).flex_shrink_0());
+        }
         if let Some(status) = s.status {
             let color = match status {
                 Status::Working => t::accent(),
@@ -395,9 +414,7 @@ impl Render for SessionInspector {
                 Status::Starting | Status::Exited => t::muted(),
                 Status::Idle => t::green(),
             };
-            body = body
-                .child(caption(s.title.clone()).flex_shrink_0())
-                .child(session_status(status.label(), color));
+            body = body.child(session_status(s.status_label, color));
         } else {
             body = body.child(
                 div()
