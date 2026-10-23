@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { Play, Plus, Square, X } from '@lucide/svelte'
   import Tooltip from '../shared/Tooltip.svelte'
   import CollapsibleSection from './CollapsibleSection.svelte'
@@ -10,8 +9,6 @@
     getRunningProcesses,
     executeRunConfig,
     deleteRunConfig,
-    initBackgroundListener,
-    cleanupBackgroundListener,
   } from '../../lib/stores/runConfig.svelte'
   import { showRunConfigManager } from '../../lib/stores/dialogs.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
@@ -24,11 +21,6 @@
 
   $effect(() => {
     if (repoRoot) discoverConfigs()
-  })
-
-  onMount(() => {
-    initBackgroundListener()
-    return () => cleanupBackgroundListener()
   })
 
   async function handlePlay(configDir: string, name: string): Promise<void> {
@@ -96,12 +88,14 @@
         <li class="group flex items-center gap-1 h-7 pl-3 pr-2 hover:bg-hover">
           <button
             class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-inherit text-text cursor-pointer bg-transparent border-0 p-0 text-left hover:underline"
-            title={`${config.command} ${config.args ?? ''}`}
+            title={`${config.name}\n${config.command} ${config.args ?? ''}`}
             onclick={() => showRunConfigManager(group.configDir, config.name)}
           >
             {config.name}
           </button>
-          <div class="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100">
+          <div
+            class="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+          >
             {#if runningCount > 0}
               <Tooltip text={runningCount > 1 ? `Stop all (${runningCount})` : 'Stop'}>
                 <button

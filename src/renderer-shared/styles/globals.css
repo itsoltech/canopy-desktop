@@ -519,4 +519,11 @@
   .keystroke-overlay.inferno {
     animation: none;
   }
+
+  /* Loading spinners: many call sites lack `motion-reduce:animate-none`; the static icon
+     still reads as "busy". */
+  .animate-spin,
+  .animate-spin-slow {
+    animation: none;
+  }
 }
