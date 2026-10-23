@@ -364,7 +364,7 @@ impl Workspace {
             &sidebar,
             window,
             |this, _, request: &sidebar::RenameChat, window, cx| {
-                this.rename_scratch_chat(request.workspace, request.pane, window, cx);
+                this.rename_chat(request.workspace, request.pane, window, cx);
             },
         );
         let new_file_events = cx.subscribe_in(

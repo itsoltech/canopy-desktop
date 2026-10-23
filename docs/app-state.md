@@ -119,6 +119,10 @@ i odtworzenie drzewa oraz stabilnych ID po restarcie.
   Sidebar, pasek tabów, Session/Tasks i notch pozostają dostępne; Files/Tools i repozytoryjne
   Changes są schowane. Tytuł okna pochodzi z aktywnego czatu/taba albo Chats.
   Nie tworzymy automatycznie czatu. Szczegóły: [samodzielne rozmowy](features/standalone-chats.md).
+- Chats zbiera rozmowy ze wszystkich runtime workspace'ów. Wiersz pokazuje projekt,
+  tytuł, branch/worktree, agenta i status. ProjectsState adresuje Rename/Delete
+  do autorytatywnej aktywnej encji lub cache, bez przełączania projektu; watcher
+  Git dostarcza HEAD konkretnego checkoutu, także gdy projekt nie jest aktywny.
 - Open folder, ⌘O i + attach otwierają natywny picker pojedynczego katalogu.
   Anulowanie niczego nie zapisuje, a focus wraca do głównego okna.
 - Kanonizacja ścieżki i sprawdzenie dostępu do katalogu wykonują się w tle.

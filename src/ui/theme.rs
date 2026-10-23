@@ -109,7 +109,7 @@ pub fn shell() -> Hsla {
 
 pub const SPACING_UNIT: f32 = 4.;
 pub fn chat_row_height() -> Rems {
-    rems(2.5)
+    rems(4.5)
 }
 pub fn control_radius(cx: &App) -> Pixels {
     cx.global::<Theme>().radius

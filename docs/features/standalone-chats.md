@@ -6,10 +6,23 @@ Rozmowa bez projektu jest bezpośrednim celem nawigacji, inspirowanym wątkami
 T3 Code. Sidebar pokazuje `Chats` nad `Projects`; nie pokazuje sztucznego projektu
 ani worktree `No project`. Projekty zachowują dotychczasową hierarchię.
 
-Jeden wiersz to jeden `PaneKind::Chat`, identyfikowany przez `PaneId`.
-Źródłem jest istniejący `SessionSnapshot.scratch`, z aktywnej encji albo cache
-`ProjectsState`. Nie ma migracji danych ani dodatkowego katalogu rozmów.
-Kolejność wynika z kolejności tabów i liści, nie z bieżącej aktywności agenta.
+Chats pokazuje rozmowy ze wszystkich otwartych workspace'ów, projektowych i
+samodzielnych. Jeden wiersz to jeden `PaneKind::Chat`, identyfikowany przez `PaneId`.
+Źródłem jest `ProjectsState.runtime_workspaces`: autorytatywna aktywna encja albo
+cache projektu/scratch. Nie ma migracji danych ani dodatkowego katalogu rozmów.
+Kolejność wynika z katalogu workspace'ów oraz kolejności tabów i liści,
+nie z bieżącej aktywności agenta.
+
+Wiersz ma trzy poziomy, wzorowane na sidebarze T3 Code: projekt i status,
+tytuł rozmowy, następnie branch/worktree i nazwa agenta z ikoną. Projekt pochodzi
+z właściciela workspace'u, agent z `Pane.tool`, a HEAD z konkretnej ścieżki
+checkoutu w istniejącym watcherze Git. Nie dziedziczy brancha aktywnego projektu
+ani głównego checkoutu. Linked worktree pokazuje także nazwę katalogu; tooltip
+zawiera pełną ścieżkę i HEAD. Długie etykiety są skracane, agent ma własne miejsce.
+Rozmowy samodzielne pokazują `Without a project` i `Private folder`. Folder bez
+Git, ładowanie/błąd metadanych oraz detached/unborn HEAD mają jawne etykiety.
+Obserwacja Git, workspace, projektów i agentów odświeża dane bez uruchamiania
+nieodwiedzonej rozmowy. Render nie odczytuje systemu plików.
 
 Pasek tabów, splity i dock pozostają dostępne. `Open tabs…` w sekcji Chats
 zapewnia powrót do tabów bez czatu, np. podglądu pliku, także z aktywnego projektu.
@@ -45,7 +58,9 @@ dotkniętych czatów na kandydacie operacji. Nieudana operacja nie zmienia model
 
 ## Usuwanie i odpowiedzialność
 
-`ProjectsState` posiada adresowane operacje na scratch. `Chats` posiada guard,
+`ProjectsState` posiada adresowane operacje na rozmowach w każdym workspace, także
+nieaktywnym projekcie lub scratch. Rename/Delete nie przełączają widocznego projektu.
+`Chats` posiada guard,
 rejestr metadanych wszystkich czatów i operacje cleanup, także bez `ChatView`.
 Sidebar posiada tylko stan interakcji i subskrypcje. Modale zachowują istniejącego
 właściciela Workspace. Render nie wykonuje I/O.
@@ -93,6 +108,10 @@ Istotne regresje: rename/delete nieaktywnego scratch, zakres jednego pane'a,
 tytuły legacy i ręczne po restore, detach, guard bez załadowanego widoku,
 współdzielony katalog, odrzucona operacja bez utraty kolejki, cleanup i Quit
 w trakcie zamykania. Wykorzystujemy istniejące testy workspace/session oraz
-dobrane testy najniższej warstwy. Cargo z `--locked`, fmt i Clippy.
+dobrane testy najniższej warstwy. Test interakcji sidebara sprawdza projekt,
+branch/worktree i agenta rozmowy projektowej oraz samodzielnej, odświeżenie HEAD,
+klik/menu/Escape i geometrię przy szerokościach 220/320 oraz czcionce 16/20.
+Operacje nieaktywnego projektu zachowują bieżący projekt i sąsiedni pane.
+Cargo z `--locked`, fmt i Clippy.
 GUI/E2E i prawdziwe modele wymagają osobnej weryfikacji; testy modelu nie
 potwierdzają wyglądu ani interakcji w natywnym oknie.

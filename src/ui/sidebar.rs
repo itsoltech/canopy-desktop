@@ -392,15 +392,16 @@ mod tests {
     use super::Sidebar;
     use crate::app_state::AppState;
     use crate::ui::components::file_tree::{FileTree, FileTreeModel};
+    use canopy_desktop::git::{RepositoryInfo, WorktreeHead, WorktreeInfo};
     use canopy_desktop::state::workspace::{PaneKind, PaneMetadata, Workspace};
     use gpui_kit::component::Root;
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{AppContext, TestAppContext, px, size};
 
     #[gpui_kit::test]
-    fn chat_rows_navigate_and_their_menu_dismisses_by_keyboard(cx: &mut TestAppContext) {
+    fn chat_rows_show_checkout_and_agent_and_navigate_with_keyboard_menus(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
-        let (app, pane, first, second) = cx.update(|cx| {
+        let (app, pane, first, second, project_pane) = cx.update(|cx| {
             crate::ui::theme::init(cx);
             let mut workspace = Workspace::new();
             let mut ids = vec![];
@@ -421,48 +422,181 @@ mod tests {
                 ids.push(pane);
             }
             let app = AppState::install_test(workspace, cx);
-            app.projects.update(cx, |p, _| p.ready = true);
+            let root = std::path::PathBuf::from("/repos/canopy-desktop");
+            let checkout = std::path::PathBuf::from("/worktrees/chats-sidebar");
+            app.projects.update(cx, |p, cx| {
+                p.ready = true;
+                p.open_worktree(root.clone(), checkout.clone(), cx);
+                p.open_chat(
+                    p.catalog.active,
+                    "Fix conversation navigation",
+                    "claude",
+                    PaneMetadata {
+                        kind: PaneKind::Chat,
+                        title: Some("Fix conversation navigation".into()),
+                        cwd: Some(checkout.clone()),
+                        ..Default::default()
+                    },
+                    cx,
+                )
+                .unwrap();
+            });
+            let project_pane = app.workspace.read(cx).active().unwrap().focused;
+            app.agents.update(cx, |agents, cx| {
+                agents.insert_test_session(
+                    app.workspace.read(cx).all_panes()[0].clone(),
+                    canopy_desktop::agents::Status::Working,
+                )
+            });
+            app.git.update(cx, |git, _| {
+                git.entries.insert(
+                    checkout.clone(),
+                    Ok(Some(std::sync::Arc::new(RepositoryInfo {
+                        root: root.clone(),
+                        common: root.join(".git"),
+                        branches: vec![],
+                        worktrees: [
+                            (root, None, "main"),
+                            (checkout, Some("chats-sidebar"), "feature/sidebar"),
+                        ]
+                        .into_iter()
+                        .map(|(path, name, branch)| WorktreeInfo {
+                            path,
+                            name: name.map(str::to_owned),
+                            head: WorktreeHead::Branch(branch.into()),
+                            label: branch.into(),
+                            locked: false,
+                            available: true,
+                            missing: false,
+                            registered_branch: None,
+                        })
+                        .collect(),
+                    }))),
+                );
+            });
             (
                 app,
                 ids[0],
                 format!("chat-{:?}", ids[0]),
                 format!("chat-{:?}", ids[1]),
+                project_pane,
             )
         });
-        let window = cx.open_window(size(px(220.), px(640.)), |window, cx| {
-            let files = cx.new(|cx| FileTree::new(FileTreeModel::new(vec![], []).unwrap(), cx));
-            let sidebar = cx.new(|cx| Sidebar::new(files, cx));
-            Root::new(sidebar, window, cx)
-        });
-        cx.update_window(window.into(), |_, window, cx| {
-            window.render_frame(cx);
-            let a = window
-                .find(gpui_kit::SharedString::from(first.clone()))
-                .bounds();
-            let b = window
-                .find(gpui_kit::SharedString::from(second.clone()))
-                .bounds();
-            assert_eq!(a.left(), b.left());
-            assert_eq!(a.right(), b.right());
-            assert!(window.try_find("no-project").is_none());
-            window.click(gpui_kit::SharedString::from(first.clone()), cx);
-            assert_eq!(app.workspace.read(cx).active().unwrap().focused, pane);
-        })
-        .unwrap();
-        cx.run_until_parked();
-        cx.update_window(window.into(), |_, window, cx| {
-            window.render_frame(cx);
-            assert!(
-                window
+        let mut last_window = None;
+        for (width, font) in [(220., 16.), (320., 16.), (220., 20.), (320., 20.)] {
+            cx.update(|cx| {
+                gpui_kit::component::Theme::global_mut(cx).font_size = px(font);
+                gpui_kit::component::Theme::sync_base(cx);
+            });
+            let window = cx.open_window(size(px(width), px(900.)), |window, cx| {
+                let files = cx.new(|cx| FileTree::new(FileTreeModel::new(vec![], []).unwrap(), cx));
+                let sidebar = cx.new(|cx| Sidebar::new(files, cx));
+                Root::new(sidebar, window, cx)
+            });
+            cx.update_window(window.into(), |_, window, cx| {
+                window.render_frame(cx);
+                let a = window
+                    .find(gpui_kit::SharedString::from(first.clone()))
+                    .bounds();
+                let b = window
+                    .find(gpui_kit::SharedString::from(second.clone()))
+                    .bounds();
+                assert_eq!(a.left(), b.left());
+                assert_eq!(a.right(), b.right());
+                assert!(window.try_find("no-project").is_none());
+                let project = window.find(gpui_kit::SharedString::from(format!(
+                    "chat-{project_pane:?}"
+                )));
+                let label = project.label().unwrap();
+                for expected in [
+                    "canopy-desktop",
+                    "feature/sidebar",
+                    "chats-sidebar",
+                    "Claude Code",
+                    "Working",
+                ] {
+                    assert!(label.contains(expected), "{label} must identify {expected}");
+                }
+                assert!(
+                    !label.contains("main"),
+                    "the linked checkout must not inherit the main branch"
+                );
+                let label = window
                     .find(gpui_kit::SharedString::from(first.clone()))
                     .label()
                     .unwrap()
-                    .contains("selected")
-            );
-            let menu = format!("chat-menu-{pane:?}");
-            window.click(gpui_kit::SharedString::from(menu), cx);
-            window.press("escape", cx);
-            assert_eq!(app.workspace.read(cx).active().unwrap().focused, pane);
+                    .to_owned();
+                for expected in ["Without a project", "Private folder", "Codex"] {
+                    assert!(label.contains(expected));
+                }
+                // Inspect the actual metadata lanes at both sidebar widths and font sizes.
+                for id in [pane, project_pane] {
+                    let text = |part| {
+                        window.find(gpui_kit::SharedString::from(format!("chat-{part}-{id:?}")))
+                    };
+                    let project = text("project").bounds();
+                    let title = text("title").bounds();
+                    let branch = text("checkout").bounds();
+                    let agent = text("agent").bounds();
+                    assert_eq!(project.left(), title.left());
+                    assert!(project.bottom() <= title.top());
+                    assert!(title.bottom() <= branch.top());
+                    assert_eq!(branch.top(), agent.top());
+                    assert!(branch.size.width > px(0.));
+                    assert!(branch.right() < agent.left());
+                    assert!(agent.right() <= title.right());
+                }
+                window.click(gpui_kit::SharedString::from(first.clone()), cx);
+                assert_eq!(app.workspace.read(cx).active().unwrap().focused, pane);
+            })
+            .unwrap();
+            cx.run_until_parked();
+            cx.update_window(window.into(), |_, window, cx| {
+                window.render_frame(cx);
+                assert!(
+                    window
+                        .find(gpui_kit::SharedString::from(first.clone()))
+                        .label()
+                        .unwrap()
+                        .contains("selected")
+                );
+                let menu = format!("chat-menu-{pane:?}");
+                window.click(gpui_kit::SharedString::from(menu), cx);
+                window.press("escape", cx);
+                assert_eq!(app.workspace.read(cx).active().unwrap().focused, pane);
+            })
+            .unwrap();
+            last_window = Some(window);
+        }
+        cx.update(|cx| {
+            app.git.update(cx, |git, cx| {
+                let info = git
+                    .entries
+                    .values_mut()
+                    .next()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap();
+                std::sync::Arc::make_mut(info).worktrees[1].head =
+                    WorktreeHead::Detached("abcdef0123456789".into());
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+        let window = last_window.unwrap();
+        cx.update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let label = window
+                .find(gpui_kit::SharedString::from(format!(
+                    "chat-{project_pane:?}"
+                )))
+                .label()
+                .unwrap()
+                .to_owned();
+            assert!(label.contains("Detached HEAD · abcdef01"));
+            assert!(!label.contains("feature/sidebar"));
         })
         .unwrap();
     }

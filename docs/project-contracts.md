@@ -121,11 +121,15 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 
 ## Projekty, worktree i puste stany
 
-- Rozmowy bez projektu są płaską sekcją Chats nad Projects, jeden wiersz na Chat PaneId.
+- Chats nad Projects jest wspólną listą rozmów z projektów i scratch, jeden wiersz na Chat PaneId.
+  Każdy wiersz pokazuje projekt lub Without a project, tytuł, właściwy branch/worktree
+  i nazwę agenta z ikoną oraz status. HEAD pochodzi z istniejącego watchera Git
+  dla checkoutu tej rozmowy; render nie wykonuje I/O. Rename/Delete jest adresowane
+  po WorkspaceId/PaneId i nie przełącza widocznego projektu.
   Nie ma fikcyjnej pozycji No project w drzewie projektów. Snapshot zachowuje istniejące
   pole `scratch`; pasek tabów i splity pozostają. `Open tabs…` daje dostęp do tabów bez czatu.
   Start i przełączenie kontekstu nie tworzą czatu; pusty stan ma CTA New chat.
-  Każda rozmowa ma prywatny katalog `<dane>/chats/<uuid>`. Usuwanie czeka na procesy
+  Rozmowa bez projektu ma prywatny katalog `<dane>/chats/<uuid>`. Usuwanie czeka na procesy
   i chroni współdzielony katalog; błędny cleanup zostaje z Retry cleanup.
   Szczegółowy kontrakt: [samodzielne rozmowy](features/standalone-chats.md).
 - Nowy projekt lub worktree ma pustą listę tabów. Nie twórz automatycznie
@@ -446,7 +450,7 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   diffy używają `git::changes::DiffLine` i `components::git::diff_line`. Diff tury czyta żywą
   sesję i nie udaje dostępności po restarcie. Proces czatu ma `--thinking-display summarized`.
 - Historia czatu żyje w SQLite per element (`ChatSettings.id`, epoki Restart/Edit) i wraca
-  po restarcie aplikacji; Chats pokazuje rozmowy bez projektu, także nieodwiedzone po restore.
+  po restarcie aplikacji; Chats pokazuje rozmowy projektowe i bez projektu, także nieodwiedzone po restore.
   Usunięcie czatu usuwa historię i załączniki dopiero po zakończeniu procesów, z ponowieniem błędów.
   Zapis idzie przez `AppState.chat_history`; render nie czyta bazy. Obrazy do modelu skaluje
   `chat::attachments`; inne pliki idą jako ścieżki. Nowa rozmowa to zawsze New chat (nowy tab).

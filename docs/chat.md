@@ -118,9 +118,12 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   Menu New chat in… i ⌘⇧N otwierają paletę (`src/ui/new_chat_palette.rs`) z wyborem
   kontekstu przed utworzeniem. Projekt → cwd projektu/worktree; bez projektu → prywatny
   katalog `<dane>/chats/<uuid>` (0700). Fork zachowuje tę samą paletę wyboru celu.
-- Sekcja Chats nad Projects pokazuje bezpośrednio rozmowy z `ProjectsState.scratch`,
-  zapisywane w `SessionSnapshot.scratch`. Jeden wiersz to jeden Chat PaneId: klik aktywuje
-  jego aktualny tab i pane; Rename/Delete działa także przy aktywnym projekcie. Pozostałe
+- Sekcja Chats nad Projects pokazuje rozmowy ze wszystkich runtime workspace'ów
+  (projekty i scratch). Każdy wiersz identyfikuje projekt, tytuł, branch/worktree, agenta
+  i status; HEAD pochodzi z właściwej ścieżki checkoutu, także dla nieaktywnego projektu.
+  Bez projektu widnieje Without a project / Private folder. Jeden wiersz to jeden
+  Chat PaneId: klik aktywuje jego aktualny tab i pane; Rename/Delete działa też na
+  nieaktywnym projekcie lub scratch, bez przełączania widoku. Pozostałe
   taby są dostępne przez Open tabs…. Pasek tabów i splity pozostają dostępne.
 - New chat nie uruchamia się automatycznie przy starcie/przełączaniu kontekstu. Pusty stan
   ma CTA. New tab bez projektu tworzy czat; tworzenie terminala skrótem splitu wymaga projektu.

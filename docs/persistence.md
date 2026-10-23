@@ -15,7 +15,8 @@ Snapshot zawiera:
   (szczegóły: [git-worktrees.md](git-worktrees.md));
 - workspace każdego projektu, uporządkowane taby i aktywny TabId;
 - przestrzeń samodzielnych rozmów w opcjonalnym `scratch`, również przy aktywnym projekcie;
-  jej Chat PaneId zasilają listę Chats, a pozostałe taby pozostają dostępne przez Open tabs…;
+  Chat PaneId ze scratch i projektowych workspace'ów zasilają wspólną listę Chats,
+  a pozostałe taby scratch pozostają dostępne przez Open tabs…;
 - całe drzewo każdego taba: kolejność first/second, oś, SplitId i proporcje;
 - PaneId oraz focused PaneId;
 - metadane pane'a: tool ID, rodzaj widoku, cwd, profil, tytuł, resource,

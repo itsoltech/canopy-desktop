@@ -149,7 +149,11 @@ PANEL dla wysokości i CONTENT_REVEAL dla treści. `header` zwraca przycisk,
 `body` przycina treść do bieżącej wysokości i stosuje opacity/przesunięcie.
 Chats, Projects, Files i Tools mają niezależne stany w encji Sidebar.
 Chats używa mierzonego body, natywnych przycisków i DropdownMenu, z menu widocznym
-bez hover. Files i Tools są schowane bez projektu, z zachowaniem swoich encji.
+bez hover. Lista obejmuje projekty i scratch. Trzy poziomy wiersza to projekt/status,
+tytuł oraz branch/worktree i agent (ikona plus nazwa). Pełny kontekst jest dostępny
+w tooltipie i etykiecie dostępności. Wiersze mają wspólne osie tekstu i osobne miejsce
+na agenta; długie nazwy są skracane, a menu mieści się w obrębie wiersza.
+Files i Tools są schowane bez projektu, z zachowaniem swoich encji.
 Szczegóły: [samodzielne rozmowy](features/standalone-chats.md). Po zamknięciu
 sekcji nie usuwamy encji FileTree, więc jej zaznaczenie i rozwinięcia pozostają.
 
