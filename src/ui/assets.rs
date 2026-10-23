@@ -28,6 +28,9 @@ impl AssetSource for Assets {
             "canopy/pencil.svg" => Some(include_bytes!("../../assets/icons/pencil.svg")),
             "canopy/paperclip.svg" => Some(include_bytes!("../../assets/icons/paperclip.svg")),
             "canopy/quote.svg" => Some(include_bytes!("../../assets/icons/quote.svg")),
+            "canopy/heart-filled.svg" => {
+                Some(include_bytes!("../../assets/icons/heart-filled.svg"))
+            }
             "canopy/git-pull-request.svg" => {
                 Some(include_bytes!("../../assets/icons/git-pull-request.svg"))
             }

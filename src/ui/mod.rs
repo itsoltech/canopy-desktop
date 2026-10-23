@@ -34,6 +34,7 @@ mod pane_layout;
 mod platform_ui;
 mod preferences;
 mod quick_open;
+mod resume_palette;
 mod session_inspector;
 mod sidebar;
 mod task_controls;
@@ -111,6 +112,9 @@ pub struct Workspace {
     quick_open_events: Option<Subscription>,
     new_chat: Option<Entity<new_chat_palette::NewChatPalette>>,
     new_chat_events: Option<Subscription>,
+    /// `/resume`: the closed chats to bring back.
+    resume: Option<Entity<resume_palette::ResumePalette>>,
+    resume_events: Option<Subscription>,
     _editor_observers: Vec<Subscription>,
     screen_id: Option<WorkspaceId>,
     screen_reveal: Presence,
@@ -205,7 +209,7 @@ impl Workspace {
                 window.refresh();
                 cx.notify();
             }),
-            cx.observe_in(&state.projects, window, |this, entity, _, cx| {
+            cx.observe_in(&state.projects, window, |this, entity, window, cx| {
                 let id = entity.read(cx).catalog.active;
                 // The layout stays mounted for projects and "No project" alike; switching
                 // spaces only resets transient view state, without an entrance animation.
@@ -214,6 +218,10 @@ impl Workspace {
                     this.opened_file = None;
                     this.hovered_tab = None;
                     this.drop_hint = None;
+                    // The focused pane belonged to the space left: actions and shortcuts
+                    // (New chat, ⌘N) would go to the window's root and be lost until
+                    // something here took focus. A pane shown here takes it after this.
+                    this.focus.focus(window, cx);
                 }
                 cx.notify();
             }),
@@ -377,6 +385,14 @@ impl Workspace {
                     this.open_chat_palette(purpose, window, cx)
                 },
             ),
+            // `/resume` in a chat: the closed chats to bring back.
+            cx.subscribe_in(
+                &state.chats,
+                window,
+                |this, _, request: &crate::app_state::ChatResumeRequested, window, cx| {
+                    this.open_resume(request.replace, window, cx)
+                },
+            ),
         ];
         let files =
             cx.new(|cx| FileTree::new(FileTreeModel::new(vec![], []).expect("empty tree"), cx));
@@ -515,6 +531,8 @@ impl Workspace {
             quick_open_events: None,
             new_chat: None,
             new_chat_events: None,
+            resume: None,
+            resume_events: None,
             _editor_observers: editor_observers,
             screen_id: None,
             screen_reveal: Presence::new(true, presets::CONTENT_REVEAL, Instant::now()),
@@ -806,6 +824,7 @@ impl Render for Workspace {
             || self.confirmation.is_some()
             || self.quick_open.is_some()
             || self.new_chat.is_some()
+            || self.resume.is_some()
             || self.worktree_modal.is_some()
             || self.upstream_modal.is_some();
         self.state
@@ -869,6 +888,7 @@ impl Render for Workspace {
                     || self.confirmation.is_some()
                     // Its ⌘1…⌘9 pick projects instead of switching tabs.
                     || self.new_chat.is_some()
+                    || self.resume.is_some()
                 {
                     "WorkspaceModal"
                 } else {
@@ -1314,6 +1334,7 @@ impl Render for Workspace {
             .children(self.modal.clone())
             .children(self.quick_open.clone())
             .children(self.new_chat.clone())
+            .children(self.resume.clone())
             .children(self.worktree_modal.clone())
             .children(self.task_detail_modal.clone())
             .children(self.task_editor_modal.clone())
@@ -1329,6 +1350,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.new_chat.is_some()
+            || self.resume.is_some()
             || self.quick_open.is_some()
             || self.modal.is_some()
             || self.task_detail_modal.is_some()
@@ -1346,6 +1368,32 @@ impl Workspace {
             cx.notify();
         }));
         self.new_chat = Some(view);
+        cx.notify();
+    }
+
+    fn open_resume(
+        &mut self,
+        replace: Option<canopy_desktop::state::workspace::PaneId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.resume.is_some()
+            || self.new_chat.is_some()
+            || self.quick_open.is_some()
+            || self.modal.is_some()
+            || self.task_detail_modal.is_some()
+            || self.task_editor_modal.is_some()
+        {
+            return;
+        }
+        let view = cx
+            .new(|cx| resume_palette::ResumePalette::new(replace, self.focus.clone(), window, cx));
+        self.resume_events = Some(cx.subscribe(&view, |this, _, _: &ModalDismissed, cx| {
+            this.resume = None;
+            this.resume_events = None;
+            cx.notify();
+        }));
+        self.resume = Some(view);
         cx.notify();
     }
 }

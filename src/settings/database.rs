@@ -12,7 +12,7 @@ use std::{
 use crate::state::{projects::ProjectSnapshot, session::SessionSnapshot};
 
 mod chat_history;
-pub use chat_history::{ChatHistoryBatch, ChatHistoryRows};
+pub use chat_history::{ChatHistoryBatch, ChatHistoryRows, ClosedChatRow};
 
 const MAX_MIGRATION: i64 = 11;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

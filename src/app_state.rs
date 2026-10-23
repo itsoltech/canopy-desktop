@@ -3,7 +3,9 @@ mod task_drafts;
 pub use integrations::{IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
 mod editors;
-pub use chats::{ChatForkRequested, ChatGuardRequest, ForkRequest, PageTokens};
+pub use chats::{
+    ChatForkRequested, ChatGuardRequest, ChatResumeRequested, ForkRequest, PageTokens,
+};
 pub use editors::{Editors, GuardRequest};
 mod files;
 pub use files::FilesState;
@@ -23,9 +25,11 @@ pub use projects::{AgentFocusRequested, ProjectsState};
 pub use terminals::Terminals;
 mod chat_history;
 mod chats;
+mod model_catalog;
 pub use chat_history::ChatHistory;
 pub(crate) use chats::ChatFolders;
 pub use chats::{ChatTarget, Chats};
+pub use model_catalog::ModelCatalog;
 // GPUI ownership and I/O coordination; domain operations live in the library.
 use canopy_desktop::{
     settings::{Access, Change, Preferences, SettingsClient},
@@ -42,6 +46,7 @@ pub struct AppState {
     pub terminals: Entity<Terminals>,
     pub chats: Entity<Chats>,
     pub chat_history: Entity<ChatHistory>,
+    pub model_catalog: Entity<ModelCatalog>,
     pub tools: Entity<ToolsState>,
     pub git: Entity<GitState>,
     pub changes: Entity<ChangesState>,
@@ -82,6 +87,7 @@ impl AppState {
             terminals: cx.new(|_| Terminals::new()),
             chats: cx.new(|_| Chats::new()),
             chat_history: cx.new(|_| ChatHistory::new()),
+            model_catalog: cx.new(|_| ModelCatalog::new()),
             tools: cx.new(|_| ToolsState::new()),
             git: cx.new(|_| GitState::new()),
             changes: cx.new(|_| ChangesState::new()),
@@ -311,6 +317,7 @@ impl AppState {
             terminals: cx.new(|_| Terminals::new()),
             chats: cx.new(|_| Chats::new()),
             chat_history: cx.new(|_| ChatHistory::new()),
+            model_catalog: cx.new(|_| ModelCatalog::new()),
             tools: cx.new(|_| ToolsState::new()),
             git: cx.new(|_| GitState::new()),
             changes: cx.new(|_| ChangesState::new()),
@@ -421,6 +428,8 @@ impl SettingsState {
                     app.task_drafts
                         .update(cx, |state, cx| state.initialize(client.clone(), cx));
                     app.chat_history
+                        .update(cx, |state, cx| state.initialize(client.clone(), cx));
+                    app.model_catalog
                         .update(cx, |state, cx| state.initialize(client.clone(), cx));
                     app.integrations
                         .update(cx, |state, cx| state.initialize(client.clone(), cx));

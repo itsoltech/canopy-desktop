@@ -122,7 +122,8 @@ pub fn commit_details(commit: &CommitEntry, progress: f32, close_action: impl In
         )
 }
 
-fn age(seconds: i64) -> String {
+/// "5m ago", "2d ago".
+pub fn age(seconds: i64) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

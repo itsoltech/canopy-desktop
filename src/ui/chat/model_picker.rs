@@ -1,20 +1,32 @@
 //! The composer's model and reasoning picker, after ChatGPT's: one popover whose first
 //! page sets the reasoning effort on a slider. Its model name turns the page into the
-//! account's models (and the other accounts); choosing one glides back to the slider.
-use super::{composer::provider_icon, view::ChatView};
+//! models, after T3's (DEC-097): the accounts on a rail (hearts first), the chosen
+//! account's models searchable beside it; choosing one glides back to the slider.
+use super::{
+    composer::{Account, provider_icon},
+    view::ChatView,
+};
+use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::chat::config::ModelInfo;
+use canopy_desktop::chat::{config::ModelInfo, models, provider::Provider};
 use canopy_desktop::motion::{self, Transition, presets};
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     IconName, Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants},
+    input::InputState,
     popover::Popover,
+    tooltip::Tooltip,
 };
 use gpui_kit::{prelude::FluentBuilder, *};
 use std::{cell::Cell, rc::Rc, time::Instant};
 
+/// The slider page's width; the models page is wider, more so with the accounts rail.
 const WIDTH: f32 = 272.;
+const MODELS_WIDTH: f32 = 340.;
+const RAIL_WIDTH: f32 = 48.;
+const LIST_HEIGHT: f32 = 320.;
+const ROW_HEIGHT: f32 = 40.;
 const PAD: f32 = 12.;
 const KNOB: f32 = 28.;
 const TRACK: f32 = 24.;
@@ -62,11 +74,30 @@ pub(super) struct ModelPicker {
     epoch: Instant,
     /// The panel takes focus when the popover opens, for ←/→ on the slider.
     focus: FocusHandle,
+    /// The models page: the rail's account (`None`: the hearts), the search, and the
+    /// row ↑/↓ move to.
+    tab: Option<String>,
+    pub search: Entity<InputState>,
+    pub highlighted: usize,
+    list_scroll: ScrollHandle,
+    /// The page shown takes focus on the next frame: the search, or the slider.
+    refocus: bool,
+    /// Opening starts with an empty search.
+    clear_search: bool,
+    /// The panel's width when the page changed; it eases to the new page's.
+    width_from: f32,
 }
 
 impl ModelPicker {
-    pub fn new(now: Instant, cx: &mut App) -> Self {
+    pub fn new(now: Instant, window: &mut Window, cx: &mut App) -> Self {
         Self {
+            search: cx.new(|cx| InputState::new(window, cx).placeholder("Search models…")),
+            tab: None,
+            highlighted: 0,
+            list_scroll: ScrollHandle::new(),
+            refocus: false,
+            clear_search: false,
+            width_from: WIDTH,
             focus: cx.focus_handle(),
             open: false,
             page: Page::Effort,
@@ -95,6 +126,22 @@ impl ModelPicker {
         }
         let to = self.measured.get();
         Some(self.from + (to - self.from) * self.turn.value(now))
+    }
+
+    fn page_width(&self, rail: bool) -> f32 {
+        match (self.page, rail) {
+            (Page::Effort, _) => WIDTH,
+            (Page::Models, true) => MODELS_WIDTH + RAIL_WIDTH,
+            (Page::Models, false) => MODELS_WIDTH,
+        }
+    }
+
+    fn width(&self, rail: bool, now: Instant) -> f32 {
+        let to = self.page_width(rail);
+        if !self.turn.is_animating(now) {
+            return to;
+        }
+        self.width_from + (to - self.width_from) * self.turn.value(now)
     }
 
     /// Glides the knob to `stop`; one appearing starts there instead.
@@ -185,7 +232,7 @@ impl ChatView {
     ) -> impl IntoElement {
         use super::composer::Density;
         let (account, model) = self.selection_label(cx);
-        let effort = self.effort_label();
+        let effort = self.effort_label(cx);
         let name = match &effort {
             Some(effort) => format!("{account} · {model} · {effort}"),
             None => format!("{account} · {model}"),
@@ -256,10 +303,11 @@ impl ChatView {
 
     fn set_model_picker_open(&mut self, open: bool, cx: &mut Context<Self>) {
         let now = Instant::now();
-        let effort = self.current_model().filter(ModelInfo::supports_effort);
+        let effort = self.current_model(cx).filter(ModelInfo::supports_effort);
         let stop = effort
             .as_ref()
             .and_then(|model| active_stop(model, self.settings.effort));
+        let profile = self.profile(cx);
         let picker = &mut self.model_picker;
         picker.open = open;
         if open {
@@ -271,8 +319,34 @@ impl ChatView {
             picker.turn = Transition::new(1., now);
             picker.dragging = None;
             picker.place(stop, now);
+            picker.tab = Some(profile);
+            picker.highlighted = 0;
+            picker.refocus = true;
+            picker.clear_search = true;
+            self.refresh_models(cx);
         }
         cx.notify();
+    }
+
+    /// Every account the picker shows lists its models again in the background, except
+    /// the one whose agent already listed them in this chat (DEC-098).
+    fn refresh_models(&mut self, cx: &mut Context<Self>) {
+        let (accounts, current) = self.accounts(cx);
+        let locked = self.account_locked();
+        let live = self
+            .session
+            .as_ref()
+            .is_some_and(|s| !s.models().is_empty());
+        let catalog = cx.global::<AppState>().model_catalog.clone();
+        for account in accounts {
+            let here = account.id == current;
+            if (locked && !here) || (here && live) {
+                continue;
+            }
+            catalog.update(cx, |catalog, cx| {
+                catalog.refresh(account.provider, account.id, &self.pane, cx)
+            });
+        }
     }
 
     fn turn_page(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -282,8 +356,15 @@ impl ChatView {
             return;
         }
         picker.from = picker.height(now).unwrap_or(picker.measured.get());
+        let rail = !self.account_locked();
+        let picker = &mut self.model_picker;
+        picker.width_from = picker.width(rail, now);
         picker.forward = page == Page::Models;
         picker.page = page;
+        picker.refocus = true;
+        if page == Page::Models {
+            picker.highlighted = 0;
+        }
         picker.turn = Transition::new(0., now);
         picker
             .turn
@@ -294,7 +375,7 @@ impl ChatView {
     /// A model from the list: back to its reasoning, or closed when it has none.
     fn pick_model(&mut self, value: Option<String>, cx: &mut Context<Self>) {
         self.set_model(value, cx);
-        match self.current_model().filter(ModelInfo::supports_effort) {
+        match self.current_model(cx).filter(ModelInfo::supports_effort) {
             Some(model) => {
                 let stop = active_stop(&model, self.settings.effort);
                 let policy = motion::policy(cx);
@@ -321,19 +402,44 @@ impl ChatView {
         let height = picker.height(now);
         let shift = SHIFT * (1. - progress) * if picker.forward { 1. } else { -1. };
         let measured = picker.measured.clone();
-        let page = match (picker.page, self.current_model()) {
-            (Page::Effort, Some(model)) if model.supports_effort() => {
-                self.effort_page(&model, cx).into_any_element()
-            }
-            _ => self.models_page(cx).into_any_element(),
+        let rail = !self.account_locked();
+        let width = picker.width(rail, now);
+        let effort_model = self
+            .current_model(cx)
+            .filter(|model| picker.page == Page::Effort && model.supports_effort());
+        let models = effort_model.is_none();
+        if std::mem::take(&mut self.model_picker.clear_search) {
+            self.model_picker
+                .search
+                .update(cx, |search, cx| search.set_value("", window, cx));
+        }
+        if std::mem::take(&mut self.model_picker.refocus) {
+            let target = if models {
+                self.model_picker.search.read(cx).focus_handle(cx)
+            } else {
+                self.model_picker.focus.clone()
+            };
+            window.on_next_frame(move |window, cx| target.focus(window, cx));
+        }
+        let page = match effort_model {
+            Some(model) => self.effort_page(&model, cx).into_any_element(),
+            None => self.models_page(rail, cx).into_any_element(),
         };
         div()
             .id("chat-model-picker-panel")
+            .key_context("ModelPicker")
             .track_focus(&self.model_picker.focus)
-            .w(px(WIDTH))
+            .w(px(width))
             .flex()
             .flex_col()
             .when_some(height, |panel, height| panel.h(height).overflow_hidden())
+            .when(models, |panel| {
+                panel.capture_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                    if this.models_key(event, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
+            })
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
                 let step = match event.keystroke.key.as_str() {
                     "left" => -1,
@@ -607,7 +713,7 @@ impl ChatView {
 
     /// The stop nearest to `position` while the slider is held.
     fn slider_at(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let Some(model) = self.current_model().filter(ModelInfo::supports_effort) else {
+        let Some(model) = self.current_model(cx).filter(ModelInfo::supports_effort) else {
             return;
         };
         if self.model_picker.dragging.is_none() {
@@ -631,7 +737,7 @@ impl ChatView {
             return;
         };
         if let Some(effort) = self
-            .current_model()
+            .current_model(cx)
             .and_then(|model| model.effort_levels.get(stop).copied())
             && Some(effort) != self.settings.effort
         {
@@ -643,7 +749,7 @@ impl ChatView {
     /// ←/→: the next level; from the unknown default, → starts at the lowest and ←
     /// at the highest.
     fn step_effort(&mut self, step: isize, cx: &mut Context<Self>) {
-        let Some(model) = self.current_model().filter(ModelInfo::supports_effort) else {
+        let Some(model) = self.current_model(cx).filter(ModelInfo::supports_effort) else {
             return;
         };
         let last = model.effort_levels.len() as isize - 1;
@@ -655,149 +761,490 @@ impl ChatView {
         self.set_effort(Some(model.effort_levels[stop as usize]), cx);
     }
 
-    /// The account's models, Default first, then the other accounts before the first
-    /// message.
-    fn models_page(&self, cx: &mut Context<Self>) -> Div {
+    /// What the models page lists: the rail's account (Default first), or the models
+    /// with a heart from every account; only those matching the search.
+    fn model_choices(&self, cx: &App) -> Vec<Choice> {
         let (accounts, current) = self.accounts(cx);
-        let models = self.models();
-        let chosen = self.settings.model.clone();
-        let account = accounts
-            .iter()
-            .find(|account| account.id == current)
-            .map(|account| account.name.clone())
-            .unwrap_or_else(|| self.provider().name().into());
-        let back = self
-            .current_model()
-            .is_some_and(|model| model.supports_effort());
-        // The agent is chosen before the first message only (DEC-087).
-        let locked = self.account_locked();
-        let mut list = column().w_full().child(model_row(
-            "chat-model-default",
-            "Default".to_owned(),
-            Some(default_note(&Self::default_model_label(&models))),
-            chosen.is_none(),
-            cx.listener(|this, _, _, cx| this.pick_model(None, cx)),
-        ));
-        for (index, info) in models.iter().filter(|m| m.value != "default").enumerate() {
-            let value = info.value.clone();
-            list = list.child(model_row(
-                ("chat-model-option", index),
-                info.label(),
-                None,
-                chosen.as_deref() == Some(info.value.as_str()),
-                cx.listener(move |this, _, _, cx| this.pick_model(Some(value.clone()), cx)),
-            ));
-        }
-        if models.is_empty() {
-            list = list.child(
-                div()
-                    .px(px(10.))
-                    .py(px(8.))
-                    .text_size(px(13.))
-                    .text_color(t::muted())
-                    .child("The agent lists its models once it has started."),
-            );
-        }
-        let others: Vec<_> = accounts.iter().filter(|a| a.id != current).collect();
-        if !locked && !others.is_empty() {
-            list = list
-                .child(div().mx(px(10.)).my(px(6.)).h(px(1.)).bg(t::border()))
-                .child(section_label("Accounts"));
-            for (index, other) in others.into_iter().enumerate() {
-                let (provider, id) = (other.provider, other.id.clone());
-                list = list.child(model_row(
-                    ("chat-model-account", index),
-                    format!("Use {} (restarts this chat)", other.name),
-                    None,
-                    false,
-                    cx.listener(move |this, _, _, cx| {
-                        this.set_model_picker_open(false, cx);
-                        this.set_account(provider, id.clone(), cx);
-                    }),
-                ));
+        let catalog = cx.global::<AppState>().model_catalog.read(cx);
+        let query = self.model_picker.search.read(cx).value().to_string();
+        let list = |account: &Account| -> Vec<ModelInfo> {
+            if account.id == current {
+                self.models(cx)
+            } else {
+                catalog
+                    .models(&account.id)
+                    .map(<[_]>::to_vec)
+                    .unwrap_or_default()
+            }
+        };
+        let choice = |account: &Account, models: &[ModelInfo], model: Option<&ModelInfo>| {
+            let (title, note) = match model {
+                Some(info) => (info.label(), None),
+                None => (
+                    "Default".to_owned(),
+                    Some(default_note(&Self::default_model_label(models))),
+                ),
+            };
+            let value = model.map(|info| info.value.clone());
+            Choice {
+                provider: account.provider,
+                profile: account.id.clone(),
+                account: account.name.clone(),
+                chosen: account.id == current && value == self.settings.model,
+                favorite: catalog.is_favorite(&account.id, value.as_deref()),
+                model: value,
+                title,
+                note,
+            }
+        };
+        let shown = |choice: &Choice, info: Option<&ModelInfo>| match info {
+            Some(info) => models::matches(info, &query),
+            None => {
+                let query = query.trim().to_lowercase();
+                query.is_empty()
+                    || choice.title.to_lowercase().contains(&query)
+                    || choice
+                        .note
+                        .as_ref()
+                        .is_some_and(|note| note.to_lowercase().contains(&query))
+            }
+        };
+        let mut choices = vec![];
+        match &self.model_picker.tab {
+            Some(tab) => {
+                let Some(account) = accounts.iter().find(|a| &a.id == tab) else {
+                    return choices;
+                };
+                let models = list(account);
+                let default = choice(account, &models, None);
+                if shown(&default, None) {
+                    choices.push(default);
+                }
+                for info in models.iter().filter(|m| m.value != "default") {
+                    let entry = choice(account, &models, Some(info));
+                    if shown(&entry, Some(info)) {
+                        choices.push(entry);
+                    }
+                }
+            }
+            None => {
+                for favorite in catalog.favorites() {
+                    let Some(account) = accounts.iter().find(|a| a.id == favorite.profile) else {
+                        continue;
+                    };
+                    let models = list(account);
+                    let listed = favorite
+                        .model
+                        .as_ref()
+                        .map(|value| models.iter().find(|m| &m.value == value));
+                    let entry = match listed {
+                        None => choice(account, &models, None),
+                        Some(Some(info)) => choice(account, &models, Some(info)),
+                        // Not listed (any more, or yet): named by its value.
+                        Some(None) => {
+                            let value = favorite.model.clone().unwrap_or_default();
+                            Choice {
+                                chosen: account.id == current
+                                    && Some(&value) == self.settings.model.as_ref(),
+                                title: value.clone(),
+                                note: None,
+                                model: Some(value),
+                                favorite: true,
+                                ..choice(account, &models, None)
+                            }
+                        }
+                    };
+                    if shown(&entry, listed.flatten()) {
+                        choices.push(entry);
+                    }
+                }
             }
         }
-        column()
+        choices
+    }
+
+    /// A model of the list: this account's goes back to its reasoning; another
+    /// account's restarts the empty chat with it.
+    fn choose_model(&mut self, choice: Choice, cx: &mut Context<Self>) {
+        if choice.profile == self.profile(cx) {
+            self.pick_model(choice.model, cx);
+        } else if !self.account_locked() {
+            self.set_model_picker_open(false, cx);
+            self.set_account(choice.provider, choice.profile, choice.model, cx);
+        }
+    }
+
+    fn toggle_model_favorite(
+        &mut self,
+        profile: String,
+        model: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.global::<AppState>()
+            .model_catalog
+            .clone()
+            .update(cx, |catalog, cx| {
+                catalog.toggle_favorite(&profile, model.as_deref(), cx)
+            });
+    }
+
+    fn show_model_tab(&mut self, tab: Option<String>, cx: &mut Context<Self>) {
+        let picker = &mut self.model_picker;
+        picker.tab = tab;
+        picker.highlighted = 0;
+        picker.list_scroll.set_offset(point(px(0.), px(0.)));
+        cx.notify();
+    }
+
+    /// ↑/↓ move through the list, Enter and ⌘1…⌘9 choose; true when taken.
+    fn models_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
+        let keystroke = &event.keystroke;
+        let mut choices = self.model_choices(cx);
+        let last = choices.len().saturating_sub(1);
+        let picker = &mut self.model_picker;
+        match keystroke.key.as_str() {
+            "down" => picker.highlighted = (picker.highlighted + 1).min(last),
+            "up" => picker.highlighted = picker.highlighted.saturating_sub(1),
+            "enter" if picker.highlighted < choices.len() => {
+                let choice = choices.swap_remove(picker.highlighted);
+                self.choose_model(choice, cx);
+                return true;
+            }
+            digit if keystroke.modifiers.platform && digit.len() == 1 => {
+                let Some(number) = digit.chars().next().and_then(|c| c.to_digit(10)) else {
+                    return false;
+                };
+                let number = number as usize;
+                if number == 0 {
+                    return false;
+                }
+                if number <= choices.len() {
+                    let choice = choices.swap_remove(number - 1);
+                    self.choose_model(choice, cx);
+                }
+                return true;
+            }
+            _ => return false,
+        }
+        // The highlighted row stays in view.
+        let offset = -f32::from(picker.list_scroll.offset().y);
+        let top = picker.highlighted as f32 * ROW_HEIGHT;
+        let next = if top < offset {
+            top
+        } else if top + ROW_HEIGHT > offset + LIST_HEIGHT {
+            top + ROW_HEIGHT - LIST_HEIGHT
+        } else {
+            offset
+        };
+        picker.list_scroll.set_offset(point(px(0.), px(-next)));
+        cx.notify();
+        true
+    }
+
+    /// The accounts rail (before the first message) beside the search and the list.
+    fn models_page(&self, rail: bool, cx: &mut Context<Self>) -> Div {
+        let (accounts, current) = self.accounts(cx);
+        let tab = self.model_picker.tab.clone();
+        let choices = self.model_choices(cx);
+        let back = self
+            .current_model(cx)
+            .is_some_and(|model| model.supports_effort());
+        let highlighted = self.model_picker.highlighted;
+        let hearts = tab.is_none();
+        let searching = !self.model_picker.search.read(cx).value().trim().is_empty();
+        let live = self
+            .session
+            .as_ref()
+            .is_some_and(|s| !s.models().is_empty());
+        let catalog = cx.global::<AppState>().model_catalog.read(cx);
+        // Under the list: why it is empty, or the account's models still on their way.
+        let note = match tab.as_deref() {
+            None if choices.is_empty() && !searching => {
+                Some("Models with a heart show here.".to_owned())
+            }
+            _ if choices.is_empty() => Some("No matching models".to_owned()),
+            Some(profile) if !(profile == current && live) && catalog.models(profile).is_none() => {
+                Some(if catalog.fetching(profile) {
+                    "Loading models…".to_owned()
+                } else if let Some(error) = catalog.error(profile) {
+                    format!("Couldn't load models: {error}")
+                } else if profile == current {
+                    "The agent lists its models once it has started.".to_owned()
+                } else {
+                    "Loading models…".to_owned()
+                })
+            }
+            _ => None,
+        };
+        let rows: Vec<_> = choices
+            .into_iter()
+            .enumerate()
+            .map(|(position, choice)| {
+                self.model_row(choice, position, position == highlighted, hearts, cx)
+            })
+            .collect();
+        let rail_column = rail.then(|| {
+            let mut column = column()
+                .w(px(RAIL_WIDTH))
+                .flex_shrink_0()
+                .items_center()
+                .gap(px(4.))
+                .py(px(6.))
+                .border_r_1()
+                .border_color(t::border())
+                .child(rail_button(
+                    "chat-model-hearts",
+                    hearts,
+                    "Favorites".into(),
+                    custom_icon("heart-filled")
+                        .size(px(15.))
+                        .text_color(t::red())
+                        .into_any_element(),
+                    cx.listener(|this, _, _, cx| this.show_model_tab(None, cx)),
+                ));
+            for account in &accounts {
+                let id = account.id.clone();
+                let siblings = accounts
+                    .iter()
+                    .filter(|other| other.provider == account.provider)
+                    .count();
+                column = column.child(rail_button(
+                    SharedString::from(format!("chat-model-account-{}", account.id)),
+                    tab.as_deref() == Some(account.id.as_str()),
+                    account.name.clone().into(),
+                    account_mark(account, siblings > 1),
+                    cx.listener(move |this, _, _, cx| this.show_model_tab(Some(id.clone()), cx)),
+                ));
+            }
+            column
+        });
+        row().w_full().items_stretch().children(rail_column).child(
+            column()
+                .flex_1()
+                .p(px(6.))
+                .child(
+                    row()
+                        .h(px(36.))
+                        .px(px(2.))
+                        .gap(px(4.))
+                        .children(back.then(|| {
+                            icon_button("chat-model-picker-back", IconName::ChevronLeft, "Back")
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.turn_page(Page::Effort, cx)),
+                                )
+                        }))
+                        .child(
+                            input(&self.model_picker.search)
+                                .flex_1()
+                                .appearance(false)
+                                .prefix(icon(IconName::Search).size(px(13.))),
+                        ),
+                )
+                .child(div().mx(px(-6.)).h(px(1.)).bg(t::border()))
+                .child(
+                    div()
+                        .id("chat-model-list")
+                        .pt(px(4.))
+                        .max_h(px(LIST_HEIGHT))
+                        .overflow_y_scroll()
+                        .track_scroll(&self.model_picker.list_scroll)
+                        .child(column().w_full().children(rows))
+                        .children(note.map(list_note)),
+                ),
+        )
+    }
+
+    /// One model: its name (and note), the account under the hearts, ⌘N, the heart, and
+    /// ✓ when it is the chat's.
+    fn model_row(
+        &self,
+        choice: Choice,
+        position: usize,
+        highlighted: bool,
+        account: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let id = format!(
+            "chat-model-{}-{}",
+            choice.profile,
+            choice.model.as_deref().unwrap_or("default")
+        );
+        let (profile, model) = (choice.profile.clone(), choice.model.clone());
+        let favorite = choice.favorite;
+        let heart_label = if favorite {
+            "Remove from favorites"
+        } else {
+            "Add to favorites"
+        };
+        let pick = choice.clone();
+        row()
+            .id(SharedString::from(id.clone()))
             .w_full()
-            .p(px(6.))
+            .h(px(ROW_HEIGHT))
+            .flex_shrink_0()
+            .px(px(8.))
+            .gap(px(8.))
+            .rounded(px(8.))
+            .cursor_pointer()
+            .when(highlighted, |row| row.bg(t::hover()))
+            .hover(|style| style.bg(t::hover()))
+            .on_click(cx.listener(move |this, _, _, cx| this.choose_model(pick.clone(), cx)))
             .child(
-                row()
-                    .h(px(32.))
-                    .px(px(4.))
-                    .gap(px(4.))
-                    .children(back.then(|| {
-                        icon_button("chat-model-picker-back", IconName::ChevronLeft, "Back")
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.turn_page(Page::Effort, cx)),
-                            )
-                    }))
+                column()
+                    .flex_1()
+                    .min_w_0()
                     .child(
+                        row()
+                            .gap(px(6.))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .text_size(px(13.))
+                                    .text_color(t::text())
+                                    .truncate()
+                                    .child(choice.title),
+                            )
+                            .when(choice.chosen, |row| {
+                                row.child(icon(IconName::Check).size(px(13.)).text_color(t::text()))
+                            }),
+                    )
+                    .children(choice.note.map(|note| {
                         div()
-                            .px(px(if back { 0. } else { 6. }))
-                            .text_size(px(13.))
+                            .text_size(px(11.))
                             .text_color(t::muted())
                             .truncate()
-                            .child(format!("{account} models")),
-                    ),
+                            .child(note)
+                    })),
             )
+            .when(account, |this| {
+                this.child(
+                    row()
+                        .flex_shrink_0()
+                        .max_w(px(110.))
+                        .gap(px(4.))
+                        .text_size(px(11.))
+                        .text_color(t::muted())
+                        .child(provider_icon(choice.provider))
+                        .child(div().min_w_0().truncate().child(choice.account)),
+                )
+            })
+            .children((position < 9).then(|| {
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(11.))
+                    .text_color(t::faint())
+                    .child(format!("⌘{}", position + 1))
+            }))
             .child(
                 div()
-                    .id("chat-model-list")
-                    .max_h(px(360.))
-                    .overflow_y_scroll()
-                    .child(list),
+                    .id(SharedString::from(format!("{id}-heart")))
+                    .flex_shrink_0()
+                    .size(px(22.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(6.))
+                    .hover(|style| style.bg(t::selected()))
+                    .tooltip(move |window, cx| Tooltip::new(heart_label).build(window, cx))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.toggle_model_favorite(profile.clone(), model.clone(), cx);
+                    }))
+                    .child(if favorite {
+                        custom_icon("heart-filled")
+                            .size(px(13.))
+                            .text_color(t::red())
+                    } else {
+                        icon(IconName::Heart).size(px(13.)).text_color(t::faint())
+                    }),
             )
     }
 }
 
-fn section_label(text: &'static str) -> Div {
-    div()
-        .px(px(10.))
-        .py(px(4.))
-        .text_size(px(12.))
-        .text_color(t::muted())
-        .child(text)
-}
-
-/// One choice of the model list: its name, an optional note under it, ✓ when chosen.
-fn model_row(
-    id: impl Into<ElementId>,
+/// One row of the models page.
+#[derive(Clone)]
+struct Choice {
+    provider: Provider,
+    profile: String,
+    account: String,
+    /// `None`: the account's default entry.
+    model: Option<String>,
     title: String,
     note: Option<String>,
     chosen: bool,
+    favorite: bool,
+}
+
+/// The account on the rail: its agent's mark, with the profile's initials when the
+/// agent has more than one.
+fn account_mark(account: &Account, initials: bool) -> AnyElement {
+    let short = account
+        .name
+        .split_whitespace()
+        .last()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .take(2)
+        .collect::<String>()
+        .to_uppercase();
+    div()
+        .relative()
+        .size(px(18.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(provider_icon(account.provider))
+        .when(initials && !short.is_empty(), |mark| {
+            mark.child(
+                div()
+                    .absolute()
+                    .right(px(-8.))
+                    .bottom(px(-6.))
+                    .px(px(2.))
+                    .rounded(px(3.))
+                    .bg(t::elevated())
+                    .border_1()
+                    .border_color(t::border())
+                    .text_size(px(8.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(t::secondary())
+                    .child(short),
+            )
+        })
+        .into_any_element()
+}
+
+fn rail_button(
+    id: impl Into<ElementId>,
+    selected: bool,
+    label: SharedString,
+    mark: AnyElement,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    row()
+    div()
         .id(id)
-        .w_full()
-        .min_h(px(36.))
-        .px(px(10.))
-        .py(px(6.))
-        .gap(px(8.))
-        .rounded(px(8.))
+        .size(px(36.))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(10.))
         .cursor_pointer()
+        .when(selected, |button| button.bg(t::selected()))
         .hover(|style| style.bg(t::hover()))
+        .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
         .on_click(click)
-        .child(
-            column()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_size(px(14.))
-                        .text_color(t::text())
-                        .truncate()
-                        .child(title),
-                )
-                .children(note.map(|note| {
-                    div()
-                        .text_size(px(12.))
-                        .text_color(t::muted())
-                        .truncate()
-                        .child(note)
-                })),
-        )
-        .children(chosen.then(|| icon(IconName::Check).size(px(15.)).text_color(t::text())))
+        .child(mark)
+}
+
+fn list_note(text: String) -> Div {
+    div()
+        .px(px(8.))
+        .py(px(8.))
+        .text_size(px(12.))
+        .text_color(t::muted())
+        .child(text)
 }
 
 /// Broad, evenly spaced bands of light travelling right through the fill, like light

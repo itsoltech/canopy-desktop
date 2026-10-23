@@ -276,8 +276,10 @@ pub fn tidy_commands(mut commands: Vec<CommandInfo>) -> Vec<CommandInfo> {
     commands
 }
 
-/// A model the provider account offers, as reported by its CLI.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// A model the provider account offers, as reported by its CLI (and remembered for the
+/// model picker, DEC-098).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ModelInfo {
     pub value: String,
     /// The concrete model an alias stands for (`claude-opus-5-5`, `…[1m]`).

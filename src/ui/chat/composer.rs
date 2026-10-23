@@ -291,7 +291,7 @@ impl ChatView {
     /// labels when they fit, then only the model named, then icons only.
     fn pickers(&self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let (_, model) = self.selection_label(cx);
-        let effort = self.effort_label();
+        let effort = self.effort_label(cx);
         let mode = self.settings.mode.label();
         let font = window.text_style().font();
         let measure = |text: &str| -> f32 {
@@ -369,14 +369,20 @@ impl ChatView {
                 },
             }));
         }
-        let current = self
-            .pane
+        (accounts, self.profile(cx))
+    }
+
+    /// The chat's account: its profile id, else the agent's default profile.
+    pub(super) fn profile(&self, cx: &App) -> String {
+        self.pane
             .metadata
             .profile_id
             .clone()
-            .or_else(|| catalog.get(self.provider().tool())?.default_profile.clone())
-            .unwrap_or_default();
-        (accounts, current)
+            .or_else(|| {
+                let catalog = &cx.global::<AppState>().tools.read(cx).catalog;
+                catalog.get(self.provider().tool())?.default_profile.clone()
+            })
+            .unwrap_or_default()
     }
 
     /// The entry for no chosen model: the account's default, named when known.
@@ -393,16 +399,23 @@ impl ChatView {
             .unwrap_or_else(|| "Default model".to_owned())
     }
 
-    pub(super) fn models(&self) -> Vec<ModelInfo> {
-        self.session
-            .as_ref()
-            .map(|session| session.models().to_vec())
-            .unwrap_or_default()
+    /// The account's models: as its agent lists them, else as last remembered (DEC-098).
+    pub(super) fn models(&self, cx: &App) -> Vec<ModelInfo> {
+        match self.session.as_ref().map(|s| s.models()) {
+            Some(models) if !models.is_empty() => models.to_vec(),
+            _ => cx
+                .global::<AppState>()
+                .model_catalog
+                .read(cx)
+                .models(&self.profile(cx))
+                .map(<[_]>::to_vec)
+                .unwrap_or_default(),
+        }
     }
 
     /// The model the choices apply to; `None` means the account's default entry.
-    pub(super) fn current_model(&self) -> Option<ModelInfo> {
-        let models = self.models();
+    pub(super) fn current_model(&self, cx: &App) -> Option<ModelInfo> {
+        let models = self.models(cx);
         match self.settings.model.as_deref() {
             Some(value) => models.into_iter().find(|m| m.value == value),
             // Claude lists a `default` entry; Codex marks its default model.
@@ -422,7 +435,7 @@ impl ChatView {
             .find(|account| account.id == current)
             .map(|account| account.name)
             .unwrap_or_else(|| self.provider().name().into());
-        let models = self.models();
+        let models = self.models(cx);
         let model = match &self.settings.model {
             None => Self::default_model_label(&models),
             Some(value) => models
@@ -437,8 +450,8 @@ impl ChatView {
 
     /// The effort the trigger names: the chosen one, else the account's default when
     /// known; `None` for a model without reasoning levels.
-    pub(super) fn effort_label(&self) -> Option<String> {
-        let model = self.current_model().filter(ModelInfo::supports_effort)?;
+    pub(super) fn effort_label(&self, cx: &App) -> Option<String> {
+        let model = self.current_model(cx).filter(ModelInfo::supports_effort)?;
         self.settings
             .effort
             .or(model.default_effort)
@@ -450,7 +463,10 @@ impl ChatView {
         let allowed = self.settings.allowed.clone();
         // Without the model list yet, every mode stays offered; the CLI validates.
         let codex = self.provider() == Provider::Codex;
-        let auto = codex || self.current_model().is_none_or(|model| model.supports_auto);
+        let auto = codex
+            || self
+                .current_model(cx)
+                .is_none_or(|model| model.supports_auto);
         let view = cx.entity().downgrade();
         let warning = mode.unguarded().then(t::yellow);
         let options: &'static [Mode] = if codex { &Mode::CODEX } else { &Mode::CLAUDE };

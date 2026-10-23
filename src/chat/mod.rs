@@ -4,6 +4,7 @@
 pub mod activity;
 pub mod attachments;
 pub mod claude;
+pub mod closed;
 pub mod codex;
 pub mod compose;
 pub mod config;
@@ -14,6 +15,7 @@ pub mod history;
 pub mod launch;
 pub mod mcp;
 pub mod mentions;
+pub mod models;
 pub mod page;
 pub mod pages;
 pub mod presentation;

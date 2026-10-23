@@ -97,6 +97,8 @@ referencje; wartości sekretów należą do Keychain lub Windows Credential Mana
 SettingsClient obsługuje także load_projects/save_projects na tym samym workerze.
 Własna tabela _canopy_rust_projects przechowuje wersjonowaną listę otwartych
 folderów i aktywną ścieżkę. Nie zastępuje tabel projektów Electrona.
+Picker modelu czatu trzyma listy modeli kont i ulubione w jednym wierszu
+_canopy_rust_models (save_model_catalog/load_model_catalog, [chat.md](chat.md)).
 Kontrakt, odtwarzanie i obsługa błędów: [app-state.md](app-state.md).
 
 Pełną sesję obsługują load_session/save_session. Session i indeks projektów

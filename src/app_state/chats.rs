@@ -50,6 +50,14 @@ pub struct ForkRequest {
 pub struct ChatForkRequested(pub ForkRequest);
 impl EventEmitter<ChatForkRequested> for Chats {}
 
+/// `/resume` typed in a chat: the workspace lists closed chats. `replace`: the empty
+/// chat it was typed in, which the chosen one takes the place of.
+#[derive(Clone, Copy)]
+pub struct ChatResumeRequested {
+    pub replace: Option<PaneId>,
+}
+impl EventEmitter<ChatResumeRequested> for Chats {}
+
 /// Session tokens of the page service (`preview_html`), reachable without `Chats`.
 pub struct PageTokens(pub canopy_desktop::chat::pages::Registry);
 impl Global for PageTokens {}
@@ -92,7 +100,7 @@ pub struct Chats {
     pub turn_diffs: HashMap<PaneId, (String, bool, Entity<TurnDiffView>)>,
     pub error: Option<String>,
     workspaces: HashMap<PaneId, WorkspaceId>,
-    events: HashMap<PaneId, [Subscription; 2]>,
+    events: HashMap<PaneId, [Subscription; 3]>,
     retiring: Vec<Retiring>,
     known: HashMap<PaneId, (canopy_desktop::state::workspace::Pane, WorkspaceId)>,
     retired_folders: HashSet<std::path::PathBuf>,
@@ -428,6 +436,9 @@ impl Chats {
                     cx.subscribe(&view, |_, _, request: &ChatForkRequested, cx| {
                         cx.emit(ChatForkRequested(request.0.clone()))
                     }),
+                    cx.subscribe(&view, |_, _, request: &ChatResumeRequested, cx| {
+                        cx.emit(*request)
+                    }),
                 ],
             );
             if start {
@@ -698,6 +709,101 @@ impl Chats {
                 );
             });
         }));
+    }
+
+    /// Opens a closed chat again (DEC-094): in its project when that is open, else
+    /// where the user is, in its own folder; its history and agent session come back.
+    /// `replace`: an empty chat it takes the place of.
+    pub fn reopen(
+        &mut self,
+        closed: canopy_desktop::chat::closed::ClosedChat,
+        replace: Option<PaneId>,
+        cx: &mut Context<Self>,
+    ) {
+        if Self::unavailable(cx).is_some() || self.opening.is_some() {
+            return;
+        }
+        let Some(chat) = closed.chat_id().map(str::to_owned) else {
+            return;
+        };
+        let Some(provider) = Provider::from_tool(&closed.tool) else {
+            return;
+        };
+        let app = cx.global::<AppState>().clone();
+        let (target, active) = {
+            let projects = app.projects.read(cx);
+            let catalog = &projects.catalog;
+            let target = match &closed.project {
+                None => None,
+                Some(_) => catalog
+                    .items
+                    .iter()
+                    .find(|project| {
+                        closed.in_project(Some(
+                            project.worktree_path.as_deref().unwrap_or(&project.path),
+                        ))
+                    })
+                    .map(|project| project.workspace)
+                    .or(catalog.active),
+            };
+            (target, catalog.active)
+        };
+        app.chat_history
+            .update(cx, |history, cx| history.reopened(&chat, cx));
+        let mut metadata = closed.metadata.clone();
+        metadata.title = Some(closed.title.clone());
+        self.place_titled(target, provider, metadata, &closed.title, cx);
+        // The empty chat `/resume` was typed in gives way (it holds nothing to keep).
+        if let Some(pane) = replace
+            && target == active
+            && self
+                .views
+                .get(&pane)
+                .is_some_and(|view| !view.read(cx).has_conversation())
+        {
+            app.workspace.update(cx, |workspace, cx| {
+                if let Some(tab) = workspace.tab_of(pane)
+                    && workspace.close_pane(tab, pane).is_ok()
+                {
+                    cx.notify();
+                }
+            });
+        }
+    }
+
+    /// Deletes a closed chat for good: its history, attachments and "No project" folder.
+    pub fn forget(
+        &mut self,
+        closed: &canopy_desktop::chat::closed::ClosedChat,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(chat) = closed.chat_id().map(str::to_owned) else {
+            return;
+        };
+        let delete = cx
+            .global::<AppState>()
+            .chat_history
+            .clone()
+            .update(cx, |history, cx| history.delete(&chat, cx));
+        cx.spawn(async move |this, cx| {
+            if let Err(error) = delete.await {
+                let _ = this.update(cx, |this, cx| {
+                    this.error = Some(error);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+        if let Some(cwd) = closed.metadata.cwd.clone() {
+            cx.background_spawn(async move {
+                if let Ok(data) = canopy_desktop::platform::directories::data_dir()
+                    && canopy_desktop::chat::scratch::owns(&data, &cwd)
+                {
+                    let _ = canopy_desktop::chat::scratch::remove(&data, &cwd);
+                }
+            })
+            .detach();
+        }
     }
 
     fn place(

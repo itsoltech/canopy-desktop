@@ -1,9 +1,10 @@
 //! Saved chat conversations: chats report changed items here, one writer batches them
 //! into SQLite off the UI thread. Closing a chat deletes its history and attachments;
 //! quitting only flushes.
+use canopy_desktop::chat::closed::{self, ClosedChat};
 use canopy_desktop::chat::history::{self, EpochMeta, Saved};
 use canopy_desktop::chat::transcript::Item;
-use canopy_desktop::settings::{ChatHistoryBatch, SettingsClient};
+use canopy_desktop::settings::{ChatHistoryBatch, ClosedChatRow, SettingsClient};
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
@@ -293,24 +294,97 @@ impl ChatHistory {
         })
     }
 
-    /// Deletes every saved chat not open anymore (after the layout was restored).
+    /// Deletes every saved chat neither open (`keep`) nor closed within the last 30 days
+    /// (after the layout was restored), with the attachments and private folders of
+    /// those that went.
     pub fn retain(&mut self, keep: Vec<String>, cx: &mut Context<Self>) {
         let Some(client) = self.client.clone() else {
             return;
         };
         cx.spawn(async move |_, cx| {
-            let removed = match client.retain_chat_history(keep.clone()).await {
+            let since = closed::keep_since(now());
+            let closed = client.load_closed_chats().await.unwrap_or_default();
+            let removed = match client.retain_chat_history(keep.clone(), since).await {
                 Ok(removed) => removed,
                 Err(error) => {
                     eprintln!("Chat history cleanup: {error}");
                     return;
                 }
             };
+            // Closed chats still listed keep their attachments; expired ones lose their
+            // "No project" folder too.
+            let mut kept = keep;
+            let mut folders = vec![];
+            for row in closed {
+                if removed.contains(&row.chat) {
+                    if let Some(cwd) =
+                        ClosedChat::from_json(&row.payload).and_then(|chat| chat.metadata.cwd)
+                    {
+                        folders.push(cwd);
+                    }
+                } else {
+                    kept.push(row.chat);
+                }
+            }
             cx.background_spawn(async move {
                 let _ = remove_attachments(&removed);
-                remove_orphan_attachments(&keep);
+                remove_orphan_attachments(&kept);
+                remove_scratch(&folders);
             })
             .await;
+        })
+        .detach();
+    }
+
+    /// A chat with a conversation was closed: it waits for `/resume` (DEC-095). Its rows
+    /// go on being written as usual.
+    pub fn close(&mut self, closed: ClosedChat, cx: &mut Context<Self>) {
+        let (Some(client), Some(chat)) = (self.client.clone(), closed.chat_id()) else {
+            return;
+        };
+        let Some(payload) = closed.to_json() else {
+            return;
+        };
+        let row = ClosedChatRow {
+            chat: chat.to_owned(),
+            closed_at: now(),
+            payload,
+        };
+        cx.background_spawn(async move {
+            if let Err(error) = client.save_closed_chat(row).await {
+                eprintln!("Closed chat: {error}");
+            }
+        })
+        .detach();
+    }
+
+    /// Closed chats, latest first, with when they closed (unix seconds).
+    pub fn closed(&self, cx: &mut Context<Self>) -> Task<Result<Vec<(ClosedChat, i64)>, String>> {
+        let client = self.client.clone();
+        cx.background_spawn(async move {
+            let client = client.ok_or("Chat history is unavailable")?;
+            let rows = client
+                .load_closed_chats()
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(rows
+                .into_iter()
+                .filter_map(|row| Some((ClosedChat::from_json(&row.payload)?, row.closed_at)))
+                .collect())
+        })
+    }
+
+    /// A closed chat opened again: off the list; its history is written again.
+    pub fn reopened(&mut self, chat: &str, cx: &mut Context<Self>) {
+        self.deleted.remove(chat);
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        let chat = chat.to_owned();
+        cx.background_spawn(async move {
+            if let Err(error) = client.remove_closed_chat(chat).await {
+                eprintln!("Closed chat: {error}");
+            }
         })
         .detach();
     }
@@ -374,6 +448,27 @@ async fn save(
         .save_chat_history(batches)
         .await
         .map_err(|error| error.to_string())
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs() as i64)
+}
+
+/// Removes the private folders of "No project" chats that went (only Canopy's own).
+fn remove_scratch(folders: &[std::path::PathBuf]) {
+    let Ok(data) = canopy_desktop::platform::directories::data_dir() else {
+        return;
+    };
+    for folder in folders {
+        if let Err(error) = canopy_desktop::chat::scratch::remove(&data, folder) {
+            // A project folder is never Canopy's to delete; nothing to report.
+            if canopy_desktop::chat::scratch::owns(&data, folder) {
+                eprintln!("Chat folder cleanup: {error}");
+            }
+        }
+    }
 }
 
 fn attachments_root() -> Option<std::path::PathBuf> {

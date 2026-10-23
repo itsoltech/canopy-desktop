@@ -31,6 +31,15 @@ pub struct ChatHistoryRows {
     pub skipped_keys: Vec<(u64, u64)>,
 }
 
+/// A closed chat waiting for `/resume` (DEC-094): when it closed and what reopens it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClosedChatRow {
+    pub chat: String,
+    /// Unix seconds.
+    pub closed_at: i64,
+    pub payload: String,
+}
+
 fn valid_chat(chat: &str) -> bool {
     uuid::Uuid::parse_str(chat).is_ok()
 }
@@ -38,7 +47,9 @@ fn valid_chat(chat: &str) -> bool {
 fn create(tx: &Transaction) -> Result<()> {
     tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS _canopy_rust_chat_epochs(chat TEXT NOT NULL,epoch INTEGER NOT NULL,version INTEGER NOT NULL,meta TEXT NOT NULL,PRIMARY KEY(chat,epoch));
-         CREATE TABLE IF NOT EXISTS _canopy_rust_chat_items(chat TEXT NOT NULL,epoch INTEGER NOT NULL,item INTEGER NOT NULL,version INTEGER NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(chat,epoch,item));",
+         CREATE TABLE IF NOT EXISTS _canopy_rust_chat_items(chat TEXT NOT NULL,epoch INTEGER NOT NULL,item INTEGER NOT NULL,version INTEGER NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(chat,epoch,item));
+         CREATE TABLE IF NOT EXISTS _canopy_rust_closed_chats(chat TEXT PRIMARY KEY,version INTEGER NOT NULL,closed_at INTEGER NOT NULL,payload TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS _canopy_rust_models(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,payload TEXT NOT NULL);",
     )?;
     Ok(())
 }
@@ -129,8 +140,83 @@ impl Database {
         Ok(rows)
     }
 
-    /// Deletes the chats not in `keep`; returns the deleted chat ids.
-    pub fn retain_chat_history(&mut self, keep: Vec<String>) -> Result<Vec<String>> {
+    /// The model picker's remembered model lists and favorites (DEC-098/099), as JSON.
+    pub fn save_model_catalog(&mut self, payload: String) -> Result<()> {
+        if self.access == Access::ReadOnly {
+            return Err(Error::ReadOnly);
+        }
+        if payload.len() > MAX_PAYLOAD {
+            return Err(Error::InvalidChatHistory);
+        }
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        super::schema(&tx)?;
+        create(&tx)?;
+        tx.execute(
+            "INSERT INTO _canopy_rust_models VALUES(1,?1,?2) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload WHERE version=?1",
+            params![VERSION, payload],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn load_model_catalog(&self) -> Result<Option<String>> {
+        super::schema(&self.db)?;
+        if !has_table(&self.db, "_canopy_rust_models")? {
+            return Ok(None);
+        }
+        let mut statement = self
+            .db
+            .prepare("SELECT payload FROM _canopy_rust_models WHERE id=1 AND version=?1")?;
+        let mut rows = statement.query_map([VERSION], |row| row.get::<_, String>(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    /// Keeps a closed chat for `/resume`, or updates when it closed.
+    pub fn save_closed_chat(&mut self, row: ClosedChatRow) -> Result<()> {
+        if self.access == Access::ReadOnly {
+            return Err(Error::ReadOnly);
+        }
+        if !valid_chat(&row.chat) || row.payload.len() > MAX_PAYLOAD {
+            return Err(Error::InvalidChatHistory);
+        }
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        super::schema(&tx)?;
+        create(&tx)?;
+        tx.execute(
+            "INSERT INTO _canopy_rust_closed_chats VALUES(?1,?2,?3,?4) ON CONFLICT(chat) DO UPDATE SET closed_at=excluded.closed_at,payload=excluded.payload WHERE version=?2",
+            params![row.chat, VERSION, row.closed_at, row.payload],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Closed chats, latest first, without rows of another format.
+    pub fn load_closed_chats(&self) -> Result<Vec<ClosedChatRow>> {
+        super::schema(&self.db)?;
+        if !has_table(&self.db, "_canopy_rust_closed_chats")? {
+            return Ok(vec![]);
+        }
+        let mut statement = self.db.prepare(
+            "SELECT chat,closed_at,payload FROM _canopy_rust_closed_chats WHERE version=?1 ORDER BY closed_at DESC",
+        )?;
+        let rows = statement
+            .query_map([VERSION], |row| {
+                Ok(ClosedChatRow {
+                    chat: row.get(0)?,
+                    closed_at: row.get(1)?,
+                    payload: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    }
+
+    /// A closed chat opened again: it leaves the list, its history stays.
+    pub fn remove_closed_chat(&mut self, chat: &str) -> Result<()> {
         if self.access == Access::ReadOnly {
             return Err(Error::ReadOnly);
         }
@@ -138,18 +224,46 @@ impl Database {
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         super::schema(&tx)?;
-        if !has_table(&tx, "_canopy_rust_chat_epochs")? {
-            return Ok(vec![]);
+        create(&tx)?;
+        tx.execute(
+            "DELETE FROM _canopy_rust_closed_chats WHERE chat=?1",
+            [chat],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Deletes the chats neither in `keep` (open) nor closed at or after `closed_since`
+    /// (unix seconds); returns the deleted chat ids.
+    pub fn retain_chat_history(
+        &mut self,
+        keep: Vec<String>,
+        closed_since: i64,
+    ) -> Result<Vec<String>> {
+        if self.access == Access::ReadOnly {
+            return Err(Error::ReadOnly);
         }
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        super::schema(&tx)?;
+        create(&tx)?;
+        let recent: Vec<String> = {
+            let mut statement =
+                tx.prepare("SELECT chat FROM _canopy_rust_closed_chats WHERE closed_at>=?1")?;
+            statement
+                .query_map([closed_since], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<_>>()?
+        };
         let mut stored: Vec<String> = {
             let mut statement = tx.prepare(
-                "SELECT chat FROM _canopy_rust_chat_epochs UNION SELECT chat FROM _canopy_rust_chat_items",
+                "SELECT chat FROM _canopy_rust_chat_epochs UNION SELECT chat FROM _canopy_rust_chat_items UNION SELECT chat FROM _canopy_rust_closed_chats",
             )?;
             statement
                 .query_map([], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<_>>()?
         };
-        stored.retain(|chat| !keep.contains(chat));
+        stored.retain(|chat| !keep.contains(chat) && !recent.contains(chat));
         for chat in &stored {
             delete(&tx, chat)?;
         }
@@ -165,9 +279,8 @@ impl Database {
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         super::schema(&tx)?;
-        if has_table(&tx, "_canopy_rust_chat_epochs")? {
-            delete(&tx, chat)?;
-        }
+        create(&tx)?;
+        delete(&tx, chat)?;
         tx.commit()?;
         Ok(())
     }
@@ -176,6 +289,10 @@ impl Database {
 fn delete(tx: &Transaction, chat: &str) -> Result<()> {
     tx.execute("DELETE FROM _canopy_rust_chat_epochs WHERE chat=?1", [chat])?;
     tx.execute("DELETE FROM _canopy_rust_chat_items WHERE chat=?1", [chat])?;
+    tx.execute(
+        "DELETE FROM _canopy_rust_closed_chats WHERE chat=?1",
+        [chat],
+    )?;
     Ok(())
 }
 
@@ -246,7 +363,7 @@ mod tests {
         db.save_chat_history(vec![batch(A, 1, "a"), batch(B, 1, "b")])
             .expect("save");
         assert_eq!(
-            db.retain_chat_history(vec![A.into()]).expect("retain"),
+            db.retain_chat_history(vec![A.into()], 0).expect("retain"),
             [B.to_owned()]
         );
         assert!(db.load_chat_history(B).expect("load").items.is_empty());
@@ -256,5 +373,55 @@ mod tests {
             db.save_chat_history(vec![batch("not-a-uuid", 1, "x")])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn the_model_catalog_is_one_row_rewritten() {
+        let (_dir, mut db) = open();
+        assert_eq!(db.load_model_catalog().expect("none"), None);
+        db.save_model_catalog("{\"a\":1}".into()).expect("save");
+        db.save_model_catalog("{\"a\":2}".into()).expect("again");
+        assert_eq!(
+            db.load_model_catalog().expect("load").as_deref(),
+            Some("{\"a\":2}")
+        );
+    }
+
+    #[test]
+    fn closed_chats_stay_for_a_while_and_go_with_their_history() {
+        const C: &str = "33333333-3333-4333-8333-333333333333";
+        let (_dir, mut db) = open();
+        assert!(db.load_closed_chats().expect("none yet").is_empty());
+        db.save_chat_history(vec![batch(A, 1, "a"), batch(B, 1, "b"), batch(C, 1, "c")])
+            .expect("save");
+        let closed = |chat: &str, closed_at: i64| ClosedChatRow {
+            chat: chat.into(),
+            closed_at,
+            payload: format!("{{\"title\":\"{chat}\"}}"),
+        };
+        db.save_closed_chat(closed(A, 100)).expect("close A");
+        db.save_closed_chat(closed(B, 300)).expect("close B");
+        let listed: Vec<String> = db
+            .load_closed_chats()
+            .expect("load")
+            .into_iter()
+            .map(|row| row.chat)
+            .collect();
+        assert_eq!(listed, [B, A]);
+        // Open C is kept; A closed before the limit goes, history and all.
+        assert_eq!(
+            db.retain_chat_history(vec![C.into()], 200).expect("retain"),
+            [A.to_owned()]
+        );
+        assert!(db.load_chat_history(A).expect("load").items.is_empty());
+        assert!(!db.load_chat_history(B).expect("load").items.is_empty());
+        // Opened again: off the list, history kept. Deleted: both gone.
+        db.remove_closed_chat(B).expect("reopen");
+        assert!(db.load_closed_chats().expect("load").is_empty());
+        assert!(!db.load_chat_history(B).expect("load").items.is_empty());
+        db.save_closed_chat(closed(C, 400)).expect("close C");
+        db.delete_chat_history(C).expect("delete");
+        assert!(db.load_closed_chats().expect("load").is_empty());
+        assert!(db.save_closed_chat(closed("not-a-uuid", 1)).is_err());
     }
 }

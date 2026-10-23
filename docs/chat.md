@@ -172,8 +172,8 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   przy wzroście, z góry przy spadku, z przenikaniem, `STATE_CHANGE`). Klik, przeciąganie (globalne
   `MouseMove`/`MouseUp` z canvasu podczas trzymania) i ←/→ (focus panelu przez `track_focus`); `set_effort`
   dopiero po puszczeniu, gałka jedzie `STATE_CHANGE`.
-  Strona modeli: „<konto> models”, Default z notą „Recommended · …”, modele z ✓, sekcja Accounts
-  („Use X (restarts this chat)”) tylko przed pierwszą wiadomością (DEC-087). Wybór modelu z poziomami wraca na stronę reasoningu, bez poziomów zamyka popover;
+  Strona modeli (etap 16, wzorem T3): pasek kont, wyszukiwarka i lista z serduszkami — szczegóły niżej.
+  Wybór modelu z poziomami wraca na stronę reasoningu, bez poziomów zamyka popover;
   model bez poziomów otwiera popover od razu na liście. Zmiana strony: wysokość panelu z poprzedniej do
   zmierzonej (RESIZE), treść wjeżdża o 14 px z prawej (do listy) lub z lewej (powrót) z przenikaniem. Zmiany
   w trakcie: `set_model`, `apply_flag_settings{effortLevel}`, `set_permission_mode`;
@@ -361,7 +361,8 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 - Zapis: `AppState.chat_history` (`ChatHistory`) zbiera zmienione elementy z `ChatView::after_change`,
   jeden writer w tle (500 ms, koniec tury szybciej), flush w `finish_quit` przed zamknięciem czatów
   (błąd zostawia aplikację otwartą). Zamknięcie taba czatu (`Chats::retire`, także zamknięcie projektu)
-  usuwa historię i `<dane>/chat-attachments/<id>`; po starcie `retain` usuwa czaty spoza layoutu.
+  usuwa historię i `<dane>/chat-attachments/<id>`; po starcie `retain` usuwa czaty ani otwarte, ani zapisane
+  na liście `/resume` z ostatnich 30 dni.
 - Odtworzenie: `ChatView::new` czyta historię, `start` czeka. Wcześniejsze epoki → `Rows.archived`
   (`Archived{epoch, transcript}` — diffy, subagenci działają), ostatnia → `ChatSession::restore_history`
   (`Transcript::restore`: identyfikatory i tury dalej, `fork_point`/Retry/`rewind_files` działają — sonda
@@ -502,8 +503,9 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
     „Delete N chats?”;
   - pytanie wymienia też pracującego agenta, niewysłaną kolejkę i działające polecenia `!`;
   - pusty czat zamyka się bez pytania;
-  - quit niczego nie usuwa i pyta tylko o kolejkę;
-  - usuwanie worktree mówi o czatach w kroku zamykania procesów.
+  - quit niczego nie usuwa i pyta tylko o kolejkę.
+  - DEC-095 (zamknięcie zostawia czat dla `/resume`) jest wstrzymane: po merge'u z usuwaniem i cleanupem
+    z `chats/cleanup.rs` zamknięcie znów usuwa rozmowę.
 
 ## Etap 10: strony HTML w rozmowie
 
@@ -674,3 +676,49 @@ aż warunek jest spełniony. Sprawdzone na żywo z Claude Code 2.1.295 i codex-c
   wiadomości; Codex 0.161 `thread/fork` z innym `cwd` wie tylko to, co było do punktu, i zachowuje id tur —
   Edit/Retry w forku działają u obu.
 - Testy: `chat::fork` (cięcie, obrazy, zapis `fork_at` i stare mety). GUI — QA.
+
+## Etap 15: `/resume` — zamknięte czaty wracają
+
+- Lista zamkniętych czatów: `chat::closed::ClosedChat` (tytuł taba, narzędzie, `PaneMetadata` z sesją
+  i wyborami, projekt: nazwa i ścieżka) w tabeli `_canopy_rust_closed_chats(chat, version, closed_at, payload)`.
+  Zapis przy zamknięciu (`ChatHistory::close`, `ChatView::pane`) jest wstrzymany razem z DEC-095 — zamknięcie
+  usuwa rozmowę (`chats/cleanup.rs`); lista pokazuje wcześniej zapisane czaty.
+- `/resume` (DEC-094): komenda Canopy w podpowiedziach `/` (zastępuje wpis Claude, który headless nie działa);
+  wybór usuwa słowo z pola i zgłasza `ChatResumeRequested { replace }` (pusty czat, w którym ją wpisano) →
+  `Chats` → workspace otwiera `ResumePalette` (`ui/resume_palette.rs`): wyszukiwarka (tytuł, projekt), czaty
+  tego projektu (po ścieżce worktree/projektu), Tab — wszystkie projekty, wiersz „agent · projekt · 2h ago”,
+  kosz (`Chats::forget`: historia, załączniki, folder „No project”).
+- Wybór: `Chats::reopen` otwiera czat z zapisanym `PaneMetadata` (to samo `chat.id`, `resume_id`, cwd) w jego
+  projekcie, jeśli jest otwarty, inaczej w bieżącej przestrzeni; zdejmuje go z listy (`ChatHistory::reopened`);
+  pusty czat, w którym wpisano `/resume`, jest zamykany. Historia i sesja agenta wracają jak po restarcie aplikacji.
+- Czyszczenie przy starcie (`ChatHistory::retain`): `retain_chat_history(keep, keep_since)` usuwa czaty ani
+  otwarte, ani zamknięte w ostatnich 30 dniach (`closed::KEEP_DAYS`); załączniki zamkniętych zostają, foldery
+  „No project” wygasłych są usuwane.
+- Testy: `settings::database::chat_history` (lista, wygasanie, reopen, delete), `chat::closed` (zapis, projekt,
+  wyszukiwanie). GUI — QA.
+
+## Etap 16: wybór modelu jak w T3
+
+- Strona modeli pickera (DEC-097): po lewej pasek (48 px) — ♥ ulubione, potem po jednym przycisku na konto
+  (znak dostawcy, przy kilku profilach tego samego agenta inicjały profilu; tooltip z nazwą); po prawej
+  wyszukiwarka (`ModelPicker.search`, fokus i czyszczenie przy otwarciu) i lista wybranego konta: Default
+  z notą „Recommended · …”, potem modele. Wiersz: nazwa (✓ przy wybranym), konto na zakładce ulubionych, ⌘1…⌘9,
+  serduszko (klik dodaje/usuwa, DEC-099). ↑/↓ i Enter wybierają z klawiatury (`models_key`, `capture_key_down`);
+  w kontekście `ModelPicker` ⌘1/⌘2 nie przełączają kart (`NoAction`). Panel ma 272 px na stronie reasoningu
+  i 388 px (340 bez paska) na liście; szerokość przechodzi razem z wysokością.
+- Wybór modelu innego konta przed pierwszą wiadomością: `set_account(provider, profile, model)` — restart
+  pustego czatu na nowym koncie od razu z tym modelem. Po pierwszej wiadomości (DEC-100) nie ma paska ani
+  ulubionych: tylko modele bieżącego konta.
+- Listy modeli (DEC-098, `app_state::ModelCatalog`, `chat::models`): pamięć w tabeli
+  `_canopy_rust_models(id=1, version, payload)` (JSON `Catalog`: modele per profil i ulubione), czytana przy
+  starcie. Picker pokazuje ją od razu; każde otwarcie odświeża w tle konta, których agent nie podał już list
+  w tym czacie (`ModelCatalog::refresh`: proces CLI konta przygotowany jak czat — `prepare_claude` bez hooków
+  / `prepare_codex` — w folderze czatu; Claude `initialize`, Codex `initialize` + `model/list`; limit 15 s,
+  zamykany po odpowiedzi, jedno pobieranie na konto naraz). Inna lista podmienia się bez migania i jest
+  zapisywana; listy z działających sesji też trafiają do pamięci (`ChatView::report_models`). Przed startem
+  agenta `ChatView::models` bierze listę z pamięci. Konto bez pamięci: „Loading models…”, błąd: „Couldn't
+  load models: …” (zostaje Default).
+- Testy: `chat::models` (pamięć list, serduszka, odpowiedzi, wyszukiwanie),
+  `settings::database::chat_history` (jeden wiersz katalogu), `tests/chat_models_live.rs` (live, ignorowane:
+  `CANOPY_LIVE_CLAUDE=1 CANOPY_LIVE_CODEX=1 cargo test --locked --test chat_models_live -- --ignored`).
+  GUI — QA.

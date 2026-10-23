@@ -3,7 +3,7 @@ mod contract;
 mod database;
 mod worker;
 pub use contract::*;
-pub use database::{Access, ChatHistoryBatch, ChatHistoryRows, ImportReport};
+pub use database::{Access, ChatHistoryBatch, ChatHistoryRows, ClosedChatRow, ImportReport};
 use std::fmt;
 pub use worker::SettingsClient;
 pub type Result<T> = std::result::Result<T, Error>;

@@ -209,6 +209,11 @@ impl ChatView {
                 .placeholder(super::decision::COMPOSER_PLACEHOLDER)
                 .submit_on_enter(true)
         });
+        // Remembered model lists stand in until the agent lists its own (DEC-098).
+        let models = cx.observe(
+            &cx.global::<AppState>().model_catalog.clone(),
+            |_, _, cx| cx.notify(),
+        );
         let subscription = cx.subscribe_in(
             &composer,
             window,
@@ -237,6 +242,13 @@ impl ChatView {
                 _ => {}
             },
         );
+        let model_picker = super::model_picker::ModelPicker::new(Instant::now(), window, cx);
+        let search = cx.subscribe(&model_picker.search, |this, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.model_picker.highlighted = 0;
+                cx.notify();
+            }
+        });
         let mut settings = pane.metadata.chat.as_deref().cloned().unwrap_or_default();
         let resumed = pane.metadata.resume_id.is_some();
         let history = match settings.id.clone() {
@@ -326,7 +338,7 @@ impl ChatView {
             suggest: None,
             suggest_dismissed: None,
             resting: super::resting::Resting::new(Instant::now()),
-            model_picker: super::model_picker::ModelPicker::new(Instant::now(), cx),
+            model_picker,
             pickers_width: std::rc::Rc::new(std::cell::Cell::new(Pixels::MAX)),
             overlay_height: Default::default(),
             overlay_unfolded: Default::default(),
@@ -343,13 +355,19 @@ impl ChatView {
             recall: None,
             pages: Default::default(),
             page_token: None,
-            _subscriptions: vec![subscription],
+            _subscriptions: vec![subscription, models, search],
             pane,
         }
     }
 
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
         self.pane.metadata.cwd.clone()
+    }
+    /// The pane as it stands now (session, current choices): what reopens it.
+    pub fn pane(&self) -> Pane {
+        let mut pane = self.pane.clone();
+        pane.metadata.chat = Some(Box::new(self.settings.clone()));
+        pane
     }
     /// Which agent the chat talks to (its pane's tool).
     pub fn provider(&self) -> Provider {
@@ -897,6 +915,7 @@ impl ChatView {
 
     /// Mirrors session state into rows, persisted choices and the Send/Stop control.
     pub(super) fn after_change(&mut self, cx: &mut Context<Self>) {
+        self.report_models(cx);
         let Some(session) = &mut self.session else {
             return;
         };
@@ -1562,12 +1581,27 @@ impl ChatView {
         self.after_change(cx);
     }
 
+    /// The account's models as its agent lists them, for every picker (DEC-098).
+    fn report_models(&self, cx: &mut Context<Self>) {
+        let Some(models) = self.session.as_ref().map(|s| s.models()) else {
+            return;
+        };
+        let catalog = cx.global::<AppState>().model_catalog.clone();
+        let profile = self.profile(cx);
+        if models.is_empty() || catalog.read(cx).models(&profile) == Some(models) {
+            return;
+        }
+        let models = models.to_vec();
+        catalog.update(cx, |catalog, cx| catalog.set_models(&profile, models, cx));
+    }
+
     /// Switches the account (Claude or Codex) before the first message: a new process
-    /// for the new profile.
+    /// for the new profile, with `model` chosen (`None`: the account's default).
     pub(super) fn set_account(
         &mut self,
         provider: Provider,
         profile: String,
+        model: Option<String>,
         cx: &mut Context<Self>,
     ) {
         if self.closed
@@ -1589,8 +1623,8 @@ impl ChatView {
             self.pane.tool = provider.tool().to_owned();
         }
         self.pane.metadata.profile_id = Some(profile.clone());
-        // Models belong to the account; the new one starts from its default model.
-        self.settings.model = None;
+        // Models belong to the account: the one picked from its list, else its default.
+        self.settings.model = model;
         self.persist(Some((provider, profile)), cx);
         self.remember(cx);
         let stop = self.shutdown(cx);

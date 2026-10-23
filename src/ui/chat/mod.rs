@@ -19,6 +19,7 @@ mod quote;
 mod recall;
 mod render;
 mod resting;
+mod resume;
 mod rows;
 mod scroller;
 mod shell;
@@ -61,5 +62,8 @@ pub(crate) fn init(cx: &mut gpui_kit::App) {
         gpui_kit::KeyBinding::new("cmd-g", FindNext, Some("Chat")),
         gpui_kit::KeyBinding::new("cmd-shift-g", FindPrevious, Some("Chat")),
         gpui_kit::KeyBinding::new("escape", CloseFind, Some("ChatFind")),
+        // ⌘1…⌘9 pick a model while the picker is open, not a tab.
+        gpui_kit::KeyBinding::new("cmd-1", gpui_kit::NoAction, Some("ModelPicker")),
+        gpui_kit::KeyBinding::new("cmd-2", gpui_kit::NoAction, Some("ModelPicker")),
     ]);
 }

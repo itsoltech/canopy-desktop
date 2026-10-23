@@ -27,7 +27,12 @@ enum Command {
     SaveChatHistory(Vec<super::ChatHistoryBatch>, Reply<()>),
     LoadChatHistory(String, Reply<super::ChatHistoryRows>),
     DeleteChatHistory(String, Reply<()>),
-    RetainChatHistory(Vec<String>, Reply<Vec<String>>),
+    RetainChatHistory(Vec<String>, i64, Reply<Vec<String>>),
+    SaveClosedChat(super::ClosedChatRow, Reply<()>),
+    SaveModelCatalog(String, Reply<()>),
+    LoadModelCatalog(Reply<Option<String>>),
+    LoadClosedChats(Reply<Vec<super::ClosedChatRow>>),
+    RemoveClosedChat(String, Reply<()>),
     Shutdown(Reply<()>),
 }
 
@@ -141,8 +146,23 @@ impl SettingsClient {
                         Command::DeleteChatHistory(chat, reply) => {
                             let _ = reply.send(db.delete_chat_history(&chat));
                         }
-                        Command::RetainChatHistory(keep, reply) => {
-                            let _ = reply.send(db.retain_chat_history(keep));
+                        Command::SaveModelCatalog(payload, reply) => {
+                            let _ = reply.send(db.save_model_catalog(payload));
+                        }
+                        Command::LoadModelCatalog(reply) => {
+                            let _ = reply.send(db.load_model_catalog());
+                        }
+                        Command::SaveClosedChat(row, reply) => {
+                            let _ = reply.send(db.save_closed_chat(row));
+                        }
+                        Command::LoadClosedChats(reply) => {
+                            let _ = reply.send(db.load_closed_chats());
+                        }
+                        Command::RemoveClosedChat(chat, reply) => {
+                            let _ = reply.send(db.remove_closed_chat(&chat));
+                        }
+                        Command::RetainChatHistory(keep, closed_since, reply) => {
+                            let _ = reply.send(db.retain_chat_history(keep, closed_since));
                         }
                         Command::Shutdown(reply) => {
                             drop(db);
@@ -255,10 +275,41 @@ impl SettingsClient {
         self.enqueue(Command::DeleteChatHistory(chat, tx))?;
         rx.await.map_err(|_| Error::WorkerStopped)?
     }
-    /// Deletes every saved chat not in `keep`; returns the deleted ids.
-    pub async fn retain_chat_history(&self, keep: Vec<String>) -> Result<Vec<String>> {
+    /// Deletes every saved chat neither in `keep` nor closed since `closed_since` (unix
+    /// seconds); returns the deleted ids.
+    pub async fn retain_chat_history(
+        &self,
+        keep: Vec<String>,
+        closed_since: i64,
+    ) -> Result<Vec<String>> {
         let (tx, rx) = oneshot::channel();
-        self.enqueue(Command::RetainChatHistory(keep, tx))?;
+        self.enqueue(Command::RetainChatHistory(keep, closed_since, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    pub async fn save_model_catalog(&self, payload: String) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::SaveModelCatalog(payload, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    pub async fn load_model_catalog(&self) -> Result<Option<String>> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::LoadModelCatalog(tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    pub async fn save_closed_chat(&self, row: super::ClosedChatRow) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::SaveClosedChat(row, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    /// Closed chats, latest first.
+    pub async fn load_closed_chats(&self) -> Result<Vec<super::ClosedChatRow>> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::LoadClosedChats(tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    pub async fn remove_closed_chat(&self, chat: String) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::RemoveClosedChat(chat, tx))?;
         rx.await.map_err(|_| Error::WorkerStopped)?
     }
     /// Completes earlier queued operations and closes SQLite before acknowledging.

@@ -5,7 +5,7 @@
 use super::{mentions, view::ChatView};
 use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::chat::{config::CommandInfo, goal, transcript::Attachment};
+use canopy_desktop::chat::{closed, config::CommandInfo, goal, transcript::Attachment};
 use canopy_desktop::motion::{self, Presence, PresenceSpec, presets};
 use gpui_kit::component::IconName;
 use gpui_kit::{prelude::FluentBuilder, *};
@@ -286,6 +286,16 @@ impl ChatView {
                         skill: false,
                     });
                 }
+                // `/resume` brings back a closed Canopy chat (DEC-094); the agent's own
+                // picker doesn't work headless, so Canopy's takes its place.
+                listed.retain(|c| c.name != closed::COMMAND);
+                listed.push(CommandInfo {
+                    name: closed::COMMAND.into(),
+                    description: "Resume a closed chat".into(),
+                    hint: None,
+                    path: None,
+                    skill: false,
+                });
                 let commands = listed.as_slice();
                 suggest.choices = rank_commands(commands, &trigger.query)
                     .into_iter()
@@ -470,6 +480,18 @@ impl ChatView {
         };
         let range = suggest.trigger.range.clone();
         self.close_suggest(cx);
+        if matches!(&choice.attachment, Attachment::Command { name, skill: false, .. } if name == closed::COMMAND)
+        {
+            // The list of closed chats instead of a badge; the typed word goes.
+            self.composer.update(cx, |state, cx| {
+                let text = state.value().to_string();
+                let rest = text.get(range.end..).unwrap_or_default().trim_start();
+                state.set_value(rest.to_owned(), window, cx);
+            });
+            self.request_resume(cx);
+            cx.notify();
+            return;
+        }
         if matches!(&choice.attachment, Attachment::Command { name, skill: false, .. } if name == goal::COMMAND)
         {
             // Goal mode instead of a badge: the rest of the message is the condition.
