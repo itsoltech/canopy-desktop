@@ -36,7 +36,11 @@
   })
 
   function refreshSessionCount(): void {
-    window.api.tmuxListSessions().then((s) => (sessionCount = s.length))
+    // Same as the loaders above: a failed IPC call must not surface as an unhandled rejection.
+    window.api
+      .tmuxListSessions()
+      .then((s) => (sessionCount = s.length))
+      .catch(() => (sessionCount = null))
   }
 
   async function toggleTmux(): Promise<void> {

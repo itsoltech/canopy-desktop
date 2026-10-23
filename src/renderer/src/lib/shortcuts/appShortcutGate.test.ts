@@ -22,6 +22,9 @@ describe('shouldBlockAppShortcuts', () => {
     [',', false, false],
     ['n', true, false],
     ['ArrowLeft', false, true],
+    // Shift+[ / Shift+] (previous/next tab) arrive as braces on US-style layouts.
+    ['{', true, false],
+    ['}', true, false],
   ])('recognizes app shortcut %s so a modal can consume it', (key, shift, alt) => {
     expect(isAppShortcut(key, shift, alt)).toBe(true)
   })

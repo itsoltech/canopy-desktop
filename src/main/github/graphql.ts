@@ -31,8 +31,13 @@ export function graphqlFetch<T>(
     (e): GitHubError => ({ _tag: 'GitHubNetworkError', message: errorMessage(e) }),
   ).andThen((res) => {
     if (res.status === 401 || res.status === 403) {
+      // GitHub sends x-ratelimit-* headers on every response, so only an exhausted quota (or a
+      // retry-after) marks a rate limit. Any other 403 — missing scope, SSO not authorized — is
+      // a permission error the user has to fix, not wait out.
       const resetHeader = res.headers.get('x-ratelimit-reset')
-      if (resetHeader && res.status === 403) {
+      const quotaExhausted =
+        res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')
+      if (resetHeader && quotaExhausted && res.status === 403) {
         return errAsync<T, GitHubError>({
           _tag: 'GitHubRateLimited',
           resetAt: parseInt(resetHeader, 10),
