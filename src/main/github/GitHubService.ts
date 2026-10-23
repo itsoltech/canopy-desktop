@@ -1,7 +1,7 @@
 import { ok, err, okAsync, type ResultAsync } from 'neverthrow'
 import type { PreferencesStore } from '../db/PreferencesStore'
 import type { TaskTrackerConnection } from '../taskTracker/types'
-import type { TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
+import { connectionTokenPrefKey, type TaskTrackerManager } from '../taskTracker/TaskTrackerManager'
 import { GitRepository } from '../git/GitRepository'
 import { graphqlFetch } from './graphql'
 import { parseGitHubRemote } from './remoteUrl'
@@ -127,6 +127,8 @@ export class GitHubService {
       // for owner/repo and POST its token to evil.com.
       const match = connections.find((c) => {
         if (c.provider !== 'github') return false
+        // A crafted connection record must not redirect some other stored secret.
+        if (c.authPrefKey !== connectionTokenPrefKey(c.id)) return false
         let connHost: string
         try {
           connHost = c.baseUrl ? new URL(c.baseUrl).hostname : 'github.com'

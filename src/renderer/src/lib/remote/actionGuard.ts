@@ -5,7 +5,7 @@ import {
   type RpcMethodName,
 } from '../../../../renderer-shared/rpc/methodList'
 import { prefs } from '../stores/preferences.svelte'
-import { confirm } from '../stores/dialogs.svelte'
+import { confirm, confirmState, type ConfirmOptions } from '../stores/dialogs.svelte'
 
 export type ActionGuardProfile = 'none' | 'destructive' | 'full'
 
@@ -120,16 +120,13 @@ async function ensureSessionGrant(method: RpcMethodName): Promise<boolean> {
  */
 async function confirmSessionGrant(method: RpcMethodName): Promise<boolean> {
   const description = describeSessionGrant(method)
-  const result = await Promise.race([
-    confirm({
-      title: 'Remote session access request',
-      message: `Remote device wants to ${description} for this session.`,
-      details: `Method: ${method}. Access lasts until the remote device disconnects.`,
-      confirmLabel: 'Allow for session',
-      destructive: true,
-    }),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
-  ])
+  const result = await confirmWithTimeout({
+    title: 'Remote session access request',
+    message: `Remote device wants to ${description} for this session.`,
+    details: `Method: ${method}. Access lasts until the remote device disconnects.`,
+    confirmLabel: 'Allow for session',
+    destructive: true,
+  })
   if (!result) {
     console.log(`[action-guard] rejected session grant "${method}"`)
   }
@@ -149,37 +146,71 @@ function describeSessionGrant(method: RpcMethodName): string {
  */
 async function confirmFromDesktop(method: RpcMethodName, params: unknown): Promise<boolean> {
   const description = describeAction(method, params)
-  const result = await Promise.race([
-    confirm({
-      title: 'Remote action request',
-      message: `Remote device wants to: ${description}`,
-      details: `Method: ${method}`,
-      confirmLabel: 'Allow',
-      destructive: DESTRUCTIVE_METHODS.has(method),
-    }),
-    // Auto-reject after 30s if the desktop user ignores the prompt
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
-  ])
+  const result = await confirmWithTimeout({
+    title: 'Remote action request',
+    message: `Remote device wants to: ${description}`,
+    details: `Method: ${method}`,
+    confirmLabel: 'Allow',
+    destructive: DESTRUCTIVE_METHODS.has(method),
+  })
   if (!result) {
     console.log(`[action-guard] rejected "${method}"`)
   }
   return result
 }
 
+/**
+ * Desktop confirm that auto-rejects after 30s if the user ignores it. The timed-out prompt is
+ * dismissed as well: left on screen, its "Allow" would answer an already-rejected request.
+ */
+function confirmWithTimeout(opts: ConfirmOptions): Promise<boolean> {
+  const answer = confirm(opts)
+  // confirm() publishes its prompt synchronously; keep a handle to dismiss exactly that one.
+  const shown = confirmState.current
+  return Promise.race([
+    answer,
+    new Promise<boolean>((resolve) =>
+      setTimeout(() => {
+        if (shown && confirmState.current === shown) shown.onCancel()
+        resolve(false)
+      }, 30_000),
+    ),
+  ])
+}
+
+/**
+ * Peer-controlled values shown in the desktop prompt: collapse whitespace/bidi controls and cap
+ * the length so a crafted field cannot fake extra prompt text or push the real target out of view.
+ */
+function displayValue(value: unknown): string {
+  if (typeof value !== 'string' && typeof value !== 'number') return '<invalid>'
+  const text = String(value).replace(/[\s\p{Bidi_Control}]+/gu, ' ')
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text
+}
+
 function describeAction(method: RpcMethodName, params: unknown): string {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>
   return match(method as string)
-    .with('tools.spawn', () => `spawn tool "${p.toolId}" in ${p.worktreePath}`)
-    .with('tabs.close', () => `close tab ${p.tabId}`)
-    .with('tabs.activate', () => `activate tab ${p.tabId}`)
-    .with('pty.write', () => `write to terminal ${p.sessionId}`)
-    .with('pty.kill', () => `kill terminal process ${p.sessionId}`)
-    .with('agent.sendInput', () => `send prompt to agent ${p.sessionId}`)
-    .with('workspace.selectWorktree', () => `switch worktree to ${p.worktreePath}`)
-    .with('browser.openExternal', () => `open URL externally: ${p.url}`)
-    .with('worktree.add', () => `create worktree "${p.branch}" at ${p.path}`)
-    .with('worktree.addCheckout', () => `check out worktree "${p.branch}" at ${p.path}`)
-    .with('worktree.remove', () => `remove the worktree at ${p.path}`)
-    .with('project.attach', () => `attach project folder ${p.path}`)
+    .with(
+      'tools.spawn',
+      () => `spawn tool "${displayValue(p.toolId)}" in ${displayValue(p.worktreePath)}`,
+    )
+    .with('tabs.close', () => `close tab ${displayValue(p.tabId)}`)
+    .with('tabs.activate', () => `activate tab ${displayValue(p.tabId)}`)
+    .with('pty.write', () => `write to terminal ${displayValue(p.sessionId)}`)
+    .with('pty.kill', () => `kill terminal process ${displayValue(p.sessionId)}`)
+    .with('agent.sendInput', () => `send prompt to agent ${displayValue(p.sessionId)}`)
+    .with('workspace.selectWorktree', () => `switch worktree to ${displayValue(p.worktreePath)}`)
+    .with('browser.openExternal', () => `open URL externally: ${displayValue(p.url)}`)
+    .with(
+      'worktree.add',
+      () => `create worktree "${displayValue(p.branch)}" at ${displayValue(p.path)}`,
+    )
+    .with(
+      'worktree.addCheckout',
+      () => `check out worktree "${displayValue(p.branch)}" at ${displayValue(p.path)}`,
+    )
+    .with('worktree.remove', () => `remove the worktree at ${displayValue(p.path)}`)
+    .with('project.attach', () => `attach project folder ${displayValue(p.path)}`)
     .otherwise(() => `execute ${method}`)
 }

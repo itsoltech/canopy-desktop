@@ -13,7 +13,8 @@
     try {
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) {
-        return parsed
+        // Imported or hand-edited prefs may repeat an entry; patterns are the {#each} keys.
+        return [...new Set<string>(parsed)]
       }
     } catch {
       // Fall through to defaults

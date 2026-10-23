@@ -200,7 +200,8 @@
         >
       </div>
       <div class="flex flex-col max-h-[200px] overflow-y-auto -mx-1">
-        {#each visibleTasks as task (task.id)}
+        <!-- Index-qualified: task ids fall back to a millisecond timestamp, which can repeat. -->
+        {#each visibleTasks as task, i (`${task.id}:${i}`)}
           <div
             class="flex items-center gap-2 h-6 px-1 rounded-sm transition-colors duration-fast hover:bg-hover"
           >
@@ -232,7 +233,8 @@
         >
       </div>
       <div class="flex flex-col max-h-[200px] overflow-y-auto -mx-1">
-        {#each state.activeSubagents as agent (agent.agentId)}
+        <!-- Index-qualified: subagents without an id are all recorded with agentId ''. -->
+        {#each state.activeSubagents as agent, i (`${agent.agentId}:${i}`)}
           <div
             class="flex items-center gap-2 h-6 px-1 rounded-sm transition-colors duration-fast hover:bg-hover"
           >
@@ -255,7 +257,8 @@
     <div class="flex flex-col gap-1.5">
       <h4 class={sectionLabelCls}>Notifications</h4>
       <div class="flex flex-col max-h-[200px] overflow-y-auto -mx-1" aria-live="polite">
-        {#each reversedNotifications as notif (notif.timestamp)}
+        <!-- Keyed by record identity: two Notification hooks in the same ms share a timestamp. -->
+        {#each reversedNotifications as notif (notif)}
           <div
             class="flex items-baseline justify-between gap-2 px-1 py-1 rounded-sm transition-colors duration-fast hover:bg-hover"
           >

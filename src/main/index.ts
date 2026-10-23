@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, session, shell } from 'electron'
+import type { WebContents } from 'electron'
 import os from 'os'
 import { existsSync, realpathSync } from 'fs'
 import { readFile } from 'fs/promises'
@@ -516,13 +517,16 @@ app.whenReady().then(async () => {
   // privileged renderer could reach camera, microphone, geolocation or device
   // APIs. Deny every permission except clipboard access — the only capability
   // the trusted app UI uses (terminal copy/paste, copy path/branch/diff/image).
-  const isClipboardPermission = (permission: string): boolean =>
-    permission === 'clipboard-read' || permission === 'clipboard-sanitized-write'
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(isClipboardPermission(permission))
+  // Untrusted <webview> guests belong to the browser partition; never extend the app UI's
+  // clipboard grant to one that ends up on the default session.
+  const isAppClipboardPermission = (wc: WebContents | null, permission: string): boolean =>
+    wc?.getType() !== 'webview' &&
+    (permission === 'clipboard-read' || permission === 'clipboard-sanitized-write')
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
+    callback(isAppClipboardPermission(wc, permission))
   })
-  session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
-    isClipboardPermission(permission),
+  session.defaultSession.setPermissionCheckHandler((wc, permission) =>
+    isAppClipboardPermission(wc, permission),
   )
   session.defaultSession.setDevicePermissionHandler(() => false)
 

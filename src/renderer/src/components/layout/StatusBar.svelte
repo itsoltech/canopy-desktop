@@ -282,7 +282,8 @@
               <span
                 class="size-1.5 rounded-full bg-warning-text flex-shrink-0"
                 title="Uncommitted changes"
-                aria-hidden="true"
+                role="img"
+                aria-label="Uncommitted changes"
               ></span>
             {/if}
           </span>

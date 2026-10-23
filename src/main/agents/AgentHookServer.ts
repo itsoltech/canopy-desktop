@@ -35,8 +35,13 @@ export class AgentHookRouter {
   ): Promise<{ port: number; path: string; authToken: string }> {
     const authToken = randomBytes(32).toString('hex')
 
-    const port = await this.ensureServer()
+    // Register before awaiting the server: a removeSession() that empties the map meanwhile
+    // would otherwise close the server whose port this session is about to be handed.
     this.sessions.set(sessionId, { authToken, onHookEvent, onStatusUpdate })
+    const port = await this.ensureServer().catch((err: unknown) => {
+      this.removeSession(sessionId)
+      throw err
+    })
     const path = `/session/${encodeURIComponent(sessionId)}`
     return { port, path, authToken }
   }
@@ -99,7 +104,16 @@ export class AgentHookRouter {
       return
     }
 
-    const sessionId = decodeURIComponent(match[1])
+    // Malformed percent-encoding makes decodeURIComponent throw a URIError; inside this
+    // un-awaited async handler that would leave the socket hanging with no response.
+    let sessionId: string
+    try {
+      sessionId = decodeURIComponent(match[1])
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
     const endpoint = match[2]
     const session = this.sessions.get(sessionId)
 

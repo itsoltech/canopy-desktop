@@ -2139,7 +2139,11 @@ export function registerIpcHandlers(
     'git:statusPorcelain',
     async (event, payload: { repoRoot: string; worktreePath?: string }) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      return GitRepository.getStatusPorcelain(resolvedRepo, payload.worktreePath).unwrapOr('')
+      // worktreePath becomes git's working directory — scope it like repoRoot.
+      const worktreePath = payload.worktreePath
+        ? await validateWorktreeScopedPathAccess(event.sender.id, payload.worktreePath)
+        : undefined
+      return GitRepository.getStatusPorcelain(resolvedRepo, worktreePath).unwrapOr('')
     },
   )
 
@@ -2727,7 +2731,11 @@ export function registerIpcHandlers(
     // the last await between validatePathAccess and the fd trio. Operating on
     // the realpath'd target prevents a symlink swap between validation and
     // open from redirecting the read outside the workspace.
-    const size = fs.statSync(resolved).size
+    const stat = fs.statSync(resolved)
+    // openSync on a FIFO (or socket/device) blocks the whole main process until a writer
+    // appears; only regular files are readable here.
+    if (!stat.isFile()) throw new Error('Not a regular file')
+    const size = stat.size
     const readSize = Math.min(size, maxBytes)
 
     // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle
@@ -3495,8 +3503,19 @@ export function registerIpcHandlers(
           throw new Error('Base URL must use http:// or https://')
         }
       }
-      const { connectionId, token, ...updates } = payload
-      const c = taskTrackerManager.updateConnection(connectionId, updates, token)
+      // Copy only the editable fields: spreading the raw payload would let the renderer rewrite
+      // authPrefKey/id/provider on the stored record.
+      const { connectionId, token } = payload
+      const updates: { name?: string; baseUrl?: string; projectKey?: string; username?: string } =
+        {}
+      for (const key of ['name', 'baseUrl', 'projectKey', 'username'] as const) {
+        if (typeof payload[key] === 'string') updates[key] = payload[key]
+      }
+      const c = taskTrackerManager.updateConnection(
+        connectionId,
+        updates,
+        typeof token === 'string' ? token : undefined,
+      )
       if (!c) return null
       return {
         id: c.id,
@@ -5441,6 +5460,21 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
       return { success: false }
+    }
+    // The extension/directory checks above ran on the link path, but the unlink below hits the
+    // realpath: a repo-shipped `.claude/commands/x.md -> ~/.ssh/authorized_keys` must not pass.
+    if (
+      !['.md', '.mdc', '.yaml', '.yml'].includes(path.extname(resolvedTarget).toLowerCase()) ||
+      !skillDirPatterns.some((p) => p.test(resolvedTarget))
+    ) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Skill file resolves outside agent skill directories',
+        } as SkillError),
+        skillErrorMessage,
+      )
     }
     const homeReal = await fs.promises.realpath(os.homedir()).catch(() => os.homedir())
     const withinHome = resolvedTarget === homeReal || resolvedTarget.startsWith(homeReal + path.sep)
