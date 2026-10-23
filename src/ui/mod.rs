@@ -740,7 +740,7 @@ impl Workspace {
     }
     fn select_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         self.state.workspace.update(cx, |state, cx| {
-            let id = state.tool_tabs().nth(index).map(|t| t.id);
+            let id = state.tabs().get(index).map(|t| t.id);
             if let Some(id) = id {
                 let _ = state.activate(id);
                 cx.notify();
@@ -753,7 +753,12 @@ impl Workspace {
     fn set_inspector_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.state.workspace.update(cx, |state, cx| {
             if open {
-                let page = state.tool_panel().page();
+                let page = match state.tool_panel().page() {
+                    canopy_desktop::state::workspace::ToolPage::Tabs => {
+                        canopy_desktop::state::workspace::ToolPage::Agent
+                    }
+                    page => page,
+                };
                 state.show_tools(page);
             } else {
                 state.hide_tools();
@@ -1074,12 +1079,9 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &CloseTab, _, cx| {
                 let w = this.state.workspace.read(cx);
-                if w.tools_open()
-                    && w.tool_panel().is_focused()
-                    && w.tool_panel().page() != canopy_desktop::state::workspace::ToolPage::Tabs
-                {
+                if w.tools_open() && w.tool_panel().is_focused() {
                     this.state.workspace.update(cx, |w, cx| {
-                        w.show_tools(canopy_desktop::state::workspace::ToolPage::Tabs);
+                        w.hide_tools();
                         cx.notify();
                     });
                     return;

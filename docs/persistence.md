@@ -74,14 +74,13 @@ pełnej sesji daje komunikat, ale nie usuwa jego zapisanego drzewa pane'ów.
 Przełączenie projektu zachowuje odtworzone workspace'y w pamięci.
 
 `SessionSnapshot::activation_plan()` obejmuje aktywny workspace. Jego plan zawiera
-wybraną rozmowę (o ile narzędzia nie są zmaksymalizowane) i wybrany tab narzędzi
-(o ile panel jest widoczny i pokazuje taby). Niewidoczne taby nie są uruchamiane,
-ale uruchomione zasoby nie są zatrzymywane przez zmianę widoczności.
+pane'y aktywnego taba (o ile narzędzia nie są zmaksymalizowane). Niewidoczne taby nie
+są uruchamiane, ale uruchomione zasoby nie są zatrzymywane przez zmianę widoczności.
 `last_chat`, `last_tool`, `selected_pane`, `preview` i `panel` mają wartości domyślne
 przy odczycie starszych zapisów. `selected_pane` jest wyborem pracy niezależnym
-od fokusu. `preview` przechowuje tab CLI oraz poprzednią widoczność/stronę
-narzędzi, bez uchwytów procesów. Nie nadpisuje `last_tool`; powrót do rozmowy
-przywraca wcześniejszy układ. Resize i nakładka sidebara nie zapisują wymuszonych
+od fokusu. `preview` pochodzi ze starszych zapisów (CLI pokazany w panelu): przy
+odczycie przywraca tylko wcześniejszą widoczność/stronę panelu i nie jest już tworzony.
+Strona `Tabs` ze starszych zapisów oznacza schowany panel. Resize i nakładka sidebara nie zapisują wymuszonych
 wymiarów ani widoczności.
 Taby, splity i PaneId nie są migrowane. Szczegóły: [układ](features/workspace-layout.md).
 

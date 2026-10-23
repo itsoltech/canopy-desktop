@@ -17,8 +17,8 @@ pub enum ToolPage {
     Agent,
 }
 
-/// A CLI selected from navigation borrows the work area without replacing its
-/// conversation's saved tools. The snapshot contains presentation, never a process.
+/// Older snapshots: a CLI that borrowed the tool panel. Read only to restore the panel
+/// it replaced; tabs now share the work area. Contains presentation, never a process.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ToolPreview {
@@ -101,37 +101,9 @@ impl ToolPanel {
     }
 }
 impl Workspace {
+    /// The tab shown in the work area: conversations and terminals share it.
     pub fn primary_tab(&self) -> Option<&Tab> {
         self.active()
-            .filter(|t| t.has_chat())
-            .or_else(|| {
-                self.tabs
-                    .iter()
-                    .find(|t| Some(t.id) == self.last_chat && t.has_chat())
-            })
-            .or_else(|| self.tabs.iter().rev().find(|t| t.has_chat()))
-    }
-    pub fn tool_tab(&self) -> Option<&Tab> {
-        self.preview
-            .as_ref()
-            .and_then(|preview| {
-                self.tabs
-                    .iter()
-                    .find(|t| t.id == preview.tab && !t.has_chat())
-            })
-            .or_else(|| {
-                self.active()
-                    .filter(|t| !t.has_chat())
-                    .or_else(|| {
-                        self.tabs
-                            .iter()
-                            .find(|t| Some(t.id) == self.last_tool && !t.has_chat())
-                    })
-                    .or_else(|| self.tabs.iter().rev().find(|t| !t.has_chat()))
-            })
-    }
-    pub fn tool_tabs(&self) -> impl Iterator<Item = &Tab> {
-        self.tabs.iter().filter(|t| !t.has_chat())
     }
     pub fn tool_panel(&self) -> &ToolPanel {
         &self.panel
@@ -139,32 +111,24 @@ impl Workspace {
     pub fn tool_panel_mut(&mut self) -> &mut ToolPanel {
         &mut self.panel
     }
+    /// The panel holds Files, Changes, Tasks and Agent; `Tabs` (older snapshots)
+    /// means no page is shown.
     pub fn tools_open(&self) -> bool {
-        self.panel.open.unwrap_or_else(|| self.tool_tab().is_some())
+        self.panel.open == Some(true) && self.panel.page != ToolPage::Tabs
     }
+    /// `Tabs` shows the work area's tabs: the panel steps aside, keeping its page.
     pub fn show_tools(&mut self, page: ToolPage) {
-        if page == ToolPage::Tabs
-            && let Some(id) = self.tool_tab().map(|tab| tab.id)
-        {
-            // Merely showing the existing page is not an explicit tab selection.
-            self.remember_active();
-            self.active = Some(id);
-            self.panel.show(page);
+        if page == ToolPage::Tabs {
+            self.panel.focus_conversation();
         } else {
             self.panel.show(page);
         }
     }
     pub fn hide_tools(&mut self) {
-        self.remember_active();
-        if self.preview.is_some() {
-            self.return_to_conversation();
-        }
+        self.restore_preview();
         self.panel.open = Some(false);
         self.panel.maximized = false;
         self.panel.focused = false;
-        if let Some(tab) = self.primary_tab() {
-            self.active = Some(tab.id);
-        }
     }
     pub(super) fn remember_active(&mut self) {
         if let Some(tab) = self.active() {
@@ -180,13 +144,8 @@ impl Workspace {
         self.remember_active();
         self.restore_preview();
         self.active = Some(id);
-        if self.active().is_some_and(|t| !t.has_chat()) {
-            self.last_tool = Some(id);
-            self.panel.show(ToolPage::Tabs);
-        } else {
-            self.panel.focus_conversation();
-            self.selected_pane = self.active().map(|t| t.focused);
-        }
+        self.panel.focus_conversation();
+        self.selected_pane = self.active().map(|t| t.focused);
     }
 
     /// The work explicitly chosen in navigation, independently of keyboard focus
@@ -199,31 +158,8 @@ impl Workspace {
     }
 
     pub fn select_session(&mut self, pane: PaneId) -> Result<(), StateError> {
-        let (tab, _) = self.locate(pane)?;
-        if self.tabs.iter().any(|t| t.id == tab && t.has_chat()) {
-            self.activate_pane(pane)?;
-        } else {
-            self.remember_active();
-            if self.preview.is_none() {
-                self.preview = Some(ToolPreview {
-                    tab,
-                    open: if self.primary_tab().is_some() {
-                        self.panel.open
-                    } else {
-                        Some(false)
-                    },
-                    page: self.panel.page,
-                });
-            } else if let Some(preview) = self.preview.as_mut() {
-                preview.tab = tab;
-            }
-            self.active = Some(tab);
-            self.tab_mut(tab)?.focused = pane;
-            self.panel.show(ToolPage::Tabs);
-            self.panel.set_maximized(true);
-        }
-        self.selected_pane = Some(pane);
-        Ok(())
+        self.restore_preview();
+        self.activate_pane(pane)
     }
 
     pub fn return_to_conversation(&mut self) {

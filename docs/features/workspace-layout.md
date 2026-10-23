@@ -27,27 +27,25 @@ nie tworzą procesów. Błędy pozostają przy odpowiednich funkcjach.
 karta narzędzi i maksymalizacja są niezależne. Agent zawsze nazywa analizowaną
 sesję. Fokus terminala lub powiększenie panelu nie wybiera innej rozmowy.
 
-Wybranie CLI w drzewie pokazuje jego istniejący tab/drzewo, bez nowego PTY.
-Tymczasowe `preview` zachowuje wcześniejszą widoczność i stronę narzędzi;
-`last_tool` nadal wskazuje narzędzie przypisane do układu rozmowy. Sekwencja
-A + shell S → CLI B → A wraca do A + S. Jawny wybór karty narzędzi zmienia
-zapamiętany tab. Pierwszy czat po pracy wyłącznie w CLI otwiera się bez
-przypadkowego terminala B obok; B pozostaje dostępny i nie jest zamykany.
+Centrum ma pasek tabów jak przed przebudową: rozmowy, terminale, CLI i pliki
+dzielą jeden pasek, a pod nim jest drzewo pane'ów aktywnego taba. Wybranie sesji
+(także CLI) w drzewie aktywuje jej istniejący tab i pane, bez nowego PTY. Panel
+narzędzi nie ma strony terminali; zachowuje swoją stronę i widoczność przy zmianie
+taba. Ukryte taby zachowują procesy.
 
 Mieszane drzewa zachowują wszystkie pane'y. Zamknięcie uruchamia dotychczasowy
-guard i cleanup. Karty zachowują rename, close, reorder i dock. Plus tworzy nowy
-terminal z kolejną nazwą; Split dzieli wybraną sesję i tworzy niezależny PTY.
-Ukrycie narzędzi zachowuje ich sesje i podziały. Pusty czat pokazuje pomoc nad
+guard i cleanup. Karty zachowują rename, close, reorder i dock. Plus na pasku
+tabów tworzy nowy terminal z kolejną nazwą; Split dzieli terminal aktywnego taba
+i tworzy niezależny PTY. Ukrycie narzędzi nie zmienia tabów. Pusty czat pokazuje pomoc nad
 composerem, bez odsyłacza sugerującego kontynuację u innego agenta.
 
 ## Nagłówek i geometria
 
 Jedna belka zawiera projekt/worktree, tytuł wybranej pracy oraz kategorie
-Terminal, Files, Changes, Tasks, Agent. Kategorie pokazują stronę narzędzi
+Files, Changes, Tasks, Agent. Kategorie pokazują stronę narzędzi
 idempotentnie; Hide jest osobnym poleceniem. Wąski nagłówek zachowuje nazwę
 aktywnej kategorii i menu Tools z zaznaczoną stroną. Tytuł pracy ma pierwszeństwo
-przed gałęzią i projektem. Terminal pokazuje liczbę
-pane'ów terminalowych, także schowanych. Oddzielny pasek kart przewija się,
+przed gałęzią i projektem. Pasek tabów w centrum przewija się,
 odsłania aktywną kartę wraz z przyciskiem zamknięcia, ma cienie krawędzi i menu
 wszystkich kart. Szerokości są mierzone z etykiet (7–18rem i limit viewportu). Akcje pozostają
 nieruchome. Jedna granica wizualna należy do jednego regionu.
@@ -55,7 +53,8 @@ nieruchome. Jedna granica wizualna należy do jednego regionu.
 Obszar drag/double-click obejmuje kontekst, nie kategorie ani menu. Settings
 jest w stopce sidebara i w Tools; globalny pusty status bar został usunięty.
 Files/Changes wymagają projektu; Agent i Tasks są dostępne także prywatnie.
-Skróty kategorii: Option+Cmd+1…5 na macOS, Ctrl+Alt+1…5 na pozostałych platformach.
+Skróty: Option+Cmd+1 wraca do tabów, Option+Cmd+2…5 to kategorie panelu
+(Ctrl+Alt+… na pozostałych platformach).
 Istniejące skróty paneli pozostają; Linux ma Ctrl+N / Ctrl+Shift+N dla tworzenia
 rozmowy / wyboru miejsca.
 
@@ -65,7 +64,7 @@ mieści, widoczny jest jeden obszar; powrót nazywa rozmowę. Przy braku miejsca
 na sidebar + treść sidebar jest czasową nakładką, z własnym fokusem i focus trap, przyciemnieniem i cieniem.
 Escape lub zamknięcie przywraca fokus. Wymiary i preferencje widoczności nie są
 nadpisywane przez dopasowanie do okna. Pusty worktree ma wycentrowany kontekst,
-New chat i Open terminal / Show terminals, bez automatycznego tworzenia sesji.
+New chat i Open terminal, bez automatycznego tworzenia sesji.
 
 ## Persist i weryfikacja
 
@@ -73,8 +72,8 @@ New chat i Open terminal / Show terminals, bez automatycznego tworzenia sesji.
 Brak nowych pól w starszym snapshotcie jest poprawny; cel jest wyliczany z
 istniejących tabów, nigdy z geometrii. Nie ma migracji SQLite ani zmiany PaneId.
 
-Testy modelu obejmują powrót z CLI, niezależność fokusu, pierwszy czat po CLI i
-restore. Testy GPUI obejmują menu, split/dock, sidebar, szerokości i bazy
+Testy modelu obejmują wspólny pasek tabów, niezależność panelu od taba, wybór CLI,
+pierwszy czat po CLI i restore. Testy GPUI obejmują menu, split/dock, sidebar, szerokości i bazy
 16/18/20 oraz fokus nakładki. `ui::visual_tests::native_visual_fixture` jest jawnie
 ignorowaną sceną do odbioru natywnego: używa produkcyjnych widoków, danych
 syntetycznych i deterministycznego bufora terminala, bez modeli, PTY ani kont.

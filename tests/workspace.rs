@@ -295,7 +295,7 @@ fn unnamed_and_manually_named_chats_remain_distinct_inside_groups() {
 }
 
 #[test]
-fn conversation_navigation_preserves_the_worktrees_tool_selection_and_splits() {
+fn tabs_share_the_work_area_and_the_tool_panel_keeps_its_own_page() {
     use canopy_desktop::state::workspace::{ToolPage, ToolPosition};
     let mut ws = Workspace::new();
     let first = ws.open_conversation("First", "codex");
@@ -303,75 +303,54 @@ fn conversation_navigation_preserves_the_worktrees_tool_selection_and_splits() {
     let terminal = ws.open("Terminal", "shell");
     let a = ws.active().unwrap().focused;
     let b = ws.split(terminal, a, Axis::Horizontal, "shell").unwrap();
-    let tree = ws.active().unwrap().root.clone();
+    assert!(!ws.tools_open());
+    assert_eq!(ws.primary_tab().unwrap().id, terminal);
+    assert_eq!(ws.activation_plan().len(), 2);
 
-    for chat in [first, second, first] {
-        ws.activate(chat).unwrap();
-        assert_eq!(ws.primary_tab().unwrap().id, chat);
-        assert_eq!(ws.tool_tab().unwrap().root, tree);
-        assert_eq!(ws.tool_tab().unwrap().focused, b);
-        assert_eq!(ws.activation_plan().len(), 3);
-    }
-    ws.tool_panel_mut().set_position(ToolPosition::Bottom);
-    ws.tool_panel_mut().show(ToolPage::Files);
+    ws.activate(first).unwrap();
+    assert_eq!(ws.primary_tab().unwrap().id, first);
     assert_eq!(ws.activation_plan().len(), 1);
+    ws.tool_panel_mut().set_position(ToolPosition::Bottom);
+    ws.show_tools(ToolPage::Files);
+    assert!(ws.tools_open());
+    assert_eq!(ws.primary_tab().unwrap().id, first);
+    ws.tool_panel_mut().set_maximized(true);
+    assert!(ws.activation_plan().is_empty());
+
+    // Choosing a pane brings the work area back; the panel stays on its page.
+    ws.activate_pane(b).unwrap();
+    assert!(!ws.tool_panel().is_maximized());
+    assert!(ws.tools_open());
+    assert_eq!(ws.tool_panel().page(), ToolPage::Files);
+    assert_eq!(ws.primary_tab().unwrap().id, terminal);
+    assert_eq!(ws.selected_pane().unwrap().id, b);
     ws.hide_tools();
     assert!(!ws.tools_open());
-    assert_eq!(ws.tool_tab().unwrap().root, tree);
-    ws.activate_pane(b).unwrap();
-    assert!(ws.tools_open());
-    assert_eq!(ws.tool_panel().position(), ToolPosition::Bottom);
-    assert_eq!(ws.primary_tab().unwrap().id, first);
-    assert_eq!(ws.activation_plan().len(), 3);
+    assert_eq!(ws.tabs().len(), 3);
+
     ws.close(terminal).unwrap();
-    ws.close(first).unwrap();
-    assert!(ws.valid());
     assert_eq!(ws.primary_tab().unwrap().id, second);
+    assert!(ws.valid());
 }
 
 #[test]
-fn navigation_preview_preserves_the_conversations_terminal_and_inspector_target() {
+fn a_cli_chosen_in_navigation_opens_as_its_tab_and_survives_restore() {
     let mut workspace = Workspace::new();
     let chat = workspace.open_conversation("Review", "claude");
-    let conversation = workspace.active().unwrap().focused;
-    let shell = workspace.open("Shell", "shell");
-    let shell_pane = workspace.active().unwrap().focused;
     let cli = workspace.open("Implementation", "codex");
     let agent = workspace.active().unwrap().focused;
-    workspace.activate(shell).unwrap();
     workspace.activate(chat).unwrap();
     workspace.select_session(agent).unwrap();
+    assert_eq!(workspace.primary_tab().unwrap().id, cli);
     assert_eq!(workspace.selected_pane().unwrap().id, agent);
-    assert_eq!(workspace.tool_tab().unwrap().id, cli);
-    // Geometry, focus and category changes don't select another agent.
-    workspace.tool_panel_mut().set_maximized(false);
-    workspace.focus(chat, conversation).unwrap();
-    assert_eq!(workspace.selected_pane().unwrap().id, agent);
-    workspace.show_tools(ToolPage::Files);
-    assert_eq!(workspace.selected_pane().unwrap().id, agent);
-    workspace.select_session(conversation).unwrap();
-    assert_eq!(workspace.tool_tab().unwrap().id, shell);
-    assert!(workspace.tools_open());
-    workspace.focus(shell, shell_pane).unwrap();
-    workspace.tool_panel_mut().set_maximized(true);
-    assert_eq!(workspace.selected_pane().unwrap().id, conversation);
-    assert_eq!(workspace.all_panes().len(), 3);
-}
-
-#[test]
-fn fresh_chat_does_not_inherit_a_cli_preview_and_preview_survives_restore() {
-    let mut workspace = Workspace::new();
-    let cli = workspace.open("Agent", "codex");
-    let pane = workspace.active().unwrap().focused;
-    workspace.select_session(pane).unwrap();
+    assert!(!workspace.tools_open());
     let json = serde_json::to_string(&workspace).unwrap();
     let mut restored: Workspace = serde_json::from_str(&json).unwrap();
     assert!(restored.valid());
-    assert_eq!(restored.selected_pane().unwrap().id, pane);
-    restored.open_conversation("New discussion", "claude");
-    assert!(!restored.tools_open());
-    assert_eq!(restored.tool_tab().unwrap().id, cli);
-    assert_ne!(restored.selected_pane().unwrap().id, pane);
+    assert_eq!(restored.primary_tab().unwrap().id, cli);
+    let fresh = restored.open_conversation("New discussion", "claude");
+    assert_eq!(restored.primary_tab().unwrap().id, fresh);
+    assert_ne!(restored.selected_pane().unwrap().id, agent);
     restored.close(cli).unwrap();
     assert!(restored.valid());
 }

@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn hiding_tools_or_changing_conversation_never_retires_a_terminal() {
+    fn switching_tabs_or_hiding_tools_never_retires_a_terminal() {
         let mut w = Workspace::new();
         let first = w.open_conversation("First", "codex");
         let second = w.open_conversation("Second", "claude");
@@ -96,12 +96,12 @@ mod tests {
             let plan = reconcile(&[w.clone()], Some(w.id), &started);
             assert!(plan.start.is_empty());
             assert!(plan.remove.is_empty());
-            assert!(plan.visible.contains(&pane));
+            assert!(!plan.visible.contains(&pane));
+            w.activate(terminal).unwrap();
             w.hide_tools();
             let plan = reconcile(&[w.clone()], Some(w.id), &started);
-            assert!(!plan.visible.contains(&pane));
+            assert!(plan.visible.contains(&pane));
             assert!(plan.remove.is_empty());
-            w.activate(terminal).unwrap();
         }
         w.close_pane(terminal, sibling).unwrap();
         let plan = reconcile(&[w.clone()], Some(w.id), &started);

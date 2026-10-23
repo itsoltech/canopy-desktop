@@ -572,6 +572,10 @@ impl Workspace {
         self.rename_chat(pane, title)?;
         Ok(true)
     }
+    /// The tab holding `pane`.
+    pub fn tab_of(&self, pane: PaneId) -> Option<TabId> {
+        self.locate(pane).ok().map(|(tab, _)| tab)
+    }
     fn locate(&self, pane: PaneId) -> Result<(TabId, Pane), StateError> {
         self.tabs
             .iter()
@@ -593,13 +597,7 @@ impl Workspace {
     pub fn activation_plan(&self) -> Vec<Pane> {
         let mut panes = vec![];
         if !self.panel.is_maximized()
-            && let Some(tab) = self.primary_tab()
-        {
-            tab.root.collect(&mut panes);
-        }
-        if self.tools_open()
-            && self.panel.page() == ToolPage::Tabs
-            && let Some(tab) = self.tool_tab()
+            && let Some(tab) = self.active()
         {
             tab.root.collect(&mut panes);
         }
@@ -679,12 +677,6 @@ impl Workspace {
         self.open_in(title.into(), tool.into(), true)
     }
     fn open_in(&mut self, title: String, tool: String, chat: bool) -> TabId {
-        let first_chat_after_agent = chat
-            && self.primary_tab().is_none()
-            && self.tabs.iter().flat_map(|t| t.root.panes()).any(|p| {
-                p.metadata.kind == PaneKind::Terminal
-                    && crate::chat::provider::Provider::from_tool(&p.tool).is_some()
-            });
         self.remember_active();
         self.restore_preview();
         let mut pane = Pane::new(tool);
@@ -700,15 +692,8 @@ impl Workspace {
         let id = tab.id;
         self.tabs.push(tab);
         self.active = Some(id);
-        if !chat {
-            self.panel.show(ToolPage::Tabs);
-        } else {
-            self.panel.focus_conversation();
-            self.selected_pane = self.active().map(|tab| tab.focused);
-            if first_chat_after_agent {
-                self.hide_tools();
-            }
-        }
+        self.panel.focus_conversation();
+        self.selected_pane = self.active().map(|tab| tab.focused);
         id
     }
     pub fn rename(&mut self, id: TabId, title: impl Into<String>) -> Result<(), StateError> {
@@ -731,7 +716,6 @@ impl Workspace {
             .position(|t| t.id == id)
             .ok_or(StateError::MissingTab)?;
         self.remember_active();
-        let was_chat = self.tabs[index].has_chat();
         self.tabs.remove(index);
         if self.last_chat == Some(id) {
             self.last_chat = None;
@@ -742,20 +726,11 @@ impl Workspace {
         if self.active == Some(id) {
             self.active = self
                 .tabs
-                .iter()
-                .rev()
-                .find(|t| t.has_chat() == was_chat)
-                .map(|t| t.id)
-                .or_else(|| {
-                    self.tabs
-                        .get(index.min(self.tabs.len().saturating_sub(1)))
-                        .map(|t| t.id)
-                });
+                .get(index.min(self.tabs.len().saturating_sub(1)))
+                .map(|t| t.id);
+            self.selected_pane = self.active().map(|t| t.focused);
         }
         self.reconcile_selection();
-        if self.tabs.is_empty() && self.panel.page() == ToolPage::Tabs {
-            self.hide_tools();
-        }
         Ok(())
     }
     fn tab_mut(&mut self, id: TabId) -> Result<&mut Tab, StateError> {
@@ -770,15 +745,9 @@ impl Workspace {
             return Err(StateError::MissingPane);
         }
         t.focused = pane;
-        let chat = t.has_chat();
         self.remember_active();
         self.active = Some(tab);
-        if chat {
-            self.last_chat = Some(tab);
-            self.panel.focus_conversation();
-        } else {
-            self.panel.show(ToolPage::Tabs);
-        }
+        self.panel.focus_conversation();
         Ok(())
     }
     pub fn split(

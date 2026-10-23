@@ -153,7 +153,7 @@ Wiersze rozmów projektowych i prywatnych mają ten sam tytuł i metadane
 agenta/statusu; kontekst jest na rodzicu oraz w tooltipie. Agenci w PTY są
 oznaczeni CLI; ich wybór skupia istniejący terminal. Rodzice agregują stan pracy. Files i Tasks nie mają kopii po lewej:
 Files/Changes/Tasks/Agent renderuje dotychczasowy Inspector we wspólnym panelu
-narzędzi, z widoczną nawigacją obok zakładki Terminal. Wąski panel ma bieżącą
+narzędzi; terminale i CLI są tabami w centrum, obok rozmów. Wąski panel ma bieżącą
 nazwę strony i jej alternatywy w menu. Szczegóły interakcji i własności: [układ workspace'u](features/workspace-layout.md).
 
 Nagłówki mają przezroczyste tło także na hover/press. Jawny stan `hovered`

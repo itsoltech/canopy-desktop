@@ -97,10 +97,11 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 ## Layout i okna
 
 - Lewy sidebar ma drzewo projekt → worktree → rozmowy oraz osobne Private chats.
-  Centrum pokazuje rozmowę, a panel narzędzi ma niezależne taby, domyślnie po prawej.
-  Panel może być na dole, zmaksymalizowany lub schowany. Files, Changes, Tasks i Agent
-  są kategoriami w jednym nagłówku okna; wąskie okno ma nazwę aktywnej strony
-  i menu Tools. Osobny pasek kart terminali zachowuje przewijanie i stałe akcje.
+  Centrum ma pasek tabów (rozmowy, terminale, CLI, pliki) i drzewo pane'ów aktywnego
+  taba ze splitami. Panel narzędzi, domyślnie po prawej, ma tylko Files, Changes, Tasks
+  i Agent; może być na dole, zmaksymalizowany lub schowany. Kategorie są w jednym
+  nagłówku okna; wąskie okno ma nazwę aktywnej strony i menu Tools. Pasek tabów
+  zachowuje przewijanie i stałe akcje.
   Titlebar pokazuje projekt, branch i wybraną pracę, zastępując osobne nagłówki.
   Szczegóły: [układ workspace'u](features/workspace-layout.md).
 - Preferences otwieramy jako osobne okno aplikacji, nie modal całego workspace'u.
@@ -112,12 +113,12 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
   Lewy ma dotychczasowy limit 800; panel narzędzi 180–1600 szerokości lub 96–1600
   wysokości. Wyświetlana geometria zachowuje miejsce na rozmowę, bez nadpisywania
   preferencji. Ukrycie panelu nie zamyka tabów ani procesów. Separator działa także
-  po zmianie położenia. Wybór rozmowy zachowuje terminale tego samego worktree.
+  po zmianie położenia. Zmiana taba nie zatrzymuje procesów ukrytych tabów.
 - Panel narzędzi ma własną powierzchnię i opcje ukrycia/maksymalizacji. Przy braku
   miejsca przechodzi do jednego obszaru, a sidebar do nakładki z ograniczeniem
   fokusu; zapisane preferencje zostają. Settings jest w sidebarze i menu Tools.
-- Wybór sesji, fokus i prezentacja panelu są niezależne. Powrót A+S → CLI B → A
-  zachowuje S. Agent używa jawnie wybranej sesji, nie maksymalizacji ani fokusu.
+- Wybór sesji w nawigacji aktywuje jej tab w centrum; panel zachowuje swoją stronę.
+  Agent używa jawnie wybranej sesji, nie maksymalizacji ani fokusu.
 - Używaj wspólnego `window_titlebar`; zachowuj natywne działanie podwójnego
   kliknięcia górnego paska zgodnie z ustawieniem macOS.
 

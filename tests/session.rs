@@ -321,7 +321,8 @@ fn tool_layout_restores_per_worktree_and_accepts_snapshots_before_the_panel_exis
     assert!(restored.valid());
     assert_eq!(s, restored);
     assert!(restored.workspaces[0].activation_plan().is_empty());
-    assert!(restored.workspaces[1].activation_plan().is_empty());
+    // Hidden tools leave the work area's tab shown.
+    assert!(!restored.workspaces[1].activation_plan().is_empty());
 
     let original = fixture();
     let mut old = serde_json::to_value(&original).unwrap();

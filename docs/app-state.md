@@ -12,7 +12,7 @@ encji GPUI, a nie jeden obiekt odrysowujący wszystkie widoki.
 | --- | --- |
 | SettingsState | zatwierdzone preferencje, status ładowania/zapisu, błędy i worker SQLite |
 | ProjectsState + Projects | katalogi projektów, aktywny projekt, operacje pickera i cache workspace’ów |
-| Workspace | taby, drzewa splitów, fokus, niezależny wybór rozmowy/narzędzia i panel worktree |
+| Workspace | taby, drzewa splitów, fokus, wybrana sesja i panel worktree |
 | LayoutState | szerokość/widoczność lewego sidebara oraz starsze pola zgodności inspektora |
 | NotchStatus | trwały błąd natywnego adaptera notcha i potwierdzone recovery |
 
@@ -116,7 +116,7 @@ i odtworzenie drzewa oraz stabilnych ID po restarcie.
 ## Otwieranie projektów i pusty stan
 
 - Nawigacja ma drzewo projekt → worktree → rozmowy i osobne Private chats.
-  `Workspace` wybiera niezależnie centralny tab z rozmową i tab narzędzi.
+  Centrum pokazuje aktywny tab (rozmowa, terminal, CLI, plik) z paskiem tabów.
   `ToolPanel` należy do workspace'u, a nie do globalnego LayoutState.
   Files/Changes/Tasks/Agent są stronami prawego/dolnego panelu; jego ukrycie nie
   usuwa zasobów. Szczegóły: [układ workspace'u](features/workspace-layout.md).

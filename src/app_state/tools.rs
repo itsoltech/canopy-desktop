@@ -63,7 +63,7 @@ impl ToolsState {
                     .is_some_and(|tool| tool.kind == ToolKind::Shell)
         };
         let pane = workspace
-            .tool_tab()
+            .active()
             .and_then(|t| {
                 t.root
                     .find(t.focused)
@@ -73,7 +73,8 @@ impl ToolsState {
             })
             .or_else(|| {
                 workspace
-                    .tool_tabs()
+                    .tabs()
+                    .iter()
                     .flat_map(|t| t.root.panes())
                     .find(is_terminal)
             })
