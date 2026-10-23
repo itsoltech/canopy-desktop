@@ -155,7 +155,12 @@
     await loadProjects()
   })
 
+  // Set when the projects request itself failed, so Retry reloads projects too.
+  let projectsLoadFailed = $state(false)
+
   async function loadProjects(): Promise<void> {
+    loading = true
+    error = ''
     try {
       const [projectList, userName, statuses] = await Promise.all([
         // No .catch here — a projects-load failure (expired credentials, tracker down) must reach
@@ -176,8 +181,14 @@
           : projects[0].key
         restoreSavedFilters()
       }
+      projectsLoadFailed = false
     } catch (e) {
+      // Surface the failure with Retry instead of falling through to an
+      // unfiltered fetchTasks(), which would immediately clear this error.
       error = ipcErrorMessage(e, 'Failed to load projects')
+      projectsLoadFailed = true
+      loading = false
+      return
     }
     await fetchTasks()
   }
@@ -408,7 +419,7 @@
         <span class="break-all">{error}</span>
         <button
           class="px-3 py-1 border border-border rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover"
-          onclick={fetchTasks}>Retry</button
+          onclick={() => (projectsLoadFailed ? loadProjects() : fetchTasks())}>Retry</button
         >
       </div>
     {:else if displayedTasks.length === 0}

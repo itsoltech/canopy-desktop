@@ -17,13 +17,19 @@
 
   onMount(async () => {
     containerEl?.focus()
-    const raw = await window.api.getChangelogSinceVersion(fromVersion)
-    if (raw && raw.length > 0) {
-      entries = raw.map((e) => ({ version: e.version, date: e.date, body: e.body }))
-    } else if (!raw) {
+    // A rejected IPC call must not leave the modal on "Loading…" forever.
+    try {
+      const raw = await window.api.getChangelogSinceVersion(fromVersion)
+      if (raw && raw.length > 0) {
+        entries = raw.map((e) => ({ version: e.version, date: e.date, body: e.body }))
+      } else if (!raw) {
+        error = true
+      }
+    } catch {
       error = true
+    } finally {
+      loading = false
     }
-    loading = false
   })
 
   function handleKeydown(e: KeyboardEvent): void {

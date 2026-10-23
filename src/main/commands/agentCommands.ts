@@ -4,6 +4,11 @@ import type { PtyManager } from '../pty/PtyManager'
 import type { WindowManager } from '../WindowManager'
 import type { AgentCommandResult } from './types'
 
+// C0 controls except \t and \n, plus DEL — same set the renderer's
+// `sanitizePtyInput` drops before pasting into a PTY.
+// eslint-disable-next-line no-control-regex
+const PASTE_CONTROL_CHARS = /[\x00-\x08\x0b-\x1f\x7f]/g
+
 interface AgentCommandServiceDeps {
   ptyManager: PtyManager
   agentSessionManager: AgentSessionManager
@@ -70,7 +75,10 @@ export class AgentCommandService {
     // is already sitting in the agent's input. Sent contexts stack in the input instead — the
     // user confirms explicitly in the agent panel. The newline INSIDE the paste is literal
     // (bracketed), separating this message from the next stacked one.
-    this.deps.ptyManager.write(sessionId, `\x1b[200~${text}\n\x1b[201~`)
+    // Task text comes from tracker content anyone with access can edit: without stripping, an
+    // embedded ESC[201~ ends the paste early and a following CR submits typed input to the agent.
+    const safeText = text.replace(PASTE_CONTROL_CHARS, '')
+    this.deps.ptyManager.write(sessionId, `\x1b[200~${safeText}\n\x1b[201~`)
   }
 
   private contextText(payload: AgentContextPayload): string {

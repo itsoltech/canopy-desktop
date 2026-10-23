@@ -223,9 +223,22 @@ export class SkillInstaller {
     try {
       const cloneResult = await fromExternalCall(
         new Promise<void>((resolve, reject) => {
+          // `core.symlinks=false` checks symlinks out as plain files holding the
+          // link target: an untrusted repo could otherwise ship
+          // `SKILL.md -> ~/.ssh/id_rsa` and have the read below follow it.
+          // Bounded and non-interactive so a stalled clone can't hang the install.
           execFile(
             'git',
-            ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            [
+              'clone',
+              '-c',
+              'core.symlinks=false',
+              '--depth',
+              '1',
+              `https://github.com/${owner}/${repo}.git`,
+              tmpDir,
+            ],
+            { timeout: 120_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
             (error) => {
               if (error) reject(error)
               else resolve()

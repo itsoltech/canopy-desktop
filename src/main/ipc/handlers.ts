@@ -483,6 +483,8 @@ export function registerIpcHandlers(
     } catch (e) {
       return { ok: false, tag: 'StatFailed', message: errorMessage(e) }
     }
+    // Regular files only: opening a FIFO never completes and pins a libuv worker.
+    if (!stat.isFile()) return { ok: false, tag: 'ReadFailed', message: 'Not a regular file' }
 
     let canWrite = true
     try {
@@ -1113,6 +1115,13 @@ export function registerIpcHandlers(
 
     try {
       await fs.promises.writeFile(saveResult.filePath, json, { encoding: 'utf8', mode: 0o600 })
+      // `mode` only applies when the file is created. Overwriting an existing
+      // file keeps its previous (possibly world-readable) mode, and this export
+      // contains decrypted credentials. Best effort: filesystems without POSIX
+      // modes (e.g. FAT) reject chmod, and the export itself succeeded.
+      if (process.platform !== 'win32') {
+        await fs.promises.chmod(saveResult.filePath, 0o600).catch(() => {})
+      }
     } catch (e) {
       throw new Error(
         settingsExportErrorMessage({
@@ -1464,6 +1473,9 @@ export function registerIpcHandlers(
     return result
   }
 
+  // Latest files:watch request per window (webContents id).
+  const fileWatchGenerations = new Map<number, number>()
+
   ipcMain.handle('files:watch', async (event, payload: { repoRoot: string }) => {
     if (typeof payload?.repoRoot !== 'string' || !path.isAbsolute(payload.repoRoot)) {
       throw new Error('Invalid repoRoot: must be an absolute path string')
@@ -1472,6 +1484,8 @@ export function registerIpcHandlers(
     const resolved = await validatePathAccess(event.sender.id, payload.repoRoot)
 
     const senderId = event.sender.id
+    const generation = (fileWatchGenerations.get(senderId) ?? 0) + 1
+    fileWatchGenerations.set(senderId, generation)
 
     // Only one watcher per window — dispose any previous one first
     windowManager.disposeFileWatcher(senderId)
@@ -1486,10 +1500,18 @@ export function registerIpcHandlers(
     if (result.isErr()) {
       throw new Error(fileWatcherErrorMessage(result.error))
     }
+    // A newer files:watch (e.g. a quick worktree switch) started meanwhile: this
+    // older watcher must not replace it — stop it instead of leaking it.
+    if (fileWatchGenerations.get(senderId) !== generation) {
+      void watcher.stop()
+      return
+    }
     windowManager.setFileWatcher(senderId, watcher)
   })
 
   ipcMain.handle('files:unwatch', (event) => {
+    // Invalidate any files:watch still starting so it doesn't register afterwards.
+    fileWatchGenerations.set(event.sender.id, (fileWatchGenerations.get(event.sender.id) ?? 0) + 1)
     windowManager.disposeFileWatcher(event.sender.id)
   })
 
@@ -2495,6 +2517,8 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'credentials:getDecrypted',
     async (event, payload: { id: string; domain: string; purpose: 'autofill' | 'reveal' }) => {
+      // Unknown purposes must not fall through to the cached autofill path.
+      if (payload.purpose !== 'autofill' && payload.purpose !== 'reveal') return null
       // Settings "Reveal Password" UI: always re-authenticate, never consult
       // the session cache or flag, never update them. Matches Chrome's
       // chrome://password-manager which re-prompts on every reveal regardless
@@ -2722,12 +2746,22 @@ export function registerIpcHandlers(
 
   ipcMain.handle('fs:readFile', async (event, payload: { filePath: string; maxBytes?: number }) => {
     const resolved = await validatePathAccess(event.sender.id, payload.filePath)
-    const maxBytes = Math.min(payload.maxBytes ?? 1_048_576, 10_485_760)
+    const requestedMax =
+      typeof payload.maxBytes === 'number' &&
+      Number.isFinite(payload.maxBytes) &&
+      payload.maxBytes > 0
+        ? payload.maxBytes
+        : 1_048_576
+    const maxBytes = Math.min(requestedMax, 10_485_760)
     // Sync stat too: closes the TOCTOU gap with the openSync below and removes
     // the last await between validatePathAccess and the fd trio. Operating on
     // the realpath'd target prevents a symlink swap between validation and
     // open from redirecting the read outside the workspace.
-    const size = fs.statSync(resolved).size
+    const stat = fs.statSync(resolved)
+    // Regular files only: openSync on a FIFO blocks until a writer appears,
+    // which would freeze the whole main process on this synchronous path.
+    if (!stat.isFile()) throw new Error('Not a regular file')
+    const size = stat.size
     const readSize = Math.min(size, maxBytes)
 
     // Sync fd trio instead of async FileHandle: avoids holding a JS FileHandle
@@ -3495,8 +3529,17 @@ export function registerIpcHandlers(
           throw new Error('Base URL must use http:// or https://')
         }
       }
-      const { connectionId, token, ...updates } = payload
-      const c = taskTrackerManager.updateConnection(connectionId, updates, token)
+      // Copy only the user-editable fields. Spreading the raw payload let the
+      // renderer overwrite `authPrefKey`/`id`, pointing the stored-token lookup
+      // at any other (encrypted) preference and sending it to `baseUrl`.
+      const updates: { name?: string; baseUrl?: string; projectKey?: string; username?: string } =
+        {}
+      if (typeof payload.name === 'string') updates.name = payload.name
+      if (typeof payload.baseUrl === 'string') updates.baseUrl = payload.baseUrl
+      if (typeof payload.projectKey === 'string') updates.projectKey = payload.projectKey
+      if (typeof payload.username === 'string') updates.username = payload.username
+      const token = typeof payload.token === 'string' ? payload.token : undefined
+      const c = taskTrackerManager.updateConnection(payload.connectionId, updates, token)
       if (!c) return null
       return {
         id: c.id,
@@ -4702,6 +4745,8 @@ export function registerIpcHandlers(
     },
   )
 
+  let agentImageSeq = 0
+
   // Persist a user-provided image (compose box in the Task panel) to a temp file so the agent
   // can read it by path — clipboard + Ctrl+V delivery proved unreliable across terminals.
   ipcMain.handle('taskTracker:saveAgentImage', async (_event, payload: { bytes: ArrayBuffer }) => {
@@ -4709,7 +4754,7 @@ export function registerIpcHandlers(
     if (!(bytes instanceof ArrayBuffer) || bytes.byteLength === 0) throw new Error('Invalid image')
     if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('Image too large (max 20 MB)')
     const dir = path.join(os.tmpdir(), 'canopy-agent-images')
-    await fs.promises.mkdir(dir, { recursive: true })
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 })
     // The images only need to survive until the agent has read them — cap the directory at the
     // newest few files so repeated sends can't grow the temp dir without bound.
     try {
@@ -4729,8 +4774,17 @@ export function registerIpcHandlers(
     } catch {
       // Best-effort cleanup — never fail the save over it.
     }
-    const filePath = path.join(dir, `image-${Date.now()}.png`)
-    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)))
+    // Sequence suffix keeps two saves in the same millisecond from colliding
+    // (and still matches the `image-<digits>.png` cleanup filter above).
+    const seq = String(agentImageSeq++ % 1000).padStart(3, '0')
+    const filePath = path.join(dir, `image-${Date.now()}${seq}.png`)
+    // The directory name is fixed and /tmp is shared: create the file exclusively
+    // (a pre-planted symlink at the predictable name fails instead of being
+    // followed) and owner-only.
+    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)), {
+      flag: 'wx',
+      mode: 0o600,
+    })
     return filePath
   })
 
@@ -5464,6 +5518,13 @@ export function registerIpcHandlers(
         } as SkillError),
         skillErrorMessage,
       )
+    }
+    // A symlinked skill (e.g. linked in from a dotfiles repo) must lose only the
+    // link: unlinking its realpath would delete the shared source file instead.
+    // unlink() never follows the final path component.
+    if ((await fs.promises.lstat(filePath)).isSymbolicLink()) {
+      await fs.promises.unlink(filePath)
+      return { success: true }
     }
     // Delete the realpath that was containment-checked above, not the
     // pre-realpath path, so a symlink swap between the check and the unlink

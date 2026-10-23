@@ -45,7 +45,17 @@ export class AgentSessionManager extends EventEmitter {
   constructor() {
     super()
     this.hooksDir = join(app.getPath('userData'), 'canopy', 'agent-hooks')
-    mkdirSync(this.hooksDir, { recursive: true })
+    // Per-session settings written here can carry settings/env overrides and a
+    // merged copy of the user's agent settings: keep the directory owner-only.
+    // `mode` only applies on creation, so also tighten an existing directory.
+    mkdirSync(this.hooksDir, { recursive: true, mode: 0o700 })
+    if (process.platform !== 'win32') {
+      try {
+        chmodSync(this.hooksDir, 0o700)
+      } catch {
+        // Best effort — the directory stays usable with its previous mode.
+      }
+    }
 
     // Register built-in adapters
     registerAdapter(claudeAdapter)

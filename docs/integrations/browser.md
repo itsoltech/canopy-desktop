@@ -38,7 +38,7 @@ The `BrowserManager` in the main process handles security enforcement (popup han
 ### Favicon detection
 
 1. When a page's favicon changes, the `page-favicon-updated` event fires with one or more favicon URLs.
-2. The main process fetches the first favicon URL using `session.fetch()` (bypassing CORS restrictions on the page's session).
+2. The main process fetches the first favicon URL using `session.fetch()` (bypassing CORS restrictions on the page's session). Only `http:`, `https:` and `data:` favicon URLs are fetched, and responses larger than 1 MB are dropped.
 3. The favicon is converted to a base64 data URL (`data:{contentType};base64,...`) and sent to the renderer via `browser:faviconChanged`.
 4. If favicon fetch fails or no favicon is available, `null` is sent.
 
@@ -151,7 +151,7 @@ When a browser tab is closed, the renderer calls `teardownBrowserWebview(browser
 
 ## Security and privacy
 
-- The browser runs in a dedicated Electron session partition (`persist:browser`), isolated from the app's main session. Cookies, storage, and cache are separate.
+- The browser runs in a dedicated Electron session partition (`persist:browser`), isolated from the app's main session. Cookies, storage, and cache are separate. The app-wide `will-attach-webview` hook forces this partition (plus `sandbox`, `contextIsolation`, `webSecurity`, no `nodeIntegration`, no insecure content, no preload) on every `<webview>`, and each guest denies popups from the moment it attaches until `BrowserManager.setup()` installs the forwarding handler.
 - All permission requests (camera, microphone, geolocation, notifications, etc.) are denied via `setPermissionRequestHandler`.
 - Popups (`window.open()`, `target="_blank"`) are denied at the Electron level via `setWindowOpenHandler`. Valid HTTP(S) URLs are instead forwarded to the renderer, which opens them as a new browser pane tab in the same worktree. The `<webview>` has `allowpopups` set so the handler is actually invoked. Forwarding is throttled to one popup per 500ms per webview to prevent flooding from malicious pages.
 - Navigation is restricted to `http:` and `https:` protocols.

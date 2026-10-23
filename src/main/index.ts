@@ -338,28 +338,40 @@ async function handleCanopyUrl(url: string): Promise<void> {
     })
     const dedupePaths = [gitInfo.repoRoot ?? resolved, ...gitInfo.worktrees.map((wt) => wt.path)]
 
-    // Dedupe: focus existing window for this path (no confirmation needed)
+    // Dedupe: focus existing window for this path
     const existing = dedupePaths
       .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
       .find((win) => win !== null)
+
+    // Confirm before acting on an external deep link. Focusing an already-open
+    // workspace needs no prompt, but a link carrying `tool` would otherwise start
+    // an agent or terminal in that path (whose worktree list the repo itself
+    // controls) without any user action.
+    if (!existing || tool) {
+      const { response } = await dialog.showMessageBox({
+        type: 'question',
+        buttons: ['Open', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: 'Open workspace?',
+        // `tool` is link-controlled text: quote/escape and cap it so it can't
+        // add misleading lines to the prompt.
+        detail: tool
+          ? `An external application wants to open:\n${resolved}\n\nand start: ${JSON.stringify(tool.slice(0, 80))}`
+          : `An external application wants to open:\n${resolved}`,
+      })
+      // The app may have started quitting while the prompt was open.
+      if (response !== 0 || !canCreateApplicationWindow()) return
+    }
+
     if (existing) {
+      if (existing.isDestroyed()) return
       ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
       existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
       existing.focus()
       return
     }
-
-    // Confirm before opening a new workspace from external deep link
-    const { response } = await dialog.showMessageBox({
-      type: 'question',
-      buttons: ['Open', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-      message: 'Open workspace?',
-      detail: `An external application wants to open:\n${resolved}`,
-    })
-    if (response !== 0) return
 
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
@@ -704,6 +716,10 @@ app.whenReady().then(async () => {
       webPreferences.nodeIntegration = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      // Guests always live in the isolated browser partition, never the app session.
+      params.partition = 'persist:browser'
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -864,12 +880,13 @@ app.whenReady().then(async () => {
   }
 
   // Status-bar perf HUD (always available, gated by user preference in renderer)
+  // WindowManager keys windows by webContents id, not BrowserWindow id.
   ipcMain.handle('perf:hud:start', (event) => {
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     perfHudService.subscribe(event.sender)
   })
   ipcMain.handle('perf:hud:stop', (event) => {
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     perfHudService.unsubscribe(event.sender)
   })
 
@@ -1152,7 +1169,7 @@ app.whenReady().then(async () => {
 
   ipcMain.on('notch:setEnabled', (event, { enabled }: { enabled: boolean }) => {
     if (!notchOverlay) return
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     if (enabled) {
       notchOverlay.initialize()
     } else {
@@ -1181,8 +1198,12 @@ app.whenReady().then(async () => {
   app.on('activate', function () {
     if (!canCreateApplicationWindow()) return
 
-    if (BrowserWindow.getAllWindows().length === 0)
+    if (BrowserWindow.getAllWindows().length === 0) {
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
+      // The overlay was disposed when the last window closed (macOS keeps the
+      // app alive); bring it back with the new window when it is enabled.
+      if (preferencesStore.get('notch.enabled') === 'true') notchOverlay?.initialize()
+    }
   })
 })
 
