@@ -42,8 +42,8 @@
   <PrefsSection title="Model & behavior">
     <PrefsRow
       label="Model"
-      help="Short name (sonnet, opus, haiku) or full model ID"
-      search="claude model sonnet opus haiku"
+      help="Short name (sonnet, opus, haiku, fable) or full model ID"
+      search="claude model sonnet opus haiku fable"
       layout="stacked"
     >
       <input
@@ -54,14 +54,14 @@
         aria-label="Claude model"
         value={prefs.model ?? ''}
         oninput={onTextInput('model')}
-        placeholder="sonnet, opus, haiku, or model ID"
+        placeholder="sonnet, opus, haiku, fable, or model ID"
         spellcheck="false"
       />
     </PrefsRow>
 
     <PrefsRow
       label="Permission mode"
-      help="Controls what Claude can do without asking. Plan = read-only, Auto = full autonomy."
+      help="Controls what Claude can do without asking. Plan = read-only, Auto = autonomous but still asks before the first read outside the worktree."
       search="claude permission mode plan auto bypass accept edits"
     >
       <CustomSelect
@@ -81,8 +81,8 @@
 
     <PrefsRow
       label="Effort level"
-      help="Higher effort means more thorough but slower responses"
-      search="claude effort level low medium high max thinking"
+      help="Higher effort means more thorough but slower responses. A maxEffortLevel in managed or user settings caps this, so a session may run lower than the value picked here."
+      search="claude effort level low medium high max thinking maxeffortlevel"
     >
       <CustomSelect
         id="claude-effort"
@@ -178,6 +178,23 @@
         oninput={onTextInput('appendSystemPrompt')}
         placeholder="Additional instructions appended to the default system prompt"
         spellcheck="false"></textarea>
+    </PrefsRow>
+
+    <PrefsRow
+      label="Re-render every request"
+      help="Resumed sessions replay the system prompt recorded when they started, so edits above do not reach them. Turn this on to rebuild the prompt on every request instead. Requires Claude Code 2.1.267 or newer."
+      search="claude system prompt snapshot rerender resume iterate"
+    >
+      <CustomSelect
+        id="claude-prompt-snapshot"
+        value={prefs.systemPromptSnapshot ?? ''}
+        options={[
+          { value: '', label: 'Default (reuse snapshot)' },
+          { value: 'off', label: 'Re-render each request' },
+        ]}
+        onchange={(v) => set('systemPromptSnapshot', v)}
+        maxWidth="220px"
+      />
     </PrefsRow>
   </PrefsSection>
 
