@@ -740,7 +740,6 @@ impl Render for Workspace {
             .editors
             .update(cx, |editors, cx| editors.obscure_media(hidden, cx));
         let active = self.state.projects.read(cx).catalog.current().cloned();
-        let has_project = active.is_some();
         let now = Instant::now();
         let screen_progress = self.screen_reveal.progress(now);
         motion::request_frame(window, self.screen_reveal.is_animating(now));
@@ -971,18 +970,55 @@ impl Render for Workspace {
                     .bg(t::sidebar())
                     .border_b_1()
                     .border_color(t::border())
-                    .text_color(t::muted())
-                    .text_size(px(12.))
+                    .text_color(t::secondary())
+                    .text_sm()
                     .child({
                         let workspace = self.state.workspace.read(cx);
-                        let title = workspace
-                            .primary_tab()
-                            .map(|tab| workspace.chat_title(tab.focused).unwrap_or(&tab.title))
-                            .unwrap_or("Canopy");
+                        let title = if workspace.tool_panel().is_maximized() {
+                            workspace
+                                .tool_tab()
+                                .map(|tab| match workspace.tool_panel().page() {
+                                    canopy_desktop::state::workspace::ToolPage::Tabs => {
+                                        format!("Terminal · {}", tab.title)
+                                    }
+                                    canopy_desktop::state::workspace::ToolPage::Files => {
+                                        "Files".into()
+                                    }
+                                    canopy_desktop::state::workspace::ToolPage::Changes => {
+                                        "Changes".into()
+                                    }
+                                    canopy_desktop::state::workspace::ToolPage::Tasks => {
+                                        "Tasks".into()
+                                    }
+                                    canopy_desktop::state::workspace::ToolPage::Agent => {
+                                        "Agent details".into()
+                                    }
+                                })
+                        } else {
+                            workspace.primary_tab().map(|tab| {
+                                format!(
+                                    "Chat · {}",
+                                    workspace.chat_title(tab.focused).unwrap_or(&tab.title)
+                                )
+                            })
+                        }
+                        .unwrap_or_else(|| "Canopy".into());
                         let label = active
                             .as_ref()
-                            .map(|p| format!("{} / {title}", p.name))
-                            .unwrap_or_else(|| title.to_owned());
+                            .map(|p| {
+                                let branch = self
+                                    .state
+                                    .git
+                                    .read(cx)
+                                    .repository(&p.path)
+                                    .and_then(|r| r.worktrees.iter().find(|wt| wt.path == p.path))
+                                    .map(|wt| wt.label.as_str());
+                                match branch {
+                                    Some(branch) => format!("{} / {} · {title}", p.name, branch),
+                                    None => format!("{} · {title}", p.name),
+                                }
+                            })
+                            .unwrap_or(title);
                         div().flex_1().min_w_0().truncate().child(label)
                     })
                     .child({
@@ -1082,19 +1118,6 @@ impl Render for Workspace {
                     .bg(t::sidebar())
                     .text_size(px(11.))
                     .text_color(t::faint())
-                    .child(
-                        div()
-                            .text_color(t::secondary())
-                            .child(self.opened_file.clone().unwrap_or_else(|| "Idle".into())),
-                    )
-                    .children(
-                        self.state
-                            .projects
-                            .read(cx)
-                            .error
-                            .clone()
-                            .map(|e| div().text_color(t::red()).child(e)),
-                    )
                     .children(
                         self.state
                             .notch_status
@@ -1104,34 +1127,6 @@ impl Render for Workspace {
                             .map(|error| div().text_color(t::red()).child(error)),
                     )
                     .child(div().flex_1())
-                    .children(has_project.then(|| custom_icon("git-branch")))
-                    .child(
-                        self.state
-                            .projects
-                            .read(cx)
-                            .catalog
-                            .current()
-                            .map(|p| {
-                                self.state
-                                    .git
-                                    .read(cx)
-                                    .repository(&p.path)
-                                    .and_then(|r| r.worktrees.iter().find(|wt| wt.path == p.path))
-                                    .map(|wt| wt.head.description())
-                                    .unwrap_or_else(|| "No Git repository".into())
-                            })
-                            .unwrap_or_default(),
-                    )
-                    .children(
-                        self.state
-                            .settings
-                            .read(cx)
-                            .values
-                            .resource_usage
-                            .then(|| badge("0% · 725 MB")),
-                    )
-                    .child(dot())
-                    .child(badge("1"))
                     .child(
                         icon_button("settings", IconName::Settings, "Settings").on_click(
                             cx.listener(|this, _, _, cx| {

@@ -125,6 +125,10 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   nadal działa na nieaktywnym workspace bez przełączania widoku. Centrum i panel
   narzędzi mają niezależny wybór, więc nawigacja rozmów nie zmienia terminala.
   Szczegóły: [układ workspace'u](features/workspace-layout.md).
+- Pusty stan jest przy composerze: krótka podpowiedź zadania i ewentualne
+  przejście do istniejącego terminala. Konto, model i ścieżka nie są ponownie
+  wypisywane na środku ekranu. Agenci CLI mają własne wiersze w drzewie;
+  ich wybór zachowuje terminal i nie tworzy rozmowy headless.
 - New chat nie uruchamia się automatycznie przy starcie/przełączaniu kontekstu. Pusty stan
   ma CTA. New tab bez projektu tworzy czat; tworzenie terminala skrótem splitu wymaga projektu.
 - Tytuł rozmowy należy do `PaneMetadata.title`. Opcjonalny `chat_title_state` odróżnia

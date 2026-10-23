@@ -1,64 +1,24 @@
 use super::*;
 use crate::ui::worktree_dialog::WorktreeRequest;
 use canopy_desktop::git::{RemovalKind, RemoveWorktree};
+use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     Sizable,
     button::ButtonVariants,
-    menu::{ContextMenuExt, PopupMenuItem},
+    menu::{DropdownMenu, PopupMenuItem},
 };
-use gpui_kit::{base::Disableable, component::button::ButtonCustomVariant};
 impl EventEmitter<WorktreeRequest> for Sidebar {}
 impl Sidebar {
-    fn workspace_stop_button(
-        &self,
-        id: canopy_desktop::state::workspace::WorkspaceId,
-        key: &str,
-        disabled: bool,
-        cx: &Context<Self>,
-    ) -> Button {
-        let feedback = self.stop_feedback.get(&id);
-        let button = if let Some(feedback) = feedback {
-            loading_stop_button(SharedString::from(format!("stop-{key}")), feedback, cx)
-        } else {
-            stop_processes_button(SharedString::from(format!("stop-{key}")), cx)
-        };
-        button
-            .disabled(
-                (disabled || self.terminals.read(cx).workspace_stopping(id))
-                    && !feedback.is_some_and(ButtonLoading::active),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                cx.stop_propagation();
-                this.terminals
-                    .update(cx, |terminals, cx| terminals.request_stop_workspace(id, cx));
-                // Chat errors land in the chat registry and its panes.
-                let chats = cx.global::<crate::app_state::AppState>().chats.clone();
-                chats
-                    .update(cx, |chats, cx| chats.stop_workspace(id, cx))
-                    .detach();
-            }))
-    }
-
-    pub(super) fn sync_stop_feedback(&mut self, cx: &mut Context<Self>) {
-        let projects = self.projects.read(cx);
-        let ids: std::collections::HashSet<_> = projects
-            .catalog
-            .items
-            .iter()
-            .map(|p| p.workspace)
-            .chain(std::iter::once(projects.scratch_id(cx)))
-            .collect();
-        self.stop_feedback.retain(|id, _| ids.contains(id));
-        for id in ids {
-            self.stop_feedback
-                .entry(id)
-                .or_default()
-                .set(self.terminals.read(cx).workspace_stopping(id), cx);
-        }
+    fn stop_workspace(id: canopy_desktop::state::workspace::WorkspaceId, cx: &mut App) {
+        let app = cx.global::<crate::app_state::AppState>().clone();
+        app.terminals
+            .update(cx, |terminals, cx| terminals.request_stop_workspace(id, cx));
+        app.chats
+            .update(cx, |chats, cx| chats.stop_workspace(id, cx))
+            .detach();
     }
 
     pub(super) fn sync_project_groups(&mut self, cx: &mut Context<Self>) {
-        self.sync_stop_feedback(cx);
         let roots: std::collections::HashSet<_> = self
             .projects
             .read(cx)
@@ -72,16 +32,6 @@ impl Sidebar {
             self.project_groups
                 .entry(root)
                 .or_insert_with(|| Disclosure::new(true, Instant::now()));
-        }
-        cx.notify();
-    }
-    fn project_hover(&mut self, key: &str, hovered: bool, cx: &mut Context<Self>) {
-        if hovered {
-            self.hovered_project_item = Some(key.into());
-        } else if self.hovered_project_item.as_deref() == Some(key) {
-            self.hovered_project_item = None;
-        } else {
-            return;
         }
         cx.notify();
     }
@@ -101,7 +51,11 @@ impl Sidebar {
             .iter()
             .filter(|w| ids.contains(&w.id))
             .flat_map(|w| w.all_panes())
-            .filter(|p| p.metadata.kind == PaneKind::Chat)
+            .filter(|p| {
+                p.metadata.kind == PaneKind::Chat
+                    || (p.metadata.kind == PaneKind::Terminal
+                        && canopy_desktop::chat::provider::Provider::from_tool(&p.tool).is_some())
+            })
         {
             match super::chats::navigation_status(pane.id, cx) {
                 "Working" | "Goal" | "Starting" => working += 1,
@@ -133,11 +87,8 @@ impl Sidebar {
     pub(super) fn projects_content(&self, now: Instant, cx: &Context<Self>) -> Div {
         let state = self.projects.read(cx);
         let git = self.git.read(cx);
-        let terminals = self.terminals.read(cx);
-        let running = cx
-            .global::<crate::app_state::AppState>()
-            .running_workspaces(cx);
-        let terminal_error = terminals.error.clone();
+        let app = cx.global::<crate::app_state::AppState>();
+        let running = app.running_workspaces(cx);
         let mut seen = std::collections::HashSet::new();
         let mut groups = vec![];
         for project in &state.catalog.items {
@@ -159,120 +110,110 @@ impl Sidebar {
                 .to_string_lossy()
                 .into_owned();
             let key = format!("project-{}", root.display());
-            let hover_key = key.clone();
             let toggle_root = root.clone();
             let close_root = root.clone();
-            let refresh = self.git.clone();
-            let hovered = self.hovered_project_item.as_deref() == Some(&key);
-            let foreground = if hovered { t::text() } else { t::secondary() };
-            let workspace_ids: Vec<_> = state
+            let ids: Vec<_> = state
                 .catalog
                 .items
                 .iter()
                 .filter(|p| p.repository_path.as_ref().unwrap_or(&p.path) == &root)
                 .map(|p| p.workspace)
                 .collect();
-            let activity = self.activity(&workspace_ids, cx);
-            let header_height = t::project_header_height(activity.is_some());
-            let trigger = Button::new(SharedString::from(key.clone()))
-                .custom(ButtonCustomVariant::new(cx).foreground(foreground))
+            let activity = self.activity(&ids, cx);
+            let owner = cx.entity().downgrade();
+            let repo = info.clone();
+            let blocked = git.busy || state.busy || !self.sections[0].open;
+            let project_menu = Button::new(SharedString::from(format!("menu-{key}")))
+                .ghost()
+                .small()
                 .compact()
-                .h(header_height)
-                .w_full()
+                .size_6()
                 .p_0()
-                .border_0()
-                .cursor_pointer()
-                .accessibility_label(format!(
-                    "{} {label}",
-                    if disclosure.open {
-                        "Collapse"
-                    } else {
-                        "Expand"
-                    }
-                ))
-                .tooltip(canopy_desktop::platform::paths::display(&root))
-                .disabled(!self.sections[0].open)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(group) = this.project_groups.get_mut(&toggle_root) {
-                        group.toggle(Instant::now(), cx);
-                        cx.notify();
-                    }
-                }))
-                .child(
-                    row()
-                        .w_full()
-                        .gap(px(6.))
-                        .text_size(px(12.))
-                        .text_color(foreground)
-                        .child(disclosure.chevron(now).text_color(foreground))
-                        .child(
-                            column()
-                                .flex_1()
-                                .min_w_0()
-                                .items_start()
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .text_left()
-                                        .text_ellipsis()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .child(label),
-                                )
-                                .children(activity),
-                        ),
-                );
-            let header = row()
-                .h(header_height)
-                .gap(px(8.))
-                .child(
-                    hover_action(
-                        SharedString::from(format!("hover-{key}")),
-                        trigger,
-                        cx.listener(move |this, value, _, cx| {
-                            this.project_hover(&hover_key, *value, cx)
+                .icon(IconName::Ellipsis)
+                .tooltip("Project actions")
+                .disabled(blocked)
+                .dropdown_menu(move |menu, _, _| {
+                    let create = owner.clone();
+                    let refresh = owner.clone();
+                    let close = owner.clone();
+                    let repo = repo.clone();
+                    let root = close_root.clone();
+                    menu.item(
+                        PopupMenuItem::new("New worktree…")
+                            .disabled(repo.is_none())
+                            .on_click(move |_, _, cx| {
+                                if let Some(repo) = repo.clone() {
+                                    let _ = create
+                                        .update(cx, |_, cx| cx.emit(WorktreeRequest::Create(repo)));
+                                }
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new("Refresh Git metadata").on_click(move |_, _, cx| {
+                            let _ = refresh
+                                .update(cx, |s, cx| s.git.update(cx, |git, cx| git.refresh(cx)));
                         }),
                     )
-                    .flex_1()
-                    .min_w_0()
-                    .context_menu(move |menu, _, _| {
-                        let refresh = refresh.clone();
-                        menu.item(PopupMenuItem::new("Refresh Git metadata").on_click(
-                            move |_, _, cx| refresh.update(cx, |git, cx| git.refresh(cx)),
-                        ))
-                    }),
-                )
-                .children(info.clone().map(|repo| {
-                    list_button(SharedString::from(format!("new-{key}")), "+ new", false, cx)
-                        .px_0()
-                        .w(px(36.))
-                        .disabled(git.busy || state.busy || !self.sections[0].open)
-                        .accessibility_label("Create worktree")
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.emit(WorktreeRequest::Create(repo.clone()))
-                        }))
-                }))
-                .child(
-                    quiet_button(
-                        SharedString::from(format!("close-{key}")),
-                        "Close project",
-                        false,
-                        cx,
+                    .separator()
+                    .item(
+                        PopupMenuItem::new("Close project").on_click(move |_, _, cx| {
+                            let _ = close.update(cx, |s, cx| {
+                                s.projects.update(cx, |p, cx| p.close_repository(&root, cx))
+                            });
+                        }),
                     )
-                    .w(px(16.))
-                    .child(icon(IconName::Close).size(px(12.)))
-                    .disabled(git.busy || !self.sections[0].open)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.projects
-                            .update(cx, |p, cx| p.close_repository(&close_root, cx))
-                    })),
-                );
+                });
+            let header = row()
+                .gap_1()
+                .min_h(t::navigation_height())
+                .child(
+                    Button::new(SharedString::from(key.clone()))
+                        .ghost()
+                        .small()
+                        .compact()
+                        .min_h(t::navigation_height())
+                        .flex_1()
+                        .min_w_0()
+                        .px_0()
+                        .accessibility_label(format!(
+                            "{} {label}",
+                            if disclosure.open {
+                                "Collapse"
+                            } else {
+                                "Expand"
+                            }
+                        ))
+                        .tooltip(canopy_desktop::platform::paths::display(&root))
+                        .on_click(cx.listener(move |s, _, _, cx| {
+                            if let Some(group) = s.project_groups.get_mut(&toggle_root) {
+                                group.toggle(Instant::now(), cx);
+                                cx.notify();
+                            }
+                        }))
+                        .child(
+                            row().w_full().gap_2().child(disclosure.chevron(now)).child(
+                                column()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .items_start()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(t::text())
+                                            .truncate()
+                                            .child(label),
+                                    )
+                                    .children(activity),
+                            ),
+                        ),
+                )
+                .child(project_menu);
             let mut rows = vec![];
             if let Some(info) = info {
                 for wt in &info.worktrees {
                     let path = wt.path.clone();
                     let repository = info.root.clone();
-                    let remove_path = path.clone();
-                    let remove_root = repository.clone();
                     let workspace = state
                         .catalog
                         .items
@@ -280,159 +221,196 @@ impl Sidebar {
                         .find(|p| p.path == path)
                         .map(|p| p.workspace);
                     let key = format!("worktree-{}", path.display());
-                    let hover_key = key.clone();
-                    let hovered = self.hovered_project_item.as_deref() == Some(&key);
-                    let name = if wt.locked {
-                        format!("{} · locked", wt.label)
-                    } else {
-                        wt.label.clone()
-                    };
                     let selected = workspace.is_some() && workspace == state.catalog.active;
-                    let activity = workspace.and_then(|id| self.activity(&[id], cx));
-                    let activity_height = if activity.is_some() {
-                        rems(1.)
-                    } else {
-                        rems(0.)
-                    };
-                    let action = list_button(SharedString::from(key.clone()), name, hovered, cx)
-                        .px_0()
-                        .w_full()
-                        .when(selected, |button| button.bg(t::chat_selected()))
-                        .disabled(
-                            git.busy
-                                || state.busy
-                                || !wt.available
-                                || !disclosure.open
-                                || !self.sections[0].open,
-                        )
-                        .tooltip(wt.tooltip())
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.git
-                                .update(cx, |g, cx| g.open(repository.clone(), path.clone(), cx))
-                        }));
-                    let expanded = !self.collapsed_worktrees.contains(&wt.path);
-                    let collapse_path = wt.path.clone();
-                    let terminal_root = info.root.clone();
-                    let terminal_path = wt.path.clone();
-                    let chat_root = info.root.clone();
-                    let chat_path = wt.path.clone();
-                    let entry = row()
-                        .id(SharedString::from(format!("hover-{key}")))
-                        .on_hover(cx.listener(move |this, value, _, cx| {
-                            this.project_hover(&hover_key, *value, cx)
-                        }))
-                        .h(px(t::ROW))
-                        .flex_shrink_0()
-                        .pl(px(14.))
-                        .gap(px(6.))
-                        .child(
-                            Button::new(SharedString::from(format!("expand-{key}")))
-                                .ghost()
-                                .small()
-                                .compact()
-                                .size_5()
-                                .p_0()
-                                .icon(if expanded {
-                                    IconName::ChevronDown
+                    let expanded = !self.collapsed_worktrees.contains(&path);
+                    let collapse_path = path.clone();
+                    let open_root = repository.clone();
+                    let open_path = path.clone();
+                    let terminal_root = repository.clone();
+                    let terminal_path = path.clone();
+                    let chat_root = repository.clone();
+                    let chat_path = path.clone();
+                    let menu_root = repository.clone();
+                    let menu_path = path.clone();
+                    let disabled = blocked || !wt.available;
+                    let can_remove = !blocked && !wt.locked && (wt.available || wt.missing);
+                    let remove = wt.name.as_ref().map(|name| RemoveWorktree {
+                        repository: repository.clone(),
+                        path: path.clone(),
+                        kind: if wt.missing {
+                            RemovalKind::MissingRegistration { name: name.clone() }
+                        } else {
+                            RemovalKind::Directory
+                        },
+                    });
+                    let stopping =
+                        workspace.is_some_and(|id| self.terminals.read(cx).workspace_stopping(id));
+                    let active = workspace.is_some_and(|id| running.contains(&id));
+                    let owner = cx.entity().downgrade();
+                    let menu = Button::new(SharedString::from(format!("menu-{key}")))
+                        .ghost()
+                        .small()
+                        .compact()
+                        .size_6()
+                        .p_0()
+                        .icon(IconName::Ellipsis)
+                        .tooltip("Worktree actions")
+                        .dropdown_menu(move |menu, _, _| {
+                            let chat = owner.clone();
+                            let terminal = owner.clone();
+                            let remove_owner = owner.clone();
+                            let root = chat_root.clone();
+                            let path = chat_path.clone();
+                            let tr = menu_root.clone();
+                            let tp = menu_path.clone();
+                            let request = remove.clone();
+                            menu.item(PopupMenuItem::new("New chat").disabled(disabled).on_click(
+                                move |_, _, cx| {
+                                    let _ = chat.update(cx, |s, cx| {
+                                        s.git.update(cx, |g, cx| {
+                                            g.open_chat(root.clone(), path.clone(), cx)
+                                        })
+                                    });
+                                },
+                            ))
+                            .item(
+                                PopupMenuItem::new("Open terminal")
+                                    .disabled(disabled)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = terminal.update(cx, |s, cx| {
+                                            s.git.update(cx, |g, cx| {
+                                                g.open_terminal(tr.clone(), tp.clone(), cx)
+                                            })
+                                        });
+                                    }),
+                            )
+                            .separator()
+                            .item(
+                                PopupMenuItem::new(if stopping {
+                                    "Stopping processes…"
                                 } else {
-                                    IconName::ChevronRight
+                                    "Stop processes"
                                 })
-                                .accessibility_label(format!(
-                                    "{} {}",
-                                    if expanded { "Collapse" } else { "Expand" },
-                                    wt.label
-                                ))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if !this.collapsed_worktrees.remove(&collapse_path) {
-                                        this.collapsed_worktrees.insert(collapse_path.clone());
+                                .disabled(blocked || !active || stopping)
+                                .on_click(move |_, _, cx| {
+                                    if let Some(id) = workspace {
+                                        Self::stop_workspace(id, cx);
+                                    }
+                                }),
+                            )
+                            .item(
+                                PopupMenuItem::new("Remove worktree…")
+                                    .disabled(!can_remove || request.is_none())
+                                    .on_click(move |_, _, cx| {
+                                        if let Some(request) = request.clone() {
+                                            let _ = remove_owner.update(cx, |_, cx| {
+                                                cx.emit(WorktreeRequest::Remove(request))
+                                            });
+                                        }
+                                    }),
+                            )
+                        });
+                    let action = Button::new(SharedString::from(key))
+                        .ghost()
+                        .small()
+                        .compact()
+                        .h_8()
+                        .flex_1()
+                        .min_w_0()
+                        .px_0()
+                        .disabled(disabled)
+                        .tooltip(wt.tooltip())
+                        .accessibility_label(format!(
+                            "{}{}",
+                            wt.label,
+                            if selected { ", current worktree" } else { "" }
+                        ))
+                        .on_click(cx.listener(move |s, _, _, cx| {
+                            s.git.update(cx, |g, cx| {
+                                g.open(open_root.clone(), open_path.clone(), cx)
+                            })
+                        }))
+                        .child(
+                            div()
+                                .w_full()
+                                .text_left()
+                                .truncate()
+                                .text_sm()
+                                .text_color(if selected {
+                                    t::accent()
+                                } else {
+                                    t::secondary()
+                                })
+                                .child(wt.label.clone()),
+                        );
+                    let row = row()
+                        .pl_2()
+                        .gap_1()
+                        .h_8()
+                        .child(
+                            Button::new(SharedString::from(format!(
+                                "expand-worktree-{}",
+                                path.display()
+                            )))
+                            .ghost()
+                            .small()
+                            .compact()
+                            .size_5()
+                            .p_0()
+                            .icon(if expanded {
+                                IconName::ChevronDown
+                            } else {
+                                IconName::ChevronRight
+                            })
+                            .accessibility_label(format!(
+                                "{} {}",
+                                if expanded { "Collapse" } else { "Expand" },
+                                wt.label
+                            ))
+                            .on_click(cx.listener(
+                                move |s, _, _, cx| {
+                                    if !s.collapsed_worktrees.remove(&collapse_path) {
+                                        s.collapsed_worktrees.insert(collapse_path.clone());
                                     }
                                     cx.notify();
-                                })),
+                                },
+                            )),
                         )
-                        .child(div().flex_1().min_w_0().child(action))
+                        .child(action)
                         .child(
-                            Button::new(SharedString::from(format!("terminal-{key}")))
-                                .ghost()
-                                .small()
-                                .compact()
-                                .size_5()
-                                .p_0()
-                                .icon(IconName::SquareTerminal)
-                                .tooltip("Open worktree terminal")
-                                .disabled(!wt.available || state.busy || git.busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.git.update(cx, |g, cx| {
+                            Button::new(SharedString::from(format!(
+                                "terminal-worktree-{}",
+                                path.display()
+                            )))
+                            .ghost()
+                            .small()
+                            .compact()
+                            .size_6()
+                            .p_0()
+                            .icon(IconName::SquareTerminal)
+                            .tooltip("Open worktree terminal")
+                            .disabled(disabled)
+                            .on_click(cx.listener(
+                                move |s, _, _, cx| {
+                                    s.git.update(cx, |g, cx| {
                                         g.open_terminal(
                                             terminal_root.clone(),
                                             terminal_path.clone(),
                                             cx,
                                         )
                                     })
-                                })),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("chat-{key}")))
-                                .ghost()
-                                .small()
-                                .compact()
-                                .size_5()
-                                .p_0()
-                                .icon(IconName::Plus)
-                                .tooltip("New chat in this worktree")
-                                .disabled(!wt.available || state.busy || git.busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.git.update(cx, |g, cx| {
-                                        g.open_chat(chat_root.clone(), chat_path.clone(), cx)
-                                    })
-                                })),
-                        )
-                        .children(workspace.filter(|id| running.contains(id)).map(|id| {
-                            self.workspace_stop_button(
-                                id,
-                                &key,
-                                git.busy || !disclosure.open || !self.sections[0].open,
-                                cx,
-                            )
-                        }))
-                        .children(wt.name.as_ref().map(|name| {
-                            let request = RemoveWorktree {
-                                repository: remove_root.clone(),
-                                path: remove_path.clone(),
-                                kind: if wt.missing {
-                                    RemovalKind::MissingRegistration { name: name.clone() }
-                                } else {
-                                    RemovalKind::Directory
                                 },
-                            };
-                            remove_worktree_button(SharedString::from(format!("remove-{key}")), cx)
-                                .accessibility_label(if wt.missing {
-                                    "Remove stale worktree entry"
-                                } else {
-                                    "Remove worktree"
-                                })
-                                .tooltip(if wt.missing {
-                                    "Remove stale worktree entry"
-                                } else {
-                                    "Remove worktree"
-                                })
-                                .opacity(if hovered { 1. } else { 0. })
-                                .disabled(
-                                    !hovered
-                                        || git.busy
-                                        || wt.locked
-                                        || (!wt.available && !wt.missing)
-                                        || !disclosure.open
-                                        || !self.sections[0].open,
-                                )
-                                .on_click(cx.listener(move |_, _, _, cx| {
-                                    cx.stop_propagation();
-                                    cx.emit(WorktreeRequest::Remove(request.clone()))
-                                }))
-                        }));
+                            )),
+                        )
+                        .child(menu);
                     rows.push(
                         column()
-                            .child(entry)
-                            .child(div().pl_9().min_h(activity_height).children(activity))
+                            .child(row)
+                            .children(
+                                workspace
+                                    .and_then(|id| self.activity(&[id], cx))
+                                    .map(|activity| div().pl_8().child(activity)),
+                            )
                             .children(
                                 workspace
                                     .filter(|_| expanded)
@@ -442,48 +420,42 @@ impl Sidebar {
                     );
                 }
             } else {
-                let message = match git.entries.get(&project.path) {
-                    Some(Ok(None)) => "Folder without Git".into(),
-                    Some(Err(error)) => error.clone(),
-                    None => "Reading Git metadata…".into(),
-                    _ => String::new(),
-                };
-                // A non-Git folder still has a selectable workspace.
                 let id = project.workspace;
+                let message = match git.entries.get(&project.path) {
+                    Some(Ok(None)) => "Local folder",
+                    Some(Err(_)) => "Git unavailable",
+                    _ => "Reading Git…",
+                };
                 rows.push(
                     row()
-                        .h(px(t::ROW))
-                        .flex_shrink_0()
-                        .gap(px(6.))
+                        .pl_2()
+                        .gap_1()
+                        .h_8()
                         .child(
-                            list_button(
-                                SharedString::from(format!("folder-{key}")),
-                                message,
-                                false,
-                                cx,
-                            )
-                            .flex_1()
-                            .min_w_0()
-                            .px(px(14.))
-                            .disabled(!disclosure.open || !self.sections[0].open || git.busy)
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    this.projects.update(cx, |p, cx| p.select(id, cx))
-                                },
-                            )),
+                            Button::new(SharedString::from(format!("folder-{key}")))
+                                .ghost()
+                                .small()
+                                .compact()
+                                .flex_1()
+                                .min_w_0()
+                                .px_0()
+                                .label(message)
+                                .on_click(cx.listener(move |s, _, _, cx| {
+                                    s.projects.update(cx, |p, cx| p.select(id, cx))
+                                })),
                         )
                         .child(
                             Button::new(SharedString::from(format!("terminal-{key}")))
                                 .ghost()
                                 .small()
                                 .compact()
-                                .size_5()
+                                .size_6()
                                 .p_0()
                                 .icon(IconName::SquareTerminal)
                                 .tooltip("Open folder terminal")
-                                .disabled(state.busy || git.busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.projects.update(cx, |p, cx| p.show_terminal(id, cx));
+                                .disabled(blocked)
+                                .on_click(cx.listener(move |s, _, _, cx| {
+                                    s.projects.update(cx, |p, cx| p.show_terminal(id, cx))
                                 })),
                         )
                         .child(
@@ -491,23 +463,15 @@ impl Sidebar {
                                 .ghost()
                                 .small()
                                 .compact()
-                                .size_5()
+                                .size_6()
                                 .p_0()
                                 .icon(IconName::Plus)
                                 .tooltip("New chat in this folder")
-                                .disabled(state.busy || git.busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.projects.update(cx, |p, cx| p.create_chat_in(id, cx));
+                                .disabled(blocked)
+                                .on_click(cx.listener(move |s, _, _, cx| {
+                                    s.projects.update(cx, |p, cx| p.create_chat_in(id, cx))
                                 })),
                         )
-                        .children(running.contains(&id).then(|| {
-                            self.workspace_stop_button(
-                                id,
-                                &key,
-                                git.busy || !disclosure.open || !self.sections[0].open,
-                                cx,
-                            )
-                        }))
                         .into_any_element(),
                 );
                 rows.push(self.workspace_chats(id, cx).into_any_element());
@@ -523,21 +487,58 @@ impl Sidebar {
                     .into_any_element(),
             );
         }
-        if let Some(error) = git
+        let error = git.error.as_ref().or(state.error.as_ref()).or(self
+            .terminals
+            .read(cx)
             .error
-            .as_ref()
-            .or(git.watch_error.as_ref())
-            .or(state.error.as_ref())
-            .or(terminal_error.as_ref())
-        {
+            .as_ref());
+        if let Some(error) = error {
             groups.push(
-                div()
-                    .text_size(px(11.))
-                    .text_color(t::red())
-                    .child(error.clone())
+                column()
+                    .gap_1()
+                    .py_2()
+                    .child(div().text_xs().text_color(t::red()).child(error.clone()))
                     .into_any_element(),
             );
         }
-        column().children(groups)
+        if let Some(error) = &git.watch_error {
+            groups.push(
+                row()
+                    .py_2()
+                    .gap_2()
+                    .child(
+                        column()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(t::yellow())
+                                    .child("Git updates paused"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(t::secondary())
+                                    .child("Refresh to update branches."),
+                            ),
+                    )
+                    .child(
+                        Button::new("refresh-git-warning")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .icon(IconName::RotateCw)
+                            .tooltip(error.clone())
+                            .accessibility_label("Refresh Git metadata")
+                            .on_click(
+                                cx.listener(|s, _, _, cx| s.git.update(cx, |g, cx| g.refresh(cx))),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        column().gap_2().children(groups)
     }
 }

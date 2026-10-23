@@ -124,6 +124,3 @@ pub use titlebar::{
     titlebar_leading_inset, titlebar_options, titlebar_trailing_inset, window_titlebar,
     workspace_titlebar,
 };
-
-mod tool_header;
-pub use tool_header::hover_action;

@@ -149,10 +149,12 @@ PANEL dla wysokości i CONTENT_REVEAL dla treści. `header` zwraca przycisk,
 `body` przycina treść do bieżącej wysokości i stosuje opacity/przesunięcie.
 Sidebar pokazuje projekty, ich worktree i zagnieżdżone rozmowy oraz osobne
 Private chats. Mierzone body zachowuje wysokość przy dowolnej liczbie rozmów.
-Wiersz rozmowy ma tytuł i metadane agenta/statusu; kontekst jest na rodzicu oraz
-w tooltipie. Rodzice agregują stan pracy. Files i Tasks nie mają kopii po lewej:
+Wiersze rozmów projektowych i prywatnych mają ten sam tytuł i metadane
+agenta/statusu; kontekst jest na rodzicu oraz w tooltipie. Agenci w PTY są
+oznaczeni CLI; ich wybór skupia istniejący terminal. Rodzice agregują stan pracy. Files i Tasks nie mają kopii po lewej:
 Files/Changes/Tasks/Agent renderuje dotychczasowy Inspector we wspólnym panelu
-narzędzi. Szczegóły interakcji i własności: [układ workspace'u](features/workspace-layout.md).
+narzędzi, z widoczną nawigacją obok zakładki Terminal. Wąski panel ma bieżącą
+nazwę strony i jej alternatywy w menu. Szczegóły interakcji i własności: [układ workspace'u](features/workspace-layout.md).
 
 Nagłówki mają przezroczyste tło także na hover/press. Jawny stan `hovered`
 zmienia kolor tekstu/strzałki z faint na secondary; nie polegamy na nadpisywanym
@@ -314,7 +316,7 @@ W głównej aplikacji modal worktree zablokował zmianę workspace'u i toggle
 inspektora, a Escape przywrócił interakcje. Stan disabled sprawdzono również
 na rzeczywistym przycisku Commit staged bez staged zmian.
 
-- Nagłówki projektów używają Disclosure i hover_action; worktree korzystają
+- Nagłówki projektów używają Disclosure i standardowych przycisków; worktree korzystają
   z list_button bez tła, z gwiazdką wskazującą aktywny katalog.
 - empty_state(action, status, error) — centralny pusty stan; caller odpowiada
   za dostępność akcji, komunikaty oraz motion/pozycjonowanie.
@@ -376,17 +378,8 @@ profile nadal korzystają ze stanów utrzymywanych przez ToolsPreferences.
 
 ### Agent forms and tool headers
 
-- `ToolHeader::button`: wspólna prezentacja strzałki, ikony, nazwy i liczników.
-  Właściciel wybiera akcję (rozwiń lub uruchom) i przekazuje stan hoveru.
-- `hover_action(id, button, callback)`: osobny hitbox dla hoveru. Tooltip pozostaje
-  na przycisku wewnątrz. To celowe: GPUI Kit instaluje tooltip przez `on_hover`,
-  nadpisując wcześniejszy listener na tym samym elemencie. Wymiary nadaje caller.
-- `SelectOption`: stabilna wartość i niezależna etykieta dla natywnego Select.
-  Wspólne dla General i formularzy agentów.
-- `preferences/agent/options.rs`: pojedyncza definicja opcji używana podczas
-  tworzenia kontrolek i zmiany profilu. `state.rs` obsługuje ładowanie/zbieranie
-  draftu, `view.rs` sekcje formularza, a `environment.rs` wiersze zmiennych i
-  formularz dodawania. Encje i subskrypcje zachowują dotychczasowych właścicieli.
+- Projekt i worktree mają jawne menu akcji. Kontrolki zachowują natywne
+  focus/hover/disabled; etykiety branchy mają pierwszeństwo przed skrótami ikonowymi.
 
 ## Git Changes i diff
 

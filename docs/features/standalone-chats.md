@@ -9,8 +9,9 @@ Jeden wiersz odpowiada jednemu `PaneKind::Chat` i zachowuje jego PaneId.
 Źródłem pozostaje autorytatywny runtime workspace z ProjectsState, także dla
 nieodwiedzonych rozmów po restore. Kolejność wynika z tabów i ich liści.
 
-Prywatne rozmowy pokazują tytuł, agenta, status i kontekst Without a project /
-Private folder. Rozmowy w drzewie pokazują tytuł, agenta i status; projekt i HEAD
+Prywatne rozmowy pokazują tytuł, agenta i status; sekcja Private chats zastępuje
+powtarzane w każdym wierszu Without a project / Private folder. Tooltip i etykieta
+dostępności zachowują pełny kontekst. Rozmowy w drzewie pokazują tytuł, agenta i status; projekt i HEAD
 są na rodzicu i w tooltipie. Obserwacja nie uruchamia rozmowy, a render nie wykonuje
 I/O. Kolory agentów, statusów i zaznaczenia pochodzą z `ui/theme.rs`.
 

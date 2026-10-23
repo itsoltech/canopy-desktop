@@ -5,7 +5,6 @@ use canopy_desktop::state::projects::Project;
 pub(super) struct ChatContext {
     pub project: String,
     pub checkout: String,
-    pub git: bool,
     pub detail: String,
 }
 
@@ -15,7 +14,6 @@ impl ChatContext {
             return Self {
                 project: "Without a project".into(),
                 checkout: "Private folder".into(),
-                git: false,
                 detail: "Without a project · private chat folder".into(),
             };
         };
@@ -32,7 +30,6 @@ impl ChatContext {
         let mut context = Self {
             project: name.into_owned(),
             checkout: String::new(),
-            git: repository.is_some(),
             detail: format!("Project: {}\nFolder: {}", root.display(), path.display()),
         };
         context.checkout = if let Some(worktree) =

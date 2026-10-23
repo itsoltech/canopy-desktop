@@ -99,7 +99,8 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 - Lewy sidebar ma drzewo projekt → worktree → rozmowy oraz osobne Private chats.
   Centrum pokazuje rozmowę, a panel narzędzi ma niezależne taby, domyślnie po prawej.
   Panel może być na dole, zmaksymalizowany lub schowany. Files, Changes, Tasks i Agent
-  są w jego menu. Jednoliniowy titlebar zastępuje osobne nagłówki i ścieżkę projektu.
+  są widocznymi zakładkami (wąski panel ma wybór stron w menu). Jednoliniowy
+  titlebar pokazuje projekt, branch i rodzaj pracy, zastępując osobne nagłówki.
   Szczegóły: [układ workspace'u](features/workspace-layout.md).
 - Preferences otwieramy jako osobne okno aplikacji, nie modal całego workspace'u.
   Mniejsze formularze/potwierdzenia korzystają ze wspólnego systemu modali.
@@ -142,13 +143,13 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 - Projekty, worktree i Private chats są zwijalne. Wybrany worktree ma subtelne
   zaznaczenie, a jego rozmowy są wcięte. Nagłówki projektów pokazują aktywność
   również po zwinięciu. Terminal i New chat są przy właściwym worktree;
-  usuwanie worktree pozostaje dostępne na hover. Refresh Git jest w menu projektu.
+  usuwanie i Stop processes są w menu worktree. Refresh Git jest w menu projektu.
 - Narzędzia/profile uruchamia menu panelu narzędzi; wybór profilu jest jawny.
-- Czerwony Stop jest widoczny, gdy workspace ma procesy, również dla
-  `Folder without Git`. Obejmuje wszystkie jego taby, nie wszystkie projekty aplikacji.
-- Stop i usuwanie używają wspólnej geometrii: 16 × 16 jednostek logicznych,
-  wyśrodkowany symbol, identyczne wyrównanie i zaokrąglenie. Stop ma czerwony
-  środek, hover tła czerwony z alfą 0.12, pressed 0.20.
+- Stop processes jest w menu worktree, także dla folderu bez Git, i obejmuje
+  wszystkie jego taby. Stop oraz Remove worktree mają jawne nazwy i stan disabled.
+  Nie dodawaj kolejnych ikon kosztem czytelnej nazwy brancha.
+- Agenci w PTY są oznaczeni CLI. Wybór w drzewie pokazuje istniejący terminal
+  w głównym obszarze; wybór natywnego czatu przywraca układ dzielony.
 - Ustal również min/max width/height małych przycisków. `compact()` może
   narzucić minimalną szerokość większą niż `.size()`, tworząc prostokąt.
 - Sidebar ma scrollbar. Zwijanie FileTree nie zmienia odstępów między nagłówkami.
@@ -170,11 +171,11 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 - Marginesy między komponentami należą do call site. Wspólne wnętrze kontrolki
   może zawierać padding/gap. Korzystaj z istniejących input/dropdown/textarea/button.
 - Wspólne wzorce: `form_field`, `stacked_setting`, `preference_section`,
-  `SelectOption`, `ToolHeader`, `Disclosure`, `hover_action`, modal helpers.
+  `SelectOption`, `Disclosure`, modal helpers.
 - **GPUI Kit 0.6.0 managed tooltip instaluje własny on_hover na Button.**
   Może nadpisać poprzedni handler; w debug dwa listenery na jednej interaktywności
   są niedozwolone. Dla hoveru sterującego stanem używaj osobnego kontenera
-  `hover_action`, a tooltip zostaw na przycisku wewnątrz. To naprawiona regresja.
+  obejmującego przycisk, a tooltip zostaw na przycisku wewnątrz. To naprawiona regresja.
 - Kontener hoveru obejmuje cały logiczny cel, aby przejście z labelki na ikonę
   nie kasowało stanu. Nie twórz oddzielnego przycisku strzałki w jednym nagłówku.
 - Stabilne ID elementów wynikają z modelu, nie z aktualnego indeksu/nazwy ani

@@ -22,6 +22,7 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     Icon, IconName, Sizable,
     bubble::{Bubble, BubbleContent},
+    button::ButtonVariants,
     message::MessageAlignment,
     shimmer::ShimmerText,
     spinner::Spinner,
@@ -305,50 +306,35 @@ impl ChatView {
     }
 
     fn empty_state(&self, cx: &App) -> Div {
-        let (account, model) = self.selection_label(cx);
-        let cwd = self
-            .pane
-            .metadata
-            .cwd
-            .as_ref()
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let starting = self.starting && self.error.is_none();
-        column()
-            .flex_1()
-            .items_center()
-            .justify_center()
-            .gap(px(8.))
-            .px(px(24.))
-            .child(
-                row()
-                    .gap(px(8.))
-                    .child(super::composer::provider_icon(self.provider()))
-                    .child(div().text_size(px(16.)).text_color(t::text()).child(account)),
-            )
-            .child(div().text_size(px(12.)).text_color(t::secondary()).child(model))
-            .child(
-                div()
-                    .max_w(px(COLUMN))
-                    .text_size(px(12.))
-                    .text_color(t::muted())
-                    .truncate()
-                    .child(cwd),
-            )
-            .children(starting.then(|| {
-                div()
-                    .text_size(px(12.))
-                    .text_color(t::faint())
-                    .child("Starting…")
-            }))
-            .children(self.resumed.then(|| {
-                div()
-                    .max_w(px(420.))
-                    .text_center()
-                    .text_size(px(12.))
-                    .text_color(t::secondary())
-                    .child("Earlier messages aren't shown yet. The agent still has the conversation context.")
-            }))
+        let app = cx.global::<crate::app_state::AppState>();
+        let existing = app.workspace.read(cx).tool_tab().and_then(|tab| {
+            tab.root
+                .find(tab.focused)
+                .filter(|p| p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal)
+                .cloned()
+                .or_else(|| {
+                    tab.root.panes().into_iter().find(|p| {
+                        p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
+                    })
+                })
+        });
+        column().flex_1().justify_end().items_center().px_6()
+            .child(column().w_full().max_w(rems(44.)).pb_6().gap_2()
+                .child(div().text_lg().font_weight(FontWeight::MEDIUM).text_color(t::text())
+                    .child(if self.resumed { "Continue this conversation" } else { "What would you like to work on?" }))
+                .child(div().text_sm().text_color(t::secondary()).child(if self.resumed {
+                    "Earlier messages aren't shown yet. The agent still has the conversation context."
+                } else { "Describe a task, ask a question, or mention a file below." }))
+                .children((self.starting && self.error.is_none()).then(|| div().text_xs().text_color(t::muted()).child("Connecting to agent…")))
+                .children(existing.map(|pane| {
+                    let provider = Provider::from_tool(&pane.tool);
+                    let label = provider.map_or_else(|| "Focus open terminal".to_owned(), |p| format!("Continue {} in terminal", p.name()));
+                    gpui_kit::component::button::Button::new("chat-focus-terminal")
+                        .ghost().small().label(label).icon(IconName::SquareTerminal)
+                        .on_click(move |_, _, cx| { cx.global::<crate::app_state::AppState>().workspace.clone().update(cx, |w, cx| {
+                            if w.activate_pane(pane.id).is_ok() { w.tool_panel_mut().set_maximized(true); cx.notify(); }
+                        }); })
+                })))
     }
 
     /// Session problems and ends sit right above the composer, with Restart.
@@ -1297,4 +1283,46 @@ fn permission_row(
                 now,
             )
         }))
+}
+
+#[cfg(test)]
+mod empty_tests {
+    use super::ChatView;
+    use crate::app_state::AppState;
+    use canopy_desktop::state::workspace::Workspace;
+    use gpui_kit::test::TestWindowExt;
+    use gpui_kit::{AppContext, TestAppContext, component::Root, px, size};
+
+    #[gpui_kit::test]
+    fn empty_chat_offers_existing_terminal_near_the_composer_without_creating_a_session(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let (app, chat, terminal) = cx.update(|cx| {
+            crate::ui::theme::init(cx);
+            let mut model = Workspace::new();
+            model.open_conversation("New chat", "claude");
+            let chat = model.active().unwrap().root.first().clone();
+            model.open("Codex — Default", "codex");
+            let terminal = model.active().unwrap().focused;
+            model.activate_pane(chat.id).unwrap();
+            (AppState::install_test(model, cx), chat, terminal)
+        });
+        let window = cx.open_window(size(px(780.), px(780.)), |window, cx| {
+            let view = cx.new(|cx| ChatView::new(chat, window, cx));
+            Root::new(view, window, cx)
+        });
+        cx.update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let link = window.find("chat-focus-terminal");
+            assert!(link.bounds().top() > px(390.));
+            assert!(link.label().unwrap().contains("Codex"));
+            window.click("chat-focus-terminal", cx);
+            assert_eq!(app.workspace.read(cx).active().unwrap().focused, terminal);
+            assert!(app.workspace.read(cx).tool_panel().is_maximized());
+            assert_eq!(app.workspace.read(cx).all_panes().len(), 2);
+            assert!(app.terminals.read(cx).views.is_empty());
+        })
+        .unwrap();
+    }
 }

@@ -114,18 +114,37 @@ impl Sidebar {
                 .iter()
                 .find(|p| p.workspace == workspace.id);
             let context = ChatContext::new(project, git);
-            let context_color = t::chat_context(project.is_some());
+
             let workspace_id = workspace.id;
             for tab in workspace.tabs() {
-                for pane in tab
-                    .root
-                    .panes()
-                    .into_iter()
-                    .filter(|p| p.metadata.kind == PaneKind::Chat)
-                {
+                for pane in tab.root.panes().into_iter().filter(|p| {
+                    p.metadata.kind == PaneKind::Chat
+                        || (p.metadata.kind == PaneKind::Terminal
+                            && Provider::from_tool(&p.tool).is_some())
+                }) {
                     let id = pane.id;
-                    let title = workspace.chat_title(id).unwrap_or("New chat").to_owned();
-                    let selected = focused == Some(id);
+                    let cli = pane.metadata.kind == PaneKind::Terminal;
+                    let title = if cli {
+                        if matches!(
+                            &tab.root,
+                            canopy_desktop::state::workspace::SplitTree::Leaf(_)
+                        ) {
+                            &tab.title
+                        } else {
+                            pane.metadata.title.as_deref().unwrap_or(&tab.title)
+                        }
+                    } else {
+                        workspace.chat_title(id).unwrap_or("New chat")
+                    }
+                    .to_owned();
+                    let live = app.workspace.read(cx);
+                    let selected = if cli {
+                        live.id == workspace.id
+                            && live.tool_panel().is_maximized()
+                            && live.active().is_some_and(|t| t.focused == id)
+                    } else {
+                        focused == Some(id) && !live.tool_panel().is_maximized()
+                    };
                     let provider = Provider::from_tool(&pane.tool);
                     let agent = match provider {
                         Some(provider) => provider.name(),
@@ -140,7 +159,12 @@ impl Sidebar {
                         "Idle" => t::green(),
                         _ => t::secondary(),
                     };
-                    let action = Button::new(SharedString::from(format!("chat-{id:?}")))
+                    let action =
+                        Button::new(SharedString::from(if cli {
+                            format!("agent-terminal-{id:?}")
+                        } else {
+                            format!("chat-{id:?}")
+                        }))
                         .custom(
                             ButtonCustomVariant::new(cx)
                                 .foreground(t::text())
@@ -150,11 +174,7 @@ impl Sidebar {
                         .small()
                         .compact()
                         .selected(selected)
-                        .h(if nested {
-                            t::nested_chat_row_height()
-                        } else {
-                            t::chat_row_height()
-                        })
+                        .h(t::chat_row_height())
                         .w_full()
                         .min_w_0()
                         .px_3()
@@ -162,9 +182,10 @@ impl Sidebar {
                         .rounded(t::control_radius(cx))
                         .disabled(!enabled)
                         .accessibility_label(format!(
-                            "{}, {title}, {}, {agent}, {status}{}",
+                            "{}, {title}, {}, {agent}, {status}{}{}",
                             context.project,
                             context.checkout,
+                            if cli { ", CLI terminal" } else { "" },
                             if selected { ", selected" } else { "" }
                         ))
                         .tooltip(format!(
@@ -177,130 +198,53 @@ impl Sidebar {
                                 .items_start()
                                 .gap_1()
                                 .text_left()
-                                .when(!nested, |column| {
-                                    column.child(
-                                        row()
-                                            .w_full()
-                                            .pr_6()
-                                            .gap_2()
-                                            .text_xs()
-                                            .line_height(t::chat_metadata_line_height())
-                                            .text_color(context_color)
-                                            .child(
-                                                chat_text(id, "project", context.project.clone())
-                                                    .flex_1(),
-                                            )
-                                            .child(
-                                                row()
-                                                    .flex_shrink_0()
-                                                    .gap_1()
-                                                    .text_color(status_color)
-                                                    .child(
-                                                        div()
-                                                            .size_1p5()
-                                                            .flex_shrink_0()
-                                                            .rounded_full()
-                                                            .bg(status_color),
-                                                    )
-                                                    .child(status),
-                                            ),
-                                    )
-                                })
                                 .child(
                                     chat_text(id, "title", title.clone())
                                         .w_full()
-                                        .when(nested, |d| d.pr_5())
+                                        .when(!cli, |d| d.pr_5())
                                         .text_sm()
                                         .line_height(t::chat_title_line_height())
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(t::text()),
                                 )
-                                .when(nested, |column| {
-                                    column.child(
-                                        row()
-                                            .w_full()
-                                            .gap_2()
-                                            .text_xs()
-                                            .line_height(t::chat_metadata_line_height())
-                                            .child(
-                                                chat_text(id, "agent", agent.to_owned())
-                                                    .flex_1()
-                                                    .text_color(match provider {
-                                                        Some(Provider::Claude) => t::claude_mark(),
-                                                        _ => t::codex_mark(),
-                                                    }),
+                                .child(
+                                    row()
+                                        .w_full()
+                                        .gap_2()
+                                        .text_xs()
+                                        .line_height(t::chat_metadata_line_height())
+                                        .child(
+                                            chat_text(
+                                                id,
+                                                "agent",
+                                                if cli {
+                                                    format!("{agent} · CLI")
+                                                } else {
+                                                    agent.to_owned()
+                                                },
                                             )
-                                            .child(div().text_color(status_color).child(status)),
-                                    )
-                                })
-                                .when(!nested, |column| {
-                                    column.child(
-                                        row()
-                                            .w_full()
-                                            .gap_2()
-                                            .text_xs()
-                                            .line_height(t::chat_metadata_line_height())
-                                            .text_color(t::secondary())
-                                            .child(
-                                                row()
-                                                    .flex_1()
-                                                    .gap_1p5()
-                                                    .child(if context.git {
-                                                        custom_icon("git-branch")
-                                                            .size_3()
-                                                            .flex_shrink_0()
-                                                            .text_color(context_color)
-                                                            .into_any_element()
-                                                    } else {
-                                                        Icon::new(IconName::Folder)
-                                                            .size_3()
-                                                            .flex_shrink_0()
-                                                            .text_color(context_color)
-                                                            .into_any_element()
-                                                    })
-                                                    .child(
-                                                        chat_text(
-                                                            id,
-                                                            "checkout",
-                                                            context.checkout.clone(),
-                                                        )
-                                                        .flex_1(),
-                                                    ),
-                                            )
-                                            .child(
-                                                row()
-                                                    .flex_shrink_0()
-                                                    .gap_1p5()
-                                                    .child(match provider {
-                                                        Some(Provider::Claude) => {
-                                                            custom_icon("claude")
-                                                                .size_3p5()
-                                                                .flex_shrink_0()
-                                                                .text_color(t::claude_mark())
-                                                                .into_any_element()
-                                                        }
-                                                        Some(Provider::Codex) => {
-                                                            custom_icon("openai")
-                                                                .size_3p5()
-                                                                .flex_shrink_0()
-                                                                .text_color(t::codex_mark())
-                                                                .into_any_element()
-                                                        }
-                                                        None => Icon::new(IconName::Bot)
-                                                            .size_3()
-                                                            .into_any_element(),
-                                                    })
-                                                    .child(chat_text(
-                                                        id,
-                                                        "agent",
-                                                        agent.to_owned(),
-                                                    )),
-                                            ),
-                                    )
-                                }),
+                                            .flex_1()
+                                            .text_color(match provider {
+                                                Some(Provider::Claude) => t::claude_mark(),
+                                                _ => t::codex_mark(),
+                                            }),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_shrink_0()
+                                                .text_color(status_color)
+                                                .child(status),
+                                        ),
+                                ),
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.projects.update(cx, |p, cx| p.focus_agent(id, cx));
+                            this.projects.update(cx, |p, cx| {
+                                if cli {
+                                    p.focus_agent_terminal(id, cx)
+                                } else {
+                                    p.focus_agent(id, cx)
+                                }
+                            });
                         }));
                     let owner = cx.entity().downgrade();
                     let menu = Button::new(SharedString::from(format!("chat-menu-{id:?}")))
@@ -342,11 +286,7 @@ impl Sidebar {
                     rows.push(
                         div()
                             .relative()
-                            .h(if nested {
-                                t::nested_chat_row_height()
-                            } else {
-                                t::chat_row_height()
-                            })
+                            .h(t::chat_row_height())
                             .flex_shrink_0()
                             .child(action)
                             .when(selected, |row| {
@@ -361,7 +301,9 @@ impl Sidebar {
                                         .bg(t::accent()),
                                 )
                             })
-                            .child(div().absolute().top_2().right_1p5().child(menu))
+                            .children(
+                                (!cli).then(|| div().absolute().top_2().right_1p5().child(menu)),
+                            )
                             .into_any_element(),
                     );
                 }
@@ -369,7 +311,7 @@ impl Sidebar {
         }
         if nested {
             return column()
-                .ml_7()
+                .ml_5()
                 .pl_2()
                 .border_l_1()
                 .border_color(t::border())
@@ -430,7 +372,7 @@ impl Sidebar {
             .px_3()
             .pt_2()
             .pb_2()
-            .child(self.header(1, "PRIVATE CHATS", now, cx))
+            .child(self.header(1, "Private chats", now, cx))
             .child(self.sections[1].measured_body(
                 "sidebar-chats-body",
                 column().gap_1().children(rows),

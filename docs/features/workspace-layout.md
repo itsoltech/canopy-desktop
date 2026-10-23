@@ -1,22 +1,34 @@
 # Nawigacja i obszar narzędzi worktree
 
 Lewy sidebar ma jedno drzewo: projekt → worktree → rozmowy. Poniżej pozostaje
-sekcja Private chats. Wiersz rozmowy pokazuje tytuł, agenta i tekstowy status;
-kontekst projektu/HEAD jest na rodzicu i w tooltipie. Zwijanie nie uruchamia
+sekcja Private chats. Obie listy używają tych samych dwóch linii: tytuł oraz
+agent i tekstowy status. Prywatny czat nie powtarza informacji „Without a project”
+i „Private folder”. Kontekst projektu/HEAD pozostaje na rodzicu i w tooltipie. Zwijanie nie uruchamia
 ani nie zatrzymuje sesji. Rodzice pokazują liczbę pracujących agentów i rozmów
 wymagających uwagi. Kolory statusów, zaznaczenia i marki pochodzą z `ui/theme.rs`.
 
 Kliknięcie worktree przywraca jego ostatni widok. Przycisk terminala przy
 worktree otwiera wybraną istniejącą sesję terminala (lub pierwszą dostępną),
-a dopiero przy jej braku tworzy Shell. Plus przy worktree tworzy w nim rozmowę.
+a dopiero przy jej braku tworzy Shell. Obok jest jedno menu: New chat, Open terminal,
+Stop processes i Remove worktree. Projekt ma menu New worktree, Refresh Git metadata
+i Close project. Aktywny worktree wyróżnia kolor nazwy, wybrana rozmowa tło i pasek.
 Globalne New chat nadal używa aktywnego worktree; prywatny czat wybiera się
 jawnie w menu. Sam wybór projektu nie tworzy procesu.
 
 ## Centrum i narzędzia
 
-Górny pasek ma jedną linię: projekt i tytuł rozmowy. Nie ma osobnej belki ze
+Górny pasek ma jedną linię: projekt, branch oraz rodzaj i tytuł otwartej pracy. Nie ma osobnej belki ze
 ścieżką ani drugiego tytułu nad treścią. Centrum wyświetla wybraną rozmowę.
-Pusty stan ma New chat. Rozmowy w istniejącym wspólnym splicie pozostają razem.
+Pusty czat ma krótką podpowiedź nad composerem; wybór modelu/konta pozostaje
+w composerze, bez drugiego opisu na środku ekranu. Jeżeli bieżący tab narzędzi
+zawiera terminal, podpowiedź pozwala go skupić. Rozmowy w istniejącym wspólnym
+splicie pozostają razem.
+
+Agenci w terminalu są też w drzewie, z dopiskiem CLI. Wybór takiego wiersza
+maksymalizuje istniejący terminal, zachowując jego PaneId, proces i kontekst.
+Wybór czatu przywraca układ rozmowy z panelem narzędzi. Nie konwertujemy sesji CLI
+na czaty. Karty terminali jawnie oznaczają agentów jako CLI. Inspector Agent w
+zmaksymalizowanym terminalu pokazuje tę sesję; w układzie rozmowy śledzi czat.
 
 Panel narzędzi jest po prawej, z opcją Dock at bottom, maksymalizacją i resize.
 Ma własny wybór taba. Wybór innej rozmowy w tym samym worktree zachowuje
@@ -25,10 +37,12 @@ Split dzieli wybraną sesję i tworzy niezależny PTY. Menu ma także pionowy sp
 Każdy pane ma przycisk zamknięcia; karty zachowują rename, close, reorder i dock.
 Nowe shelle dostają rozróżnialne nazwy Terminal 1, Terminal 2 itd.
 
-Menu panelu udostępnia Files, Changes, Tasks, Agent oraz narzędzia/profile.
+Panel ma widoczne zakładki Terminal, Files, Changes, Tasks i Agent. Wąski panel
+pokazuje bieżącą zakładkę i wszystkie strony w menu. Menu pozostaje miejscem
+na profile/narzędzia, split i opcje układu.
 Nie ma ich drugiej kopii po lewej. Files używa istniejącego FileTree i edytorów,
 Tasks i Changes dotychczasowych paneli. Agent śledzi centralną rozmowę również
-przy fokusie terminala. Klik nazwy strony narzędzi wraca do tabów terminala.
+przy fokusie terminala. Zakładka Terminal wraca do wybranego taba terminala.
 Files/Changes i tworzenie nowych narzędzi wymagają projektu; Agent/Tasks
 pozostają dostępne dla rozmów prywatnych. Błąd uruchomienia jest widoczny w panelu.
 
@@ -61,3 +75,9 @@ ukrywanie bez zamykania i roundtrip oraz odczyt starszego snapshotu. Testy
 headless GPUI używają prawdziwego sidebara i okna Workspace: zagnieżdżanie,
 zwijanie, klawiatura, split, maksymalizacja i przeniesienie panelu na dół.
 Nie zastępują ręcznego sprawdzenia wyglądu natywnego okna ani E2E.
+
+Komunikat o niedostępnych watcherach Git jest spokojnym ostrzeżeniem „Git updates
+paused” z widocznym Refresh. Nie udaje, że ręczne odświeżenie naprawia watcher.
+Usunięto stopkę z wersją i pozorne dane Idle/zużycia zasobów/liczników; błędy
+pozostają przy odpowiadających im funkcjach, ustawienia i narzędzia deweloperskie
+w dolnym pasku.

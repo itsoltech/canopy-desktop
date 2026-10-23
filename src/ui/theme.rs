@@ -107,10 +107,6 @@ pub fn shell() -> Hsla {
     oklch(0.64, 0.17, 6., 1.)
 }
 
-/// Conversation context: teal for a project, violet for its own private folder.
-pub fn chat_context(project: bool) -> Hsla {
-    if project { goal() } else { skill() }
-}
 pub fn claude_mark() -> Hsla {
     oklch(0.75, 0.14, 42., 1.)
 }
@@ -126,13 +122,10 @@ pub fn chat_hover() -> Hsla {
 
 pub const SPACING_UNIT: f32 = 4.;
 pub fn chat_row_height() -> Rems {
-    rems(5.25)
-}
-pub fn nested_chat_row_height() -> Rems {
     rems(3.25)
 }
-pub fn project_header_height(active: bool) -> Rems {
-    rems(if active { 2.75 } else { 2. })
+pub fn navigation_height() -> Rems {
+    rems(2.25)
 }
 pub fn chat_metadata_line_height() -> Rems {
     rems(1.)

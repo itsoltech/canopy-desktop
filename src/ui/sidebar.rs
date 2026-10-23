@@ -12,9 +12,6 @@ pub struct Sidebar {
     terminals: Entity<crate::app_state::Terminals>,
     collapsed_worktrees: std::collections::HashSet<std::path::PathBuf>,
     project_groups: std::collections::HashMap<std::path::PathBuf, Disclosure>,
-    hovered_project_item: Option<String>,
-    stop_feedback:
-        std::collections::HashMap<canopy_desktop::state::workspace::WorkspaceId, ButtonLoading>,
     _tool_events: Vec<Subscription>,
     projects: Entity<crate::app_state::ProjectsState>,
     _projects_observer: Subscription,
@@ -34,8 +31,7 @@ impl Sidebar {
             cx.observe(&app.files, |_, _, cx| cx.notify()),
             cx.observe(&app.git, |_, _, cx| cx.notify()),
             cx.observe(&tools, |_, _, cx| cx.notify()),
-            cx.observe(&terminals, |this, _, cx| {
-                this.sync_stop_feedback(cx);
+            cx.observe(&terminals, |_, _, cx| {
                 cx.notify();
             }),
             cx.observe(&app.chats, |_, _, cx| cx.notify()),
@@ -61,8 +57,6 @@ impl Sidebar {
                     )
                 })
                 .collect(),
-            hovered_project_item: None,
-            stop_feedback: Default::default(),
             _tool_events: tool_events,
             scroll,
             projects,
@@ -74,7 +68,7 @@ impl Sidebar {
     }
     fn attach_project(&self, cx: &mut Context<Self>) -> Button {
         quiet_button("attach-project", "Attach project", self.attach_hovered, cx)
-            .child(div().text_size(px(10.)).child("+ attach"))
+            .child(div().text_size(px(10.)).child("Open…"))
             .on_click(cx.listener(|this, _, window, cx| {
                 this.projects
                     .update(cx, |state, cx| state.open_folder(window, cx));
@@ -91,14 +85,29 @@ impl Sidebar {
         now: Instant,
         cx: &Context<Self>,
     ) -> impl IntoElement {
-        self.sections[index]
-            .header(label, label, now, cx)
-            .on_hover(cx.listener(move |this, hovered, _, cx| {
-                if this.sections[index].hovered != *hovered {
-                    this.sections[index].hovered = *hovered;
-                    cx.notify();
-                }
-            }))
+        use gpui_kit::component::{Sizable, button::ButtonVariants};
+        let section = &self.sections[index];
+        Button::new(label)
+            .ghost()
+            .small()
+            .compact()
+            .h(t::navigation_height())
+            .w_full()
+            .p_0()
+            .accessibility_label(format!(
+                "{} {label}",
+                if section.open { "Collapse" } else { "Expand" }
+            ))
+            .child(
+                row()
+                    .w_full()
+                    .gap_2()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(t::secondary())
+                    .child(section.chevron(now))
+                    .child(label),
+            )
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.focus.focus(window, cx);
                 this.sections[index].toggle(Instant::now(), cx);
@@ -247,9 +256,9 @@ impl Render for Sidebar {
                             .child(
                                 column()
                                     .flex_shrink_0()
-                                    .px(px(12.))
-                                    .pt(px(8.))
-                                    .pb(px(14.))
+                                    .px_3()
+                                    .pt_1()
+                                    .pb_3()
                                     .child(
                                         row()
                                             .h(px(36.))
@@ -257,7 +266,7 @@ impl Render for Sidebar {
                                             .child(
                                                 div()
                                                     .flex_1()
-                                                    .child(self.header(0, "PROJECTS", now, cx)),
+                                                    .child(self.header(0, "Projects", now, cx)),
                                             )
                                             .child(self.attach_project(cx)),
                                     )
@@ -271,17 +280,6 @@ impl Render for Sidebar {
                     )
                     .vertical_scrollbar(&self.scroll),
             )
-            .child(
-                row()
-                    .h(px(28.))
-                    .flex_shrink_0()
-                    .px(px(12.))
-                    .border_t_1()
-                    .border_color(t::border())
-                    .text_size(px(10.))
-                    .text_color(t::faint())
-                    .child("V0.13.0-NEXT.28"),
-            )
     }
 }
 
@@ -294,6 +292,56 @@ mod tests {
     use gpui_kit::component::Root;
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{AppContext, TestAppContext, px, size};
+
+    #[gpui_kit::test]
+    fn cli_agent_selection_uses_its_existing_terminal_and_chat_returns_to_split_layout(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let (app, chat, cli) = cx.update(|cx| {
+            crate::ui::theme::init(cx);
+            let mut model = Workspace::new();
+            model.open_conversation("Design review", "claude");
+            let chat = model.active().unwrap().focused;
+            model.open("Codex — Default", "codex");
+            let cli = model.active().unwrap().focused;
+            model.activate_pane(chat).unwrap();
+            let app = AppState::install_test(model, cx);
+            app.projects.update(cx, |p, _| p.ready = true);
+            (app, chat, cli)
+        });
+        let window = cx.open_window(size(px(300.), px(800.)), |window, cx| {
+            Root::new(cx.new(Sidebar::new), window, cx)
+        });
+        cx.update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let id = gpui_kit::SharedString::from(format!("agent-terminal-{cli:?}"));
+            assert!(
+                window
+                    .find(id.clone())
+                    .label()
+                    .unwrap()
+                    .contains("CLI terminal")
+            );
+            window.click(id, cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(window.into(), |_, window, cx| {
+            assert!(app.workspace.read(cx).tool_panel().is_maximized());
+            assert_eq!(app.workspace.read(cx).active().unwrap().focused, cli);
+            window.render_frame(cx);
+            window.click(gpui_kit::SharedString::from(format!("chat-{chat:?}")), cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(!app.workspace.read(cx).tool_panel().is_maximized());
+            assert_eq!(app.workspace.read(cx).primary_tab().unwrap().focused, chat);
+            assert_eq!(app.workspace.read(cx).all_panes().len(), 2);
+            assert!(app.terminals.read(cx).views.is_empty());
+        });
+    }
 
     #[gpui_kit::test]
     fn worktrees_nest_conversations_and_private_chats_keep_their_context(cx: &mut TestAppContext) {
@@ -425,37 +473,33 @@ mod tests {
                 for expected in ["Without a project", "Private folder", "Codex"] {
                     assert!(label.contains(expected));
                 }
-                // Inspect the actual metadata lanes at both sidebar widths and font sizes.
-                {
-                    let id = pane;
-                    let text = |part| {
-                        window.find(gpui_kit::SharedString::from(format!("chat-{part}-{id:?}")))
-                    };
-                    let project = text("project").bounds();
-                    let title = text("title").bounds();
-                    let branch = text("checkout").bounds();
-                    let agent = text("agent").bounds();
-                    assert_eq!(project.left(), title.left());
-                    let before = title.top() - project.bottom();
-                    let after = branch.top() - title.bottom();
-                    assert!(before >= px(font / 4.));
-                    assert_eq!(
-                        before, after,
-                        "the three lines need an even vertical rhythm"
-                    );
-                    assert_eq!(branch.top(), agent.top());
-                    assert!(branch.size.width > px(0.));
-                    assert!(branch.right() < agent.left());
-                    assert!(agent.right() <= title.right());
-                    let card = window
-                        .find(gpui_kit::SharedString::from(format!("chat-{id:?}")))
-                        .bounds();
-                    assert_eq!(
-                        project.top() - card.top(),
-                        card.bottom() - agent.bottom(),
-                        "content must have equal top and bottom inset"
-                    );
-                }
+                // Private and project conversations use the same two-line density.
+                let title = window
+                    .find(gpui_kit::SharedString::from(format!("chat-title-{pane:?}")))
+                    .bounds();
+                let agent = window
+                    .find(gpui_kit::SharedString::from(format!("chat-agent-{pane:?}")))
+                    .bounds();
+                let card = window
+                    .find(gpui_kit::SharedString::from(format!("chat-{pane:?}")))
+                    .bounds();
+                assert_eq!(title.left(), agent.left());
+                assert!(agent.top() - title.bottom() >= px(font / 4.));
+                assert_eq!(title.top() - card.top(), card.bottom() - agent.bottom());
+                assert!(
+                    window
+                        .try_find(gpui_kit::SharedString::from(format!(
+                            "chat-project-{pane:?}"
+                        )))
+                        .is_none()
+                );
+                assert!(
+                    window
+                        .try_find(gpui_kit::SharedString::from(format!(
+                            "chat-checkout-{pane:?}"
+                        )))
+                        .is_none()
+                );
                 let title = window
                     .find(gpui_kit::SharedString::from(format!(
                         "chat-title-{project_pane:?}"

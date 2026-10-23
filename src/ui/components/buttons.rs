@@ -232,29 +232,6 @@ fn worktree_action(id: impl Into<ElementId>, label: &'static str, cx: &App) -> B
         .accessibility_label(label)
         .tooltip(label)
 }
-pub fn stop_processes_button(id: impl Into<ElementId>, cx: &App) -> Button {
-    worktree_action(id, "Stop all processes in this worktree", cx)
-        .child(div().size(px(8.)).rounded(px(1.)).bg(t::red()))
-}
-pub fn loading_stop_button(
-    id: impl Into<ElementId>,
-    loading: &super::ButtonLoading,
-    cx: &App,
-) -> Button {
-    worktree_action(id, "Stop all processes in this worktree", cx)
-        .loading(loading.active())
-        .accessibility_label(if loading.active() {
-            "Stop all processes in this worktree, in progress"
-        } else {
-            "Stop all processes in this worktree"
-        })
-        .text_color(t::red())
-        .child(loading.visual(div().size(px(8.)).rounded(px(1.)).bg(t::red())))
-}
-pub fn remove_worktree_button(id: impl Into<ElementId>, cx: &App) -> Button {
-    worktree_action(id, "Remove worktree", cx).child(icon(IconName::Close).size(px(12.)))
-}
-
 pub fn close_tab_button(id: impl Into<ElementId>, cx: &App) -> Button {
     worktree_action(id, "Close tab", cx).child(icon(IconName::Close).size(px(12.)))
 }

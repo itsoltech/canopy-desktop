@@ -143,7 +143,15 @@ impl Workspace {
                     SharedString::from(format!("{id:?}")),
                     format!(
                         "{}{}",
-                        tab.title,
+                        if canopy_desktop::chat::provider::Provider::from_tool(
+                            &tab.root.first().tool
+                        )
+                        .is_some()
+                        {
+                            format!("CLI · {}", tab.title)
+                        } else {
+                            tab.title.clone()
+                        },
                         if self.state.editors.read(cx).busy(
                             &tab.root.panes().iter().map(|p| p.id).collect::<Vec<_>>(),
                             cx
