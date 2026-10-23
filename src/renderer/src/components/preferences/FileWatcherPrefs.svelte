@@ -58,6 +58,9 @@
   }
 
   async function resetDefaults(): Promise<void> {
+    // Defaults load asynchronously on mount: resetting before they arrive would persist an
+    // empty list and stop ignoring node_modules, .git, etc.
+    if (defaults.length === 0) return
     await persist([...defaults])
   }
 

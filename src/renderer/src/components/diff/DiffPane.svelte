@@ -44,18 +44,26 @@
   let commentFilePath = $state('')
   let commentLineNum = $state(0)
 
+  // Refreshes overlap (worktree switch, git-event bursts) and can resolve out of order:
+  // only the latest may write state, or an older diff — possibly of the previous
+  // worktree — would replace the current one.
+  let refreshGen = 0
+
   async function refresh(): Promise<void> {
+    const gen = ++refreshGen
     loading = true
     loadError = false
     try {
       const result = await window.api.changesGetDiff({ worktreePath })
+      if (gen !== refreshGen) return
       files = result.files
     } catch (e) {
+      if (gen !== refreshGen) return
       files = []
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (gen === refreshGen) loading = false
     }
   }
 
@@ -279,7 +287,9 @@
   function scrollToFocusedFile(): void {
     if (focusedFileIndex >= 0 && focusedFileIndex < files.length) {
       const file = files[focusedFileIndex]
-      const el = document.getElementById(`diff-file-${CSS.escape(file.path)}`)
+      // getElementById takes the raw id — CSS.escape would turn `src/a.ts` into
+      // `src\/a\.ts` and never match.
+      const el = document.getElementById(`diff-file-${file.path}`)
       if (el && bodyEl) {
         suppressObserver = true
         workspaceState.diffVisibleFile = file.path

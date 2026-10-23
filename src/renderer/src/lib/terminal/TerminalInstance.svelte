@@ -678,7 +678,9 @@
       containerEl.addEventListener('pointerdown', reclaimPtyHandler)
       reclaimTextarea?.addEventListener('focus', reclaimPtyHandler)
 
-      term.focus()
+      // A split sibling or background tab can initialize after the focused pane
+      // (font wait, visibility flip); it must not steal keyboard focus.
+      if (focused) term.focus()
     }
 
     function maybeInitTerminal(): void {

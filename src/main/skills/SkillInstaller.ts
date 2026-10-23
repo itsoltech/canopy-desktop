@@ -225,7 +225,18 @@ export class SkillInstaller {
         new Promise<void>((resolve, reject) => {
           execFile(
             'git',
-            ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            // core.symlinks=false checks symlinks out as plain files holding the link path:
+            // an untrusted repo could otherwise ship `SKILL.md -> ~/.ssh/id_rsa` (or a
+            // symlinked subpath) and have that file read and deployed as the skill.
+            [
+              'clone',
+              '--depth',
+              '1',
+              '--config',
+              'core.symlinks=false',
+              `https://github.com/${owner}/${repo}.git`,
+              tmpDir,
+            ],
             (error) => {
               if (error) reject(error)
               else resolve()

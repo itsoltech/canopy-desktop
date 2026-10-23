@@ -27,17 +27,26 @@
   let filterQuery = $state('')
   let statusFilter = $state<'all' | 'added' | 'modified' | 'deleted'>('all')
 
+  // Refreshes overlap (worktree switch, git-event bursts) and can resolve out of order:
+  // only the latest may write state, or an older list — possibly of the previous
+  // worktree — would replace the current one.
+  let refreshGen = 0
+
   async function refresh(): Promise<void> {
+    const gen = ++refreshGen
     loading = true
     loadError = false
     try {
-      diff = await window.api.changesGetDiff({ worktreePath })
+      const result = await window.api.changesGetDiff({ worktreePath })
+      if (gen !== refreshGen) return
+      diff = result
     } catch (e) {
+      if (gen !== refreshGen) return
       diff = null
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (gen === refreshGen) loading = false
     }
   }
 

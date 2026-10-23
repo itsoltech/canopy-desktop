@@ -79,6 +79,7 @@
 
   function cancelEdit(): void {
     editing = null
+    formToken = ''
     testResult = ''
   }
 

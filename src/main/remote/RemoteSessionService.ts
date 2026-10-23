@@ -615,11 +615,14 @@ export class RemoteSessionService {
       return { ok: false, reason: 'another device is already paired' }
     }
 
-    const deviceName =
-      trustedDevice?.name ??
-      (typeof msg.deviceName === 'string' && msg.deviceName.length > 0
-        ? msg.deviceName
-        : 'Remote device')
+    // The peer-chosen name is shown in the accept prompt and persisted for trusted
+    // devices: strip control characters and cap its length.
+    const peerName =
+      typeof msg.deviceName === 'string'
+        ? // eslint-disable-next-line no-control-regex
+          msg.deviceName.replace(/[\x00-\x1f\x7f-\x9f]/g, '').slice(0, 64)
+        : ''
+    const deviceName = trustedDevice?.name ?? (peerName.length > 0 ? peerName : 'Remote device')
     const device: PendingDevice = {
       deviceId: incomingDeviceId ?? randomBytes(8).toString('hex'),
       deviceName,
@@ -695,6 +698,11 @@ export class RemoteSessionService {
     // which would confuse the peer. The host window is the one that called
     // `remote:start` and owns the RTCPeerConnection.
     if (this.hostWcId === null) return
+    // The accept prompt is the second factor after the QR token: until the user
+    // accepts (or the device is trusted), a peer must not be able to start the
+    // offer/answer exchange and open data channels. The official client waits
+    // for `accepted` before building its offer, so this only drops abuse.
+    if (this.status.kind !== 'paired') return
     const wc = webContentsNs.fromId(this.hostWcId)
     if (!wc || wc.isDestroyed()) return
     wc.send(REMOTE_SIGNAL_CHANNEL, msg)

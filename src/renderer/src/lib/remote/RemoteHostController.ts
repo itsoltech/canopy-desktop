@@ -215,10 +215,12 @@ export class RemoteHostController {
     // channel via `addEventListener`, so we deliberately do NOT set
     // `ch.onmessage` for that label here (that would shadow the RPC engine).
     // For `state` and `stream` we just log until Phases 6/8 give them real
-    // payloads.
+    // payloads. The payload is peer-controlled, so log its size only — logging
+    // the data itself would let a flooding peer pin it in the DevTools console.
     if (ch.label !== CHANNEL_COMMANDS) {
       ch.onmessage = (e) => {
-        console.log(`[remote-host] msg on ${ch.label}:`, e.data)
+        const size = typeof e.data === 'string' ? e.data.length : (e.data?.byteLength ?? 0)
+        console.log(`[remote-host] msg on ${ch.label}: ${size} bytes`)
       }
     }
   }
