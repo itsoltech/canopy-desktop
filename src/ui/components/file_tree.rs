@@ -237,9 +237,6 @@ impl FileTree {
     pub fn animated_height(&self, now: Instant) -> f32 {
         self.layout.height(now).max(t::ROW)
     }
-    pub fn is_animating(&self, now: Instant) -> bool {
-        self.layout.active(now)
-    }
     fn toggle(&mut self, id: &SharedString, cx: &mut Context<Self>) {
         if !self.model.toggle(id) {
             return;

@@ -2,37 +2,17 @@
 
 ## Cel i zakres
 
-Rozmowa bez projektu jest bezpośrednim celem nawigacji, inspirowanym wątkami
-T3 Code. Sidebar pokazuje `Chats` nad `Projects`; nie pokazuje sztucznego projektu
-ani worktree `No project`. Projekty zachowują dotychczasową hierarchię.
+Rozmowa bez projektu jest bezpośrednim celem nawigacji w sekcji Private chats,
+bez sztucznego projektu/worktree. Rozmowy projektowe są teraz zagnieżdżone
+pod właściwym worktree, zgodnie z [układem workspace'u](workspace-layout.md).
+Jeden wiersz odpowiada jednemu `PaneKind::Chat` i zachowuje jego PaneId.
+Źródłem pozostaje autorytatywny runtime workspace z ProjectsState, także dla
+nieodwiedzonych rozmów po restore. Kolejność wynika z tabów i ich liści.
 
-Chats pokazuje rozmowy ze wszystkich otwartych workspace'ów, projektowych i
-samodzielnych. Jeden wiersz to jeden `PaneKind::Chat`, identyfikowany przez `PaneId`.
-Źródłem jest `ProjectsState.runtime_workspaces`: autorytatywna aktywna encja albo
-cache projektu/scratch. Nie ma migracji danych ani dodatkowego katalogu rozmów.
-Kolejność wynika z katalogu workspace'ów oraz kolejności tabów i liści,
-nie z bieżącej aktywności agenta.
-
-Wiersz ma trzy poziomy, wzorowane na sidebarze T3 Code: projekt i status,
-tytuł rozmowy, następnie branch/worktree i nazwa agenta z ikoną. Projekt pochodzi
-z właściciela workspace'u, agent z `Pane.tool`, a HEAD z konkretnej ścieżki
-checkoutu w istniejącym watcherze Git. Nie dziedziczy brancha aktywnego projektu
-ani głównego checkoutu. Linked worktree pokazuje także nazwę katalogu; tooltip
-zawiera pełną ścieżkę i HEAD. Długie etykiety są skracane, agent ma własne miejsce.
-Rozmowy samodzielne pokazują `Without a project` i `Private folder`. Folder bez
-Git, ładowanie/błąd metadanych oraz detached/unborn HEAD mają jawne etykiety.
-Obserwacja Git, workspace, projektów i agentów odświeża dane bez uruchamiania
-nieodwiedzonej rozmowy. Render nie odczytuje systemu plików.
-Kontekst projektu ma turkusowy akcent, a prywatny czat fioletowy. Ikony Claude
-i Codex mają własne kolory; status ma kropkę i nazwę (Idle zielony, Working
-niebieski, uwaga żółta, błąd czerwony). Wybrany wiersz ma delikatnie niebieskie
-tło i pasek. Tytuł jest mocniejszy od metadanych; trzy linie mają równe odstępy,
-stałą interlinię, symetryczne pionowe paddingi i większy odstęp ikona–etykieta.
-Tokeny kolorów i geometrii są w `src/ui/theme.rs`.
-
-Pasek tabów, splity i dock pozostają dostępne. `Open tabs…` w sekcji Chats
-zapewnia powrót do tabów bez czatu, np. podglądu pliku, także z aktywnego projektu.
-Nie wprowadzamy archiwum: `Delete chat` usuwa rozmowę i jej załączniki.
+Prywatne rozmowy pokazują tytuł, agenta, status i kontekst Without a project /
+Private folder. Rozmowy w drzewie pokazują tytuł, agenta i status; projekt i HEAD
+są na rodzicu i w tooltipie. Obserwacja nie uruchamia rozmowy, a render nie wykonuje
+I/O. Kolory agentów, statusów i zaznaczenia pochodzą z `ui/theme.rs`.
 
 ## Tworzenie i nawigacja
 

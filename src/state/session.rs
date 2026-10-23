@@ -95,9 +95,7 @@ fn unique(
         if !tab_ids.insert(tab.id) {
             return false;
         }
-        let mut copy = workspace.clone();
-        let _ = copy.activate(tab.id);
-        for pane in copy.activation_plan() {
+        for pane in tab.root.panes() {
             if !pane_ids.insert(pane.id) {
                 return false;
             }

@@ -303,3 +303,38 @@ fn no_project_space_roundtrips_and_shares_id_uniqueness() {
     assert!(!duplicate.valid());
     let _ = chat;
 }
+
+#[test]
+fn tool_layout_restores_per_worktree_and_accepts_snapshots_before_the_panel_existed() {
+    let mut s = fixture();
+    let first = &mut s.workspaces[0];
+    first.open_conversation("Review", "codex");
+    first.tool_panel_mut().set_position(ToolPosition::Bottom);
+    first.tool_panel_mut().resize(360.);
+    first.tool_panel_mut().show(ToolPage::Tasks);
+    first.tool_panel_mut().set_maximized(true);
+    let other = &mut s.workspaces[1];
+    other.tool_panel_mut().resize(520.);
+    other.hide_tools();
+    let restored: SessionSnapshot =
+        serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
+    assert!(restored.valid());
+    assert_eq!(s, restored);
+    assert!(restored.workspaces[0].activation_plan().is_empty());
+    assert!(restored.workspaces[1].activation_plan().is_empty());
+
+    let original = fixture();
+    let mut old = serde_json::to_value(&original).unwrap();
+    for workspace in old["workspaces"].as_array_mut().unwrap() {
+        for field in ["panel", "last_chat", "last_tool"] {
+            workspace.as_object_mut().unwrap().remove(field);
+        }
+    }
+    let old: SessionSnapshot = serde_json::from_value(old).unwrap();
+    assert!(old.valid());
+    assert_eq!(old.activation_plan().len(), 3);
+    assert_eq!(
+        old.workspaces[0].all_panes(),
+        original.workspaces[0].all_panes()
+    );
+}

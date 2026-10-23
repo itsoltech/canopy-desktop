@@ -66,9 +66,6 @@ impl Disclosure {
                     .child(label),
             )
     }
-    pub fn height(&self, full: f32, now: Instant) -> f32 {
-        full * self.extent.progress(now)
-    }
     /// Intrinsic-height content, e.g. form rows with wrapping labels and help.
     /// Use the toolkit's measured reveal rather than estimating a height per row.
     /// Its content mask clips the animation without introducing another scroller.

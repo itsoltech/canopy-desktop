@@ -598,7 +598,7 @@ impl ProjectsState {
             tool: &str,
             metadata: canopy_desktop::state::workspace::PaneMetadata,
         ) -> Result<(), String> {
-            let tab = workspace.open(title, tool);
+            let tab = workspace.open_conversation(title, tool);
             let pane = workspace.active().expect("new tab").focused;
             if workspace.set_pane_metadata(tab, pane, metadata).is_err() {
                 let _ = workspace.close(tab);
@@ -644,7 +644,42 @@ impl ProjectsState {
         Ok(())
     }
 
+    pub fn show_terminal(&mut self, id: WorkspaceId, cx: &mut Context<Self>) {
+        self.select_then(id, None, Some(super::ToolsState::show_terminal), cx);
+    }
+    pub fn create_chat_in(&mut self, id: WorkspaceId, cx: &mut Context<Self>) {
+        self.select_then(
+            id,
+            None,
+            Some(|cx| {
+                cx.global::<AppState>()
+                    .chats
+                    .clone()
+                    .update(cx, |chats, cx| chats.open_current(cx));
+            }),
+            cx,
+        );
+    }
+    fn selected_action(id: WorkspaceId, after: Option<fn(&mut App)>, cx: &mut Context<Self>) {
+        if let Some(after) = after {
+            cx.defer(move |cx| {
+                let app = cx.global::<AppState>();
+                if app.workspace.read(cx).id == id && !app.projects.read(cx).busy {
+                    after(cx);
+                }
+            });
+        }
+    }
     fn select_target(&mut self, id: WorkspaceId, pane: Option<PaneId>, cx: &mut Context<Self>) {
+        self.select_then(id, pane, None, cx);
+    }
+    fn select_then(
+        &mut self,
+        id: WorkspaceId,
+        pane: Option<PaneId>,
+        after: Option<fn(&mut App)>,
+        cx: &mut Context<Self>,
+    ) {
         if !self.available() {
             return;
         }
@@ -654,6 +689,7 @@ impl ProjectsState {
             if let Some(pane) = pane {
                 self.focus_selected(pane, cx);
             }
+            Self::selected_action(id, after, cx);
             return;
         }
         if self.scratch.id == id {
@@ -666,6 +702,7 @@ impl ProjectsState {
             if let Some(pane) = pane {
                 self.focus_selected(pane, cx);
             }
+            Self::selected_action(id, after, cx);
             return;
         }
         if !self.catalog.items.iter().any(|p| p.workspace == id) {
@@ -705,6 +742,7 @@ impl ProjectsState {
                             }
                         }
                         this.save(next, cx);
+                        Self::selected_action(id, after, cx);
                         if let Some(pane) = pane {
                             this.focus_selected(pane, cx);
                         }
@@ -972,6 +1010,41 @@ mod tests {
                 ["Project shell"],
                 "the project keeps its tabs"
             );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn opening_a_folders_terminal_waits_for_selection_and_reuses_its_shell(
+        cx: &mut TestAppContext,
+    ) {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let (app, first, shell) = cx.update(|cx| {
+            let app = AppState::install_test(Workspace::new(), cx);
+            app.tools.update(cx, |tools, _| tools.ready = true);
+            app.projects.update(cx, |projects, cx| {
+                projects.ready = true;
+                projects.open_worktree(a.path().into(), a.path().into(), cx);
+            });
+            let first = app.workspace.read(cx).id;
+            let shell = app.workspace.update(cx, |w, _| {
+                w.open("Terminal 1", "shell");
+                w.active().unwrap().focused
+            });
+            app.projects.update(cx, |projects, cx| {
+                projects.open_worktree(b.path().into(), b.path().into(), cx);
+                projects.show_terminal(first, cx);
+            });
+            assert_ne!(app.workspace.read(cx).id, first);
+            assert!(app.workspace.read(cx).tabs().is_empty());
+            (app, first, shell)
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(app.workspace.read(cx).id, first);
+            assert_eq!(app.workspace.read(cx).active().unwrap().focused, shell);
+            assert_eq!(app.workspace.read(cx).tabs().len(), 1);
+            assert!(app.projects.read(cx).error.is_none());
         });
     }
 }

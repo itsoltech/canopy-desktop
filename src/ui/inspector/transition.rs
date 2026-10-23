@@ -6,7 +6,7 @@ use std::time::Instant;
 pub(super) struct InspectorTransition {
     selected: usize,
     indicator: Transition,
-    content: [Transition; 3],
+    content: [Transition; 4],
 }
 
 impl InspectorTransition {
@@ -38,6 +38,7 @@ impl InspectorTransition {
         }
     }
 
+    #[cfg(test)]
     pub fn indicator(&self, now: Instant) -> f32 {
         self.indicator.value(now)
     }

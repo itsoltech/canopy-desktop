@@ -12,8 +12,8 @@ encji GPUI, a nie jeden obiekt odrysowujący wszystkie widoki.
 | --- | --- |
 | SettingsState | zatwierdzone preferencje, status ładowania/zapisu, błędy i worker SQLite |
 | ProjectsState + Projects | katalogi projektów, aktywny projekt, operacje pickera i cache workspace’ów |
-| Workspace | taby, aktywny tab, drzewa splitów, fokus pane'a |
-| LayoutState | szerokości i widoczność sidebarów, zakładka inspektora |
+| Workspace | taby, drzewa splitów, fokus, niezależny wybór rozmowy/narzędzia i panel worktree |
+| LayoutState | szerokość/widoczność lewego sidebara oraz starsze pola zgodności inspektora |
 | NotchStatus | trwały błąd natywnego adaptera notcha i potwierdzone recovery |
 
 Logika workspace'u w `src/state/workspace.rs` nie zależy od GPUI ani SQLite.
@@ -115,27 +115,17 @@ i odtworzenie drzewa oraz stabilnych ID po restarcie.
 
 ## Otwieranie projektów i pusty stan
 
-- Bez aktywnego projektu działa przestrzeń samodzielnych rozmów z sekcją Chats.
-  Sidebar, pasek tabów, Session/Tasks i notch pozostają dostępne; Files/Tools i repozytoryjne
-  Changes są schowane. Tytuł okna pochodzi z aktywnego czatu/taba albo Chats.
-  Nie tworzymy automatycznie czatu. Szczegóły: [samodzielne rozmowy](features/standalone-chats.md).
-- Chats zbiera rozmowy ze wszystkich runtime workspace'ów. Wiersz pokazuje projekt,
-  tytuł, branch/worktree, agenta i status. ProjectsState adresuje Rename/Delete
-  do autorytatywnej aktywnej encji lub cache, bez przełączania projektu; watcher
-  Git dostarcza HEAD konkretnego checkoutu, także gdy projekt nie jest aktywny.
-- Open folder, ⌘O i + attach otwierają natywny picker pojedynczego katalogu.
-  Anulowanie niczego nie zapisuje, a focus wraca do głównego okna.
-- Kanonizacja ścieżki i sprawdzenie dostępu do katalogu wykonują się w tle.
-  Nie wymagamy .git. Alias/symlink tego samego katalogu aktywuje istniejący wpis.
-- Nowy projekt lub worktree ma pustą listę tabów. Utworzenie procesu wymaga
-  jawnego wyboru narzędzia lub nowego taba.
+- Nawigacja ma drzewo projekt → worktree → rozmowy i osobne Private chats.
+  `Workspace` wybiera niezależnie centralny tab z rozmową i tab narzędzi.
+  `ToolPanel` należy do workspace'u, a nie do globalnego LayoutState.
+  Files/Changes/Tasks/Agent są stronami prawego/dolnego panelu; jego ukrycie nie
+  usuwa zasobów. Szczegóły: [układ workspace'u](features/workspace-layout.md).
 - Kliknięcie projektu przełącza jego workspace. Cache w pamięci zachowuje taby,
   splity i fokus. Zamknięcie projektu usuwa go z listy i cache; nie usuwa folderu.
 - Krzyżyk projektu albo ⌘⇧W zamyka projekt. Ostatni zamknięty projekt przywraca
   przestrzeń rozmów. ⌘W nadal zamyka tylko tab.
-- Nazwa i ścieżka wybranego folderu zasilają belkę, sidebar, mock terminala,
-  inspektor i notch. Drzewo plików jest na razie puste, zamiast udawać pliki
-  z referencyjnego projektu.
+- Wybrany worktree wyznacza cwd nowych narzędzi, drzewo plików, zmiany Git
+  i kontekst rozmowy. Przełączenie zachowuje niezależne sesje terminali.
 
 Operacje wyboru są serializowane; zmiana trafia do pamięci, a wspólny writer
 zapisuje pełny snapshot. Błąd zachowuje ostatni poprawny zapis na dysku

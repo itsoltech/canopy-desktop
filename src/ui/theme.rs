@@ -128,6 +128,12 @@ pub const SPACING_UNIT: f32 = 4.;
 pub fn chat_row_height() -> Rems {
     rems(5.25)
 }
+pub fn nested_chat_row_height() -> Rems {
+    rems(3.25)
+}
+pub fn project_header_height(active: bool) -> Rems {
+    rems(if active { 2.75 } else { 2. })
+}
 pub fn chat_metadata_line_height() -> Rems {
     rems(1.)
 }
@@ -137,6 +143,7 @@ pub fn chat_title_line_height() -> Rems {
 pub fn control_radius(cx: &App) -> Pixels {
     cx.global::<Theme>().radius
 }
+pub const TITLEBAR: f32 = 36.;
 pub const ROW: f32 = 28.;
 pub const TABS: f32 = 32.;
 pub const STATUS: f32 = 24.;

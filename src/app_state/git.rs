@@ -309,6 +309,31 @@ impl GitState {
         Ok(())
     }
     pub fn open(&mut self, root: PathBuf, path: PathBuf, cx: &mut Context<Self>) {
+        self.open_then(root, path, None, cx);
+    }
+    pub fn open_terminal(&mut self, root: PathBuf, path: PathBuf, cx: &mut Context<Self>) {
+        self.open_then(root, path, Some(super::ToolsState::show_terminal), cx);
+    }
+    pub fn open_chat(&mut self, root: PathBuf, path: PathBuf, cx: &mut Context<Self>) {
+        self.open_then(
+            root,
+            path,
+            Some(|cx| {
+                cx.global::<AppState>()
+                    .chats
+                    .clone()
+                    .update(cx, |chats, cx| chats.open_current(cx))
+            }),
+            cx,
+        );
+    }
+    fn open_then(
+        &mut self,
+        root: PathBuf,
+        path: PathBuf,
+        after: Option<fn(&mut App)>,
+        cx: &mut Context<Self>,
+    ) {
         if self.busy || self.quitting {
             return;
         }
@@ -324,7 +349,23 @@ impl GitState {
                 match result {
                     Ok(path) => {
                         let projects = cx.global::<AppState>().projects.clone();
+                        let expected = path.clone();
                         projects.update(cx, |p, cx| p.open_worktree(root, path, cx));
+                        let id = projects
+                            .read(cx)
+                            .catalog
+                            .current()
+                            .filter(|project| project.path == expected)
+                            .map(|project| project.workspace);
+                        if let (Some(after), Some(id)) = (after, id) {
+                            cx.defer(move |cx| {
+                                if cx.global::<AppState>().projects.read(cx).catalog.active
+                                    == Some(id)
+                                {
+                                    after(cx);
+                                }
+                            });
+                        }
                     }
                     Err(_) => this.error = Some("Worktree directory is unavailable.".into()),
                 }

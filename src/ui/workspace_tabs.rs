@@ -3,10 +3,7 @@ use super::{Workspace, components::*, theme as t, workspace_panes::ContentDrag};
 use canopy_desktop::state::workspace::{TabId, WorkspaceId};
 use gpui_kit::base::Disableable;
 use gpui_kit::{
-    component::{
-        IconName,
-        menu::{ContextMenuExt, PopupMenuItem},
-    },
+    component::menu::{ContextMenuExt, PopupMenuItem},
     *,
 };
 
@@ -109,17 +106,16 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let workspace = self.state.workspace.read(cx);
-        let active = workspace.active().and_then(|tab| {
+        let active = workspace.tool_tab().and_then(|tab| {
             workspace
-                .tabs()
-                .iter()
+                .tool_tabs()
                 .position(|t| t.id == tab.id)
                 .map(|index| (tab.id, index))
         });
         let animating = self.tab_scroll.update(
             workspace.id,
             active,
-            workspace.tabs().len(),
+            workspace.tool_tabs().count(),
             width,
             std::time::Instant::now(),
             canopy_desktop::motion::policy(cx),
@@ -129,14 +125,16 @@ impl Workspace {
             .w_full()
             .track_scroll(&self.tab_scroll.handle)
             .on_scroll_wheel(cx.listener(|this, _, _, _| this.tab_scroll.interrupt()))
-            .children(self.state.workspace.read(cx).tabs().iter().map(|tab| {
+            .children(self.state.workspace.read(cx).tool_tabs().map(|tab| {
                 let id = tab.id;
-                let active = self
-                    .state
-                    .workspace
-                    .read(cx)
-                    .active()
-                    .is_some_and(|t| t.id == id);
+                let active = self.state.workspace.read(cx).tool_panel().page()
+                    == canopy_desktop::state::workspace::ToolPage::Tabs
+                    && self
+                        .state
+                        .workspace
+                        .read(cx)
+                        .tool_tab()
+                        .is_some_and(|t| t.id == id);
                 let editor_pane = tab.focused;
                 let owner = cx.entity().downgrade();
                 let target = self.state.workspace.clone();
@@ -263,11 +261,7 @@ impl Workspace {
                                 cx.notify();
                             }
                         });
-                    }))
-                    .child(
-                        icon_button("new-tab", IconName::Plus, "New tab")
-                            .on_click(cx.listener(|this, _, _, cx| this.new_tab(cx))),
-                    ),
+                    })),
             );
         tab_viewport(
             "workspace-tabs-viewport",

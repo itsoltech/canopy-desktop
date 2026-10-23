@@ -293,3 +293,38 @@ fn unnamed_and_manually_named_chats_remain_distinct_inside_groups() {
     assert_eq!(ws.chat_title(b), Some("Existing chat"));
     assert_eq!(ws.all_panes().len(), 1);
 }
+
+#[test]
+fn conversation_navigation_preserves_the_worktrees_tool_selection_and_splits() {
+    use canopy_desktop::state::workspace::{ToolPage, ToolPosition};
+    let mut ws = Workspace::new();
+    let first = ws.open_conversation("First", "codex");
+    let second = ws.open_conversation("Second", "claude");
+    let terminal = ws.open("Terminal", "shell");
+    let a = ws.active().unwrap().focused;
+    let b = ws.split(terminal, a, Axis::Horizontal, "shell").unwrap();
+    let tree = ws.active().unwrap().root.clone();
+
+    for chat in [first, second, first] {
+        ws.activate(chat).unwrap();
+        assert_eq!(ws.primary_tab().unwrap().id, chat);
+        assert_eq!(ws.tool_tab().unwrap().root, tree);
+        assert_eq!(ws.tool_tab().unwrap().focused, b);
+        assert_eq!(ws.activation_plan().len(), 3);
+    }
+    ws.tool_panel_mut().set_position(ToolPosition::Bottom);
+    ws.tool_panel_mut().show(ToolPage::Files);
+    assert_eq!(ws.activation_plan().len(), 1);
+    ws.hide_tools();
+    assert!(!ws.tools_open());
+    assert_eq!(ws.tool_tab().unwrap().root, tree);
+    ws.activate_pane(b).unwrap();
+    assert!(ws.tools_open());
+    assert_eq!(ws.tool_panel().position(), ToolPosition::Bottom);
+    assert_eq!(ws.primary_tab().unwrap().id, first);
+    assert_eq!(ws.activation_plan().len(), 3);
+    ws.close(terminal).unwrap();
+    ws.close(first).unwrap();
+    assert!(ws.valid());
+    assert_eq!(ws.primary_tab().unwrap().id, second);
+}

@@ -1,4 +1,7 @@
+use super::components::file_tree::FileTree;
 use super::{components::*, theme as t};
+use canopy_desktop::state::workspace::ToolPage;
+use gpui_kit::component::scroll::ScrollableElement;
 mod transition;
 use canopy_desktop::motion;
 use gpui_kit::*;
@@ -17,20 +20,26 @@ pub struct Inspector {
     _detail_events: Subscription,
     _edit_events: Subscription,
     _observers: Vec<Subscription>,
-    layout: Entity<canopy_desktop::state::layout::LayoutState>,
+    files: Entity<FileTree>,
+    files_scroll: ScrollHandle,
     tabs: InspectorTransition,
 }
-fn page(layout: &canopy_desktop::state::layout::LayoutState, has_project: bool) -> usize {
-    if layout.inspector_tasks {
-        2
-    } else if layout.inspector_changes && has_project {
-        1
-    } else {
-        0
+fn page(cx: &App) -> usize {
+    match cx
+        .global::<crate::app_state::AppState>()
+        .workspace
+        .read(cx)
+        .tool_panel()
+        .page()
+    {
+        ToolPage::Changes => 1,
+        ToolPage::Tasks => 2,
+        ToolPage::Files => 3,
+        _ => 0,
     }
 }
 impl Inspector {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(files: Entity<FileTree>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let app = cx.global::<crate::app_state::AppState>().clone();
         let changes_view = cx.new(|cx| super::changes_panel::ChangesPanel::new(window, cx));
         let tasks_view = cx.new(|cx| super::tasks_panel::TasksPanel::new(window, cx));
@@ -50,29 +59,21 @@ impl Inspector {
             &tasks_view,
             |_, _, event: &super::task_edit::TaskEditRequest, cx| cx.emit(event.clone()),
         );
-        let current = page(
-            app.layout.read(cx),
-            app.projects.read(cx).catalog.active.is_some(),
-        );
+        let current = page(cx);
+        let files_scroll = ScrollHandle::new();
+        files.update(cx, |files, _| {
+            files.use_sidebar_scroll(files_scroll.clone())
+        });
         let observers = vec![
             cx.observe(&app.changes, |_, _, cx| cx.notify()),
+            cx.observe(&app.files, |_, _, cx| cx.notify()),
             cx.observe(&app.projects, |this, _, cx| {
                 this.sync_context(cx);
                 cx.notify();
             }),
-            cx.observe(&app.layout, |this, layout, cx| {
-                let next = page(
-                    layout.read(cx),
-                    cx.global::<crate::app_state::AppState>()
-                        .projects
-                        .read(cx)
-                        .catalog
-                        .active
-                        .is_some(),
-                );
-                if next != this.tabs.selected() {
-                    this.animate(next, cx);
-                }
+            cx.observe(&app.workspace, |this, _, cx| {
+                this.sync_context(cx);
+                cx.notify();
             }),
         ];
         Self {
@@ -84,7 +85,8 @@ impl Inspector {
             _detail_events: detail_events,
             _edit_events: edit_events,
             _observers: observers,
-            layout: app.layout,
+            files,
+            files_scroll,
             tabs: InspectorTransition::new(current, Instant::now()),
         }
     }
@@ -92,14 +94,7 @@ impl Inspector {
         self.select_page(usize::from(changes), cx);
     }
     fn sync_context(&mut self, cx: &mut Context<Self>) {
-        let has_project = cx
-            .global::<crate::app_state::AppState>()
-            .projects
-            .read(cx)
-            .catalog
-            .active
-            .is_some();
-        let next = page(self.layout.read(cx), has_project);
+        let next = page(cx);
         if next != self.tabs.selected() {
             self.animate(next, cx);
         }
@@ -129,11 +124,18 @@ impl Inspector {
         {
             return;
         }
-        self.layout.update(cx, |layout, cx| {
-            layout.inspector_changes = page == 1;
-            layout.inspector_tasks = page == 2;
-            cx.notify();
-        });
+        cx.global::<crate::app_state::AppState>()
+            .workspace
+            .clone()
+            .update(cx, |workspace, cx| {
+                workspace.show_tools(match page {
+                    1 => ToolPage::Changes,
+                    2 => ToolPage::Tasks,
+                    3 => ToolPage::Files,
+                    _ => ToolPage::Agent,
+                });
+                cx.notify();
+            });
         self.animate(page, cx);
     }
     fn animate(&mut self, page: usize, cx: &mut Context<Self>) {
@@ -151,96 +153,115 @@ impl Render for Inspector {
             .catalog
             .active
             .is_some();
-        let progress = self.tabs.indicator(now);
         motion::request_frame(window, self.tabs.is_animating(now));
+        column().size_full().bg(t::sidebar()).child(
+            div()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .overflow_hidden()
+                .children(
+                    [
+                        self.session_view.clone().into_any_element(),
+                        self.changes_view.clone().into_any_element(),
+                        self.tasks_view.clone().into_any_element(),
+                        self.files_panel(cx).into_any_element(),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(page, view)| {
+                        if page == 1 && !has_project {
+                            return None;
+                        }
+                        let opacity = self.tabs.opacity(page, now);
+                        (opacity > 0.).then(|| {
+                            div()
+                                .id(("inspector-page", page))
+                                .absolute()
+                                .inset_0()
+                                .w_full()
+                                .opacity(opacity)
+                                .child(view)
+                        })
+                    }),
+                )
+                // A fading page must not receive clicks or scroll through
+                // the incoming page. The tab header remains interactive.
+                .children(self.tabs.content_is_animating(now).then(|| {
+                    div()
+                        .id("inspector-transition-shield")
+                        .absolute()
+                        .inset_0()
+                        .occlude()
+                })),
+        )
+    }
+}
+
+impl Inspector {
+    fn files_panel(&self, cx: &App) -> Div {
+        use gpui_kit::component::{Sizable, button::Button, button::ButtonVariants};
+        let app = cx.global::<crate::app_state::AppState>();
+        let files = app.files.read(cx);
         column()
             .size_full()
-            .bg(t::sidebar())
-            .border_l_1()
-            .border_color(t::border())
-            .px(px(12.))
             .child(
                 row()
-                    .relative()
-                    .h(px(38.))
-                    .flex_shrink_0()
-                    .border_b_1()
-                    .border_color(t::border())
-                    .children(
-                        ["Session", "Changes", "Tasks"]
-                            .into_iter()
-                            .enumerate()
-                            .filter(|(page, _)| has_project || *page != 1)
-                            .map(|(page, label)| {
-                                row()
-                                    .id(label)
-                                    .flex_1()
-                                    .h_full()
-                                    .justify_center()
-                                    .cursor_pointer()
-                                    .text_color(if self.tabs.selected() == page {
-                                        t::text()
-                                    } else {
-                                        t::faint()
-                                    })
-                                    .child(label)
-                                    .on_click(
-                                        cx.listener(move |this, _, _, cx| {
-                                            this.select_page(page, cx)
-                                        }),
-                                    )
+                    .px_3()
+                    .py_2()
+                    .gap_2()
+                    .child(div().flex_1().text_sm().child("Files"))
+                    .child(
+                        Button::new("files-new")
+                            .ghost()
+                            .small()
+                            .icon(gpui_kit::component::IconName::Plus)
+                            .tooltip("New file…")
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(super::NewFile), cx)
                             }),
                     )
                     .child(
-                        div()
-                            .absolute()
-                            .bottom_0()
-                            // Without Changes, domain pages 0 and 2 occupy slots 0 and 1.
-                            .left(relative(progress / if has_project { 3. } else { 4. }))
-                            .w(relative(1. / if has_project { 3. } else { 2. }))
-                            .h(px(2.))
-                            .bg(t::accent()),
+                        Button::new("files-refresh")
+                            .ghost()
+                            .small()
+                            .icon(gpui_kit::component::IconName::RotateCw)
+                            .tooltip("Refresh files")
+                            .on_click(|_, _, cx| {
+                                cx.global::<crate::app_state::AppState>()
+                                    .files
+                                    .clone()
+                                    .update(cx, |f, cx| f.refresh(cx))
+                            }),
                     ),
+            )
+            .children(
+                files
+                    .error
+                    .clone()
+                    .or(files.index.warning.clone())
+                    .map(|e| div().px_3().text_color(t::red()).child(e)),
+            )
+            .children(
+                files
+                    .root
+                    .is_none()
+                    .then(|| div().px_3().child("Select a project to browse files.")),
             )
             .child(
                 div()
                     .relative()
                     .flex_1()
                     .min_h_0()
-                    .overflow_hidden()
-                    .children(
-                        [
-                            self.session_view.clone().into_any_element(),
-                            self.changes_view.clone().into_any_element(),
-                            self.tasks_view.clone().into_any_element(),
-                        ]
-                        .into_iter()
-                        .enumerate()
-                        .filter_map(|(page, view)| {
-                            if page == 1 && !has_project {
-                                return None;
-                            }
-                            let opacity = self.tabs.opacity(page, now);
-                            (opacity > 0.).then(|| {
-                                div()
-                                    .id(("inspector-page", page))
-                                    .absolute()
-                                    .inset_0()
-                                    .w_full()
-                                    .opacity(opacity)
-                                    .child(view)
-                            })
-                        }),
+                    .child(
+                        column()
+                            .id("inspector-files-scroll")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.files_scroll)
+                            .child(self.files.clone()),
                     )
-                    // A fading page must not receive clicks or scroll through
-                    // the incoming page. The tab header remains interactive.
-                    .children(self.tabs.content_is_animating(now).then(|| {
-                        div()
-                            .id("inspector-transition-shield")
-                            .absolute()
-                            .inset_0()
-                            .occlude()
-                    })),
+                    .vertical_scrollbar(&self.files_scroll),
             )
     }
 }

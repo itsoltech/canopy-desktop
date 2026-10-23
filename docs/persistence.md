@@ -15,8 +15,8 @@ Snapshot zawiera:
   (szczegóły: [git-worktrees.md](git-worktrees.md));
 - workspace każdego projektu, uporządkowane taby i aktywny TabId;
 - przestrzeń samodzielnych rozmów w opcjonalnym `scratch`, również przy aktywnym projekcie;
-  Chat PaneId ze scratch i projektowych workspace'ów zasilają wspólną listę Chats,
-  a pozostałe taby scratch pozostają dostępne przez Open tabs…;
+  Chat PaneId trafia do rodzica worktree albo Private chats; pozostałe taby scratch
+  pozostają dostępne przez Open tabs…;
 - całe drzewo każdego taba: kolejność first/second, oś, SplitId i proporcje;
 - PaneId oraz focused PaneId;
 - metadane pane'a: tool ID, rodzaj widoku, cwd, profil, tytuł, resource,
@@ -24,7 +24,9 @@ Snapshot zawiera:
 - opcjonalny `PaneMetadata.chat_title_state` (placeholder/named), bez zmiany schematu SQL;
   brak pola oznacza starszą nazwę czatu z fallbackiem do taba. Nazwy są utrwalane przy
   mutacji, nie przy odczycie; dock/swap/detach nie gubią tytułu rozmowy;
-- szerokości i widoczność sidebarów oraz wybraną zakładkę inspektora.
+- szerokość/widoczność lewego sidebara; per workspace: wybór rozmowy i narzędzia,
+  widoczność, strona, położenie, wymiary i maksymalizacja panelu narzędzi.
+  Starsze pola inspektora LayoutState pozostają czytelne.
 
 Identyfikatory przeżywają restart. Deserializacja rezerwuje odczytane wartości
 w generatorach, aby nowe taby/pane'y nie kolidowały z odtworzonymi.
@@ -71,12 +73,12 @@ Odtwarzamy wszystkie modele bez uruchamiania procesów. Niedostępny katalog
 pełnej sesji daje komunikat, ale nie usuwa jego zapisanego drzewa pane'ów.
 Przełączenie projektu zachowuje odtworzone workspace'y w pamięci.
 
-`SessionSnapshot::activation_plan()` wskazuje wyłącznie pane'y aktywnego taba
-aktywnego projektu; `Workspace::activation_plan()` działa w obrębie workspace.
-To kontrakt dla przyszłego koordynatora narzędzi. Pozostałe taby zachowują
-metadane i layout; po aktywacji przyszły koordynator uruchomi ich narzędzia.
-Start powinien być idempotentny po PaneId, z runtime'owym stanem procesu
-poza snapshotem. Sam odczyt/zmiana snapshotu nie uruchamia niczego.
+`SessionSnapshot::activation_plan()` obejmuje aktywny workspace. Jego plan zawiera
+wybraną rozmowę (o ile narzędzia nie są zmaksymalizowane) i wybrany tab narzędzi
+(o ile panel jest widoczny i pokazuje taby). Niewidoczne taby nie są uruchamiane,
+ale uruchomione zasoby nie są zatrzymywane przez zmianę widoczności.
+`last_chat`, `last_tool` i `panel` mają wartości domyślne dla starszych zapisów.
+Taby, splity i PaneId nie są migrowane. Szczegóły: [układ](features/workspace-layout.md).
 
 Rejestr terminali realizuje już lazy-start PTY po odtworzeniu modeli:
 [terminal.md](terminal.md). Procesy są uruchamiane na nowo; snapshot nie

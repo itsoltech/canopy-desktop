@@ -221,3 +221,12 @@ Autouzupełnienie unikalnej nazwy pliku w fish zostało sprawdzone w izolowanym 
 release.
 
 Resume oraz konfigurację hooków opisuje [integracja agentów](agents.md).
+
+## Panel narzędzi worktree
+
+Terminale mają osobny wybór taba od centralnej rozmowy. Plus tworzy kolejną
+sesję, Split niezależny pane z odziedziczonym cwd i profilem. Przycisk przy
+worktree przywraca istniejący terminal lub tworzy Shell, jeżeli żadnego nie ma.
+Ukrycie, maksymalizacja i przeniesienie panelu na dół zachowują PTY i tożsamości.
+Dopiero jawne zamknięcie uruchamia dotychczasowy cleanup. Lazy-start respektuje
+widoczność panelu przy restore. Szczegóły: [układ](features/workspace-layout.md).

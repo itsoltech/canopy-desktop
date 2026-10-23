@@ -1,11 +1,12 @@
 use super::*;
 use crate::ui::worktree_dialog::WorktreeRequest;
 use canopy_desktop::git::{RemovalKind, RemoveWorktree};
-use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
-use gpui_kit::{
-    base::Disableable,
-    component::button::{ButtonCustomVariant, ButtonVariants},
+use gpui_kit::component::{
+    Sizable,
+    button::ButtonVariants,
+    menu::{ContextMenuExt, PopupMenuItem},
 };
+use gpui_kit::{base::Disableable, component::button::ButtonCustomVariant};
 impl EventEmitter<WorktreeRequest> for Sidebar {}
 impl Sidebar {
     fn workspace_stop_button(
@@ -84,7 +85,52 @@ impl Sidebar {
         }
         cx.notify();
     }
-    pub(super) fn projects_content(&self, now: Instant, cx: &Context<Self>) -> (Div, f32) {
+    fn activity(
+        &self,
+        ids: &[canopy_desktop::state::workspace::WorkspaceId],
+        cx: &App,
+    ) -> Option<Div> {
+        use canopy_desktop::state::workspace::PaneKind;
+        let app = cx.global::<crate::app_state::AppState>();
+        let mut working = 0;
+        let mut attention = 0;
+        for pane in app
+            .projects
+            .read(cx)
+            .runtime_workspaces(cx)
+            .iter()
+            .filter(|w| ids.contains(&w.id))
+            .flat_map(|w| w.all_panes())
+            .filter(|p| p.metadata.kind == PaneKind::Chat)
+        {
+            match super::chats::navigation_status(pane.id, cx) {
+                "Working" | "Goal" | "Starting" => working += 1,
+                "Waiting" | "Needs attention" | "Error" => attention += 1,
+                _ => {}
+            }
+        }
+        if working + attention == 0 {
+            return None;
+        }
+        let text = match (working, attention) {
+            (0, n) => format!("{n} need attention"),
+            (n, 0) => format!("{n} working"),
+            (w, a) => format!("{w} working · {a} need attention"),
+        };
+        Some(
+            div()
+                .text_xs()
+                .line_height(rems(1.))
+                .text_color(if attention > 0 {
+                    t::yellow()
+                } else {
+                    t::accent()
+                })
+                .child(text),
+        )
+    }
+
+    pub(super) fn projects_content(&self, now: Instant, cx: &Context<Self>) -> Div {
         let state = self.projects.read(cx);
         let git = self.git.read(cx);
         let terminals = self.terminals.read(cx);
@@ -94,7 +140,6 @@ impl Sidebar {
         let terminal_error = terminals.error.clone();
         let mut seen = std::collections::HashSet::new();
         let mut groups = vec![];
-        let mut height = 0.;
         for project in &state.catalog.items {
             let root = project
                 .repository_path
@@ -120,10 +165,19 @@ impl Sidebar {
             let refresh = self.git.clone();
             let hovered = self.hovered_project_item.as_deref() == Some(&key);
             let foreground = if hovered { t::text() } else { t::secondary() };
+            let workspace_ids: Vec<_> = state
+                .catalog
+                .items
+                .iter()
+                .filter(|p| p.repository_path.as_ref().unwrap_or(&p.path) == &root)
+                .map(|p| p.workspace)
+                .collect();
+            let activity = self.activity(&workspace_ids, cx);
+            let header_height = t::project_header_height(activity.is_some());
             let trigger = Button::new(SharedString::from(key.clone()))
                 .custom(ButtonCustomVariant::new(cx).foreground(foreground))
                 .compact()
-                .h(px(t::ROW))
+                .h(header_height)
                 .w_full()
                 .p_0()
                 .border_0()
@@ -152,16 +206,23 @@ impl Sidebar {
                         .text_color(foreground)
                         .child(disclosure.chevron(now).text_color(foreground))
                         .child(
-                            div()
+                            column()
                                 .flex_1()
                                 .min_w_0()
-                                .text_left()
-                                .text_ellipsis()
-                                .child(label),
+                                .items_start()
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .text_left()
+                                        .text_ellipsis()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .child(label),
+                                )
+                                .children(activity),
                         ),
                 );
             let header = row()
-                .h(px(t::ROW))
+                .h(header_height)
                 .gap(px(8.))
                 .child(
                     hover_action(
@@ -212,7 +273,6 @@ impl Sidebar {
                     let repository = info.root.clone();
                     let remove_path = path.clone();
                     let remove_root = repository.clone();
-                    let selected = state.catalog.current().is_some_and(|p| p.path == path);
                     let workspace = state
                         .catalog
                         .items
@@ -227,9 +287,17 @@ impl Sidebar {
                     } else {
                         wt.label.clone()
                     };
+                    let selected = workspace.is_some() && workspace == state.catalog.active;
+                    let activity = workspace.and_then(|id| self.activity(&[id], cx));
+                    let activity_height = if activity.is_some() {
+                        rems(1.)
+                    } else {
+                        rems(0.)
+                    };
                     let action = list_button(SharedString::from(key.clone()), name, hovered, cx)
                         .px_0()
                         .w_full()
+                        .when(selected, |button| button.bg(t::chat_selected()))
                         .disabled(
                             git.busy
                                 || state.busy
@@ -242,6 +310,12 @@ impl Sidebar {
                             this.git
                                 .update(cx, |g, cx| g.open(repository.clone(), path.clone(), cx))
                         }));
+                    let expanded = !self.collapsed_worktrees.contains(&wt.path);
+                    let collapse_path = wt.path.clone();
+                    let terminal_root = info.root.clone();
+                    let terminal_path = wt.path.clone();
+                    let chat_root = info.root.clone();
+                    let chat_path = wt.path.clone();
                     let entry = row()
                         .id(SharedString::from(format!("hover-{key}")))
                         .on_hover(cx.listener(move |this, value, _, cx| {
@@ -252,12 +326,66 @@ impl Sidebar {
                         .pl(px(14.))
                         .gap(px(6.))
                         .child(
-                            div()
-                                .w(px(10.))
-                                .text_color(t::secondary())
-                                .child(if selected { "*" } else { "" }),
+                            Button::new(SharedString::from(format!("expand-{key}")))
+                                .ghost()
+                                .small()
+                                .compact()
+                                .size_5()
+                                .p_0()
+                                .icon(if expanded {
+                                    IconName::ChevronDown
+                                } else {
+                                    IconName::ChevronRight
+                                })
+                                .accessibility_label(format!(
+                                    "{} {}",
+                                    if expanded { "Collapse" } else { "Expand" },
+                                    wt.label
+                                ))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if !this.collapsed_worktrees.remove(&collapse_path) {
+                                        this.collapsed_worktrees.insert(collapse_path.clone());
+                                    }
+                                    cx.notify();
+                                })),
                         )
                         .child(div().flex_1().min_w_0().child(action))
+                        .child(
+                            Button::new(SharedString::from(format!("terminal-{key}")))
+                                .ghost()
+                                .small()
+                                .compact()
+                                .size_5()
+                                .p_0()
+                                .icon(IconName::SquareTerminal)
+                                .tooltip("Open worktree terminal")
+                                .disabled(!wt.available || state.busy || git.busy)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.git.update(cx, |g, cx| {
+                                        g.open_terminal(
+                                            terminal_root.clone(),
+                                            terminal_path.clone(),
+                                            cx,
+                                        )
+                                    })
+                                })),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("chat-{key}")))
+                                .ghost()
+                                .small()
+                                .compact()
+                                .size_5()
+                                .p_0()
+                                .icon(IconName::Plus)
+                                .tooltip("New chat in this worktree")
+                                .disabled(!wt.available || state.busy || git.busy)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.git.update(cx, |g, cx| {
+                                        g.open_chat(chat_root.clone(), chat_path.clone(), cx)
+                                    })
+                                })),
+                        )
                         .children(workspace.filter(|id| running.contains(id)).map(|id| {
                             self.workspace_stop_button(
                                 id,
@@ -301,7 +429,17 @@ impl Sidebar {
                                     cx.emit(WorktreeRequest::Remove(request.clone()))
                                 }))
                         }));
-                    rows.push(entry.into_any_element());
+                    rows.push(
+                        column()
+                            .child(entry)
+                            .child(div().pl_9().min_h(activity_height).children(activity))
+                            .children(
+                                workspace
+                                    .filter(|_| expanded)
+                                    .map(|id| self.workspace_chats(id, cx)),
+                            )
+                            .into_any_element(),
+                    );
                 }
             } else {
                 let message = match git.entries.get(&project.path) {
@@ -334,6 +472,34 @@ impl Sidebar {
                                 },
                             )),
                         )
+                        .child(
+                            Button::new(SharedString::from(format!("terminal-{key}")))
+                                .ghost()
+                                .small()
+                                .compact()
+                                .size_5()
+                                .p_0()
+                                .icon(IconName::SquareTerminal)
+                                .tooltip("Open folder terminal")
+                                .disabled(state.busy || git.busy)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.projects.update(cx, |p, cx| p.show_terminal(id, cx));
+                                })),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("chat-{key}")))
+                                .ghost()
+                                .small()
+                                .compact()
+                                .size_5()
+                                .p_0()
+                                .icon(IconName::Plus)
+                                .tooltip("New chat in this folder")
+                                .disabled(state.busy || git.busy)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.projects.update(cx, |p, cx| p.create_chat_in(id, cx));
+                                })),
+                        )
                         .children(running.contains(&id).then(|| {
                             self.workspace_stop_button(
                                 id,
@@ -344,13 +510,16 @@ impl Sidebar {
                         }))
                         .into_any_element(),
                 );
+                rows.push(self.workspace_chats(id, cx).into_any_element());
             }
-            let body_height = rows.len() as f32 * t::ROW;
-            height += t::ROW + disclosure.height(body_height, now);
             groups.push(
                 column()
                     .child(header)
-                    .child(disclosure.body(body_height, column().children(rows), now))
+                    .child(disclosure.measured_body(
+                        SharedString::from(format!("project-body-{}", root.display())),
+                        column().children(rows),
+                        now,
+                    ))
                     .into_any_element(),
             );
         }
@@ -358,6 +527,7 @@ impl Sidebar {
             .error
             .as_ref()
             .or(git.watch_error.as_ref())
+            .or(state.error.as_ref())
             .or(terminal_error.as_ref())
         {
             groups.push(
@@ -367,8 +537,7 @@ impl Sidebar {
                     .child(error.clone())
                     .into_any_element(),
             );
-            height += t::ROW * 3.;
         }
-        (column().children(groups), height)
+        column().children(groups)
     }
 }

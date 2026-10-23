@@ -50,6 +50,7 @@ mod video_native;
 pub(crate) mod video_preview;
 #[cfg(target_os = "windows")]
 mod windows_settings;
+mod workspace_layout;
 mod workspace_panes;
 mod workspace_tabs;
 mod worktree_dialog;
@@ -85,6 +86,7 @@ actions!(
         SaveFile,
         QuickOpen,
         NewChat,
+        NewFile,
         NewChatNoProject,
         NewChatIn,
         SplitHorizontal,
@@ -97,7 +99,6 @@ pub struct Workspace {
     focus: FocusHandle,
     _activation_observer: Subscription,
     _files_observer: Subscription,
-    _new_file_events: Subscription,
     _chat_requests: Subscription,
     quick_open: Option<Entity<quick_open::QuickOpen>>,
     quick_open_events: Option<Subscription>,
@@ -114,8 +115,6 @@ pub struct Workspace {
     #[cfg(target_os = "windows")]
     _windows_settings: Option<windows_settings::SettingsMonitor>,
     inspector: Entity<inspector::Inspector>,
-    inspector_open: bool,
-    inspector_reveal: Presence,
     _file_events: Subscription,
     _file_directory_events: Subscription,
     opened_file: Option<SharedString>,
@@ -213,12 +212,9 @@ impl Workspace {
             cx.observe_in(&state.layout, window, |this, entity, _, cx| {
                 let layout = entity.read(cx);
                 this.sidebar_open = layout.sidebar_open;
-                this.inspector_open = layout.inspector_open;
                 let now = Instant::now();
                 this.sidebar_reveal
                     .set_open(this.sidebar_open, now, motion::policy(cx));
-                this.inspector_reveal
-                    .set_open(this.inspector_open, now, motion::policy(cx));
                 cx.notify();
             }),
         ];
@@ -359,57 +355,12 @@ impl Workspace {
                 FileTreeRequest::Refresh => files.refresh(cx),
             });
         });
-        let sidebar = cx.new(|cx| sidebar::Sidebar::new(files, cx));
+        let sidebar = cx.new(sidebar::Sidebar::new);
         let chat_requests = cx.subscribe_in(
             &sidebar,
             window,
             |this, _, request: &sidebar::RenameChat, window, cx| {
                 this.rename_chat(request.workspace, request.pane, window, cx);
-            },
-        );
-        let new_file_events = cx.subscribe_in(
-            &sidebar,
-            window,
-            |this, _, _: &sidebar::NewFile, window, cx| {
-                if this.modal.is_some()
-                    || this.task_detail_modal.is_some()
-                    || this.task_editor_modal.is_some()
-                    || this.state.files.read(cx).root.is_none()
-                {
-                    return;
-                }
-                let files = this.state.files.clone();
-                let root = files.read(cx).root.clone();
-                let modal = cx.new(|cx| {
-                    TextPrompt::new(
-                        "New file",
-                        "Path relative to worktree",
-                        "",
-                        this.focus.clone(),
-                        move |name, cx| {
-                            if name.trim().is_empty() {
-                                return Err("Enter a file name.".into());
-                            }
-                            if files.read(cx).root != root {
-                                return Err("The worktree changed.".into());
-                            }
-                            files.update(cx, |files, cx| {
-                                files.create_file(std::path::PathBuf::from(name), cx)
-                            });
-                            Ok(())
-                        },
-                        window,
-                        cx,
-                    )
-                });
-                this.modal_events =
-                    Some(cx.subscribe(&modal, |this, _, _: &ModalDismissed, cx| {
-                        this.modal = None;
-                        this.modal_events = None;
-                        cx.notify();
-                    }));
-                this.modal = Some(modal);
-                cx.notify();
             },
         );
         let worktree_requests = cx.subscribe_in(
@@ -442,7 +393,7 @@ impl Workspace {
                 cx.notify();
             },
         );
-        let inspector = cx.new(|cx| inspector::Inspector::new(window, cx));
+        let inspector = cx.new(|cx| inspector::Inspector::new(files, window, cx));
         let task_worktree_requests = cx.subscribe_in(
             &inspector,
             window,
@@ -509,7 +460,6 @@ impl Workspace {
         Self {
             _activation_observer: activation_observer,
             _files_observer: files_observer,
-            _new_file_events: new_file_events,
             _chat_requests: chat_requests,
             quick_open: None,
             quick_open_events: None,
@@ -532,8 +482,6 @@ impl Workspace {
             _upstream_events: upstream_events,
             upstream_modal: None,
             upstream_modal_events: None,
-            inspector_open: true,
-            inspector_reveal: Presence::new(true, presets::PANEL, Instant::now()),
             _file_events: file_events,
             _file_directory_events: file_directory_events,
             opened_file: None,
@@ -716,51 +664,30 @@ impl Workspace {
             .to_owned();
         self.state
             .tools
-            .update(cx, |state, cx| state.launch(&id, None, cx));
+            .update(cx, |tools, cx| tools.launch(&id, None, cx));
     }
     fn select_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         self.state.workspace.update(cx, |state, cx| {
-            if let Some(tab) = state.tabs().get(index) {
-                let id = tab.id;
+            let id = state.tool_tabs().nth(index).map(|t| t.id);
+            if let Some(id) = id {
                 let _ = state.activate(id);
                 cx.notify();
             }
         });
     }
     fn split(&mut self, axis: Axis, cx: &mut Context<Self>) {
-        if self.state.projects.read(cx).catalog.active.is_none() {
-            return;
-        }
-        let tool = self
-            .state
-            .settings
-            .read(cx)
-            .values
-            .new_tab_tool
-            .as_str()
-            .to_owned();
-        self.state.workspace.update(cx, |state, cx| {
-            if let Some(t) = state.active() {
-                let (id, pane) = (t.id, t.focused);
-                if state.split(id, pane, axis, tool).is_ok() {
-                    cx.global::<AppState>()
-                        .tools
-                        .read(cx)
-                        .catalog
-                        .bind_default(state);
-                    cx.notify();
-                }
-            }
-        });
+        self.split_terminal(axis, cx);
     }
     fn set_inspector_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.state.layout.update(cx, |state, cx| {
-            state.inspector_open = open;
+        self.state.workspace.update(cx, |state, cx| {
+            if open {
+                let page = state.tool_panel().page();
+                state.show_tools(page);
+            } else {
+                state.hide_tools();
+            }
             cx.notify();
         });
-        self.inspector_open = open;
-        self.inspector_reveal
-            .set_open(open, Instant::now(), motion::policy(cx));
         if !open {
             self.focus.focus(window, cx);
         }
@@ -818,118 +745,21 @@ impl Render for Workspace {
         let screen_progress = self.screen_reveal.progress(now);
         motion::request_frame(window, self.screen_reveal.is_animating(now));
         let sidebar_animating = self.sidebar_reveal.is_animating(now);
-        let inspector_animating = self.inspector_reveal.is_animating(now);
         let sidebar_progress = self.sidebar_reveal.progress(now);
-        let inspector_progress = self.inspector_reveal.progress(now);
         let widths = self.state.layout.read(cx).widths;
         let layout = widths.layout(
             f32::from(window.viewport_size().width),
             sidebar_progress,
-            inspector_progress,
+            0.,
         );
-        motion::request_frame(window, sidebar_animating || inspector_animating);
-        let tabs = self.render_tabs(
-            f32::from(window.viewport_size().width) - layout.left,
+        motion::request_frame(window, sidebar_animating);
+        let inspector_open = self.state.workspace.read(cx).tools_open();
+        let main = self.render_work_area(
+            layout.left,
+            layout.terminal,
+            (f32::from(window.viewport_size().height) - t::TITLEBAR - t::STATUS).max(0.),
             window,
             cx,
-        );
-        let main = column().flex_1().min_w_0().h_full().child(tabs).child(
-            row()
-                .flex_1()
-                .min_h_0()
-                .items_stretch()
-                .child(
-                    div()
-                        .w(px(layout.terminal))
-                        .h_full()
-                        .min_w_0()
-                        .children(
-                            (has_project && self.state.workspace.read(cx).tabs().is_empty()).then(
-                                || {
-                                    let tools = self.state.tools.read(cx);
-                                    let shell_enabled =
-                                        tools.catalog.get("shell").is_some_and(|tool| tool.enabled);
-                                    empty_state(
-                                        primary_button("open-empty-shell", "Open shell")
-                                            .disabled(
-                                                !tools.ready
-                                                    || !shell_enabled
-                                                    || self.state.git.read(cx).busy
-                                                    || self.state.projects.read(cx).busy,
-                                            )
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                if this.state.workspace.read(cx).tabs().is_empty() {
-                                                    this.state.tools.update(cx, |tools, cx| {
-                                                        tools.launch("shell", None, cx)
-                                                    });
-                                                }
-                                            })),
-                                        (!shell_enabled).then(|| {
-                                            "Enable Shell in Preferences to use this action.".into()
-                                        }),
-                                        None,
-                                    )
-                                    .size_full()
-                                },
-                            ),
-                        )
-                        .children(
-                            (!has_project && self.state.workspace.read(cx).tabs().is_empty()).then(
-                                || {
-                                    let reason = crate::app_state::Chats::unavailable(cx);
-                                    empty_state(
-                                        primary_button("open-empty-chat", "New chat")
-                                            .disabled(reason.is_some())
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.state.chats.update(cx, |chats, cx| {
-                                                    chats.open_new(
-                                                        crate::app_state::ChatTarget::NoProject,
-                                                        cx,
-                                                    )
-                                                });
-                                            })),
-                                        reason.map(Into::into),
-                                        None,
-                                    )
-                                    .size_full()
-                                },
-                            ),
-                        )
-                        .children(self.state.workspace.read(cx).active().cloned().map(|tab| {
-                            self.render_tree(
-                                &tab.root,
-                                tab.id,
-                                tab.focused,
-                                Bounds::new(
-                                    point(px(layout.left), px(40. + t::TABS)),
-                                    size(
-                                        px(layout.terminal),
-                                        window.viewport_size().height
-                                            - px(40. + t::TABS + t::STATUS),
-                                    ),
-                                ),
-                                cx,
-                            )
-                        })),
-                )
-                .child(
-                    div()
-                        .relative()
-                        .w(px(layout.right))
-                        .h_full()
-                        .flex_shrink_0()
-                        .overflow_hidden()
-                        .children((self.inspector_open || inspector_animating).then(|| {
-                            div()
-                                .absolute()
-                                .top_0()
-                                .right_0()
-                                .w(px(layout.panels.right))
-                                .h_full()
-                                .opacity(inspector_progress)
-                                .child(self.inspector.clone())
-                        })),
-                ),
         );
         column()
             .id("workspace")
@@ -989,6 +819,20 @@ impl Render for Workspace {
                     });
                 },
             ))
+            .on_drag_move::<workspace_layout::ToolResize>(cx.listener(
+                |this, event: &DragMoveEvent<workspace_layout::ToolResize>, _, cx| {
+                    let drag = *event.drag(cx);
+                    let size = if drag.bottom {
+                        drag.height - f32::from(event.event.position.y - drag.origin.y)
+                    } else {
+                        drag.width - f32::from(event.event.position.x - drag.origin.x)
+                    };
+                    this.state.workspace.update(cx, |w, cx| {
+                        w.tool_panel_mut().resize(size);
+                        cx.notify();
+                    });
+                },
+            ))
             .on_drag_move::<PanelSide>(cx.listener(
                 |this, event: &DragMoveEvent<PanelSide>, window, cx| {
                     this.drop_hint = None;
@@ -1011,7 +855,7 @@ impl Render for Workspace {
                 cx.listener(|this, _: &ToggleSidebar, window, cx| this.toggle_sidebar(window, cx)),
             )
             .on_action(cx.listener(|this, _: &ToggleInspector, window, cx| {
-                this.set_inspector_open(!this.inspector_open, window, cx)
+                this.set_inspector_open(!this.state.workspace.read(cx).tools_open(), window, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowChanges, window, cx| {
                 if this.state.projects.read(cx).catalog.active.is_none() {
@@ -1030,6 +874,7 @@ impl Render for Workspace {
                 this.select_tab(1, cx);
                 cx.notify();
             }))
+            .on_action(cx.listener(|this, _: &NewFile, window, cx| this.open_new_file(window, cx)))
             .on_action(cx.listener(|this, _: &NewTab, _, cx| this.new_tab(cx)))
             .on_action(cx.listener(|this, _: &NewChat, _, cx| {
                 if this.modal.is_some()
@@ -1080,6 +925,17 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &CloseTab, _, cx| {
+                let w = this.state.workspace.read(cx);
+                if w.tools_open()
+                    && w.tool_panel().is_focused()
+                    && w.tool_panel().page() != canopy_desktop::state::workspace::ToolPage::Tabs
+                {
+                    this.state.workspace.update(cx, |w, cx| {
+                        w.show_tools(canopy_desktop::state::workspace::ToolPage::Tabs);
+                        cx.notify();
+                    });
+                    return;
+                }
                 if let Some(tab) = this.state.workspace.read(cx).active().map(|t| t.id) {
                     this.close_workspace_tab(this.state.workspace.read(cx).id, tab, cx);
                 }
@@ -1107,31 +963,33 @@ impl Render for Workspace {
             .child(
                 workspace_titlebar("workspace-titlebar", window)
                     .relative()
-                    .h(px(40.))
+                    .h(px(t::TITLEBAR))
                     .flex_shrink_0()
-                    .justify_center()
+                    .justify_start()
+                    .pl(px(titlebar_leading_inset() + 32.))
+                    .pr(px(titlebar_trailing_inset() + 44.))
                     .bg(t::sidebar())
                     .border_b_1()
                     .border_color(t::border())
                     .text_color(t::muted())
                     .text_size(px(12.))
-                    .child(active.as_ref().map(|p| p.name.clone()).unwrap_or_else(|| {
+                    .child({
                         let workspace = self.state.workspace.read(cx);
-                        workspace
-                            .active()
-                            .map(|tab| {
-                                workspace
-                                    .chat_title(tab.focused)
-                                    .unwrap_or(&tab.title)
-                                    .to_owned()
-                            })
-                            .unwrap_or_else(|| "Chats".into())
-                    }))
+                        let title = workspace
+                            .primary_tab()
+                            .map(|tab| workspace.chat_title(tab.focused).unwrap_or(&tab.title))
+                            .unwrap_or("Canopy");
+                        let label = active
+                            .as_ref()
+                            .map(|p| format!("{} / {title}", p.name))
+                            .unwrap_or_else(|| title.to_owned());
+                        div().flex_1().min_w_0().truncate().child(label)
+                    })
                     .child({
                         div()
                             .absolute()
                             .left(px(titlebar_leading_inset()))
-                            .top(px(10.))
+                            .top(px(8.))
                             .child(
                                 icon_button(
                                     "toggle-sidebar",
@@ -1158,25 +1016,29 @@ impl Render for Workspace {
                         div()
                             .absolute()
                             .right(px(t::SPACING_UNIT * 3. + titlebar_trailing_inset()))
-                            .top(px(10.))
+                            .top(px(8.))
                             .child(
                                 icon_button(
                                     "toggle-inspector",
-                                    if self.inspector_open {
+                                    if inspector_open {
                                         IconName::PanelRightClose
                                     } else {
                                         IconName::PanelRightOpen
                                     },
-                                    if self.inspector_open {
-                                        "Hide inspector"
+                                    if inspector_open {
+                                        "Hide tools"
                                     } else {
-                                        "Show inspector"
+                                        "Show tools"
                                     },
                                 )
                                 .on_click(cx.listener(
                                     |this, _, window, cx| {
                                         cx.stop_propagation();
-                                        this.set_inspector_open(!this.inspector_open, window, cx);
+                                        this.set_inspector_open(
+                                            !this.state.workspace.read(cx).tools_open(),
+                                            window,
+                                            cx,
+                                        );
                                     },
                                 )),
                             )
@@ -1207,11 +1069,6 @@ impl Render for Workspace {
                     .child(main)
                     .children((self.sidebar_open && !sidebar_animating).then(|| {
                         pane_divider("resize-left", PanelSide::Left).left(px(layout.left - 4.))
-                    }))
-                    .children((self.inspector_open && !inspector_animating).then(|| {
-                        pane_divider("resize-right", PanelSide::Right)
-                            .left(px(layout.left + layout.terminal - 4.))
-                            .top(px(t::TABS))
                     }))
             })
             .child({

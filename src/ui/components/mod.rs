@@ -126,4 +126,4 @@ pub use titlebar::{
 };
 
 mod tool_header;
-pub use tool_header::{ToolHeader, hover_action};
+pub use tool_header::hover_action;

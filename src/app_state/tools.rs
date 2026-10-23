@@ -49,6 +49,45 @@ async fn record_failed_cleanup(
 }
 
 impl ToolsState {
+    /// Reveals an existing shell in the active worktree, or explicitly creates one.
+    pub fn show_terminal(cx: &mut App) {
+        let app = cx.global::<AppState>().clone();
+        let workspace = app.workspace.read(cx);
+        let is_terminal = |p: &canopy_desktop::state::workspace::Pane| {
+            p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
+                && app
+                    .tools
+                    .read(cx)
+                    .catalog
+                    .get(&p.tool)
+                    .is_some_and(|tool| tool.kind == ToolKind::Shell)
+        };
+        let pane = workspace
+            .tool_tab()
+            .and_then(|t| {
+                t.root
+                    .find(t.focused)
+                    .filter(|p| is_terminal(p))
+                    .cloned()
+                    .or_else(|| t.root.panes().into_iter().find(is_terminal))
+            })
+            .or_else(|| {
+                workspace
+                    .tool_tabs()
+                    .flat_map(|t| t.root.panes())
+                    .find(is_terminal)
+            })
+            .map(|p| p.id);
+        if let Some(pane) = pane {
+            app.workspace.update(cx, |w, cx| {
+                let _ = w.activate_pane(pane);
+                cx.notify();
+            });
+        } else {
+            app.tools
+                .update(cx, |tools, cx| tools.launch("shell", None, cx));
+        }
+    }
     pub fn new() -> Self {
         Self {
             catalog: ToolCatalog::default(),
@@ -392,7 +431,18 @@ impl ToolsState {
             .current()
             .map(|p| p.worktree_path.clone().unwrap_or_else(|| p.path.clone()))
             .ok_or("Open a folder to use tools.")?;
-        let title = tool.label(profile.as_deref());
+        let title = if tool.kind == ToolKind::Shell {
+            let workspace = app.workspace.read(cx);
+            let index = (1..)
+                .find(|index| {
+                    let title = format!("Terminal {index}");
+                    !workspace.tabs().iter().any(|tab| tab.title == title)
+                })
+                .expect("available terminal title");
+            format!("Terminal {index}")
+        } else {
+            tool.label(profile.as_deref())
+        };
         app.workspace.update(cx, |state, cx| {
             let tab = state.open(title.clone(), id);
             let pane = state.active().expect("new tab").focused;

@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 // Each tab owns a split tree; leaves own session metadata.
 use std::sync::atomic::{AtomicU64, Ordering};
+mod tools;
+pub use tools::{ToolPage, ToolPanel, ToolPosition};
 
 macro_rules! id {
     ($name:ident) => {
@@ -320,12 +322,26 @@ pub struct Tab {
     pub root: SplitTree,
     pub focused: PaneId,
 }
+impl Tab {
+    pub fn has_chat(&self) -> bool {
+        self.root
+            .panes()
+            .iter()
+            .any(|p| p.metadata.kind == PaneKind::Chat)
+    }
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Workspace {
     pub id: WorkspaceId,
     tabs: Vec<Tab>,
     active: Option<TabId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_chat: Option<TabId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_tool: Option<TabId>,
+    #[serde(default)]
+    panel: ToolPanel,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StateError {
@@ -349,6 +365,9 @@ impl Workspace {
             id: WorkspaceId::new(),
             tabs: vec![],
             active: None,
+            last_chat: None,
+            last_tool: None,
+            panel: ToolPanel::default(),
         }
     }
     /// New project/worktree contexts are empty until the user explicitly opens a tool.
@@ -357,6 +376,9 @@ impl Workspace {
             id,
             tabs: Vec::new(),
             active: None,
+            last_chat: None,
+            last_tool: None,
+            panel: ToolPanel::default(),
         }
     }
     /// Bind a provider session only while pane identity still matches the launch.
@@ -547,7 +569,15 @@ impl Workspace {
     }
     pub fn activation_plan(&self) -> Vec<Pane> {
         let mut panes = vec![];
-        if let Some(tab) = self.active() {
+        if !self.panel.is_maximized()
+            && let Some(tab) = self.primary_tab()
+        {
+            tab.root.collect(&mut panes);
+        }
+        if self.tools_open()
+            && self.panel.page() == ToolPage::Tabs
+            && let Some(tab) = self.tool_tab()
+        {
             tab.root.collect(&mut panes);
         }
         panes
@@ -557,6 +587,14 @@ impl Workspace {
             return false;
         }
         if self.active.is_some() && self.active().is_none() {
+            return false;
+        }
+        if !self.panel.valid()
+            || [self.last_chat, self.last_tool]
+                .into_iter()
+                .flatten()
+                .any(|id| !self.tabs.iter().any(|t| t.id == id))
+        {
             return false;
         }
         let mut tabs = std::collections::HashSet::new();
@@ -590,20 +628,39 @@ impl Workspace {
         if !self.tabs.iter().any(|t| t.id == id) {
             return Err(StateError::MissingTab);
         }
-        self.active = Some(id);
+        self.select(id);
         Ok(())
     }
     pub fn open(&mut self, title: impl Into<String>, tool: impl Into<String>) -> TabId {
-        let pane = Pane::new(tool);
+        self.open_in(title.into(), tool.into(), false)
+    }
+    pub fn open_conversation(
+        &mut self,
+        title: impl Into<String>,
+        tool: impl Into<String>,
+    ) -> TabId {
+        self.open_in(title.into(), tool.into(), true)
+    }
+    fn open_in(&mut self, title: String, tool: String, chat: bool) -> TabId {
+        self.remember_active();
+        let mut pane = Pane::new(tool);
+        if chat {
+            pane.metadata.kind = PaneKind::Chat;
+        }
         let tab = Tab {
             id: TabId::new(),
-            title: title.into(),
+            title,
             focused: pane.id,
             root: SplitTree::Leaf(pane),
         };
         let id = tab.id;
         self.tabs.push(tab);
         self.active = Some(id);
+        if !chat {
+            self.panel.show(ToolPage::Tabs);
+        } else {
+            self.panel.focus_conversation();
+        }
         id
     }
     pub fn rename(&mut self, id: TabId, title: impl Into<String>) -> Result<(), StateError> {
@@ -625,12 +682,27 @@ impl Workspace {
             .iter()
             .position(|t| t.id == id)
             .ok_or(StateError::MissingTab)?;
+        self.remember_active();
+        let was_chat = self.tabs[index].has_chat();
         self.tabs.remove(index);
+        if self.last_chat == Some(id) {
+            self.last_chat = None;
+        }
+        if self.last_tool == Some(id) {
+            self.last_tool = None;
+        }
         if self.active == Some(id) {
             self.active = self
                 .tabs
-                .get(index.min(self.tabs.len().saturating_sub(1)))
-                .map(|t| t.id);
+                .iter()
+                .rev()
+                .find(|t| t.has_chat() == was_chat)
+                .map(|t| t.id)
+                .or_else(|| {
+                    self.tabs
+                        .get(index.min(self.tabs.len().saturating_sub(1)))
+                        .map(|t| t.id)
+                });
         }
         Ok(())
     }
@@ -646,7 +718,7 @@ impl Workspace {
             return Err(StateError::MissingPane);
         }
         t.focused = pane;
-        self.active = Some(tab);
+        self.select(tab);
         Ok(())
     }
     pub fn split(
@@ -739,7 +811,7 @@ impl Workspace {
             return Err(StateError::DepthLimit);
         }
         dest.focused = pane;
-        next.active = Some(destination);
+        next.select(destination);
         *self = next;
         Ok(())
     }
@@ -756,7 +828,7 @@ impl Workspace {
             .cloned()
             .ok_or(StateError::MissingPane)?;
         if matches!(self.tab_mut(source)?.root, SplitTree::Leaf(_)) {
-            self.active = Some(source);
+            self.select(source);
             return Ok(source);
         }
         self.close_pane(source, pane)?;
@@ -775,7 +847,7 @@ impl Workspace {
             root: SplitTree::Leaf(value),
             focused: pane,
         });
-        self.active = Some(id);
+        self.select(id);
         Ok(id)
     }
     pub fn dock_tab(
@@ -802,7 +874,7 @@ impl Workspace {
         }
         dest.focused = source_tab.focused;
         next.close(source)?;
-        next.active = Some(destination);
+        next.select(destination);
         *self = next;
         Ok(())
     }
@@ -861,7 +933,7 @@ impl Workspace {
             second.root.replace(target, SplitTree::Leaf(a));
         }
         self.tab_mut(destination)?.focused = pane;
-        self.active = Some(destination);
+        self.select(destination);
         Ok(())
     }
     pub fn reorder_tab(&mut self, id: TabId, before: Option<TabId>) -> Result<(), StateError> {
@@ -892,8 +964,9 @@ impl Workspace {
             .cloned()
             .ok_or(StateError::MissingTab)?;
         self.close(tab)?;
+        destination.remember_active();
         destination.tabs.push(value);
-        destination.active = Some(tab);
+        destination.select(tab);
         Ok(())
     }
 }

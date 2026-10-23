@@ -96,47 +96,40 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 
 ## Layout i okna
 
-- Lewy sidebar zawiera Chats, Projects, Tasks oraz kontekstowe Files i Tools. Główny obszar zawiera pasek tabów
-  i pane'y. Po prawej jest opcjonalny inspector/Changes. Na dole status bar
-  z ustawieniami; przełączniki sidebarów są w titlebarze.
+- Lewy sidebar ma drzewo projekt → worktree → rozmowy oraz osobne Private chats.
+  Centrum pokazuje rozmowę, a panel narzędzi ma niezależne taby, domyślnie po prawej.
+  Panel może być na dole, zmaksymalizowany lub schowany. Files, Changes, Tasks i Agent
+  są w jego menu. Jednoliniowy titlebar zastępuje osobne nagłówki i ścieżkę projektu.
+  Szczegóły: [układ workspace'u](features/workspace-layout.md).
 - Preferences otwieramy jako osobne okno aplikacji, nie modal całego workspace'u.
   Mniejsze formularze/potwierdzenia korzystają ze wspólnego systemu modali.
 - Każde okno ma Root i właściwe warstwy dialogów, popupów, tooltipów itd.
   GPUI Kit 0.7 montuje warstwy komponentów automatycznie w Root; nie dodawaj
   ręcznych wywołań renderowania tych warstw w widokach aplikacji.
-- Oba sidebary mają zachowywać szerokość ustawioną przez użytkownika podczas
-  resize okna. Przestrzeń między nimi wypełnia terminal; nie dziel szerokości
-  proporcjonalnie między terminal a inspector.
-- Maksymalna szerokość każdego sidebara to 800 jednostek logicznych. Gdy okno
-  jest za wąskie, dopasuj jedynie wyświetlane szerokości, zachowując zapisane
-  preferencje i co najmniej 160 dla głównego obszaru. Ukryty panel nie zajmuje miejsca.
-- Toggle sidebarów nie może psuć ich separatorów resize ani obszarów chwytania.
-- Przy zwijaniu obu sidebarów ich zawartość zostaje zakotwiczona; wizualnie
-  terminal przykrywa/odsłania panel. Prawy sidebar nie ma wyjeżdżać całością poza okno.
-- Prawy sidebar używa tego samego koloru powierzchni co lewy.
-- Toggle prawego sidebara jest po prawej stronie titlebara, analogicznie do lewego.
-  Nie pokazujemy już oczka w dolnym pasku; ustawienia pozostają na dole.
+- Lewy sidebar i panel narzędzi zachowują preferowane wymiary przy resize okna.
+  Lewy ma dotychczasowy limit 800; panel narzędzi 180–1600 szerokości lub 96–1600
+  wysokości. Wyświetlana geometria zachowuje miejsce na rozmowę, bez nadpisywania
+  preferencji. Ukrycie panelu nie zamyka tabów ani procesów. Separator działa także
+  po zmianie położenia. Wybór rozmowy zachowuje terminale tego samego worktree.
+- Panel narzędzi używa powierzchni sidebar i ma opcje ukrycia oraz maksymalizacji.
+  Toggle jest w titlebarze; ustawienia aplikacji pozostają na dole.
 - Używaj wspólnego `window_titlebar`; zachowuj natywne działanie podwójnego
   kliknięcia górnego paska zgodnie z ustawieniem macOS.
 
 ## Projekty, worktree i puste stany
 
-- Chats nad Projects jest wspólną listą rozmów z projektów i scratch, jeden wiersz na Chat PaneId.
-  Każdy wiersz pokazuje projekt lub Without a project, tytuł, właściwy branch/worktree
-  i nazwę agenta z ikoną oraz status. HEAD pochodzi z istniejącego watchera Git
-  dla checkoutu tej rozmowy; render nie wykonuje I/O. Rename/Delete jest adresowane
-  po WorkspaceId/PaneId i nie przełącza widocznego projektu.
-  Nie ma fikcyjnej pozycji No project w drzewie projektów. Snapshot zachowuje istniejące
-  pole `scratch`; pasek tabów i splity pozostają. `Open tabs…` daje dostęp do tabów bez czatu.
-  Start i przełączenie kontekstu nie tworzą czatu; pusty stan ma CTA New chat.
-  Rozmowa bez projektu ma prywatny katalog `<dane>/chats/<uuid>`. Usuwanie czeka na procesy
-  i chroni współdzielony katalog; błędny cleanup zostaje z Retry cleanup.
-  Szczegółowy kontrakt: [samodzielne rozmowy](features/standalone-chats.md).
+- Wiersz rozmowy pod worktree odpowiada jednemu Chat PaneId i pokazuje tytuł,
+  agenta i status. Projekt oraz branch/worktree wynikają z rodzica; pełny kontekst
+  jest w tooltipie i etykiecie dostępności. Rodzice agregują pracę i potrzebę decyzji.
+  HEAD pochodzi z istniejącego watchera; render nie wykonuje I/O. Private chats
+  nie tworzy fikcyjnego projektu. Rename/Delete po WorkspaceId/PaneId zachowuje
+  dotychczasowy guard i cleanup. `Open tabs…` przy prywatnych rozmowach daje dostęp
+  do ich pozostałych narzędzi. Szczegóły: [samodzielne rozmowy](features/standalone-chats.md).
 - Nowy projekt lub worktree ma pustą listę tabów. Nie twórz automatycznie
   taba, pane'a, shella ani agenta podczas otwierania/przełączania worktree.
-- Przy wybranym workspace bez tabów centralny CTA `Open shell` otwiera jawnie
-  Shell w jego cwd. Nie używa przypadkowego domyślnego agenta zamiast Shell.
-  CTA znika po pierwszym tabie i wraca po zamknięciu ostatniego.
+- Puste centrum oferuje New chat. Terminal otwiera przycisk przy worktree
+  lub plus w panelu narzędzi. Przycisk przy worktree najpierw przywraca istniejącą
+  sesję; plus tworzy nową. Split tworzy niezależny terminal z tym samym cwd/profilem.
 - Pusta lista tabów jest poprawnym stanem i przeżywa persist/restore.
 - Przełączenie worktree aktualizuje zaznaczenie poprzedniego/nowego wiersza
   oraz odpowiedni zestaw tabów/pane'ów. Nie animuje wejścia całego layoutu
@@ -146,20 +139,11 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 
 ## Sidebar: wygląd i interakcje
 
-- Chats, Projects, Files i Tools są zwijalne. Files i Tools są schowane bez projektu. Ich nagłówki zmieniają kolor tekstu
-  na hover; nie podświetlaj całego tła jak dużego przycisku.
-- Projekt jest rozwijanym nagłówkiem: strzałka i nazwa tworzą jedną akcję,
-  bez folderowej karty z tłem. Obok są `+ new` i zamknięcie projektu.
-  Ręczny Refresh Git metadata jest w menu kontekstowym nagłówka.
-- Worktree są wciętymi etykietami wyrównanymi do lewej, bez zaznaczenia tłem.
-  Hover rozjaśnia tekst; aktywny katalog ma gwiazdkę. Usuwanie pojawia się na hover.
-- Narzędzie z ponad jednym profilem ma wspólny nagłówek strzałka/ikona/nazwa:
-  kliknięcie rozwija/zamyka profile, nie uruchamia procesu. Hover rozjaśnia
-  nazwę i strzałkę; ikona marki zachowuje właściwy kolor.
-- Przy jednym profilu nie pokazuj strzałki ani pustego miejsca po niej:
-  kliknięcie uruchamia ten profil. Przy braku profili uruchamia bazowe narzędzie.
-- Nazwy narzędzi i profili są wyrównane do lewej. GPUI Button centruje własny
-  kontener etykiety — samo ustawienie justify na zewnętrznym elemencie nie wystarcza.
+- Projekty, worktree i Private chats są zwijalne. Wybrany worktree ma subtelne
+  zaznaczenie, a jego rozmowy są wcięte. Nagłówki projektów pokazują aktywność
+  również po zwinięciu. Terminal i New chat są przy właściwym worktree;
+  usuwanie worktree pozostaje dostępne na hover. Refresh Git jest w menu projektu.
+- Narzędzia/profile uruchamia menu panelu narzędzi; wybór profilu jest jawny.
 - Czerwony Stop jest widoczny, gdy workspace ma procesy, również dla
   `Folder without Git`. Obejmuje wszystkie jego taby, nie wszystkie projekty aplikacji.
 - Stop i usuwanie używają wspólnej geometrii: 16 × 16 jednostek logicznych,
@@ -452,7 +436,7 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   diffy używają `git::changes::DiffLine` i `components::git::diff_line`. Diff tury czyta żywą
   sesję i nie udaje dostępności po restarcie. Proces czatu ma `--thinking-display summarized`.
 - Historia czatu żyje w SQLite per element (`ChatSettings.id`, epoki Restart/Edit) i wraca
-  po restarcie aplikacji; Chats pokazuje rozmowy projektowe i bez projektu, także nieodwiedzone po restore.
+  po restarcie aplikacji; drzewo projektów i Private chats pokazują też rozmowy nieodwiedzone po restore.
   Usunięcie czatu usuwa historię i załączniki dopiero po zakończeniu procesów, z ponowieniem błędów.
   Zapis idzie przez `AppState.chat_history`; render nie czyta bazy. Obrazy do modelu skaluje
   `chat::attachments`; inne pliki idą jako ścieżki. Nowa rozmowa to zawsze New chat (nowy tab).

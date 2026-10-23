@@ -140,10 +140,16 @@ impl Workspace {
                 }))
                 .children(show_header.then(|| {
                     pane_header(
-                        pane_handle("pane-handle", pane.tool.clone())
-                            .on_drag(ContentDrag::Pane { tab, pane: pane_id }, |_, _, _, cx| {
-                                cx.new(|_| DragPreview("Move pane"))
-                            }),
+                        pane_handle(
+                            "pane-handle",
+                            pane.metadata
+                                .title
+                                .clone()
+                                .unwrap_or_else(|| pane.tool.clone()),
+                        )
+                        .on_drag(ContentDrag::Pane { tab, pane: pane_id }, |_, _, _, cx| {
+                            cx.new(|_| DragPreview("Move pane"))
+                        }),
                         icon_button("close-pane", IconName::Close, "Close pane").on_click(
                             cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();

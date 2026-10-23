@@ -81,4 +81,31 @@ mod tests {
         assert!(plan.remove.is_empty());
         assert_eq!(plan.visible.len(), 2);
     }
+
+    #[test]
+    fn hiding_tools_or_changing_conversation_never_retires_a_terminal() {
+        let mut w = Workspace::new();
+        let first = w.open_conversation("First", "codex");
+        let second = w.open_conversation("Second", "claude");
+        let terminal = w.open("Terminal", "shell");
+        let pane = w.active().unwrap().focused;
+        let sibling = w.split(terminal, pane, Axis::Vertical, "shell").unwrap();
+        let started = HashSet::from([pane, sibling]);
+        for chat in [first, second] {
+            w.activate(chat).unwrap();
+            let plan = reconcile(&[w.clone()], Some(w.id), &started);
+            assert!(plan.start.is_empty());
+            assert!(plan.remove.is_empty());
+            assert!(plan.visible.contains(&pane));
+            w.hide_tools();
+            let plan = reconcile(&[w.clone()], Some(w.id), &started);
+            assert!(!plan.visible.contains(&pane));
+            assert!(plan.remove.is_empty());
+            w.activate(terminal).unwrap();
+        }
+        w.close_pane(terminal, sibling).unwrap();
+        let plan = reconcile(&[w.clone()], Some(w.id), &started);
+        assert_eq!(plan.remove, vec![sibling]);
+        assert!(plan.start.is_empty());
+    }
 }

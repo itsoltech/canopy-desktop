@@ -147,19 +147,12 @@ tokenów ani geometrii produktu.
 `Disclosure` przechowuje stan rozwinięcia oraz dwa wspólne `Presence`:
 PANEL dla wysokości i CONTENT_REVEAL dla treści. `header` zwraca przycisk,
 `body` przycina treść do bieżącej wysokości i stosuje opacity/przesunięcie.
-Chats, Projects, Files i Tools mają niezależne stany w encji Sidebar.
-Chats używa mierzonego body, natywnych przycisków i DropdownMenu, z menu widocznym
-bez hover. Lista obejmuje projekty i scratch. Trzy poziomy wiersza to projekt/status,
-tytuł oraz branch/worktree i agent (ikona plus nazwa). Pełny kontekst jest dostępny
-w tooltipie i etykiecie dostępności. Wiersze mają wspólne osie tekstu i osobne miejsce
-na agenta; długie nazwy są skracane, a menu mieści się w obrębie wiersza.
-Kontekst projektu jest turkusowy, prywatnego czatu fioletowy; ikony agentów mają
-własne kolory. Status ma kolorową kropkę oraz tekst, a selection niebieskie tło
-i pasek. Większy padding, równe odstępy i jawna interlinia oddzielają metadane
-od mocniejszego tytułu. Kolory i geometria pochodzą z `src/ui/theme.rs`.
-Files i Tools są schowane bez projektu, z zachowaniem swoich encji.
-Szczegóły: [samodzielne rozmowy](features/standalone-chats.md). Po zamknięciu
-sekcji nie usuwamy encji FileTree, więc jej zaznaczenie i rozwinięcia pozostają.
+Sidebar pokazuje projekty, ich worktree i zagnieżdżone rozmowy oraz osobne
+Private chats. Mierzone body zachowuje wysokość przy dowolnej liczbie rozmów.
+Wiersz rozmowy ma tytuł i metadane agenta/statusu; kontekst jest na rodzicu oraz
+w tooltipie. Rodzice agregują stan pracy. Files i Tasks nie mają kopii po lewej:
+Files/Changes/Tasks/Agent renderuje dotychczasowy Inspector we wspólnym panelu
+narzędzi. Szczegóły interakcji i własności: [układ workspace'u](features/workspace-layout.md).
 
 Nagłówki mają przezroczyste tło także na hover/press. Jawny stan `hovered`
 zmienia kolor tekstu/strzałki z faint na secondary; nie polegamy na nadpisywanym
@@ -181,36 +174,21 @@ sprawdzone fmt, Clippy i build release. Użytkownik potwierdził poprawny hover.
 
 ## Zwijanie, resize i stałe szerokości paneli
 
-Przycisk przy traffic lights oraz Cmd+Option+B przełączają lewy sidebar na
-macOS; Windows używa Ctrl+Shift+B. Cmd+B/Ctrl+Shift+I przełączają prawy.
-Oba używają Presence/PANEL i zachowują
-encje oraz szerokości po ponownym otwarciu. Lewa zawartość jest zakotwiczona
-z lewej, prawa z prawej: rozszerzający się terminal zasłania je przez clip,
-a zawartość nie wyjeżdża poza okno.
+Cmd+Option+B przełącza lewy sidebar (Windows: Ctrl+Shift+B), a Cmd+B panel
+narzędzi (Windows: Ctrl+Shift+I). Lewy zachowuje Presence/PANEL. Prawy panel ma
+własny trwały ToolPanel w Workspace, opcje Right/Bottom, resize i maksymalizację.
+Wymiary są preferencją, a bieżący viewport ogranicza tylko wyświetlenie.
+Ukrycie nie zamyka tabów/procesów. Jednoliniowy titlebar ma nazwę projektu i rozmowy.
 
-`state/layout.rs` przechowuje preferowane szerokości. Zmienia je wyłącznie
-przeciąganie separatora, nigdy resize okna ani klatka animacji. Usunięto
-proporcjonalny ResizableState oraz pętlę synchronizacji, która mogła cofać
-ręczny resize lewego panelu. Terminal dostaje pozostałą szerokość.
+`pane_divider` obsługuje lewy sidebar (180–800). `ToolResize` obsługuje panel
+narzędzi (180–1600 szerokości lub 96–1600 wysokości). Preferowane wymiary
+pozostają bez zmian, gdy viewport wymusza czasowe ograniczenie.
 
-`pane_divider` to wspólny uchwyt z obszarem trafienia 8 px i cienką linią.
-Przeciągnięcie przekazuje PanelSide; Workspace aktualizuje właściwą szerokość.
-Limity: lewy 180–800, prawy 220–800 jednostek logicznych; budżet zależy od
-aktualnego okna i pozostawia co najmniej 160 dla terminala. Ukryty panel nie
-zajmuje budżetu. Szerokości są zapisywane w snapshotcie sesji. Jeżeli po resize
-okno jest za małe, tylko wyświetlane szerokości są tymczasowo ograniczane;
-powiększenie okna przywraca preferowane wartości. Dopasowana szerokość dotyczy
-również zawartości panelu, żeby kontrolki nie były obcięte poza viewportem.
-Separatory nie są montowane podczas animacji toggle.
-
-`Inspector` jest osobną encją. Session / Changes / Tasks mają przesuwany znacznik
-(RESIZE) oraz niezależny crossfade treści (STATE_CHANGE). Przeskok Session ↔ Tasks
-nie odsłania Changes: widoczność jest animowana dla konkretnych wybranych stron,
-a nie wyliczana z pozycji znacznika. Szybkie zmiany zachowują aktualne opacity;
-wychodzące strony pozostają do końca animacji, z blokadą kliknięć i scrollu treści.
-Reduce Motion przełącza oba kanały natychmiast. Skróty macOS
-Cmd+Shift+S / Cmd+Shift+G oraz Windows Ctrl+Shift+A / Ctrl+Shift+G wybierają tab
-i rozwijają panel, jeśli był zamknięty.
+`Inspector` jest osobną encją, renderującą Agent / Changes / Tasks / Files.
+Zmiana strony zachowuje niezależny crossfade treści (STATE_CHANGE), bez
+odsłaniania pośrednich stron. Reduce Motion pomija animację. Skróty macOS
+Cmd+Shift+S / Cmd+Shift+G oraz Windows Ctrl+Shift+A / Ctrl+Shift+G otwierają
+odpowiednio agenta lub zmiany w panelu narzędzi.
 
 `window_titlebar` zachowuje product chrome i natywne drag/double-click. Windows
 dodaje trzy caption hit-test lanes Min/Max/Close z nazwami accessibility;
@@ -485,7 +463,7 @@ oraz nie dodaje timera czy osobnej pętli animacji.
 ## Session inspector
 
 `ui/session_inspector.rs` owns the selected pane's session view and subscriptions
-to agent/workspace changes. `ui/inspector.rs` owns the Session/Changes/Tasks switch;
+to agent/workspace changes. `ui/inspector.rs` renders the selected Agent/Changes/Tasks/Files tool page;
 `ui/inspector/transition.rs` keeps its underline separate from page visibility.
 Hook events notify the session view directly.
 

@@ -1,25 +1,16 @@
 mod chats;
 mod projects;
-pub use chats::RenameChat;
-mod tasks;
-mod tools;
-use super::components::file_tree::FileTree;
-use super::components::files::file_message;
 use super::{components::*, theme as t};
+pub use chats::RenameChat;
 use gpui_kit::component::{Icon, IconName, button::Button, scroll::ScrollableElement};
 use gpui_kit::{prelude::FluentBuilder, *};
 use std::time::Instant;
 
-pub struct NewFile;
-impl EventEmitter<NewFile> for Sidebar {}
 pub struct Sidebar {
-    files: Entity<FileTree>,
-    tasks: Entity<tasks::TasksSection>,
     scroll: ScrollHandle,
     git: Entity<crate::app_state::GitState>,
-    tools: Entity<crate::app_state::ToolsState>,
     terminals: Entity<crate::app_state::Terminals>,
-    profiles: std::collections::HashMap<String, Disclosure>,
+    collapsed_worktrees: std::collections::HashSet<std::path::PathBuf>,
     project_groups: std::collections::HashMap<std::path::PathBuf, Disclosure>,
     hovered_project_item: Option<String>,
     stop_feedback:
@@ -27,15 +18,13 @@ pub struct Sidebar {
     _tool_events: Vec<Subscription>,
     projects: Entity<crate::app_state::ProjectsState>,
     _projects_observer: Subscription,
-    sections: [Disclosure; 4],
-    actions_hovered: [bool; 3],
-    hovered_tool_label: Option<String>,
+    sections: [Disclosure; 2],
+    attach_hovered: bool,
     focus: FocusHandle,
 }
 impl Sidebar {
-    pub fn new(files: Entity<FileTree>, cx: &mut Context<Self>) -> Self {
+    pub fn new(cx: &mut Context<Self>) -> Self {
         let scroll = ScrollHandle::new();
-        files.update(cx, |files, _| files.use_sidebar_scroll(scroll.clone()));
         let projects = cx.global::<crate::app_state::AppState>().projects.clone();
         let observer = cx.observe(&projects, |this, _, cx| this.sync_project_groups(cx));
         let app = cx.global::<crate::app_state::AppState>().clone();
@@ -44,7 +33,7 @@ impl Sidebar {
         let tool_events = vec![
             cx.observe(&app.files, |_, _, cx| cx.notify()),
             cx.observe(&app.git, |_, _, cx| cx.notify()),
-            cx.observe(&tools, |this, _, cx| this.sync_tools(cx)),
+            cx.observe(&tools, |_, _, cx| cx.notify()),
             cx.observe(&terminals, |this, _, cx| {
                 this.sync_stop_feedback(cx);
                 cx.notify();
@@ -55,18 +44,11 @@ impl Sidebar {
             cx.observe(&app.chat_history, |_, _, cx| cx.notify()),
             cx.observe(&app.settings, |_, _, cx| cx.notify()),
         ];
-        let profiles = tools
-            .read(cx)
-            .catalog
-            .tools
-            .iter()
-            .map(|t| (t.id.clone(), Disclosure::new(false, Instant::now())))
-            .collect();
         let now = Instant::now();
         Self {
             git: app.git.clone(),
-            tools,
             terminals,
+            collapsed_worktrees: Default::default(),
             project_groups: projects
                 .read(cx)
                 .catalog
@@ -81,63 +63,33 @@ impl Sidebar {
                 .collect(),
             hovered_project_item: None,
             stop_feedback: Default::default(),
-            profiles,
             _tool_events: tool_events,
-            files,
-            tasks: cx.new(tasks::TasksSection::new),
             scroll,
             projects,
             _projects_observer: observer,
             sections: std::array::from_fn(|_| Disclosure::new(true, now)),
-            actions_hovered: [false; 3],
-            hovered_tool_label: None,
+            attach_hovered: false,
             focus: cx.focus_handle(),
         }
     }
-    fn action(&self, index: usize, cx: &mut Context<Self>) -> Button {
-        let (id, label) = [
-            ("attach-project", "Attach project"),
-            ("new-file", "New file"),
-            ("refresh-files", "Refresh files"),
-        ][index];
-        let button = quiet_button(id, label, self.actions_hovered[index], cx);
-        let button = if index == 0 {
-            button.child(div().text_size(px(10.)).child("+ attach"))
-        } else {
-            button.w(px(20.)).icon(Icon::new(if index == 1 {
-                IconName::Plus
-            } else {
-                IconName::RotateCw
-            }))
-        };
-        let button = button.on_click(cx.listener(move |this, _, window, cx| {
-            if index == 1 {
-                cx.emit(NewFile);
-            }
-            if index == 2 {
-                cx.global::<crate::app_state::AppState>()
-                    .files
-                    .clone()
-                    .update(cx, |files, cx| files.refresh(cx));
-            }
-            if index == 0 {
+    fn attach_project(&self, cx: &mut Context<Self>) -> Button {
+        quiet_button("attach-project", "Attach project", self.attach_hovered, cx)
+            .child(div().text_size(px(10.)).child("+ attach"))
+            .on_click(cx.listener(|this, _, window, cx| {
                 this.projects
                     .update(cx, |state, cx| state.open_folder(window, cx));
-            }
-        }));
-        button.on_hover(cx.listener(move |this, hovered, _, cx| {
-            if this.actions_hovered[index] != *hovered {
-                this.actions_hovered[index] = *hovered;
+            }))
+            .on_hover(cx.listener(|this, hovered, _, cx| {
+                this.attach_hovered = *hovered;
                 cx.notify();
-            }
-        }))
+            }))
     }
     fn header(
         &self,
         index: usize,
         label: &'static str,
         now: Instant,
-        cx: &mut Context<Self>,
+        cx: &Context<Self>,
     ) -> impl IntoElement {
         self.sections[index]
             .header(label, label, now, cx)
@@ -266,17 +218,12 @@ impl Sidebar {
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
-        let has_project = self.projects.read(cx).catalog.active.is_some();
-        let tree_height = self.files.read(cx).animated_height(now);
         canopy_desktop::motion::request_frame(
             window,
             self.sections.iter().any(|s| s.active(now))
-                || self.project_groups.values().any(|s| s.active(now))
-                || self.profiles.values().any(|d| d.active(now))
-                || (self.sections[1].open && self.files.read(cx).is_animating(now)),
+                || self.project_groups.values().any(|s| s.active(now)),
         );
-        let (projects, projects_height) = self.projects_content(now, cx);
-        let (tools, tools_height) = self.tools_content(now, cx);
+        let projects = self.projects_content(now, cx);
         column()
             .size_full()
             .track_focus(&self.focus)
@@ -296,7 +243,7 @@ impl Render for Sidebar {
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
                             .child(self.new_chat(cx))
-                            .child(self.chats_content(now, cx))
+                            .child(self.chat_feedback(cx))
                             .child(
                                 column()
                                     .flex_shrink_0()
@@ -312,82 +259,15 @@ impl Render for Sidebar {
                                                     .flex_1()
                                                     .child(self.header(0, "PROJECTS", now, cx)),
                                             )
-                                            .child(self.action(0, cx)),
+                                            .child(self.attach_project(cx)),
                                     )
-                                    .child(self.sections[0].body(projects_height, projects, now)),
+                                    .child(self.sections[0].measured_body(
+                                        "project-groups",
+                                        projects,
+                                        now,
+                                    )),
                             )
-                            .child(self.tasks.clone())
-                            .when(has_project, |panel| {
-                                panel
-                                    .child(
-                                        column()
-                                            .flex_shrink_0()
-                                            .border_t_1()
-                                            .border_color(t::border())
-                                            .px(px(12.))
-                                            .py(px(10.))
-                                            .child(
-                                                row()
-                                                    .h(px(36.))
-                                                    .flex_shrink_0()
-                                                    .child(
-                                                        div().flex_1().child(
-                                                            self.header(1, "FILES", now, cx),
-                                                        ),
-                                                    )
-                                                    .child(
-                                                        row()
-                                                            .gap(px(t::SPACING_UNIT))
-                                                            .child(self.action(1, cx))
-                                                            .child(self.action(2, cx)),
-                                                    ),
-                                            )
-                                            .child(self.sections[1].body(
-                                                tree_height,
-                                                self.files.clone(),
-                                                now,
-                                            ))
-                                            .children(
-                                                cx.global::<crate::app_state::AppState>()
-                                                    .files
-                                                    .read(cx)
-                                                    .error
-                                                    .clone()
-                                                    .or(cx
-                                                        .global::<crate::app_state::AppState>()
-                                                        .files
-                                                        .read(cx)
-                                                        .index
-                                                        .warning
-                                                        .clone())
-                                                    .map(|error| {
-                                                        file_message(error, t::red())
-                                                            .px(px(12.))
-                                                            .text_size(px(11.))
-                                                    }),
-                                            )
-                                            .children(
-                                                (cx.global::<crate::app_state::AppState>()
-                                                    .files
-                                                    .read(cx)
-                                                    .loading)
-                                                    .then(|| {
-                                                        file_message("Loading files…", t::muted())
-                                                            .px(px(12.))
-                                                    }),
-                                            ),
-                                    )
-                                    .child(
-                                        column()
-                                            .flex_shrink_0()
-                                            .border_t_1()
-                                            .border_color(t::border())
-                                            .px(px(12.))
-                                            .py(px(10.))
-                                            .child(self.header(2, "TOOLS", now, cx))
-                                            .child(self.sections[2].body(tools_height, tools, now)),
-                                    )
-                            }),
+                            .child(self.chats_content(now, cx)),
                     )
                     .vertical_scrollbar(&self.scroll),
             )
@@ -409,7 +289,6 @@ impl Render for Sidebar {
 mod tests {
     use super::Sidebar;
     use crate::app_state::AppState;
-    use crate::ui::components::file_tree::{FileTree, FileTreeModel};
     use canopy_desktop::git::{RepositoryInfo, WorktreeHead, WorktreeInfo};
     use canopy_desktop::state::workspace::{PaneKind, PaneMetadata, Workspace};
     use gpui_kit::component::Root;
@@ -417,7 +296,7 @@ mod tests {
     use gpui_kit::{AppContext, TestAppContext, px, size};
 
     #[gpui_kit::test]
-    fn chat_rows_show_checkout_and_agent_and_navigate_with_keyboard_menus(cx: &mut TestAppContext) {
+    fn worktrees_nest_conversations_and_private_chats_keep_their_context(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let (app, pane, first, second, project_pane) = cx.update(|cx| {
             crate::ui::theme::init(cx);
@@ -507,8 +386,7 @@ mod tests {
                 gpui_kit::component::Theme::sync_base(cx);
             });
             let window = cx.open_window(size(px(width), px(900.)), |window, cx| {
-                let files = cx.new(|cx| FileTree::new(FileTreeModel::new(vec![], []).unwrap(), cx));
-                let sidebar = cx.new(|cx| Sidebar::new(files, cx));
+                let sidebar = cx.new(Sidebar::new);
                 Root::new(sidebar, window, cx)
             });
             cx.update_window(window.into(), |_, window, cx| {
@@ -548,7 +426,8 @@ mod tests {
                     assert!(label.contains(expected));
                 }
                 // Inspect the actual metadata lanes at both sidebar widths and font sizes.
-                for id in [pane, project_pane] {
+                {
+                    let id = pane;
                     let text = |part| {
                         window.find(gpui_kit::SharedString::from(format!("chat-{part}-{id:?}")))
                     };
@@ -577,6 +456,37 @@ mod tests {
                         "content must have equal top and bottom inset"
                     );
                 }
+                let title = window
+                    .find(gpui_kit::SharedString::from(format!(
+                        "chat-title-{project_pane:?}"
+                    )))
+                    .bounds();
+                let agent = window
+                    .find(gpui_kit::SharedString::from(format!(
+                        "chat-agent-{project_pane:?}"
+                    )))
+                    .bounds();
+                assert!(agent.top() >= title.bottom());
+                assert!(
+                    window
+                        .try_find(gpui_kit::SharedString::from(format!(
+                            "chat-project-{project_pane:?}"
+                        )))
+                        .is_none()
+                );
+                let collapse =
+                    gpui_kit::SharedString::from("expand-worktree-/worktrees/chats-sidebar");
+                window.click(collapse.clone(), cx);
+                window.render_frame(cx);
+                assert!(
+                    window
+                        .try_find(gpui_kit::SharedString::from(format!(
+                            "chat-{project_pane:?}"
+                        )))
+                        .is_none()
+                );
+                window.click(collapse, cx);
+                window.render_frame(cx);
                 window.click(gpui_kit::SharedString::from(first.clone()), cx);
                 assert_eq!(app.workspace.read(cx).active().unwrap().focused, pane);
             })

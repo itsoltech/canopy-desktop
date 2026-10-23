@@ -43,7 +43,10 @@ impl SessionContent {
     fn read(cx: &App) -> Self {
         let app = cx.global::<AppState>();
         let workspace = app.workspace.read(cx);
-        let pane = workspace.active().and_then(|t| t.root.find(t.focused));
+        let pane = workspace
+            .primary_tab()
+            .or_else(|| workspace.active())
+            .and_then(|t| t.root.find(t.focused));
         let agents = app.agents.read(cx);
         let session = pane.and_then(|p| agents.sessions.get(&p.id));
         let mut out = Self {
