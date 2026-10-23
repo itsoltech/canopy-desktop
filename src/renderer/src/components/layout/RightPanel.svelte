@@ -18,10 +18,6 @@
 
   let changesFileCount = $state(0)
 
-  $effect(() => {
-    workspaceState.changesCount = changesFileCount
-  })
-
   type TabId = 'session' | 'changes' | 'task'
 
   // The Task tab exists only when the worktree resolves to a tracker task.
@@ -93,11 +89,11 @@
       onkeydown={(e) => handleTabKeydown(e, 'changes')}
     >
       Changes
-      {#if workspaceState.changesCount > 0}
+      {#if changesFileCount > 0}
         <span
           class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-border-subtle text-text-secondary text-2xs font-semibold tracking-caps-tight tabular-nums leading-none"
         >
-          {workspaceState.changesCount}
+          {changesFileCount}
         </span>
       {/if}
       {#if workspaceState.rightPanelTab === 'changes'}

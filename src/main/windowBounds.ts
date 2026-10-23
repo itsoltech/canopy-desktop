@@ -1,4 +1,5 @@
 import { screen } from 'electron'
+import { isMatching, P } from 'ts-pattern'
 
 export interface WindowBounds {
   x: number
@@ -14,6 +15,21 @@ export interface WindowConfig {
   activeWorktreePath?: string
   bounds?: WindowBounds
   windowState?: WindowState
+}
+
+/**
+ * Shape check for a persisted window config. `openWindowConfigs` is a
+ * renderer-writable preference, so startup restore must not trust it blindly.
+ */
+export function isWindowConfig(value: unknown): value is WindowConfig {
+  return isMatching(
+    {
+      paths: P.array(P.string),
+      activeWorktreePath: P.optional(P.string),
+      bounds: P.optional({ x: P.number, y: P.number, width: P.number, height: P.number }),
+    },
+    value,
+  )
 }
 
 const MIN_WIDTH = 600

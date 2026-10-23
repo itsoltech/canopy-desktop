@@ -160,10 +160,12 @@
     try {
       const list = await window.api.worktreeRefreshBranches({ repoRoot })
       branches = { local: list.local, remote: list.remote }
-    } catch {
-      // fetch failed — keep existing branch list
+    } catch (e) {
+      // Keep the existing branch list, but tell the user it may be stale.
+      addToast(`Fetch failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      refreshing = false
     }
-    refreshing = false
   }
 
   onDestroy(() => {
@@ -582,7 +584,7 @@
       ) {
         e.preventDefault()
         last.focus()
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && (active === last || !containerEl.contains(active))) {
         e.preventDefault()
         first.focus()
       }
@@ -1033,7 +1035,7 @@
           <div class="h-[220px] p-2 box-border" use:setupTerminalAction></div>
         </div>
         {#if setupErrors.length > 0}
-          {#each setupErrors as err (err)}
+          {#each setupErrors as err, i (i)}
             <p class="mt-1.5 mb-0 text-sm text-danger-text">{err}</p>
           {/each}
         {/if}
@@ -1050,7 +1052,7 @@
         {#if setupErrors.length > 0}
           <div class="mt-2 flex flex-col gap-1 items-center">
             <p class="text-md text-warning-text m-0">Setup completed with warnings:</p>
-            {#each setupErrors as err (err)}
+            {#each setupErrors as err, i (i)}
               <p class="text-sm text-danger-text m-0">{err}</p>
             {/each}
           </div>
