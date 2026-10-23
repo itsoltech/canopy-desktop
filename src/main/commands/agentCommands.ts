@@ -21,6 +21,15 @@ export interface AgentDrawingPayload {
   sessionId?: string
 }
 
+// Context text is third-party content (tracker descriptions/comments, diffs).
+// Strip ANSI CSI sequences and control characters (keeping \t and \n) so an
+// embedded `\x1b[201~` cannot end the bracketed paste early and turn the rest
+// of the text into typed input — same policy as the renderer's sanitizePtyInput.
+// eslint-disable-next-line no-control-regex
+const ANSI_CSI = /\x1b\[[0-?]*[ -/]*[@-~]/g
+// eslint-disable-next-line no-control-regex
+const UNSAFE_CONTROL_CHARS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g
+
 export class AgentCommandService {
   constructor(private deps: AgentCommandServiceDeps) {}
 
@@ -75,6 +84,6 @@ export class AgentCommandService {
 
   private contextText(payload: AgentContextPayload): string {
     if (typeof payload.text !== 'string') throw new Error('Invalid agent context payload')
-    return payload.text
+    return payload.text.replace(ANSI_CSI, '').replace(UNSAFE_CONTROL_CHARS, '')
   }
 }

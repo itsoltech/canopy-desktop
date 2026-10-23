@@ -41,6 +41,8 @@ export class StateApplier {
       applyStateSnapshot(snapshot)
     } catch (err) {
       console.warn('[state-applier] initial snapshot failed:', err)
+      if (this.disposed) return
+      mirrorState.hydrateError = err instanceof Error ? err.message : String(err)
     }
   }
 

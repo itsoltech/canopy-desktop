@@ -1048,24 +1048,20 @@ export class CiManager {
       // a trusted native callback when they want an additional security boundary, but its absence
       // must not turn the in-app confirmation into a silent cancellation.
       if (confirm) {
-        let accepted: boolean
-        try {
-          accepted = await confirm({
-            repository: context.value.ci.repository,
-            workflowPath: workflow.path,
-            workflowLabel: workflow.label,
-            ref: resolved,
-            inputs: request.inputs,
-          })
-        } catch {
-          return err({
-            _tag: 'CiApiError',
-            status: 0,
-            message: 'Dispatch confirmation failed',
-            provider: 'github-actions',
-          })
-        }
-        if (!accepted) return err({ _tag: 'CiDispatchCancelled' })
+        const accepted = await ResultAsync.fromThrowable(confirm, (): CiError => ({
+          _tag: 'CiApiError',
+          status: 0,
+          message: 'Dispatch confirmation failed',
+          provider: 'github-actions',
+        }))({
+          repository: context.value.ci.repository,
+          workflowPath: workflow.path,
+          workflowLabel: workflow.label,
+          ref: resolved,
+          inputs: request.inputs,
+        })
+        if (accepted.isErr()) return err(accepted.error)
+        if (!accepted.value) return err({ _tag: 'CiDispatchCancelled' })
       }
       request = { ...request, ref: resolved }
     } else {

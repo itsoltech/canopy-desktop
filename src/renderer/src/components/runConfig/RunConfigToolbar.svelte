@@ -124,10 +124,8 @@
 
   async function handleStop(): Promise<void> {
     const ids = [...running.keys()]
-    for (const id of ids) {
-      await window.api.killPty(id)
-      running.delete(id)
-    }
+    await Promise.allSettled(ids.map((id) => window.api.killPty(id)))
+    for (const id of ids) running.delete(id)
   }
 
   async function stopItem(configDir: string, name: string): Promise<void> {

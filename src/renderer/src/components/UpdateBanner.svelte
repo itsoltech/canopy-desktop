@@ -13,8 +13,7 @@
   <div
     class="fixed bottom-4 right-4 flex items-center gap-2.5 px-4 py-2.5 bg-bg-overlay border border-border rounded-xl backdrop-blur-md z-banner text-md text-text max-w-100 shadow-banner"
     class:!border-danger-bg={state === 'error'}
-    role="alert"
-    aria-live="polite"
+    role="status"
   >
     {#if state === 'up-to-date'}
       <span class="truncate">You're up to date!</span>

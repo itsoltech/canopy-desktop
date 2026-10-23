@@ -44,18 +44,24 @@
   let commentFilePath = $state('')
   let commentLineNum = $state(0)
 
+  // Generation counter so an older, slower refresh can't overwrite a newer one
+  let refreshGen = 0
+
   async function refresh(): Promise<void> {
+    const my = ++refreshGen
     loading = true
     loadError = false
     try {
       const result = await window.api.changesGetDiff({ worktreePath })
+      if (my !== refreshGen) return
       files = result.files
     } catch (e) {
+      if (my !== refreshGen) return
       files = []
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (my === refreshGen) loading = false
     }
   }
 
@@ -215,10 +221,18 @@
 
   function highlightMatch(text: string): string {
     if (!searchLower) return escapeHtml(text)
-    const escaped = escapeHtml(text)
-    const queryEscaped = escapeHtml(searchLower)
-    const regex = new RegExp(`(${escapeRegex(queryEscaped)})`, 'gi')
-    return escaped.replace(regex, '<mark class="search-highlight">$1</mark>')
+    // Match on the raw text, then escape each piece, so queries like "lt" or "amp"
+    // can't match inside HTML entities.
+    const regex = new RegExp(`(${escapeRegex(searchLower)})`, 'gi')
+    // split with a capture group puts matches at odd indices
+    return text
+      .split(regex)
+      .map((part, idx) =>
+        idx % 2 === 1
+          ? `<mark class="search-highlight">${escapeHtml(part)}</mark>`
+          : escapeHtml(part),
+      )
+      .join('')
   }
 
   function escapeHtml(str: string): string {
@@ -279,7 +293,7 @@
   function scrollToFocusedFile(): void {
     if (focusedFileIndex >= 0 && focusedFileIndex < files.length) {
       const file = files[focusedFileIndex]
-      const el = document.getElementById(`diff-file-${CSS.escape(file.path)}`)
+      const el = document.getElementById(`diff-file-${file.path}`)
       if (el && bodyEl) {
         suppressObserver = true
         workspaceState.diffVisibleFile = file.path
@@ -438,6 +452,7 @@
           class="bg-bg border border-border rounded-md text-text text-sm px-2 py-0.5 w-45 outline-none font-mono focus:border-accent"
           type="text"
           placeholder="Search in diff..."
+          aria-label="Search in diff"
           bind:value={searchQuery}
           onkeydown={(e) => {
             if (e.key === 'Escape') toggleSearch()
@@ -630,6 +645,7 @@
                           <textarea
                             class="w-full min-h-16 px-4 py-2.5 border-0 bg-bg-elevated text-text font-inherit text-sm leading-normal resize-none outline-none box-border placeholder:text-text-muted"
                             placeholder="Comment for agent — {file.path}:{getLineNum(change)}"
+                            aria-label="Comment for agent"
                             bind:value={commentText}
                             onkeydown={(e) => {
                               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendComment()

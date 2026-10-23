@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { Eye, EyeOff, Trash2 } from '@lucide/svelte'
   import { confirm } from '../../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../../lib/stores/toast.svelte'
   import PrefsSection from './PrefsSection.svelte'
   import { prefsSearch, matches } from './prefsSearch.svelte'
 
@@ -19,8 +20,19 @@
   let revealedPassword = $state('')
   let revealTimer: ReturnType<typeof setTimeout> | null = null
 
+  let loadError = $state('')
+
+  function errorText(e: unknown, fallback: string): string {
+    return e instanceof Error && e.message ? e.message : fallback
+  }
+
   async function loadCredentials(): Promise<void> {
-    credentials = await window.api.listCredentials()
+    try {
+      credentials = await window.api.listCredentials()
+      loadError = ''
+    } catch (e) {
+      loadError = errorText(e, 'Failed to load saved passwords')
+    }
   }
 
   async function deleteCredential(id: string, domain: string, username: string): Promise<void> {
@@ -31,7 +43,12 @@
       destructive: true,
     })
     if (!ok) return
-    await window.api.deleteCredential(id)
+    try {
+      await window.api.deleteCredential(id)
+    } catch (e) {
+      addToast(errorText(e, 'Failed to delete saved password'), 'danger')
+      return
+    }
     await loadCredentials()
   }
 
@@ -42,7 +59,13 @@
       if (revealTimer) clearTimeout(revealTimer)
       return
     }
-    const cred = await window.api.getCredentialDecrypted(id, domain, 'reveal')
+    let cred: Awaited<ReturnType<typeof window.api.getCredentialDecrypted>>
+    try {
+      cred = await window.api.getCredentialDecrypted(id, domain, 'reveal')
+    } catch (e) {
+      addToast(errorText(e, 'Failed to reveal saved password'), 'danger')
+      return
+    }
     if (cred) {
       revealedId = id
       revealedPassword = cred.password
@@ -121,7 +144,11 @@
         </div>
       </div>
     {:else}
-      <p class="text-sm text-text-faint m-0 py-2">No saved passwords</p>
+      {#if loadError}
+        <p class="text-sm text-danger-text m-0 py-2">{loadError}</p>
+      {:else}
+        <p class="text-sm text-text-faint m-0 py-2">No saved passwords</p>
+      {/if}
     {/each}
   </div>
 </PrefsSection>

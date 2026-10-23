@@ -39,14 +39,19 @@ export async function initToolStore(): Promise<void> {
   if (initialized) return
   initialized = true
 
-  const [fetchedTools, fetchedAvailability] = await Promise.all([
-    window.api.listTools(),
-    window.api.checkToolAvailability(),
-  ])
-
-  tools = fetchedTools
-  availability = fetchedAvailability
-  ready = true
+  try {
+    const [fetchedTools, fetchedAvailability] = await Promise.all([
+      window.api.listTools(),
+      window.api.checkToolAvailability(),
+    ])
+    tools = fetchedTools
+    availability = fetchedAvailability
+    ready = true
+  } catch (e) {
+    initialized = false
+    console.warn('initToolStore failed:', e)
+    return
+  }
 
   let availabilityGen = 0
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getRepoConfig, saveRepoConfig } from '../../lib/stores/taskTracker.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import {
     RENDERER_DEFAULT_PR_TITLE,
     RENDERER_DEFAULT_PR_BODY,
@@ -99,7 +100,12 @@
         delete updated!.projectOverrides[pinnedScope]
       }
     }
-    await saveRepoConfig(repoRoot, updated!)
+    // Callers include debounced/fire-and-forget saves, so failures are surfaced here.
+    try {
+      await saveRepoConfig(repoRoot, updated!)
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to save PR template', 'danger')
+    }
   }
 
   // The body textarea and target input persist per keystroke — debounce the config write while the
