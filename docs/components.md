@@ -147,7 +147,10 @@ tokenów ani geometrii produktu.
 `Disclosure` przechowuje stan rozwinięcia oraz dwa wspólne `Presence`:
 PANEL dla wysokości i CONTENT_REVEAL dla treści. `header` zwraca przycisk,
 `body` przycina treść do bieżącej wysokości i stosuje opacity/przesunięcie.
-Projects, Files i Tools mają niezależne stany w encji Sidebar. Po zamknięciu
+Chats, Projects, Files i Tools mają niezależne stany w encji Sidebar.
+Chats używa mierzonego body, natywnych przycisków i DropdownMenu, z menu widocznym
+bez hover. Files i Tools są schowane bez projektu, z zachowaniem swoich encji.
+Szczegóły: [samodzielne rozmowy](features/standalone-chats.md). Po zamknięciu
 sekcji nie usuwamy encji FileTree, więc jej zaznaczenie i rozwinięcia pozostają.
 
 Nagłówki mają przezroczyste tło także na hover/press. Jawny stan `hovered`

@@ -9,6 +9,7 @@ use canopy_desktop::{
 };
 use gpui_kit::*;
 use std::collections::HashMap;
+mod conversations;
 
 pub struct AgentFocusRequested;
 impl EventEmitter<AgentFocusRequested> for ProjectsState {}
@@ -185,7 +186,26 @@ impl ProjectsState {
     }
     pub fn bind(&mut self, app: &AppState, cx: &mut Context<Self>) {
         self.observers = vec![
-            cx.observe(&app.workspace, |this, _, cx| this.changed(cx)),
+            cx.observe(&app.workspace, |this, workspace, cx| {
+                this.changed(cx);
+                let workspace = workspace.read(cx);
+                let names: Vec<_> = workspace
+                    .all_panes()
+                    .into_iter()
+                    .filter_map(|p| {
+                        Some((
+                            p.id,
+                            workspace.chat_title(p.id)?.to_owned(),
+                            p.metadata.chat_title_state,
+                        ))
+                    })
+                    .collect();
+                cx.defer(move |cx| {
+                    for (id, name, state) in names {
+                        Self::apply_chat_name(id, &name, state, cx);
+                    }
+                });
+            }),
             cx.observe(&app.layout, |this, _, cx| this.changed(cx)),
         ];
     }
@@ -277,7 +297,7 @@ impl ProjectsState {
         workspaces.push(self.scratch_workspace(cx));
         workspaces
     }
-    fn scratch_workspace(&self, cx: &App) -> Workspace {
+    pub(crate) fn scratch_workspace(&self, cx: &App) -> Workspace {
         if self.catalog.active.is_none() {
             cx.global::<AppState>().workspace.read(cx).clone()
         } else {
@@ -530,6 +550,9 @@ impl ProjectsState {
         {
             changed |= update(workspace, pane, &settings, title);
         }
+        if title.is_some() {
+            self.sync_chat_name(pane, cx);
+        }
         if changed {
             self.changed(cx);
             cx.notify();
@@ -587,6 +610,12 @@ impl ProjectsState {
             return Err("Projects are busy.".into());
         }
         let app = cx.global::<AppState>().clone();
+        if metadata.cwd.as_deref().is_some_and(|cwd| {
+            cx.try_global::<super::ChatFolders>()
+                .is_some_and(|folders| folders.contains(cwd))
+        }) {
+            return Err("This chat folder is being removed.".into());
+        }
         let active = app.workspace.read(cx).id;
         let target_id = target.unwrap_or_else(|| self.scratch_id(cx));
         if target_id == active {
@@ -714,7 +743,7 @@ impl ProjectsState {
         if !self.available() {
             return;
         }
-        let mut next = self.catalog.clone();
+        let next = self.catalog.clone();
         let ids: Vec<_> = next
             .items
             .iter()
@@ -728,22 +757,19 @@ impl ProjectsState {
             .flat_map(|w| w.all_panes())
             .map(|p| p.id)
             .collect();
-        let editors = cx.global::<AppState>().editors.clone();
-        let chats = cx.global::<AppState>().chats.clone();
-        if editors.read(cx).busy(&panes, cx) || chats.read(cx).needs_guard(&panes, cx) {
-            let repository = repository.to_owned();
-            let target = cx.entity();
+        let target = cx.entity();
+        cx.defer(move |cx| {
             super::Editors::guard_closing(
-                panes,
-                move |cx| target.update(cx, |state, cx| state.close_repository(&repository, cx)),
+                panes.clone(),
+                {
+                    let target = target.clone();
+                    let ids = ids.clone();
+                    let panes = panes.clone();
+                    move |cx| target.update(cx, |state, cx| state.close_confirmed(&ids, &panes, cx))
+                },
                 cx,
-            );
-            return;
-        }
-        for id in ids {
-            next.close(id);
-        }
-        self.save(next, cx);
+            )
+        });
     }
     pub fn set_repository_roots(
         &mut self,
@@ -775,24 +801,55 @@ impl ProjectsState {
             .flat_map(|w| w.all_panes())
             .map(|p| p.id)
             .collect();
-        let editors = cx.global::<AppState>().editors.clone();
-        let chats = cx.global::<AppState>().chats.clone();
-        if editors.read(cx).busy(&panes, cx) || chats.read(cx).needs_guard(&panes, cx) {
-            let target = cx.entity();
+        let target = cx.entity();
+        cx.defer(move |cx| {
             super::Editors::guard_closing(
-                panes,
-                move |cx| target.update(cx, |state, cx| state.close(id, cx)),
+                panes.clone(),
+                {
+                    let panes = panes.clone();
+                    move |cx| {
+                        target.update(cx, |state, cx| state.close_confirmed(&[id], &panes, cx))
+                    }
+                },
                 cx,
-            );
+            )
+        });
+    }
+    fn close_confirmed(&mut self, ids: &[WorkspaceId], panes: &[PaneId], cx: &mut Context<Self>) {
+        if !self.available() {
+            return;
+        }
+        let current: std::collections::HashSet<_> = self
+            .runtime_workspaces(cx)
+            .iter()
+            .filter(|w| ids.contains(&w.id))
+            .flat_map(|w| w.all_panes())
+            .map(|p| p.id)
+            .collect();
+        if current != panes.iter().copied().collect() {
+            self.error =
+                Some("The project's tabs changed. Close the project again to review them.".into());
+            cx.notify();
             return;
         }
         let mut next = self.catalog.clone();
-        if next.close(id) {
-            self.save(next, cx);
+        for id in ids {
+            next.close(*id);
         }
+        self.save(next, cx);
     }
     fn save(&mut self, next: Projects, cx: &mut Context<Self>) {
         if self.quitting {
+            return;
+        }
+        if next.current().is_some_and(|p| {
+            cx.try_global::<super::ChatFolders>()
+                .is_some_and(|f| f.contains(&p.path))
+        }) {
+            self.error = Some(
+                "This folder is being removed with a chat. Retry cleanup before opening it.".into(),
+            );
+            cx.notify();
             return;
         }
         self.publish(next, cx);

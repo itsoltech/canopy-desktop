@@ -16,11 +16,47 @@ use std::{
     time::Duration,
 };
 fn open_path(root: PathBuf, relative: &Path, line: Option<u32>, cx: &mut App) {
+    let relative = relative.to_owned();
+    let workspace = cx.global::<AppState>().workspace.read(cx).id;
+    // Resolve aliases off the UI thread before applying the open. In particular,
+    // a late file link cannot enter a private folder reserved by chat cleanup.
+    cx.spawn(async move |cx| {
+        let check = root.join(&relative);
+        let resolved = cx.background_executor().spawn(async move {
+            std::fs::canonicalize(&check).unwrap_or(check)
+        }).await;
+        cx.update(|cx| {
+            let app = cx.global::<AppState>().clone();
+            if app.workspace.read(cx).id != workspace { return; }
+            if app.chats.read(cx).directory_reserved(&resolved) {
+                app.chats.update(cx, |chats, cx| {
+                    chats.error = Some("This chat folder is being removed. Retry cleanup before opening its files.".into());
+                    cx.notify();
+                });
+                return;
+            }
+            open_ready_path(root, &relative, line, cx);
+        });
+    }).detach();
+}
+
+fn open_ready_path(root: PathBuf, relative: &Path, line: Option<u32>, cx: &mut App) {
     if cx.global::<AppState>().settings.read(cx).quitting {
         return;
     }
     let resource = relative.to_string_lossy().to_string();
     let app = cx.global::<AppState>().clone();
+    if app.chats.read(cx).directory_reserved(&root)
+        || app.chats.read(cx).directory_reserved(&root.join(relative))
+    {
+        app.chats.update(cx, |chats, cx| {
+            chats.error = Some(
+                "This chat folder is being removed. Retry cleanup before opening its files.".into(),
+            );
+            cx.notify();
+        });
+        return;
+    }
     let pane = app.workspace.update(cx, |workspace, cx| {
         let existing = workspace
             .all_panes()

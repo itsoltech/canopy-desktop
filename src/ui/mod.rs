@@ -5,6 +5,7 @@ mod attachment_preview;
 mod changes_panel;
 pub(crate) mod chat;
 pub mod components;
+mod conversations;
 #[cfg(any(debug_assertions, feature = "dev-inspector"))]
 pub mod dev_inspector;
 pub(crate) mod diff;
@@ -97,6 +98,7 @@ pub struct Workspace {
     _activation_observer: Subscription,
     _files_observer: Subscription,
     _new_file_events: Subscription,
+    _chat_requests: Subscription,
     quick_open: Option<Entity<quick_open::QuickOpen>>,
     quick_open_events: Option<Subscription>,
     new_chat: Option<Entity<new_chat_palette::NewChatPalette>>,
@@ -358,6 +360,13 @@ impl Workspace {
             });
         });
         let sidebar = cx.new(|cx| sidebar::Sidebar::new(files, cx));
+        let chat_requests = cx.subscribe_in(
+            &sidebar,
+            window,
+            |this, _, request: &sidebar::RenameChat, window, cx| {
+                this.rename_scratch_chat(request.workspace, request.pane, window, cx);
+            },
+        );
         let new_file_events = cx.subscribe_in(
             &sidebar,
             window,
@@ -501,6 +510,7 @@ impl Workspace {
             _activation_observer: activation_observer,
             _files_observer: files_observer,
             _new_file_events: new_file_events,
+            _chat_requests: chat_requests,
             quick_open: None,
             quick_open_events: None,
             new_chat: None,
@@ -690,6 +700,12 @@ impl Workspace {
         cx.notify();
     }
     fn new_tab(&mut self, cx: &mut Context<Self>) {
+        if self.state.projects.read(cx).catalog.active.is_none() {
+            self.state.chats.update(cx, |chats, cx| {
+                chats.open_new(crate::app_state::ChatTarget::NoProject, cx)
+            });
+            return;
+        }
         let id = self
             .state
             .settings
@@ -712,6 +728,9 @@ impl Workspace {
         });
     }
     fn split(&mut self, axis: Axis, cx: &mut Context<Self>) {
+        if self.state.projects.read(cx).catalog.active.is_none() {
+            return;
+        }
         let tool = self
             .state
             .settings
@@ -995,6 +1014,9 @@ impl Render for Workspace {
                 this.set_inspector_open(!this.inspector_open, window, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowChanges, window, cx| {
+                if this.state.projects.read(cx).catalog.active.is_none() {
+                    return;
+                }
                 this.select_inspector(true, window, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowSession, window, cx| {
@@ -1010,20 +1032,16 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &NewTab, _, cx| this.new_tab(cx)))
             .on_action(cx.listener(|this, _: &NewChat, _, cx| {
-                // A new chat where the user is: the active project, else "No project".
+                // Conversations are independent by default; project context is explicit.
                 if this.modal.is_some()
                     || this.new_chat.is_some()
                     || crate::app_state::Chats::unavailable(cx).is_some()
                 {
                     return;
                 }
-                let target = match this.state.projects.read(cx).catalog.active {
-                    Some(id) => crate::app_state::ChatTarget::Project(id),
-                    None => crate::app_state::ChatTarget::NoProject,
-                };
-                this.state
-                    .chats
-                    .update(cx, |chats, cx| chats.open_new(target, cx));
+                this.state.chats.update(cx, |chats, cx| {
+                    chats.open_new(crate::app_state::ChatTarget::NoProject, cx)
+                });
             }))
             .on_action(cx.listener(|this, _: &NewChatIn, window, cx| {
                 this.open_chat_palette(new_chat_palette::Purpose::NewChat, window, cx)
@@ -1098,12 +1116,18 @@ impl Render for Workspace {
                     .border_color(t::border())
                     .text_color(t::muted())
                     .text_size(px(12.))
-                    .child(
-                        active
-                            .as_ref()
-                            .map(|p| p.name.clone())
-                            .unwrap_or_else(|| "No project".into()),
-                    )
+                    .child(active.as_ref().map(|p| p.name.clone()).unwrap_or_else(|| {
+                        let workspace = self.state.workspace.read(cx);
+                        workspace
+                            .active()
+                            .map(|tab| {
+                                workspace
+                                    .chat_title(tab.focused)
+                                    .unwrap_or(&tab.title)
+                                    .to_owned()
+                            })
+                            .unwrap_or_else(|| "Chats".into())
+                    }))
                     .child({
                         div()
                             .absolute()
@@ -1224,7 +1248,7 @@ impl Render for Workspace {
                             .map(|error| div().text_color(t::red()).child(error)),
                     )
                     .child(div().flex_1())
-                    .child(custom_icon("git-branch"))
+                    .children(has_project.then(|| custom_icon("git-branch")))
                     .child(
                         self.state
                             .projects

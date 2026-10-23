@@ -59,6 +59,9 @@ pub struct PaneMetadata {
     pub cwd: Option<PathBuf>,
     pub profile_id: Option<String>,
     pub title: Option<String>,
+    /// Absent in older snapshots, where the chat name may live only on its tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_title_state: Option<ChatTitleState>,
     pub resource: Option<String>,
     pub kind: PaneKind,
     #[serde(default)]
@@ -71,6 +74,11 @@ pub struct PaneMetadata {
     /// snapshots without chats keep their previous shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat: Option<Box<crate::chat::config::ChatSettings>>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ChatTitleState {
+    Placeholder,
+    Named,
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum PaneKind {
@@ -96,6 +104,8 @@ impl PaneMetadata {
                 .as_ref()
                 .is_none_or(|s| s.len() <= 512 * 1024 && !s.contains('\0'))
             && self.chat.as_ref().is_none_or(|chat| chat.valid())
+            && (self.chat_title_state.is_none()
+                || (self.kind == PaneKind::Chat && self.title.is_some()))
             && self.arguments.len() <= 128
             && self.arguments.iter().all(|a| a.len() <= 16384)
             && [
@@ -439,18 +449,82 @@ impl Workspace {
             .replace(pane, SplitTree::Leaf(value));
         Ok(true)
     }
-    /// Renames the pane's tab only while it still has the `placeholder` title.
+    /// The conversation's own name, including names stored only on older tabs.
+    pub fn chat_title(&self, pane: PaneId) -> Option<&str> {
+        let tab = self.tabs.iter().find(|tab| tab.root.find(pane).is_some())?;
+        let value = tab.root.find(pane)?;
+        if value.metadata.kind != PaneKind::Chat {
+            return None;
+        }
+        if value.metadata.chat_title_state.is_some() {
+            return Some(value.metadata.title.as_deref().unwrap_or(&tab.title));
+        }
+        Some(match value.metadata.title.as_deref() {
+            Some(title) if title != "New chat" && !title.trim().is_empty() => title,
+            _ => &tab.title,
+        })
+    }
+
+    /// Names one conversation; a tab containing only it shares that name.
+    pub fn rename_chat(&mut self, pane: PaneId, title: &str) -> Result<(), StateError> {
+        let title = valid_title(title)?;
+        let (tab, mut value) = self.locate(pane)?;
+        if value.metadata.kind != PaneKind::Chat {
+            return Err(StateError::InvalidMetadata);
+        }
+        value.metadata.title = Some(title.to_owned());
+        value.metadata.chat_title_state = Some(ChatTitleState::Named);
+        let tab = self.tab_mut(tab)?;
+        if matches!(tab.root, SplitTree::Leaf(_)) {
+            tab.title = title.to_owned();
+        }
+        tab.root.replace(pane, SplitTree::Leaf(value));
+        Ok(())
+    }
+
+    // Materialize legacy names before changing the tab that supplied their fallback.
+    fn retain_chat_titles(&mut self, tab: TabId) -> Result<(), StateError> {
+        let values: Vec<_> = self
+            .tab_mut(tab)?
+            .root
+            .panes()
+            .into_iter()
+            .filter_map(|mut p| {
+                let title = self.chat_title(p.id)?;
+                if p.metadata.chat_title_state.is_some() {
+                    return None;
+                }
+                p.metadata.title = Some(title.to_owned());
+                p.metadata.chat_title_state = Some(if title == "New chat" {
+                    ChatTitleState::Placeholder
+                } else {
+                    ChatTitleState::Named
+                });
+                Some(p)
+            })
+            .collect();
+        for value in values {
+            self.tab_mut(tab)?
+                .root
+                .replace(value.id, SplitTree::Leaf(value));
+        }
+        Ok(())
+    }
+
+    /// The first message names only a conversation that still has its placeholder.
     pub fn retitle_placeholder(
         &mut self,
         pane: PaneId,
         placeholder: &str,
         title: &str,
     ) -> Result<bool, StateError> {
-        let (tab, _) = self.locate(pane)?;
-        if self.tab_mut(tab)?.title != placeholder {
+        let (_, value) = self.locate(pane)?;
+        if value.metadata.chat_title_state == Some(ChatTitleState::Named)
+            || self.chat_title(pane) != Some(placeholder)
+        {
             return Ok(false);
         }
-        self.rename(tab, title)?;
+        self.rename_chat(pane, title)?;
         Ok(true)
     }
     fn locate(&self, pane: PaneId) -> Result<(TabId, Pane), StateError> {
@@ -534,9 +608,13 @@ impl Workspace {
     }
     pub fn rename(&mut self, id: TabId, title: impl Into<String>) -> Result<(), StateError> {
         let title = title.into();
-        let title = title.trim();
-        if title.is_empty() || title.len() > 16384 || title.chars().any(char::is_control) {
-            return Err(StateError::InvalidTitle);
+        let title = valid_title(&title)?;
+        self.retain_chat_titles(id)?;
+        if let SplitTree::Leaf(pane) = &mut self.tab_mut(id)?.root
+            && pane.metadata.kind == PaneKind::Chat
+        {
+            pane.metadata.title = Some(title.to_owned());
+            pane.metadata.chat_title_state = Some(ChatTitleState::Named);
         }
         self.tab_mut(id)?.title = title.to_owned();
         Ok(())
@@ -641,6 +719,8 @@ impl Workspace {
             return Err(StateError::MissingPane);
         }
         let mut next = self.clone();
+        next.retain_chat_titles(source)?;
+        next.retain_chat_titles(destination)?;
         let value = next
             .tab_mut(source)?
             .root
@@ -664,6 +744,11 @@ impl Workspace {
         Ok(())
     }
     pub fn detach_pane(&mut self, source: TabId, pane: PaneId) -> Result<TabId, StateError> {
+        self.tab_mut(source)?
+            .root
+            .find(pane)
+            .ok_or(StateError::MissingPane)?;
+        self.retain_chat_titles(source)?;
         let value = self
             .tab_mut(source)?
             .root
@@ -678,7 +763,15 @@ impl Workspace {
         let id = TabId::new();
         self.tabs.push(Tab {
             id,
-            title: value.tool.clone(),
+            title: if value.metadata.kind == PaneKind::Chat {
+                value
+                    .metadata
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| value.tool.clone())
+            } else {
+                value.tool.clone()
+            },
             root: SplitTree::Leaf(value),
             focused: pane,
         });
@@ -697,6 +790,8 @@ impl Workspace {
             return Err(StateError::SameTab);
         }
         let mut next = self.clone();
+        next.retain_chat_titles(source)?;
+        next.retain_chat_titles(destination)?;
         let source_tab = next.tab_mut(source)?.clone();
         let dest = next.tab_mut(destination)?;
         if !dest.root.graft(target, axis, source_tab.root, before) {
@@ -718,6 +813,21 @@ impl Workspace {
         destination: TabId,
         target: PaneId,
     ) -> Result<(), StateError> {
+        let mut next = self.clone();
+        next.swap_panes_inner(source, pane, destination, target)?;
+        *self = next;
+        Ok(())
+    }
+
+    fn swap_panes_inner(
+        &mut self,
+        source: TabId,
+        pane: PaneId,
+        destination: TabId,
+        target: PaneId,
+    ) -> Result<(), StateError> {
+        self.retain_chat_titles(source)?;
+        self.retain_chat_titles(destination)?;
         let a = self
             .tab_mut(source)?
             .root
@@ -785,5 +895,14 @@ impl Workspace {
         destination.tabs.push(value);
         destination.active = Some(tab);
         Ok(())
+    }
+}
+
+fn valid_title(title: &str) -> Result<&str, StateError> {
+    let title = title.trim();
+    if title.is_empty() || title.len() > 16384 || title.chars().any(char::is_control) {
+        Err(StateError::InvalidTitle)
+    } else {
+        Ok(title)
     }
 }

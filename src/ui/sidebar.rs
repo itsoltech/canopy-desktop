@@ -1,11 +1,13 @@
+mod chats;
 mod projects;
+pub use chats::RenameChat;
 mod tasks;
 mod tools;
 use super::components::file_tree::FileTree;
 use super::components::files::file_message;
 use super::{components::*, theme as t};
 use gpui_kit::component::{Icon, IconName, button::Button, scroll::ScrollableElement};
-use gpui_kit::*;
+use gpui_kit::{prelude::FluentBuilder, *};
 use std::time::Instant;
 
 pub struct NewFile;
@@ -25,7 +27,7 @@ pub struct Sidebar {
     _tool_events: Vec<Subscription>,
     projects: Entity<crate::app_state::ProjectsState>,
     _projects_observer: Subscription,
-    sections: [Disclosure; 3],
+    sections: [Disclosure; 4],
     actions_hovered: [bool; 3],
     hovered_tool_label: Option<String>,
     focus: FocusHandle,
@@ -48,6 +50,9 @@ impl Sidebar {
                 cx.notify();
             }),
             cx.observe(&app.chats, |_, _, cx| cx.notify()),
+            cx.observe(&app.workspace, |_, _, cx| cx.notify()),
+            cx.observe(&app.agents, |_, _, cx| cx.notify()),
+            cx.observe(&app.chat_history, |_, _, cx| cx.notify()),
             cx.observe(&app.settings, |_, _, cx| cx.notify()),
         ];
         let profiles = tools
@@ -150,13 +155,21 @@ impl Sidebar {
     }
 }
 impl Sidebar {
-    /// The primary entry point: a new conversation in the active worktree.
     fn new_chat(&self, cx: &mut Context<Self>) -> Div {
         use gpui_kit::{
             base::Disableable,
-            component::button::{ButtonCustomVariant, ButtonVariants},
+            component::{
+                Sizable,
+                button::{ButtonCustomVariant, ButtonVariants},
+                menu::{DropdownMenu, PopupMenuItem},
+            },
         };
         let reason = crate::app_state::Chats::unavailable(cx);
+        let opening = cx
+            .global::<crate::app_state::AppState>()
+            .chats
+            .read(cx)
+            .is_opening();
         let button = Button::new("sidebar-new-chat")
             .custom(
                 ButtonCustomVariant::new(cx)
@@ -164,59 +177,70 @@ impl Sidebar {
                     .hover(t::hover())
                     .active(t::selected()),
             )
+            .small()
             .compact()
             .w_full()
-            .h(px(32.))
-            .px(px(10.))
-            .rounded(px(6.))
+            .h_8()
+            .px_2()
+            .rounded(t::control_radius(cx))
             .border_1()
             .border_color(t::control_border())
             .accessibility_label("New chat")
+            .loading(opening)
             .disabled(reason.is_some())
             .child(
                 row()
                     .w_full()
-                    .gap(px(8.))
-                    .text_size(px(13.))
-                    .child(icon(IconName::Plus).text_color(t::secondary()))
-                    .child("New chat"),
+                    .gap_2()
+                    .text_sm()
+                    .child(
+                        Icon::new(IconName::Plus)
+                            .size_3()
+                            .text_color(t::secondary()),
+                    )
+                    .child(if opening {
+                        "Creating chat…"
+                    } else {
+                        "New chat"
+                    }),
             )
-            .tooltip("New chat in this project (⌘N)")
+            .tooltip(reason.unwrap_or(if cfg!(target_os = "windows") {
+                "New chat (Ctrl+Shift+N)"
+            } else {
+                "New chat (⌘N)"
+            }))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::ui::NewChat), cx));
-        let quick = Button::new("sidebar-new-chat-no-project")
+        let menu = Button::new("sidebar-new-chat-menu")
             .custom(
                 ButtonCustomVariant::new(cx)
                     .foreground(t::secondary())
                     .hover(t::hover())
                     .active(t::selected()),
             )
+            .small()
             .compact()
-            .size(px(32.))
-            .min_w(px(32.))
-            .max_w(px(32.))
-            .min_h(px(32.))
-            .max_h(px(32.))
+            .size_8()
             .p_0()
-            .rounded(px(6.))
+            .rounded(t::control_radius(cx))
             .border_1()
             .border_color(t::control_border())
-            .accessibility_label("New chat without a project")
-            .disabled(reason.is_some())
-            .child(custom_icon("message-circle-plus").text_color(t::secondary()))
-            .tooltip("New chat without a project (⌥⌘N)")
-            .on_click(|_, window, cx| {
-                window.dispatch_action(Box::new(crate::ui::NewChatNoProject), cx)
+            .icon(IconName::ChevronDown)
+            .accessibility_label("Choose chat context")
+            .tooltip("New chat in…")
+            .disabled(reason.is_some() || opening)
+            .dropdown_menu(|menu, _, _| {
+                menu.item(
+                    PopupMenuItem::new("New chat in…").on_click(|_, window, cx| {
+                        window.dispatch_action(Box::new(crate::ui::NewChatIn), cx)
+                    }),
+                )
             });
-        let (button, quick) = match reason {
-            Some(reason) => (button.tooltip(reason), quick.tooltip(reason)),
-            None => (button, quick),
-        };
-        div().flex_shrink_0().px(px(12.)).pt(px(12.)).child(
+        div().flex_shrink_0().px_3().pt_3().child(
             row()
                 .w_full()
-                .gap(px(6.))
+                .gap_1()
                 .child(div().flex_1().min_w_0().child(button))
-                .child(quick),
+                .child(menu),
         )
     }
 }
@@ -224,6 +248,7 @@ impl Sidebar {
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
+        let has_project = self.projects.read(cx).catalog.active.is_some();
         let tree_height = self.files.read(cx).animated_height(now);
         canopy_desktop::motion::request_frame(
             window,
@@ -253,6 +278,7 @@ impl Render for Sidebar {
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
                             .child(self.new_chat(cx))
+                            .child(self.chats_content(now, cx))
                             .child(
                                 column()
                                     .flex_shrink_0()
@@ -273,74 +299,77 @@ impl Render for Sidebar {
                                     .child(self.sections[0].body(projects_height, projects, now)),
                             )
                             .child(self.tasks.clone())
-                            .child(
-                                column()
-                                    .flex_shrink_0()
-                                    .border_t_1()
-                                    .border_color(t::border())
-                                    .px(px(12.))
-                                    .py(px(10.))
+                            .when(has_project, |panel| {
+                                panel
                                     .child(
-                                        row()
-                                            .h(px(36.))
+                                        column()
                                             .flex_shrink_0()
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .child(self.header(1, "FILES", now, cx)),
-                                            )
+                                            .border_t_1()
+                                            .border_color(t::border())
+                                            .px(px(12.))
+                                            .py(px(10.))
                                             .child(
                                                 row()
-                                                    .gap(px(t::SPACING_UNIT))
-                                                    .child(self.action(1, cx))
-                                                    .child(self.action(2, cx)),
+                                                    .h(px(36.))
+                                                    .flex_shrink_0()
+                                                    .child(
+                                                        div().flex_1().child(
+                                                            self.header(1, "FILES", now, cx),
+                                                        ),
+                                                    )
+                                                    .child(
+                                                        row()
+                                                            .gap(px(t::SPACING_UNIT))
+                                                            .child(self.action(1, cx))
+                                                            .child(self.action(2, cx)),
+                                                    ),
+                                            )
+                                            .child(self.sections[1].body(
+                                                tree_height,
+                                                self.files.clone(),
+                                                now,
+                                            ))
+                                            .children(
+                                                cx.global::<crate::app_state::AppState>()
+                                                    .files
+                                                    .read(cx)
+                                                    .error
+                                                    .clone()
+                                                    .or(cx
+                                                        .global::<crate::app_state::AppState>()
+                                                        .files
+                                                        .read(cx)
+                                                        .index
+                                                        .warning
+                                                        .clone())
+                                                    .map(|error| {
+                                                        file_message(error, t::red())
+                                                            .px(px(12.))
+                                                            .text_size(px(11.))
+                                                    }),
+                                            )
+                                            .children(
+                                                (cx.global::<crate::app_state::AppState>()
+                                                    .files
+                                                    .read(cx)
+                                                    .loading)
+                                                    .then(|| {
+                                                        file_message("Loading files…", t::muted())
+                                                            .px(px(12.))
+                                                    }),
                                             ),
                                     )
-                                    .child(self.sections[1].body(
-                                        tree_height,
-                                        self.files.clone(),
-                                        now,
-                                    ))
-                                    .children(
-                                        cx.global::<crate::app_state::AppState>()
-                                            .files
-                                            .read(cx)
-                                            .error
-                                            .clone()
-                                            .or(cx
-                                                .global::<crate::app_state::AppState>()
-                                                .files
-                                                .read(cx)
-                                                .index
-                                                .warning
-                                                .clone())
-                                            .map(|error| {
-                                                file_message(error, t::red())
-                                                    .px(px(12.))
-                                                    .text_size(px(11.))
-                                            }),
+                                    .child(
+                                        column()
+                                            .flex_shrink_0()
+                                            .border_t_1()
+                                            .border_color(t::border())
+                                            .px(px(12.))
+                                            .py(px(10.))
+                                            .child(self.header(2, "TOOLS", now, cx))
+                                            .child(self.sections[2].body(tools_height, tools, now)),
                                     )
-                                    .children(
-                                        (cx.global::<crate::app_state::AppState>()
-                                            .files
-                                            .read(cx)
-                                            .loading)
-                                            .then(|| {
-                                                file_message("Loading files…", t::muted())
-                                                    .px(px(12.))
-                                            }),
-                                    ),
-                            )
-                            .child(
-                                column()
-                                    .flex_shrink_0()
-                                    .border_t_1()
-                                    .border_color(t::border())
-                                    .px(px(12.))
-                                    .py(px(10.))
-                                    .child(self.header(2, "TOOLS", now, cx))
-                                    .child(self.sections[2].body(tools_height, tools, now)),
-                            ),
+                            }),
                     )
                     .vertical_scrollbar(&self.scroll),
             )
@@ -355,5 +384,86 @@ impl Render for Sidebar {
                     .text_color(t::faint())
                     .child("V0.13.0-NEXT.28"),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Sidebar;
+    use crate::app_state::AppState;
+    use crate::ui::components::file_tree::{FileTree, FileTreeModel};
+    use canopy_desktop::state::workspace::{PaneKind, PaneMetadata, Workspace};
+    use gpui_kit::component::Root;
+    use gpui_kit::test::TestWindowExt;
+    use gpui_kit::{AppContext, TestAppContext, px, size};
+
+    #[gpui_kit::test]
+    fn chat_rows_navigate_and_their_menu_dismisses_by_keyboard(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (app, pane, first, second) = cx.update(|cx| {
+            crate::ui::theme::init(cx);
+            let mut workspace = Workspace::new();
+            let mut ids = vec![];
+            for title in ["First conversation", "Second conversation"] {
+                let tab = workspace.open(title, "codex");
+                let pane = workspace.active().unwrap().focused;
+                workspace
+                    .set_pane_metadata(
+                        tab,
+                        pane,
+                        PaneMetadata {
+                            kind: PaneKind::Chat,
+                            title: Some(title.into()),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                ids.push(pane);
+            }
+            let app = AppState::install_test(workspace, cx);
+            app.projects.update(cx, |p, _| p.ready = true);
+            (
+                app,
+                ids[0],
+                format!("chat-{:?}", ids[0]),
+                format!("chat-{:?}", ids[1]),
+            )
+        });
+        let window = cx.open_window(size(px(220.), px(640.)), |window, cx| {
+            let files = cx.new(|cx| FileTree::new(FileTreeModel::new(vec![], []).unwrap(), cx));
+            let sidebar = cx.new(|cx| Sidebar::new(files, cx));
+            Root::new(sidebar, window, cx)
+        });
+        cx.update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let a = window
+                .find(gpui_kit::SharedString::from(first.clone()))
+                .bounds();
+            let b = window
+                .find(gpui_kit::SharedString::from(second.clone()))
+                .bounds();
+            assert_eq!(a.left(), b.left());
+            assert_eq!(a.right(), b.right());
+            assert!(window.try_find("no-project").is_none());
+            window.click(gpui_kit::SharedString::from(first.clone()), cx);
+            assert_eq!(app.workspace.read(cx).active().unwrap().focused, pane);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(
+                window
+                    .find(gpui_kit::SharedString::from(first.clone()))
+                    .label()
+                    .unwrap()
+                    .contains("selected")
+            );
+            let menu = format!("chat-menu-{pane:?}");
+            window.click(gpui_kit::SharedString::from(menu), cx);
+            window.press("escape", cx);
+            assert_eq!(app.workspace.read(cx).active().unwrap().focused, pane);
+        })
+        .unwrap();
     }
 }

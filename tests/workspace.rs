@@ -205,3 +205,91 @@ fn rename_targets_inactive_tab_without_changing_focus_or_panes() {
     assert_eq!(ws.tabs().len(), 1);
     assert_eq!(ws.active().unwrap().id, second);
 }
+
+fn legacy_chat(ws: &mut Workspace, title: &str) -> (TabId, PaneId) {
+    let tab = ws.open(title, "claude");
+    let pane = ws.active().unwrap().focused;
+    ws.set_pane_metadata(
+        tab,
+        pane,
+        PaneMetadata {
+            kind: PaneKind::Chat,
+            title: Some("New chat".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    (tab, pane)
+}
+
+#[test]
+fn legacy_chat_names_survive_group_rename_and_all_pane_moves() {
+    for operation in 0..4 {
+        let mut ws = Workspace::new();
+        let (first, a) = legacy_chat(&mut ws, "Original conversation");
+        let (second, b) = legacy_chat(&mut ws, "Other conversation");
+        let before = ws.clone();
+        assert!(
+            ws.dock_pane(first, a, second, a, Axis::Horizontal, false)
+                .is_err()
+        );
+        assert_eq!(ws, before, "failed docking must not materialize names");
+        match operation {
+            0 => ws
+                .dock_tab(first, second, b, Axis::Horizontal, false)
+                .unwrap(),
+            1 => ws
+                .dock_pane(first, a, second, b, Axis::Horizontal, true)
+                .unwrap(),
+            2 => {
+                ws.swap_panes(first, a, second, b).unwrap();
+                ws.split(second, a, Axis::Horizontal, "shell").unwrap();
+            }
+            _ => {
+                ws.split(first, a, Axis::Horizontal, "shell").unwrap();
+                let detached = ws.detach_pane(first, a).unwrap();
+                assert_eq!(
+                    ws.tabs().iter().find(|t| t.id == detached).unwrap().title,
+                    "Original conversation"
+                );
+            }
+        }
+        ws.rename(second, "Group name").unwrap();
+        assert_eq!(ws.chat_title(a), Some("Original conversation"));
+        // A single-chat tab is itself renamed; a group preserves its member names.
+        if operation < 2 {
+            assert_eq!(ws.chat_title(b), Some("Other conversation"));
+        }
+        assert!(
+            !ws.retitle_placeholder(a, "New chat", "A later message")
+                .unwrap()
+        );
+        let restored: Workspace =
+            serde_json::from_str(&serde_json::to_string(&ws).unwrap()).unwrap();
+        assert_eq!(restored.chat_title(a), Some("Original conversation"));
+    }
+}
+
+#[test]
+fn unnamed_and_manually_named_chats_remain_distinct_inside_groups() {
+    let mut ws = Workspace::new();
+    let (first, a) = legacy_chat(&mut ws, "New chat");
+    let (second, b) = legacy_chat(&mut ws, "Existing chat");
+    ws.dock_pane(first, a, second, b, Axis::Horizontal, false)
+        .unwrap();
+    assert_eq!(ws.chat_title(a), Some("New chat"));
+    assert!(
+        ws.retitle_placeholder(a, "New chat", "First message")
+            .unwrap()
+    );
+    assert_eq!(ws.chat_title(a), Some("First message"));
+    assert_eq!(ws.chat_title(b), Some("Existing chat"));
+    ws.rename_chat(a, "New chat").unwrap();
+    assert!(
+        !ws.retitle_placeholder(a, "New chat", "Must not replace a manual name")
+            .unwrap()
+    );
+    ws.close_pane(second, a).unwrap();
+    assert_eq!(ws.chat_title(b), Some("Existing chat"));
+    assert_eq!(ws.all_panes().len(), 1);
+}

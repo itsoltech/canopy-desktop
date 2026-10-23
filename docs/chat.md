@@ -114,18 +114,29 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 
 ## Pane czatu (etap 2)
 
-- Wejście: „New chat” na górze lewego sidebara lub ⌘N otwiera paletę
-  (`src/ui/new_chat_palette.rs`): „No project” (⌥⌘N) i otwarte projekty (⌘1…⌘9).
-  `Chats::open_new(ChatTarget)` dodaje tab przez `ProjectsState::open_chat` i przełącza
-  przestrzeń. Projekt → cwd projektu/worktree; „No project” → prywatny katalog
-  `chat::scratch` (`<dane>/chats/<uuid>`, 0700), usuwany po potwierdzonym zamknięciu procesu
-  zamkniętego taba (tylko bezpośrednie podkatalogi `chats/` o nazwie UUID, bez symlinków).
-- Przestrzeń „No project” to `ProjectsState.scratch` (globalna encja `Workspace`, gdy nie
-  wybrano projektu), zapisywana w `SessionSnapshot.scratch`; aktywny workspace to zawsze
-  globalna encja (start terminali, widoczność dla notcha). Nowy tab `PaneKind::Chat`:
-  `tool = "claude"`, konto = `profile_id`,
-  wybory w `PaneMetadata.chat` (`ChatSettings { model, effort, mode }`, pole pomijane
-  dla innych pane'ów). Tytuł „New chat” zmienia się na skrót pierwszej wiadomości.
+- New chat na górze sidebara i ⌘N tworzą rozmowę bez projektu; ⌥⌘N pozostaje aliasem.
+  Menu New chat in… i ⌘⇧N otwierają paletę (`src/ui/new_chat_palette.rs`) z wyborem
+  kontekstu przed utworzeniem. Projekt → cwd projektu/worktree; bez projektu → prywatny
+  katalog `<dane>/chats/<uuid>` (0700). Fork zachowuje tę samą paletę wyboru celu.
+- Sekcja Chats nad Projects pokazuje bezpośrednio rozmowy z `ProjectsState.scratch`,
+  zapisywane w `SessionSnapshot.scratch`. Jeden wiersz to jeden Chat PaneId: klik aktywuje
+  jego aktualny tab i pane; Rename/Delete działa także przy aktywnym projekcie. Pozostałe
+  taby są dostępne przez Open tabs…. Pasek tabów i splity pozostają dostępne.
+- New chat nie uruchamia się automatycznie przy starcie/przełączaniu kontekstu. Pusty stan
+  ma CTA. New tab bez projektu tworzy czat; tworzenie terminala skrótem splitu wymaga projektu.
+- Tytuł rozmowy należy do `PaneMetadata.title`. Opcjonalny `chat_title_state` odróżnia
+  placeholder od nadanej nazwy; starsze zapisy używają nazwy taba jako fallbacku.
+  Dock/swap/detach i zmiana nazwy grupy utrwalają ten fallback przed operacją. Ręczna nazwa
+  nie jest nadpisywana pierwszą wiadomością. Model, widok, fork, diff i notch są synchronizowane.
+- Usunięcie przechodzi przez Editors::guard_closing → Chats::guard. Nieznana/ładowana historia
+  wymaga potwierdzenia bez uruchamiania agenta. Rewalidacja poprzedza skutki; odmowa nie
+  odrzuca kolejki. Rejestr metadanych obejmuje też czaty bez ChatView.
+- Jedna operacja cleanup na PaneId blokuje dalszy zapis historii, czeka na agentów/starty/`!`,
+  sprawdza użycie katalogu i odbiera wynik kasowania cwd, historii i załączników. Błędy zostają
+  przy Chats z Retry cleanup; Stop i Quit dołączają do operacji, także bez widoku. Naturalny
+  Exit shella nie zwalnia katalogu, jeśli grupa pozostaje niepotwierdzona; nie sygnalizujemy
+  ponownie PID po reap. Nowe otwarcia plików/projektów w usuwanym katalogu są blokowane.
+- Dokładny zakres i reguły: [samodzielne rozmowy](features/standalone-chats.md).
 - Rejestr `AppState.chats` (`src/app_state/chats.rs`) tworzy `ChatView` z `Window`
   dla czatów aktywnego taba po gotowości `AgentsState`; zamknięte pane'y przechodzą do
   retiring z jednym, współdzielonym zamykaniem procesu. `AppState::{running_workspaces,

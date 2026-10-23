@@ -84,6 +84,9 @@ impl TerminalView {
     pub fn pane_id(&self) -> canopy_desktop::state::workspace::PaneId {
         self.pane.id
     }
+    pub fn cwd(&self) -> Option<&std::path::Path> {
+        self.pane.metadata.cwd.as_deref()
+    }
     pub fn tool_id(&self) -> &str {
         &self.pane.tool
     }

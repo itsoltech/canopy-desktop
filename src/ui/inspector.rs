@@ -20,10 +20,10 @@ pub struct Inspector {
     layout: Entity<canopy_desktop::state::layout::LayoutState>,
     tabs: InspectorTransition,
 }
-fn page(layout: &canopy_desktop::state::layout::LayoutState) -> usize {
+fn page(layout: &canopy_desktop::state::layout::LayoutState, has_project: bool) -> usize {
     if layout.inspector_tasks {
         2
-    } else if layout.inspector_changes {
+    } else if layout.inspector_changes && has_project {
         1
     } else {
         0
@@ -50,12 +50,26 @@ impl Inspector {
             &tasks_view,
             |_, _, event: &super::task_edit::TaskEditRequest, cx| cx.emit(event.clone()),
         );
-        let current = page(app.layout.read(cx));
+        let current = page(
+            app.layout.read(cx),
+            app.projects.read(cx).catalog.active.is_some(),
+        );
         let observers = vec![
             cx.observe(&app.changes, |_, _, cx| cx.notify()),
-            cx.observe(&app.projects, |_, _, cx| cx.notify()),
+            cx.observe(&app.projects, |this, _, cx| {
+                this.sync_context(cx);
+                cx.notify();
+            }),
             cx.observe(&app.layout, |this, layout, cx| {
-                let next = page(layout.read(cx));
+                let next = page(
+                    layout.read(cx),
+                    cx.global::<crate::app_state::AppState>()
+                        .projects
+                        .read(cx)
+                        .catalog
+                        .active
+                        .is_some(),
+                );
                 if next != this.tabs.selected() {
                     this.animate(next, cx);
                 }
@@ -77,6 +91,19 @@ impl Inspector {
     pub fn select(&mut self, changes: bool, cx: &mut Context<Self>) {
         self.select_page(usize::from(changes), cx);
     }
+    fn sync_context(&mut self, cx: &mut Context<Self>) {
+        let has_project = cx
+            .global::<crate::app_state::AppState>()
+            .projects
+            .read(cx)
+            .catalog
+            .active
+            .is_some();
+        let next = page(self.layout.read(cx), has_project);
+        if next != self.tabs.selected() {
+            self.animate(next, cx);
+        }
+    }
     pub fn focus_sessions(
         &mut self,
         return_focus: FocusHandle,
@@ -91,6 +118,17 @@ impl Inspector {
         self.session_view.read(cx).focus_handle()
     }
     fn select_page(&mut self, page: usize, cx: &mut Context<Self>) {
+        if page == 1
+            && cx
+                .global::<crate::app_state::AppState>()
+                .projects
+                .read(cx)
+                .catalog
+                .active
+                .is_none()
+        {
+            return;
+        }
         self.layout.update(cx, |layout, cx| {
             layout.inspector_changes = page == 1;
             layout.inspector_tasks = page == 2;
@@ -106,6 +144,13 @@ impl Inspector {
 impl Render for Inspector {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
+        let has_project = cx
+            .global::<crate::app_state::AppState>()
+            .projects
+            .read(cx)
+            .catalog
+            .active
+            .is_some();
         let progress = self.tabs.indicator(now);
         motion::request_frame(window, self.tabs.is_animating(now));
         column()
@@ -121,31 +166,38 @@ impl Render for Inspector {
                     .flex_shrink_0()
                     .border_b_1()
                     .border_color(t::border())
-                    .children(["Session", "Changes", "Tasks"].into_iter().enumerate().map(
-                        |(page, label)| {
-                            row()
-                                .id(label)
-                                .flex_1()
-                                .h_full()
-                                .justify_center()
-                                .cursor_pointer()
-                                .text_color(if self.tabs.selected() == page {
-                                    t::text()
-                                } else {
-                                    t::faint()
-                                })
-                                .child(label)
-                                .on_click(
-                                    cx.listener(move |this, _, _, cx| this.select_page(page, cx)),
-                                )
-                        },
-                    ))
+                    .children(
+                        ["Session", "Changes", "Tasks"]
+                            .into_iter()
+                            .enumerate()
+                            .filter(|(page, _)| has_project || *page != 1)
+                            .map(|(page, label)| {
+                                row()
+                                    .id(label)
+                                    .flex_1()
+                                    .h_full()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .text_color(if self.tabs.selected() == page {
+                                        t::text()
+                                    } else {
+                                        t::faint()
+                                    })
+                                    .child(label)
+                                    .on_click(
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.select_page(page, cx)
+                                        }),
+                                    )
+                            }),
+                    )
                     .child(
                         div()
                             .absolute()
                             .bottom_0()
-                            .left(relative(progress / 3.))
-                            .w(relative(1. / 3.))
+                            // Without Changes, domain pages 0 and 2 occupy slots 0 and 1.
+                            .left(relative(progress / if has_project { 3. } else { 4. }))
+                            .w(relative(1. / if has_project { 3. } else { 2. }))
                             .h(px(2.))
                             .bg(t::accent()),
                     ),
@@ -165,6 +217,9 @@ impl Render for Inspector {
                         .into_iter()
                         .enumerate()
                         .filter_map(|(page, view)| {
+                            if page == 1 && !has_project {
+                                return None;
+                            }
                             let opacity = self.tabs.opacity(page, now);
                             (opacity > 0.).then(|| {
                                 div()

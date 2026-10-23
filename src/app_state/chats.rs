@@ -10,11 +10,18 @@ use canopy_desktop::{
 use gpui_kit::*;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
 };
+mod cleanup;
+/// Read-only projection for commands invoked from inside a chat registry update.
+#[derive(Default)]
+pub(crate) struct ChatFolders(HashMap<PaneId, std::path::PathBuf>);
+impl Global for ChatFolders {}
+impl ChatFolders {
+    pub(crate) fn contains(&self, path: &std::path::Path) -> bool {
+        self.0.values().any(|dir| path.starts_with(dir))
+    }
+}
 
 /// Where a new chat opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +56,7 @@ impl Global for PageTokens {}
 
 /// Closing panes whose chats would lose something: their conversation (closing deletes
 /// a chat), or messages still queued (also on quit).
+#[derive(Clone)]
 pub struct ChatGuardRequest {
     pub ids: Vec<PaneId>,
     pub action: std::rc::Rc<dyn Fn(&mut App)>,
@@ -70,8 +78,11 @@ impl EventEmitter<ChatGuardRequest> for Chats {}
 /// A closed pane whose agent process is still stopping.
 struct Retiring {
     workspace: WorkspaceId,
-    view: Entity<ChatView>,
-    done: Arc<AtomicBool>,
+    pane: canopy_desktop::state::workspace::Pane,
+    folder: Option<std::path::PathBuf>,
+    view: Option<Entity<ChatView>>,
+    completion: async_channel::Receiver<()>,
+    result: Arc<std::sync::Mutex<Option<Result<(), String>>>>,
     _watch: Task<()>,
 }
 
@@ -83,11 +94,10 @@ pub struct Chats {
     workspaces: HashMap<PaneId, WorkspaceId>,
     events: HashMap<PaneId, [Subscription; 2]>,
     retiring: Vec<Retiring>,
+    known: HashMap<PaneId, (canopy_desktop::state::workspace::Pane, WorkspaceId)>,
+    retired_folders: HashSet<std::path::PathBuf>,
     stopping: bool,
     agents_ready: bool,
-    /// The space last shown once everything was ready (None = "No project"); entering
-    /// an empty "No project" space starts a chat, closing its last tab does not.
-    last_space: Option<Option<WorkspaceId>>,
     opening: Option<Task<()>>,
     /// Renders pages for agents' `preview_html` (DEC-077); `None` where unsupported.
     pages: Option<canopy_desktop::chat::pages::PageService>,
@@ -100,9 +110,23 @@ impl Chats {
     }
     fn at_risk(&self, ids: &[PaneId], cx: &App) -> AtRisk {
         let mut risk = AtRisk::default();
-        for view in ids.iter().filter_map(|id| self.views.get(id)) {
+        let panes: HashSet<_> = cx
+            .global::<AppState>()
+            .projects
+            .read(cx)
+            .runtime_workspaces(cx)
+            .iter()
+            .flat_map(|w| w.all_panes())
+            .filter(|p| p.metadata.kind == PaneKind::Chat)
+            .map(|p| p.id)
+            .collect();
+        for id in ids.iter().copied().collect::<HashSet<_>>() {
+            let Some(view) = self.views.get(&id) else {
+                risk.chats += usize::from(panes.contains(&id));
+                continue;
+            };
             let view = view.read(cx);
-            if view.has_conversation() || view.is_working() {
+            if view.has_conversation() || view.is_working() || view.history_uncertain() {
                 risk.chats += 1;
             }
             risk.working += usize::from(view.is_working());
@@ -110,12 +134,6 @@ impl Chats {
             risk.commands += view.running_commands();
         }
         risk
-    }
-
-    /// Whether closing `ids` for good deletes a conversation or drops queued messages.
-    pub fn needs_guard(&self, ids: &[PaneId], cx: &App) -> bool {
-        let risk = self.at_risk(ids, cx);
-        risk.chats > 0 || risk.unsent > 0
     }
 
     /// Runs `action` now, or after the user agreed to what it loses. `deleting`: the
@@ -128,6 +146,31 @@ impl Chats {
         cx: &mut App,
     ) {
         let chats = cx.global::<AppState>().chats.clone();
+        // Register metadata before applying a close, even if tools have not loaded
+        // and this restored conversation has never had a ChatView.
+        chats.update(cx, |chats, cx| {
+            for workspace in cx
+                .global::<AppState>()
+                .projects
+                .read(cx)
+                .runtime_workspaces(cx)
+            {
+                for pane in workspace
+                    .all_panes()
+                    .into_iter()
+                    .filter(|p| p.metadata.kind == PaneKind::Chat)
+                {
+                    chats.known.entry(pane.id).or_insert((pane, workspace.id));
+                }
+            }
+        });
+        if deleting && let Some(error) = chats.read(cx).deletion_blocker(&ids, cx) {
+            chats.update(cx, |chats, cx| {
+                chats.error = Some(error);
+                cx.notify();
+            });
+            return;
+        }
         let risk = chats.read(cx).at_risk(&ids, cx);
         if risk.unsent > 0 || deleting && risk.chats > 0 {
             chats.update(cx, |_, cx| {
@@ -159,7 +202,14 @@ impl Chats {
         let (title, mut detail, button) = if request.deleting && risk.chats > 0 {
             (
                 if risk.chats == 1 {
-                    "Delete this chat?".to_owned()
+                    cx.global::<AppState>()
+                        .projects
+                        .read(cx)
+                        .runtime_workspaces(cx)
+                        .iter()
+                        .find_map(|w| ids.iter().find_map(|id| w.chat_title(*id)))
+                        .map(|title| format!("Delete “{title}”?"))
+                        .unwrap_or_else(|| "Delete this chat?".to_owned())
                 } else {
                     format!("Delete {} chats?", risk.chats)
                 },
@@ -215,13 +265,21 @@ impl Chats {
             cx,
         );
         let chats = cx.global::<AppState>().chats.clone();
+        let deleting = request.deleting;
         window
             .spawn(cx, async move |cx| {
                 if answer.await != Ok(1) {
                     return;
                 }
                 let _ = cx.update(|_, cx| {
-                    for id in &ids {
+                    if deleting && let Some(error) = chats.read(cx).deletion_blocker(&ids, cx) {
+                        chats.update(cx, |chats, cx| {
+                            chats.error = Some(error);
+                            cx.notify();
+                        });
+                        return;
+                    }
+                    for id in ids.iter().filter(|_| !deleting) {
                         if let Some(view) = chats.read(cx).views.get(id).cloned() {
                             view.update(cx, |view, cx| view.discard_queue(cx));
                         }
@@ -240,9 +298,10 @@ impl Chats {
             workspaces: HashMap::new(),
             events: HashMap::new(),
             retiring: vec![],
+            known: HashMap::new(),
+            retired_folders: HashSet::new(),
             stopping: false,
             agents_ready: false,
-            last_space: None,
             opening: None,
             pages: None,
             _previews: None,
@@ -273,22 +332,16 @@ impl Chats {
 
     /// Views need a Window (the composer), so the workspace view drives this.
     pub fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.retiring
-            .retain(|retiring| !retiring.done.load(Ordering::Acquire));
+        self.retiring.retain(|r| {
+            !r.result
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .is_some_and(Result::is_ok)
+        });
         let app = cx.global::<AppState>().clone();
-        if self.stopping
-            || app.settings.read(cx).quitting
-            || !app.projects.read(cx).ready
-            || !app.tools.read(cx).ready
-        {
+        if self.stopping || app.settings.read(cx).quitting || !app.projects.read(cx).ready {
             return;
-        }
-        let space = app.projects.read(cx).catalog.active;
-        if self.agents_ready && Self::unavailable(cx).is_none() && self.last_space != Some(space) {
-            self.last_space = Some(space);
-            if space.is_none() && app.workspace.read(cx).tabs().is_empty() {
-                self.open_new(ChatTarget::NoProject, cx);
-            }
         }
         let chat_panes: HashMap<PaneId, (canopy_desktop::state::workspace::Pane, WorkspaceId)> =
             app.projects
@@ -300,7 +353,10 @@ impl Chats {
                         .all_panes()
                         .into_iter()
                         .filter(|pane| pane.metadata.kind == PaneKind::Chat)
-                        .map(move |pane| (pane.id, (pane, workspace.id)))
+                        .map(move |mut pane| {
+                            pane.metadata.title = workspace.chat_title(pane.id).map(str::to_owned);
+                            (pane.id, (pane, workspace.id))
+                        })
                 })
                 .collect();
         let owner: HashMap<PaneId, WorkspaceId> = chat_panes
@@ -308,7 +364,7 @@ impl Chats {
             .map(|(id, (_, workspace))| (*id, *workspace))
             .collect();
         let removed: Vec<PaneId> = self
-            .views
+            .known
             .keys()
             .filter(|id| !owner.contains_key(id))
             .copied()
@@ -316,16 +372,21 @@ impl Chats {
         let mut changed = !removed.is_empty();
         for id in removed {
             self.events.remove(&id);
-            let workspace = self.workspaces.remove(&id);
-            if let (Some(view), Some(workspace)) = (self.views.remove(&id), workspace) {
-                self.retire(workspace, view, cx);
+            self.workspaces.remove(&id);
+            if let Some((pane, workspace)) = self.known.remove(&id) {
+                let view = self.views.remove(&id);
+                self.retire(workspace, pane, view, cx);
             }
         }
+        self.known = chat_panes.clone();
+        self.workspaces = owner;
         let workspace = app.workspace.read(cx);
         let active = workspace.activation_plan();
         let focused = workspace.active().map(|tab| tab.focused);
-        let ready =
-            self.agents_ready && app.tools.read(cx).environment.is_some() && !app.git.read(cx).busy;
+        let ready = self.agents_ready
+            && app.tools.read(cx).ready
+            && app.tools.read(cx).environment.is_some()
+            && !app.git.read(cx).busy;
         // A shown turn diff needs its chat's history, even while the chat's own tab
         // isn't shown: that chat is created without starting its agent.
         let diffed: Vec<PaneId> = active
@@ -379,6 +440,11 @@ impl Chats {
         for (id, view) in &self.views {
             let visible = active.iter().any(|pane| pane.id == *id);
             view.update(cx, |view, cx| {
+                if let Some((pane, _)) = chat_panes.get(id)
+                    && let Some(title) = &pane.metadata.title
+                {
+                    view.set_title(title, pane.metadata.chat_title_state, cx);
+                }
                 view.set_active(visible, visible && focused == Some(*id), cx)
             });
         }
@@ -446,53 +512,6 @@ impl Chats {
         changed
     }
 
-    fn retire(&mut self, workspace: WorkspaceId, view: Entity<ChatView>, cx: &mut Context<Self>) {
-        let close = view.update(cx, |view, cx| view.close(cx));
-        let cwd = view.read(cx).cwd();
-        // Closing a chat deletes it: its saved conversation and attachments go too.
-        if let Some(chat) = view.read(cx).chat_id() {
-            cx.global::<AppState>()
-                .chat_history
-                .clone()
-                .update(cx, |history, cx| history.delete(&chat, cx));
-        }
-        let done = Arc::new(AtomicBool::new(false));
-        let finished = done.clone();
-        let watch = cx.spawn(async move |this, cx| {
-            let mut result = close.await;
-            // A chat without a project owns its private folder; it goes with the tab,
-            // and only after the agent process is confirmed gone.
-            if result.is_ok()
-                && let Some(cwd) = cwd
-            {
-                result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let data = canopy_desktop::platform::directories::data_dir()?;
-                        if canopy_desktop::chat::scratch::owns(&data, &cwd) {
-                            canopy_desktop::chat::scratch::remove(&data, &cwd).map(drop)
-                        } else {
-                            Ok(())
-                        }
-                    })
-                    .await;
-            }
-            finished.store(true, Ordering::Release);
-            let _ = this.update(cx, |this, cx| {
-                if let Err(error) = result {
-                    this.error = Some(error);
-                }
-                cx.notify();
-            });
-        });
-        self.retiring.push(Retiring {
-            workspace,
-            view,
-            done,
-            _watch: watch,
-        });
-    }
-
     /// Opens a new, empty chat tab in `target` with the last choices and shows it.
     pub fn open_new(&mut self, target: ChatTarget, cx: &mut Context<Self>) {
         if Self::unavailable(cx).is_some() || self.opening.is_some() {
@@ -550,6 +569,7 @@ impl Chats {
             cwd: Some(cwd),
             profile_id: profile,
             title: Some(NEW_CHAT_TITLE.into()),
+            chat_title_state: Some(canopy_desktop::state::workspace::ChatTitleState::Placeholder),
             kind: PaneKind::Chat,
             chat: Some(Box::new(settings)),
             ..Default::default()
@@ -687,9 +707,23 @@ impl Chats {
         cx: &mut Context<Self>,
     ) {
         let projects = cx.global::<AppState>().projects.clone();
+        let failed = metadata.clone();
         let result = projects.update(cx, |projects, cx| {
             projects.open_chat(target, title, provider.tool(), metadata, cx)
         });
+        if result.is_err() && target.is_none() {
+            let workspace = projects.read(cx).scratch_id(cx);
+            self.retire(
+                workspace,
+                canopy_desktop::state::workspace::Pane {
+                    id: PaneId::new(),
+                    tool: provider.tool().to_owned(),
+                    metadata: failed,
+                },
+                None,
+                cx,
+            );
+        }
         self.error = result.err();
         cx.notify();
     }
@@ -757,6 +791,9 @@ impl Chats {
         if !app.projects.read(cx).ready {
             return Some("Restoring workspace…");
         }
+        if app.projects.read(cx).busy {
+            return Some("Waiting for a project operation.");
+        }
         None
     }
 
@@ -770,7 +807,13 @@ impl Chats {
         running.extend(
             self.retiring
                 .iter()
-                .filter(|retiring| !retiring.done.load(Ordering::Acquire))
+                .filter(|r| {
+                    !r.result
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .as_ref()
+                        .is_some_and(Result::is_ok)
+                })
                 .map(|retiring| retiring.workspace),
         );
         running
@@ -794,31 +837,62 @@ impl Chats {
                 self.retiring
                     .iter()
                     .filter(|retiring| retiring.workspace == id)
-                    .map(|retiring| retiring.view.clone()),
+                    .filter_map(|retiring| retiring.view.clone()),
             )
             .collect();
-        self.close_all(views, false, cx)
+        let close = self.close_all(views, false, cx);
+        let cleanup = self.pending_cleanup(Some(id), cx);
+        cx.spawn(async move |_, _| {
+            let mut result = close.await;
+            for job in cleanup {
+                let closed = job.await;
+                if result.is_ok() {
+                    result = closed;
+                }
+            }
+            result
+        })
     }
 
     /// Quit: stop every chat process. An error keeps the application open.
     pub fn shutdown(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
         self.stopping = true;
+        for (id, _) in self.cleanup_errors() {
+            self.retry_cleanup(id, cx);
+        }
         let views: Vec<_> = self
             .views
             .values()
             .cloned()
-            .chain(self.retiring.iter().map(|retiring| retiring.view.clone()))
+            .chain(
+                self.retiring
+                    .iter()
+                    .filter_map(|retiring| retiring.view.clone()),
+            )
             .collect();
         let close = self.close_all(views, true, cx);
+        let cleanup = self.pending_cleanup(None, cx);
         cx.spawn(async move |this, cx| {
-            let result = close.await;
+            let mut result = close.await;
+            for job in cleanup {
+                let closed = job.await;
+                if result.is_ok() {
+                    result = closed;
+                }
+            }
             let _ = this.update(cx, |this, cx| {
                 this.stopping = false;
                 if result.is_ok() {
                     this.views.clear();
                     this.events.clear();
                     this.workspaces.clear();
+                    this.known.clear();
+                    this.retired_folders.clear();
                     this.retiring.clear();
+                    if cx.has_global::<ChatFolders>() {
+                        let folders = cx.global_mut::<ChatFolders>();
+                        folders.0.clear();
+                    }
                 }
                 cx.notify();
             });

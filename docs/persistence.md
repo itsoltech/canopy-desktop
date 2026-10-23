@@ -14,10 +14,15 @@ Snapshot zawiera:
   używaną wyłącznie jako podpowiedź porównania przy usuwaniu
   (szczegóły: [git-worktrees.md](git-worktrees.md));
 - workspace każdego projektu, uporządkowane taby i aktywny TabId;
+- przestrzeń samodzielnych rozmów w opcjonalnym `scratch`, również przy aktywnym projekcie;
+  jej Chat PaneId zasilają listę Chats, a pozostałe taby pozostają dostępne przez Open tabs…;
 - całe drzewo każdego taba: kolejność first/second, oś, SplitId i proporcje;
 - PaneId oraz focused PaneId;
 - metadane pane'a: tool ID, rodzaj widoku, cwd, profil, tytuł, resource,
   argumenty narzędzia i opcjonalny identyfikator wznowienia sesji providera;
+- opcjonalny `PaneMetadata.chat_title_state` (placeholder/named), bez zmiany schematu SQL;
+  brak pola oznacza starszą nazwę czatu z fallbackiem do taba. Nazwy są utrwalane przy
+  mutacji, nie przy odczycie; dock/swap/detach nie gubią tytułu rozmowy;
 - szerokości i widoczność sidebarów oraz wybraną zakładkę inspektora.
 
 Identyfikatory przeżywają restart. Deserializacja rezerwuje odczytane wartości

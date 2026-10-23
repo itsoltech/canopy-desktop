@@ -269,23 +269,28 @@ impl ChatHistory {
         }
     }
 
-    /// Deletes a closed chat: its saved history and attached images. A write under way
-    /// leaves the chat out (see `save`).
-    pub fn delete(&mut self, chat: &str, cx: &mut Context<Self>) {
+    /// Prevent late writers from resurrecting a conversation whose pane is gone.
+    pub fn mark_deleted(&mut self, chat: &str) {
         self.deleted.insert(chat.to_owned());
         self.pending.remove(chat);
+    }
+
+    /// Completes deletion after processes have released their files. Errors are
+    /// returned to the owning cleanup operation, which retains the retry state.
+    pub fn delete(&mut self, chat: &str, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+        self.mark_deleted(chat);
         let client = self.client.clone();
         let chat = chat.to_owned();
         cx.spawn(async move |_, cx| {
-            if let Some(client) = client
-                && let Err(error) = client.delete_chat_history(chat.clone()).await
-            {
-                eprintln!("Chat history delete: {error}");
-            }
+            let client = client
+                .ok_or("Chat history is unavailable; retry cleanup when settings have loaded.")?;
+            client
+                .delete_chat_history(chat.clone())
+                .await
+                .map_err(|e| e.to_string())?;
             cx.background_spawn(async move { remove_attachments(&[chat]) })
-                .await;
+                .await
         })
-        .detach();
     }
 
     /// Deletes every saved chat not open anymore (after the layout was restored).
@@ -302,7 +307,7 @@ impl ChatHistory {
                 }
             };
             cx.background_spawn(async move {
-                remove_attachments(&removed);
+                let _ = remove_attachments(&removed);
                 remove_orphan_attachments(&keep);
             })
             .await;
@@ -377,19 +382,28 @@ fn attachments_root() -> Option<std::path::PathBuf> {
 }
 
 /// Removes the attachment folders of `chats` (only UUID-named folders under the root).
-fn remove_attachments(chats: &[String]) {
+fn remove_attachments(chats: &[String]) -> Result<(), String> {
     let Some(root) = attachments_root() else {
-        return;
+        return Err("Chat attachment storage is unavailable.".into());
     };
     for chat in chats {
         if uuid::Uuid::parse_str(chat).is_err() {
             continue;
         }
         let dir = root.join(chat);
-        if std::fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir()) {
-            let _ = std::fs::remove_dir_all(&dir);
+        match std::fs::symlink_metadata(&dir) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+                std::fs::remove_dir_all(&dir)
+                    .map_err(|e| format!("Could not remove chat attachments: {e}"))?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("Could not inspect chat attachments: {error}")),
+            Ok(_) => {
+                return Err("Chat attachments are not a plain directory; they were kept.".into());
+            }
         }
     }
+    Ok(())
 }
 
 /// Removes attachment folders of chats that no longer exist (e.g. history deleted
@@ -406,5 +420,5 @@ fn remove_orphan_attachments(keep: &[String]) {
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|name| !keep.contains(name))
         .collect();
-    remove_attachments(&orphans);
+    let _ = remove_attachments(&orphans);
 }

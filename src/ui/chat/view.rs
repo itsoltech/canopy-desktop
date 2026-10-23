@@ -63,6 +63,8 @@ pub struct ChatView {
     pub(super) settings: ChatSettings,
     pub(super) session: Option<ChatSession>,
     process: Option<Arc<Process>>,
+    orphaned: Vec<Arc<Process>>,
+    pub(super) shell_resources: Vec<canopy_desktop::chat::shell::Running>,
     /// Lines produced before the process exists (initialize, early messages).
     outbox: Vec<serde_json::Value>,
     pub(super) agent_run: Option<String>,
@@ -263,6 +265,8 @@ impl ChatView {
             settings,
             session: None,
             process: None,
+            orphaned: vec![],
+            shell_resources: vec![],
             outbox: vec![],
             agent_run: None,
             generation: 0,
@@ -355,6 +359,46 @@ impl ChatView {
     /// Identifies the chat's saved history.
     pub fn chat_id(&self) -> Option<String> {
         self.settings.id.clone()
+    }
+    pub fn set_title(
+        &mut self,
+        title: &str,
+        state: Option<canopy_desktop::state::workspace::ChatTitleState>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.pane.metadata.title.as_deref() != Some(title)
+            || self.pane.metadata.chat_title_state != state
+        {
+            self.pane.metadata.title = Some(title.to_owned());
+            self.pane.metadata.chat_title_state = state;
+            cx.notify();
+        }
+    }
+
+    pub fn history_uncertain(&self) -> bool {
+        matches!(self.history, History::Loading(_)) || self.history_off
+    }
+
+    pub fn navigation_status(&self) -> &'static str {
+        if self.history_uncertain() && !self.history_off {
+            return "Loading";
+        }
+        if self.error.is_some() || self.history_off {
+            return "Error";
+        }
+        if self.starting {
+            return "Starting";
+        }
+        match self.status() {
+            Some(Status::Starting) => "Starting",
+            Some(Status::Working) => "Working",
+            Some(Status::NeedsDecision) => "Needs attention",
+            Some(Status::Interrupting) => "Stopping",
+            Some(Status::Ready) => "Idle",
+            Some(Status::Failed(_)) => "Error",
+            Some(Status::Exited { .. }) => "Exited",
+            None => "Not started",
+        }
     }
     /// Created only to show its history (a turn diff): the agent hasn't started.
     pub fn dormant(&self) -> bool {
@@ -740,10 +784,19 @@ impl ChatView {
                 // Superseded (closed or restarted meanwhile): never adopt the process,
                 // and finish closing it inside this task so shutdown can await it.
                 if let Ok((process, _)) = started {
-                    let _ = cx
+                    let process = Arc::new(process);
+                    let closing = process.clone();
+                    let result = cx
                         .background_executor()
-                        .spawn(async move { process.close() })
+                        .spawn(async move { closing.close() })
                         .await;
+                    if let Err(error) = result {
+                        let _ = this.update(cx, |this, cx| {
+                            this.orphaned.push(process);
+                            this.error = Some(error);
+                            cx.notify();
+                        });
+                    }
                 }
                 return;
             }
@@ -1105,11 +1158,6 @@ impl ChatView {
                 .update(cx, |projects, cx| {
                     projects.update_chat(self.pane.id, None, Some(&title), cx)
                 });
-            let pane = self.pane.id;
-            cx.global::<AppState>()
-                .agents
-                .clone()
-                .update(cx, |agents, cx| agents.rename(pane, &title, cx));
         }
         self.after_change(cx);
     }
@@ -1642,6 +1690,12 @@ impl ChatView {
     pub fn shutdown(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
         if let Some(closing) = &self.closing
             && closing.generation == self.generation
+            && closing
+                .result
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .is_none_or(Result::is_ok)
         {
             return wait(closing.completion.clone(), closing.result.clone(), cx);
         }
@@ -1661,7 +1715,14 @@ impl ChatView {
         if let Some(session) = &mut self.session {
             session.close_requested();
         }
-        let process = self.process.take();
+        // Retain failed resources so a later cleanup can retry the same close.
+        let process = self.process.clone();
+        let shells: Vec<_> = self
+            .shell_resources
+            .iter()
+            .cloned()
+            .chain(self.shells.values().map(|shell| shell.running.clone()))
+            .collect();
         let (finished, completion) = async_channel::bounded::<()>(1);
         let result = Arc::new(std::sync::Mutex::new(None));
         let shared = result.clone();
@@ -1670,15 +1731,35 @@ impl ChatView {
             if let Some(start) = start {
                 start.await;
             }
-            let closed = match process {
-                Some(process) => {
-                    cx.background_executor()
-                        .spawn(async move { process.close() })
-                        .await
-                }
-                None => Ok(()),
-            };
+            let mut processes = this
+                .read_with(cx, |this, _| this.orphaned.clone())
+                .unwrap_or_default();
+            processes.extend(process);
+            let closed = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut result = Ok(());
+                    for process in processes {
+                        let closed = process.close();
+                        if result.is_ok() {
+                            result = closed;
+                        }
+                    }
+                    for shell in shells {
+                        let closed = shell.close();
+                        if result.is_ok() {
+                            result = closed;
+                        }
+                    }
+                    result
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
+                if closed.is_ok() {
+                    this.process = None;
+                    this.orphaned.clear();
+                    this.shell_resources.clear();
+                }
                 if let Some(session) = &mut this.session
                     && !session.status().ended()
                 {

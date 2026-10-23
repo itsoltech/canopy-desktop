@@ -66,7 +66,7 @@ impl NewChatPalette {
         let active = projects.active;
         let mut choices = vec![Choice {
             target: ChatTarget::NoProject,
-            name: "No project".into(),
+            name: "Without a project".into(),
             path: None,
             shortcut: Some("⌥⌘N"),
         }];

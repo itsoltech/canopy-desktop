@@ -29,6 +29,7 @@ pub enum ShellEvent {
 }
 
 /// A running command; dropping it doesn't stop it (call `stop`).
+#[derive(Clone)]
 pub struct Running {
     shared: Arc<Shared>,
 }
@@ -161,6 +162,9 @@ impl Running {
 
     /// Ends the command and everything it started: SIGTERM, then SIGKILL.
     pub fn stop(&self) {
+        if *self.shared.exited.lock().unwrap_or_else(|e| e.into_inner()) {
+            return;
+        }
         signal(&self.shared, false);
         let shared = self.shared.clone();
         thread::spawn(move || {
@@ -168,6 +172,34 @@ impl Running {
             signal(&shared, true);
         });
     }
+
+    /// Stops and confirms release off the UI thread. A reaped leader is never
+    /// signalled again: surviving background children make cleanup conservative.
+    pub fn close(&self) -> Result<(), String> {
+        self.stop();
+        let deadline = Instant::now() + GRACE + Duration::from_secs(2);
+        loop {
+            let exited = *self.shared.exited.lock().unwrap_or_else(|e| e.into_inner());
+            if exited && group_released(self.shared.pid) {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err("A shell command may still have background processes. Its folder was kept; retry cleanup after they exit.".into());
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+}
+
+#[cfg(unix)]
+fn group_released(pid: u32) -> bool {
+    // A probe only: never signal a group after its leader has been reaped.
+    (unsafe { libc::killpg(pid as libc::pid_t, 0) == -1 })
+        && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+}
+#[cfg(not(unix))]
+fn group_released(_: u32) -> bool {
+    true
 }
 
 #[cfg(unix)]
@@ -305,6 +337,38 @@ mod tests {
             }
         }
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn natural_shell_exit_does_not_confirm_release_of_background_children() {
+        let folder = tempfile::tempdir().unwrap();
+        let (running, events) = Running::start(
+            "sleep 30 & echo $! > child.pid",
+            folder.path(),
+            Path::new("/bin/sh"),
+            &std::env::vars().collect(),
+        )
+        .unwrap();
+        while !matches!(events.recv_blocking().unwrap(), ShellEvent::Exit { .. }) {}
+        let pid: i32 = std::fs::read_to_string(folder.path().join("child.pid"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let result = running.close();
+        // This is a known child of the test, still bounded by its 30s sleep.
+        let alive = unsafe { libc::kill(pid, 0) == 0 };
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+        assert!(
+            result.is_err(),
+            "reaping the shell is not release of its group"
+        );
+        assert!(
+            alive,
+            "cleanup must not signal a reaped process group's old identity"
+        );
     }
 
     #[test]

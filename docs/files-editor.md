@@ -13,6 +13,13 @@ with a cancellation token and short debounce. The first 100 matching paths are s
 Cmd+S on macOS or Ctrl+S on Windows saves the focused editor. Opening an
 already-open path in a workspace selects its existing pane.
 
+File links from standalone chats also use this path. Canonical path checks run
+off the UI thread; the result is applied only while the original workspace is
+still selected. Opens into a private chat folder reserved for deletion are
+rejected, including late results and paths reached through symlinks. The Files
+section itself is hidden without a project; existing editor and preview tabs
+remain reachable through `Chats → Open tabs…`.
+
 ## Ownership
 
 - `files.rs` / `files/listing.rs`: bounded one-level directory reads, path validation,

@@ -614,6 +614,9 @@ impl AgentsState {
     /// Keeps a chat's title current for the notch and the Session inspector.
     pub fn rename(&mut self, pane: PaneId, title: &str, cx: &mut Context<Self>) {
         if let Some(session) = self.sessions.get_mut(&pane) {
+            if session.pane.metadata.title.as_deref() == Some(title) {
+                return;
+            }
             session.pane.metadata.title = Some(title.to_owned());
             cx.notify();
         }

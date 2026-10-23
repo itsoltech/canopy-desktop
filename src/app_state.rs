@@ -24,6 +24,7 @@ pub use terminals::Terminals;
 mod chat_history;
 mod chats;
 pub use chat_history::ChatHistory;
+pub(crate) use chats::ChatFolders;
 pub use chats::{ChatTarget, Chats};
 // GPUI ownership and I/O coordination; domain operations live in the library.
 use canopy_desktop::{

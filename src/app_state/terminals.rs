@@ -32,6 +32,28 @@ pub struct Terminals {
     retiring: Vec<RetiringTerminal>,
 }
 impl Terminals {
+    pub fn folder_references(&self, cx: &App) -> Vec<std::path::PathBuf> {
+        self.views
+            .values()
+            .chain(self.retiring.iter().map(|r| &r.view))
+            .filter_map(|view| {
+                let view = view.read(cx);
+                (view.is_live() || view.cleanup_error().is_some())
+                    .then(|| view.cwd().map(std::path::Path::to_path_buf))
+                    .flatten()
+            })
+            .collect()
+    }
+    pub fn uses_directory(&self, dir: &std::path::Path, cx: &App) -> bool {
+        self.views
+            .values()
+            .chain(self.retiring.iter().map(|r| &r.view))
+            .any(|view| {
+                let view = view.read(cx);
+                (view.is_live() || view.cleanup_error().is_some())
+                    && view.cwd().is_some_and(|cwd| cwd.starts_with(dir))
+            })
+    }
     pub fn new() -> Self {
         Self {
             views: HashMap::new(),

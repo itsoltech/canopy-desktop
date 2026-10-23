@@ -19,7 +19,7 @@ const PREVIEW_LINES: usize = 12;
 
 /// A command running for this chat.
 pub(super) struct Shell {
-    running: Running,
+    pub(super) running: Running,
     _pump: Task<()>,
 }
 
@@ -141,7 +141,11 @@ impl ChatView {
             ShellEvent::Output(chunk) => session.shell_output(id, &chunk),
             ShellEvent::Exit { code, elapsed } => {
                 let stopped = self.stopped_shells.remove(&id);
-                self.shells.remove(&id);
+                if let Some(shell) = self.shells.remove(&id) {
+                    // Exit describes the command, not proof that its entire group
+                    // released cwd. Keep the handle for deletion/quit as well.
+                    self.shell_resources.push(shell.running);
+                }
                 let session = self.session.as_mut().expect("session");
                 let lines = session.end_shell(
                     id,

@@ -24,6 +24,7 @@ fn fixture() -> SessionSnapshot {
                 cwd: Some("/repo/a-worktree/sub".into()),
                 profile_id: Some("profile-a".into()),
                 title: Some("Agent".into()),
+                chat_title_state: None,
                 resource: Some("src/main.rs".into()),
                 resume_id: Some("provider-session".into()),
                 arguments: vec!["--example".into()],
@@ -250,6 +251,21 @@ fn no_project_space_roundtrips_and_shares_id_uniqueness() {
     let mut scratch = Workspace::new();
     let chat = scratch.open("New chat", "claude");
     let pane = scratch.active().unwrap().focused;
+    scratch
+        .set_pane_metadata(
+            chat,
+            pane,
+            PaneMetadata {
+                kind: PaneKind::Chat,
+                title: Some("New chat".into()),
+                chat: Some(Box::new(
+                    canopy_desktop::chat::config::ChatSettings::default(),
+                )),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    scratch.rename_chat(pane, "Restored conversation").unwrap();
     projects.select_none();
     let snapshot = SessionSnapshot {
         projects: projects.clone(),

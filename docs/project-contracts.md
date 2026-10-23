@@ -96,7 +96,7 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 
 ## Layout i okna
 
-- Lewy sidebar zawiera Projects, Files i Tools. Główny obszar zawiera pasek tabów
+- Lewy sidebar zawiera Chats, Projects, Tasks oraz kontekstowe Files i Tools. Główny obszar zawiera pasek tabów
   i pane'y. Po prawej jest opcjonalny inspector/Changes. Na dole status bar
   z ustawieniami; przełączniki sidebarów są w titlebarze.
 - Preferences otwieramy jako osobne okno aplikacji, nie modal całego workspace'u.
@@ -121,11 +121,13 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 
 ## Projekty, worktree i puste stany
 
-- Bez wybranego projektu widać pełny layout z przestrzenią „No project”: czaty bez folderu,
-  każdy w prywatnym katalogu `<dane>/chats/<uuid>` usuwanym po zamknięciu taba czatu.
-  Wejście do pustej „No project” (start, zamknięcie ostatniego projektu, wybór w sidebarze)
-  otwiera nowy czat; zamknięcie ostatniego czatu pokazuje CTA „New chat”. Open folder jest
-  w sekcji Projects. Snapshot zapisuje tę przestrzeń w polu `scratch`.
+- Rozmowy bez projektu są płaską sekcją Chats nad Projects, jeden wiersz na Chat PaneId.
+  Nie ma fikcyjnej pozycji No project w drzewie projektów. Snapshot zachowuje istniejące
+  pole `scratch`; pasek tabów i splity pozostają. `Open tabs…` daje dostęp do tabów bez czatu.
+  Start i przełączenie kontekstu nie tworzą czatu; pusty stan ma CTA New chat.
+  Każda rozmowa ma prywatny katalog `<dane>/chats/<uuid>`. Usuwanie czeka na procesy
+  i chroni współdzielony katalog; błędny cleanup zostaje z Retry cleanup.
+  Szczegółowy kontrakt: [samodzielne rozmowy](features/standalone-chats.md).
 - Nowy projekt lub worktree ma pustą listę tabów. Nie twórz automatycznie
   taba, pane'a, shella ani agenta podczas otwierania/przełączania worktree.
 - Przy wybranym workspace bez tabów centralny CTA `Open shell` otwiera jawnie
@@ -140,7 +142,7 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 
 ## Sidebar: wygląd i interakcje
 
-- Projects, Files i Tools są zwijalne. Ich nagłówki zmieniają kolor tekstu
+- Chats, Projects, Files i Tools są zwijalne. Files i Tools są schowane bez projektu. Ich nagłówki zmieniają kolor tekstu
   na hover; nie podświetlaj całego tła jak dużego przycisku.
 - Projekt jest rozwijanym nagłówkiem: strzałka i nazwa tworzą jedną akcję,
   bez folderowej karty z tłem. Obok są `+ new` i zamknięcie projektu.
@@ -402,10 +404,9 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 
 ## Czat agentów
 
-- Czat to główna funkcja: „New chat” na górze sidebara (⌘N) od razu otwiera `PaneKind::Chat`
-  w aktywnym projekcie (bez projektu — w „No project”); ikona obok (⌥⌘N) otwiera szybki czat
-  bez projektu. Paleta wyboru projektu jest pod ⌘⇧N.
-  Tools pozostają drugorzędne i wymagają projektu.
+- Czat to główna funkcja: New chat na górze sidebara (⌘N) tworzy samodzielną rozmowę.
+  ⌥⌘N pozostaje aliasem. Menu New chat in… i ⌘⇧N wybiera projekt/worktree przed utworzeniem;
+  nie przenosi istniejącej sesji. Tools pozostają drugorzędne i wymagają projektu.
 - Czat ma dwóch dostawców: Claude Code headless (stream-json) i Codex (`codex app-server`, JSON-RPC); wybór
   przez picker konta (`Pane.tool`). Nie dodawaj ścieżek, które zakładają tylko Claude —
   rdzeń sesji jest wspólny, protokół w `chat::claude` / `chat::codex`. Codex w czacie nie używa hooków (zaufanie
@@ -429,8 +430,8 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 - Każda wiadomość do Claude ma jawny `priority` (`later` = kolejna tura, `next` = Steer).
   Kolejka żyje w Canopy i wysyła się po `session_state_changed idle`; Stop ją wstrzymuje (Resume w tacce najpierw wysyła `RESUME_PROMPT`, potem kolejkę),
   zamknięcie z niewysłaną kolejką pyta o zgodę. Nie wysyłaj wiadomości bez priorytetu.
-- Zamknięcie taba/pane'a czatu albo projektu z czatami usuwa rozmowy, więc gdy czat ma rozmowę lub agent pracuje,
-  pyta „Delete this chat?” (`Editors::guard_closing` → `Chats::guard(…, deleting)`; mówi też o pracującym agencie,
+- Delete chat usuwa wyłącznie wskazany pane; zamknięcie taba/projektu obejmuje jego czaty. Gdy historia jest zapisana, nieznana lub agent pracuje,
+  pyta o usunięcie nazwanej rozmowy (`Editors::guard_closing` → `Chats::guard(…, deleting)`; mówi też o pracującym agencie,
   kolejce i poleceniach `!`). Quit niczego nie usuwa i pyta tylko o kolejkę. Nowe ścieżki zamykania czatu idą
   przez `guard_closing`.
 - Praca subagenta nie trafia do głównej rozmowy: tam jest karta, a jego rozmowa otwiera się
@@ -445,7 +446,8 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
   diffy używają `git::changes::DiffLine` i `components::git::diff_line`. Diff tury czyta żywą
   sesję i nie udaje dostępności po restarcie. Proces czatu ma `--thinking-display summarized`.
 - Historia czatu żyje w SQLite per element (`ChatSettings.id`, epoki Restart/Edit) i wraca
-  po restarcie aplikacji; zamknięcie taba czatu usuwa ją razem z załącznikami (nie ma listy czatów).
+  po restarcie aplikacji; Chats pokazuje rozmowy bez projektu, także nieodwiedzone po restore.
+  Usunięcie czatu usuwa historię i załączniki dopiero po zakończeniu procesów, z ponowieniem błędów.
   Zapis idzie przez `AppState.chat_history`; render nie czyta bazy. Obrazy do modelu skaluje
   `chat::attachments`; inne pliki idą jako ścieżki. Nowa rozmowa to zawsze New chat (nowy tab).
 - Agenta (dostawcę i konto) wybiera się tylko przed pierwszą wiadomością (DEC-087); po niej picker nie

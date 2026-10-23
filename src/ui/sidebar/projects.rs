@@ -91,55 +91,10 @@ impl Sidebar {
         let running = cx
             .global::<crate::app_state::AppState>()
             .running_workspaces(cx);
-        let terminal_error = terminals.error.clone().or_else(|| {
-            cx.global::<crate::app_state::AppState>()
-                .chats
-                .read(cx)
-                .error
-                .clone()
-        });
+        let terminal_error = terminals.error.clone();
         let mut seen = std::collections::HashSet::new();
         let mut groups = vec![];
         let mut height = 0.;
-        // "No project": chats in private folders, pinned above the projects.
-        {
-            let scratch = state.scratch_id(cx);
-            let selected = state.catalog.active.is_none();
-            let hovered = self.hovered_project_item.as_deref() == Some("no-project");
-            height += t::ROW;
-            groups.push(
-                row()
-                    .h(px(t::ROW))
-                    .flex_shrink_0()
-                    .gap(px(6.))
-                    .child(
-                        div()
-                            .w(px(10.))
-                            .text_color(t::secondary())
-                            .child(if selected { "*" } else { "" }),
-                    )
-                    .child(
-                        list_button("no-project", "No project", hovered || selected, cx)
-                            .flex_1()
-                            .min_w_0()
-                            .px(px(4.))
-                            .disabled(!state.ready || state.busy)
-                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                                this.hovered_project_item = hovered.then(|| "no-project".into());
-                                cx.notify();
-                            }))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.projects.update(cx, |p, cx| p.select_none(cx))
-                            })),
-                    )
-                    .children(
-                        running.contains(&scratch).then(|| {
-                            self.workspace_stop_button(scratch, "no-project", git.busy, cx)
-                        }),
-                    )
-                    .into_any_element(),
-            );
-        }
         for project in &state.catalog.items {
             let root = project
                 .repository_path

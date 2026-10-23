@@ -115,9 +115,10 @@ i odtworzenie drzewa oraz stabilnych ID po restarcie.
 
 ## Otwieranie projektów i pusty stan
 
-- Bez aktywnego projektu widoczne są belka macOS i centralny Open folder.
-  Sidebary, taby i status bar są odmontowane. Notch jest przezroczysty i ma pusty
-  obszar przechwytywania myszy, dopóki nie ma aktywnego projektu.
+- Bez aktywnego projektu działa przestrzeń samodzielnych rozmów z sekcją Chats.
+  Sidebar, pasek tabów, Session/Tasks i notch pozostają dostępne; Files/Tools i repozytoryjne
+  Changes są schowane. Tytuł okna pochodzi z aktywnego czatu/taba albo Chats.
+  Nie tworzymy automatycznie czatu. Szczegóły: [samodzielne rozmowy](features/standalone-chats.md).
 - Open folder, ⌘O i + attach otwierają natywny picker pojedynczego katalogu.
   Anulowanie niczego nie zapisuje, a focus wraca do głównego okna.
 - Kanonizacja ścieżki i sprawdzenie dostępu do katalogu wykonują się w tle.
@@ -127,7 +128,7 @@ i odtworzenie drzewa oraz stabilnych ID po restarcie.
 - Kliknięcie projektu przełącza jego workspace. Cache w pamięci zachowuje taby,
   splity i fokus. Zamknięcie projektu usuwa go z listy i cache; nie usuwa folderu.
 - Krzyżyk projektu albo ⌘⇧W zamyka projekt. Ostatni zamknięty projekt przywraca
-  pusty stan. ⌘W nadal zamyka tylko tab.
+  przestrzeń rozmów. ⌘W nadal zamyka tylko tab.
 - Nazwa i ścieżka wybranego folderu zasilają belkę, sidebar, mock terminala,
   inspektor i notch. Drzewo plików jest na razie puste, zamiast udawać pliki
   z referencyjnego projektu.
