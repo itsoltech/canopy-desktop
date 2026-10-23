@@ -153,6 +153,10 @@ bez hover. Lista obejmuje projekty i scratch. Trzy poziomy wiersza to projekt/st
 tytuł oraz branch/worktree i agent (ikona plus nazwa). Pełny kontekst jest dostępny
 w tooltipie i etykiecie dostępności. Wiersze mają wspólne osie tekstu i osobne miejsce
 na agenta; długie nazwy są skracane, a menu mieści się w obrębie wiersza.
+Kontekst projektu jest turkusowy, prywatnego czatu fioletowy; ikony agentów mają
+własne kolory. Status ma kolorową kropkę oraz tekst, a selection niebieskie tło
+i pasek. Większy padding, równe odstępy i jawna interlinia oddzielają metadane
+od mocniejszego tytułu. Kolory i geometria pochodzą z `src/ui/theme.rs`.
 Files i Tools są schowane bez projektu, z zachowaniem swoich encji.
 Szczegóły: [samodzielne rozmowy](features/standalone-chats.md). Po zamknięciu
 sekcji nie usuwamy encji FileTree, więc jej zaznaczenie i rozwinięcia pozostają.

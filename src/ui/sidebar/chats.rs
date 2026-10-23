@@ -52,14 +52,13 @@ impl Sidebar {
         let git = self.git.read(cx);
         let mut rows = vec![];
         for workspace in projects.runtime_workspaces(cx) {
-            let context = ChatContext::new(
-                projects
-                    .catalog
-                    .items
-                    .iter()
-                    .find(|p| p.workspace == workspace.id),
-                git,
-            );
+            let project = projects
+                .catalog
+                .items
+                .iter()
+                .find(|p| p.workspace == workspace.id);
+            let context = ChatContext::new(project, git);
+            let context_color = t::chat_context(project.is_some());
             let workspace_id = workspace.id;
             for tab in workspace.tabs() {
                 for pane in tab
@@ -90,14 +89,15 @@ impl Sidebar {
                         "Goal" => t::goal(),
                         "Needs attention" | "Waiting" => t::yellow(),
                         "Error" => t::red(),
+                        "Idle" => t::green(),
                         _ => t::secondary(),
                     };
                     let action = Button::new(SharedString::from(format!("chat-{id:?}")))
                         .custom(
                             ButtonCustomVariant::new(cx)
                                 .foreground(t::text())
-                                .hover(t::hover())
-                                .active(t::selected()),
+                                .hover(t::chat_hover())
+                                .active(t::chat_selected()),
                         )
                         .small()
                         .compact()
@@ -105,7 +105,7 @@ impl Sidebar {
                         .h(t::chat_row_height())
                         .w_full()
                         .min_w_0()
-                        .px_2()
+                        .px_3()
                         .border_0()
                         .rounded(t::control_radius(cx))
                         .disabled(!enabled)
@@ -123,7 +123,7 @@ impl Sidebar {
                             column()
                                 .w_full()
                                 .items_start()
-                                .gap_0p5()
+                                .gap_1()
                                 .text_left()
                                 .child(
                                     row()
@@ -131,15 +131,24 @@ impl Sidebar {
                                         .pr_6()
                                         .gap_2()
                                         .text_xs()
-                                        .text_color(t::secondary())
+                                        .line_height(t::chat_metadata_line_height())
+                                        .text_color(context_color)
                                         .child(
                                             chat_text(id, "project", context.project.clone())
                                                 .flex_1(),
                                         )
                                         .child(
-                                            div()
+                                            row()
                                                 .flex_shrink_0()
+                                                .gap_1()
                                                 .text_color(status_color)
+                                                .child(
+                                                    div()
+                                                        .size_1p5()
+                                                        .flex_shrink_0()
+                                                        .rounded_full()
+                                                        .bg(status_color),
+                                                )
                                                 .child(status),
                                         ),
                                 )
@@ -147,6 +156,8 @@ impl Sidebar {
                                     chat_text(id, "title", title.clone())
                                         .w_full()
                                         .text_sm()
+                                        .line_height(t::chat_title_line_height())
+                                        .font_weight(FontWeight::MEDIUM)
                                         .text_color(t::text()),
                                 )
                                 .child(
@@ -154,19 +165,23 @@ impl Sidebar {
                                         .w_full()
                                         .gap_2()
                                         .text_xs()
+                                        .line_height(t::chat_metadata_line_height())
                                         .text_color(t::secondary())
                                         .child(
                                             row()
                                                 .flex_1()
-                                                .gap_1()
+                                                .gap_1p5()
                                                 .child(if context.git {
                                                     custom_icon("git-branch")
                                                         .size_3()
-                                                        .text_color(t::secondary())
+                                                        .flex_shrink_0()
+                                                        .text_color(context_color)
                                                         .into_any_element()
                                                 } else {
                                                     Icon::new(IconName::Folder)
                                                         .size_3()
+                                                        .flex_shrink_0()
+                                                        .text_color(context_color)
                                                         .into_any_element()
                                                 })
                                                 .child(
@@ -181,15 +196,17 @@ impl Sidebar {
                                         .child(
                                             row()
                                                 .flex_shrink_0()
-                                                .gap_1()
+                                                .gap_1p5()
                                                 .child(match provider {
                                                     Some(Provider::Claude) => custom_icon("claude")
-                                                        .size_3()
-                                                        .text_color(t::secondary())
+                                                        .size_3p5()
+                                                        .flex_shrink_0()
+                                                        .text_color(t::claude_mark())
                                                         .into_any_element(),
                                                     Some(Provider::Codex) => custom_icon("openai")
-                                                        .size_3()
-                                                        .text_color(t::secondary())
+                                                        .size_3p5()
+                                                        .flex_shrink_0()
+                                                        .text_color(t::codex_mark())
                                                         .into_any_element(),
                                                     None => Icon::new(IconName::Bot)
                                                         .size_3()
@@ -245,7 +262,19 @@ impl Sidebar {
                             .h(t::chat_row_height())
                             .flex_shrink_0()
                             .child(action)
-                            .child(div().absolute().top_1().right_1().child(menu))
+                            .when(selected, |row| {
+                                row.child(
+                                    div()
+                                        .absolute()
+                                        .left_0()
+                                        .top_2()
+                                        .bottom_2()
+                                        .w_0p5()
+                                        .rounded_full()
+                                        .bg(t::accent()),
+                                )
+                            })
+                            .child(div().absolute().top_2().right_1p5().child(menu))
                             .into_any_element(),
                     );
                 }

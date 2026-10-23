@@ -512,6 +512,18 @@ impl Chats {
         changed
     }
 
+    /// New chat follows the selected checkout; outside a project it gets a private folder.
+    pub fn open_current(&mut self, cx: &mut Context<Self>) {
+        let target = cx
+            .global::<AppState>()
+            .projects
+            .read(cx)
+            .catalog
+            .active
+            .map_or(ChatTarget::NoProject, ChatTarget::Project);
+        self.open_new(target, cx);
+    }
+
     /// Opens a new, empty chat tab in `target` with the last choices and shows it.
     pub fn open_new(&mut self, target: ChatTarget, cx: &mut Context<Self>) {
         if Self::unavailable(cx).is_some() || self.opening.is_some() {
@@ -951,4 +963,57 @@ fn project_cwd(id: WorkspaceId, cx: &App) -> Option<std::path::PathBuf> {
                 .clone()
                 .unwrap_or_else(|| project.path.clone())
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppState;
+    use canopy_desktop::{
+        state::workspace::{PaneKind, Workspace},
+        terminal::environment::ShellEnvironment,
+    };
+    use gpui_kit::TestAppContext;
+    use std::sync::Arc;
+
+    #[gpui_kit::test]
+    fn new_chat_follows_the_selected_checkout_without_creating_a_private_chat(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(|cx| {
+            let app = AppState::install_test(Workspace::new(), cx);
+            app.tools.update(cx, |tools, _| {
+                tools.ready = true;
+                tools.environment = Some(Ok(Arc::new(ShellEnvironment {
+                    shell: "/bin/sh".into(),
+                    vars: Default::default(),
+                })));
+            });
+            app.projects.update(cx, |projects, _| projects.ready = true);
+            let scratch = app.workspace.read(cx).id;
+            for checkout in ["/repo", "/worktrees/feature-sidebar"] {
+                let path = std::path::PathBuf::from(checkout);
+                app.projects.update(cx, |projects, cx| {
+                    projects.open_worktree("/repo".into(), path.clone(), cx)
+                });
+                let target = app.projects.read(cx).catalog.active.unwrap();
+                app.chats.update(cx, |chats, cx| chats.open_current(cx));
+                let workspace = app.workspace.read(cx);
+                assert_eq!(workspace.id, target);
+                assert_ne!(workspace.id, scratch);
+                let panes = workspace.all_panes();
+                assert_eq!(panes.len(), 1);
+                assert_eq!(panes[0].metadata.kind, PaneKind::Chat);
+                assert_eq!(panes[0].metadata.cwd.as_ref(), Some(&path));
+                assert!(
+                    app.projects
+                        .read(cx)
+                        .scratch_workspace(cx)
+                        .tabs()
+                        .is_empty()
+                );
+                assert!(!app.chats.read(cx).is_opening());
+                assert!(app.chats.read(cx).error.is_none());
+            }
+        });
+    }
 }

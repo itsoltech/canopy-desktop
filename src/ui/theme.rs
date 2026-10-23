@@ -107,9 +107,32 @@ pub fn shell() -> Hsla {
     oklch(0.64, 0.17, 6., 1.)
 }
 
+/// Conversation context: teal for a project, violet for its own private folder.
+pub fn chat_context(project: bool) -> Hsla {
+    if project { goal() } else { skill() }
+}
+pub fn claude_mark() -> Hsla {
+    oklch(0.75, 0.14, 42., 1.)
+}
+pub fn codex_mark() -> Hsla {
+    oklch(0.80, 0.13, 162., 1.)
+}
+pub fn chat_selected() -> Hsla {
+    accent().opacity(0.12)
+}
+pub fn chat_hover() -> Hsla {
+    accent().opacity(0.06)
+}
+
 pub const SPACING_UNIT: f32 = 4.;
 pub fn chat_row_height() -> Rems {
-    rems(4.5)
+    rems(5.25)
+}
+pub fn chat_metadata_line_height() -> Rems {
+    rems(1.)
+}
+pub fn chat_title_line_height() -> Rems {
+    rems(1.25)
 }
 pub fn control_radius(cx: &App) -> Pixels {
     cx.global::<Theme>().radius

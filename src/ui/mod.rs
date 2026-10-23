@@ -1032,22 +1032,21 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &NewTab, _, cx| this.new_tab(cx)))
             .on_action(cx.listener(|this, _: &NewChat, _, cx| {
-                // Conversations are independent by default; project context is explicit.
                 if this.modal.is_some()
                     || this.new_chat.is_some()
                     || crate::app_state::Chats::unavailable(cx).is_some()
                 {
                     return;
                 }
-                this.state.chats.update(cx, |chats, cx| {
-                    chats.open_new(crate::app_state::ChatTarget::NoProject, cx)
-                });
+                this.state
+                    .chats
+                    .update(cx, |chats, cx| chats.open_current(cx));
             }))
             .on_action(cx.listener(|this, _: &NewChatIn, window, cx| {
                 this.open_chat_palette(new_chat_palette::Purpose::NewChat, window, cx)
             }))
             .on_action(cx.listener(|this, _: &NewChatNoProject, _, cx| {
-                if this.modal.is_none() {
+                if this.modal.is_none() && this.new_chat.is_none() {
                     this.state.chats.update(cx, |chats, cx| {
                         chats.open_new(crate::app_state::ChatTarget::NoProject, cx)
                     });

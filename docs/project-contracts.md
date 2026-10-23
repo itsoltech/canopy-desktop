@@ -408,8 +408,10 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 
 ## Czat agentów
 
-- Czat to główna funkcja: New chat na górze sidebara (⌘N) tworzy samodzielną rozmowę.
-  ⌥⌘N pozostaje aliasem. Menu New chat in… i ⌘⇧N wybiera projekt/worktree przed utworzeniem;
+- Czat to główna funkcja: New chat na górze sidebara (⌘N) używa aktualnie wybranego
+  projektu/worktree i jego cwd; bez aktywnego projektu tworzy samodzielną rozmowę.
+  New private chat w menu i ⌥⌘N zawsze tworzą prywatny czat.
+  Menu New chat in… i ⌘⇧N wybiera projekt/worktree przed utworzeniem;
   nie przenosi istniejącej sesji. Tools pozostają drugorzędne i wymagają projektu.
 - Czat ma dwóch dostawców: Claude Code headless (stream-json) i Codex (`codex app-server`, JSON-RPC); wybór
   przez picker konta (`Pane.tool`). Nie dodawaj ścieżek, które zakładają tylko Claude —

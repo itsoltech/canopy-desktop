@@ -23,6 +23,12 @@ Rozmowy samodzielne pokazują `Without a project` i `Private folder`. Folder bez
 Git, ładowanie/błąd metadanych oraz detached/unborn HEAD mają jawne etykiety.
 Obserwacja Git, workspace, projektów i agentów odświeża dane bez uruchamiania
 nieodwiedzonej rozmowy. Render nie odczytuje systemu plików.
+Kontekst projektu ma turkusowy akcent, a prywatny czat fioletowy. Ikony Claude
+i Codex mają własne kolory; status ma kropkę i nazwę (Idle zielony, Working
+niebieski, uwaga żółta, błąd czerwony). Wybrany wiersz ma delikatnie niebieskie
+tło i pasek. Tytuł jest mocniejszy od metadanych; trzy linie mają równe odstępy,
+stałą interlinię, symetryczne pionowe paddingi i większy odstęp ikona–etykieta.
+Tokeny kolorów i geometrii są w `src/ui/theme.rs`.
 
 Pasek tabów, splity i dock pozostają dostępne. `Open tabs…` w sekcji Chats
 zapewnia powrót do tabów bez czatu, np. podglądu pliku, także z aktywnego projektu.
@@ -30,7 +36,10 @@ Nie wprowadzamy archiwum: `Delete chat` usuwa rozmowę i jej załączniki.
 
 ## Tworzenie i nawigacja
 
-- `New chat` i ⌘N tworzą rozmowę bez projektu; ⌥⌘N pozostaje aliasem.
+- `New chat` i ⌘N tworzą rozmowę w aktualnie wybranym projekcie/worktree,
+  z jego cwd. Bez aktywnego projektu tworzą prywatną rozmowę.
+- `New private chat` w menu i ⌥⌘N zawsze tworzą rozmowę bez projektu.
+  Tooltip głównego przycisku wskazuje bieżący cel.
 - Menu `New chat in…` i ⌘⇧N otwierają istniejącą paletę wyboru kontekstu
   przed utworzeniem rozmowy. Fork nadal korzysta z tej palety.
 - Windows zachowuje odpowiedniki skrótów z kontekstu Workspace.
@@ -111,6 +120,9 @@ w trakcie zamykania. Wykorzystujemy istniejące testy workspace/session oraz
 dobrane testy najniższej warstwy. Test interakcji sidebara sprawdza projekt,
 branch/worktree i agenta rozmowy projektowej oraz samodzielnej, odświeżenie HEAD,
 klik/menu/Escape i geometrię przy szerokościach 220/320 oraz czcionce 16/20.
+Sprawdza także równe odstępy między liniami i pionowe paddingi. Regresja New chat
+sprawdza utworzenie pane'a i cwd po wyborze głównego checkoutu oraz linked worktree,
+bez dodawania prywatnej rozmowy.
 Operacje nieaktywnego projektu zachowują bieżący projekt i sąsiedni pane.
 Cargo z `--locked`, fmt i Clippy.
 GUI/E2E i prawdziwe modele wymagają osobnej weryfikacji; testy modelu nie

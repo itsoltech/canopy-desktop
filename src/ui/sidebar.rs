@@ -170,6 +170,26 @@ impl Sidebar {
             .chats
             .read(cx)
             .is_opening();
+        let shortcut = if cfg!(target_os = "windows") {
+            "Ctrl+Shift+N"
+        } else {
+            "⌘N"
+        };
+        let tooltip = reason.map(str::to_owned).unwrap_or_else(|| {
+            self.projects.read(cx).catalog.current().map_or_else(
+                || format!("New private chat ({shortcut})"),
+                |project| {
+                    format!(
+                        "New chat in {} ({shortcut})",
+                        project
+                            .worktree_path
+                            .as_ref()
+                            .unwrap_or(&project.path)
+                            .display()
+                    )
+                },
+            )
+        });
         let button = Button::new("sidebar-new-chat")
             .custom(
                 ButtonCustomVariant::new(cx)
@@ -193,22 +213,14 @@ impl Sidebar {
                     .w_full()
                     .gap_2()
                     .text_sm()
-                    .child(
-                        Icon::new(IconName::Plus)
-                            .size_3()
-                            .text_color(t::secondary()),
-                    )
+                    .child(Icon::new(IconName::Plus).size_3().text_color(t::accent()))
                     .child(if opening {
                         "Creating chat…"
                     } else {
                         "New chat"
                     }),
             )
-            .tooltip(reason.unwrap_or(if cfg!(target_os = "windows") {
-                "New chat (Ctrl+Shift+N)"
-            } else {
-                "New chat (⌘N)"
-            }))
+            .tooltip(tooltip)
             .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::ui::NewChat), cx));
         let menu = Button::new("sidebar-new-chat-menu")
             .custom(
@@ -225,11 +237,17 @@ impl Sidebar {
             .border_1()
             .border_color(t::control_border())
             .icon(IconName::ChevronDown)
-            .accessibility_label("Choose chat context")
-            .tooltip("New chat in…")
+            .accessibility_label("More chat options")
+            .tooltip("More chat options")
             .disabled(reason.is_some() || opening)
             .dropdown_menu(|menu, _, _| {
                 menu.item(
+                    PopupMenuItem::new("New private chat").on_click(|_, window, cx| {
+                        window.dispatch_action(Box::new(crate::ui::NewChatNoProject), cx)
+                    }),
+                )
+                .separator()
+                .item(
                     PopupMenuItem::new("New chat in…").on_click(|_, window, cx| {
                         window.dispatch_action(Box::new(crate::ui::NewChatIn), cx)
                     }),
@@ -539,12 +557,25 @@ mod tests {
                     let branch = text("checkout").bounds();
                     let agent = text("agent").bounds();
                     assert_eq!(project.left(), title.left());
-                    assert!(project.bottom() <= title.top());
-                    assert!(title.bottom() <= branch.top());
+                    let before = title.top() - project.bottom();
+                    let after = branch.top() - title.bottom();
+                    assert!(before >= px(font / 4.));
+                    assert_eq!(
+                        before, after,
+                        "the three lines need an even vertical rhythm"
+                    );
                     assert_eq!(branch.top(), agent.top());
                     assert!(branch.size.width > px(0.));
                     assert!(branch.right() < agent.left());
                     assert!(agent.right() <= title.right());
+                    let card = window
+                        .find(gpui_kit::SharedString::from(format!("chat-{id:?}")))
+                        .bounds();
+                    assert_eq!(
+                        project.top() - card.top(),
+                        card.bottom() - agent.bottom(),
+                        "content must have equal top and bottom inset"
+                    );
                 }
                 window.click(gpui_kit::SharedString::from(first.clone()), cx);
                 assert_eq!(app.workspace.read(cx).active().unwrap().focused, pane);

@@ -114,7 +114,8 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 
 ## Pane czatu (etap 2)
 
-- New chat na górze sidebara i ⌘N tworzą rozmowę bez projektu; ⌥⌘N pozostaje aliasem.
+- New chat na górze sidebara i ⌘N tworzą rozmowę w aktywnym projekcie/worktree,
+  a bez projektu prywatną. Menu New private chat i ⌥⌘N zawsze wybierają prywatną rozmowę.
   Menu New chat in… i ⌘⇧N otwierają paletę (`src/ui/new_chat_palette.rs`) z wyborem
   kontekstu przed utworzeniem. Projekt → cwd projektu/worktree; bez projektu → prywatny
   katalog `<dane>/chats/<uuid>` (0700). Fork zachowuje tę samą paletę wyboru celu.
