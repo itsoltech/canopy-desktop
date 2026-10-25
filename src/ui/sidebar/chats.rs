@@ -197,8 +197,9 @@ impl Sidebar {
             {
                 for (id, title, tool, cli, detached) in entries {
                     let live = app.workspace.read(cx);
-                    let selected =
-                        live.id == workspace.id && live.selected_pane().is_some_and(|p| p.id == id);
+                    let selected = self.remote_selection.is_none()
+                        && live.id == workspace.id
+                        && live.selected_pane().is_some_and(|p| p.id == id);
                     let provider = Provider::from_tool(&tool);
                     let agent = match provider {
                         Some(provider) => provider.name(),
@@ -315,6 +316,11 @@ impl Sidebar {
                                                     .font_weight(FontWeight::MEDIUM)
                                                     .text_color(activity.color()),
                                             )
+                                            .child(
+                                                div()
+                                                    .text_color(t::muted())
+                                                    .child("· This computer"),
+                                            )
                                             .children(model.map(|model| {
                                                 div()
                                                     .min_w_0()
@@ -327,21 +333,24 @@ impl Sidebar {
                     )
                     .on_click({
                         let detached = detached.clone();
-                        cx.listener(move |this, _, _, cx| match &detached {
-                            Some(chat) => {
-                                let chat = chat.clone();
-                                cx.global::<AppState>()
-                                    .chats
-                                    .clone()
-                                    .update(cx, |chats, cx| chats.open_detached(&chat, cx));
-                            }
-                            None => this.projects.update(cx, |p, cx| {
-                                if cli {
-                                    p.focus_agent_terminal(id, cx)
-                                } else {
-                                    p.focus_agent(id, cx)
+                        cx.listener(move |this, _, _, cx| {
+                            this.local_selection(cx);
+                            match &detached {
+                                Some(chat) => {
+                                    let chat = chat.clone();
+                                    cx.global::<AppState>()
+                                        .chats
+                                        .clone()
+                                        .update(cx, |chats, cx| chats.open_detached(&chat, cx));
                                 }
-                            }),
+                                None => this.projects.update(cx, |p, cx| {
+                                    if cli {
+                                        p.focus_agent_terminal(id, cx)
+                                    } else {
+                                        p.focus_agent(id, cx)
+                                    }
+                                }),
+                            }
                         })
                     });
                     let owner = cx.entity().downgrade();
@@ -483,7 +492,12 @@ impl Sidebar {
                 .gap_px()
                 .children(rows);
         }
-        if rows.is_empty() {
+        if rows.is_empty()
+            && !self
+                .remote_catalogs(cx)
+                .iter()
+                .any(|(_, catalog)| catalog.chats.iter().any(|chat| chat.workspace.is_none()))
+        {
             rows.push(
                 div()
                     .px_2()

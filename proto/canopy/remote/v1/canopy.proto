@@ -213,8 +213,9 @@ message TerminalRef { string host_id = 1; string terminal_id = 2; }
 message ResourceRef {
   oneof resource { WorkspaceRef workspace = 1; ChatRef chat = 2; FileRef file = 3; TerminalRef terminal = 4; TaskRef task = 5; }
 }
-message ProjectSummary { string project_id = 1; string name = 2; string path = 3; repeated WorkspaceSummary checkouts = 4; }
-message WorkspaceSummary { WorkspaceRef workspace = 1; string name = 2; string path = 3; optional string repository_path = 4; optional bool closing = 5; }
+// origin is a sanitized transport-independent URL (server/repository only), never credentials.
+message ProjectSummary { string project_id = 1; string name = 2; string path = 3; repeated WorkspaceSummary checkouts = 4; optional string origin = 5; }
+message WorkspaceSummary { WorkspaceRef workspace = 1; string name = 2; string path = 3; optional string repository_path = 4; optional bool closing = 5; optional string branch = 6; }
 message Catalog { string host_id = 1; repeated ProjectSummary projects = 2; repeated ChatSummary chats = 3; repeated TerminalSummary terminals = 4; }
 enum ChatState { CHAT_STATE_UNSPECIFIED = 0; DORMANT = 1; CHAT_STARTING = 2; IDLE = 3; WORKING = 4; NEEDS_DECISION = 5; INTERRUPTING = 6; EXITED = 7; CHAT_FAILED = 8; }
 message ChatSummary {

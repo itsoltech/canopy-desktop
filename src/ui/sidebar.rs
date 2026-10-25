@@ -2,11 +2,13 @@ mod activity;
 mod cards;
 mod chats;
 mod projects;
+mod remote;
 use super::{components::*, theme as t};
 pub use chats::RenameChat;
 pub(super) use chats::{navigation_status, status_color};
 use gpui_kit::component::{Icon, IconName, button::Button, scroll::ScrollableElement};
 use gpui_kit::{prelude::FluentBuilder, *};
+pub use remote::Navigation;
 use std::time::Instant;
 
 pub struct Sidebar {
@@ -17,7 +19,10 @@ pub struct Sidebar {
     selected_workspace: Option<canopy_desktop::state::workspace::WorkspaceId>,
     /// Worktrees by path; one missing from the map is open.
     worktree_groups: std::collections::HashMap<std::path::PathBuf, Disclosure>,
-    project_groups: std::collections::HashMap<std::path::PathBuf, Disclosure>,
+    project_groups: std::collections::HashMap<String, Disclosure>,
+    connections: Option<Entity<super::remote_client::Connections>>,
+    remote_selection: Option<canopy_desktop::remote::proto::ResourceRef>,
+    _connections_observer: Option<Subscription>,
     _tool_events: Vec<Subscription>,
     projects: Entity<crate::app_state::ProjectsState>,
     _projects_observer: Subscription,
@@ -36,7 +41,7 @@ impl Sidebar {
         let terminals = app.terminals.clone();
         let tool_events = vec![
             cx.observe(&app.files, |_, _, cx| cx.notify()),
-            cx.observe(&app.git, |_, _, cx| cx.notify()),
+            cx.observe(&app.git, |this, _, cx| this.sync_project_groups(cx)),
             cx.observe(&tools, |_, _, cx| cx.notify()),
             cx.observe(&terminals, |_, _, cx| {
                 cx.notify();
@@ -51,8 +56,43 @@ impl Sidebar {
             cx.observe(&app.chat_history, |_, _, cx| cx.notify()),
             cx.observe(&app.settings, |_, _, cx| cx.notify()),
         ];
+        let connections = super::remote_client::connections(cx).ok();
+        let connections_observer = connections
+            .as_ref()
+            .map(|connections| cx.observe(connections, |this, _, cx| this.sync_project_groups(cx)));
+        let remote_keys = connections
+            .as_ref()
+            .map(|c| c.read(cx).hosts())
+            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|host| {
+                let id = host.id().as_str().to_owned();
+                host.shared_catalog()
+                    .map(|c| {
+                        c.projects
+                            .iter()
+                            .map(|p| {
+                                remote::project_key(
+                                    p.origin
+                                        .as_deref()
+                                        .and_then(
+                                            canopy_desktop::git::RepositoryIdentity::from_origin,
+                                        )
+                                        .as_ref(),
+                                    &id,
+                                    &p.project_id,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>();
         let now = Instant::now();
         Self {
+            connections,
+            remote_selection: None,
+            _connections_observer: connections_observer,
             git: app.git.clone(),
             terminals,
             selected_workspace: projects.read(cx).catalog.active,
@@ -73,17 +113,27 @@ impl Sidebar {
                 .items
                 .iter()
                 .map(|p| {
+                    let root = p.repository_path.as_ref().unwrap_or(&p.path);
+                    let origin = app
+                        .git
+                        .read(cx)
+                        .repository(root)
+                        .and_then(|r| r.origin.as_ref());
                     (
-                        p.repository_path.as_ref().unwrap_or(&p.path).clone(),
+                        remote::project_key(origin, "local", &root.to_string_lossy()),
                         Disclosure::new(
                             projects.read(cx).catalog.current().is_none_or(|active| {
-                                active.repository_path.as_ref().unwrap_or(&active.path)
-                                    == p.repository_path.as_ref().unwrap_or(&p.path)
+                                active.repository_path.as_ref().unwrap_or(&active.path) == root
                             }),
                             now,
                         ),
                     )
                 })
+                .chain(
+                    remote_keys
+                        .into_iter()
+                        .map(|key| (key, Disclosure::new(true, now))),
+                )
                 .collect(),
             _tool_events: tool_events,
             scroll,
@@ -168,7 +218,11 @@ impl Sidebar {
                 menu::{DropdownMenu, PopupMenuItem},
             },
         };
-        let reason = crate::app_state::Chats::unavailable(cx);
+        let reason = if self.remote_selection.is_some() {
+            None
+        } else {
+            crate::app_state::Chats::unavailable(cx)
+        };
         let opening = cx
             .global::<crate::app_state::AppState>()
             .chats
@@ -179,21 +233,25 @@ impl Sidebar {
         } else {
             "Ctrl+N"
         };
-        let tooltip = reason.map(str::to_owned).unwrap_or_else(|| {
-            self.projects.read(cx).catalog.current().map_or_else(
-                || format!("New private chat ({shortcut})"),
-                |project| {
-                    format!(
-                        "New chat in {} ({shortcut})",
-                        project
-                            .worktree_path
-                            .as_ref()
-                            .unwrap_or(&project.path)
-                            .display()
-                    )
-                },
-            )
-        });
+        let tooltip = if self.remote_selection.is_some() {
+            format!("New chat on the selected computer ({shortcut})")
+        } else {
+            reason.map(str::to_owned).unwrap_or_else(|| {
+                self.projects.read(cx).catalog.current().map_or_else(
+                    || format!("New private chat ({shortcut})"),
+                    |project| {
+                        format!(
+                            "New chat in {} ({shortcut})",
+                            project
+                                .worktree_path
+                                .as_ref()
+                                .unwrap_or(&project.path)
+                                .display()
+                        )
+                    },
+                )
+            })
+        };
         let button = Button::new("sidebar-new-chat")
             .custom(
                 ButtonCustomVariant::new(cx)
@@ -309,7 +367,9 @@ impl Render for Sidebar {
         );
         let projects = self.projects_content(now, cx);
         use gpui_kit::component::{Sizable, button::ButtonVariants};
-        let private = self.chats_content(now, cx);
+        let private = column()
+            .child(self.chats_content(now, cx))
+            .children(self.remote_private_chats(cx));
         let count = self
             .projects
             .read(cx)
@@ -318,7 +378,18 @@ impl Render for Sidebar {
             .iter()
             .filter(|p| chats::is_session(p))
             .count();
-        let private_height = ((count.max(1) as f32 * 2.875).min(14.) + 0.5).max(2.5);
+        let remote_count = self
+            .remote_catalogs(cx)
+            .iter()
+            .map(|(_, c)| {
+                c.chats
+                    .iter()
+                    .filter(|chat| chat.workspace.is_none())
+                    .count()
+            })
+            .sum::<usize>();
+        let private_height =
+            (((count + remote_count).max(1) as f32 * 2.875).min(14.) + 0.5).max(2.5);
         let tally = activity::Tally::of(
             self.projects
                 .read(cx)
@@ -579,6 +650,7 @@ mod tests {
                 git.entries.insert(
                     checkout.clone(),
                     Ok(Some(std::sync::Arc::new(RepositoryInfo {
+                        origin: None,
                         root: root.clone(),
                         common: root.join(".git"),
                         branches: vec![],

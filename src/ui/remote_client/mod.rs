@@ -5,6 +5,8 @@ mod connections;
 pub use connections::{Connections, connections};
 mod discovery;
 mod editing;
+mod embedded;
+pub use embedded::RemoteWorkspace;
 mod lifecycle;
 mod notes;
 mod preview;
@@ -26,6 +28,7 @@ use gpui_kit::component::{
     Disableable, Root,
     input::{InputEvent, InputState, TextareaState},
 };
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use std::{
     collections::BTreeMap,
@@ -124,7 +127,7 @@ fn open_client(
     )
 }
 #[derive(Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-enum Page {
+pub(super) enum Page {
     Hosts,
     Catalog,
     Chat,
@@ -134,6 +137,7 @@ enum Page {
     Settings,
     Tasks,
     Terminal,
+    Terminals,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 struct DeviceLayout {
@@ -147,6 +151,8 @@ struct DeviceLayout {
     path: String,
 }
 struct RemoteWindow {
+    embedded: bool,
+    requested_resource: Option<p::ResourceRef>,
     window: AnyWindowHandle,
     global: ClientGlobal,
     registry: Option<ClientRegistry>,
@@ -340,6 +346,8 @@ impl RemoteWindow {
             registry: None,
             host: None,
             page: Page::Hosts,
+            embedded: false,
+            requested_resource: None,
             fields,
             composer: cx.new(|cx| TextareaState::new(window, cx)),
             file_text: cx.new(|cx| TextareaState::new(window, cx)),
@@ -606,18 +614,23 @@ impl RemoteWindow {
                     && let Some(host) = last
                 {
                     self.select_host(host.clone(), cx);
+                    self.apply_requested_resource(cx);
                     if std::mem::take(&mut self.routes_on_open) {
                         self.page = Page::Hosts;
                     }
                     if std::mem::take(&mut self.connect_on_open) && host.phase() == Phase::Offline {
                         self.info = "Connecting…".into();
-                        self.run(
-                            async move {
-                                host.connect().await?;
-                                Ok(Update::Connected)
-                            },
-                            cx,
-                        );
+                        if self.embedded {
+                            self.connect_embedded(host, cx);
+                        } else {
+                            self.run(
+                                async move {
+                                    host.connect().await?;
+                                    Ok(Update::Connected)
+                                },
+                                cx,
+                            );
+                        }
                     }
                 }
             }
@@ -843,11 +856,14 @@ impl RemoteWindow {
         self.discovery_revision += 1;
         self.discovery_busy = false;
         self.detach();
-        let layout = host
-            .snapshot()
-            .record
-            .view("layout")
-            .and_then(|value| serde_json::from_str::<DeviceLayout>(value).ok());
+        let layout = (!self.embedded)
+            .then(|| {
+                host.snapshot()
+                    .record
+                    .view("layout")
+                    .and_then(|value| serde_json::from_str::<DeviceLayout>(value).ok())
+            })
+            .flatten();
         self.host = Some(host.clone());
         self.chat = None;
         self.workspace = None;
@@ -1321,6 +1337,9 @@ impl RemoteWindow {
         body.into_any_element()
     }
     fn render_catalog(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        if self.embedded {
+            return self.render_agent_discovery(cx);
+        }
         let Some(host) = self.host.clone() else {
             return div().child("Pair or select a host.").into_any_element();
         };
@@ -1535,7 +1554,7 @@ impl Render for RemoteWindow {
             header = header
                 .child(div().flex_1().child(format!(
                     "{} · {:?}{}",
-                    host.name(),
+                    self.selection_label(),
                     phase,
                     if phase != Phase::Ready {
                         " · cached, read only"
@@ -1594,25 +1613,29 @@ impl Render for RemoteWindow {
             Page::Settings => self.render_settings(cx),
             Page::Tasks => self.render_tasks(cx),
             Page::Terminal => self.render_terminal(cx),
+            Page::Terminals => self.render_terminal_picker(cx),
         };
         let element = column()
             .size_full()
             .bg(t::bg())
             .text_color(t::text())
             .text_sm()
-            .child(window_titlebar("remote-titlebar", window).child("Canopy — Remote"))
+            .when(!self.embedded, |d| {
+                d.child(window_titlebar("remote-titlebar", window).child("Canopy — Remote"))
+            })
             .child(
                 row()
                     .items_stretch()
                     .flex_1()
                     .min_h_0()
-                    .child(sidebar)
+                    .when(!self.embedded, |d| d.child(sidebar))
                     .child(
                         column()
                             .flex_1()
                             .min_w_0()
                             .h_full()
                             .child(header)
+                            .when(self.embedded, |d| d.child(self.embedded_navigation(cx)))
                             .child(
                                 div()
                                     .id("remote-content")

@@ -70,6 +70,7 @@ use components::file_tree::{FileTree, FileTreeEvent, FileTreeModel, FileTreeRequ
 use components::*;
 use gpui_kit::base::{Disableable, FocusTrapElement};
 use gpui_kit::component::{IconName, Root};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use pane_layout::PanelSide;
 use std::time::Instant;
@@ -121,6 +122,8 @@ pub struct Workspace {
     screen_id: Option<WorkspaceId>,
     screen_reveal: Presence,
     sidebar: Entity<sidebar::Sidebar>,
+    remote: Option<Entity<remote_client::RemoteWorkspace>>,
+    _remote_navigation: Subscription,
     sidebar_open: bool,
     sidebar_overlay: bool,
     sidebar_overlay_focus: FocusHandle,
@@ -219,6 +222,9 @@ impl Workspace {
                 // The layout stays mounted for projects and "No project" alike; switching
                 // spaces only resets transient view state, without an entrance animation.
                 if this.screen_id != id {
+                    this.remote = None;
+                    this.sidebar
+                        .update(cx, |sidebar, cx| sidebar.local_selection(cx));
                     this.screen_id = id;
                     this.opened_file = None;
                     this.hovered_tab = None;
@@ -233,6 +239,9 @@ impl Workspace {
             cx.observe_in(&state.workspace, window, |this, _, _, cx| {
                 let selected = this.state.workspace.read(cx).selected_pane().map(|p| p.id);
                 if selected != this.navigation_selection {
+                    this.remote = None;
+                    this.sidebar
+                        .update(cx, |sidebar, cx| sidebar.local_selection(cx));
                     this.sidebar_overlay = false;
                     this.sidebar_return_focus = None;
                 }
@@ -455,6 +464,33 @@ impl Workspace {
             });
         });
         let sidebar = cx.new(sidebar::Sidebar::new);
+        let remote_navigation = cx.subscribe_in(
+            &sidebar,
+            window,
+            |this, _, event: &sidebar::Navigation, window, cx| {
+                match event {
+                    sidebar::Navigation::Local => this.remote = None,
+                    sidebar::Navigation::Remote { host, resource } => {
+                        if let Some(view) = &this.remote {
+                            view.update(cx, |view, cx| {
+                                view.open(host.clone(), resource.clone(), cx)
+                            });
+                        } else {
+                            this.remote = Some(cx.new(|cx| {
+                                remote_client::RemoteWorkspace::new(
+                                    host.clone(),
+                                    resource.clone(),
+                                    window,
+                                    cx,
+                                )
+                            }));
+                        }
+                    }
+                }
+                this.sidebar_overlay = false;
+                cx.notify();
+            },
+        );
         let chat_requests = cx.subscribe_in(
             &sidebar,
             window,
@@ -572,6 +608,8 @@ impl Workspace {
             screen_id: None,
             screen_reveal: Presence::new(true, presets::CONTENT_REVEAL, Instant::now()),
             sidebar,
+            remote: None,
+            _remote_navigation: remote_navigation,
             sidebar_open: true,
             sidebar_overlay: false,
             sidebar_overlay_focus: cx.focus_handle(),
@@ -864,7 +902,8 @@ impl Workspace {
 }
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let hidden = self.modal.is_some()
+        let hidden = self.remote.is_some()
+            || self.modal.is_some()
             || self.task_detail_modal.is_some()
             || self.task_editor_modal.is_some()
             || self.confirmation.is_some()
@@ -917,13 +956,23 @@ impl Render for Workspace {
 
         motion::request_frame(window, sidebar_animating);
         let inspector_open = self.state.workspace.read(cx).tools_open();
-        let main = self.render_work_area(
-            sidebar_width,
-            (viewport_width - sidebar_width).max(0.),
-            (f32::from(window.viewport_size().height) - t::TITLEBAR).max(0.),
-            window,
-            cx,
-        );
+        let main = if let Some(remote) = &self.remote {
+            div()
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .child(remote.clone())
+                .into_any_element()
+        } else {
+            self.render_work_area(
+                sidebar_width,
+                (viewport_width - sidebar_width).max(0.),
+                (f32::from(window.viewport_size().height) - t::TITLEBAR).max(0.),
+                window,
+                cx,
+            )
+            .into_any_element()
+        };
         column()
             .id("workspace")
             .key_context(
@@ -944,11 +993,18 @@ impl Render for Workspace {
                 },
             )
             .on_action(cx.listener(|this, _: &OpenFolder, window, cx| {
+                this.remote = None;
+                this.sidebar
+                    .update(cx, |sidebar, cx| sidebar.local_selection(cx));
                 this.state
                     .projects
                     .update(cx, |state, cx| state.open_folder(window, cx));
             }))
             .on_action(cx.listener(|this, _: &CloseProject, _, cx| {
+                if let Some(remote) = &this.remote {
+                    remote.update(cx, |view, cx| view.close_project(cx));
+                    return;
+                }
                 if this.state.git.read(cx).busy {
                     return;
                 }
@@ -1020,6 +1076,9 @@ impl Render for Workspace {
                 cx.listener(|this, _: &ToggleSidebar, window, cx| this.toggle_sidebar(window, cx)),
             )
             .on_action(cx.listener(|this, _: &ToggleInspector, window, cx| {
+                if this.remote.is_some() {
+                    return;
+                }
                 this.set_inspector_open(!this.state.workspace.read(cx).tools_open(), window, cx)
             }))
             .on_action(cx.listener(|this, _: &DismissNavigation, window, cx| {
@@ -1030,14 +1089,26 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &ShowTerminals, _, cx| {
+                if let Some(remote) = &this.remote {
+                    remote.update(cx, |view, cx| view.show(remote_client::Page::Terminals, cx));
+                    return;
+                }
                 this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Tabs, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowFiles, _, cx| {
+                if let Some(remote) = &this.remote {
+                    remote.update(cx, |view, cx| view.show(remote_client::Page::Files, cx));
+                    return;
+                }
                 if this.state.projects.read(cx).catalog.active.is_some() {
                     this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Files, cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &ShowTasks, _, cx| {
+                if let Some(remote) = &this.remote {
+                    remote.update(cx, |view, cx| view.show(remote_client::Page::Tasks, cx));
+                    return;
+                }
                 this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Tasks, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowPreferences, _, cx| {
@@ -1054,25 +1125,54 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &ShowChanges, window, cx| {
+                if let Some(remote) = &this.remote {
+                    remote.update(cx, |view, cx| view.show(remote_client::Page::Git, cx));
+                    return;
+                }
                 if this.state.projects.read(cx).catalog.active.is_none() {
                     return;
                 }
                 this.select_inspector(true, window, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowSession, window, cx| {
+                if this.remote.is_some() {
+                    return;
+                }
                 this.show_session_inspector(window, cx)
             }))
             .on_action(cx.listener(|this, _: &ShellTab, _, cx| {
+                if this.remote.is_some() {
+                    return;
+                }
                 this.select_tab(0, cx);
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &CodexTab, _, cx| {
+                if this.remote.is_some() {
+                    return;
+                }
                 this.select_tab(1, cx);
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &NewFile, window, cx| this.open_new_file(window, cx)))
-            .on_action(cx.listener(|this, _: &NewTab, _, cx| this.new_tab(cx)))
+            .on_action(cx.listener(|this, _: &NewFile, window, cx| {
+                if let Some(remote) = &this.remote {
+                    remote.update(cx, |view, cx| view.show(remote_client::Page::Files, cx));
+                } else {
+                    this.open_new_file(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &NewTab, _, cx| {
+                if let Some(remote) = &this.remote {
+                    remote.update(cx, |view, cx| view.new_chat(cx));
+                } else {
+                    this.new_tab(cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &NewChat, _, cx| {
+                if let Some(remote) = &this.remote {
+                    remote.update(cx, |view, cx| view.new_chat(cx));
+                    return;
+                }
                 if this.modal.is_some()
                     || this.new_chat.is_some()
                     || crate::app_state::Chats::unavailable(cx).is_some()
@@ -1084,9 +1184,15 @@ impl Render for Workspace {
                     .update(cx, |chats, cx| chats.open_current(cx));
             }))
             .on_action(cx.listener(|this, _: &NewChatIn, window, cx| {
+                this.remote = None;
+                this.sidebar
+                    .update(cx, |sidebar, cx| sidebar.local_selection(cx));
                 this.open_chat_palette(new_chat_palette::Purpose::NewChat, window, cx)
             }))
             .on_action(cx.listener(|this, _: &NewChatNoProject, _, cx| {
+                this.remote = None;
+                this.sidebar
+                    .update(cx, |sidebar, cx| sidebar.local_selection(cx));
                 if this.modal.is_none() && this.new_chat.is_none() {
                     this.state.chats.update(cx, |chats, cx| {
                         chats.open_new(crate::app_state::ChatTarget::NoProject, cx)
@@ -1094,6 +1200,9 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &QuickOpen, window, cx| {
+                if this.remote.is_some() {
+                    return;
+                }
                 if this.quick_open.is_some()
                     || this.modal.is_some()
                     || this.task_detail_modal.is_some()
@@ -1113,6 +1222,10 @@ impl Render for Workspace {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &SaveFile, _, cx| {
+                if let Some(remote) = &this.remote {
+                    remote.update(cx, |view, cx| view.save(cx));
+                    return;
+                }
                 let pane = this.state.workspace.read(cx).active().map(|t| t.focused);
                 if let Some(view) =
                     pane.and_then(|p| this.state.editors.read(cx).views.get(&p).cloned())
@@ -1121,6 +1234,12 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &CloseTab, _, cx| {
+                if this.remote.take().is_some() {
+                    this.sidebar
+                        .update(cx, |sidebar, cx| sidebar.local_selection(cx));
+                    cx.notify();
+                    return;
+                }
                 let w = this.state.workspace.read(cx);
                 if w.tools_open() && w.tool_panel().is_focused() {
                     this.state.workspace.update(cx, |w, cx| {
@@ -1133,11 +1252,20 @@ impl Render for Workspace {
                     this.close_workspace_tab(this.state.workspace.read(cx).id, tab, cx);
                 }
             }))
-            .on_action(
-                cx.listener(|this, _: &SplitHorizontal, _, cx| this.split(Axis::Horizontal, cx)),
-            )
-            .on_action(cx.listener(|this, _: &SplitVertical, _, cx| this.split(Axis::Vertical, cx)))
+            .on_action(cx.listener(|this, _: &SplitHorizontal, _, cx| {
+                if this.remote.is_none() {
+                    this.split(Axis::Horizontal, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &SplitVertical, _, cx| {
+                if this.remote.is_none() {
+                    this.split(Axis::Vertical, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &ClosePane, _, cx| {
+                if this.remote.is_some() {
+                    return;
+                }
                 let target = this
                     .state
                     .workspace
@@ -1170,14 +1298,20 @@ impl Render for Workspace {
                     .text_sm()
                     .child({
                         let workspace = self.state.workspace.read(cx);
-                        let title = workspace.selected_pane().map(|pane| {
-                            workspace
-                                .pane_title(pane.id)
-                                .unwrap_or_else(|| {
-                                    pane.metadata.title.as_deref().unwrap_or(&pane.tool)
+                        let title = self
+                            .remote
+                            .as_ref()
+                            .map(|remote| remote.read(cx).label(cx))
+                            .or_else(|| {
+                                workspace.selected_pane().map(|pane| {
+                                    workspace
+                                        .pane_title(pane.id)
+                                        .unwrap_or_else(|| {
+                                            pane.metadata.title.as_deref().unwrap_or(&pane.tool)
+                                        })
+                                        .to_owned()
                                 })
-                                .to_owned()
-                        });
+                            });
                         let project = active
                             .as_ref()
                             .map(|p| {
@@ -1196,7 +1330,8 @@ impl Render for Workspace {
                                 )
                             })
                             .unwrap_or_else(|| "Private chats".into());
-                        let show_context = title.is_none() || viewport_width >= rem * 52.;
+                        let show_context = self.remote.is_none()
+                            && (title.is_none() || viewport_width >= rem * 52.);
                         let project = if viewport_width < rem * 64. && title.is_some() {
                             active
                                 .as_ref()
@@ -1247,7 +1382,9 @@ impl Render for Workspace {
                                     .child(div().truncate().text_color(t::text()).child(title))
                             }))
                     })
-                    .child(self.tool_navigation(viewport_width - 150., window, cx))
+                    .when(self.remote.is_none(), |d| {
+                        d.child(self.tool_navigation(viewport_width - 150., window, cx))
+                    })
                     .children(dev_tools_button(window, cx))
                     .child({
                         row()
@@ -1286,7 +1423,7 @@ impl Render for Workspace {
                                     .child(attention.to_string())
                             }))
                     })
-                    .child({
+                    .children(self.remote.is_none().then(|| {
                         div()
                             .absolute()
                             .right(px(t::SPACING_UNIT * 3. + titlebar_trailing_inset()))
@@ -1316,7 +1453,7 @@ impl Render for Workspace {
                                     },
                                 )),
                             )
-                    }),
+                    })),
             )
             .child({
                 row()

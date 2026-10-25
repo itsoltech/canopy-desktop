@@ -1,4 +1,6 @@
 //! Native Git operations. Never executes the git CLI.
+mod identity;
+pub use identity::{RepositoryIdentity, checkout_identity};
 pub mod hooks;
 mod https_credentials;
 mod process;
@@ -34,6 +36,7 @@ pub struct WorktreeInfo {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepositoryInfo {
+    pub origin: Option<RepositoryIdentity>,
     pub root: PathBuf,
     pub common: PathBuf,
     pub worktrees: Vec<WorktreeInfo>,
@@ -169,6 +172,10 @@ pub fn inspect(path: &Path) -> Result<Option<RepositoryInfo>> {
     }
     branches.sort();
     Ok(Some(RepositoryInfo {
+        origin: repo
+            .find_remote("origin")
+            .ok()
+            .and_then(|remote| remote.url().ok().and_then(RepositoryIdentity::from_origin)),
         root,
         common: repo.commondir().canonicalize().map_err(|e| e.to_string())?,
         worktrees,

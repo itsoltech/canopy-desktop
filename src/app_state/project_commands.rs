@@ -16,6 +16,8 @@ use std::path::PathBuf;
 /// One open project or worktree as a client lists it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WorkspaceSummary {
+    pub origin: Option<canopy_desktop::git::RepositoryIdentity>,
+    pub branch: Option<String>,
     pub workspace: WorkspaceId,
     pub name: String,
     /// What device grants and file/Git operations are checked against.
@@ -73,10 +75,14 @@ pub fn resolve_listed(projects: Vec<Listed>) -> Vec<WorkspaceSummary> {
     projects
         .into_iter()
         .filter_map(|(workspace, name, path, repository, closing)| {
+            let canonical_root = std::fs::canonicalize(path).ok()?;
+            let (origin, branch) = canopy_desktop::git::checkout_identity(&canonical_root);
             Some(WorkspaceSummary {
+                origin,
+                branch,
                 workspace,
                 name,
-                canonical_root: std::fs::canonicalize(path).ok()?,
+                canonical_root,
                 repository,
                 closing,
             })

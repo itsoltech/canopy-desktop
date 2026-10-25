@@ -32,7 +32,7 @@ export class CatalogStaging {
       const last = target.projects[target.projects.length - 1]
       if (last?.project_id === project.project_id) {
         // A project continued from the previous page: same metadata, the rest of its checkouts.
-        if (last.name !== project.name || last.path !== project.path) throw new CatalogResync('Conflicting catalog project page')
+        if (last.name !== project.name || last.path !== project.path || last.origin !== project.origin) throw new CatalogResync('Conflicting catalog project page')
         last.checkouts.push(...project.checkouts)
       } else {
         if (target.projects.some(p => p.project_id === project.project_id)) throw new CatalogResync('Repeated catalog project')

@@ -105,7 +105,14 @@ pub(super) fn estimate(
             + path.len()
             + repository.map_or(0, str::len);
         // Its project in the map (nodes at least half full), then in the result.
-        bytes += 3 * (size_of::<String>() + project) + 2 * project + 3 * root + w.name.len();
+        bytes += 3 * (size_of::<String>() + project)
+            + 2 * project
+            + 3 * root
+            + w.name.len()
+            + w.origin
+                .as_ref()
+                .map_or(0, |o| o.server().len() + o.path().len() + 9)
+            + w.branch.as_ref().map_or(0, String::len);
     }
     let index = (event.records.len() * 8 / 7 + 8).next_power_of_two();
     bytes += index * (size_of::<(&str, &ChatRecord)>() + 1);
@@ -160,6 +167,7 @@ pub(super) fn footprint(catalog: &proto::Catalog) -> usize {
                         + text(&c.name)
                         + text(&c.path)
                         + optional(&c.repository_path)
+                        + optional(&c.branch)
                 })
                 .sum::<usize>()
     };
@@ -167,7 +175,13 @@ pub(super) fn footprint(catalog: &proto::Catalog) -> usize {
         + catalog
             .projects
             .iter()
-            .map(|p| text(&p.project_id) + text(&p.name) + text(&p.path) + checkouts(p))
+            .map(|p| {
+                text(&p.project_id)
+                    + text(&p.name)
+                    + text(&p.path)
+                    + optional(&p.origin)
+                    + checkouts(p)
+            })
             .sum::<usize>();
     let chats = catalog.chats.capacity() * size_of::<proto::ChatSummary>()
         + catalog
@@ -267,6 +281,7 @@ impl Pager {
         while let Some(project) = catalog.projects.get(self.project) {
             // Only the metadata: the checkouts are copied page by page below.
             let mut entry = proto::ProjectSummary {
+                origin: project.origin.clone(),
                 project_id: project.project_id.clone(),
                 name: project.name.clone(),
                 path: project.path.clone(),

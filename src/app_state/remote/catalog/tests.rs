@@ -74,6 +74,8 @@ async fn a_device_sees_only_its_roots_and_then_only_what_changed() {
     let private = record(None, "private");
     let workspaces = vec![
         WorkspaceSummary {
+            origin: None,
+            branch: None,
             workspace: a,
             name: "a".into(),
             canonical_root: "/work/a".into(),
@@ -81,6 +83,8 @@ async fn a_device_sees_only_its_roots_and_then_only_what_changed() {
             closing: false,
         },
         WorkspaceSummary {
+            origin: None,
+            branch: None,
             workspace: b,
             name: "b".into(),
             canonical_root: "/work/b".into(),
@@ -139,18 +143,21 @@ fn large_catalog() -> proto::Catalog {
         name: format!("tree-{i}"),
         path: format!("/work/repo/.worktrees/{}-{i}", "x".repeat(200)),
         closing: Some(false),
+        branch: None,
         repository_path: Some("/work/repo".into()),
     };
     proto::Catalog {
         host_id: "h".into(),
         projects: vec![
             proto::ProjectSummary {
+                origin: None,
                 project_id: "/work/repo".into(),
                 name: "repo".into(),
                 path: "/work/repo".into(),
                 checkouts: (0..3000).map(checkout).collect(),
             },
             proto::ProjectSummary {
+                origin: None,
                 project_id: "/work/empty".into(),
                 name: "empty".into(),
                 path: "/work/empty".into(),
@@ -273,6 +280,8 @@ async fn a_changed_authorization_drops_what_was_queued_before_the_next_event() {
     let in_a = record(Some(&workspace_ref(a)), "/work/a");
     let in_b = record(Some(&workspace_ref(b)), "/work/b");
     let workspace = |id, root: &str| WorkspaceSummary {
+        origin: None,
+        branch: None,
         workspace: id,
         name: root.into(),
         canonical_root: root.into(),
@@ -361,6 +370,8 @@ async fn a_changed_authorization_drops_what_was_queued_before_the_next_event() {
 fn large_event() -> CatalogEvent {
     let workspaces: Vec<_> = (0..3000)
         .map(|i| WorkspaceSummary {
+            origin: None,
+            branch: None,
             workspace: WorkspaceId::new(),
             name: format!("tree-{i}"),
             canonical_root: format!("/work/repo/.worktrees/{}-{i}", "x".repeat(200)).into(),

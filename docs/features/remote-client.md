@@ -185,3 +185,28 @@ Agent discovery accumulates bounded pages independently of Send. Closing
 workspaces expose Retry cleanup and cannot receive new chats or forks. Notes
 retain the existing process-local, device-local workspace scratchpad semantics;
 export uses an explicitly selected host file rather than an invented shared path.
+## Wspólny sidebar komputerów
+
+Główne okno pokazuje lokalny katalog razem z katalogami zapisanych połączeń.
+Projekt jest grupą prezentacji według `origin`: SSH i HTTPS tego samego serwera
+i repozytorium tworzą jeden wpis, np. `itsoltech/canopy-desktop`. Nazwa serwera
+pozostaje częścią klucza, więc GitHub i GitLab nie zlewają różnych repozytoriów.
+Brak rozpoznawalnego origin pozostawia osobny projekt danego komputera i ścieżki.
+Do katalogu trafia wyłącznie oczyszczona tożsamość origin, bez loginu, hasła,
+parametrów URL i fragmentu. Lokalne ścieżki i względne repozytoria SSH użytkownika
+nie są podstawą grupowania między komputerami.
+
+Worktree i czaty zachowują identyfikator komputera. Dwie gałęzie `main` ani czaty
+o tej samej nazwie nie są scalane. Wiersze podają środowisko, a niedostępny host
+zachowuje ostatni kompletny katalog. Kliknięcie zdalnego zasobu wybiera połączenie
+i otwiera istniejący klient gRPC w głównym obszarze, bez zmiany lokalnych tabów,
+wybranego workspace, bazy hosta ani jego procesów. Powrót do lokalnego wiersza
+odłącza widok zdalny; szkice klienta mają dotychczasowego trwałego właściciela.
+Główne skróty tworzenia czatu, zapisu i zamknięcia działają w wybranym środowisku;
+zamknięcie widoku zdalnego nie usuwa czatu na hoście.
+
+Nowe pola katalogu (`ProjectSummary.origin`, `WorkspaceSummary.branch`) są
+opcjonalne. Starszy host nadal działa, ale do grupowania po origin oraz pokazania
+aktualnej gałęzi potrzebuje aktualizacji. Zmiana lokalnych metadanych Git odświeża
+katalog subskrybentów. Projekcje klienta są współdzielone przez `Arc`, bez kopii
+całego katalogu przy renderowaniu sidebara.

@@ -88,7 +88,9 @@ impl ClientRegistry {
         let host = Arc::new(HostClient {
             id: record.id.clone(),
             state: Mutex::new(HostState {
-                catalog: p::Catalog::decode(record.catalog.as_slice()).ok(),
+                catalog: p::Catalog::decode(record.catalog.as_slice())
+                    .ok()
+                    .map(Arc::new),
                 record,
                 phase: Phase::Offline,
                 error: None,
@@ -142,7 +144,7 @@ struct HostState {
     error: Option<String>,
     channel: Option<Channel>,
     tunnel: Option<ssh::SshTunnel>,
-    catalog: Option<p::Catalog>,
+    catalog: Option<Arc<p::Catalog>>,
     info: Option<p::HostInfo>,
     watch: Option<tokio::task::AbortHandle>,
     view_revisions: BTreeMap<String, u64>,
@@ -178,6 +180,9 @@ impl HostClient {
         self.state.lock().unwrap().error.clone()
     }
     pub fn catalog(&self) -> Option<p::Catalog> {
+        self.state.lock().unwrap().catalog.as_deref().cloned()
+    }
+    pub fn shared_catalog(&self) -> Option<Arc<p::Catalog>> {
         self.state.lock().unwrap().catalog.clone()
     }
     pub fn snapshot(&self) -> HostSnapshot {
@@ -186,7 +191,7 @@ impl HostClient {
             record: state.record.clone(),
             phase: state.phase,
             error: state.error.clone(),
-            catalog: state.catalog.clone(),
+            catalog: state.catalog.as_deref().cloned(),
             info: state.info.clone(),
         }
     }
@@ -323,7 +328,7 @@ impl HostClient {
             }
             state.channel = Some(channel.clone());
             state.tunnel = tunnel;
-            state.catalog = Some(catalog);
+            state.catalog = Some(Arc::new(catalog));
             state.info = Some(info);
             state.phase = Phase::Ready;
             state.active_route = Some(route_id);
@@ -385,7 +390,7 @@ impl HostClient {
                         if !applied? {
                             continue;
                         }
-                        state.catalog.as_ref().map(Message::encode_to_vec).unwrap_or_default()
+                        state.catalog.as_deref().map(Message::encode_to_vec).unwrap_or_default()
                     };
                     host.update_record(|record| {
                         record.catalog = catalog;

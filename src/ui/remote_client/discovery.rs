@@ -8,7 +8,7 @@ enum Discovery {
     Files(p::DirectoryEntries),
 }
 impl RemoteWindow {
-    fn discover(&mut self, kind: u8, cx: &mut Context<Self>) {
+    pub(super) fn discover(&mut self, kind: u8, cx: &mut Context<Self>) {
         let Some(host) = self.host.clone() else {
             return;
         };
@@ -162,7 +162,7 @@ impl RemoteWindow {
         );
         body = body
             .child(match &self.workspace {
-                Some(workspace) => format!("New chat destination: {}", workspace.workspace_id),
+                Some(_) => format!("New chat: {}", self.selection_label()),
                 None => "New chat destination: Private chats".into(),
             })
             .child(

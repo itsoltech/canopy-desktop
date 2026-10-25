@@ -266,6 +266,7 @@ fn catalog(
         let entry = projects
             .entry(project.clone())
             .or_insert_with(|| proto::ProjectSummary {
+                origin: w.origin.as_ref().map(|origin| origin.canonical_url()),
                 project_id: project.clone(),
                 name: w.name.clone(),
                 path: project.clone(),
@@ -279,6 +280,7 @@ fn catalog(
             name: w.name.clone(),
             path: path.into(),
             closing: Some(w.closing),
+            branch: w.branch.clone(),
             repository_path: w
                 .repository
                 .as_deref()

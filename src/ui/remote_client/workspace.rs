@@ -1,6 +1,60 @@
 use super::*;
 use canopy_desktop::remote::client::rpc_error;
 impl RemoteWindow {
+    pub(super) fn save_file(&mut self, cx: &mut Context<Self>) {
+        if !self.ready() || self.file.is_none() {
+            return;
+        }
+        let host = self.host.clone().unwrap();
+        let file = self.file.clone().unwrap();
+        let expected_hash = self.file_hash.clone();
+        let bytes = self.file_text.read(cx).value().as_bytes().to_vec();
+        self.run(
+            async move {
+                let artifact = host
+                    .upload(
+                        p::ResourceRef {
+                            resource: Some(p::resource_ref::Resource::File(file.clone())),
+                        },
+                        "file-save",
+                        "application/octet-stream",
+                        bytes,
+                    )
+                    .await?;
+                let save_file = file.clone();
+                host.mutate(None, move |channel, command| async move {
+                    p::files_service_client::FilesServiceClient::new(channel)
+                        .save_file(p::SaveFileRequest {
+                            command: Some(command),
+                            file: Some(save_file),
+                            expected_hash,
+                            content: Some(artifact),
+                        })
+                        .await
+                })
+                .await?;
+                let (bytes, hash) = host.read_file(file.clone()).await?;
+                let text = String::from_utf8(bytes).map_err(|_| "Saved file is not UTF-8.")?;
+                let base_hash = hash.clone();
+                let dirty_file = file.clone();
+                host.mutate(None, move |channel, command| async move {
+                    p::files_service_client::FilesServiceClient::new(channel)
+                        .set_dirty_presence(p::DirtyPresenceRequest {
+                            command: Some(command),
+                            file: Some(dirty_file),
+                            base_hash,
+                            dirty: false,
+                        })
+                        .await
+                })
+                .await?;
+                host.save_view(file_view_key(&file), String::new())?;
+                Ok(Update::File(file, hash, text, false))
+            },
+            cx,
+        );
+    }
+
     pub(super) fn open_remote_file(&mut self, file: p::FileRef, cx: &mut Context<Self>) {
         let Some(host) = self.host.clone() else {
             return;
@@ -219,59 +273,7 @@ impl RemoteWindow {
                 .child(
                     button("save-file", "Save file")
                         .disabled(!self.ready())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let host = this.host.clone().unwrap();
-                            let file = this.file.clone().unwrap();
-                            let expected_hash = this.file_hash.clone();
-                            let bytes = this.file_text.read(cx).value().as_bytes().to_vec();
-                            this.run(
-                                async move {
-                                    let artifact = host
-                                        .upload(
-                                            p::ResourceRef {
-                                                resource: Some(p::resource_ref::Resource::File(
-                                                    file.clone(),
-                                                )),
-                                            },
-                                            "file-save",
-                                            "application/octet-stream",
-                                            bytes,
-                                        )
-                                        .await?;
-                                    let save_file = file.clone();
-                                    host.mutate(None, move |channel, command| async move {
-                                        p::files_service_client::FilesServiceClient::new(channel)
-                                            .save_file(p::SaveFileRequest {
-                                                command: Some(command),
-                                                file: Some(save_file),
-                                                expected_hash,
-                                                content: Some(artifact),
-                                            })
-                                            .await
-                                    })
-                                    .await?;
-                                    let (bytes, hash) = host.read_file(file.clone()).await?;
-                                    let text = String::from_utf8(bytes)
-                                        .map_err(|_| "Saved file is not UTF-8.")?;
-                                    let base_hash = hash.clone();
-                                    let dirty_file = file.clone();
-                                    host.mutate(None, move |channel, command| async move {
-                                        p::files_service_client::FilesServiceClient::new(channel)
-                                            .set_dirty_presence(p::DirtyPresenceRequest {
-                                                command: Some(command),
-                                                file: Some(dirty_file),
-                                                base_hash,
-                                                dirty: false,
-                                            })
-                                            .await
-                                    })
-                                    .await?;
-                                    host.save_view(file_view_key(&file), String::new())?;
-                                    Ok(Update::File(file, hash, text, false))
-                                },
-                                cx,
-                            );
-                        })),
+                        .on_click(cx.listener(|this, _, _, cx| this.save_file(cx))),
                 )
                 .child(
                     button("discard-presence", "Discard file edits")

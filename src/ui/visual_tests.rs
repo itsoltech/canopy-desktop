@@ -83,7 +83,7 @@ fn native_visual_fixture() {
                     }
                 });
             }
-            app.git.update(cx, |g, _| { g.entries.insert(root.clone(), Ok(Some(Arc::new(RepositoryInfo { common: root.join(".git"), root, branches: vec![], worktrees })))); });
+            app.git.update(cx, |g, _| { g.entries.insert(root.clone(), Ok(Some(Arc::new(RepositoryInfo { origin: None, common: root.join(".git"), root, branches: vec![], worktrees })))); });
         }
         app.layout.update(cx, |l, _| l.widths.left = 288.);
         app.workspace.update(cx, |w, _| {

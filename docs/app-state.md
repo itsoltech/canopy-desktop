@@ -155,3 +155,16 @@ picker, anulowanie i powrót focusu, otwarcie rzeczywistego katalogu, dwa projek
 z zachowaniem splitów, zamknięcie ostatniego projektu, restart z odtwarzaniem
 włączonym i wyłączonym. Preferencję testową przywrócono; aplikację pozostawiono
 na pustym ekranie. Nie wykonywano nowych pomiarów FPS.
+## Nawigacja między komputerami
+
+`Sidebar` obserwuje `Connections` tego samego rejestru co Preferences i klient
+zdalny. Grupuje projekty po oczyszczonym origin, ale nie zmienia lokalnego modelu
+`Projects`, jego identyfikatorów ani zasad persist/restore. Lokalne odczyty origin
+i gałęzi wykonuje worker libgit2; render korzysta z gotowych metadanych.
+
+Zdarzenie `sidebar::Navigation` rozróżnia wybór lokalny od zdalnego
+`ResourceRef` wraz z `HostClient`. `Workspace` montuje `RemoteWorkspace` w swoim
+obszarze treści; zdalny widok używa istniejącego klienta, subskrypcji i magazynu
+szkiców. Zamknięcie albo lokalna nawigacja odmontowuje ten widok, pozostawiając
+lokalne procesy i wybrany lokalny workspace bez zmian. Identyfikator zdalnego
+zasobu zawsze zawiera host, także gdy identyczny branch jest otwarty lokalnie.

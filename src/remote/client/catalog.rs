@@ -84,7 +84,10 @@ fn merge(staged: &mut p::Catalog, page: p::Catalog) -> Result<(), String> {
     for project in page.projects {
         match staged.projects.last_mut() {
             Some(last) if last.project_id == project.project_id => {
-                if last.name != project.name || last.path != project.path {
+                if last.name != project.name
+                    || last.path != project.path
+                    || last.origin != project.origin
+                {
                     return Err("Conflicting catalog project page.".into());
                 }
                 last.checkouts.extend(project.checkouts);
@@ -120,7 +123,7 @@ impl CatalogFeed {
     pub fn apply(
         &mut self,
         host: &str,
-        catalog: &mut Option<p::Catalog>,
+        catalog: &mut Option<std::sync::Arc<p::Catalog>>,
         event: p::SummaryEvent,
     ) -> Result<bool, String> {
         use p::summary_event::Change;
@@ -132,7 +135,7 @@ impl CatalogFeed {
                     return Ok(false);
                 };
                 self.cursor = Some(boundary);
-                *catalog = Some(whole);
+                *catalog = Some(std::sync::Arc::new(whole));
                 return Ok(true);
             }
             Change::Snapshot(value) => {
@@ -141,7 +144,7 @@ impl CatalogFeed {
                 }
                 self.staging.discard();
                 self.cursor = Some(next);
-                *catalog = Some(value);
+                *catalog = Some(std::sync::Arc::new(value));
                 return Ok(true);
             }
             _ => {}
@@ -157,7 +160,7 @@ impl CatalogFeed {
         }) {
             return Err("Catalog requires resynchronization. Reconnect to reload.".into());
         }
-        let current = catalog.as_mut().ok_or("Missing catalog.")?;
+        let current = std::sync::Arc::make_mut(catalog.as_mut().ok_or("Missing catalog.")?);
         match change {
             Change::Chat(value) => {
                 if value.chat.as_ref().is_none_or(|c| c.host_id != host) {
@@ -260,11 +263,11 @@ mod tests {
     #[test]
     fn a_paged_snapshot_replaces_the_catalog_only_whole() {
         let mut feed = CatalogFeed::default();
-        let mut catalog = Some(p::Catalog {
+        let mut catalog = Some(std::sync::Arc::new(p::Catalog {
             host_id: "h".into(),
             chats: vec![chat("old")],
             ..Default::default()
-        });
+        }));
         assert!(
             !feed
                 .apply("h", &mut catalog, part(1, true, false, &["a"]))
@@ -303,7 +306,14 @@ mod tests {
             .collect();
         assert_eq!(titles, ["a", "b", "c"]);
         // Deltas continue after the boundary.
+        let sidebar_snapshot = catalog.clone().unwrap();
         assert!(feed.apply("h", &mut catalog, delta(5)).unwrap());
+        assert_eq!(
+            sidebar_snapshot.chats.len(),
+            3,
+            "an installed sidebar snapshot is immutable"
+        );
+        assert_eq!(catalog.as_ref().unwrap().chats.len(), 4);
         assert!(feed.apply("h", &mut catalog, delta(7)).is_err());
     }
 }

@@ -136,6 +136,7 @@ struct Hub {
     last: Option<(Arc<CatalogEvent>, Vec<project_commands::Listed>)>,
     refreshing: bool,
     stale: bool,
+    git_changed: bool,
     _observers: Vec<Subscription>,
 }
 
@@ -200,16 +201,18 @@ fn refresh_catalog(hub: Entity<Hub>, cx: &mut App) {
     }
     let chats = cx.global::<AppState>().chats.read(cx).chat_summaries(cx);
     let projects = project_commands::listed(cx);
-    let unchanged = hub.read(cx).last.as_ref().is_some_and(|(last, listed)| {
-        *listed == projects
-            && last.chats == chats
-            && cx
-                .global::<AppState>()
-                .settings
-                .read(cx)
-                .chat_records()
-                .eq(last.records.iter())
-    });
+    let git_changed = hub.update(cx, |hub, _| std::mem::take(&mut hub.git_changed));
+    let unchanged = !git_changed
+        && hub.read(cx).last.as_ref().is_some_and(|(last, listed)| {
+            *listed == projects
+                && last.chats == chats
+                && cx
+                    .global::<AppState>()
+                    .settings
+                    .read(cx)
+                    .chat_records()
+                    .eq(last.records.iter())
+        });
     if unchanged {
         let again = hub.update(cx, |hub, _| {
             hub.refreshing = false;
@@ -300,6 +303,11 @@ pub fn install(cx: &mut App) -> ChatBridge {
             cx.defer(move |cx| refresh_catalog(hub, cx));
         }
         let observers = vec![
+            cx.observe(&app.git, |this: &mut Hub, _, cx| {
+                this.git_changed = true;
+                let hub = cx.entity();
+                cx.defer(move |cx| refresh_catalog(hub, cx));
+            }),
             cx.observe(&app.projects, changed),
             cx.observe(&app.chats, changed),
             cx.observe(&app.settings, changed),
@@ -313,6 +321,7 @@ pub fn install(cx: &mut App) -> ChatBridge {
             last: None,
             refreshing: false,
             stale: false,
+            git_changed: false,
             _observers: observers,
         }
     });

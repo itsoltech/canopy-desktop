@@ -20,14 +20,35 @@ impl Sidebar {
     }
 
     pub(super) fn sync_project_groups(&mut self, cx: &mut Context<Self>) {
-        let roots: std::collections::HashSet<_> = self
+        let mut roots: std::collections::HashSet<_> = self
             .projects
             .read(cx)
             .catalog
             .items
             .iter()
-            .map(|p| p.repository_path.as_ref().unwrap_or(&p.path).clone())
+            .map(|p| {
+                let root = p.repository_path.as_ref().unwrap_or(&p.path);
+                let origin = self
+                    .git
+                    .read(cx)
+                    .repository(root)
+                    .and_then(|r| r.origin.as_ref());
+                super::remote::project_key(origin, "local", &root.to_string_lossy())
+            })
             .collect();
+        for (host, catalog) in self.remote_catalogs(cx) {
+            for project in &catalog.projects {
+                let origin = project
+                    .origin
+                    .as_deref()
+                    .and_then(canopy_desktop::git::RepositoryIdentity::from_origin);
+                roots.insert(super::remote::project_key(
+                    origin.as_ref(),
+                    host.id().as_str(),
+                    &project.project_id,
+                ));
+            }
+        }
         self.project_groups.retain(|root, _| roots.contains(root));
         for root in roots {
             self.project_groups
@@ -44,7 +65,13 @@ impl Sidebar {
                     group.toggle(Instant::now(), cx);
                 }
                 let root = project.repository_path.as_ref().unwrap_or(&project.path);
-                if let Some(group) = self.project_groups.get_mut(root)
+                let origin = self
+                    .git
+                    .read(cx)
+                    .repository(root)
+                    .and_then(|r| r.origin.as_ref());
+                let key = super::remote::project_key(origin, "local", &root.to_string_lossy());
+                if let Some(group) = self.project_groups.get_mut(&key)
                     && !group.open
                 {
                     group.toggle(Instant::now(), cx);
@@ -59,7 +86,7 @@ impl Sidebar {
         let app = cx.global::<crate::app_state::AppState>();
         let running = app.running_workspaces(cx);
         let mut seen = std::collections::HashSet::new();
-        let mut groups = vec![];
+        let mut trees = super::remote::ProjectRows::new();
         for project in &state.catalog.items {
             let root = project
                 .repository_path
@@ -69,17 +96,27 @@ impl Sidebar {
             if !seen.insert(root.clone()) {
                 continue;
             }
-            let Some(disclosure) = self.project_groups.get(&root) else {
+            let info = git.repository(&root).cloned();
+            let identity = super::remote::project_key(
+                info.as_ref().and_then(|r| r.origin.as_ref()),
+                "local",
+                &root.to_string_lossy(),
+            );
+            let Some(disclosure) = self.project_groups.get(&identity) else {
                 continue;
             };
-            let info = git.repository(&root).cloned();
-            let label = root
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            let key = format!("project-{}", root.display());
-            let toggle_root = root.clone();
+            let label = info
+                .as_ref()
+                .and_then(|r| r.origin.as_ref())
+                .map(|o| o.path().to_owned())
+                .unwrap_or_else(|| {
+                    root.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                });
+            let key = format!("project-{identity}");
+            let toggle_root = identity.clone();
             let close_root = root.clone();
             let ids: Vec<_> = state
                 .catalog
@@ -135,7 +172,7 @@ impl Sidebar {
                 .p_0()
                 .icon(IconName::Ellipsis)
                 .accessibility_label(format!("Actions for {label}"))
-                .tooltip("Project actions")
+                .tooltip("Project actions on this computer")
                 .disabled(blocked)
                 .dropdown_menu({
                     let items = items.clone();
@@ -230,7 +267,9 @@ impl Sidebar {
                         .find(|p| p.path == path)
                         .map(|p| p.workspace);
                     let key = format!("worktree-{}", path.display());
-                    let selected = workspace.is_some() && workspace == state.catalog.active;
+                    let selected = self.remote_selection.is_none()
+                        && workspace.is_some()
+                        && workspace == state.catalog.active;
                     let main = path == info.root;
                     let disclosure = self.worktree_groups.get(&path);
                     let expanded = disclosure.is_none_or(|d| d.open);
@@ -359,6 +398,7 @@ impl Sidebar {
                             if selected { ", current worktree" } else { "" }
                         ))
                         .on_click(cx.listener(move |s, _, _, cx| {
+                            s.local_selection(cx);
                             s.git.update(cx, |g, cx| {
                                 g.open(open_root.clone(), open_path.clone(), cx)
                             })
@@ -392,7 +432,13 @@ impl Sidebar {
                                         })
                                         .child(branch_label(&wt.label)),
                                 )
-                                .when(main, |row| row.child(tag("default"))),
+                                .when(main, |row| row.child(tag("default")))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(t::muted())
+                                        .child("This computer"),
+                                ),
                         );
                     let group = SharedString::from(format!("group-{key}"));
                     let row = row()
@@ -568,6 +614,7 @@ impl Sidebar {
                                         .child(message),
                                 )
                                 .on_click(cx.listener(move |s, _, _, cx| {
+                                    s.local_selection(cx);
                                     s.projects.update(cx, |p, cx| p.select(id, cx))
                                 })),
                         )
@@ -617,17 +664,29 @@ impl Sidebar {
                 );
                 rows.push(self.workspace_chats(id, cx).into_any_element());
             }
-            groups.push(
-                column()
-                    .child(header)
-                    .child(disclosure.measured_body(
-                        SharedString::from(format!("project-body-{}", root.display())),
-                        column().gap_px().children(rows),
-                        now,
-                    ))
-                    .into_any_element(),
-            );
+            trees
+                .entry(identity)
+                .or_insert_with(|| (header, vec![]))
+                .1
+                .extend(rows);
         }
+        self.remote_projects(&mut trees, now, cx);
+        let mut groups: Vec<_> = trees
+            .into_iter()
+            .filter_map(|(key, (header, rows))| {
+                let disclosure = self.project_groups.get(&key)?;
+                Some(
+                    column()
+                        .child(header)
+                        .child(disclosure.measured_body(
+                            SharedString::from(format!("project-body-{key}")),
+                            column().gap_px().children(rows),
+                            now,
+                        ))
+                        .into_any_element(),
+                )
+            })
+            .collect();
         let error = git.error.as_ref().or(state.error.as_ref()).or(self
             .terminals
             .read(cx)
