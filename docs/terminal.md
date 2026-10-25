@@ -139,6 +139,88 @@ preferującym JetBrainsMono Nerd Font Mono / NFM. Glify Nerd wymagają fontu
 zainstalowanego w systemie, podobnie jak w dotychczasowej konfiguracji Electrona.
 Nie zmieniamy ustawień ani konfiguracji powłoki użytkownika.
 
+## Właściciel wejścia i remote
+
+Każdy start procesu tworzy `terminal::control::Run` z nowym UUID runu (nigdy
+ponownie użytym, także po Restart). Run ma jednego właściciela wejścia i rozmiaru:
+`Holder::Local` (okno hosta) albo urządzenie. Każde przyznanie zwiększa fencing
+token. Lokalne pisanie, wklejanie, drop plików, task prompt i resize przechodzą
+przez te same sprawdzenia co RPC. Pisanie na hoście zajmuje wolną dzierżawę,
+ale nigdy nie odbiera jej urządzeniu: pasek „Input is controlled by …” z akcją
+„Take control” jest jawnym przejęciem. Gdy urządzenie trzyma wejście, siatka
+hosta przyjmuje jego rozmiar. Dzierżawa urządzenia wygasa po 15 s bez odnowienia
+(odnowienie co 5 s) albo gdy zamknie się jego ostatni strumień; proces trwa.
+Powtórzony input ID tego samego właściciela i tokenu zwraca pierwszy wynik bez
+ponownego zapisu. ACK oznacza „queued” na hoście, nie wykonanie przez shell.
+
+Wejście PTY jest ograniczone: `terminal/metered.rs` zlicza bajty od przyjęcia
+do faktycznego zapisu do PTY (1 MiB na sesję, 16 MiB łącznie). Odpowiedzi
+emulatora (DA, kolory, rozmiar) są liczone, ale nie odrzucane. Pełna kolejka daje
+lokalny komunikat albo `resource_limit` w ACK.
+
+`remote/terminal_rpc.rs` implementuje TerminalService. Strumień TerminalSession
+czyta tę samą projekcję Alacritty co okno hosta (`Session::live_frame_bounded`) i nie
+zmienia lokalnego scrolla ani zaznaczenia. Pierwsza ramka jest pełna, kolejne
+to łaty względem tego, co ma dany subskrybent. Ramka jest liczona dopiero, gdy
+kolejka wyjściowa ma miejsce, więc wolny klient dostaje rzadsze, scalone łaty
+i nie blokuje parsera. Wire używa stałych masek TerminalInputMode/TerminalCellFlag,
+RGBA `R<<24|G<<16|B<<8|A`, `column_span` 2 dla szerokiego znaku i 0 dla spacera.
+Kolory są końcowe: INVERSE i DIM są już w nich zastosowane i nie trafiają do flag.
+Ramka powyżej 512 KiB idzie fragmentami ≤64 KiB (SHA-256, ciągłe offsety, bez
+przeplatania, maks. 32 MiB). Każdy fragment ma sequence; klient zatwierdza kursor
+po zweryfikowanej instalacji. Reconnect zawsze dostaje pełną projekcję. Restart
+kończy strumień jawnym `aborted` z poleceniem ponownej subskrypcji.
+
+ReadHistory zwraca start, ramkę (lub fragmenty) i end dla maksymalnie 200 wierszy
+z `Session::history_page_bounded`. Token strony wiąże run, rewizję projekcji i offset
+(MAC tego uruchomienia serwera); nowy output daje `aborted` i wymaga świeżego
+odczytu. `lost_scrollback` oznacza wyczerpany limit 10 000 linii.
+
+Terminal i czat korzystają z tego samego właściciela budżetu wire: 4 MiB na
+urządzenie i 32 MiB łącznie. Terminal ma jeden element kolejki transportowej;
+oczekujące ACK/błędy też rezerwują bajty. Limit 64 odczytów obejmuje zarówno
+TerminalSession, jak i ReadHistory. Osobne 32 MiB na host ogranicza materiał
+projekcji: skopiowane komórki i tekst, zachowany baseline `Installed`, kopie
+Protobuf oraz kodowanie. Każdy klient mieści się również w tym globalnym limicie.
+Estymacja i rezerwacja poprzedzają kopiowanie pod tą samą blokadą siatki; znaki
+łączone są uwzględnione bez kopiowania ich tekstu. RAII przenosi opłatę baseline'u
+i zwalnia tymczasowe kopie po kodowaniu. Jeżeli poprzedni baseline uniemożliwia
+przyjęcie zamiennika, host zwalnia baseline i wysyła pełną ramkę zamiast łaty.
+Fragmenty powstają leniwie z jednego kodowania, bez wektora wszystkich fragmentów.
+
+Oczekiwanie na transport nie zatrzymuje input, resize, renew ani reakcji na zmianę
+uprawnień. Odebranie TERMINAL przy zachowanym READ zwalnia dzierżawę wejścia,
+ale pozostawia dozwolony odczyt. Pięć sekund bez postępu kończy odczyt
+z `resource_exhausted` i powodem ponownego odczytu/subskrypcji. Wynik końcowy omija pełną kolejkę: częściowa ramka
+nie kończy się pozornie poprawnym EOF. ReadHistory zwalnia workspace także wtedy,
+gdy transport przestał odpytywać stream; autoryzacja jest sprawdzana przed każdą
+porcją i co 500 ms podczas blokady. Oczekiwanie na zajętą siatkę ma limit 5 s.
+
+Regresje komponentowe obejmują wspólny budżet czatu/terminala przez drop i revoke,
+rezerwację dużych ramek i odzyskanie pamięci, input/resize przy nieczytającym
+odbiorcy oraz timeout historii. Test obciążenia komponentów używa tymczasowej
+bazy ze 100 000 elementów czatu, 8 strumieni syntetycznych po 100 delt/s
+po 1 KiB przez 3 s, 8 urządzeń/32 subskrypcji, rezerwacji chunków bulk
+i jednego nieczytającego urządzenia. Sprawdza
+ciągłość u pozostałych, granicę paginacji i odzyskanie po resync. To nie jest
+AC-30: LAN, natywny apply/render, 60 s rozgrzewki i 10 min pomiaru pozostają
+NOT RUN, podobnie jak kwalifikacja GUI i macOS/Windows/iOS/Android tej zmiany.
+
+Uprawnienia: odczyt i strumień wymagają READ dla kanonicznego roota terminala;
+input, resize, przejęcie, Open, Stop i Restart wymagają TERMINAL. Strumień
+co 5 s ponownie sprawdza certyfikat i grant, a zapis co najwyżej co 1 s. Open,
+Stop i Restart są trwałymi komendami (accepted → attempting → wynik) wykonywanymi
+przez zadanie, które przeżywa zerwane RPC. Stop i Restart wskazują run i czekają
+na potwierdzony cleanup. Terminal otwarty przez urządzenie
+(`Terminals::open_detached`) nie tworzy pane'a ani zmiany layoutu hosta. Należy
+do workspace'u: liczy się do Stop/usuwania worktree i limitu 64, kończy się przy
+zamknięciu projektu, `TerminalBridge::close` i Quit. Ma ID deterministyczne
+dla komendy, więc ponowione Open nie uruchamia drugiego procesu. Terminale pane'ów
+mają ID UUID nadawane widokowi na czas jego życia. Testy obejmują automat
+dzierżawy, projekcję, fragmenty, tokeny historii i deduplikację komend oraz
+izolowany proces `/bin/cat` w PTY dla backpressure, uprawnień i disconnect.
+Nie uruchamiano GUI, realnych providerów ani magazynu sekretów.
+
 ## Geometria i tło
 
 Siatka ma symetryczne marginesy poziome i pionowe. Prostokąty tła skrajnych

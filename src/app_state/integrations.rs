@@ -105,6 +105,11 @@ impl IntegrationsState {
             }),
         ];
     }
+    #[cfg(test)]
+    pub(crate) fn install_test_client(&mut self, client: SettingsClient) {
+        self.client = Some(client);
+        self.ready = true;
+    }
     pub fn initialize(&mut self, client: SettingsClient, cx: &mut Context<Self>) {
         self.client = Some(client.clone());
         self.write = Some(cx.spawn(async move |this, cx| {
@@ -713,22 +718,118 @@ impl IntegrationsState {
         operation: &'static str,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        self.save_config_committed(config, operation, None, None, None, cx)
+    }
+    /// Serializes with all desktop configuration writes and replies after durable commit.
+    pub(crate) fn save_config_committed(
+        &mut self,
+        config: Config,
+        operation: &'static str,
+        credential: Option<(String, String)>,
+        verify_account: Option<String>,
+        completion: Option<futures_channel::oneshot::Sender<Result<(), String>>>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         if self.busy || !self.ready || self.quitting {
             return Err("Integration configuration is busy.".into());
         }
         let client = self.client.clone().ok_or("Settings unavailable")?;
+        if !config.valid() {
+            return Err("Invalid integration configuration.".into());
+        }
+        let previous = self.config.clone();
+        let http = cx.http_client();
         self.busy = true;
         self.error = None;
         cx.notify();
         self.write = Some(cx.spawn(async move |this, cx| {
-            let result = client.save_integrations(config.clone()).await;
-            let _ = this.update(cx, |this, cx| {
+            let mut recovery = None;
+            let mut cleanup_warning = None;
+            let mut config = config;
+            let result = async {
+                if let Some(id) = verify_account {
+                    let account = config
+                        .accounts
+                        .iter()
+                        .find(|account| account.id == id)
+                        .cloned()
+                        .ok_or("Integration no longer exists.")?;
+                    let token = if let Some((_, value)) = &credential {
+                        value.clone()
+                    } else {
+                        let key = account.credential.clone();
+                        cx.background_executor()
+                            .spawn(async move { credentials::load(&key) })
+                            .await?
+                    };
+                    let login = canopy_desktop::integrations::client(http, &account, token)?
+                        .verify()
+                        .await?;
+                    config
+                        .accounts
+                        .iter_mut()
+                        .find(|account| account.id == id)
+                        .unwrap()
+                        .login = login;
+                }
+                if let Some((id, value)) = credential.clone() {
+                    let write_id = id.clone();
+                    if let Err(error) = cx
+                        .background_executor()
+                        .spawn(async move { credentials::store(&write_id, &value) })
+                        .await
+                    {
+                        let cleanup_id = id.clone();
+                        if cx
+                            .background_executor()
+                            .spawn(async move { credentials::remove(&cleanup_id) })
+                            .await
+                            .is_err()
+                        {
+                            let mut previous = previous.clone();
+                            previous.retired_credentials.push(id);
+                            let _ = client.save_integrations(previous.clone()).await;
+                            recovery = Some(previous);
+                        }
+                        return Err(error);
+                    }
+                }
+                if let Err(error) = client.save_integrations(config.clone()).await {
+                    if let Some((id, _)) = credential {
+                        // The old active credential is untouched; remove only this uncommitted value.
+                        let cleanup_id = id.clone();
+                        if cx
+                            .background_executor()
+                            .spawn(async move { credentials::remove(&cleanup_id) })
+                            .await
+                            .is_err()
+                        {
+                            let mut previous = previous;
+                            previous.retired_credentials.push(id);
+                            let _ = client.save_integrations(previous.clone()).await;
+                            recovery = Some(previous);
+                        }
+                    }
+                    return Err(error.to_string());
+                }
+                (config, cleanup_warning) = clean_retired(
+                    config.clone(),
+                    client.clone(),
+                    cx.background_executor().clone(),
+                )
+                .await;
+                Ok::<_, String>(())
+            }
+            .await;
+            let outcome = result.clone();
+            let published = this.update(cx, |this, cx| {
                 this.busy = false;
                 match result {
                     Ok(()) => {
                         let old_key = this.cache_key();
                         let old_target = this.target.clone();
                         this.config = config;
+                        this.error = cleanup_warning;
                         // Repository identity is already cached: switching Jira projects must not
                         // wait behind unrelated work on the libgit2 worker.
                         this.target = this
@@ -752,10 +853,22 @@ impl IntegrationsState {
                         }
                         this.resolve(cx);
                     }
-                    Err(e) => this.error = Some(format!("{operation} could not be saved: {e}")),
+                    Err(e) => {
+                        if let Some(recovery) = recovery {
+                            this.config = recovery;
+                        }
+                        this.error = Some(format!("{operation} could not be saved: {e}"));
+                    }
                 }
                 cx.notify();
             });
+            if let Some(completion) = completion {
+                let _ = completion.send(
+                    published
+                        .map_err(|_| "Integrations owner stopped.".to_owned())
+                        .and(outcome),
+                );
+            }
         }));
         Ok(())
     }

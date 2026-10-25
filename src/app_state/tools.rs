@@ -7,6 +7,79 @@ use canopy_desktop::{
 };
 use gpui_kit::*;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
+/// Host credential boundary; tests inject memory storage and never access the OS vault.
+pub(crate) trait ToolCredentials: Send + Sync {
+    fn store(&self, id: &str, value: &str) -> Result<(), String>;
+    fn remove(&self, id: &str) -> Result<(), String>;
+}
+struct PlatformToolCredentials;
+impl ToolCredentials for PlatformToolCredentials {
+    fn store(&self, id: &str, value: &str) -> Result<(), String> {
+        canopy_desktop::terminal::credentials::store(id, value)
+    }
+    fn remove(&self, id: &str) -> Result<(), String> {
+        canopy_desktop::terminal::credentials::remove(id)
+    }
+}
+fn secret_chunks(mut value: &str, writes: &mut Vec<(String, String)>) -> Vec<String> {
+    let mut ids = Vec::new();
+    while !value.is_empty() {
+        let mut end = value.len().min(2560);
+        while !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        writes.push((id.clone(), value[..end].to_owned()));
+        ids.push(id);
+        value = &value[end..];
+    }
+    ids
+}
+/// Only edited/new local values move to the vault; untouched legacy records remain readable.
+fn protect_edits(
+    catalog: &mut ToolCatalog,
+    previous: &ToolCatalog,
+    writes: &mut Vec<(String, String)>,
+) -> Result<(), String> {
+    for profile in catalog.tools.iter_mut().flat_map(|t| &mut t.profiles) {
+        let old = previous
+            .tools
+            .iter()
+            .flat_map(|t| &t.profiles)
+            .find(|p| p.id == profile.id);
+        let settings = &mut profile.settings;
+        for (key, value) in settings.custom_env.clone() {
+            if old.and_then(|p| p.settings.custom_env.get(&key)) != Some(&value) {
+                if value.len() > 2560 {
+                    return Err("Environment values must be at most 2,560 bytes.".into());
+                }
+                settings
+                    .env_refs
+                    .insert(key.clone(), secret_chunks(&value, writes));
+                settings.custom_env.remove(&key);
+            }
+        }
+        for (value, refs, old_value) in [
+            (
+                &mut settings.append_system_prompt,
+                &mut settings.prompt_ref,
+                old.map(|p| p.settings.append_system_prompt.as_str())
+                    .unwrap_or(""),
+            ),
+            (
+                &mut settings.settings_json,
+                &mut settings.settings_json_ref,
+                old.map(|p| p.settings.settings_json.as_str()).unwrap_or(""),
+            ),
+        ] {
+            if value != old_value && !value.is_empty() {
+                *refs = Some(secret_chunks(value, writes));
+                value.clear();
+            }
+        }
+    }
+    Ok(())
+}
 #[derive(Clone)]
 pub struct WorktreeAgent {
     pub tool: String,
@@ -19,6 +92,7 @@ pub struct ToolsState {
     pub error: Option<String>,
     pub environment: Option<Result<Arc<ShellEnvironment>, String>>,
     pub availability: HashMap<String, Result<PathBuf, String>>,
+    credentials: Arc<dyn ToolCredentials>,
     client: Option<SettingsClient>,
     task: Option<Task<()>>,
     probe: Option<Task<()>>,
@@ -97,6 +171,7 @@ impl ToolsState {
             error: None,
             environment: None,
             availability: HashMap::new(),
+            credentials: Arc::new(PlatformToolCredentials),
             client: None,
             task: None,
             probe: None,
@@ -104,6 +179,17 @@ impl ToolsState {
             refresh_pending: false,
             quitting: false,
         }
+    }
+    #[cfg(test)]
+    pub(crate) fn install_test_client(&mut self, client: SettingsClient) {
+        self.client = Some(client);
+        self.ready = true;
+        // Tests exercise commits without probing or launching native executables.
+        self.discovering = true;
+    }
+    #[cfg(test)]
+    pub(crate) fn use_test_credentials(&mut self, credentials: Arc<dyn ToolCredentials>) {
+        self.credentials = credentials;
     }
     pub fn initialize(&mut self, client: SettingsClient, reopen: bool, cx: &mut Context<Self>) {
         if self.quitting {
@@ -196,18 +282,46 @@ impl ToolsState {
             });
         }));
     }
+    /// A desktop editor must not overwrite a newer remote/window edit of the same tool.
+    pub(crate) fn save_tool_edit(
+        &mut self,
+        expected: Option<&canopy_desktop::state::tools::ToolDefinition>,
+        draft: canopy_desktop::state::tools::ToolDefinition,
+        keys: HashMap<String, String>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.catalog.get(&draft.id) != expected {
+            return Err("This tool changed elsewhere. Select it again before saving.".into());
+        }
+        let mut catalog = self.catalog.clone();
+        catalog.upsert(draft)?;
+        self.save_with_keys(catalog, keys, cx)
+    }
     pub fn save(&mut self, catalog: ToolCatalog, cx: &mut Context<Self>) -> Result<(), String> {
         self.save_with_keys(catalog, HashMap::new(), cx)
     }
     pub fn save_with_keys(
         &mut self,
+        catalog: ToolCatalog,
+        keys: HashMap<String, String>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.save_with_completion(catalog, keys, Vec::new(), None, cx)
+    }
+    /// Uses the same reservation as desktop edits; acknowledges only the committed result.
+    pub(crate) fn save_with_completion(
+        &mut self,
         mut catalog: ToolCatalog,
         keys: HashMap<String, String>,
+        mut pending: Vec<(String, String)>,
+        completion: Option<futures_channel::oneshot::Sender<Result<(), String>>>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         if !self.ready || self.saving || self.quitting {
             return Err("Tools are busy. Try again shortly.".into());
         }
+        catalog.validate()?;
+        protect_edits(&mut catalog, &self.catalog, &mut pending)?;
         for id in &self.catalog.retired_credentials {
             if !catalog.retired_credentials.contains(id) {
                 catalog.retired_credentials.push(id.clone());
@@ -222,7 +336,7 @@ impl ToolsState {
         }
         let client = self.client.clone().ok_or("Tools storage is unavailable.")?;
         // New immutable references make a failed SQLite write leave the old key intact.
-        let mut pending = Vec::new();
+
         for tool in &mut catalog.tools {
             for profile in &mut tool.profiles {
                 if let Some(value) = keys.get(&profile.id) {
@@ -239,15 +353,13 @@ impl ToolsState {
         let active_refs: std::collections::HashSet<_> = catalog
             .tools
             .iter()
-            .flat_map(|tool| &tool.profiles)
-            .filter_map(|profile| profile.settings.api_key_ref.as_deref())
+            .flat_map(|tool| tool.credential_refs())
             .collect();
         let old_refs: Vec<_> = self
             .catalog
             .tools
             .iter()
-            .flat_map(|t| &t.profiles)
-            .filter_map(|p| p.settings.api_key_ref.clone())
+            .flat_map(|t| t.credential_refs().map(str::to_owned))
             .collect();
         for id in old_refs
             .into_iter()
@@ -258,24 +370,30 @@ impl ToolsState {
             }
         }
         catalog.validate()?;
+        if pending.iter().any(|(id, value)| {
+            uuid::Uuid::parse_str(id).is_err() || value.len() > 2560 || value.contains('\0')
+        }) {
+            return Err("Invalid active secret write.".into());
+        }
         self.saving = true;
         self.error = None;
         cx.notify();
         let previous = self.catalog.clone();
+        let credentials = self.credentials.clone();
         self.task = Some(cx.spawn(async move |this, cx| {
+            let writer = credentials.clone();
             let written = cx
                 .background_executor()
                 .spawn(async move {
                     let mut written: Vec<String> = Vec::new();
                     for (id, value) in pending {
-                        if let Err(error) =
-                            canopy_desktop::terminal::credentials::store(&id, &value)
-                        {
+                        if let Err(error) = writer.store(&id, &value) {
+                            // A backend may fail after creating the item; include that ID
+                            // in cleanup as well as the previously confirmed writes.
+                            written.push(id);
                             let cleanup_failed = written
                                 .into_iter()
-                                .filter(|id| {
-                                    canopy_desktop::terminal::credentials::remove(id).is_err()
-                                })
+                                .filter(|id| writer.remove(id).is_err())
                                 .collect();
                             return Err((error, cleanup_failed));
                         }
@@ -296,14 +414,13 @@ impl ToolsState {
                         .await
                         .map_err(|e| e.to_string());
                     if let Err(error) = saved {
+                        let writer = credentials.clone();
                         let cleanup_failed = cx
                             .background_executor()
                             .spawn(async move {
                                 written
                                     .into_iter()
-                                    .filter(|id| {
-                                        canopy_desktop::terminal::credentials::remove(id).is_err()
-                                    })
+                                    .filter(|id| writer.remove(id).is_err())
                                     .collect()
                             })
                             .await;
@@ -312,14 +429,13 @@ impl ToolsState {
                         Err((format!("{error}{warning}"), recovery))
                     } else {
                         let retired = catalog.retired_credentials.clone();
+                        let writer = credentials.clone();
                         let failed = cx
                             .background_executor()
                             .spawn(async move {
                                 retired
                                     .into_iter()
-                                    .filter(|id| {
-                                        canopy_desktop::terminal::credentials::remove(id).is_err()
-                                    })
+                                    .filter(|id| writer.remove(id).is_err())
                                     .collect::<Vec<_>>()
                             })
                             .await;
@@ -327,7 +443,11 @@ impl ToolsState {
                     }
                 }
             };
-            let _ = this.update(cx, |this, cx| {
+            let outcome = result
+                .as_ref()
+                .map(|_| ())
+                .map_err(|(error, _)| error.clone());
+            let published = this.update(cx, |this, cx| {
                 this.saving = false;
                 match result {
                     Ok((catalog, cleanup_warning)) => {
@@ -342,6 +462,13 @@ impl ToolsState {
                 }
                 cx.notify();
             });
+            if let Some(completion) = completion {
+                let _ = completion.send(
+                    published
+                        .map_err(|_| "Tools owner stopped.".to_owned())
+                        .and(outcome),
+                );
+            }
         }));
         Ok(())
     }

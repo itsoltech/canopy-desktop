@@ -3,7 +3,10 @@ mod contract;
 mod database;
 mod worker;
 pub use contract::*;
-pub use database::{Access, ChatHistoryBatch, ChatHistoryRows, ClosedChatRow, ImportReport};
+pub use database::{
+    Access, ChatHistoryBatch, ChatHistoryRows, ClosedChatRow, HistoryCheckpoint,
+    HistoryCheckpointItem, ImportReport, RemoteHistoryPage, RemoteHistoryRequest,
+};
 use std::fmt;
 pub use worker::SettingsClient;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -20,6 +23,15 @@ pub enum Error {
     InvalidIntegrations,
     InvalidTaskDrafts,
     InvalidChatHistory,
+    InvalidRuntimeState,
+    RuntimeInUse,
+    NotAuthorized,
+    CommandConflict,
+    CommandRetired,
+    OperationPending,
+    ResourceConflict,
+    ResourceLimit,
+    NotFound,
     UnsupportedKey,
     InvalidValue(PreferenceKey),
     InvalidToolId,
@@ -49,6 +61,28 @@ impl fmt::Display for Error {
                 "Task drafts are invalid or from a newer version; existing data was preserved."
             ),
             Self::InvalidChatHistory => write!(f, "Chat history is invalid or too large"),
+            Self::InvalidRuntimeState => {
+                write!(f, "Runtime state is invalid; existing data was preserved")
+            }
+            Self::RuntimeInUse => {
+                write!(f, "This Canopy data directory already has an active host")
+            }
+            Self::NotAuthorized => write!(f, "This device is not authorized for the operation"),
+            Self::CommandConflict => write!(
+                f,
+                "The command identifier was already used with different arguments"
+            ),
+            Self::CommandRetired => write!(f, "The command belongs to a closed command epoch"),
+            Self::OperationPending => write!(
+                f,
+                "The operation is still pending or requires reconciliation"
+            ),
+            Self::ResourceConflict => write!(f, "The resource changed; refresh it before retrying"),
+            Self::ResourceLimit => write!(
+                f,
+                "The resource limit was reached; free space before retrying"
+            ),
+            Self::NotFound => write!(f, "The requested resource does not exist"),
             Self::InvalidIntegrations => {
                 write!(f, "Unsupported or invalid integrations configuration")
             }

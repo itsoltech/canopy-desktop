@@ -29,6 +29,8 @@ pub struct ProjectsState {
     enabled: bool,
     last_observed: Option<SessionSnapshot>,
     generation: u64,
+    committed_generation: u64,
+    commit_waiters: Vec<(u64, futures_channel::oneshot::Sender<Result<(), String>>)>,
     writing: bool,
     pub(super) writer: Option<Task<()>>,
     observers: Vec<Subscription>,
@@ -154,6 +156,12 @@ impl ProjectsState {
         cx.notify();
     }
 
+    #[cfg(test)]
+    pub(crate) fn install_test_client(&mut self, client: SettingsClient) {
+        self.client = Some(client);
+        self.ready = true;
+        self.enabled = true;
+    }
     pub fn new() -> Self {
         Self {
             catalog: Projects::default(),
@@ -169,6 +177,8 @@ impl ProjectsState {
             enabled: false,
             last_observed: None,
             generation: 0,
+            committed_generation: 0,
+            commit_waiters: Vec::new(),
             writing: false,
             writer: None,
             observers: vec![],
@@ -370,8 +380,19 @@ impl ProjectsState {
                 let result = client.save_session(snapshot).await;
                 let again = this
                     .update(cx, |this, cx| {
+                        let outcome = result.as_ref().map(|_| ()).map_err(ToString::to_string);
+                        let mut pending = Vec::new();
+                        for (wanted, sender) in std::mem::take(&mut this.commit_waiters) {
+                            if wanted <= generation || outcome.is_err() {
+                                let _ = sender.send(outcome.clone());
+                            } else {
+                                pending.push((wanted, sender));
+                            }
+                        }
+                        this.commit_waiters = pending;
                         match result {
                             Ok(()) => {
+                                this.committed_generation = generation;
                                 if this.generation != generation && !this.quitting {
                                     return true;
                                 }
@@ -815,13 +836,19 @@ impl ProjectsState {
             .collect();
         let target = cx.entity();
         cx.defer(move |cx| {
-            super::Editors::guard_closing(
+            let chats = cx.global::<AppState>().chats.read(cx).detached_in(&ids);
+            super::Editors::guard_closing_chats(
                 panes.clone(),
+                chats.clone(),
                 {
                     let target = target.clone();
                     let ids = ids.clone();
                     let panes = panes.clone();
-                    move |cx| target.update(cx, |state, cx| state.close_confirmed(&ids, &panes, cx))
+                    move |cx| {
+                        target.update(cx, |state, cx| {
+                            state.close_confirmed(&ids, &panes, &chats, cx)
+                        })
+                    }
                 },
                 cx,
             )
@@ -859,19 +886,110 @@ impl ProjectsState {
             .collect();
         let target = cx.entity();
         cx.defer(move |cx| {
-            super::Editors::guard_closing(
+            let chats = cx.global::<AppState>().chats.read(cx).detached_in(&[id]);
+            super::Editors::guard_closing_chats(
                 panes.clone(),
+                chats.clone(),
                 {
                     let panes = panes.clone();
                     move |cx| {
-                        target.update(cx, |state, cx| state.close_confirmed(&[id], &panes, cx))
+                        target.update(cx, |state, cx| {
+                            state.close_confirmed(&[id], &panes, &chats, cx)
+                        })
                     }
                 },
                 cx,
             )
         });
     }
-    fn close_confirmed(&mut self, ids: &[WorkspaceId], panes: &[PaneId], cx: &mut Context<Self>) {
+    /// Opens `folder` (a canonical checkout) as a project for a remote client, without
+    /// changing which project the host shows.
+    pub(crate) fn open_without_selecting(
+        &mut self,
+        folder: std::path::PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceId, String> {
+        if !self.available() {
+            return Err("Projects are busy; retry.".into());
+        }
+        let mut next = self.catalog.clone();
+        let active = next.active;
+        let id = next.open(folder);
+        next.active = active;
+        self.save(next, cx);
+        match self.catalog.items.iter().any(|p| p.workspace == id) {
+            true => Ok(id),
+            false => Err(self
+                .error
+                .clone()
+                .unwrap_or_else(|| "The folder couldn't be opened.".into())),
+        }
+    }
+    /// Barrier for the current catalog/layout generation, using its existing writer.
+    pub(crate) fn committed(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> futures_channel::oneshot::Receiver<Result<(), String>> {
+        let (sender, receiver) = futures_channel::oneshot::channel();
+        self.changed(cx);
+        if self.committed_generation >= self.generation && self.client.is_some() {
+            let _ = sender.send(Ok(()));
+        } else if self.writing {
+            self.commit_waiters.push((self.generation, sender));
+        } else {
+            let _ = sender.send(Err("Project persistence is unavailable.".into()));
+        }
+        receiver
+    }
+    /// Catalog-only task worktree insertion; keeps the desktop selection.
+    pub(crate) fn open_worktree_without_selecting(
+        &mut self,
+        repository: std::path::PathBuf,
+        created: canopy_desktop::git::CreatedWorktree,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceId, String> {
+        if !self.available() {
+            return Err("Projects are busy.".into());
+        }
+        let mut next = self.catalog.clone();
+        let active = next.active;
+        let id = next.open_worktree_with_base(repository, created.path, created.base);
+        next.active = active;
+        self.save(next, cx);
+        if self.catalog.items.iter().any(|p| p.workspace == id) {
+            Ok(id)
+        } else {
+            Err("Worktree catalog could not be published.".into())
+        }
+    }
+    /// Closes a project whose checkout Git removed after a remote preflight listed what
+    /// closing loses: no second prompt, the same close as a confirmed one.
+    pub(crate) fn close_removed(
+        &mut self,
+        id: WorkspaceId,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if !self.available() {
+            return Err("Projects are busy; close the removed worktree's project again.".into());
+        }
+        let panes: Vec<_> = self
+            .runtime_workspaces(cx)
+            .iter()
+            .filter(|w| w.id == id)
+            .flat_map(|w| w.all_panes())
+            .map(|p| p.id)
+            .collect();
+        let chats = cx.global::<AppState>().chats.read(cx).detached_in(&[id]);
+        self.close_confirmed(&[id], &panes, &chats, cx);
+        Ok(())
+    }
+    fn close_confirmed(
+        &mut self,
+        ids: &[WorkspaceId],
+        panes: &[PaneId],
+        chats: &[String],
+        cx: &mut Context<Self>,
+    ) {
         if !self.available() {
             return;
         }
@@ -882,7 +1000,10 @@ impl ProjectsState {
             .flat_map(|w| w.all_panes())
             .map(|p| p.id)
             .collect();
-        if current != panes.iter().copied().collect() {
+        // Chats created remotely meanwhile were not part of the confirmation.
+        if current != panes.iter().copied().collect()
+            || cx.global::<AppState>().chats.read(cx).detached_in(ids) != chats
+        {
             self.error =
                 Some("The project's tabs changed. Close the project again to review them.".into());
             cx.notify();

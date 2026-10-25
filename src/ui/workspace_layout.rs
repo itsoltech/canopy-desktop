@@ -190,7 +190,8 @@ impl Workspace {
                     ));
                 }
                 menu = menu.separator();
-                for tool in tools.tools.iter().filter(|t| t.enabled) {
+                // ACP agents open as chats, never as terminals.
+                for tool in tools.tools.iter().filter(|t| t.enabled && !t.acp) {
                     let profiles: Vec<_> = if tool.profiles.is_empty() {
                         vec![None]
                     } else {

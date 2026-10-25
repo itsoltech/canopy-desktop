@@ -75,6 +75,7 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 | `GitState` + `git/service.rs` | cache metadanych, worker libgit2, watchery, operacje worktree |
 | `FilesState` / `Editors` | cache rozwiniętych katalogów aktywnego worktree, runtime edytorów po PaneId, zapis i ochrona niezapisanych zmian |
 | `ChangesState` / `Diffs` | aktywny snapshot staged/unstaged, operacje i commit, runtime widoków diffu po PaneId |
+| `Chats` | jeden `ChatRuntime` na UUID czatu (także bez pane'a i okna), PaneId tylko jako lokalny klucz widoku, guardy, cleanup i komendy zdalne |
 | `IntegrationsState` | konta/Keychain, odczyt Tasks, cache i trwałe powiązania worktree z zadaniami |
 | `AgentsState` | runtime sesji agentów, odbiornik hooków, powiązanie run → pane, dane inspektora/notcha |
 | encje widoków | hover, motion, drafty formularzy, focus, uchwyty okien i subskrypcje |
@@ -430,11 +431,12 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 - Wiersze listy synchronizuj wyłącznie przez `Transcript::take_changes`; nie przebudowuj
   całej listy przy każdej delcie. Render nie parsuje markdown ani protokołu.
 - Każda wiadomość do Claude ma jawny `priority` (`later` = kolejna tura, `next` = Steer).
-  Kolejka żyje w Canopy i wysyła się po `session_state_changed idle`; Stop ją wstrzymuje (Resume w tacce najpierw wysyła `RESUME_PROMPT`, potem kolejkę),
-  zamknięcie z niewysłaną kolejką pyta o zgodę. Nie wysyłaj wiadomości bez priorytetu.
+  Kolejka jest trwałym stanem hosta (`runtime/queue.rs`, docs/chat.md): `attempting` przed stdin, doręczenie tylko z dowodu backendu,
+  `delivery_unknown` blokuje do decyzji użytkownika. Stop ją wstrzymuje (Resume w tacce najpierw wysyła `RESUME_PROMPT`, potem kolejkę),
+  po restarcie aplikacji wraca wstrzymana. Usunięcie czatu z kolejką pyta o zgodę. Nie wysyłaj wiadomości bez priorytetu.
 - Delete chat usuwa wyłącznie wskazany pane; zamknięcie taba/projektu obejmuje jego czaty. Gdy historia jest zapisana, nieznana lub agent pracuje,
   pyta o usunięcie nazwanej rozmowy (`Editors::guard_closing` → `Chats::guard(…, deleting)`; mówi też o pracującym agencie,
-  kolejce i poleceniach `!`). Quit niczego nie usuwa i pyta tylko o kolejkę. Nowe ścieżki zamykania czatu idą
+  kolejce i poleceniach `!`). Quit niczego nie usuwa i nie pyta o kolejkę (zostaje w bazie). Nowe ścieżki zamykania czatu idą
   przez `guard_closing`.
 - Praca subagenta nie trafia do głównej rozmowy: tam jest karta, a jego rozmowa otwiera się
   w tym samym pane'ie (tylko do odczytu). Zgody subagenta zostają widoczne w głównej rozmowie.

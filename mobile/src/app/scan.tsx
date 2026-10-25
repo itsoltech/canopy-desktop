@@ -1,20 +1,26 @@
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { useRouter } from 'expo-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { Spacing } from '@/constants/theme'
-import { parsePairingUrl } from '@/lib/qr/parse-pairing-url'
-import { SavedInstancesStorage } from '@/lib/storage/saved-instances'
+import { PairingClient } from '@/lib/remote/grpc/pairing'
+import { nativeRemote } from '@/lib/remote/grpc/native'
+import { remoteHosts } from '@/lib/remote/grpc/hosts'
+import { uniqueId } from '@/lib/remote/grpc/commands'
 
 export default function ScanScreen(): React.ReactElement {
   const router = useRouter()
   const [permission, requestPermission] = useCameraPermissions()
   const scannedRef = useRef(false)
   const [processing, setProcessing] = useState(false)
+  const [status, setStatus] = useState('Point your camera at the QR on your Canopy desktop')
+  const client = useRef<PairingClient | undefined>(undefined)
+  const abort = useRef(new AbortController())
+  useEffect(() => () => { abort.current.abort(); void client.current?.dispose() }, [])
 
   if (Platform.OS === 'web') {
     return (
@@ -75,30 +81,30 @@ export default function ScanScreen(): React.ReactElement {
     scannedRef.current = true
     setProcessing(true)
 
-    const parsed = parsePairingUrl(data)
-    if (!parsed) {
-      Alert.alert('Invalid QR', 'This is not a Canopy pairing code.', [
-        {
-          text: 'OK',
-          onPress: () => {
-            scannedRef.current = false
-            setProcessing(false)
-          },
-        },
-      ])
-      return
-    }
-
     try {
-      await SavedInstancesStorage.add({
-        nickname: parsed.hostname,
-        hostname: parsed.hostname,
-        lanIp: parsed.lanIp,
-        port: parsed.port,
-        token: parsed.token,
-      })
+      const native = nativeRemote()
+      const pending = await native.readState('pending-pairing')
+      const saved = pending ? JSON.parse(pending) : null
+      const ref = saved ? saved.ref as string : uniqueId()
+      await client.current?.dispose()
+      client.current = saved ? await PairingClient.restore(native, ref) : await PairingClient.begin(native, ref, data, 'Canopy mobile')
+      if (!saved) await native.writeState('pending-pairing', JSON.stringify({ ref }))
+      while (!abort.current.signal.aborted) {
+        const result = await client.current.poll(abort.current.signal)
+        setStatus(`Pairing: ${result.state}. Approve this device on the host.`)
+        if (result.state === 'approved') {
+          await remoteHosts().add(await client.current.complete(result))
+          await native.writeState('pending-pairing', 'null')
+          await client.current.cancel()
+          break
+        }
+        if (['denied', 'expired', 'rejected'].includes(result.state)) { await native.writeState('pending-pairing', 'null'); await client.current.cancel(); throw Error(`Pairing ${result.state}`) }
+        await new Promise<void>(resolve => { const done = () => { clearTimeout(timer); abort.current.signal.removeEventListener('abort', done); resolve() }; const timer = setTimeout(done, 1500); abort.current.signal.addEventListener('abort', done, { once: true }) })
+      }
+      if (abort.current.signal.aborted) return
       router.back()
     } catch (e) {
+      if (abort.current.signal.aborted) return
       Alert.alert('Could not save', e instanceof Error ? e.message : String(e), [
         {
           text: 'OK',
@@ -122,7 +128,7 @@ export default function ScanScreen(): React.ReactElement {
       <SafeAreaView style={styles.overlay} edges={['top', 'bottom']}>
         <View style={styles.instructions}>
           <ThemedView type="backgroundElement" style={styles.instructionsPill}>
-            <ThemedText type="small">Point your camera at the QR on your Canopy desktop</ThemedText>
+            <ThemedText type="small">{status}</ThemedText>
           </ThemedView>
         </View>
 
@@ -134,6 +140,7 @@ export default function ScanScreen(): React.ReactElement {
         </View>
 
         <View style={styles.footer}>
+          <Pressable accessibilityRole="button" onPress={() => { void handleScan('') }} style={styles.cancelButton}><ThemedView type="backgroundElement" style={styles.cancelInner}><ThemedText type="smallBold">Continue pending pairing</ThemedText></ThemedView></Pressable>
           <Pressable
             onPress={() => router.back()}
             style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}

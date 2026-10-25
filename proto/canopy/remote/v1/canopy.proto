@@ -1,0 +1,588 @@
+syntax = "proto3";
+package canopy.remote.v1;
+import "google/protobuf/struct.proto";
+
+// Unreleased contract. Field numbers become permanent at publication. Native
+// clients use gRPC; this schema does not define a generic JSON command endpoint.
+service HostService {
+  rpc GetInfo(HostRequest) returns (HostInfo);
+  // Process-local monotonic timings, without prompts, paths or credentials.
+  // Requires ADMIN on the private root.
+  rpc ReadDiagnostics(Empty) returns (DiagnosticsSnapshot);
+  rpc WatchHost(HostRequest) returns (stream HostStatus);
+  rpc ListDevices(DeviceListRequest) returns (Devices);
+  rpc RevokeDevice(RevokeDeviceRequest) returns (CommandReceipt);
+  rpc GetCommand(GetCommandRequest) returns (CommandReceipt);
+  rpc CloseCommandEpoch(CloseCommandEpochRequest) returns (CommandEpoch);
+  // Explicit user review archives an uncertain outcome. It does not claim that
+  // its external effect succeeded, failed or was undone, and never retries it.
+  rpc ResolveCommand(GetCommandRequest) returns (CommandReceipt);
+}
+// The only service available without an existing device credential. TLS host
+// identity is pinned before calling it. Local approval is required on the host.
+service EnrollmentService {
+  rpc RequestPairing(PairingRequest) returns (PairingStatus);
+  rpc GetPairingStatus(PairingStatusRequest) returns (PairingStatus);
+}
+service CatalogService {
+  rpc ReadCatalog(HostRequest) returns (stream SummaryEvent);
+  rpc ListAgents(AgentDiscoveryRequest) returns (AgentDiscovery);
+  rpc GetAgentCatalog(AgentCatalogRequest) returns (AgentCatalog);
+  rpc ListPullRequests(PullRequestsRequest) returns (PullRequests);
+  rpc ReadChatPage(ChatPageRequest) returns (stream ArtifactChunk);
+  rpc ListResources(HostRequest) returns (Catalog);
+  rpc WatchSummaries(SubscribeRequest) returns (stream SummaryEvent);
+  rpc CreateChat(CreateChatRequest) returns (CommandReceipt);
+  rpc RenameResource(RenameResourceRequest) returns (CommandReceipt);
+  rpc PreflightClose(PreflightCloseRequest) returns (ClosePlan);
+  rpc CloseResource(CloseResourceRequest) returns (CommandReceipt);
+  rpc OpenProject(OpenProjectRequest) returns (CommandReceipt);
+}
+service ChatService {
+  rpc SubscribeChat(SubscribeChatRequest) returns (stream ChatEvent);
+  rpc ReadHistoryPage(HistoryPageRequest) returns (stream HistoryPageEvent);
+  rpc SearchHistory(SearchHistoryRequest) returns (HistoryMatches);
+  rpc GetAgentOptions(ChatRequest) returns (AgentOptions);
+  rpc SendMessage(SendMessageRequest) returns (CommandReceipt);
+  rpc ChangeQueue(ChangeQueueRequest) returns (CommandReceipt);
+  rpc Steer(SteerRequest) returns (CommandReceipt);
+  rpc Interrupt(ChatCommandRequest) returns (CommandReceipt);
+  rpc Restart(ChatCommandRequest) returns (CommandReceipt);
+  rpc RespondDecision(RespondDecisionRequest) returns (CommandReceipt);
+  rpc SetAgentOption(SetAgentOptionRequest) returns (CommandReceipt);
+  rpc ForkChat(ForkChatRequest) returns (CommandReceipt);
+  rpc SetGoal(SetGoalRequest) returns (CommandReceipt);
+  rpc StopBackground(StopBackgroundRequest) returns (CommandReceipt);
+  rpc PreviewEdit(PreviewEditRequest) returns (EditPreview);
+  rpc EditMessage(EditMessageRequest) returns (CommandReceipt);
+  rpc RunShell(RunShellRequest) returns (CommandReceipt);
+  rpc StopShell(StopShellRequest) returns (CommandReceipt);
+}
+service FilesService {
+  rpc ListDirectory(ListDirectoryRequest) returns (DirectoryEntries);
+  rpc SearchFiles(SearchFilesRequest) returns (DirectoryEntries);
+  rpc ReadFile(ReadFileRequest) returns (stream FileChunk);
+  rpc SaveFile(SaveFileRequest) returns (CommandReceipt);
+  rpc CreateFile(CreateFileRequest) returns (CommandReceipt);
+  rpc SetDirtyPresence(DirtyPresenceRequest) returns (CommandReceipt);
+}
+service GitService {
+  rpc Preflight(GitPreflightRequest) returns (GitPlan);
+  rpc GetStatus(WorkspaceRequest) returns (GitStatus);
+  rpc ReadDiff(DiffRequest) returns (stream DiffChunk);
+  rpc ReadHistory(GitHistoryRequest) returns (GitHistory);
+  rpc ListRefs(WorkspaceRequest) returns (GitRefs);
+  rpc Stage(GitPathsRequest) returns (CommandReceipt);
+  rpc Unstage(GitPathsRequest) returns (CommandReceipt);
+  rpc Discard(GitPathsRequest) returns (CommandReceipt);
+  rpc Commit(CommitRequest) returns (CommandReceipt);
+  rpc Pull(GitNetworkRequest) returns (CommandReceipt);
+  rpc Push(GitNetworkRequest) returns (CommandReceipt);
+  rpc ChangeWorktree(WorktreeRequest) returns (CommandReceipt);
+}
+service TerminalService {
+  rpc ReadHistory(TerminalHistoryRequest) returns (stream TerminalHistoryEvent);
+  rpc OpenTerminal(OpenTerminalRequest) returns (CommandReceipt);
+  rpc AcquireInput(AcquireInputRequest) returns (InputLease);
+  rpc ReleaseInput(ReleaseInputRequest) returns (InputLease);
+  rpc TerminalSession(stream TerminalClientEvent) returns (stream TerminalServerEvent);
+  rpc StopTerminal(TerminalCommandRequest) returns (CommandReceipt);
+  rpc RestartTerminal(TerminalCommandRequest) returns (CommandReceipt);
+}
+service ArtifactsService {
+  rpc BeginUpload(BeginUploadRequest) returns (UploadStatus);
+  rpc PutChunk(PutChunkRequest) returns (UploadStatus);
+  rpc GetUpload(GetUploadRequest) returns (UploadStatus);
+  rpc FinishUpload(FinishUploadRequest) returns (CommandReceipt);
+  rpc CancelUpload(CancelUploadRequest) returns (CommandReceipt);
+  rpc Download(DownloadRequest) returns (stream ArtifactChunk);
+}
+service SettingsService {
+  rpc GetSettings(HostRequest) returns (HostSettings);
+  rpc UpdatePreferences(UpdatePreferencesRequest) returns (CommandReceipt);
+  rpc SaveAgentDefinition(SaveAgentDefinitionRequest) returns (CommandReceipt);
+  rpc RemoveAgentDefinition(RemoveAgentDefinitionRequest) returns (CommandReceipt);
+  rpc SaveProfile(SaveProfileRequest) returns (CommandReceipt);
+  rpc RemoveProfile(RemoveProfileRequest) returns (CommandReceipt);
+  rpc SaveIntegration(SaveIntegrationRequest) returns (CommandReceipt);
+  rpc RemoveIntegration(RemoveIntegrationRequest) returns (CommandReceipt);
+}
+service TasksService {
+  rpc ListIntegrations(TaskIntegrationsRequest) returns (TaskIntegrations);
+  rpc ListProjects(TaskProjectsRequest) returns (TaskChoicePage);
+  rpc GetSchema(TaskSchemaRequest) returns (TaskSchema);
+  rpc ReadOptions(TaskOptionsRequest) returns (TaskChoicePage);
+  rpc ReadComments(TaskCommentsRequest) returns (TaskCommentPage);
+  rpc ApplyMutation(TaskMutationRequest) returns (CommandReceipt);
+  rpc ReadAttachment(TaskAttachmentRequest) returns (stream ArtifactChunk);
+  rpc SaveFilter(SaveTaskFilterRequest) returns (CommandReceipt);
+  rpc RemoveFilter(RemoveTaskFilterRequest) returns (CommandReceipt);
+  rpc QueryTasks(QueryTasksRequest) returns (TaskPage);
+  rpc GetTask(GetTaskRequest) returns (Task);
+  rpc UpdateTask(UpdateTaskRequest) returns (CommandReceipt);
+  rpc TaskToWorktree(TaskToWorktreeRequest) returns (CommandReceipt);
+}
+
+message Empty {}
+message StageSummary {
+  string stage = 1; uint64 count = 2; uint64 total_us = 3;
+  uint64 max_us = 4; uint64 p95_upper_us = 5;
+}
+message TimingRecord {
+  uint64 sequence = 1; string host_id = 2; string resource_id = 3;
+  string command_id = 4; uint64 generation = 5; string stage = 6;
+  uint64 duration_us = 7; string state = 8; string error_code = 9;
+  string device_id = 10; uint64 command_epoch = 11;
+}
+message DiagnosticsSnapshot {
+  uint32 schema_version = 1; string process_instance_id = 2;
+  repeated StageSummary summaries = 3; repeated TimingRecord records = 4;
+  uint64 dropped_records = 5; uint64 rejected_keys = 6;
+}
+message HostRequest { string host_id = 1; }
+message CommandMeta {
+  string host_id = 1;
+  string command_id = 2;
+  uint64 command_epoch = 3;
+  // Only resource-specific revisions. Send never requires transcript revision.
+  optional uint64 expected_revision = 4;
+}
+message Cursor { string runtime_epoch = 1; string stream_id = 2; uint64 sequence = 3; }
+message SubscribeRequest { string host_id = 1; optional Cursor since = 2; }
+message HostInfo {
+  string host_id = 1; string application_version = 2; uint32 protocol_version = 3;
+  repeated Capability capabilities = 4; Limits limits = 5; uint64 command_epoch = 6;
+}
+message Capability { string operation = 1; bool supported = 2; string reason = 3; }
+message Limits {
+  uint64 control_bytes = 1; uint64 chunk_bytes = 2; uint64 client_queue_bytes = 3;
+  uint64 history_page_bytes = 4; uint32 history_page_items = 5; uint32 chat_processes = 6;
+}
+enum HostReadiness { HOST_READINESS_UNSPECIFIED = 0; STARTING = 1; READY = 2; DRAINING = 3; STORAGE_FAULT = 4; }
+message HostStatus { string host_id = 1; HostReadiness readiness = 2; string reason = 3; Cursor cursor = 4; }
+message Device { string device_id = 1; string name = 2; repeated string scopes = 3; repeated string roots = 4; bool revoked = 5; }
+// Keyset paging keeps every response within the control-byte budget. Revoked
+// history is opt-in; credentials are never part of a device row.
+message DeviceListRequest { string host_id = 1; optional string page_token = 2; bool include_revoked = 3; }
+message Devices { string host_id = 1; repeated Device devices = 2; optional string next_page_token = 3; }
+message RevokeDeviceRequest { CommandMeta command = 1; string device_id = 2; }
+message GetCommandRequest { string host_id = 1; string command_id = 2; uint64 command_epoch = 3; }
+message CloseCommandEpochRequest { string host_id = 1; uint64 expected_epoch = 2; }
+message CommandEpoch { string host_id = 1; uint64 epoch = 2; }
+enum OperationState {
+  OPERATION_STATE_UNSPECIFIED = 0; ACCEPTED = 1; ATTEMPTING = 2; SUCCEEDED = 3;
+  FAILED = 4; REJECTED = 5; DELIVERY_UNKNOWN = 6; COMMAND_RETIRED = 7; NOT_FOUND = 8;
+}
+message CommandReceipt {
+  string host_id = 1; string command_id = 2; uint64 command_epoch = 3; OperationState state = 4;
+  string resource_id = 5; string message_id = 6; optional DomainError error = 7;
+  bool resolved_by_user = 8;
+  optional bytes file_hash = 9;
+  optional string operation_output = 10;
+  optional uint64 queue_revision = 11;
+}
+message DomainError { string code = 1; string message = 2; bool retryable = 3; }
+// QR payload: canopy://pair?v=1&data=<unpadded base64url of PairingInvite>.
+// The certificate is public. A client verifies its SHA256 and uses it as the
+// exact pinned TLS trust anchor before transmitting the enrollment token.
+// Address is only a routing hint and can change for SSH/VPN; identity cannot.
+message PairingInvite {
+  uint32 protocol_version = 1; string host_id = 2; string server_name = 3;
+  string address = 4; uint32 port = 5; bytes host_certificate = 6;
+  bytes certificate_sha256 = 7; bytes one_time_token = 8; uint64 expires_unix = 9;
+}
+// PKCS#10 DER CSR, signature verified by the issuer. Requested extensions never
+// grant authority: the host sets the client identity and scopes after approval.
+message PairingRequest { bytes one_time_token = 1; bytes certificate_signing_request = 2; string device_name = 3; }
+// proof is the original 32-byte QR one_time_token, transported only inside the
+// pinned TLS channel. The host binds it to this request's verified CSR at the
+// initial single-use enrollment. No custom signature/challenge scheme is used:
+// CSR signature proves possession of the device key; ordinary RPCs use mTLS.
+message PairingStatusRequest { string request_id = 1; bytes proof = 2; }
+message PairingStatus {
+  // certificate is the device leaf in DER. certificate_chain is DER issuer to
+  // root, excluding the leaf. Convert to PEM locally if a native TLS API needs it.
+  string request_id = 1; string state = 2; optional bytes certificate = 3;
+  repeated bytes certificate_chain = 4; optional Device device = 5;
+}
+
+message WorkspaceRef { string host_id = 1; string workspace_id = 2; }
+message ChatRef { string host_id = 1; string chat_id = 2; }
+message FileRef { WorkspaceRef workspace = 1; string relative_path = 2; }
+message TerminalRef { string host_id = 1; string terminal_id = 2; }
+message ResourceRef {
+  oneof resource { WorkspaceRef workspace = 1; ChatRef chat = 2; FileRef file = 3; TerminalRef terminal = 4; TaskRef task = 5; }
+}
+message ProjectSummary { string project_id = 1; string name = 2; string path = 3; repeated WorkspaceSummary checkouts = 4; }
+message WorkspaceSummary { WorkspaceRef workspace = 1; string name = 2; string path = 3; optional string repository_path = 4; optional bool closing = 5; }
+message Catalog { string host_id = 1; repeated ProjectSummary projects = 2; repeated ChatSummary chats = 3; repeated TerminalSummary terminals = 4; }
+enum ChatState { CHAT_STATE_UNSPECIFIED = 0; DORMANT = 1; CHAT_STARTING = 2; IDLE = 3; WORKING = 4; NEEDS_DECISION = 5; INTERRUPTING = 6; EXITED = 7; CHAT_FAILED = 8; }
+message ChatSummary {
+  ChatRef chat = 1; optional WorkspaceRef workspace = 2; string title = 3;
+  string agent_id = 4; optional string profile_id = 5; ChatState state = 6;
+  uint32 pending_decisions = 7; uint32 queued_messages = 8; optional string run_id = 9;
+  uint64 history_epoch = 10;
+  optional GoalState goal = 11;
+}
+message SummaryEvent { Cursor cursor = 1; oneof change { Catalog snapshot = 2; ChatSummary chat = 3; TerminalSummary terminal = 4; ResourceRef deleted = 5; CatalogSnapshotPart snapshot_part = 6; } }
+// A snapshot is installed only after last=true with the same boundary. Projects
+// may repeat across pages; merge their checkout slices by project_id. Delta
+// cursors follow this boundary. Interrupted snapshots never replace cached data.
+message CatalogSnapshotPart { Cursor boundary = 1; Catalog page = 2; bool first = 3; bool last = 4; }
+message CreateChatRequest { CommandMeta command = 1; optional WorkspaceRef workspace = 2; string agent_id = 3; optional string profile_id = 4; }
+message RenameResourceRequest { CommandMeta command = 1; ResourceRef resource = 2; string title = 3; }
+message PreflightCloseRequest { ResourceRef resource = 1; bool delete = 2; }
+message CloseRisk { ResourceRef resource = 1; string title = 2; bool working = 3; uint32 queued = 4; uint32 observers = 5; repeated DirtyBufferPresence dirty = 6; }
+message ClosePlan { string host_id = 1; string plan_id = 2; repeated CloseRisk risks = 3; bool can_execute = 4; string reason = 5; }
+message CloseResourceRequest { CommandMeta command = 1; ResourceRef resource = 2; string plan_id = 3; }
+message OpenProjectRequest { CommandMeta command = 1; string host_path = 2; }
+
+message ChatRequest { ChatRef chat = 1; }
+// Discovery requires read in the selected checkout (or private), never admin.
+// account_id is an explicit selection. For an agent with no profiles the native
+// account's stable ID equals agent_id. No empty ID selects an implicit account.
+message AgentDiscoveryRequest { string host_id = 1; optional WorkspaceRef workspace = 2; optional string page_token = 3; }
+message AgentAccount { string account_id = 1; string label = 2; bool native_default = 3; }
+message AvailableAgent { string agent_id = 1; string name = 2; BackendKind backend_kind = 3; repeated AgentAccount accounts = 4; }
+message AgentDiscovery { repeated AvailableAgent agents = 1; optional string next_page_token = 2; }
+message AgentCatalogRequest { string host_id = 1; optional WorkspaceRef workspace = 2; string agent_id = 3; string account_id = 4; bool refresh = 5; }
+message AgentCommand { string id = 1; string name = 2; string description = 3; optional string argument_hint = 4; bool skill = 5; optional string path = 6; }
+message AgentCatalog { string agent_id = 1; string account_id = 2; repeated AgentOption options = 3; repeated Capability capabilities = 4; repeated AgentCommand commands = 5; bool refreshing = 6; optional string error = 7; }
+message PullRequestsRequest { WorkspaceRef workspace = 1; string query = 2; optional string page_token = 3; }
+message PullRequestChoice { string context_id = 1; PullAttachment pull = 2; string author = 3; }
+message PullRequests { repeated PullRequestChoice pulls = 1; optional string next_page_token = 2; }
+// The host resolves only the page of this retained transcript tool item. It
+// prepares local image resources within that chat's authority before publishing
+// an immutable HTML artifact. No loopback/file URL grants remote access.
+message ChatPageRequest { ChatRef chat = 1; ItemKey item = 2; }
+message ChatCommandRequest { CommandMeta command = 1; ChatRef chat = 2; optional string run_id = 3; }
+message MessageDraft { string text = 1; repeated Attachment attachments = 2; optional string context = 3; bool goal = 4; }
+message Attachment {
+  string label = 1;
+  oneof content { ArtifactRef image = 2; FileRef path = 3; QuoteAttachment quote = 4; CommandAttachment command = 5; PullAttachment pull = 6; ShellAttachment shell = 7; }
+}
+message QuoteAttachment { string text = 1; }
+message CommandAttachment { string name = 1; bool skill = 2; optional string path = 3; optional string description = 4; }
+message PullAttachment { uint64 number = 1; string title = 2; string url = 3; string head = 4; string base = 5; string state = 6; string body = 7; optional string context_id = 8; }
+message ShellAttachment { string command = 1; optional int32 exit_code = 2; bool stopped = 3; string output = 4; }
+// Stable send context, independent of streaming token revisions. Presence is
+// mandatory for remote sends, including the first attempt after offline editing.
+// An absent profile means the host's default profile, not 'ignore this check'.
+message SendContext {
+  string agent_id = 1; optional string profile_id = 2;
+  uint64 history_epoch = 3; optional WorkspaceRef workspace = 4;
+}
+message SendMessageRequest {
+  CommandMeta command = 1; ChatRef chat = 2; string message_id = 3;
+  MessageDraft draft = 4; SendContext expected_context = 5;
+}
+message QueueEdit { string message_id = 1; MessageDraft draft = 2; }
+message QueueMove { string message_id = 1; optional string before_message_id = 2; }
+message QueueRemove { string message_id = 1; }
+message QueuePause { bool paused = 1; }
+enum UnknownResolution { UNKNOWN_RESOLUTION_UNSPECIFIED = 0; ACCEPT_AS_DELIVERED = 1; SEND_AGAIN = 2; DISMISS = 3; }
+message QueueResolve { string message_id = 1; UnknownResolution resolution = 2; optional string new_message_id = 3; }
+message ChangeQueueRequest {
+  CommandMeta command = 1; ChatRef chat = 2; uint64 queue_revision = 3;
+  oneof change { QueueEdit edit = 4; QueueMove move = 5; QueueRemove remove = 6; QueuePause pause = 7; QueueResolve resolve = 8; }
+}
+enum QueueDelivery { QUEUE_DELIVERY_UNSPECIFIED = 0; QUEUED = 1; QUEUE_ATTEMPTING = 2; DELIVERED = 3; QUEUE_FAILED = 4; DISMISSED = 5; QUEUE_DELIVERY_UNKNOWN = 6; }
+message QueueEntry { string message_id = 1; MessageDraft draft = 2; QueueDelivery delivery = 3; bool resolved_by_user = 4; }
+message ChatQueue { uint64 revision = 1; bool paused = 2; repeated QueueEntry entries = 3; }
+message SteerRequest { CommandMeta command = 1; ChatRef chat = 2; string run_id = 3; string message_id = 4; MessageDraft draft = 5; }
+message RespondDecisionRequest {
+  CommandMeta command = 1; ChatRef chat = 2; string run_id = 3; string decision_id = 4;
+  oneof response { string option_id = 5; NativeDecision native = 6; }
+}
+enum NativeDecisionAction { NATIVE_DECISION_ACTION_UNSPECIFIED = 0; ALLOW_ONCE = 1; ALLOW_FOR_CHAT = 2; DENY = 3; ANSWER = 4; APPROVE_PLAN = 5; KEEP_PLANNING = 6; }
+message NativeDecision { NativeDecisionAction action = 1; repeated string answers = 2; optional string note = 3; bool accept_edits = 4; }
+message OptionChoice { string id = 1; string label = 2; optional string description = 3; }
+message AgentOption { string id = 1; string label = 2; optional string category = 3; string current_value = 4; repeated OptionChoice choices = 5; string effect = 6; }
+message AgentOptions { ChatRef chat = 1; repeated AgentOption options = 2; repeated Capability capabilities = 3; }
+message SetAgentOptionRequest { CommandMeta command = 1; ChatRef chat = 2; string option_id = 3; string value_id = 4; }
+message ForkChatRequest { CommandMeta command = 1; ChatRef chat = 2; uint64 history_epoch = 3; uint64 item_id = 4; optional WorkspaceRef destination = 5; optional MessageDraft replacement = 6; }
+enum GoalAction { GOAL_ACTION_UNSPECIFIED = 0; PAUSE_GOAL = 1; RESUME_GOAL = 2; CLEAR_GOAL = 3; }
+message SetGoalRequest { CommandMeta command = 1; ChatRef chat = 2; optional string objective = 3; optional GoalAction action = 4; }
+message StopBackgroundRequest { CommandMeta command = 1; ChatRef chat = 2; string run_id = 3; string call_id = 4; }
+message PreviewEditRequest { ChatRef chat = 1; string run_id = 2; ItemKey item = 3; }
+message FileRestorePreview { bool possible = 1; repeated string paths = 2; uint64 insertions = 3; uint64 deletions = 4; string reason = 5; }
+message EditPreview { ChatRef chat = 1; string run_id = 2; ItemKey item = 3; bool editable = 4; string reason = 5; bool first_message = 6; MessageDraft original = 7; FileRestorePreview files = 8; }
+message EditMessageRequest { CommandMeta command = 1; ChatRef chat = 2; string run_id = 3; ItemKey item = 4; MessageDraft draft = 5; bool restore_files = 6; }
+message RunShellRequest { CommandMeta command = 1; ChatRef chat = 2; string run_id = 3; string command_line = 4; }
+message StopShellRequest { CommandMeta command = 1; ChatRef chat = 2; string run_id = 3; ItemKey item = 4; }
+
+message ItemKey { uint64 history_epoch = 1; uint64 item_id = 2; }
+message TranscriptItem {
+  ItemKey key = 1; uint64 revision = 2; uint64 turn_id = 3; optional string parent_call_id = 4; bool trimmed = 5;
+  oneof body { UserMessage user = 6; TextBlock text = 7; TextBlock thinking = 8; ToolCall tool = 9; Decision decision = 10; Notice notice = 11; TurnEnd turn_end = 12; ShellRun shell = 13; GoalState goal = 14; }
+}
+message UserMessage { string message_id = 1; MessageDraft draft = 2; string delivery = 3; }
+message TextBlock { string text = 1; bool streaming = 2; }
+enum ToolKind { TOOL_KIND_UNSPECIFIED = 0; READ = 1; EDIT = 2; EXECUTE = 3; SEARCH = 4; FETCH = 5; PLAN = 6; SUBAGENT = 7; OTHER = 8; }
+message ToolCall {
+  string call_id = 1; string original_name = 2; ToolKind kind = 3; string title = 4;
+  string state = 5; repeated string paths = 6; optional string output = 7;
+  bool background = 8; optional string activity = 9; optional double elapsed_seconds = 10;
+  optional string command = 11; repeated DiffLine diff = 12;
+  // Opaque diagnostic content for an unknown tool, not executable RPC arguments.
+  optional string generic_input = 13;
+  repeated PlanEntry plan = 14;
+  repeated FileRef files = 15;
+  // ReadChatPage validates this retained item and returns its HTML artifact.
+  optional ItemKey page_item = 16;
+}
+message PlanEntry { string content = 1; string status = 2; optional string priority = 3; }
+message Decision {
+  string decision_id = 1; string run_id = 2; string title = 3; string state = 4;
+  repeated OptionChoice options = 5; optional string resolution = 6;
+  optional string native_kind = 7; optional string description = 8;
+  repeated DecisionQuestion questions = 9; bool can_remember = 10;
+}
+message DecisionQuestion { string question = 1; string header = 2; repeated OptionChoice options = 3; bool multiple = 4; }
+message Notice { string kind = 1; string text = 2; optional uint64 until_unix = 3; }
+message TurnEnd { string outcome = 1; optional string error = 2; optional Usage usage = 3; bool saved = 4; optional bool fork_available = 5; }
+message Usage { uint64 input_tokens = 1; uint64 output_tokens = 2; optional uint64 context_used = 3; optional uint64 context_max = 4; optional uint64 context_buffer = 5; }
+message ShellRun { string command = 1; string output = 2; bool running = 3; bool stopped = 4; optional int32 exit_code = 5; }
+message GoalState { string objective = 1; string state = 2; uint32 turns = 3; optional string note = 4; optional uint64 tokens = 5; optional uint64 budget = 6; optional uint64 elapsed_seconds = 7; uint32 checks = 8; optional uint64 since_unix = 9; }
+message SubscribeChatRequest { ChatRef chat = 1; optional Cursor since = 2; }
+message SnapshotStart { Cursor boundary = 1; ChatSummary summary = 2; ChatQueue queue = 3; uint64 saved_sequence = 4; }
+message ItemChunk { repeated TranscriptItem items = 1; }
+// Reassemble a large encoded TranscriptItem atomically. Chunks stay below the
+// control-frame limit; a partial item must never replace the current projection.
+// data <=64 KiB, total_bytes <=32 MiB. These bytes are a separate assembly
+// budget, not part of the 4 MiB native transport queue. One live fragment frame
+// has one next stream sequence. Commit the reconnect cursor only after the last
+// fragment verifies the full hash and installs the item. Snapshot fragments have
+// no live cursor: SnapshotEnd commits their boundary. No interleaved transfers.
+message ItemFragment {
+  ItemKey key = 1; uint64 revision = 2; string transfer_id = 3;
+  uint64 offset = 4; uint64 total_bytes = 5; bytes sha256 = 6; bytes data = 7;
+}
+message SnapshotEnd { Cursor boundary = 1; bool has_earlier_history = 2; }
+message TextAppend { ItemKey key = 1; uint64 expected_revision = 2; uint64 revision = 3; uint64 utf8_offset = 4; string text = 5; bool streaming = 6; }
+message ResyncRequired { string reason = 1; }
+message ChatEvent {
+  ChatRef chat = 1; optional Cursor cursor = 2;
+  oneof event { SnapshotStart snapshot_start = 3; ItemChunk snapshot_items = 4; SnapshotEnd snapshot_end = 5; TranscriptItem replace_item = 6; TextAppend append_text = 7; ChatQueue queue_changed = 8; ChatSummary status = 9; ResyncRequired resync = 10; Decision decision = 11; uint64 saved_sequence = 12; ItemFragment item_fragment = 13; }
+}
+message HistoryPageRequest {
+  ChatRef chat = 1; optional string page_token = 2; uint32 limit = 3;
+  optional ItemKey around = 4;
+  // Exclusive upper key on the first backward page, normally the first item
+  // already installed by the live snapshot. Subsequent pages use page_token.
+  optional ItemKey before = 5;
+}
+message HistoryPage { ChatRef chat = 1; repeated TranscriptItem items = 2; optional string previous_page_token = 3; bool incomplete = 4; }
+// A page installs atomically at end. Oversized individual items use the same
+// bounded fragment format as live snapshots. No full page exceeds a frame.
+message HistoryPageStart { string read_id = 1; optional string previous_page_token = 2; bool incomplete = 3; }
+message HistoryPageEvent {
+  ChatRef chat = 1;
+  oneof part { HistoryPageStart start = 2; ItemChunk items = 3; ItemFragment fragment = 4; string end_read_id = 5; }
+}
+message SearchHistoryRequest { ChatRef chat = 1; string text = 2; optional string page_token = 3; }
+message HistoryMatch { ItemKey key = 1; string excerpt = 2; }
+message HistoryMatches { ChatRef chat = 1; repeated HistoryMatch matches = 2; optional string next_page_token = 3; bool incomplete = 4; }
+
+message WorkspaceRequest { WorkspaceRef workspace = 1; }
+message ListDirectoryRequest { FileRef directory = 1; optional string page_token = 2; }
+message SearchFilesRequest { WorkspaceRef workspace = 1; string query = 2; uint32 limit = 3; }
+message DirectoryEntry { string relative_path = 1; string name = 2; bool directory = 3; uint64 size = 4; }
+message DirectoryEntries { WorkspaceRef workspace = 1; repeated DirectoryEntry entries = 2; optional string next_page_token = 3; optional string warning = 4; bool incomplete = 5; }
+message ReadFileRequest { FileRef file = 1; uint64 offset = 2; uint64 max_bytes = 3; }
+message FileChunk { FileRef file = 1; bytes base_hash = 2; uint64 offset = 3; bytes data = 4; bool complete = 5; }
+message SaveFileRequest { CommandMeta command = 1; FileRef file = 2; bytes expected_hash = 3; ArtifactRef content = 4; }
+message CreateFileRequest { CommandMeta command = 1; FileRef file = 2; bool directory = 3; optional ArtifactRef content = 4; }
+message DirtyBufferPresence { string device_id = 1; FileRef file = 2; bytes base_hash = 3; int64 last_seen_unix = 4; bool online = 5; }
+message DirtyPresenceRequest { CommandMeta command = 1; FileRef file = 2; bytes base_hash = 3; bool dirty = 4; }
+message GitStatus { WorkspaceRef workspace = 1; string head_oid = 2; string branch = 3; repeated GitFile files = 4; optional string operation = 5; GitPrecondition expected = 6; }
+message GitFile { string path = 1; string index_status = 2; string worktree_status = 3; optional string previous_path = 4; }
+message DiffLine { optional uint32 old_line = 1; optional uint32 new_line = 2; string kind = 3; string text = 4; }
+message DiffRequest { WorkspaceRef workspace = 1; string path = 2; bool staged = 3; optional string commit = 4; }
+message DiffChunk { repeated DiffLine lines = 1; bool binary = 2; bool complete = 3; bool truncated = 4; }
+message GitHistoryRequest { WorkspaceRef workspace = 1; optional string before_oid = 2; uint32 limit = 3; }
+message GitCommit { string oid = 1; string title = 2; string author = 3; int64 time_unix = 4; repeated string parents = 5; }
+message GitHistory { repeated GitCommit commits = 1; optional string next_before_oid = 2; }
+message GitRef { string name = 1; string oid = 2; string kind = 3; }
+message GitRefs { repeated GitRef refs = 1; }
+message GitPrecondition { string head_oid = 1; bytes index_hash = 2; bytes worktree_hash = 3; optional string preflight_id = 4; }
+message GitPathsRequest { CommandMeta command = 1; WorkspaceRef workspace = 2; repeated string paths = 3; GitPrecondition expected = 4; }
+message CommitRequest { CommandMeta command = 1; WorkspaceRef workspace = 2; string message = 3; GitPrecondition expected = 4; bool sign = 5; }
+message GitNetworkRequest { CommandMeta command = 1; WorkspaceRef workspace = 2; string remote = 3; GitPrecondition expected = 4; optional string upstream_branch = 5; }
+enum WorktreeAction { WORKTREE_ACTION_UNSPECIFIED = 0; CREATE_WORKTREE = 1; REMOVE_WORKTREE = 2; MERGE_WORKTREE = 3; STOP_WORKTREE = 4; }
+message WorktreeRequest {
+  CommandMeta command = 1; WorkspaceRef workspace = 2; WorktreeAction action = 3;
+  string branch = 4; optional string path = 5; GitPrecondition expected = 6;
+  optional string start_point = 7; optional string target_branch = 8;
+  bool delete_branch = 9; bool discard_changes = 10;
+  bool delete_unmerged_branch = 11; bool acknowledge_offline_dirty = 12;
+}
+enum GitPathOperation { GIT_PATH_OPERATION_UNSPECIFIED = 0; STAGE_PATHS = 1; UNSTAGE_PATHS = 2; DISCARD_PATHS = 3; }
+enum GitNetworkAction { GIT_NETWORK_ACTION_UNSPECIFIED = 0; PULL_REMOTE = 1; PUSH_REMOTE = 2; }
+message GitPathIntent { GitPathOperation operation = 1; repeated string paths = 2; }
+message GitCommitIntent { string message = 1; bool sign = 2; }
+message GitNetworkIntent { GitNetworkAction action = 1; string remote = 2; optional string upstream_branch = 3; }
+message GitWorktreeIntent {
+  WorktreeAction action = 1; string branch = 2; optional string path = 3;
+  optional string start_point = 4; optional string target_branch = 5;
+  bool delete_branch = 6; bool discard_changes = 7;
+  bool delete_unmerged_branch = 8; bool acknowledge_offline_dirty = 9;
+}
+message GitPreflightRequest {
+  WorkspaceRef workspace = 1;
+  oneof intent { GitPathIntent paths = 2; GitCommitIntent commit = 3; GitNetworkIntent network = 4; GitWorktreeIntent worktree = 5; }
+}
+message GitPlan {
+  WorkspaceRef workspace = 1; string plan_id = 2; GitPrecondition expected = 3;
+  repeated string impacts = 4; bool can_execute = 5; string reason = 6; int64 expires_unix = 7;
+}
+
+message TerminalSummary { TerminalRef terminal = 1; WorkspaceRef workspace = 2; string title = 3; bool running = 4; optional string input_device_id = 5; }
+message OpenTerminalRequest { CommandMeta command = 1; WorkspaceRef workspace = 2; string tool_id = 3; optional string profile_id = 4; }
+message TerminalCommandRequest { CommandMeta command = 1; TerminalRef terminal = 2; string run_id = 3; }
+message AcquireInputRequest { CommandMeta command = 1; TerminalRef terminal = 2; bool take_over = 3; }
+message ReleaseInputRequest { CommandMeta command = 1; TerminalRef terminal = 2; string run_id = 3; uint64 fencing_token = 4; }
+message InputLease { TerminalRef terminal = 1; string run_id = 2; uint64 fencing_token = 3; uint32 expires_in_ms = 4; bool held = 5; }
+message TerminalSubscribe { TerminalRef terminal = 1; optional Cursor since = 2; }
+message TerminalInput { TerminalRef terminal = 1; string run_id = 2; uint64 fencing_token = 3; uint64 input_id = 4; bytes data = 5; }
+message TerminalResize { TerminalRef terminal = 1; string run_id = 2; uint64 fencing_token = 3; uint32 columns = 4; uint32 rows = 5; }
+message TerminalRenew { TerminalRef terminal = 1; string run_id = 2; uint64 fencing_token = 3; }
+message TerminalClientEvent { oneof event { TerminalSubscribe subscribe = 1; TerminalInput input = 2; TerminalResize resize = 3; TerminalRenew renew = 4; } }
+// Stable wire masks, deliberately independent of the Alacritty ABI. Combine
+// powers of two in TerminalFrame.input_modes / TerminalCell.flags respectively.
+enum TerminalInputMode {
+  TERMINAL_INPUT_MODE_UNSPECIFIED = 0; APPLICATION_CURSOR = 1; APPLICATION_KEYPAD = 2;
+  BRACKETED_PASTE = 4; ALTERNATE_SCREEN = 8; CURSOR_VISIBLE = 16;
+  NEW_LINE_MODE = 32; FOCUS_REPORTING = 64; MOUSE_CLICK = 128; MOUSE_DRAG = 256;
+  MOUSE_MOTION = 512; SGR_MOUSE = 1024; UTF8_MOUSE = 2048; ALTERNATE_SCROLL = 4096;
+}
+enum TerminalCellFlag {
+  TERMINAL_CELL_FLAG_UNSPECIFIED = 0; CELL_BOLD = 1; CELL_ITALIC = 2; CELL_UNDERLINE = 4;
+  CELL_INVERSE = 8; CELL_DIM = 16; CELL_STRIKEOUT = 32; CELL_WIDE = 64;
+  CELL_WIDE_SPACER = 128; CELL_LEADING_WIDE_SPACER = 256; CELL_HIDDEN = 512;
+  CELL_WRAPLINE = 1024; CELL_DOUBLE_UNDERLINE = 2048; CELL_UNDERCURL = 4096;
+  CELL_DOTTED_UNDERLINE = 8192; CELL_DASHED_UNDERLINE = 16384;
+}
+// Colors are packed R<<24 | G<<16 | B<<8 | A. Wide spacers occupy no text span.
+message TerminalCell { uint32 column = 1; uint32 row = 2; string text = 3; uint32 foreground_rgba = 4; uint32 background_rgba = 5; uint32 flags = 6; uint32 column_span = 7; }
+// complete=true atomically replaces the viewport; false patches only listed
+// cells and updates metadata. A frame is never split into standalone partial
+// replacements. Oversized live frames use frame_fragment below instead.
+message TerminalFrame { uint32 columns = 1; uint32 rows = 2; repeated TerminalCell cells = 3; uint32 cursor_column = 4; uint32 cursor_row = 5; uint64 input_modes = 6; bool lost_scrollback = 7; bool complete = 8; }
+// Encoded TerminalFrame, same bounded assembly rules as ItemFragment: <=64KiB
+// data, <=32MiB total, SHA256 of the complete encoding, contiguous offsets,
+// one non-interleaved assembly per subscription. Each fragment advances the live
+// cursor; clients commit a resumable cursor only after verified atomic install.
+message TerminalFrameFragment { string frame_id = 1; uint64 offset = 2; uint64 total_bytes = 3; bytes sha256 = 4; bytes data = 5; }
+message TerminalInputAck { uint64 input_id = 1; bool queued = 2; optional DomainError error = 3; }
+message TerminalServerEvent { TerminalRef terminal = 1; string run_id = 2; Cursor cursor = 3; oneof event { TerminalFrame frame = 4; InputLease lease = 5; TerminalInputAck input_ack = 6; ResyncRequired resync = 7; DomainError error = 8; TerminalFrameFragment frame_fragment = 9; } }
+// History is a read-only viewport. The host must not change its own display
+// offset/selection. A token binds the run and a captured projection revision;
+// an invalidated token requires a fresh read, never a mixed scrollback page.
+message TerminalHistoryRequest { TerminalRef terminal = 1; string run_id = 2; uint32 offset_from_bottom = 3; uint32 rows = 4; optional string page_token = 5; }
+message TerminalHistoryStart { Cursor boundary = 1; uint32 offset_from_bottom = 2; uint32 retained_rows = 3; bool lost_scrollback = 4; optional string previous_page_token = 5; }
+message TerminalHistoryEvent { TerminalRef terminal = 1; string run_id = 2; oneof part { TerminalHistoryStart start = 3; TerminalFrame frame = 4; Cursor end = 5; TerminalFrameFragment frame_fragment = 6; } }
+
+message ArtifactRef { string host_id = 1; string artifact_id = 2; string media_type = 3; uint64 size = 4; bytes sha256 = 5; }
+message BeginUploadRequest { CommandMeta command = 1; ResourceRef target = 2; string purpose = 3; uint64 size = 4; bytes sha256 = 5; string media_type = 6; }
+message ByteRange { uint64 offset = 1; uint64 length = 2; }
+message UploadStatus { string host_id = 1; string upload_id = 2; repeated ByteRange received = 3; optional ArtifactRef artifact = 4; }
+message PutChunkRequest { string host_id = 1; string upload_id = 2; uint64 offset = 3; bytes data = 4; }
+message GetUploadRequest { string host_id = 1; string upload_id = 2; }
+message FinishUploadRequest { CommandMeta command = 1; string upload_id = 2; }
+message CancelUploadRequest { CommandMeta command = 1; string upload_id = 2; }
+message DownloadRequest { ArtifactRef artifact = 1; uint64 offset = 2; }
+message ArtifactChunk { ArtifactRef artifact = 1; uint64 offset = 2; bytes data = 3; bool complete = 4; }
+
+message SecretUpdate { oneof action { Empty unchanged = 1; bytes set = 2; Empty remove = 3; } }
+message EnvironmentField { string name = 1; bool configured = 2; }
+message EnvironmentUpdate { string name = 1; SecretUpdate value = 2; }
+enum BackendKind { BACKEND_KIND_UNSPECIFIED = 0; CLAUDE_STREAM_JSON = 1; CODEX_APP_SERVER = 2; ACP = 3; }
+message AgentDefinition { string id = 1; string name = 2; BackendKind backend_kind = 3; string command = 4; repeated string arguments = 5; repeated EnvironmentField environment = 6; optional bool enabled = 7; optional string default_profile_id = 8; }
+message Profile {
+  string id = 1; string agent_id = 2; string name = 3; repeated EnvironmentField environment = 4; bool credential_configured = 5;
+  optional string model = 6; StringValues arguments = 7; ProfileAgentSettings settings = 8;
+}
+// These are metadata, not secret-bearing overrides. Original JSON/env/system
+// prompt values are never returned. An omitted update preserves existing state.
+message ProfileAgentSettings {
+  optional string permission_mode = 1; optional string effort_level = 2;
+  optional string base_url = 3; optional string provider = 4;
+  optional string approval_mode = 5; optional string sandbox = 6;
+  optional bool full_auto = 7; optional bool bypass_approvals = 8;
+  optional string config_profile = 9;
+  bool system_prompt_configured = 10; bool settings_override_configured = 11;
+}
+message ProfileSettingsUpdate { ProfileAgentSettings options = 1; SecretUpdate append_system_prompt = 2; SecretUpdate settings_json = 3; }
+message Integration {
+  string id = 1; string kind = 2; string name = 3; string endpoint = 4; bool credential_configured = 5;
+  optional string owner = 6; optional string email = 7; optional string cloud_id = 8;
+}
+message HostPreferences {
+  bool reopen_last_workspace = 1; bool notch_enabled = 2; string new_tab_tool = 3; string new_worktree_tool = 4;
+  optional string chat_profile = 5; optional string chat_model = 6; optional string chat_effort = 7; optional string chat_mode = 8;
+}
+message HostSettings { string host_id = 1; uint64 revision = 2; repeated AgentDefinition agents = 3; repeated Profile profiles = 4; repeated Integration integrations = 5; HostPreferences preferences = 6; }
+message UpdatePreferencesRequest {
+  CommandMeta command = 1; optional bool reopen_last_workspace = 2; optional bool notch_enabled = 3; optional string new_tab_tool = 4; optional string new_worktree_tool = 5;
+  optional string chat_profile = 6; optional string chat_model = 7; optional string chat_effort = 8; optional string chat_mode = 9;
+}
+message SaveAgentDefinitionRequest { CommandMeta command = 1; AgentDefinition agent = 2; repeated EnvironmentUpdate environment = 3; }
+message RemoveAgentDefinitionRequest { CommandMeta command = 1; string agent_id = 2; }
+message SaveProfileRequest { CommandMeta command = 1; Profile profile = 2; repeated EnvironmentUpdate environment = 3; SecretUpdate credential = 4; ProfileSettingsUpdate settings = 5; }
+message RemoveProfileRequest { CommandMeta command = 1; string profile_id = 2; }
+message SaveIntegrationRequest { CommandMeta command = 1; Integration integration = 2; SecretUpdate credential = 3; }
+message RemoveIntegrationRequest { CommandMeta command = 1; string integration_id = 2; }
+message TaskRef { string host_id = 1; string integration_id = 2; string task_id = 3; string project_id = 4; optional WorkspaceRef workspace = 5; }
+message QueryTasksRequest { string host_id = 1; string integration_id = 2; string query = 3; optional string page_token = 4; string project_id = 5; optional WorkspaceRef workspace = 6; optional string filter_id = 7; optional string filter_expression = 8; string state = 9; }
+message GetTaskRequest { TaskRef task = 1; }
+message Task { TaskRef task = 1; string title = 2; string description = 3; string state = 4; string url = 5; repeated ArtifactRef attachments = 6; repeated string labels = 7; repeated string assignees = 8; optional TaskChoice milestone = 9; repeated TaskStatusField statuses = 10; repeated TaskField fields = 11; repeated TaskAttachment task_attachments = 12; repeated Capability capabilities = 13; repeated TaskLink links = 14; }
+message TaskLink { string id = 1; string kind = 2; string other_task = 3; string label = 4; bool outward = 5; }
+message TaskPage { repeated Task tasks = 1; optional string next_page_token = 2; optional uint64 total_count = 3; repeated TaskFilter filters = 4; }
+message UpdateTaskRequest { CommandMeta command = 1; TaskRef task = 2; optional string title = 3; optional string description = 4; optional string state_id = 5 [deprecated=true]; TaskStatusChoice status = 6; optional StringValues labels = 7; optional StringValues assignees = 8; optional TaskOptionalChoice milestone = 9; }
+message TaskToWorktreeRequest { CommandMeta command = 1; TaskRef task = 2; WorkspaceRef workspace = 3; string branch = 4; }
+
+// Provider-defined field values use the standard Protobuf Value/Struct. Methods,
+// mutation kinds, workflow choices and schema purposes remain explicit and typed.
+message TaskProject { string host_id = 1; string integration_id = 2; string project_id = 3; optional WorkspaceRef workspace = 4; }
+message TaskChoice { string id = 1; string label = 2; optional string description = 3; google.protobuf.Value value = 4; }
+message TaskChoicePage { repeated TaskChoice choices = 1; optional string next_page_token = 2; }
+message StringValues { repeated string values = 1; }
+message TaskOptionalChoice { optional string id = 1; }
+message TaskProjectsRequest { string host_id = 1; string integration_id = 2; optional WorkspaceRef workspace = 3; optional string page_token = 4; }
+message TaskIntegrationsRequest { string host_id = 1; optional WorkspaceRef workspace = 2; }
+message TaskIntegration { string id = 1; string name = 2; string provider = 3; bool configured = 4; }
+message TaskIntegrations { repeated TaskIntegration integrations = 1; }
+message TaskOptionsRequest { TaskProject project = 1; string kind = 2; optional string page_token = 3; optional string board_id = 4; }
+message TaskFilter { string id = 1; string name = 2; string expression = 3; string provider = 4; bool builtin = 5; }
+message SaveTaskFilterRequest { CommandMeta command = 1; TaskFilter filter = 2; }
+message RemoveTaskFilterRequest { CommandMeta command = 1; string filter_id = 2; }
+enum TaskSchemaPurpose { TASK_SCHEMA_PURPOSE_UNSPECIFIED = 0; TASK_CREATE = 1; TASK_EDIT = 2; TASK_TRANSITIONS = 3; TASK_TYPES = 4; TASK_LINK_TYPES = 5; TASK_BOARDS = 6; TASK_SPRINTS = 7; TASK_HISTORY = 8; }
+message TaskSchemaRequest { TaskProject project = 1; optional TaskRef task = 2; TaskSchemaPurpose purpose = 3; optional string issue_type_id = 4; optional string board_id = 5; optional string page_token = 6; }
+message TaskField { string id = 1; string name = 2; string kind = 3; bool required = 4; bool read_only = 5; bool multiple = 6; repeated TaskChoice choices = 7; google.protobuf.Value current_value = 8; google.protobuf.Value default_value = 9; google.protobuf.Struct provider_schema = 10; optional string read_only_reason = 11; }
+message TaskTransition { string id = 1; string name = 2; string destination = 3; repeated TaskField required_fields = 4; }
+message TaskStatusField { string id = 1; string name = 2; string label = 3; optional string selected_id = 4; repeated TaskChoice choices = 5; optional string read_only_reason = 6; optional string hint = 7; bool requires_form = 8; }
+message TaskSchema { repeated TaskField fields = 1; repeated TaskTransition transitions = 2; repeated TaskChoice choices = 3; repeated string activity = 4; optional string next_page_token = 5; }
+message TaskStatusChoice { string field_id = 1; string choice_id = 2; google.protobuf.Struct form_fields = 3; optional string comment = 4; }
+message TaskComment { string id = 1; string author = 2; string created_at = 3; string body = 4; string url = 5; bool can_edit = 6; bool can_delete = 7; google.protobuf.Value rich_body = 8; }
+message TaskCommentsRequest { TaskRef task = 1; optional string page_token = 2; }
+message TaskCommentPage { repeated TaskComment comments = 1; optional string next_page_token = 2; uint64 total_count = 3; }
+message TaskAttachment { string id = 1; string name = 2; string media_type = 3; uint64 size = 4; bool can_delete = 5; }
+message TaskAttachmentRequest { TaskRef task = 1; string attachment_id = 2; }
+message TaskIssueDraft { string title = 1; string description = 2; repeated string labels = 3; repeated string assignees = 4; optional string milestone_id = 5; google.protobuf.Struct fields = 6; }
+message TaskCommentWrite { optional string comment_id = 1; string body = 2; google.protobuf.Value rich_body = 3; bool delete = 4; }
+message TaskFieldWrite { string field_id = 1; google.protobuf.Value value = 2; }
+message TaskTagWrite { string id = 1; bool add = 2; }
+message TaskAssigneeWrite { string id = 1; bool add = 2; }
+message TaskAttachmentWrite { oneof action { ArtifactRef attach = 1; string delete_id = 2; } string name = 3; }
+message TaskLinkWrite { string kind = 1; string other_task = 2; bool outward = 3; optional string delete_link_id = 4; }
+message TaskWorklogWrite { uint64 seconds = 1; string started = 2; string comment = 3; }
+message TaskDelete { string confirmation = 1; bool subtasks = 2; }
+message TaskMutationRequest {
+  CommandMeta command = 1; TaskProject project = 2; optional TaskRef task = 3;
+  oneof action { TaskIssueDraft create = 4; TaskFieldWrite field = 5; google.protobuf.Struct fields = 6;
+    TaskStatusChoice status = 7; TaskCommentWrite comment = 8; TaskTagWrite tag = 9;
+    TaskAssigneeWrite assignee = 10; TaskOptionalChoice milestone = 11; TaskAttachmentWrite attachment = 12;
+    TaskLinkWrite link = 13; TaskWorklogWrite worklog = 14; bool watching = 15; bool voted = 16;
+    TaskDelete delete = 17; TaskOptionalChoice sprint = 18; }
+}

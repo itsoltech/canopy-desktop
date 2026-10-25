@@ -131,6 +131,17 @@ impl Render for TerminalView {
                             .border_color(t::border())
                     })),
             )
+            .children(self.input_device().filter(|_| !finished).map(|holder| {
+                process_status_bar(
+                    format!(
+                        "Input is controlled by {}. Typing here is paused.",
+                        holder.label()
+                    ),
+                    [button("take-terminal-input", "Take control")
+                        .on_click(cx.listener(|this, _, _, cx| this.take_input(cx)))
+                        .into_any_element()],
+                )
+            }))
             .children(
                 (!finished && self.pane.metadata.task_prompt.is_some()).then(|| {
                     process_status_bar(

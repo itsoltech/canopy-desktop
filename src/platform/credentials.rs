@@ -10,6 +10,8 @@ pub fn store_name() -> &'static str {
         "macOS Keychain"
     } else if cfg!(target_os = "windows") {
         "Windows Credential Manager"
+    } else if cfg!(target_os = "linux") {
+        "Secret Service"
     } else {
         "the system credential store"
     }
@@ -157,7 +159,62 @@ mod backend {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+mod backend {
+    const LABEL: &str = "Canopy";
+    fn unavailable(_: impl std::fmt::Display) -> String {
+        "Secret Service is unavailable or locked. Unlock the host credential store and retry."
+            .into()
+    }
+    pub fn store(service: &str, id: &str, value: &[u8]) -> Result<(), String> {
+        futures_lite::future::block_on(async {
+            let keyring = oo7::Keyring::new().await.map_err(unavailable)?;
+            keyring.unlock().await.map_err(unavailable)?;
+            keyring
+                .create_item(LABEL, &vec![("service", service), ("id", id)], value, true)
+                .await
+                .map_err(unavailable)
+        })
+    }
+    pub fn load(service: &str, id: &str) -> Result<Vec<u8>, String> {
+        futures_lite::future::block_on(async {
+            let keyring = oo7::Keyring::new().await.map_err(unavailable)?;
+            keyring.unlock().await.map_err(unavailable)?;
+            let items = keyring
+                .search_items(&vec![("service", service), ("id", id)])
+                .await
+                .map_err(unavailable)?;
+            for item in items {
+                if item.label().await.map_err(unavailable)? == LABEL {
+                    item.unlock().await.map_err(unavailable)?;
+                    let bytes = item.secret().await.map_err(unavailable)?;
+                    if bytes.is_empty() || bytes.len() > super::MAX_SECRET_BYTES {
+                        return Err("The stored credential has an invalid size.".into());
+                    }
+                    return Ok(bytes.to_vec());
+                }
+            }
+            Err("The credential is unavailable in Secret Service.".into())
+        })
+    }
+    pub fn remove(service: &str, id: &str) -> Result<(), String> {
+        futures_lite::future::block_on(async {
+            let keyring = oo7::Keyring::new().await.map_err(unavailable)?;
+            keyring.unlock().await.map_err(unavailable)?;
+            for item in keyring
+                .search_items(&vec![("service", service), ("id", id)])
+                .await
+                .map_err(unavailable)?
+            {
+                if item.label().await.map_err(unavailable)? == LABEL {
+                    item.delete().await.map_err(unavailable)?;
+                }
+            }
+            Ok(())
+        })
+    }
+}
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod backend {
     pub fn store(_: &str, _: &str, _: &[u8]) -> Result<(), String> {
         Err("Secure credential storage is unavailable on this platform.".into())

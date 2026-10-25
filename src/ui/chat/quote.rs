@@ -137,7 +137,7 @@ impl ChatView {
             return;
         };
         let answer = reply.field.read(cx).value().trim().to_owned();
-        if send && !self.can_send_quote_reply(&answer) {
+        if send && !self.can_send_quote_reply(&answer, cx) {
             return;
         }
         let Some(quote) = quotes::quote(&reply.text) else {
@@ -164,7 +164,7 @@ impl ChatView {
                 // After the badge's own deferred insertion.
                 cx.defer_in(window, move |this, window, cx| {
                     this.composer.update(cx, |state, cx| {
-                        state.insert(&format!("{answer} "), window, cx);
+                        state.insert(format!("{answer} "), window, cx);
                         state.focus(window, cx);
                     });
                 });
@@ -174,11 +174,11 @@ impl ChatView {
     }
 
     /// A reply is sent like a message, so only what the composer could send now.
-    fn can_send_quote_reply(&self, answer: &str) -> bool {
+    fn can_send_quote_reply(&self, answer: &str, cx: &App) -> bool {
         !answer.is_empty()
             && self.decision.active().is_none()
             && self.editing.is_none()
-            && self.session.as_ref().is_some_and(|s| !s.status().ended())
+            && self.rt(cx).accepts_messages()
     }
 
     fn request_composer_focus(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -200,7 +200,7 @@ impl ChatView {
         let progress = reply.presence.progress(now);
         motion::request_frame(window, reply.presence.is_animating(now));
         let answer = reply.field.read(cx).value().trim().to_owned();
-        let can_send = self.can_send_quote_reply(&answer);
+        let can_send = self.can_send_quote_reply(&answer, cx);
         let width = (f32::from(window.viewport_size().width) - 16.).clamp(0., REPLY_WIDTH);
         let send_hint = "Send (Enter)";
         let add_hint = format!(

@@ -38,27 +38,19 @@ impl ChatView {
 
     /// Sends the last message again as a new turn.
     pub(super) fn retry(&mut self, cx: &mut Context<Self>) {
-        let Some(session) = &mut self.session else {
+        let Some(draft) = self.native(cx).and_then(|session| session.retry_draft()) else {
             return;
         };
-        let Some(draft) = session.retry_draft() else {
-            return;
-        };
-        self.with_images(draft, cx, |this, draft, cx| {
-            if let Some(session) = &mut this.session {
-                let lines = session.submit_draft(draft);
-                this.write(lines);
-            }
-            this.after_change(cx);
-        });
+        self.with_images(draft, cx, |this, draft, cx| this.send_draft(draft, cx));
     }
 
     /// Nothing runs, waits or is queued: a message can be sent again or edited.
-    pub(super) fn settled(&self) -> bool {
-        !self.is_working()
+    pub(super) fn settled(&self, cx: &App) -> bool {
+        !self.is_working(cx)
             && self.decision.active().is_none()
             && self.editing.is_none()
-            && self.session.as_ref().is_some_and(|s| s.queue().is_empty())
+            && self.backend(cx).is_some()
+            && self.runtime.read(cx).queue_lines().is_empty()
     }
 }
 
@@ -150,6 +142,10 @@ pub(super) fn user_actions(
 }
 
 /// Under a turn's reply: Copy, Retry on the last one, Fork, and the turn's numbers.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Reply actions combine the retained view, row and turn data, copy text, last-turn state, fork source, and GPUI context."
+)]
 pub(super) fn reply_actions(
     view: &Entity<ChatView>,
     this: &ChatView,
@@ -158,9 +154,10 @@ pub(super) fn reply_actions(
     text: &str,
     last: bool,
     fork: Option<super::rows::Source>,
+    cx: &App,
 ) -> Div {
     let key = entry.key;
-    let billing = this.session.as_ref().is_some_and(|s| s.api_billing());
+    let billing = this.native(cx).is_some_and(|s| s.api_billing());
     hover_row()
         .child(copy_button(
             view,
@@ -169,7 +166,7 @@ pub(super) fn reply_actions(
             "chat-copy-reply",
             text.to_owned(),
         ))
-        .children((last && this.settled()).then(|| {
+        .children((last && this.settled(cx)).then(|| {
             let view = view.downgrade();
             action(("chat-retry", key), IconName::RotateCw, "Retry").on_click(move |_, _, cx| {
                 let _ = view.update(cx, |this, cx| this.retry(cx));
@@ -214,8 +211,8 @@ fn turn_numbers(end: &TurnEnd, billing: bool) -> String {
 }
 
 /// The context indicator next to the pickers: how full the model's context window is.
-pub(super) fn context_ring(this: &ChatView) -> Option<Stateful<Div>> {
-    let session = this.session.as_ref()?;
+pub(super) fn context_ring(this: &ChatView, cx: &App) -> Option<Stateful<Div>> {
+    let session = this.native(cx)?;
     let usage = session.context();
     // A ChatGPT plan's usage limit (Codex), shown with the context.
     let rate = session.rate_limit();
@@ -280,7 +277,7 @@ pub(super) fn context_ring(this: &ChatView) -> Option<Stateful<Div>> {
             ))
             .hover(|style| style.bg(t::hover()))
             .hover_card(
-                format!("chat-context-{:?}", this.pane.id),
+                format!("chat-context-{:?}", this.pane(cx).id),
                 gpui_kit::base::Placement::Top,
                 move |_, _| meters_card(&meters).into_any_element(),
             )

@@ -13,3 +13,6 @@ declare module '*.png' {
   const src: number
   export default src
 }
+
+// Metro handles stylesheet side-effect imports.
+declare module '*.css'

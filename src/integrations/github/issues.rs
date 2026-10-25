@@ -89,3 +89,75 @@ struct GraphqlIssue {
     labels: Nodes<Label>,
     assignees: Nodes<User>,
 }
+
+/// Search remains bounded by the selected repository and state; user text is a
+/// quoted phrase, never additional GitHub search qualifiers.
+pub(super) async fn search(
+    github: &Github,
+    target: &ProjectTarget,
+    state: TaskState,
+    cursor: Option<&str>,
+    text: &str,
+) -> Result<TaskPage, String> {
+    if text.trim().is_empty() {
+        return list(github, target, state, cursor).await;
+    }
+    ProjectTarget::github(&target.key)?;
+    validate_cursor(cursor)?;
+    if text.len() > 1000 || text.chars().any(char::is_control) {
+        return Err("Invalid GitHub search text.".into());
+    }
+    let phrase = text.trim().replace('\\', "\\\\").replace('"', "\\\"");
+    let query = format!(
+        "repo:{} is:issue is:{} sort:updated-desc \"{}\"",
+        target.key,
+        if state == TaskState::Open {
+            "open"
+        } else {
+            "closed"
+        },
+        phrase
+    );
+    let response=github.graphql(r#"query CanopyIssueSearch($query:String!,$after:String){search(query:$query,type:ISSUE,first:30,after:$after){issueCount pageInfo{hasNextPage endCursor} nodes{... on Issue{number title body state repository{nameWithOwner} milestone{number title} labels(first:100){nodes{name}} assignees(first:16){nodes{login}}}}}}"#,serde_json::json!({"query":query,"after":cursor})).await?;
+    let connection = &response["data"]["search"];
+    let rows = connection["nodes"]
+        .as_array()
+        .ok_or("Invalid GitHub search result.")?;
+    if rows.len() > 30 {
+        return Err("GitHub returned too many search results.".into());
+    }
+    let page_info: PageInfo = serde_json::from_value(connection["pageInfo"].clone())
+        .map_err(|_| "Invalid GitHub search cursor.")?;
+    let mut tasks = vec![];
+    for row in rows {
+        if !row["repository"]["nameWithOwner"]
+            .as_str()
+            .is_some_and(|repo| repo.eq_ignore_ascii_case(&target.key))
+        {
+            return Err("GitHub search returned a task outside this repository.".into());
+        }
+        let issue: GraphqlIssue = serde_json::from_value(row.clone())
+            .map_err(|_| "Invalid GitHub issue in search result.")?;
+        if issue.number == 0 {
+            return Err("Invalid issue number.".into());
+        }
+        tasks.push(task_item(
+            Issue {
+                number: issue.number,
+                title: issue.title,
+                body: issue.body,
+                state: issue.state,
+                labels: issue.labels.nodes,
+                assignees: issue.assignees.nodes,
+                pull_request: None,
+                milestone: issue.milestone,
+            },
+            target,
+        ));
+    }
+    Ok(TaskPage {
+        tasks,
+        next_cursor: page_info.continuation(cursor)?,
+        total_count: connection["issueCount"].as_u64().map(|n| n as usize),
+    })
+}

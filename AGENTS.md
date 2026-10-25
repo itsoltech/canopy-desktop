@@ -34,6 +34,8 @@ nie wczytuj całego dokumentu do każdej poprawki. Opisy modułów i procedur:
 - Terminal, PTY i procesy: [terminal](docs/terminal.md), [narzędzia](docs/tools.md).
 - Settings, profile i sekrety: [SQLite](docs/settings.md), [preferencje agentów](docs/agent-preferences.md).
 - Czat agentów (Claude Code, Codex): [czat](docs/chat.md).
+- Docelowa abstrakcja agentów i remote gRPC: [plan domenowy](docs/agent-runtime-remote-plan.md),
+  [wymagania odbiorowe](docs/agent-runtime-remote-acceptance.md) — projekt do wdrożenia, nie opis obecnego kodu.
 - Sesje agentów i resume: [agenci](docs/agents.md), [notch](docs/notch.md), [toasty](docs/toasts.md).
 - Git: [worktree](docs/git-worktrees.md), [Pull/Push](docs/git-network.md),
   [Changes i commit](docs/git-changes.md), [hooki](docs/git-hooks.md).

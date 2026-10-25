@@ -119,8 +119,8 @@ fn preview(
 }
 
 impl ChatView {
-    fn nav_transcript(&self) -> Option<&Transcript> {
-        self.session.as_ref().map(|session| session.transcript())
+    fn nav_transcript<'a>(&self, cx: &'a App) -> Option<&'a Transcript> {
+        self.transcript(cx)
     }
 
     /// The rail, over the conversation's left edge (main conversation only).
@@ -128,7 +128,7 @@ impl ChatView {
         if !self.threads.is_empty() {
             return None;
         }
-        let marks = marks(&self.rows, self.nav_transcript());
+        let marks = marks(&self.rows, self.nav_transcript(cx));
         if marks.len() < MIN_MESSAGES {
             self.navigator.hovered = None;
             return None;
@@ -143,7 +143,7 @@ impl ChatView {
         let hovered = self.navigator.hovered;
         let card = hovered
             .filter(|&index| index < marks.len())
-            .map(|index| preview(&self.rows, self.nav_transcript(), &marks, index));
+            .map(|index| preview(&self.rows, self.nav_transcript(cx), &marks, index));
         let marks_view = marks.iter().enumerate().map(|(index, mark)| {
             let near = (1. - (index as f32 - center).abs() / REACH).max(0.) * lift;
             let current = on_screen(mark, &visible);
@@ -230,7 +230,7 @@ impl ChatView {
         if !self.threads.is_empty() {
             return;
         }
-        let marks = marks(&self.rows, self.nav_transcript());
+        let marks = marks(&self.rows, self.nav_transcript(cx));
         let top = self.rows.scroller.read(cx).top_row();
         let target = if forward {
             marks.iter().find(|mark| mark.row > top)

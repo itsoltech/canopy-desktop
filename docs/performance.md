@@ -118,3 +118,88 @@ Resize głównego panelu ma tylko próbę pomocniczą/przerwaną; nie kwalifikuj
 jego p95. Nie zmierzono zimnego startu, realnego terminala, dużych zbiorów,
 Windows/Linux, czytnika ekranu ani długotrwałej retencji pamięci. Do kolejnych
 widoków zachowujemy tę samą metodę i osobno wykonamy test ciągłej prezentacji.
+
+## Runtime i native remote — diagnostyka PERF-02/03
+
+`src/remote/metrics.rs` jest procesowym rejestratorem diagnostycznym, bez osobnego
+workera, zależności, zapisu treści ani powiadomień GPUI. `snapshot()` i
+`snapshot_json()` służą lokalnej diagnostyce; `snapshot_for(host_id)` ogranicza
+rekordy i histogramy do hosta. `Host.ReadDiagnostics` udostępnia ten snapshot przez
+natywne, typowane RPC wymagające ADMIN i zakresu Private. Eksport ma wersję schematu
+oraz losowe ID procesu: restart zeruje pomiary, nie odtwarza czasów z SQLite.
+
+Granice pomiarów są jawne:
+
+- `worker_queue`: od dodania AcceptRuntimeOperation/AcceptRuntimeMessage do istniejącej
+  kolejki SQLite do odebrania przez jej worker. Nie obejmuje commitu.
+- `commit`: wyłącznie rzeczywiste `Transaction::commit` przyjęcia komendy/wiadomości
+  i przejścia komendy, także jego błąd. Walidacja i SQL przed commitem nie są tym czasem.
+- `queue`: od zatwierdzonego accepted do zatwierdzonego attempting tej samej komendy.
+- `dispatch`: od zatwierdzonego attempting do zatwierdzonego succeeded/failed/unknown.
+  To czas wykonania skutku, łącznie z oczekiwaniem na wynik; nie jest czasem samego
+  zapisu stdin ani czystym narzutem sieci. Send zakończony przyjęciem do trwałej kolejki
+  nie otrzymuje fikcyjnego attempting.
+- `provider_ttft`: lokalny dispatch zwykłej wiadomości do pierwszego nowego, niepustego
+  głównego tekstu asystenta zastosowanego przez runtime. Obejmuje oczekiwanie na model,
+  proces i pompę; nie jest to zgłoszony przez dostawcę czas inferencji. Thinking,
+  narzędzie, podagent i potwierdzenie Send nie kończą tego pomiaru. Steer nie jest
+  kwalifikowany jako odpowiedź nowej tury. Koniec bez tekstu, błąd i zmiana generacji
+  nie tworzą zerowej próbki TTFT.
+- `parse_enqueue`: od początku parsowania kompletnej linii stdout do zakończenia
+  bounded enqueue zdarzenia; obejmuje backpressure, nie oczekiwanie na bajty stdout.
+  Próbki są przypisane dopiero po adopcji procesu przez runtime (host, ChatId, run).
+- `apply`: od początku zastosowania batcha backendu do zakończenia `after_change`.
+- `fanout`, `client_receive_apply`, `client_round_trip`, `render`: osobne hooki
+  właścicieli publikacji, projekcji klienta, RPC i renderowania. Pomiar renderowania
+  nie oznacza prezentacji klatki na ekranie. Brak próbki oznacza brak obserwacji,
+  nigdy domyślne zero lub potwierdzenie spełnienia limitu.
+
+Każdy interwał powstaje wyłącznie z `std::time::Instant` tego samego procesu.
+Host nie eksportuje timestampu służącego do odejmowania od zegara klienta.
+Identyfikator procesu rozdziela serie; `command_id`, `device_id`, command epoch,
+HostId, ResourceId i generacja służą korelacji, nie synchronizacji zegarów.
+Nowy recorder po restarcie nie wymyśla czasu kolejki ani dispatch dla starej komendy.
+
+Pamięć jest ograniczona do 32 hostów, 256 ostatnich rekordów i 256 aktywnych
+korelacji komend. Dla każdego hosta i etapu jest stały histogram 64 przedziałów
+mikrosekundowych o granicach potęg dwójki: `count`, `total_us`, `max_us` oraz
+`p95_upper_us` (górna granica przedziału percentyla, nie dokładny percentyl).
+Histogram liczy każdą poprawną obserwację. Zwykłe rekordy czasowe są próbkowane
+maksymalnie raz na 100 ms na etap i host; przejścia komend zachowuje ograniczony
+ring. `dropped_records` obejmuje próbkowanie, wyparcie rekordów/korelacji i limit
+hostów. `rejected_keys` pokazuje odrzucone identyfikatory. Te dwa liczniki są globalne
+w procesie, również w snapshotach filtrowanych po hoście.
+
+Przejścia `accepted`, `attempting`, `succeeded`, `failed`, `delivery_unknown` i
+odmowy są rejestrowane po wyniku rzeczywistej operacji SQLite. Retry ma stan `retry`,
+bez nowego dispatch i bez restartowania jego stopera. Błąd SQL przed commitem nie
+zapisuje fałszywego accepted/attempting. Powody odmowy pochodzą z zamkniętego słownika;
+wynik komendy, tekst błędu SQLite, prompt, output narzędzia i bajty procesu nie są
+argumentami rejestratora. UUID zachowują tożsamość. Zasoby o ID opartym na ścieżce lub
+innym tekście są zamieniane przez `resource_id` na skrót z prywatną losową solą procesu;
+nie eksportuje się ścieżek ani soli. Publiczny hook odrzuca zwykły tekst w polu klucza.
+Rejestrator nie pisze logu na dysk dla każdej delty i nie wywołuje `notify`/redraw.
+
+Regresje `remote::metrics::tests` sprawdzają arytmetykę przyczynowych interwałów,
+retry, brak odtwarzania czasu z innego procesu, limity i brak plaintextu. Test na
+rzeczywistym workerze SQLite używa tymczasowej bazy i triggera odmawiającego attempting:
+brak fałszywego przejścia, zachowane accepted, jeden skutek zapisany do osobnego
+pliku po naprawie oraz brak ponownego skutku przy retry. To dowód P/T mechanizmu
+pomiaru; nie stanowi pomiaru wydajności natywnych urządzeń.
+
+AC-30 pełnej macierzy obciążenia oraz natywne platformy AC-31 pozostają **NOT RUN**.
+Instrumentacja i testy komponentowe nie potwierdzają p95 LAN/VPN, macOS/Windows,
+iOS/Android, prawdziwych modeli ani prezentacji GUI. Serie macOS użytkownika muszą
+zapisać osobno środowisko, RTT, liczbę próbek i dokładne granice użytych metryk.
+
+Desktop mierzy osobno otrzymanie/zastosowanie projekcji, zastosowanie jej przez
+właściciela GPUI i budowę drzewa widoku. To ostatnie nie obejmuje layoutu, GPU
+ani prezentacji; pełna klatka nadal wymaga profilera opisanego wyżej. Przyjęcie
+Edit/Shell i atomowa publikacja forka korzystają z tych samych hooków commitu.
+Preferences → Remote access → Copy diagnostics kopiuje lokalny snapshot.
+
+Mobile używa `performance.now()`, stałych trzech histogramów i maksymalnie 256
+rekordów bez treści. Mierzy unary round trip, odbiór/instalację czatu i React
+commit. Host → Share local diagnostics eksportuje odrębną serię z ID procesu.
+`HostService.ReadDiagnostics` zwraca serię hosta tylko urządzeniu Admin/Private.
+Żaden eksport nie odejmuje timestampu hosta od timestampu klienta.

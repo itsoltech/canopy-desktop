@@ -17,6 +17,10 @@ pub struct AgentSettings {
     pub custom_env: BTreeMap<String, String>,
     pub settings_json: String,
     pub api_key_ref: Option<String>,
+    /// Remote writes keep immutable credential-store chunks, never plaintext SQLite values.
+    pub env_refs: BTreeMap<String, Vec<String>>,
+    pub prompt_ref: Option<Vec<String>>,
+    pub settings_json_ref: Option<Vec<String>>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Agent {
@@ -43,8 +47,81 @@ impl Agent {
         }
     }
 }
+/// Resolve an active value on a background worker. Missing chunks fail closed.
+pub fn resolve_value(ids: &[String]) -> Result<String, String> {
+    resolve_value_with(ids, &crate::terminal::credentials::load)
+}
+fn resolve_value_with(
+    ids: &[String],
+    load: &impl Fn(&str) -> Result<String, String>,
+) -> Result<String, String> {
+    let mut value = String::new();
+    for id in ids {
+        value.push_str(&load(id)?);
+        if value.len() > 65536 {
+            return Err("Stored agent setting is too large.".into());
+        }
+    }
+    Ok(value)
+}
 impl AgentSettings {
+    pub fn credential_refs(&self) -> impl Iterator<Item = &str> {
+        self.api_key_ref
+            .iter()
+            .map(String::as_str)
+            .chain(self.env_refs.values().flatten().map(String::as_str))
+            .chain(self.prompt_ref.iter().flatten().map(String::as_str))
+            .chain(self.settings_json_ref.iter().flatten().map(String::as_str))
+    }
+    /// Returns only a transient launch copy; it must never be saved.
+    pub fn resolved(&self) -> Result<Self, String> {
+        self.resolved_with(&crate::terminal::credentials::load)
+    }
+    fn resolved_with(
+        &self,
+        load: &impl Fn(&str) -> Result<String, String>,
+    ) -> Result<Self, String> {
+        let mut resolved = self.clone();
+        for (key, ids) in &self.env_refs {
+            resolved
+                .custom_env
+                .insert(key.clone(), resolve_value_with(ids, load)?);
+        }
+        if let Some(ids) = &self.prompt_ref {
+            resolved.append_system_prompt = resolve_value_with(ids, load)?;
+        }
+        if let Some(ids) = &self.settings_json_ref {
+            resolved.settings_json = resolve_value_with(ids, load)?;
+        }
+        resolved.env_refs.clear();
+        resolved.prompt_ref = None;
+        resolved.settings_json_ref = None;
+        Ok(resolved)
+    }
+
     pub fn validate(&self, agent: Option<Agent>) -> Result<(), String> {
+        if self
+            .credential_refs()
+            .any(|id| uuid::Uuid::parse_str(id).is_err())
+            || self.env_refs.len()
+                + self
+                    .custom_env
+                    .keys()
+                    .filter(|key| !self.env_refs.contains_key(*key))
+                    .count()
+                > 128
+            || self.env_refs.values().any(|ids| ids.len() > 1)
+            || self.prompt_ref.as_ref().is_some_and(|ids| ids.len() > 26)
+            || self
+                .settings_json_ref
+                .as_ref()
+                .is_some_and(|ids| ids.len() > 26)
+        {
+            return Err("Invalid active secret references.".into());
+        }
+        for key in self.env_refs.keys() {
+            validate_env(key, "")?;
+        }
         for s in [
             &self.permission_mode,
             &self.effort_level,
@@ -249,4 +326,42 @@ fn json_toml(value: &serde_json::Value) -> Result<String, String> {
                 .join(",")
         ),
     })
+}
+
+#[cfg(test)]
+mod secret_resolution_tests {
+    use super::AgentSettings;
+    #[test]
+    fn selected_launch_copy_resolves_chunks_and_fails_closed_on_missing_secret() {
+        let mut settings = AgentSettings::default();
+        settings
+            .custom_env
+            .insert("EXPLICIT".into(), "legacy fallback".into());
+        settings
+            .env_refs
+            .insert("EXPLICIT".into(), vec!["environment".into()]);
+        settings.prompt_ref = Some(vec!["part1".into(), "part2".into()]);
+        let load = |id: &str| match id {
+            "environment" => Ok("private value".into()),
+            "part1" => Ok("private ".into()),
+            "part2" => Ok("prompt".into()),
+            _ => Err("missing".into()),
+        };
+        let resolved = settings.resolved_with(&load).unwrap();
+        assert_eq!(resolved.custom_env["EXPLICIT"], "private value");
+        assert_eq!(resolved.append_system_prompt, "private prompt");
+        assert!(resolved.env_refs.is_empty());
+        assert!(resolved.prompt_ref.is_none());
+        assert_eq!(settings.custom_env["EXPLICIT"], "legacy fallback");
+        assert!(
+            settings
+                .resolved_with(&|_| Err("vault locked".into()))
+                .is_err()
+        );
+        assert!(
+            !serde_json::to_string(&settings)
+                .unwrap()
+                .contains("private value")
+        );
+    }
 }

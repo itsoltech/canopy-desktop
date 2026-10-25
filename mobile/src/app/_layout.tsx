@@ -11,7 +11,7 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon'
 import { AppConfig } from '@/config/app-config'
 import { Colors } from '@/constants/theme'
 import { useColorScheme } from '@/hooks/use-color-scheme'
-import { reconnectIfDisconnected } from '@/lib/remote/session'
+import { remoteHosts } from '@/lib/remote/grpc/hosts'
 import { AppPreferencesStorage } from '@/lib/storage/app-preferences'
 
 const CanopyDarkTheme = {
@@ -102,12 +102,17 @@ export default function RootLayout(): React.ReactElement {
 
 function AppStateReconnect(): null {
   useEffect(() => {
+    // Native host ownership is independent of the selected screen.
+    let nativeHosts: ReturnType<typeof remoteHosts> | undefined
+    try {
+      nativeHosts = remoteHosts()
+      void nativeHosts.setForeground(AppState.currentState === 'active')
+      void nativeHosts.restore().catch(() => { /* Registry errors are surfaced when opening native connections. */ })
+    } catch { /* Native module requires a new native build, not an OTA update. */ }
     const sub = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
-        reconnectIfDisconnected()
-      }
+      void nativeHosts?.setForeground(nextAppState === 'active')
     })
-    return () => sub.remove()
+    return () => { sub.remove(); void nativeHosts?.setForeground(false) }
   }, [])
   return null
 }

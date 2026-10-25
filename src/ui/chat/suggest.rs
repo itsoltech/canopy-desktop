@@ -268,16 +268,12 @@ impl ChatView {
         };
         match trigger.kind {
             Kind::Command => {
-                let commands = self
-                    .session
-                    .as_ref()
-                    .map(|s| s.commands())
-                    .unwrap_or_default();
+                let commands = self.backend(cx).map(|s| s.commands()).unwrap_or_default();
                 // `/goal` is Canopy's too (goal mode): offered even where the agent
-                // doesn't list it (Codex).
+                // doesn't list it (Codex), never to an agent without goals.
                 let mut listed = commands.to_vec();
                 let reported = !commands.is_empty();
-                if !listed.iter().any(|c| c.name == goal::COMMAND) {
+                if self.capabilities(cx).goal && !listed.iter().any(|c| c.name == goal::COMMAND) {
                     listed.push(CommandInfo {
                         name: goal::COMMAND.into(),
                         description: "Keep working until a condition is met".into(),
@@ -303,14 +299,13 @@ impl ChatView {
                     .collect();
                 // The agent reports them once it has started.
                 suggest.loading = !reported
-                    && self.session.as_ref().is_none_or(|s| {
+                    && self.backend(cx).is_none_or(|s| {
                         matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
                     });
             }
             Kind::Skill => {
                 let skills: Vec<CommandInfo> = self
-                    .session
-                    .as_ref()
+                    .backend(cx)
                     .map(|s| s.commands())
                     .unwrap_or_default()
                     .iter()
@@ -322,11 +317,11 @@ impl ChatView {
                     .map(|command| command_choice(command, true))
                     .collect();
                 suggest.loading = skills.is_empty()
-                    && self.session.as_ref().is_none_or(|s| {
+                    && self.backend(cx).is_none_or(|s| {
                         matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
                     });
             }
-            Kind::File => match self.cwd() {
+            Kind::File => match self.cwd(cx) {
                 Some(root) => {
                     let cancel = canopy_desktop::files::CancelGuard::default();
                     let signal = cancel.0.clone();
@@ -360,7 +355,7 @@ impl ChatView {
                 }
                 None => suggest.error = Some("This chat has no folder.".into()),
             },
-            Kind::Pull => match self.cwd() {
+            Kind::Pull => match self.cwd(cx) {
                 Some(cwd) => {
                     let integrations = cx.global::<AppState>().integrations.clone();
                     let query = trigger.query.clone();
@@ -527,8 +522,8 @@ impl ChatView {
         }
         motion::request_frame(window, animating);
         let title = match suggest.trigger.kind {
-            Kind::Command => format!("{} commands and skills", self.provider().name()),
-            Kind::Skill => format!("{} skills", self.provider().name()),
+            Kind::Command => format!("{} commands and skills", self.agent_name(cx)),
+            Kind::Skill => format!("{} skills", self.agent_name(cx)),
             Kind::File => "Files and folders".to_owned(),
             Kind::Pull => "Pull requests".to_owned(),
         };

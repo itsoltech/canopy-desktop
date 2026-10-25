@@ -46,7 +46,7 @@ fn github_asset(raw: &str) -> bool {
     })
 }
 
-fn github_assets(text: &str) -> Result<Vec<String>, String> {
+pub(crate) fn github_assets(text: &str) -> Result<Vec<String>, String> {
     fn walk(node: &markdown_parser::mdast::Node, found: &mut Vec<String>) {
         use markdown_parser::mdast::Node;
         let url = match node {
@@ -82,7 +82,7 @@ fn github_assets(text: &str) -> Result<Vec<String>, String> {
     Ok(found)
 }
 
-async fn github_download(
+pub(crate) async fn github_download(
     http: &Arc<dyn HttpClient>,
     url: &str,
     token: &str,

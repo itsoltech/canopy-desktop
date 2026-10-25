@@ -405,3 +405,155 @@ fn queued_messages_can_be_reordered_but_not_steers_in_flight() {
         "a steer in flight stays put"
     );
 }
+
+#[test]
+fn accepted_dispatch_preserves_host_message_id_and_does_not_create_another_queue() {
+    use canopy_desktop::chat::session::Draft;
+    let mut session = ready(&[]);
+    let id = "7ba2f1b0-ddb6-4f6a-aac1-c8aff5919cec";
+    let lines = session
+        .submit_accepted(Draft::text("accepted"), id)
+        .unwrap();
+    assert_eq!(user_lines(&lines)[0].2, id);
+    assert!(
+        session
+            .submit_accepted(Draft::text("wait in host queue"), "next")
+            .is_err()
+    );
+    assert!(session.queue().is_empty());
+    let users = session
+        .transcript()
+        .items()
+        .iter()
+        .filter_map(|item| match &item.body {
+            Body::User(user) => Some(user),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].uuid.as_deref(), Some(id));
+}
+
+#[test]
+fn a_host_queued_message_is_delivered_only_on_the_cli_lifecycle() {
+    use canopy_desktop::chat::backend::Receipt;
+    use canopy_desktop::chat::session::Draft;
+    let mut session = ready(&[canopy_desktop::chat::claude::wire::LIFECYCLE_CAPABILITY]);
+    session.use_host_queue();
+    assert!(session.ready_for_message());
+    let lines = session
+        .submit_accepted(Draft::text("first"), "host-message-1")
+        .unwrap();
+    assert_eq!(
+        user_lines(&lines)[0].2,
+        "host-message-1",
+        "the host ID goes out"
+    );
+    assert!(
+        session.take_receipts().is_empty(),
+        "written is not delivered"
+    );
+    assert!(!session.ready_for_message());
+    assert!(
+        session
+            .submit_accepted(Draft::text("second"), "host-message-2")
+            .is_err(),
+        "a busy session never queues an accepted message itself"
+    );
+    lifecycle(&mut session, "host-message-1", "queued");
+    assert!(session.take_receipts().is_empty());
+    lifecycle(&mut session, "host-message-1", "started");
+    assert_eq!(
+        session.take_receipts(),
+        vec![("host-message-1".to_owned(), Receipt::Delivered)]
+    );
+    result(&mut session);
+    state(&mut session, "idle");
+
+    // Discarded before the CLI read it: refused, not delivered.
+    session
+        .submit_accepted(Draft::text("dropped"), "host-message-2")
+        .unwrap();
+    lifecycle(&mut session, "host-message-2", "discarded");
+    assert_eq!(
+        session.take_receipts(),
+        vec![("host-message-2".to_owned(), Receipt::Refused)]
+    );
+}
+
+#[test]
+fn with_the_host_queue_an_unread_steer_returns_instead_of_going_out_alone() {
+    let mut session = ready(&[canopy_desktop::chat::claude::wire::LIFECYCLE_CAPABILITY]);
+    session.use_host_queue();
+    session
+        .submit_accepted(
+            canopy_desktop::chat::session::Draft::text("first"),
+            "host-message-1",
+        )
+        .unwrap();
+    let steer = user_lines(&session.steer_text("also this"))[0].2.clone();
+    lifecycle(&mut session, &steer, "cancelled");
+    let lines = result(&mut session);
+    assert!(
+        user_lines(&lines).is_empty(),
+        "nothing is resent by the session"
+    );
+    let unread = session.take_unread_steers();
+    assert_eq!(unread.len(), 1);
+    assert_eq!(unread[0].text, "also this");
+}
+
+#[test]
+fn an_accepted_steer_is_evidenced_under_its_host_message_id() {
+    use canopy_desktop::chat::{backend::Receipt, session::Draft};
+    let mut session = ready(&[wire::LIFECYCLE_CAPABILITY]);
+    session.use_host_queue();
+    let first = "11111111-1111-4111-8111-111111111111";
+    session
+        .submit_accepted(Draft::text("first"), first)
+        .unwrap();
+    lifecycle(&mut session, first, "started");
+    state(&mut session, "running");
+    assert_eq!(
+        session.take_receipts(),
+        [(first.to_owned(), Receipt::Delivered)]
+    );
+    assert!(session.can_steer());
+
+    // The durable message's own ID goes to the agent; nothing is queued in the session.
+    let steer = "22222222-2222-4222-8222-222222222222";
+    let lines = user_lines(
+        &session
+            .steer_accepted(Draft::text("check tests"), steer)
+            .unwrap(),
+    );
+    assert_eq!(lines, [("check tests".into(), "next".into(), steer.into())]);
+    assert!(session.queue().is_empty());
+    assert!(!session.can_steer(), "one steer in flight at a time");
+    assert_eq!(
+        bubbles(&session).len(),
+        1,
+        "shown only once the agent reads it"
+    );
+    lifecycle(&mut session, steer, "started");
+    assert_eq!(
+        session.take_receipts(),
+        [(steer.to_owned(), Receipt::Delivered)]
+    );
+    assert_eq!(
+        bubbles(&session)[1],
+        (TurnId(1), "check tests".into(), Delivery::Steered)
+    );
+
+    // Refused before it was read: the host settles it as failed, no bubble.
+    let refused = "33333333-3333-4333-8333-333333333333";
+    session
+        .steer_accepted(Draft::text("never read"), refused)
+        .unwrap();
+    lifecycle(&mut session, refused, "cancelled");
+    assert_eq!(
+        session.take_receipts(),
+        [(refused.to_owned(), Receipt::Refused)]
+    );
+    assert_eq!(bubbles(&session).len(), 2);
+}

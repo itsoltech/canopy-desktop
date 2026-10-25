@@ -66,8 +66,8 @@ pub fn view(tool: &ToolCall) -> ToolView {
     let structured = output.and_then(|o| o.structured.as_ref());
     let plain = output.map(|o| o.text.clone()).unwrap_or_default();
     let failed = tool.state == ToolState::Failed || output.is_some_and(|o| o.is_error);
-    match tool.name.as_str() {
-        "Bash" => {
+    match tool.semantic_kind() {
+        super::backend::ToolKind::Shell => {
             let command = text(&tool.input, "command").unwrap_or_default().to_owned();
             let description = text(&tool.input, "description").map(str::to_owned);
             match structured.filter(|s| s.is_object()) {
@@ -92,7 +92,7 @@ pub fn view(tool: &ToolCall) -> ToolView {
                 },
             }
         }
-        "Read" => match structured.and_then(|s| s.get("file")) {
+        super::backend::ToolKind::Read => match structured.and_then(|s| s.get("file")) {
             Some(file) => ToolView::Read {
                 path: text(file, "filePath")
                     .or_else(|| text(&tool.input, "file_path"))
@@ -105,11 +105,11 @@ pub fn view(tool: &ToolCall) -> ToolView {
             },
             None => generic(tool, plain),
         },
-        "Edit" | "MultiEdit" | "Write" => match structured.and_then(change) {
+        super::backend::ToolKind::Edit => match structured.and_then(change) {
             Some(change) => ToolView::Change(change),
             None => generic(tool, plain),
         },
-        "WebFetch" | "WebSearch" => ToolView::Web {
+        super::backend::ToolKind::Web => ToolView::Web {
             target: text(&tool.input, "url")
                 .or_else(|| text(&tool.input, "query"))
                 .unwrap_or_default()
@@ -337,7 +337,7 @@ const PROPOSED_LINES: usize = 2000;
 pub fn proposal(tool: &str, input: &Value) -> Proposal {
     let path = || text(input, "file_path").map(PathBuf::from);
     match tool {
-        "Bash" => Proposal::Command {
+        "Bash" | "commandExecution" => Proposal::Command {
             command: text(input, "command").unwrap_or_default().to_owned(),
             description: text(input, "description").map(str::to_owned),
         },
@@ -512,6 +512,7 @@ mod tests {
 
     fn call(name: &str, input: Value, result: Option<Value>, text: &str) -> ToolCall {
         ToolCall {
+            kind: Default::default(),
             call_id: "t".into(),
             name: name.into(),
             input,

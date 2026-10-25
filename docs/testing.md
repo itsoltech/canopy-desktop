@@ -4,6 +4,10 @@ Priorytetem jest dowożenie kompletnej funkcjonalności. Liczba testów ani proc
 pokrycia nie zastępują sprawdzenia zachowania, którego potrzebuje użytkownik.
 Szersze uzupełnianie testów pozostaje osobnym etapem, wybieranym według ryzyka.
 
+Docelowy refactor agentów i remote ma osobny
+[kontrakt odbioru](agent-runtime-remote-acceptance.md). Opisane tam przypadki są
+wymaganiami przyszłej implementacji, a nie raportem wykonanych testów.
+
 ## Kiedy dodawać test
 
 Najpierw wykorzystaj istniejącą ochronę. Nowy test ma wykrywać konkretny, istotny

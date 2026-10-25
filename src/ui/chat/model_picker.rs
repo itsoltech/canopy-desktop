@@ -3,7 +3,7 @@
 //! models, after T3's (DEC-097): the accounts on a rail (hearts first), the chosen
 //! account's models searchable beside it; choosing one glides back to the slider.
 use super::{
-    composer::{Account, provider_icon},
+    composer::{Account, agent_icon},
     view::ChatView,
 };
 use crate::app_state::AppState;
@@ -265,7 +265,7 @@ impl ChatView {
                 row()
                     .gap(px(5.))
                     .text_size(px(12.))
-                    .child(provider_icon(self.provider()))
+                    .child(agent_icon(self.provider(cx), &self.agent_name(cx)))
                     .when(density != Density::Icons, |row| {
                         row.child(div().text_color(t::secondary()).child(model))
                     })
@@ -306,7 +306,7 @@ impl ChatView {
         let effort = self.current_model(cx).filter(ModelInfo::supports_effort);
         let stop = effort
             .as_ref()
-            .and_then(|model| active_stop(model, self.settings.effort));
+            .and_then(|model| active_stop(model, self.settings(cx).effort));
         let profile = self.profile(cx);
         let picker = &mut self.model_picker;
         picker.open = open;
@@ -332,19 +332,21 @@ impl ChatView {
     /// the one whose agent already listed them in this chat (DEC-098).
     fn refresh_models(&mut self, cx: &mut Context<Self>) {
         let (accounts, current) = self.accounts(cx);
-        let locked = self.account_locked();
-        let live = self
-            .session
-            .as_ref()
-            .is_some_and(|s| !s.models().is_empty());
+        let locked = self.account_locked(cx);
+        let live = self.native(cx).is_some_and(|s| !s.models().is_empty());
         let catalog = cx.global::<AppState>().model_catalog.clone();
+        let pane = self.pane(cx).clone();
         for account in accounts {
             let here = account.id == current;
-            if (locked && !here) || (here && live) {
+            // ACP agents name their models only in a running session.
+            let Some(provider) = account
+                .provider
+                .filter(|_| !(locked && !here || here && live))
+            else {
                 continue;
-            }
+            };
             catalog.update(cx, |catalog, cx| {
-                catalog.refresh(account.provider, account.id, &self.pane, cx)
+                catalog.refresh(provider, account.id, &pane, cx)
             });
         }
     }
@@ -356,7 +358,7 @@ impl ChatView {
             return;
         }
         picker.from = picker.height(now).unwrap_or(picker.measured.get());
-        let rail = !self.account_locked();
+        let rail = !self.account_locked(cx);
         let picker = &mut self.model_picker;
         picker.width_from = picker.width(rail, now);
         picker.forward = page == Page::Models;
@@ -377,7 +379,7 @@ impl ChatView {
         self.set_model(value, cx);
         match self.current_model(cx).filter(ModelInfo::supports_effort) {
             Some(model) => {
-                let stop = active_stop(&model, self.settings.effort);
+                let stop = active_stop(&model, self.settings(cx).effort);
                 let policy = motion::policy(cx);
                 self.model_picker.move_knob(stop, policy, Instant::now());
                 self.turn_page(Page::Effort, cx);
@@ -402,7 +404,7 @@ impl ChatView {
         let height = picker.height(now);
         let shift = SHIFT * (1. - progress) * if picker.forward { 1. } else { -1. };
         let measured = picker.measured.clone();
-        let rail = !self.account_locked();
+        let rail = !self.account_locked(cx);
         let width = picker.width(rail, now);
         let effort_model = self
             .current_model(cx)
@@ -475,7 +477,7 @@ impl ChatView {
     fn effort_page(&mut self, model: &ModelInfo, cx: &mut Context<Self>) -> Div {
         let now = Instant::now();
         let policy = motion::policy(cx);
-        let active = active_stop(model, self.settings.effort);
+        let active = active_stop(model, self.settings(cx).effort);
         let shown = self.model_picker.dragging.or(active);
         if self.model_picker.dragging.is_none() {
             self.model_picker.move_knob(active, policy, now);
@@ -500,7 +502,7 @@ impl ChatView {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(provider_icon(self.provider())),
+                            .child(agent_icon(self.provider(cx), &self.agent_name(cx))),
                     )
                     .child(
                         column()
@@ -539,7 +541,7 @@ impl ChatView {
                             .border_0()
                             .accessibility_label("Reset to the default")
                             .tooltip("Reset to the default")
-                            .disabled(self.settings.effort.is_none())
+                            .disabled(self.settings(cx).effort.is_none())
                             .child(custom_icon("rotate-ccw").size(px(14.)))
                             .on_click(cx.listener(|this, _, _, cx| this.set_effort(None, cx))),
                     ),
@@ -739,7 +741,7 @@ impl ChatView {
         if let Some(effort) = self
             .current_model(cx)
             .and_then(|model| model.effort_levels.get(stop).copied())
-            && Some(effort) != self.settings.effort
+            && Some(effort) != self.settings(cx).effort
         {
             self.set_effort(Some(effort), cx);
         }
@@ -753,7 +755,7 @@ impl ChatView {
             return;
         };
         let last = model.effort_levels.len() as isize - 1;
-        let stop = match active_stop(&model, self.settings.effort) {
+        let stop = match active_stop(&model, self.settings(cx).effort) {
             Some(stop) => (stop as isize + step).clamp(0, last),
             None if step > 0 => 0,
             None => last,
@@ -780,6 +782,10 @@ impl ChatView {
         let choice = |account: &Account, models: &[ModelInfo], model: Option<&ModelInfo>| {
             let (title, note) = match model {
                 Some(info) => (info.label(), None),
+                None if account.provider.is_none() => (
+                    account.name.clone(),
+                    Some("Its models and modes show once it starts".to_owned()),
+                ),
                 None => (
                     "Default".to_owned(),
                     Some(default_note(&Self::default_model_label(models))),
@@ -788,9 +794,11 @@ impl ChatView {
             let value = model.map(|info| info.value.clone());
             Choice {
                 provider: account.provider,
+                tool: account.tool.clone(),
+                agent: account.agent.clone(),
                 profile: account.id.clone(),
                 account: account.name.clone(),
-                chosen: account.id == current && value == self.settings.model,
+                chosen: account.id == current && value == self.settings(cx).model,
                 favorite: catalog.is_favorite(&account.id, value.as_deref()),
                 model: value,
                 title,
@@ -845,7 +853,7 @@ impl ChatView {
                             let value = favorite.model.clone().unwrap_or_default();
                             Choice {
                                 chosen: account.id == current
-                                    && Some(&value) == self.settings.model.as_ref(),
+                                    && Some(&value) == self.settings(cx).model.as_ref(),
                                 title: value.clone(),
                                 note: None,
                                 model: Some(value),
@@ -868,9 +876,9 @@ impl ChatView {
     fn choose_model(&mut self, choice: Choice, cx: &mut Context<Self>) {
         if choice.profile == self.profile(cx) {
             self.pick_model(choice.model, cx);
-        } else if !self.account_locked() {
+        } else if !self.account_locked(cx) {
             self.set_model_picker_open(false, cx);
-            self.set_account(choice.provider, choice.profile, choice.model, cx);
+            self.set_account(choice.tool, choice.profile, choice.model, cx);
         }
     }
 
@@ -952,10 +960,7 @@ impl ChatView {
         let highlighted = self.model_picker.highlighted;
         let hearts = tab.is_none();
         let searching = !self.model_picker.search.read(cx).value().trim().is_empty();
-        let live = self
-            .session
-            .as_ref()
-            .is_some_and(|s| !s.models().is_empty());
+        let live = self.native(cx).is_some_and(|s| !s.models().is_empty());
         let catalog = cx.global::<AppState>().model_catalog.read(cx);
         // Under the list: why it is empty, or the account's models still on their way.
         let note = match tab.as_deref() {
@@ -963,7 +968,13 @@ impl ChatView {
                 Some("Models with a heart show here.".to_owned())
             }
             _ if choices.is_empty() => Some("No matching models".to_owned()),
-            Some(profile) if !(profile == current && live) && catalog.models(profile).is_none() => {
+            Some(profile)
+                if !(profile == current && live)
+                    && catalog.models(profile).is_none()
+                    && accounts
+                        .iter()
+                        .any(|a| a.id == profile && a.provider.is_some()) =>
+            {
                 Some(if catalog.fetching(profile) {
                     "Loading models…".to_owned()
                 } else if let Some(error) = catalog.error(profile) {
@@ -1006,7 +1017,7 @@ impl ChatView {
                 let id = account.id.clone();
                 let siblings = accounts
                     .iter()
-                    .filter(|other| other.provider == account.provider)
+                    .filter(|other| other.tool == account.tool)
                     .count();
                 column = column.child(rail_button(
                     SharedString::from(format!("chat-model-account-{}", account.id)),
@@ -1124,7 +1135,7 @@ impl ChatView {
                         .gap(px(4.))
                         .text_size(px(11.))
                         .text_color(t::muted())
-                        .child(provider_icon(choice.provider))
+                        .child(agent_icon(choice.provider, &choice.agent))
                         .child(div().min_w_0().truncate().child(choice.account)),
                 )
             })
@@ -1164,7 +1175,9 @@ impl ChatView {
 /// One row of the models page.
 #[derive(Clone)]
 struct Choice {
-    provider: Provider,
+    provider: Option<Provider>,
+    tool: String,
+    agent: String,
     profile: String,
     account: String,
     /// `None`: the account's default entry.
@@ -1194,7 +1207,7 @@ fn account_mark(account: &Account, initials: bool) -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .child(provider_icon(account.provider))
+        .child(agent_icon(account.provider, &account.agent))
         .when(initials && !short.is_empty(), |mark| {
             mark.child(
                 div()

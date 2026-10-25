@@ -200,6 +200,9 @@ pub struct TextBlock {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolCall {
+    /// Semantic adapter result; old histories fall back to the legacy name classifier.
+    #[serde(default)]
+    pub kind: Option<super::backend::ToolKind>,
     pub call_id: String,
     pub name: String,
     pub input: Value,
@@ -212,6 +215,28 @@ pub struct ToolCall {
     pub activity: Option<String>,
     /// Runs in the background: the call stays `Running` until the task reports an end.
     pub background: bool,
+}
+
+impl ToolCall {
+    /// Primary host file location supplied by the adapter, including legacy records.
+    pub fn file_path(&self) -> Option<&str> {
+        self.input
+            .get("file_path")
+            .and_then(Value::as_str)
+            .or_else(|| self.input.get("notebook_path").and_then(Value::as_str))
+            .or_else(|| {
+                self.input
+                    .get("_acp_locations")?
+                    .as_array()?
+                    .first()?
+                    .get("path")?
+                    .as_str()
+            })
+    }
+    pub fn semantic_kind(&self) -> super::backend::ToolKind {
+        self.kind
+            .unwrap_or_else(|| super::backend::tool_kind(&self.name))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

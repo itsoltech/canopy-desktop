@@ -3,7 +3,6 @@
 //! a separator. Files changed after the message can be restored first, when the CLI
 //! kept their checkpoints.
 use super::{render::centered, view::ChatView};
-use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{
     claude::wire::RewindPreview,
@@ -31,10 +30,10 @@ pub(super) struct Editing {
 impl ChatView {
     /// Puts a sent message into the composer to be edited and sent again.
     pub(super) fn start_edit(&mut self, item: ItemId, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.settled() {
+        if !self.settled(cx) {
             return;
         }
-        let Some(session) = &mut self.session else {
+        let Some(session) = self.native(cx) else {
             return;
         };
         let Some(fork) = session.fork_point(item) else {
@@ -57,8 +56,8 @@ impl ChatView {
             return;
         };
         // Which files changed after this message (answered asynchronously).
-        let lines = session.rewind_files(item, true);
-        self.write(lines);
+        self.runtime
+            .update(cx, |runtime, cx| runtime.rewind_files(item, true, cx));
         let draft = self.composer_draft(cx);
         self.editing = Some(Editing {
             item,
@@ -112,20 +111,16 @@ impl ChatView {
         editing.sending = Some(draft);
         editing.error = None;
         if restore {
-            let lines = self
-                .session
-                .as_mut()
-                .map(|session| session.rewind_files(item, false))
-                .unwrap_or_default();
-            if lines.is_empty() {
+            let asked = self
+                .runtime
+                .update(cx, |runtime, cx| runtime.rewind_files(item, false, cx));
+            if !asked {
                 // The session can't restore now: the text stays to send without files.
                 if let Some(editing) = &mut self.editing {
                     editing.sending = None;
                     editing.restore = false;
                     editing.error = Some("Files can't be restored now.".into());
                 }
-            } else {
-                self.write(lines);
             }
             cx.notify();
             return;
@@ -136,18 +131,19 @@ impl ChatView {
     /// Follows the CLI's answers about files (in `after_change`).
     pub(super) fn sync_edit(&mut self, cx: &mut Context<Self>) {
         let ended = self
-            .session
-            .as_ref()
+            .rt(cx)
+            .backend()
             .is_none_or(|session| session.status().ended());
+        let outcome = self
+            .native(cx)
+            .and_then(|s| s.rewind())
+            .map(|(item, outcome)| (*item, outcome.clone()));
         let Some(editing) = &mut self.editing else {
             return;
         };
-        let outcome = self
-            .session
-            .as_ref()
-            .and_then(|s| s.rewind())
+        let outcome = outcome
             .filter(|(item, _)| *item == editing.item)
-            .map(|(_, outcome)| outcome.clone());
+            .map(|(_, outcome)| outcome);
         let sending = editing.sending.is_some();
         match outcome {
             // Dry-run answers only shape the offer; restore answers only the sending.
@@ -181,7 +177,7 @@ impl ChatView {
         let Some(draft) = editing.sending else {
             return;
         };
-        if editing.fork.is_some() && self.pane.metadata.resume_id.is_none() {
+        if editing.fork.is_some() && self.pane(cx).metadata.resume_id.is_none() {
             // Nothing to fork from: keep the text and say so.
             self.editing = Some(Editing {
                 sending: None,
@@ -197,42 +193,9 @@ impl ChatView {
             placeholder: super::decision::COMPOSER_PLACEHOLDER,
         });
         self.attachments.pending.clear();
-        // The branch continues from before the goal's end: the goal ends with the edit.
-        if let Some(session) = self.session.as_mut().filter(|s| s.goal().is_some()) {
-            session.drop_goal(canopy_desktop::chat::goal::EndReason::ClearedOnEdit);
-            self.after_change(cx);
-        }
-        self.switching = true;
-        self.fork_at = editing.fork.clone();
-        self.send_on_start = Some(draft);
-        if editing.fork.is_none() {
-            // The first message itself changed: a new conversation.
-            let pane = self.pane.id;
-            self.pane.metadata.resume_id = None;
-            cx.global::<AppState>()
-                .projects
-                .clone()
-                .update(cx, |projects, cx| projects.forget_chat_session(pane, cx));
-        }
-        let stop = self.shutdown(cx);
-        cx.spawn(async move |this, cx| {
-            let _ = stop.await;
-            let _ = this.update(cx, |this, cx| {
-                this.switching = false;
-                if !this.closed {
-                    this.boundary = canopy_desktop::chat::history::Boundary::Edited;
-                    this.start(cx);
-                }
-                // Not started (closing, already starting): nothing was sent.
-                if let Some(draft) = this.send_on_start.take() {
-                    this.fork_at = None;
-                    this.boundary = canopy_desktop::chat::history::Boundary::Restarted;
-                    this.restore_draft(draft, cx);
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        let fork = editing.fork.clone();
+        self.runtime
+            .update(cx, |runtime, cx| runtime.restart_edited(fork, draft, cx));
         cx.notify();
     }
 

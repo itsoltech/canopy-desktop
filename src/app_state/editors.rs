@@ -294,18 +294,29 @@ pub struct GuardRequest {
 }
 impl EventEmitter<GuardRequest> for Editors {}
 impl Editors {
-    /// Unsaved edits first, then unsent chat messages, before `action` closes `ids`
-    /// without deleting them (quit: chats come back).
+    /// Unsaved edits before `action` closes `ids` without deleting them (quit: chats
+    /// and their queued messages come back).
     pub fn guard(ids: Vec<PaneId>, action: impl Fn(&mut App) + 'static, cx: &mut App) {
-        Self::guard_with(ids, action, false, cx)
+        Self::guard_with(ids, vec![], action, false, cx)
     }
     /// `guard` for closing panes for good: chats with a conversation ask first, because
     /// closing deletes them.
     pub fn guard_closing(ids: Vec<PaneId>, action: impl Fn(&mut App) + 'static, cx: &mut App) {
-        Self::guard_with(ids, action, true, cx)
+        Self::guard_with(ids, vec![], action, true, cx)
+    }
+    /// `guard_closing` for whole projects: their catalog chats without a pane (created
+    /// remotely) are deleted too, and listed first (LIFE-10).
+    pub fn guard_closing_chats(
+        ids: Vec<PaneId>,
+        chats: Vec<String>,
+        action: impl Fn(&mut App) + 'static,
+        cx: &mut App,
+    ) {
+        Self::guard_with(ids, chats, action, true, cx)
     }
     fn guard_with(
         ids: Vec<PaneId>,
+        chats: Vec<String>,
         action: impl Fn(&mut App) + 'static,
         deleting: bool,
         cx: &mut App,
@@ -314,7 +325,13 @@ impl Editors {
         let chats_ids = ids.clone();
         let action = move |cx: &mut App| {
             let action = action.clone();
-            super::Chats::guard(chats_ids.clone(), move |cx| action(cx), deleting, cx)
+            super::Chats::guard_chats(
+                chats_ids.clone(),
+                chats.clone(),
+                move |cx| action(cx),
+                deleting,
+                cx,
+            )
         };
         let editors = cx.global::<AppState>().editors.clone();
         if editors.read(cx).busy(&ids, cx) {

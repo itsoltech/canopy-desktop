@@ -76,7 +76,7 @@ pub fn todos(transcript: &Transcript) -> Option<Todos> {
         }
         let list = todos.get_or_insert_with(Todos::default);
         let changed = match tool.name.as_str() {
-            "TodoWrite" => {
+            "TodoWrite" | "plan" => {
                 list.items = written(&tool.input);
                 true
             }
@@ -212,7 +212,7 @@ pub fn jobs(transcript: &Transcript, cwd: &Path) -> Vec<Job> {
                 } else {
                     presentation::tool_summary(tool, cwd)
                 },
-                kind: match presentation::tool_kind(&tool.name) {
+                kind: match tool.semantic_kind() {
                     ToolKind::Shell => JobKind::Shell,
                     _ if presentation::is_subagent(tool) => JobKind::Agent,
                     _ => JobKind::Other,
@@ -235,6 +235,7 @@ mod tests {
         t.push(
             None,
             Body::Tool(ToolCall {
+                kind: None,
                 call_id: format!("call-{}", t.items().len()),
                 name: name.into(),
                 input,

@@ -1,9 +1,10 @@
 use super::{TerminalView, painter};
 use crate::app_state::AppState;
 use canopy_desktop::terminal::{
+    control::Refused,
     file_drop::{FileDropError, prepare_file_drop},
     input,
-    session::{Mode, Status},
+    session::{InputRefused, Mode, Status},
 };
 use gpui_kit::*;
 use std::{ops::Range, path::PathBuf};
@@ -219,17 +220,25 @@ impl EntityInputHandler for TerminalView {
 }
 
 impl TerminalView {
+    /// Local typing goes through the run's owner check, like a device's input.
     pub(super) fn send(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) -> bool {
-        if let Some(session) = &self.session {
-            let accepted = session.input(bytes);
-            if accepted {
+        let Some(run) = self.run.clone() else {
+            return false;
+        };
+        let accepted = match run.local_input(bytes) {
+            Ok(()) => {
                 self.note_cursor_input();
+                true
             }
-            self.refresh(cx);
-            accepted
-        } else {
-            false
-        }
+            // The owner bar explains a device's lease; the queue limit needs a message.
+            Err(Refused::Input(InputRefused::QueueFull)) => {
+                self.input_error = Some(InputRefused::QueueFull.to_string());
+                false
+            }
+            Err(_) => false,
+        };
+        self.refresh(cx);
+        accepted
     }
     pub(super) fn copy(&self, cx: &mut Context<Self>) {
         if let Some(text) = self
@@ -264,6 +273,7 @@ impl TerminalView {
     pub(super) fn can_accept_file_drop(&self) -> bool {
         !self.starting
             && !self.stopping
+            && self.input_device().is_none()
             && self
                 .session
                 .as_ref()

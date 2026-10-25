@@ -1,8 +1,12 @@
 //! Headless agent chat: provider protocols, a provider-neutral transcript and the
-//! subprocess that carries them. No GPUI here; a view owns a `ChatSession`, feeds it
-//! `process` events and writes back the lines it returns.
+//! subprocess that carries them. No GPUI here; the application runtime owns a
+//! session, feeds it process events and writes back the lines it returns.
+pub mod acp;
 pub mod activity;
+pub mod agent;
 pub mod attachments;
+pub mod backend;
+pub mod backend_session;
 pub mod claude;
 pub mod closed;
 pub mod codex;

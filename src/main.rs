@@ -22,6 +22,10 @@ fn main() {
             return;
         }
     }
+    if let Err(error) = canopy_desktop::platform::directories::runtime_data_dir() {
+        eprintln!("Canopy could not start: {error}");
+        std::process::exit(1);
+    }
     // SAFETY: first operation, before GPUI and its worker threads are created.
     unsafe {
         canopy_desktop::terminal::environment::prepare_desktop_environment();

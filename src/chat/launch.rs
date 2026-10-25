@@ -77,6 +77,16 @@ pub fn prepare_claude(
     }
     let mut catalog = catalog.clone();
     let mut pane = pane.clone();
+    if let Some(tool) = catalog.tools.iter_mut().find(|t| t.id == pane.tool) {
+        let selected = pane
+            .metadata
+            .profile_id
+            .as_ref()
+            .or(tool.default_profile.as_ref());
+        if let Some(profile) = tool.profiles.iter_mut().find(|p| Some(&p.id) == selected) {
+            profile.settings = profile.settings.resolved()?;
+        }
+    }
     apply_settings(&mut catalog, &mut pane, settings)?;
     if let Some(config) = &hooks {
         hooks::augment(&mut catalog, &mut pane, config.helper)?;
@@ -125,6 +135,7 @@ pub fn prepare_claude(
             key == api_env || SECRET_NAME_PARTS.iter().any(|part| key.contains(part))
         })
         .map(|(_, value)| value.clone())
+        .chain(prepared.secret_values)
         .collect();
     Ok(Launch {
         spec: Spec {
@@ -178,6 +189,7 @@ pub fn prepare_codex(
             key == api_env || SECRET_NAME_PARTS.iter().any(|part| key.contains(part))
         })
         .map(|(_, value)| value.clone())
+        .chain(prepared.secret_values)
         .collect();
     Ok(Launch {
         spec: Spec {
@@ -291,6 +303,7 @@ fn apply_settings(
         .profile_id
         .clone()
         .or(tool.default_profile.clone())
+        .filter(|id| !(tool.profiles.is_empty() && id == &tool.id))
     {
         Some(id) => tool
             .profiles
@@ -366,6 +379,44 @@ fn reserved_argument(arguments: &[String]) -> Option<&str> {
                         .strip_prefix(reserved)
                         .is_some_and(|rest| rest.starts_with('=')))
         })
+    })
+}
+
+/// Launches a configured ACP executable without provider-specific argv. `env`
+/// must already contain the selected host account/profile overlay; its secrets
+/// stay on the host. No resume ID is interpreted as a CLI argument.
+pub fn prepare_acp(
+    definition: &super::agent::AgentDefinition,
+    cwd: std::path::PathBuf,
+    env: &ShellEnvironment,
+) -> Result<Launch, String> {
+    definition.validate()?;
+    if definition.backend != super::agent::BackendKind::Acp {
+        return Err("Agent definition is not an ACP backend.".into());
+    }
+    let mut environment = env.clone();
+    environment.extend_overrides(definition.environment.clone());
+    let program = environment.resolve(&definition.command.to_string_lossy())?;
+    let (program, arguments) = environment.prepare_launch(program, definition.arguments.clone())?;
+    let secrets = environment
+        .vars
+        .iter()
+        .filter(|(key, _)| {
+            let key = key.to_ascii_uppercase();
+            SECRET_NAME_PARTS.iter().any(|part| key.contains(part))
+        })
+        .map(|(_, value)| value.clone())
+        .chain(definition.environment.values().cloned())
+        .collect();
+    Ok(Launch {
+        spec: Spec {
+            program,
+            arguments,
+            cwd,
+            environment: environment.vars,
+            secrets,
+        },
+        files: None,
     })
 }
 
@@ -467,6 +518,90 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn explicit_native_account_sentinel_launches_without_profile_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let environment = ShellEnvironment {
+            shell: "/bin/sh".into(),
+            vars: [("PATH".into(), "/usr/bin:/bin".into())].into(),
+        };
+        for id in ["claude", "codex", "opencode"] {
+            let mut catalog = ToolCatalog::default();
+            let tool = catalog.tools.iter_mut().find(|t| t.id == id).unwrap();
+            tool.executable = "/bin/sh".into();
+            tool.enabled = true;
+            tool.acp = id == "opencode";
+            tool.profiles.clear();
+            tool.default_profile = None;
+            let pane = Pane {
+                id: crate::state::workspace::PaneId::new(),
+                tool: id.into(),
+                metadata: crate::state::workspace::PaneMetadata {
+                    cwd: Some(dir.path().into()),
+                    profile_id: Some(id.into()),
+                    ..Default::default()
+                },
+            };
+            let prepare = |catalog: &ToolCatalog| -> Result<(), String> {
+                catalog.launch(&pane, &environment)?;
+                agent_config::prepare(catalog, &pane, &environment)?;
+                match id {
+                    "claude" => {
+                        prepare_claude(
+                            catalog,
+                            &pane,
+                            &environment,
+                            &ChatSettings::default(),
+                            None,
+                        )?;
+                    }
+                    "codex" => {
+                        prepare_codex(catalog, &pane, &environment)?;
+                    }
+                    _ => {
+                        let definition = catalog.agent_definition(&pane)?;
+                        prepare_acp(&definition, dir.path().into(), &environment)?;
+                    }
+                }
+                Ok(())
+            };
+            prepare(&catalog).unwrap();
+            assert_eq!(pane.metadata.profile_id.as_deref(), Some(id));
+            let tool = catalog.tools.iter_mut().find(|t| t.id == id).unwrap();
+            tool.profiles.push(Profile {
+                id: "different-account".into(),
+                name: "Other".into(),
+                model: String::new(),
+                arguments: vec![],
+                settings: Default::default(),
+            });
+            tool.default_profile = Some("different-account".into());
+            assert!(
+                prepare(&catalog).is_err(),
+                "must not switch to the new default account"
+            );
+            if id == "claude" {
+                assert!(
+                    prepare_claude(
+                        &catalog,
+                        &pane,
+                        &environment,
+                        &ChatSettings::default(),
+                        None
+                    )
+                    .is_err()
+                );
+            }
+            if id == "codex" {
+                assert!(prepare_codex(&catalog, &pane, &environment).is_err());
+            }
+            if id == "opencode" {
+                assert!(catalog.agent_definition(&pane).is_err());
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn headless_flags_follow_profile_arguments_and_resume() {
         let mut pane = pane(&["--add-dir", "/tmp"]);
         pane.metadata.resume_id = Some("4f1c2b8e-1d2a-4c5b-9e7f-0a1b2c3d4e5f".into());
@@ -547,6 +682,7 @@ mod tests {
             mode: crate::chat::config::Mode::Yolo,
             allowed: vec!["Bash(npm test *)".into()],
             id: None,
+            agent_options: Default::default(),
         };
         let args = prepare_claude(&catalog, &pane(&[]), &env(), &chosen, None)
             .unwrap()

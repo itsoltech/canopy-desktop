@@ -1,5 +1,7 @@
 //! Alacritty owns PTY I/O and parsing. A supervisor drains/reaps off the UI thread.
 use super::environment::ShellEnvironment;
+pub use super::metered::InputRefused;
+use super::metered::{InputBudget, Metered};
 pub use alacritty_terminal::term::TermMode as Mode;
 use alacritty_terminal::{
     event::{Event, EventListener, WindowSize},
@@ -101,33 +103,40 @@ struct Events {
     exit: Arc<Mutex<Option<std::process::ExitStatus>>>,
     size: Arc<Mutex<Size>>,
     revision: Arc<AtomicU64>,
+    budget: Arc<InputBudget>,
+    /// Every projection reader (remote views) observes the revision; the local
+    /// view keeps its single coalesced `wake` slot.
+    observers: Arc<tokio::sync::watch::Sender<u64>>,
+}
+impl Events {
+    /// The emulator's own replies; counted against the queue, never refused.
+    fn reply(&self, bytes: Vec<u8>) {
+        let Some(tx) = self.tx.get() else {
+            return;
+        };
+        let len = bytes.len();
+        if self.budget.reserve(len, false).is_ok() && tx.send(Msg::Input(bytes.into())).is_err() {
+            self.budget.written(len);
+        }
+    }
+    fn changed(&self) {
+        let revision = self.revision.fetch_add(1, Ordering::AcqRel) + 1;
+        self.observers.send_replace(revision);
+    }
 }
 impl EventListener for Events {
     fn send_event(&self, event: Event) {
         let renderable = matches!(event, Event::Wakeup);
         match event {
-            Event::PtyWrite(text) => {
-                if let Some(tx) = self.tx.get() {
-                    let _ = tx.send(Msg::Input(text.into_bytes().into()));
-                }
-            }
+            Event::PtyWrite(text) => self.reply(text.into_bytes()),
             Event::ChildExit(status) => *self.exit.lock().unwrap() = Some(status),
-            Event::Wakeup => {
-                self.revision.fetch_add(1, Ordering::Relaxed);
-            }
+            Event::Wakeup => self.changed(),
             Event::ColorRequest(index, format) => {
-                if let Some(tx) = self.tx.get() {
-                    let _ = tx.send(Msg::Input(format(palette(index)).into_bytes().into()));
-                }
+                self.reply(format(palette(index)).into_bytes());
             }
             Event::TextAreaSizeRequest(format) => {
-                if let Some(tx) = self.tx.get() {
-                    let _ = tx.send(Msg::Input(
-                        format(self.size.lock().unwrap().winsize())
-                            .into_bytes()
-                            .into(),
-                    ));
-                }
+                let size = self.size.lock().unwrap().winsize();
+                self.reply(format(size).into_bytes());
             }
             // Clipboard access is user-initiated through copy/paste, not OSC requests.
             Event::ClipboardLoad(..) | Event::ClipboardStore(..) => {}
@@ -160,8 +169,23 @@ pub struct Frame {
     /// Advances only when the parser publishes a renderable PTY update.
     pub revision: u64,
 }
+/// A remote viewport and the reservation admitted before its allocation.
+pub(crate) type AdmittedLiveFrame<B> = ((Frame, bool), B);
 static LIVE_PTYS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub const INPUT_LIMIT_BYTES: usize = 1_048_576;
+/// Alacritty keeps at most this many lines above the screen; older lines are lost.
+pub const SCROLLBACK_LINES: usize = 10_000;
+/// A read-only slice of the projection, independent of the local view's scroll.
+#[derive(Clone)]
+pub struct HistoryPage {
+    pub frame: Frame,
+    /// Lines currently retained above the screen.
+    pub retained: usize,
+    /// Older lines were already discarded by the scrollback limit.
+    pub lost: bool,
+    /// Offset of an older page, when lines above this page remain.
+    pub previous: Option<usize>,
+}
 struct PtyPermit;
 impl PtyPermit {
     fn acquire() -> Result<Self, String> {
@@ -246,9 +270,13 @@ impl Session {
             exit: exit.clone(),
             size: Arc::new(Mutex::new(size)),
             revision: Arc::new(AtomicU64::new(0)),
+            budget: Arc::new(InputBudget::default()),
+            observers: Arc::new(tokio::sync::watch::channel(0).0),
         };
+        let budget = events.budget.clone();
+        let observers = events.clone();
         let config = Config {
-            scrolling_history: 10_000,
+            scrolling_history: SCROLLBACK_LINES,
             ..Config::default()
         };
         let term = Arc::new(FairMutex::new(Term::new(config, &size, events.clone())));
@@ -290,6 +318,7 @@ impl Session {
         #[cfg(unix)]
         let pty = super::clear_scrollback::ClearPty::new(pty)
             .map_err(|_| "Could not initialize PTY output reader.")?;
+        let pty = Metered::new(pty, budget.clone());
         let io = EventLoop::new(term.clone(), events.clone(), pty, true, false)
             .map_err(|_| "Could not initialize PTY I/O.")?;
         let tx = io.channel();
@@ -310,6 +339,8 @@ impl Session {
             .spawn(move || {
                 let _permit = permit;
                 let result = handle.join();
+                // Nothing is written after the I/O thread; return its queued bytes.
+                budget.close();
                 let code = *exit.lock().unwrap();
                 #[cfg(unix)]
                 unsafe {
@@ -381,6 +412,7 @@ impl Session {
                 };
                 *supervisor_cleanup_result.lock().unwrap() = Some(cleanup);
                 *result_status.lock().unwrap() = final_status;
+                observers.changed();
                 let _ = wake.try_send(());
                 drop(cleanup_tx);
             })
@@ -425,17 +457,47 @@ impl Session {
     pub fn status(&self) -> Status {
         self.status.lock().unwrap().clone()
     }
-    pub fn input(&self, bytes: Vec<u8>) -> bool {
-        if matches!(self.status(), Status::Running) && bytes.len() <= INPUT_LIMIT_BYTES {
-            if let Some(mut term) = self.term.try_lock_unfair() {
-                term.scroll_display(Scroll::Bottom);
-                term.selection = None;
-            }
-            let _ = self.tx.send(Msg::Input(Cow::Owned(bytes)));
-            true
-        } else {
-            false
+    /// Queue bytes for the PTY. Success means queued within the bounded budget,
+    /// not read or executed by the program. Input owners are checked by `Run`.
+    pub fn queue_input(&self, bytes: Vec<u8>) -> Result<(), InputRefused> {
+        if !matches!(self.status(), Status::Running) {
+            return Err(InputRefused::NotRunning);
         }
+        if bytes.len() > INPUT_LIMIT_BYTES {
+            return Err(InputRefused::TooLarge);
+        }
+        let len = bytes.len();
+        self.events.budget.reserve(len, true)?;
+        if self.tx.send(Msg::Input(Cow::Owned(bytes))).is_err() {
+            self.events.budget.written(len);
+            return Err(InputRefused::NotRunning);
+        }
+        Ok(())
+    }
+    /// The local view follows its own typing: back to the bottom, selection cleared.
+    pub fn reset_local_view(&self) {
+        if let Some(mut term) = self.term.try_lock_unfair() {
+            term.scroll_display(Scroll::Bottom);
+            term.selection = None;
+        }
+    }
+    /// Projection revision; advances on PTY output, resize and process end.
+    pub fn revision(&self) -> u64 {
+        self.events.revision.load(Ordering::Acquire)
+    }
+    /// A receiver per reader; values coalesce and never block the parser.
+    pub fn observe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.events.observers.subscribe()
+    }
+    /// Wake the local view and every observer without a projection change.
+    pub fn notify(&self) {
+        let _ = self.events.wake.try_send(());
+        self.events
+            .observers
+            .send_replace(self.events.revision.load(Ordering::Acquire));
+    }
+    pub fn size(&self) -> Size {
+        *self.events.size.lock().unwrap()
     }
     pub fn stop(&self) {
         if !self.stopped.swap(true, Ordering::SeqCst) {
@@ -509,7 +571,9 @@ impl Session {
         };
         term.resize(size);
         *self.events.size.lock().unwrap() = size;
+        drop(term);
         let _ = self.tx.send(Msg::Resize(size.winsize()));
+        self.events.changed();
         let _ = self.events.wake.try_send(());
         true
     }
@@ -536,57 +600,84 @@ impl Session {
         self.term.try_lock_unfair()?.selection_to_string()
     }
     pub fn frame(&self) -> Option<Frame> {
-        let size = *self.events.size.lock().unwrap();
         let term = self.term.try_lock_unfair()?;
-        let content = term.renderable_content();
-        let cells = content
-            .display_iter
-            .map(|cell| {
-                let row = (cell.point.line.0 + content.display_offset as i32).max(0) as usize;
-                let mut text = cell.c.to_string();
-                if let Some(extra) = cell.zerowidth() {
-                    text.extend(extra);
-                }
-                let mut fg = resolve(cell.fg, content.colors);
-                let mut bg = resolve(cell.bg, content.colors);
-                if cell.flags.contains(Flags::INVERSE) {
-                    std::mem::swap(&mut fg, &mut bg);
-                }
-                if cell.flags.contains(Flags::DIM) {
-                    fg = Rgb {
-                        r: fg.r / 2,
-                        g: fg.g / 2,
-                        b: fg.b / 2,
-                    };
-                }
-                Cell {
-                    row,
-                    column: cell.point.column.0,
-                    text,
-                    width: if cell.flags.contains(Flags::WIDE_CHAR) {
-                        2
-                    } else {
-                        1
-                    },
-                    fg,
-                    bg,
-                    flags: cell.flags,
-                    selected: content.selection.is_some_and(|s| s.contains(cell.point)),
-                }
-            })
-            .collect();
-        Some(Frame {
-            cells,
-            cursor: (
-                (content.cursor.point.line.0 + content.display_offset as i32).max(0) as usize,
-                content.cursor.point.column.0,
+        Some(project_frame(
+            &term,
+            None,
+            self.events.revision.load(Ordering::Acquire),
+        ))
+    }
+    /// Read a viewport without changing the local view's scroll or selection.
+    /// The owner serializes this projection, not an arbitrary ANSI byte suffix.
+    pub fn frame_at(&self, offset: usize) -> Option<Frame> {
+        let term = self.term.try_lock_unfair()?;
+        Some(project_frame(
+            &term,
+            Some(offset),
+            self.events.revision.load(Ordering::Acquire),
+        ))
+    }
+    /// The bottom viewport for a remote view and whether older scrollback was
+    /// discarded, read under one lock without changing the local view.
+    pub fn live_frame(&self) -> Option<(Frame, bool)> {
+        let term = self.term.try_lock_unfair()?;
+        let lost = term.grid().history_size() >= SCROLLBACK_LINES;
+        Some((
+            project_frame(&term, Some(0), self.events.revision.load(Ordering::Acquire)),
+            lost,
+        ))
+    }
+    /// Admit a remote projection under the grid lock, before allocating cells or
+    /// text. The caller owns the returned reservation for the copied material.
+    pub(crate) fn live_frame_bounded<B, E>(
+        &self,
+        admit: impl FnOnce(usize, usize) -> Result<B, E>,
+    ) -> Result<Option<AdmittedLiveFrame<B>>, E> {
+        let Some(term) = self.term.try_lock_unfair() else {
+            return Ok(None);
+        };
+        let budget = admit_projection(&term, 0, term.grid().screen_lines(), admit)?;
+        let lost = term.grid().history_size() >= SCROLLBACK_LINES;
+        Ok(Some((
+            (
+                project_frame(&term, Some(0), self.events.revision.load(Ordering::Acquire)),
+                lost,
             ),
-            cursor_shape: content.cursor.shape,
-            mode: content.mode,
-            offset: content.display_offset,
-            size,
-            revision: self.events.revision.load(Ordering::Relaxed),
-        })
+            budget,
+        )))
+    }
+    /// As `history_page`, but admission precedes all projection allocations.
+    pub(crate) fn history_page_bounded<B, E>(
+        &self,
+        offset: usize,
+        rows: usize,
+        admit: impl FnOnce(usize, usize) -> Result<B, E>,
+    ) -> Result<Option<(HistoryPage, B)>, E> {
+        let Some(term) = self.term.try_lock_unfair() else {
+            return Ok(None);
+        };
+        let (first, rows) = page_range(&term, offset, rows);
+        let budget = admit_projection(&term, first, rows, admit)?;
+        Ok(Some((
+            project_page(
+                &term,
+                offset,
+                rows,
+                self.events.revision.load(Ordering::Acquire),
+            ),
+            budget,
+        )))
+    }
+    /// `rows` lines ending `offset` lines above the bottom of the screen, read
+    /// without changing the local view. Returns None while the parser holds the grid.
+    pub fn history_page(&self, offset: usize, rows: usize) -> Option<HistoryPage> {
+        let term = self.term.try_lock_unfair()?;
+        Some(project_page(
+            &term,
+            offset,
+            rows,
+            self.events.revision.load(Ordering::Acquire),
+        ))
     }
 }
 impl Drop for Session {
@@ -594,6 +685,146 @@ impl Drop for Session {
         self.stop();
     }
 }
+fn project_frame<T: EventListener>(
+    term: &Term<T>,
+    remote_offset: Option<usize>,
+    revision: u64,
+) -> Frame {
+    let content = term.renderable_content();
+    let grid = term.grid();
+    let offset = remote_offset
+        .unwrap_or(content.display_offset)
+        .min(grid.history_size());
+    let mut frame = project_lines(
+        term,
+        -(offset as i32),
+        grid.screen_lines(),
+        remote_offset.is_none(),
+        revision,
+    );
+    frame.offset = offset;
+    frame
+}
+fn project_page<T: EventListener>(
+    term: &Term<T>,
+    offset: usize,
+    rows: usize,
+    revision: u64,
+) -> HistoryPage {
+    let grid = term.grid();
+    let retained = grid.history_size();
+    let screen = grid.screen_lines();
+    let (first, rows) = page_range(term, offset, rows);
+    let last = first + rows as i32 - 1;
+    let top = -(retained as i32);
+    let mut frame = project_lines(term, first, (last - first + 1) as usize, false, revision);
+    frame.offset = (screen as i32 - 1 - last) as usize;
+    HistoryPage {
+        frame,
+        retained,
+        lost: retained >= SCROLLBACK_LINES,
+        previous: (first > top).then_some((screen as i32 - first) as usize),
+    }
+}
+fn page_range<T: EventListener>(term: &Term<T>, offset: usize, rows: usize) -> (i32, usize) {
+    let grid = term.grid();
+    let top = -(grid.history_size() as i32);
+    let screen = grid.screen_lines();
+    let last = (screen as i32 - 1 - offset.min(grid.history_size() + screen - 1) as i32).max(top);
+    let first = (last - rows.clamp(1, 200) as i32 + 1).max(top);
+    (first, (last - first + 1) as usize)
+}
+/// Upper bound for String allocations made by project_lines (including Vec
+/// growth for combining characters). No text is copied during admission.
+fn admit_projection<T: EventListener, B, E>(
+    term: &Term<T>,
+    first: i32,
+    rows: usize,
+    admit: impl FnOnce(usize, usize) -> Result<B, E>,
+) -> Result<B, E> {
+    let grid = term.grid();
+    let mut text_bytes = 0usize;
+    for row in 0..rows {
+        for column in 0..grid.columns() {
+            let cell = &grid[Point::new(Line(first + row as i32), Column(column))];
+            let characters = 1usize.saturating_add(cell.zerowidth().map_or(0, |extra| extra.len()));
+            text_bytes =
+                text_bytes.saturating_add(characters.saturating_mul(4).max(8).saturating_mul(2));
+        }
+    }
+    admit(rows.saturating_mul(grid.columns()), text_bytes)
+}
+/// Cells of `rows` grid lines starting at `first` (negative lines are scrollback).
+/// The cursor is placed relative to these lines and hidden when outside them.
+fn project_lines<T: EventListener>(
+    term: &Term<T>,
+    first: i32,
+    rows: usize,
+    selection: bool,
+    revision: u64,
+) -> Frame {
+    let content = term.renderable_content();
+    let grid = term.grid();
+    let size = Size {
+        columns: grid.columns(),
+        rows,
+    };
+    let mut cells = Vec::with_capacity(size.rows * size.columns);
+    for row in 0..size.rows {
+        for column in 0..size.columns {
+            let point = Point::new(Line(first + row as i32), Column(column));
+            let cell = &grid[point];
+            let mut text = cell.c.to_string();
+            if let Some(extra) = cell.zerowidth() {
+                text.extend(extra);
+            }
+            let mut fg = resolve(cell.fg, content.colors);
+            let mut bg = resolve(cell.bg, content.colors);
+            if cell.flags.contains(Flags::INVERSE) {
+                std::mem::swap(&mut fg, &mut bg);
+            }
+            if cell.flags.contains(Flags::DIM) {
+                fg = Rgb {
+                    r: fg.r / 2,
+                    g: fg.g / 2,
+                    b: fg.b / 2,
+                };
+            }
+            cells.push(Cell {
+                row,
+                column,
+                text,
+                width: if cell.flags.contains(Flags::WIDE_CHAR) {
+                    2
+                } else {
+                    1
+                },
+                fg,
+                bg,
+                flags: cell.flags,
+                selected: selection
+                    && content
+                        .selection
+                        .is_some_and(|selection| selection.contains(point)),
+            });
+        }
+    }
+    let cursor_row = content.cursor.point.line.0 - first;
+    let mut mode = content.mode;
+    if cursor_row < 0 || cursor_row >= rows as i32 {
+        mode.remove(TermMode::SHOW_CURSOR);
+    }
+    Frame {
+        cells,
+        cursor: (cursor_row.max(0) as usize, content.cursor.point.column.0),
+        cursor_shape: content.cursor.shape,
+        mode,
+        offset: 0,
+        size,
+        revision,
+    }
+}
+
 fn resolve(color: Color, colors: &alacritty_terminal::term::color::Colors) -> Rgb {
     match color {
         Color::Spec(rgb) => rgb,
@@ -730,5 +961,111 @@ pub fn palette(index: usize) -> Rgb {
         r: (hex >> 16) as u8,
         g: (hex >> 8) as u8,
         b: hex as u8,
+    }
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+    #[derive(Clone)]
+    struct Sink;
+    impl EventListener for Sink {
+        fn send_event(&self, _: Event) {}
+    }
+    fn row(frame: &Frame, index: usize) -> String {
+        frame
+            .cells
+            .iter()
+            .filter(|cell| cell.row == index)
+            .map(|cell| cell.text.as_str())
+            .collect::<String>()
+            .trim_end()
+            .to_owned()
+    }
+    #[test]
+    fn remote_viewport_does_not_scroll_or_select_the_local_terminal() {
+        let size = Size::bounded(8, 2);
+        let mut term = Term::new(Config::default(), &size, Sink);
+        let mut parser: alacritty_terminal::vte::ansi::Processor =
+            alacritty_terminal::vte::ansi::Processor::new();
+        parser.advance(&mut term, b"one\r\ntwo\r\nthree");
+        term.scroll_display(Scroll::Top);
+        let point = Point::new(Line(-1), Column(0));
+        let mut selection = Selection::new(SelectionType::Simple, point, Side::Left);
+        selection.update(Point::new(Line(-1), Column(2)), Side::Right);
+        term.selection = Some(selection);
+        let before = project_frame(&term, None, 4);
+        assert_eq!(row(&before, 0), "one");
+        let remote = project_frame(&term, Some(0), 4);
+        assert_eq!(row(&remote, 0), "two");
+        assert!(remote.cells.iter().all(|cell| !cell.selected));
+        assert_eq!(project_frame(&term, None, 4).cells, before.cells);
+        assert_eq!(term.grid().display_offset(), before.offset);
+        assert_eq!(
+            project_frame(&term, Some(usize::MAX), 4).offset,
+            term.grid().history_size()
+        );
+    }
+    #[test]
+    fn projection_admission_accounts_for_combining_text_and_history_geometry() {
+        let size = Size::bounded(80, 24);
+        let mut term = Term::new(Config::default(), &size, Sink);
+        let mut parser: alacritty_terminal::vte::ansi::Processor =
+            alacritty_terminal::vte::ansi::Processor::new();
+        let line = format!("e{}\r\n", "\u{301}".repeat(2000));
+        for _ in 0..30 {
+            parser.advance(&mut term, line.as_bytes());
+        }
+        let (first, rows) = page_range(&term, usize::MAX, 200);
+        let (cells, text): (usize, usize) =
+            admit_projection(&term, first, rows, |cells, text| Ok::<_, ()>((cells, text))).unwrap();
+        let page = project_page(&term, usize::MAX, 200, 1);
+        assert_eq!(cells, page.frame.cells.len());
+        assert!(
+            text >= page
+                .frame
+                .cells
+                .iter()
+                .map(|cell| cell.text.capacity())
+                .sum::<usize>()
+        );
+        assert!(
+            page.frame
+                .cells
+                .iter()
+                .any(|cell| cell.text.chars().count() > 1000)
+        );
+        let refused = admit_projection(&term, first, rows, |_, _| Err::<(), _>("full"));
+        assert_eq!(refused, Err("full"));
+        // A later admitted read has identical contents: refusal never trims or
+        // mutates the parser to fit its allocation budget.
+        assert_eq!(
+            project_page(&term, usize::MAX, 200, 1).frame.cells,
+            page.frame.cells
+        );
+    }
+    #[test]
+    fn projection_preserves_alternate_screen_unicode_and_input_modes() {
+        let size = Size::bounded(8, 2);
+        let mut term = Term::new(Config::default(), &size, Sink);
+        let mut parser: alacritty_terminal::vte::ansi::Processor =
+            alacritty_terminal::vte::ansi::Processor::new();
+        parser.advance(
+            &mut term,
+            "\u{1b}[?1049h\u{1b}[?2004h\u{1b}[31m界e\u{301}".as_bytes(),
+        );
+        let frame = project_frame(&term, Some(usize::MAX), 7);
+        assert!(
+            frame
+                .mode
+                .contains(TermMode::ALT_SCREEN | TermMode::BRACKETED_PASTE)
+        );
+        assert_eq!(frame.offset, 0);
+        assert_eq!(frame.cells[0].text, "界");
+        assert_eq!(frame.cells[0].width, 2);
+        assert!(frame.cells[1].flags.contains(Flags::WIDE_CHAR_SPACER));
+        assert_eq!(frame.cells[2].text, "e\u{301}");
+        assert_eq!(frame.cells[0].fg, palette(NamedColor::Red as usize));
+        assert_eq!(frame.cursor, (0, 3));
     }
 }

@@ -148,6 +148,31 @@ impl ProjectsState {
         );
     }
 
+    /// Closes chat pane `pane` of `workspace` (a confirmed Delete): the chat registry
+    /// then deletes its conversation like closing its tab.
+    #[cfg_attr(not(test), allow(dead_code, reason = "called by the remote bridge"))]
+    pub(crate) fn close_chat_pane(
+        &mut self,
+        workspace: WorkspaceId,
+        pane: PaneId,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        if !self.chat_exists(workspace, pane, cx) {
+            return Err("The conversation is no longer available.".into());
+        }
+        self.update_chat_workspace(workspace, cx, |state| {
+            let tab = state
+                .tabs()
+                .iter()
+                .find(|t| t.root.find(pane).is_some())
+                .map(|t| t.id)
+                .ok_or_else(|| SharedString::from("The conversation is no longer available."))?;
+            state
+                .close_pane(tab, pane)
+                .map_err(|_| SharedString::from("The conversation could not be deleted."))
+        })
+    }
+
     fn chat_exists(&self, workspace: WorkspaceId, pane: PaneId, cx: &App) -> bool {
         self.available()
             && self.conversation_workspace(workspace, cx).is_some_and(|w| {

@@ -1,7 +1,7 @@
 //! The Codex side of `ChatSession`: what goes to `codex app-server` and how its
 //! answers move the session. The transcript, queue and decisions are shared.
 use super::{ChatSession, DENIED_MESSAGE, Draft, Response, Status, clean};
-use crate::chat::claude::adapter::{CliState, Signal};
+use crate::chat::backend::{CliState, Signal};
 use crate::chat::codex::{
     adapter::{self, Adapter},
     wire::{self, Message, ThreadOptions, TurnOptions},
@@ -35,6 +35,7 @@ pub(super) struct CodexEngine {
     thread_request: Option<String>,
     models_request: Option<String>,
     skills_request: Option<String>,
+    catalog_failed: bool,
     account_request: Option<String>,
     rate_request: Option<String>,
     /// Our `turn/start` in flight, to report its failure.
@@ -52,7 +53,7 @@ pub(super) struct CodexEngine {
     pub(super) discarding_goal: bool,
     discard_request: Option<String>,
     /// Steers in flight: request id → the queued message's steering id.
-    steers: HashMap<String, String>,
+    pub(super) steers: HashMap<String, String>,
     /// `account/read`: "chatgpt" or "apiKey".
     pub account: Option<String>,
     /// Stop came before the turn's id: it's sent once the id is known.
@@ -60,6 +61,12 @@ pub(super) struct CodexEngine {
 }
 
 impl ChatSession {
+    pub(super) fn codex_catalog_pending(&self) -> bool {
+        self.codex.models_request.is_some()
+            || self.codex.skills_request.is_some()
+            || self.codex.catalog_failed
+    }
+
     /// A session talking to `codex app-server`; returns the lines to write immediately.
     pub fn codex(
         settings: crate::chat::config::ChatSettings,
@@ -275,6 +282,16 @@ impl ChatSession {
             return vec![];
         }
         let signals = self.codex.adapter.apply(message, &mut self.transcript);
+        // A goal message starts its turn without `turn/start`: its first event is evidence.
+        if self.awaiting.is_some()
+            && self.awaiting_steer.is_none()
+            && self.codex.turn_request.is_none()
+            && signals
+                .iter()
+                .any(|signal| !matches!(signal, Signal::ControlAck { .. }))
+        {
+            self.receipt(None, crate::chat::backend::Receipt::Delivered);
+        }
         let mut lines = vec![];
         if std::mem::take(&mut self.codex.adapter.skills_changed) && self.initialized {
             let id = self.request_id();
@@ -463,11 +480,13 @@ impl ChatSession {
         }
         if self.codex.models_request.as_deref() == Some(request) {
             self.codex.models_request = None;
+            self.codex.catalog_failed |= error.is_some();
             self.models = wire::models(&result);
             return lines;
         }
         if self.codex.skills_request.as_deref() == Some(request) {
             self.codex.skills_request = None;
+            self.codex.catalog_failed |= error.is_some();
             if error.is_none() {
                 self.commands = wire::skills(&result);
             }
@@ -486,6 +505,17 @@ impl ChatSession {
             return lines;
         }
         if let Some(steering) = self.codex.steers.remove(request) {
+            if self.awaiting.as_deref() == Some(steering.as_str())
+                && let Some(draft) = self.awaiting_steer.take()
+            {
+                if error.is_none() {
+                    self.push_steered(draft);
+                    self.receipt(Some(&steering), crate::chat::backend::Receipt::Delivered);
+                } else {
+                    self.receipt(Some(&steering), crate::chat::backend::Receipt::Refused);
+                }
+                return lines;
+            }
             let index = self
                 .queue
                 .iter()
@@ -502,6 +532,9 @@ impl ChatSession {
         }
         if error.is_none() && self.codex.turn_request.as_deref() == Some(request) {
             self.codex.turn_request = None;
+            if self.awaiting_steer.is_none() {
+                self.receipt(None, crate::chat::backend::Receipt::Delivered);
+            }
             if let Some(turn) = result["turn"]["id"].as_str() {
                 self.codex.adapter.turn = Some(turn.to_owned());
             }
@@ -515,6 +548,9 @@ impl ChatSession {
         if let Some(error) = error {
             if self.codex.turn_request.as_deref() == Some(request) {
                 self.codex.turn_request = None;
+                if self.awaiting_steer.is_none() {
+                    self.receipt(None, crate::chat::backend::Receipt::Refused);
+                }
                 self.transcript.push(
                     None,
                     Body::Notice(Notice {

@@ -4,6 +4,7 @@ mod attachment_native;
 mod attachment_preview;
 mod changes_panel;
 pub(crate) mod chat;
+mod chat_recovery;
 pub mod components;
 mod conversations;
 #[cfg(any(debug_assertions, feature = "dev-inspector"))]
@@ -34,6 +35,7 @@ mod pane_layout;
 mod platform_ui;
 mod preferences;
 mod quick_open;
+pub mod remote_client;
 mod resume_palette;
 mod session_inspector;
 mod sidebar;
@@ -150,6 +152,8 @@ pub struct Workspace {
     _upstream_events: Subscription,
     upstream_modal: Option<Entity<upstream_dialog::UpstreamDialog>>,
     upstream_modal_events: Option<Subscription>,
+    recovery_modal: Option<Entity<chat_recovery::ChatRecoveryDialog>>,
+    recovery_modal_events: Option<Subscription>,
     modal: Option<Entity<TextPrompt>>,
     modal_events: Option<Subscription>,
     tab_scroll: workspace_tabs::TabScroll,
@@ -349,6 +353,12 @@ impl Workspace {
                     .chats
                     .update(cx, |chats, cx| chats.sync(window, cx));
             }),
+            // Catalog chats without a pane (created remotely) appear in the sidebar.
+            cx.observe_in(&state.settings, window, |this, _, window, cx| {
+                this.state
+                    .chats
+                    .update(cx, |chats, cx| chats.sync(window, cx));
+            }),
             cx.observe_in(&state.git, window, |this, _, window, cx| {
                 this.state
                     .chats
@@ -384,6 +394,28 @@ impl Workspace {
                 |this, _, request: &crate::app_state::ChatForkRequested, window, cx| {
                     let purpose = new_chat_palette::Purpose::Fork(Box::new(request.0.clone()));
                     this.open_chat_palette(purpose, window, cx)
+                },
+            ),
+            // A conversation kept without its agent and account: the user picks them.
+            cx.subscribe_in(
+                &state.chats,
+                window,
+                |this, _, request: &crate::app_state::ChatRecoveryRequested, window, cx| {
+                    if this.recovery_modal.is_some() || this.upstream_modal.is_some() {
+                        return;
+                    }
+                    let chat = request.0.clone();
+                    let dialog = cx.new(|cx| {
+                        chat_recovery::ChatRecoveryDialog::new(chat, this.focus.clone(), window, cx)
+                    });
+                    this.recovery_modal_events =
+                        Some(cx.subscribe(&dialog, |this, _, _: &ModalDismissed, cx| {
+                            this.recovery_modal = None;
+                            this.recovery_modal_events = None;
+                            cx.notify();
+                        }));
+                    this.recovery_modal = Some(dialog);
+                    cx.notify();
                 },
             ),
             // `/resume` in a chat: the closed chats to bring back.
@@ -439,6 +471,7 @@ impl Workspace {
                     || this.task_editor_modal.is_some()
                     || this.worktree_modal.is_some()
                     || this.upstream_modal.is_some()
+                    || this.recovery_modal.is_some()
                 {
                     return;
                 }
@@ -503,6 +536,7 @@ impl Workspace {
                     || this.confirmation.is_some()
                     || this.worktree_modal.is_some()
                     || this.upstream_modal.is_some()
+                    || this.recovery_modal.is_some()
                 {
                     return;
                 }
@@ -555,6 +589,8 @@ impl Workspace {
             _upstream_events: upstream_events,
             upstream_modal: None,
             upstream_modal_events: None,
+            recovery_modal: None,
+            recovery_modal_events: None,
             _file_events: file_events,
             _file_directory_events: file_directory_events,
             opened_file: None,
@@ -592,6 +628,7 @@ impl Workspace {
             || self.worktree_modal.is_some()
             || self.confirmation.is_some()
             || self.upstream_modal.is_some()
+            || self.recovery_modal.is_some()
             || self.state.settings.read(cx).quitting
         {
             return;
@@ -643,6 +680,7 @@ impl Workspace {
             || self.worktree_modal.is_some()
             || self.confirmation.is_some()
             || self.upstream_modal.is_some()
+            || self.recovery_modal.is_some()
             || self.state.settings.read(cx).quitting
         {
             return;
@@ -699,6 +737,7 @@ impl Workspace {
             || self.worktree_modal.is_some()
             || self.confirmation.is_some()
             || self.upstream_modal.is_some()
+            || self.recovery_modal.is_some()
         {
             return;
         }
@@ -833,7 +872,8 @@ impl Render for Workspace {
             || self.new_chat.is_some()
             || self.resume.is_some()
             || self.worktree_modal.is_some()
-            || self.upstream_modal.is_some();
+            || self.upstream_modal.is_some()
+            || self.recovery_modal.is_some();
         self.state
             .editors
             .update(cx, |editors, cx| editors.obscure_media(hidden, cx));
@@ -891,6 +931,7 @@ impl Render for Workspace {
                     || self.task_detail_modal.is_some()
                     || self.task_editor_modal.is_some()
                     || self.upstream_modal.is_some()
+            || self.recovery_modal.is_some()
                     || self.worktree_modal.is_some()
                     || self.confirmation.is_some()
                     // Its ⌘1…⌘9 pick projects instead of switching tabs.
@@ -1335,6 +1376,7 @@ impl Render for Workspace {
             .child(self.state.toasts.clone())
             .children(self.confirmation.clone())
             .children(self.upstream_modal.clone())
+            .children(self.recovery_modal.clone())
             .children(self.modal.clone())
             .children(self.quick_open.clone())
             .children(self.new_chat.clone())

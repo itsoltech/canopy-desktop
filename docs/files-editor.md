@@ -234,3 +234,38 @@ or other-platform GUI qualification is inferred from these checks.
 The full Cargo suite passed with `--test-threads=1`; formatting, Clippy with warnings
 as errors, and the macOS release build passed. The test fixture directory path was
 recorded in `/tmp/canopy-lazy-files-path`; it is separate from the user's workspace/database.
+
+## Native remote resource service
+
+`remote::resources::FilesRpc` implements the typed FilesService against the host's
+registered workspace roots. Certificate identity and the persisted root grant are
+checked before directory, file or Git-ignore metadata access. Relative identities
+use `FileIdentity`; actual reads/writes use the existing symlink/reparse resolver.
+The service excludes `.git` paths. Directory pages contain at most 100 entries and
+bind their continuation to the listing fingerprint; changed listings require a
+fresh first page. Search retains the existing 100-result/200,000-visit bounds and
+reports incomplete results. ReadFile captures one bounded (32 MiB) snapshot and
+streams 64 KiB chunks with one SHA256 baseline, a two-chunk outbound queue, and
+repeat authorization during streaming.
+
+SaveFile accepts a finished FileSave artifact bound to the exact device/root/path,
+size, media type and SHA256. Bulk bytes never enter the command inbox. Applying it
+rechecks the current disk baseline and uses Document's BOM/CRLF/permission-preserving
+save; conflict preserves the client's draft. Independent devices may save against
+the same baseline: the first successful save changes the hash, so the later one
+conflicts. No force overwrite exists. CreateFile with content publishes through a
+same-directory temporary file with no-clobber semantics, without exposing an empty
+intermediate destination.
+
+An owned detached operation records Accepted and Attempting before effects and
+outlives a dropped RPC. Repeating the same command returns its durable receipt.
+`finish_file_save` atomically records the known successful hash and removes only
+the caller's captured dirty-presence revision. A newer presence update survives;
+revocation after dispatch does not erase the known save result. Dirty presence is
+persisted without draft text and includes disconnected devices. Resource gates
+serialize these RPC operations; they are not filesystem-wide locks against an
+external process in the final check/rename interval.
+
+The RPC service is independent of Window. App editor wiring, transport/mTLS and
+native platform qualification are separate integration checks; these service
+changes do not by themselves qualify the complete E4 feature matrix.

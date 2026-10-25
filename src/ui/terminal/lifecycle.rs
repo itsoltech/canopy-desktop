@@ -22,6 +22,11 @@ fn cleanup_is_current(
 }
 
 impl TerminalView {
+    /// Starts a new run owned by `holder` (the device that asked for it).
+    pub fn start_for(&mut self, holder: Holder, cx: &mut Context<Self>) {
+        self.next_holder = holder;
+        self.start(cx);
+    }
     pub fn start(&mut self, cx: &mut Context<Self>) {
         if cx
             .global::<crate::app_state::AppState>()
@@ -53,7 +58,13 @@ impl TerminalView {
         }
         self.generation += 1;
         let generation = self.generation;
+        let holder = std::mem::replace(&mut self.next_holder, Holder::Local);
         self.pump = None;
+        if let Some(run) = self.run.take() {
+            run.supersede();
+        }
+        self.lease = None;
+        self.lease_timer = None;
         self.session = None;
         self.starting = true;
         self.needs_focus = true;
@@ -143,8 +154,10 @@ impl TerminalView {
                 match result {
                     Ok((env, session)) => {
                         let notifications = session.notifications.clone();
+                        let session = Arc::new(session);
                         this.env = Some(env);
-                        this.session = Some(Arc::new(session));
+                        this.run = Some(Run::new(session.clone(), Some(holder)));
+                        this.session = Some(session);
                         this.refresh(cx);
                         this.pump = Some(cx.spawn(async move |this, cx| {
                             while notifications.recv().await.is_ok() {
@@ -228,6 +241,10 @@ impl TerminalView {
         self.pump = None;
         self.settle_task = None;
         self.cursor_task = None;
+        self.lease_timer = None;
+        if let Some(run) = &self.run {
+            run.retire();
+        }
         let start = self.task.take();
         let current = self.session.clone();
         if let Some(session) = &current {
@@ -299,7 +316,43 @@ impl TerminalView {
                 cx.notify();
             }
         }
+        self.refresh_lease(cx);
         self.paste_task_prompt(cx);
+    }
+    /// Copies the run's lease for render; a device lease is re-read when it expires.
+    fn refresh_lease(&mut self, cx: &mut Context<Self>) {
+        let lease = self.run.as_ref().map(|run| run.lease());
+        if lease == self.lease {
+            return;
+        }
+        self.lease_timer = lease.as_ref().and_then(Lease::expires_in).map(|remaining| {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(remaining + std::time::Duration::from_millis(50))
+                    .await;
+                let _ = this.update(cx, |this, cx| this.refresh_lease(cx));
+            })
+        });
+        self.lease = lease;
+        cx.emit(TerminalStateChanged);
+        cx.notify();
+    }
+    /// The host user takes input and size back from a device, explicitly.
+    pub fn take_input(&mut self, cx: &mut Context<Self>) {
+        if let Some(run) = &self.run
+            && let Err(error) = run.acquire(Holder::Local, true)
+        {
+            self.input_error = Some(error.to_string());
+        }
+        self.refresh(cx);
+        cx.notify();
+    }
+    /// The device holding input, if any; local typing is refused meanwhile.
+    pub fn input_device(&self) -> Option<&Holder> {
+        self.lease
+            .as_ref()
+            .and_then(Lease::holder)
+            .filter(|holder| matches!(holder, Holder::Device { .. }))
     }
 
     pub fn paste_task_prompt(&mut self, cx: &mut Context<Self>) {
@@ -317,7 +370,11 @@ impl TerminalView {
             return;
         };
         // No Enter. Sending directly avoids recursive refresh -> send -> refresh.
-        if self.session.as_ref().is_some_and(|s| s.input(bytes)) {
+        if self
+            .run
+            .as_ref()
+            .is_some_and(|run| run.local_input(bytes).is_ok())
+        {
             self.pane.metadata.task_prompt = None;
             app.projects.update(cx, |projects, cx| {
                 projects.task_prompt_pasted(self.pane.id, cx)

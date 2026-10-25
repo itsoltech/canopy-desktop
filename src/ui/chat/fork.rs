@@ -10,19 +10,20 @@ impl EventEmitter<ChatForkRequested> for ChatView {}
 impl ChatView {
     /// What forking at the turn end `end` takes; `None` when that part has no saved
     /// session to branch, or the turn no point to branch at.
-    pub(super) fn fork_request(&self, end: Source) -> Option<ForkRequest> {
-        if self.history_off {
+    pub(super) fn fork_request(&self, end: Source, cx: &App) -> Option<ForkRequest> {
+        let runtime = self.rt(cx);
+        if runtime.history_off() {
             return None;
         }
-        let source = self.settings.id.clone()?;
-        let transcript = self.session.as_ref().map(|session| session.transcript());
+        let source = self.settings(cx).id.clone()?;
+        let transcript = self.transcript(cx);
         let item = self.rows.item(end, transcript)?;
         let Body::TurnEnd(turn_end) = &item.body else {
             return None;
         };
         let at = turn_end.resume_at.clone()?;
         let (epoch, agent) = match end {
-            Source::Current(_) => (self.epoch, self.epoch_meta.agent.clone()),
+            Source::Current(_) => (runtime.epoch(), runtime.epoch_meta().agent.clone()),
             Source::Archived { epoch, .. } => {
                 let archived = self.rows.archived.get(epoch)?;
                 (archived.epoch, archived.agent.clone())
@@ -31,7 +32,7 @@ impl ChatView {
         let agent = agent?;
         let session = agent.session.clone()?;
         let provider = Provider::from_tool(&agent.tool)?;
-        let mut settings = agent.settings.unwrap_or_else(|| self.settings.clone());
+        let mut settings = agent.settings.unwrap_or_else(|| self.settings(cx).clone());
         settings.id = None;
         Some(ForkRequest {
             source,
@@ -44,8 +45,8 @@ impl ChatView {
             profile: agent.profile,
             settings,
             session,
-            title: self
-                .pane
+            title: runtime
+                .pane_ref()
                 .metadata
                 .title
                 .clone()
@@ -55,7 +56,7 @@ impl ChatView {
 
     /// Fork clicked: the workspace asks where the new chat goes.
     pub(super) fn fork_reply(&mut self, end: Source, cx: &mut Context<Self>) {
-        if let Some(request) = self.fork_request(end) {
+        if let Some(request) = self.fork_request(end, cx) {
             cx.emit(ChatForkRequested(request));
         }
     }

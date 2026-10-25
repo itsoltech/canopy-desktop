@@ -10,8 +10,8 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
     sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
+        Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc,
     },
     time::{Duration, Instant},
@@ -21,6 +21,10 @@ const STDERR_TAIL_BYTES: usize = 8 * 1024;
 /// Extra bytes kept so a secret crossing the tail boundary is still redacted whole.
 const STDERR_REDACTION_MARGIN: usize = 4 * 1024;
 const EVENT_BACKLOG: usize = 512;
+const INPUT_MESSAGES: usize = 64;
+const INPUT_BYTES: usize = 64 * 1024 * 1024;
+const ALL_INPUT_BYTES: usize = 256 * 1024 * 1024;
+static PENDING_INPUT_BYTES: AtomicUsize = AtomicUsize::new(0);
 pub const CLOSE_GRACE: Duration = Duration::from_secs(2);
 pub const CLOSE_TERMINATE: Duration = Duration::from_secs(5);
 
@@ -53,18 +57,126 @@ pub struct Exit {
 pub type Parser<T> = fn(&[u8]) -> Result<Option<T>, String>;
 
 pub struct Process {
-    input: Mutex<Option<async_channel::Sender<String>>>,
+    input: Mutex<Option<InputQueue>>,
     shared: Arc<Shared>,
     _files: Option<tempfile::TempDir>,
 }
 
+struct PendingLine {
+    bytes: Vec<u8>,
+    _budget: InputBudget,
+}
+struct InputLines(async_channel::Receiver<PendingLine>);
+impl Drop for InputLines {
+    fn drop(&mut self) {
+        self.0.close();
+        // async_channel keeps queued values alive while a sender exists. The
+        // process handle can outlive its failed stdin writer, so drain explicitly.
+        while self.0.try_recv().is_ok() {}
+    }
+}
+struct InputBudget {
+    local: Arc<AtomicUsize>,
+    bytes: usize,
+}
+impl Drop for InputBudget {
+    fn drop(&mut self) {
+        self.local.fetch_sub(self.bytes, Ordering::AcqRel);
+        PENDING_INPUT_BYTES.fetch_sub(self.bytes, Ordering::AcqRel);
+    }
+}
+struct InputQueue {
+    sender: async_channel::Sender<PendingLine>,
+    bytes: Arc<AtomicUsize>,
+    limit: usize,
+}
+impl InputQueue {
+    fn new(limit: usize, messages: usize) -> (Self, InputLines) {
+        let (sender, receiver) = async_channel::bounded(messages);
+        (
+            Self {
+                sender,
+                bytes: Arc::new(AtomicUsize::new(0)),
+                limit,
+            },
+            InputLines(receiver),
+        )
+    }
+    fn enqueue(&self, line: Vec<u8>) -> Result<(), String> {
+        let bytes = line.len();
+        self.bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                n.checked_add(bytes).filter(|n| *n <= self.limit)
+            })
+            .map_err(|_| "The agent input queue is full. Wait before sending more.".to_owned())?;
+        if PENDING_INPUT_BYTES
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                n.checked_add(bytes).filter(|n| *n <= ALL_INPUT_BYTES)
+            })
+            .is_err()
+        {
+            self.bytes.fetch_sub(bytes, Ordering::AcqRel);
+            return Err(
+                "The application agent input budget is full. Wait before sending more.".into(),
+            );
+        }
+        let budget = InputBudget {
+            local: self.bytes.clone(),
+            bytes,
+        };
+        self.sender
+            .try_send(PendingLine {
+                bytes: line,
+                _budget: budget,
+            })
+            .map_err(|error| match error {
+                async_channel::TrySendError::Full(_) => {
+                    "The agent input queue is full. Wait before sending more.".into()
+                }
+                async_channel::TrySendError::Closed(_) => {
+                    "The agent process is no longer running.".into()
+                }
+            })
+    }
+}
+
+/// Serialization is bounded too: rejecting a giant NDJSON line must not first
+/// allocate an unbounded second copy of the caller's JSON value.
+struct LineWriter(Vec<u8>);
+impl Write for LineWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self
+            .0
+            .len()
+            .checked_add(bytes.len())
+            .is_none_or(|n| n >= INPUT_BYTES)
+        {
+            return Err(std::io::Error::other("Agent input exceeds its byte limit"));
+        }
+        self.0.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 struct Shared {
+    metrics: OnceLock<(String, String, u64)>,
     pid: u32,
     exited: Mutex<bool>,
     changed: Condvar,
 }
 
 impl Process {
+    /// Bind content-free diagnostics to the owning runtime once it adopts the process.
+    /// Early handshake lines before adoption have no attributed sample.
+    pub fn set_metrics_context(&self, host: &str, resource: &str, generation: u64) {
+        let _ = self
+            .shared
+            .metrics
+            .set((host.to_owned(), resource.to_owned(), generation));
+    }
     pub fn start<T: Send + 'static>(
         spec: Spec,
         files: Option<tempfile::TempDir>,
@@ -100,6 +212,7 @@ impl Process {
                 }
             };
         let shared = Arc::new(Shared {
+            metrics: OnceLock::new(),
             pid,
             exited: Mutex::new(false),
             changed: Condvar::new(),
@@ -110,7 +223,7 @@ impl Process {
             .filter(|secret| secret.len() >= 8)
             .collect();
         let (events, receiver) = async_channel::bounded(EVENT_BACKLOG);
-        let (input, lines) = async_channel::unbounded::<String>();
+        let (input, lines) = InputQueue::new(INPUT_BYTES, INPUT_MESSAGES);
 
         spawn_thread("canopy-chat-stdin", move || writer(stdin, lines))?;
         let tail = Arc::new(Mutex::new(VecDeque::new()));
@@ -132,8 +245,17 @@ impl Process {
         let reading = Arc::new(AtomicBool::new(false));
         let reader_reading = reading.clone();
         let reader_report = report.clone();
+        let reader_shared = shared.clone();
         spawn_thread("canopy-chat-stdout", move || {
-            reader(stdout, &events, parse, max_line, &secrets, &reader_reading);
+            reader(
+                stdout,
+                &events,
+                parse,
+                max_line,
+                &secrets,
+                &reader_reading,
+                &reader_shared.metrics,
+            );
             let _ = stdout_done.send(());
             // Reported after the last stdout message, so the exit is always the final event.
             if let Ok(status) = status_rx.recv() {
@@ -174,14 +296,13 @@ impl Process {
 
     /// Queues one NDJSON line; never blocks the caller.
     pub fn send(&self, message: &serde_json::Value) -> Result<(), String> {
-        let line = format!("{message}\n");
-        self.input
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .ok_or("The agent session is closing.")?
-            .try_send(line)
-            .map_err(|_| "The agent process is no longer running.".into())
+        let input = self.input.lock().unwrap_or_else(|e| e.into_inner());
+        let input = input.as_ref().ok_or("The agent session is closing.")?;
+        let mut line = LineWriter(Vec::new());
+        serde_json::to_writer(&mut line, message)
+            .map_err(|_| "The agent message exceeds the 64 MiB input limit.".to_owned())?;
+        line.0.push(b'\n');
+        input.enqueue(line.0)
     }
 
     pub fn has_exited(&self) -> bool {
@@ -215,7 +336,7 @@ impl Drop for Process {
 
 fn shutdown(
     shared: &Shared,
-    input: Option<async_channel::Sender<String>>,
+    input: Option<InputQueue>,
     grace: Duration,
     terminate: Duration,
 ) -> Result<(), String> {
@@ -261,10 +382,10 @@ fn spawn_thread(name: &str, f: impl FnOnce() + Send + 'static) -> Result<(), Str
         .map_err(|_| "Could not start an agent session worker.".into())
 }
 
-fn writer(mut stdin: std::process::ChildStdin, lines: async_channel::Receiver<String>) {
-    while let Ok(line) = lines.recv_blocking() {
+fn writer(mut stdin: std::process::ChildStdin, lines: InputLines) {
+    while let Ok(line) = lines.0.recv_blocking() {
         if stdin
-            .write_all(line.as_bytes())
+            .write_all(&line.bytes)
             .and_then(|_| stdin.flush())
             .is_err()
         {
@@ -323,6 +444,7 @@ fn reader<T>(
     max_line: usize,
     secrets: &[String],
     reading: &AtomicBool,
+    metrics: &OnceLock<(String, String, u64)>,
 ) {
     let mut stdout = BufReader::with_capacity(64 * 1024, stdout);
     let mut line = Vec::new();
@@ -331,6 +453,8 @@ fn reader<T>(
         reading.store(true, Ordering::Release);
         let read = read_line(&mut stdout, &mut line, max_line);
         reading.store(false, Ordering::Release);
+        let parsed_at = Instant::now();
+        let oversized = matches!(&read, Ok(Line::Oversized(_)));
         let event = match read {
             Ok(Line::End) => return,
             Ok(Line::Oversized(size)) => Event::Diagnostic(format!(
@@ -345,7 +469,28 @@ fn reader<T>(
             Err(_) => return,
         };
         // A dropped consumer still needs the pipe drained so the child never blocks.
-        let _ = events.send_blocking(event);
+        let invalid = matches!(&event, Event::Diagnostic(_));
+        let sent = events.send_blocking(event);
+        if let Some((host, resource, generation)) = metrics.get() {
+            use crate::remote::metrics::{Outcome, Stage, record};
+            record(
+                host,
+                resource,
+                None,
+                *generation,
+                Stage::ParseEnqueue,
+                parsed_at,
+                if sent.is_err() {
+                    Outcome::Closed
+                } else if oversized {
+                    Outcome::Overflow
+                } else if invalid {
+                    Outcome::Invalid
+                } else {
+                    Outcome::Ok
+                },
+            );
+        }
     }
 }
 
@@ -559,6 +704,25 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blocked_stdin_keeps_its_byte_budget_and_failed_enqueue_releases_it() {
+        let (queue, receiver) = InputQueue::new(16, 1);
+        queue.enqueue(vec![1; 8]).unwrap();
+        let writing = receiver.0.try_recv().unwrap();
+        // Removing a line from the channel does not mean stdin accepted its bytes.
+        assert!(queue.enqueue(vec![2; 9]).is_err());
+        queue.enqueue(vec![3; 8]).unwrap();
+        assert!(queue.enqueue(vec![4; 1]).is_err());
+        drop(writing);
+        drop(receiver.0.try_recv().unwrap());
+        assert_eq!(queue.bytes.load(Ordering::Acquire), 0);
+        queue.enqueue(vec![5; 16]).unwrap();
+        drop(receiver);
+        assert_eq!(queue.bytes.load(Ordering::Acquire), 0);
+        assert!(queue.enqueue(vec![6; 1]).is_err());
+        assert_eq!(queue.bytes.load(Ordering::Acquire), 0);
+    }
 
     fn lines(input: &[u8], max: usize) -> Vec<Result<Vec<u8>, usize>> {
         let mut reader = std::io::BufReader::with_capacity(4, input);

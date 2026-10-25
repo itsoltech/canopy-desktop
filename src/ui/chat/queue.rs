@@ -1,12 +1,11 @@
-//! Tray on top of the composer: messages held until the agent has finished everything,
-//! and subagents the agent is still waiting for after its turn ended.
+//! Tray on top of the composer: the chat's durable queue (messages held until the
+//! agent has finished everything, being delivered, or of uncertain delivery) and
+//! subagents the agent is still waiting for after its turn ended.
 use super::{render::centered, view::ChatView};
+use crate::app_state::{LineState, QueueLine};
 use crate::ui::components::hover_card::content as card;
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::{
-    chat::session::{Queued, QueuedId},
-    motion::{MotionPolicy, Presence, PresenceSpec, presets},
-};
+use canopy_desktop::motion::{MotionPolicy, Presence, PresenceSpec, presets};
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     IconName, Sizable,
@@ -14,7 +13,7 @@ use gpui_kit::component::{
     spinner::Spinner,
 };
 use gpui_kit::{prelude::FluentBuilder, *};
-use std::{collections::VecDeque, time::Instant};
+use std::time::Instant;
 
 const ROW: f32 = 32.;
 /// Longer trays scroll instead of pushing the conversation away.
@@ -35,7 +34,7 @@ pub(super) struct Waiting {
 #[derive(Clone, PartialEq)]
 enum Line {
     Waiting(Waiting),
-    Queued(Queued),
+    Queued(QueueLine),
 }
 impl Line {
     fn same(&self, other: &Line) -> bool {
@@ -60,8 +59,8 @@ pub(super) struct QueueBar {
 }
 
 impl QueueBar {
-    /// Mirrors the waiting subagents (first) and the session queue (oldest first).
-    pub fn sync(&mut self, waiting: &[Waiting], queue: &VecDeque<Queued>, policy: MotionPolicy) {
+    /// Mirrors the waiting subagents (first) and the chat's queue (oldest first).
+    pub fn sync(&mut self, waiting: &[Waiting], queue: &[QueueLine], policy: MotionPolicy) {
         let now = Instant::now();
         let lines: Vec<Line> = waiting
             .iter()
@@ -150,13 +149,14 @@ impl ChatView {
         if self.queue.entries.is_empty() {
             return None;
         }
-        let held = self.session.as_ref().is_some_and(|s| s.queue_held());
+        let held = self.runtime.read(cx).queue_paused();
+        let steer = self.capabilities(cx).steer;
         let first = self
             .queue
             .entries
             .iter()
             .filter_map(|e| match &e.line {
-                Line::Queued(q) if !e.leaving && q.steering.is_none() => Some(q.id),
+                Line::Queued(q) if !e.leaving && q.state == LineState::Queued => Some(q.id.clone()),
                 _ => None,
             })
             .next();
@@ -165,9 +165,15 @@ impl ChatView {
             .entries
             .iter()
             .map(|entry| match &entry.line {
-                Line::Queued(queued) => {
-                    queued_row(entry, queued, first == Some(queued.id), held, now, cx)
-                }
+                Line::Queued(queued) => queued_row(
+                    entry,
+                    queued,
+                    first.as_ref() == Some(&queued.id),
+                    held,
+                    steer,
+                    now,
+                    cx,
+                ),
                 Line::Waiting(waiting) => waiting_row(entry, waiting, now, cx),
             })
             .collect();
@@ -224,7 +230,7 @@ fn paused_row(cx: &Context<ChatView>) -> Div {
                 .truncate()
                 .text_size(px(12.))
                 .text_color(t::muted())
-                .child("Queue paused after Stop"),
+                .child("Queue paused"),
         )
         // Drawn like a file pill so it stands out, at the height of the other actions.
         .child(
@@ -247,7 +253,7 @@ fn paused_row(cx: &Context<ChatView>) -> Div {
                 .child("Resume")
                 .tooltip(|window, cx| {
                     gpui_kit::component::tooltip::Tooltip::new(
-                        "Let the agent finish the stopped work, then send the queue",
+                        "Send the queue again, one message per turn; work Stop cut short is finished first",
                     )
                     .build(window, cx)
                 })
@@ -266,7 +272,7 @@ fn queued_card(text: &str, held: bool) -> Div {
         (
             t::yellow(),
             "Paused",
-            "after Stop; Resume, send or steer to continue",
+            "after Stop or a restart; Resume or steer to continue",
         )
     } else {
         (t::faint(), "Queued", "sent when the agent finishes")
@@ -291,62 +297,107 @@ fn queued_card(text: &str, held: bool) -> Div {
 
 fn queued_row(
     entry: &Entry,
-    queued: &Queued,
+    queued: &QueueLine,
     first: bool,
     held: bool,
+    steer: bool,
     now: Instant,
     cx: &Context<ChatView>,
 ) -> Div {
-    let id: QueuedId = queued.id;
-    let key = id.0;
+    let id = queued.id.clone();
+    let key = id.clone();
+    let el = |name: &str| ElementId::Name(format!("{name}-{key}").into());
     let active = !entry.leaving;
     // A `!` command's result waits like a message but has no text to edit.
     let ran = queued.attachments.iter().find_map(|a| match a {
         canopy_desktop::chat::transcript::Attachment::Shell { command, .. } => Some(command),
         _ => None,
     });
-    let actions: AnyElement = if queued.steering.is_some() {
-        row()
+    let actions: AnyElement = match queued.state {
+        LineState::Sending => row()
             .gap(px(6.))
             .text_size(px(11.))
             .text_color(t::muted())
             .child(Spinner::new().xsmall().color(t::muted()))
             .child("Sending…")
-            .into_any_element()
-    } else {
-        row()
-            .flex_shrink_0()
-            .gap(px(2.))
-            .child(
-                action(("chat-queue-steer", key), "Steer")
-                    .tooltip(if first {
-                        "Send queued message now (⌘⏎)"
-                    } else {
-                        "Send queued message now"
-                    })
-                    .disabled(!active)
-                    .on_click(cx.listener(move |this, _, _, cx| this.steer(id, cx))),
-            )
-            .child(
-                action(("chat-queue-edit", key), "Edit")
-                    .tooltip("Move back to the message field")
-                    .disabled(!active || ran.is_some())
-                    .on_click(cx.listener(move |this, _, window, cx| this.edit(id, window, cx))),
-            )
-            .child(
-                icon_button(("chat-queue-remove", key), IconName::Close, "Remove")
-                    .disabled(!active)
-                    .on_click(cx.listener(move |this, _, _, cx| this.remove(id, cx))),
-            )
-            .into_any_element()
+            .into_any_element(),
+        // The run ended before the agent confirmed it: only the user can say.
+        LineState::Unknown => {
+            let (delivered, again, dismiss) = (id.clone(), id.clone(), id.clone());
+            row()
+                .flex_shrink_0()
+                .gap(px(2.))
+                .child(
+                    action(el("chat-queue-delivered"), "Delivered")
+                        .tooltip("The agent got it; mark it delivered without sending again")
+                        .disabled(!active)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.resolve_unknown(delivered.clone(), Resolution::Delivered, cx)
+                        })),
+                )
+                .child(
+                    action(el("chat-queue-again"), "Send again")
+                        .tooltip("Send it again in its place; the agent may then get it twice")
+                        .disabled(!active)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.resolve_unknown(again.clone(), Resolution::Again, cx)
+                        })),
+                )
+                .child(
+                    icon_button(el("chat-queue-dismiss"), IconName::Close, "Dismiss")
+                        .disabled(!active)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.resolve_unknown(dismiss.clone(), Resolution::Dismiss, cx)
+                        })),
+                )
+                .into_any_element()
+        }
+        LineState::Queued => {
+            let (steered, edited, removed) = (id.clone(), id.clone(), id.clone());
+            row()
+                .flex_shrink_0()
+                .gap(px(2.))
+                .when(steer, |row| {
+                    row.child(
+                        action(el("chat-queue-steer"), "Steer")
+                            .tooltip(if first {
+                                "Send queued message now (⌘⏎)"
+                            } else {
+                                "Send queued message now"
+                            })
+                            .disabled(!active)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.steer(steered.clone(), cx)),
+                            ),
+                    )
+                })
+                .child(
+                    action(el("chat-queue-edit"), "Edit")
+                        .tooltip("Move back to the message field")
+                        .disabled(!active || ran.is_some())
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.edit(edited.clone(), window, cx)
+                        })),
+                )
+                .child(
+                    icon_button(el("chat-queue-remove"), IconName::Close, "Remove")
+                        .disabled(!active)
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.remove(removed.clone(), cx)),
+                        ),
+                )
+                .into_any_element()
+        }
     };
     let text = match ran {
         Some(command) => format!("Output of !{command}"),
         None => queued.text.clone(),
     };
     let full = text.clone();
+    let unknown = queued.state == LineState::Unknown;
     let owner = format!("queued-{}-{key}", cx.entity_id());
-    let movable = active && queued.steering.is_none();
+    let movable = active && queued.state == LineState::Queued;
+    let dropped = id.clone();
     shell(
         entry,
         now,
@@ -357,13 +408,14 @@ fn queued_row(
             // Drag handle: drop on another message to put this one in front of it.
             .child(
                 div()
-                    .id(("chat-queue-grip", key))
+                    .id(el("chat-queue-grip"))
                     .flex_shrink_0()
                     .size(px(16.))
                     .flex()
                     .items_center()
                     .justify_center()
                     .when(movable, |grip| {
+                        let id = id.clone();
                         grip.cursor_grab()
                             .hover(|style| style.text_color(t::secondary()))
                             .on_drag(QueuedDrag(id), |_, _, _, cx| {
@@ -379,26 +431,60 @@ fn queued_row(
             )
             .child(
                 div()
-                    .id(("chat-queue-text", key))
+                    .id(el("chat-queue-text"))
                     .flex_1()
                     .min_w_0()
                     .text_size(px(13.))
                     .text_color(t::text())
                     .truncate()
                     .hover_card(owner, gpui_kit::base::Placement::Top, move |_, _| {
-                        queued_card(&full, held).into_any_element()
+                        if unknown {
+                            unknown_card(&full).into_any_element()
+                        } else {
+                            queued_card(&full, held).into_any_element()
+                        }
                     })
                     .child(single_line(&text)),
             )
             .child(actions),
     )
     .drag_over::<QueuedDrag>(|style, _, _, _| style.border_t_2().border_color(t::accent()))
-    .on_drop(cx.listener(move |this, drag: &QueuedDrag, _, cx| this.move_queued(drag.0, id, cx)))
+    .on_drop(cx.listener(move |this, drag: &QueuedDrag, _, cx| {
+        this.move_queued(drag.0.clone(), dropped.clone(), cx)
+    }))
+}
+
+/// A message whose delivery is uncertain, and why nothing after it goes out.
+fn unknown_card(text: &str) -> Div {
+    card::body()
+        .child(
+            div()
+                .text_sm()
+                .line_height(t::chat_title_line_height())
+                .text_color(t::text())
+                .line_clamp(8)
+                .child(text.to_owned()),
+        )
+        .child(card::separator())
+        .child(card::status(
+            t::yellow(),
+            "Delivery unknown",
+            "the agent stopped before confirming it; the queue waits for your choice",
+            t::yellow(),
+        ))
+}
+
+/// What the user decided about a message of uncertain delivery.
+#[derive(Clone, Copy)]
+pub(super) enum Resolution {
+    Delivered,
+    Again,
+    Dismiss,
 }
 
 /// A queued message being dragged in the tray.
-#[derive(Clone, Copy)]
-struct QueuedDrag(QueuedId);
+#[derive(Clone)]
+struct QueuedDrag(String);
 
 fn waiting_row(entry: &Entry, waiting: &Waiting, now: Instant, cx: &Context<ChatView>) -> Div {
     let active = !entry.leaving;

@@ -180,6 +180,15 @@ pub fn create(request: &CreateWorktree) -> Result<PathBuf> {
 }
 
 pub fn create_with_metadata(request: &CreateWorktree) -> Result<CreatedWorktree> {
+    create_at_destination(request, true)
+}
+
+/// Remote approval names one exact authorized destination; never relocate it.
+pub fn create_with_metadata_exact(request: &CreateWorktree) -> Result<CreatedWorktree> {
+    create_at_destination(request, false)
+}
+
+fn create_at_destination(request: &CreateWorktree, relocate: bool) -> Result<CreatedWorktree> {
     if request.branch.is_empty()
         || !git2::Reference::is_valid_name(&format!("refs/heads/{}", request.branch))
     {
@@ -204,6 +213,11 @@ pub fn create_with_metadata(request: &CreateWorktree) -> Result<CreatedWorktree>
     // A proposal may become occupied while the form is open. Preserve the
     // managed naming policy and retry with a fresh sibling instead of overwriting.
     if std::fs::symlink_metadata(&destination).is_ok() {
+        if !relocate {
+            return Err(
+                "Approved worktree destination is occupied. Review a new preflight.".into(),
+            );
+        }
         destination = propose_worktree_path(&request.repository)?;
     }
     if info

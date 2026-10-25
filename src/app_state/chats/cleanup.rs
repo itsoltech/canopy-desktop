@@ -23,7 +23,12 @@ impl Chats {
             .find_map(|p| self.directory_blocker(p.metadata.cwd.as_deref()?, ids, cx))
     }
 
-    fn directory_blocker(&self, dir: &Path, excluding: &[PaneId], cx: &App) -> Option<String> {
+    pub(super) fn directory_blocker(
+        &self,
+        dir: &Path,
+        excluding: &[PaneId],
+        cx: &App,
+    ) -> Option<String> {
         let app = cx.global::<AppState>();
         let projects = app.projects.read(cx);
         for workspace in projects.runtime_workspaces(cx) {
@@ -102,7 +107,7 @@ impl Chats {
             return;
         };
         let old = self.retiring.remove(at);
-        self.retire(old.workspace, old.pane, old.view, cx);
+        self.retire(old.workspace, old.pane, old.runtime, cx);
         cx.notify();
     }
 
@@ -110,7 +115,7 @@ impl Chats {
         &mut self,
         workspace: WorkspaceId,
         pane: Pane,
-        view: Option<Entity<ChatView>>,
+        runtime: Option<Entity<ChatRuntime>>,
         cx: &mut Context<Self>,
     ) {
         if self.retiring.iter().any(|r| r.pane.id == pane.id) {
@@ -143,11 +148,15 @@ impl Chats {
             .chat
             .as_ref()
             .and_then(|s| s.id.clone())
-            .or_else(|| view.as_ref().and_then(|v| v.read(cx).chat_id()));
+            .or_else(|| runtime.as_ref().and_then(|r| r.read(cx).chat_id()));
         if let Some(chat) = &chat {
             history.update(cx, |h, _| h.mark_deleted(chat));
+            cx.global::<AppState>()
+                .settings
+                .clone()
+                .update(cx, |settings, _| settings.record_removed(chat));
         }
-        let close = view.as_ref().map(|v| v.update(cx, |v, cx| v.close(cx)));
+        let close = runtime.as_ref().map(|r| r.update(cx, |r, cx| r.close(cx)));
         let (finished, completion) = async_channel::bounded::<()>(1);
         let result = Arc::new(std::sync::Mutex::new(None));
         let shared = result.clone();
@@ -210,11 +219,61 @@ impl Chats {
             workspace,
             pane,
             folder,
-            view,
+            runtime,
             completion,
             result,
             _watch: watch,
         });
+    }
+
+    /// Chats of `workspace` whose cleanup has not finished well: running, or failed
+    /// and waiting for Retry cleanup (pane and chat ID, if known).
+    pub fn unsettled_cleanup(&self, workspace: WorkspaceId) -> Vec<(PaneId, Option<String>)> {
+        self.retiring
+            .iter()
+            .filter(|r| r.workspace == workspace)
+            .filter(|r| {
+                !r.result
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_ref()
+                    .is_some_and(Result::is_ok)
+            })
+            .map(|r| {
+                let chat = r.pane.metadata.chat.as_ref().and_then(|c| c.id.clone());
+                (r.pane.id, chat)
+            })
+            .collect()
+    }
+
+    /// Retries every failed cleanup of chats of `workspace` (what Retry cleanup does
+    /// per chat on the host); running ones are left to finish.
+    pub fn retry_cleanup_of(&mut self, workspace: WorkspaceId, cx: &mut Context<Self>) {
+        let failed: Vec<_> = self
+            .retiring
+            .iter()
+            .filter(|r| {
+                r.workspace == workspace
+                    && r.result
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .as_ref()
+                        .is_some_and(Result::is_err)
+            })
+            .map(|r| r.pane.id)
+            .collect();
+        for pane in failed {
+            self.retry_cleanup(pane, cx);
+        }
+    }
+
+    /// Cleanups still running for chats of `workspace`, each ending with its result.
+    pub fn cleanup_of(
+        &self,
+        workspace: WorkspaceId,
+        cx: &mut Context<Self>,
+    ) -> Vec<Task<Result<(), String>>> {
+        self.pending_cleanup(Some(workspace), cx)
     }
 
     pub(super) fn pending_cleanup(
@@ -417,7 +476,7 @@ mod tests {
             1
         );
         let quit = cx.update(|cx| {
-            assert!(app.chats.read(cx).views.is_empty());
+            assert!(app.chats.read(cx).runtimes.is_empty());
             assert_eq!(app.chats.read(cx).cleanup_errors()[0].0, pane);
             app.chat_history
                 .update(cx, |h, cx| h.initialize(client.clone(), cx));

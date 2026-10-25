@@ -10,6 +10,7 @@ use canopy_desktop::state::tools::{Profile, ToolDefinition, ToolKind, new_id};
 use gpui_kit::{
     base::Disableable,
     component::{IconName, input::InputState, scroll::ScrollableElement},
+    prelude::FluentBuilder,
     *,
 };
 pub(super) struct ToolsPreferences {
@@ -18,6 +19,7 @@ pub(super) struct ToolsPreferences {
     agent_form: Entity<super::agent::AgentForm>,
     key_edits: std::collections::HashMap<String, String>,
     draft: ToolDefinition,
+    source: Option<ToolDefinition>,
     name: Entity<InputState>,
     executable: Entity<InputState>,
     arguments: Entity<InputState>,
@@ -75,6 +77,7 @@ impl ToolsPreferences {
             key_edits: Default::default(),
             state,
             draft: draft.clone(),
+            source: Some(draft.clone()),
             name: cx.new(|cx| InputState::new(window, cx).default_value(draft.name)),
             executable: cx
                 .new(|cx| InputState::new(window, cx).placeholder("Program name or absolute path")),
@@ -119,6 +122,7 @@ impl ToolsPreferences {
             .default_profile
             .clone()
             .or_else(|| tool.profiles.first().map(|p| p.id.clone()));
+        self.source = self.state.read(cx).catalog.get(&tool.id).cloned();
         self.draft = tool;
         self.key_edits.clear();
         self.error = None;
@@ -189,10 +193,8 @@ impl ToolsPreferences {
                 cfg!(windows),
             )
             .map_err(|_| "Unclosed quote in tool arguments.")?;
-            let mut catalog = self.state.read(cx).catalog.clone();
-            catalog.upsert(draft)?;
             self.state.update(cx, |state, cx| {
-                state.save_with_keys(catalog, self.key_edits.clone(), cx)
+                state.save_tool_edit(self.source.as_ref(), draft, self.key_edits.clone(), cx)
             })
         })();
         match result {

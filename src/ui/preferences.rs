@@ -3,6 +3,7 @@ mod general;
 mod integrations;
 mod jira;
 mod navigation;
+mod remote;
 mod task_filters;
 mod tools;
 mod youtrack;
@@ -62,6 +63,8 @@ impl Render for Preferences {
             self.task_filters.clone().into_any_element()
         } else if page == "Integrations" {
             self.integrations.clone().into_any_element()
+        } else if page == "Remote access" {
+            self.remote.clone().into_any_element()
         } else {
             self.tools_content.clone().into_any_element()
         };
@@ -166,6 +169,7 @@ struct Preferences {
     tools_content: Entity<ToolsPreferences>,
     integrations: Entity<integrations::IntegrationsPreferences>,
     task_filters: Entity<task_filters::TaskFiltersPreferences>,
+    remote: Entity<remote::RemotePreferences>,
     page: Entity<String>,
     reveal: Presence,
     _route: Subscription,
@@ -206,6 +210,7 @@ impl Preferences {
             page,
             tools_content,
             task_filters: cx.new(|cx| task_filters::TaskFiltersPreferences::new(window, cx)),
+            remote: cx.new(|cx| remote::RemotePreferences::new(window, cx)),
             integrations: cx.new(|cx| integrations::IntegrationsPreferences::new(window, cx)),
             _route: route,
             reveal: Presence::new(true, motion::presets::CONTENT_REVEAL, Instant::now()),

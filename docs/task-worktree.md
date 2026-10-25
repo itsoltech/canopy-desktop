@@ -52,3 +52,11 @@ this does not qualify live Claude/Codex login, trust dialogs or tracker accounts
 
 The immediate-paste policy supersedes the historical readiness-gated GUI check
 above. It is covered by unit tests only; no new E2E run was performed.
+
+Remote Tasks callbacks use `ControlBridge` and the live integrations owner for
+saved filters and task links. A successful filter response follows the actual
+configuration commit. Remote task-to-worktree creates an empty workspace through
+libgit2 under the shared resource gate, adds it without changing desktop selection,
+waits for the project catalog generation to persist, and then commits the task link
+against current integration state. A failure after worktree creation is reported as
+an uncertain/partial outcome, so clients must reconcile rather than create again.

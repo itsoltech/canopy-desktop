@@ -397,7 +397,7 @@ impl ChatView {
             }
         };
         let id = self.add_pending(label, mention, AttachState::Preparing, true);
-        let chat = self.chat_id();
+        let chat = self.chat_id(cx);
         cx.spawn(async move |this, cx| {
             let prepared = cx
                 .background_spawn(async move {
@@ -510,7 +510,7 @@ impl ChatView {
             send(self, draft, cx);
             return;
         }
-        let chat = self.chat_id();
+        let chat = self.chat_id(cx);
         cx.spawn(async move |this, cx| {
             let loaded = cx
                 .background_spawn(async move {
@@ -526,12 +526,9 @@ impl ChatView {
                 .await;
             let _ = this.update(cx, |this, cx| match loaded {
                 Ok(draft) => send(this, draft, cx),
-                Err(error) => {
-                    if let Some(session) = &mut this.session {
-                        session.note(error);
-                    }
-                    this.after_change(cx);
-                }
+                Err(error) => this
+                    .runtime
+                    .update(cx, |runtime, cx| runtime.note(error, cx)),
             });
         })
         .detach();
@@ -573,7 +570,7 @@ impl ChatView {
             return;
         }
         let (file, format) = (file.clone(), format_of(media_type));
-        let chat = self.chat_id();
+        let chat = self.chat_id(cx);
         cx.spawn(async move |this, cx| {
             let bytes = cx
                 .background_spawn(async move {

@@ -279,3 +279,50 @@ permissions/rate limits, comment ownership and draft persistence/future-schema
 protection. No real issue or comment was created, modified or deleted in testing.
 The Mac remained locked, so end-to-end interaction with the new editors still
 requires GUI qualification after unlock.
+
+## Native Tasks RPC boundary
+
+`remote::tasks::TasksRpc` implements the concrete TasksService methods using the
+same GitHub, Jira and YouTrack clients as desktop Tasks. Accounts and credential
+references are resolved from host settings; token loading stays on a blocking
+host worker. An unavailable credential returns `needs_host_interaction`.
+Verified TLS device identity, TASKS scope and a canonical granted workspace root
+(or the reserved `private` root for global Tasks) are required. Provider reads
+recheck the grant before returning; attachment streams recheck before each chunk.
+
+Accepted mutations run in the bounded host operation owner even if the RPC is
+cancelled. Their normalized intent contains the immutable credential reference,
+not its token. The inbox records attempting before dispatch, then the known
+result or delivery_unknown. Reusing a command ID never repeats an uncertain
+provider write. Successful `operation_output` is a JSON result containing task,
+comment or created workspace identity and any confirmed-write/stale-refresh
+notice; errors use DomainError, also when retrieved through GetCommand.
+
+The host application implements `TasksHost` for filter changes and task→worktree,
+so those operations update the live configuration owner and existing worktree
+lifecycle. Task→worktree additionally requires FILES_GIT on its destination.
+The current request selects no agent; it creates and links the empty worktree.
+
+Provider field values use Protobuf Value/Struct with native IDs and types.
+Jira workflow forms retain required fields and do not implicitly submit defaults.
+YouTrack edit forms preserve native `$type`, exclude status fields, and use the
+separate revalidated status action. Unsupported provider operations fail
+explicitly and appear as unsupported task capabilities. GitHub project discovery
+uses bounded repository pages; search is restricted to the selected repository
+and state, with user text treated as a quoted phrase.
+
+Task uploads must be finished artifacts bound to the exact integration, project,
+task and authority root with TaskAttachment purpose. They are limited to 25 MiB;
+the inbox stores only the artifact reference. Downloads use the existing provider
+membership checks and authenticated adapters. GitHub asset URLs must occur in the
+task or its comments and use the existing restricted redirect policy.
+
+Focused offline tests cover TLS/grant rejection, cancelled RPC ownership and
+persistent unknown results, required Jira transition forms, opaque structured
+values, and repository search boundaries. These checks do not qualify GUI, live
+tracker accounts, native mobile transport or end-to-end acceptance.
+
+The scoped provider HTTP wrapper checks the current device grant and immutable
+account configuration before every outbound request. This also covers a write
+following asynchronous schema/status preflight inside an existing adapter; a
+cached provider client cannot keep authority after revoke or account replacement.

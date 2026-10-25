@@ -1,6 +1,6 @@
 //! `!` commands from the composer (DEC-072): one shell command the user runs, in the
 //! chat's folder with their shell and environment. Its output streams back while it
-//! runs; Stop ends its whole process group. No GPUI here.
+//! runs; Stop ends its whole process group (a Job Object on Windows). No GPUI here.
 use std::{
     io::Read,
     path::Path,
@@ -38,6 +38,9 @@ struct Shared {
     pid: u32,
     /// Set once the child is reaped; signals are sent only before, under this lock.
     exited: Mutex<bool>,
+    /// The Job Object holding the command and everything it started.
+    #[cfg(windows)]
+    job: crate::terminal::windows_job::ProcessJob,
 }
 
 impl Running {
@@ -72,13 +75,79 @@ impl Running {
             });
         }
         let started = Instant::now();
-        let mut child = child
+        let child = child
             .spawn()
             .map_err(|error| format!("Couldn't run the command: {error}"))?;
         let shared = Arc::new(Shared {
             pid: child.id(),
             exited: Mutex::new(false),
         });
+        let receiver = stream(child, shared.clone(), started);
+        Ok((Self { shared }, receiver))
+    }
+
+    /// Runs `command` with the user's shell in `cwd`, inside a Job Object created
+    /// before the command runs (it starts suspended), so Stop and cleanup reach every
+    /// process it starts.
+    #[cfg(windows)]
+    pub fn start(
+        command: &str,
+        cwd: &Path,
+        shell: &Path,
+        vars: &std::collections::HashMap<String, String>,
+    ) -> Result<(Self, async_channel::Receiver<ShellEvent>), String> {
+        use crate::terminal::environment::{ShellKind, shell_kind};
+        use std::os::windows::process::CommandExt;
+        let mut child = std::process::Command::new(shell);
+        match shell_kind(shell) {
+            ShellKind::PowerShell => {
+                child.args([
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    command,
+                ]);
+            }
+            ShellKind::Cmd => {
+                child.raw_arg(format!("/d /s /c \"{command}\""));
+            }
+            ShellKind::Posix => {
+                child.arg("-c").arg(command);
+            }
+            ShellKind::Other => {
+                return Err(format!(
+                    "Commands can't run with the shell {}.",
+                    shell.display()
+                ));
+            }
+        }
+        windows::spawn(child, cwd, vars)
+    }
+
+    /// Runs `program` with `arguments` directly (no shell), inside its own Job Object:
+    /// an agent's terminal on Windows, where argv is not shell syntax.
+    #[cfg(windows)]
+    pub fn start_program(
+        program: &Path,
+        arguments: &[String],
+        cwd: &Path,
+        vars: &std::collections::HashMap<String, String>,
+    ) -> Result<(Self, async_channel::Receiver<ShellEvent>), String> {
+        let mut child = std::process::Command::new(program);
+        child.args(arguments);
+        windows::spawn(child, cwd, vars)
+    }
+}
+
+/// Streams a started command's output and reports its exit (after its pipes drain,
+/// bounded by `DRAIN`).
+fn stream(
+    mut child: std::process::Child,
+    shared: Arc<Shared>,
+    started: Instant,
+) -> async_channel::Receiver<ShellEvent> {
+    {
         let (events, receiver) = async_channel::unbounded();
         let (done, drained) = std::sync::mpsc::channel::<()>();
         let mut readers = 0;
@@ -147,17 +216,19 @@ impl Running {
                 elapsed: started.elapsed(),
             });
         });
-        Ok((Self { shared }, receiver))
+        receiver
     }
+}
 
-    #[cfg(not(unix))]
+impl Running {
+    #[cfg(not(any(unix, windows)))]
     pub fn start(
         _: &str,
         _: &Path,
         _: &Path,
         _: &std::collections::HashMap<String, String>,
     ) -> Result<(Self, async_channel::Receiver<ShellEvent>), String> {
-        Err("Shell commands from the chat are supported on macOS and Linux.".into())
+        Err("Shell commands from the chat aren't supported on this platform.".into())
     }
 
     /// Ends the command and everything it started: SIGTERM, then SIGKILL.
@@ -180,7 +251,11 @@ impl Running {
         let deadline = Instant::now() + GRACE + Duration::from_secs(2);
         loop {
             let exited = *self.shared.exited.lock().unwrap_or_else(|e| e.into_inner());
-            if exited && group_released(self.shared.pid) {
+            #[cfg(windows)]
+            let released = exited && self.job_released();
+            #[cfg(not(windows))]
+            let released = exited && group_released(self.shared.pid);
+            if released {
                 return Ok(());
             }
             if Instant::now() >= deadline {
@@ -197,9 +272,16 @@ fn group_released(pid: u32) -> bool {
     (unsafe { libc::killpg(pid as libc::pid_t, 0) == -1 })
         && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn group_released(_: u32) -> bool {
     true
+}
+#[cfg(windows)]
+impl Running {
+    /// Windows confirms release when the command's Job Object is empty.
+    fn job_released(&self) -> bool {
+        self.shared.job.terminate_and_wait().is_ok()
+    }
 }
 
 #[cfg(unix)]
@@ -217,7 +299,12 @@ fn signal(shared: &Shared, kill: bool) {
         );
     }
 }
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn signal(shared: &Shared, _: bool) {
+    // No polite stop for console-less processes: the job ends the whole tree.
+    let _ = shared.job.request_termination();
+}
+#[cfg(not(any(unix, windows)))]
 fn signal(_: &Shared, _: bool) {}
 
 /// Waits for the exit without reaping, then reaps under the lock `signal` takes.
@@ -255,6 +342,73 @@ fn reap(
     let status = child.wait();
     *shared.exited.lock().unwrap_or_else(|e| e.into_inner()) = true;
     status
+}
+
+#[cfg(windows)]
+mod windows {
+    use super::{Running, Shared, ShellEvent, stream};
+    use crate::terminal::windows_job::ProcessJob;
+    use std::{
+        os::windows::{io::AsRawHandle, process::CommandExt},
+        path::Path,
+        sync::{Arc, Mutex},
+        time::Instant,
+    };
+    use windows_sys::Win32::{
+        Foundation::HANDLE,
+        System::{
+            JobObjects::AssignProcessToJobObject,
+            Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED},
+        },
+    };
+
+    #[link(name = "ntdll", kind = "raw-dylib")]
+    unsafe extern "system" {
+        /// Resumes every thread of a process created suspended.
+        fn NtResumeProcess(process: HANDLE) -> i32;
+    }
+
+    /// Starts `child` suspended, puts it in a new job before it runs any code, then
+    /// lets it run: nothing it starts can escape the job.
+    pub(super) fn spawn(
+        mut child: std::process::Command,
+        cwd: &Path,
+        vars: &std::collections::HashMap<String, String>,
+    ) -> Result<(Running, async_channel::Receiver<ShellEvent>), String> {
+        let job =
+            ProcessJob::new().map_err(|error| format!("Couldn't run the command: {error}"))?;
+        child
+            .current_dir(cwd)
+            .env_clear()
+            .envs(vars)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
+        let started = Instant::now();
+        let mut child = child
+            .spawn()
+            .map_err(|error| format!("Couldn't run the command: {error}"))?;
+        let handle = child.as_raw_handle() as HANDLE;
+        // SAFETY: the job handle is owned and valid; the child handle stays valid while
+        // `child` lives. The suspended child has run no code yet.
+        let assigned = unsafe { AssignProcessToJobObject(job.raw() as HANDLE, handle) } != 0;
+        // SAFETY: as above; resuming a process we created suspended.
+        let resumed = assigned && unsafe { NtResumeProcess(handle) } >= 0;
+        if !resumed {
+            let error = std::io::Error::last_os_error();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("Couldn't run the command in its own job: {error}"));
+        }
+        let shared = Arc::new(Shared {
+            pid: child.id(),
+            exited: Mutex::new(false),
+            job,
+        });
+        let receiver = stream(child, shared.clone(), started);
+        Ok((Running { shared }, receiver))
+    }
 }
 
 /// Appends `chunk` to `output`, keeping its first and last `limit` bytes with a note

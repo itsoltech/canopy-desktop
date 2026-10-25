@@ -41,6 +41,8 @@ impl ToolsPreferences {
                                 enabled: true,
                                 profiles: vec![],
                                 default_profile: None,
+                                acp: false,
+                                env_refs: Default::default(),
                             },
                             window,
                             cx,
@@ -112,6 +114,21 @@ impl ToolsPreferences {
                     )
                     .child("Enable tool"),
             )
+            .when(self.draft.kind == ToolKind::Custom, |fields| {
+                fields.child(
+                    row()
+                        .gap(px(8.))
+                        .child(
+                            checkbox("tool-acp", self.draft.acp, "Agent Client Protocol")
+                                .disabled(disabled)
+                                .on_click(cx.listener(|this, value, _, cx| {
+                                    this.draft.acp = *value;
+                                    cx.notify();
+                                })),
+                        )
+                        .child("Opens as a chat (Agent Client Protocol)"),
+                )
+            })
     }
     fn footer(&self, disabled: bool, cx: &Context<Self>) -> Div {
         let selected = self.draft.id.clone();

@@ -4,7 +4,7 @@
 use canopy_desktop::chat::closed::{self, ClosedChat};
 use canopy_desktop::chat::history::{self, EpochMeta, Saved};
 use canopy_desktop::chat::transcript::Item;
-use canopy_desktop::settings::{ChatHistoryBatch, ClosedChatRow, SettingsClient};
+use canopy_desktop::settings::{ChatHistoryBatch, SettingsClient};
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
@@ -37,6 +37,10 @@ pub struct ChatHistory {
     quitting: bool,
     pub error: Option<String>,
 }
+/// The exact stored representations, emitted only after the SQLite transaction.
+#[derive(Clone, Debug)]
+pub struct HistoryCommitted(pub canopy_desktop::settings::HistoryCheckpoint);
+impl EventEmitter<HistoryCommitted> for ChatHistory {}
 
 impl ChatHistory {
     pub fn new() -> Self {
@@ -336,28 +340,6 @@ impl ChatHistory {
         .detach();
     }
 
-    /// A chat with a conversation was closed: it waits for `/resume` (DEC-095). Its rows
-    /// go on being written as usual.
-    pub fn close(&mut self, closed: ClosedChat, cx: &mut Context<Self>) {
-        let (Some(client), Some(chat)) = (self.client.clone(), closed.chat_id()) else {
-            return;
-        };
-        let Some(payload) = closed.to_json() else {
-            return;
-        };
-        let row = ClosedChatRow {
-            chat: chat.to_owned(),
-            closed_at: now(),
-            payload,
-        };
-        cx.background_spawn(async move {
-            if let Err(error) = client.save_closed_chat(row).await {
-                eprintln!("Closed chat: {error}");
-            }
-        })
-        .detach();
-    }
-
     /// Closed chats, latest first, with when they closed (unix seconds).
     pub fn closed(&self, cx: &mut Context<Self>) -> Task<Result<Vec<(ClosedChat, i64)>, String>> {
         let client = self.client.clone();
@@ -444,10 +426,18 @@ async fn save(
         .into_iter()
         .filter(|batch| !deleted.contains(&batch.chat))
         .collect();
-    client
-        .save_chat_history(batches)
+    let committed = client
+        .save_chat_history_checkpointed(batches)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    let _ = this.update(cx, |this, cx| {
+        for checkpoint in committed {
+            if !this.deleted.contains(checkpoint.chat()) {
+                cx.emit(HistoryCommitted(checkpoint));
+            }
+        }
+    });
+    Ok(())
 }
 
 fn now() -> i64 {

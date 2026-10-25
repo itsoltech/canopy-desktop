@@ -1,14 +1,13 @@
 //! `/goal` in the chat (DEC-079…082): the composer's goal mode, the goal's row over the
 //! composer, and its marks in the conversation.
 use super::view::ChatView;
-use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::{
     chat::{
         goal::{self, EndReason, Goal, GoalEnd, GoalStatus},
         provider::Provider,
         session::Draft,
-        transcript::{Attachment, Body, GoalCheck},
+        transcript::{Attachment, GoalCheck},
     },
     motion::{self, MotionPolicy, Presence, presets},
 };
@@ -20,8 +19,6 @@ pub(super) const PLACEHOLDER: &str = "Describe when the work is done and how to 
 const REPLACES: &str = "A new condition replaces the current goal";
 /// The counter shows this close to the limit.
 const COUNTER_FROM: usize = goal::LIMIT - 400;
-/// How long a Codex goal waits for the next turn Codex starts by itself.
-const HOLD: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The goal's row on the composer: open while the chat has a goal.
 pub(super) struct GoalRow {
@@ -59,7 +56,7 @@ impl ChatView {
             self.set_shell(false, window, cx);
         }
         self.goal_mode = on;
-        let placeholder = match (on, self.session.as_ref().and_then(|s| s.goal())) {
+        let placeholder = match (on, self.native(cx).and_then(|s| s.goal())) {
             (true, Some(_)) => REPLACES,
             (true, None) => PLACEHOLDER,
             (false, _) => super::decision::COMPOSER_PLACEHOLDER,
@@ -76,6 +73,7 @@ impl ChatView {
         let prefix = format!("/{} ", goal::COMMAND);
         if self.goal_mode
             || self.shell
+            || !self.capabilities(cx).goal
             || self.has_code_blocks()
             || self.editing.is_some()
             || self.decision.active().is_some()
@@ -109,9 +107,7 @@ impl ChatView {
     pub(super) fn submit_goal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let draft = self.composer_draft(cx);
         let text = plain_condition(&draft);
-        if text.is_empty()
-            || text.chars().count() > goal::LIMIT
-            || self.session.as_ref().is_none_or(|s| s.status().ended())
+        if text.is_empty() || text.chars().count() > goal::LIMIT || !self.rt(cx).accepts_messages()
         {
             return;
         }
@@ -168,7 +164,7 @@ impl ChatView {
 
     /// Opens the row while the chat has a goal and closes it after.
     pub(super) fn sync_goal_row(&mut self, cx: &App) {
-        let goal = self.session.as_ref().and_then(|s| s.goal()).cloned();
+        let goal = self.native(cx).and_then(|s| s.goal()).cloned();
         let now = Instant::now();
         let open = goal.is_some();
         self.goal_row
@@ -205,9 +201,9 @@ impl ChatView {
     }
 
     fn goal_line(&self, goal: &Goal, cx: &mut Context<Self>) -> Div {
-        let working = self.is_working();
+        let working = self.is_working(cx);
         let pursuing = goal.status == GoalStatus::Pursuing && working;
-        let codex = self.provider() == Provider::Codex;
+        let codex = self.provider(cx) == Some(Provider::Codex);
         let now = goal::now();
         let title = goal::title(goal, working);
         let warning = matches!(
@@ -358,139 +354,25 @@ impl ChatView {
             .child(row().flex_shrink_0().gap(px(2.)).children(buttons))
     }
 
-    /// Mirrors the goal outside the chat: the notch shows "Goal" while it is pursued
-    /// (and one alert at its end); Codex's wait for its next goal turn is bounded; a
-    /// finished Claude goal is checked against its session's record.
-    pub(super) fn sync_goal(&mut self, cx: &mut Context<Self>) {
-        let Some(session) = &self.session else {
-            return;
-        };
-        let working = self.is_working();
-        // The goal counts until the chat stops working after it.
-        let pursuing = session.pursuing_goal() || (self.reported_goal == Some(true) && working);
-        if self.reported_goal != Some(pursuing)
-            && let Some(run) = self.agent_run.clone()
-        {
-            if self.reported_goal.is_some() || pursuing {
-                let pane = self.pane.id;
-                cx.global::<AppState>()
-                    .agents
-                    .clone()
-                    .update(cx, |agents, cx| {
-                        agents.chat_goal(pane, &run, pursuing, working, cx)
-                    });
-            }
-            self.reported_goal = Some(pursuing);
-        }
-        let session = self.session.as_ref().expect("session");
-        if !session.goal_hold() {
-            self.goal_hold_timer = None;
-        } else if self.goal_hold_timer.is_none() {
-            self.goal_hold_timer = Some(cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(HOLD).await;
-                let _ = this.update(cx, |this, cx| {
-                    this.goal_hold_timer = None;
-                    if let Some(session) = &mut this.session {
-                        let lines = session.expire_goal_hold();
-                        this.write(lines);
-                    }
-                    this.after_change(cx);
-                });
-            }));
-        }
-        self.check_goal_records(cx);
-    }
-
-    /// Claude's stream doesn't say whether a goal was met or judged impossible: its
-    /// session file does. Read in the background; the card is corrected if it differs.
-    fn check_goal_records(&mut self, cx: &mut Context<Self>) {
-        if self.provider() != Provider::Claude {
-            return;
-        }
-        let Some(session) = &self.session else {
-            return;
-        };
-        let (Some(id), Some(cwd)) = (
-            session.session_id().map(str::to_owned),
-            self.pane.metadata.cwd.clone(),
-        ) else {
-            return;
-        };
-        let ends: Vec<_> = session
-            .transcript()
-            .items()
-            .iter()
-            .rev()
-            .take(32)
-            .filter_map(|item| match &item.body {
-                Body::GoalEnd(end) if end.reason == EndReason::Achieved => {
-                    Some((item.id, end.objective.clone()))
-                }
-                _ => None,
-            })
-            .filter(|(item, _)| !self.goal_records.contains(item))
-            .collect();
-        for (item, objective) in ends {
-            self.goal_records.insert(item);
-            let (id, cwd) = (id.clone(), cwd.clone());
-            let read = cx.background_spawn(async move {
-                canopy_desktop::chat::claude::goal_record::read(
-                    &canopy_desktop::chat::claude::goal_record::config_dirs(),
-                    &cwd,
-                    &id,
-                    &objective,
-                )
-            });
-            cx.spawn(async move |this, cx| {
-                let Some(record) = read.await else {
-                    return;
-                };
-                let _ = this.update(cx, |this, cx| {
-                    let reason = if record.met {
-                        EndReason::Achieved
-                    } else {
-                        EndReason::Impossible
-                    };
-                    let note = (!record.met).then_some(record.reason).flatten();
-                    if let Some(session) = &mut this.session {
-                        session.amend_goal_end(item, reason, note, record.seconds, record.tokens);
-                    }
-                    this.after_change(cx);
-                });
-            })
-            .detach();
-        }
-    }
-
     fn pause_goal(&mut self, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session {
-            let lines = session.pause_goal();
-            self.write(lines);
-        }
-        self.after_change(cx);
+        self.runtime
+            .update(cx, |runtime, cx| runtime.pause_goal(cx));
     }
 
     fn resume_goal(&mut self, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session {
-            let lines = session.resume_goal();
-            self.write(lines);
-        }
-        self.after_change(cx);
+        self.runtime
+            .update(cx, |runtime, cx| runtime.resume_goal(cx));
     }
 
     fn clear_goal(&mut self, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session {
-            let lines = session.clear_goal(EndReason::ClearedByUser);
-            self.write(lines);
-        }
-        self.after_change(cx);
+        self.runtime
+            .update(cx, |runtime, cx| runtime.clear_goal(cx));
     }
 
     /// The condition back in the composer, in goal mode: sending it replaces the goal.
     fn edit_goal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(objective) = self
-            .session
-            .as_ref()
+            .native(cx)
             .and_then(|s| s.goal())
             .map(|goal| goal.objective.clone())
         else {

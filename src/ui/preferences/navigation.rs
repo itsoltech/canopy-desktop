@@ -53,6 +53,7 @@ fn navigation(page: &str, cx: &Context<PreferencesNavigation>) -> Div {
                 ("Git", IconName::Network),
                 ("Integrations", IconName::Network),
                 ("Task filters", IconName::Settings2),
+                ("Remote access", IconName::Network),
                 ("File Watcher", IconName::Folder),
             ],
         ),
@@ -96,6 +97,7 @@ fn navigation(page: &str, cx: &Context<PreferencesNavigation>) -> Div {
                                                         | "Terminal"
                                                         | "Integrations"
                                                         | "Task filters"
+                                                        | "Remote access"
                                                 ) {
                                                     this.page.update(cx, |page, cx| {
                                                         *page = name.to_owned();

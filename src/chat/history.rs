@@ -127,7 +127,29 @@ pub fn item_json(item: &Item) -> Option<String> {
         map.insert("trimmed".into(), Value::Bool(true));
     }
     let json = serde_json::to_string(&value).ok()?;
-    (json.len() <= ITEM_LIMIT).then_some(json)
+    if json.len() <= ITEM_LIMIT {
+        return Some(json);
+    }
+    // Many individually small fields can exceed the limit even after trimming.
+    // Keep this item's identity and an explicit loss marker so later items and
+    // TurnEnd can still be saved. Never pretend the complete live item was stored.
+    serde_json::to_string(&Item {
+        id: item.id,
+        turn: item.turn,
+        parent: item
+            .parent
+            .as_ref()
+            .filter(|p| p.len() <= LAST_RESORT)
+            .cloned(),
+        body: Body::Notice(Notice {
+            kind: NoticeKind::Diagnostic,
+            text: "Content omitted from saved history because it exceeded the storage limit."
+                .into(),
+            until: None,
+        }),
+        trimmed: true,
+    })
+    .ok()
 }
 
 fn cut_all(value: &mut Value, limit: usize) {
@@ -351,6 +373,7 @@ mod tests {
     }
     fn tool(state: ToolState, output: &str, input: Value) -> Body {
         Body::Tool(ToolCall {
+            kind: Default::default(),
             call_id: "toolu_1".into(),
             name: "Bash".into(),
             input,
@@ -459,6 +482,55 @@ mod tests {
             }),
         )];
         assert!(settle(notes_only).is_empty(), "no turn to end");
+    }
+
+    #[test]
+    fn many_small_fields_keep_a_loss_marker_and_allow_the_turn_to_finish() {
+        let original = item(
+            7,
+            3,
+            tool(ToolState::Succeeded, "ok", json!(vec!["field"; 100_000])),
+        );
+        let payload = item_json(&original).expect("bounded placeholder");
+        assert!(payload.len() <= ITEM_LIMIT);
+        let saved = parse(ChatHistoryRows {
+            items: vec![
+                (0, 7, payload),
+                (
+                    0,
+                    8,
+                    item_json(&item(
+                        8,
+                        3,
+                        Body::TurnEnd(TurnEnd {
+                            outcome: Outcome::Completed,
+                            usage: None,
+                            cost_usd: None,
+                            duration_ms: None,
+                            resume_at: None,
+                            quiet: false,
+                        }),
+                    ))
+                    .unwrap(),
+                ),
+            ],
+            ..Default::default()
+        });
+        assert_eq!(saved.lost, 0);
+        let restored = &saved.epochs[0].items;
+        assert!(matches!(&restored[0].body, Body::Notice(n) if n.text.contains("omitted")));
+        assert!(restored[0].trimmed);
+        assert_eq!(
+            (restored[0].id, restored[0].turn),
+            (original.id, original.turn)
+        );
+        assert!(
+            matches!(&restored[1].body, Body::TurnEnd(end) if end.outcome == Outcome::Completed)
+        );
+        assert!(
+            matches!(&original.body, Body::Tool(_)),
+            "live content stays intact"
+        );
     }
 
     #[test]

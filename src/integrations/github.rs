@@ -172,6 +172,58 @@ impl Github {
     }
 }
 impl TaskProvider for Github {
+    fn list_context<'a>(
+        &'a self,
+        target: &'a ProjectTarget,
+        state: TaskState,
+        cursor: Option<&'a str>,
+        query: &'a TaskQuery,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPage, String>> + Send + 'a>> {
+        Box::pin(issues::search(self, target, state, cursor, &query.text))
+    }
+
+    fn projects<'a>(
+        &'a self,
+        cursor: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskOptions, String>> + Send + 'a>> {
+        Box::pin(async move {
+            let page = cursor
+                .map(|v| {
+                    v.parse::<u32>()
+                        .ok()
+                        .filter(|v| *v > 0 && *v <= 10000)
+                        .ok_or("Invalid repository page.")
+                })
+                .transpose()?
+                .unwrap_or(1);
+            let response = self
+                .get(&format!(
+                    "/user/repos?per_page=50&page={page}&sort=updated&direction=desc"
+                ))
+                .await?;
+            let rows = response
+                .as_array()
+                .ok_or("GitHub returned an invalid repository list.")?;
+            if rows.len() > 50 {
+                return Err("GitHub returned too many repositories.".into());
+            }
+            let items = rows
+                .iter()
+                .filter_map(|row| row["full_name"].as_str())
+                .map(|key| {
+                    ProjectTarget::github(key).map(|p| TaskOption {
+                        value: p.key.clone(),
+                        label: p.key,
+                    })
+                })
+                .collect::<Result<_, _>>()?;
+            Ok(TaskOptions {
+                items,
+                next_cursor: (rows.len() == 50).then(|| (page + 1).to_string()),
+            })
+        })
+    }
+
     fn verify(&self) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>> {
         Box::pin(Github::verify(self))
     }

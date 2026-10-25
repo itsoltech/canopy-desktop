@@ -170,6 +170,10 @@ impl EditorView {
             }
         }));
     }
+    /// The text as shown, unsaved edits included.
+    pub fn buffer(&self, cx: &App) -> String {
+        self.input.read(cx).value().to_string()
+    }
     pub fn reveal_line(&mut self, line: u32, cx: &mut Context<Self>) {
         self.pending_line = Some(line);
         self.focus = true;
@@ -240,6 +244,9 @@ impl EditorView {
             self.path.clone(),
             self.input.read(cx).value().to_string(),
         );
+        // One Canopy write of a file at a time (an agent or another device may be
+        // writing it); the gate takes the canonical checkout, resolved off this thread.
+        let gate = crate::app_state::file_ops::gate(cx);
         self.saving = true;
         self.read_task = None;
         cx.emit(EditorChanged);
@@ -247,7 +254,14 @@ impl EditorView {
         self.save_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { document.save(&root, &path, &text) })
+                .spawn(async move {
+                    let canonical = std::fs::canonicalize(&root).map_err(|e| e.to_string())?;
+                    let _reservation =
+                        gate.try_reserve_file(&canonical, &path).ok_or_else(|| {
+                            "Canopy is writing this file. Save again in a moment.".to_owned()
+                        })?;
+                    document.save(&root, &path, &text)
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.saving = false;

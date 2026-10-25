@@ -305,33 +305,36 @@ impl ChatView {
     }
 
     fn empty_state(&self, cx: &App) -> Div {
-        let _ = cx;
+        let runtime = self.rt(cx);
+        let resumed = runtime.resumed();
+        let connecting = runtime.starting() && runtime.error().is_none();
         column().flex_1().justify_end().items_center().px_6()
             .child(column().w_full().max_w(rems(44.)).pb_6().gap_2()
                 .child(div().text_lg().font_weight(FontWeight::MEDIUM).text_color(t::text())
-                    .child(if self.resumed { "Continue this conversation" } else { "What would you like to work on?" }))
-                .child(div().text_sm().text_color(t::secondary()).child(if self.resumed {
+                    .child(if resumed { "Continue this conversation" } else { "What would you like to work on?" }))
+                .child(div().text_sm().text_color(t::secondary()).child(if resumed {
                     "Earlier messages aren't shown yet. The agent still has the conversation context."
                 } else { "Describe a task, ask a question, or mention a file below." }))
-                .children((self.starting && self.error.is_none()).then(|| div().text_xs().text_color(t::muted()).child("Connecting to agent…")))
+                .children(connecting.then(|| div().text_xs().text_color(t::muted()).child("Connecting to agent…")))
 )
     }
 
     /// Session problems and ends sit right above the composer, with Restart.
     fn banner(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let (text, danger) = if let Some(error) = &self.error {
-            (error.clone(), true)
+        let runtime = self.rt(cx);
+        let (text, danger) = if let Some(error) = runtime.error() {
+            (error.to_owned(), true)
         } else {
-            match self.status()? {
+            match runtime.status()? {
                 Status::Failed(error) => (error.clone(), true),
                 Status::Exited { .. } => ("Session ended".to_owned(), false),
                 _ => return None,
             }
         };
-        let busy = self.busy();
+        let busy = self.busy(cx);
         let restart = button("chat-restart", "Restart")
             .loading(busy)
-            .disabled(!self.can_restart())
+            .disabled(!self.can_restart(cx))
             .tooltip(if busy {
                 "Restart is available once the session has stopped."
             } else {
@@ -465,7 +468,7 @@ fn render_row(view: &Entity<ChatView>, index: usize, _: &mut Window, cx: &mut Ap
             subagent::group(view, this, rows, entry, sources, cx).into_any_element()
         }
         Kind::Item(source) => {
-            let transcript = this.session.as_ref().map(|s| s.transcript());
+            let transcript = this.transcript(cx);
             match rows.item(*source, transcript) {
                 Some(item) => item_row(view, this, rows, entry, *source, item, cx),
                 None => div().into_any_element(),
@@ -678,7 +681,7 @@ fn item_row(
             div().into_any_element()
         }
         Body::Shell(run) => {
-            super::shell::shell_card(view, this, entry, item.id, run, live).into_any_element()
+            super::shell::shell_card(view, this, entry, item.id, run, live, cx).into_any_element()
         }
         Body::GoalCheck(check) => super::goal::check_row(check).into_any_element(),
         Body::GoalTurn(n) => super::goal::turn_row(*n).into_any_element(),
@@ -738,10 +741,9 @@ fn item_row(
                 entry,
                 item.id,
                 &message.text,
-                live && this.settled()
+                live && this.settled(cx)
                     && this
-                        .session
-                        .as_ref()
+                        .native(cx)
                         .is_some_and(|s| s.fork_point(item.id).is_some()),
                 // Sent in another agent's part: it can't be edited from here.
                 match source {
@@ -749,7 +751,7 @@ fn item_row(
                         .archived
                         .get(epoch)
                         .and_then(|archived| archived.agent.as_ref())
-                        .filter(|agent| agent.tool != this.pane.tool)
+                        .filter(|agent| agent.tool != this.pane(cx).tool)
                         .and_then(|agent| Provider::from_tool(&agent.tool))
                         .map(Provider::name),
                     Source::Current(_) => None,
@@ -764,8 +766,8 @@ fn item_row(
             // Only the main conversation forks (a subagent's thread has no session).
             let fork = end_at
                 .filter(|_| this.threads.is_empty())
-                .filter(|&at| this.fork_request(at).is_some());
-            let transcript = this.session.as_ref().map(|s| s.transcript());
+                .filter(|&at| this.fork_request(at, cx).is_some());
+            let transcript = this.transcript(cx);
             let end =
                 end_at
                     .and_then(|end| rows.item(end, transcript))
@@ -786,7 +788,7 @@ fn item_row(
                 .group(actions::MESSAGE_GROUP)
                 .child(div().text_color(t::text()).children(entry.markdown.clone()))
                 .children(entry.extra.turn_end.is_some().then(|| {
-                    actions::reply_actions(view, this, entry, end, &block.text, last, fork)
+                    actions::reply_actions(view, this, entry, end, &block.text, last, fork, cx)
                 }))
                 .into_any_element()
         }
@@ -815,7 +817,7 @@ fn item_row(
                 .then(|| rows.permission_thread(permission))
                 .flatten()
                 .and_then(|call| rows.calls.get(call))
-                .and_then(|call| this.session.as_ref()?.transcript().get(call.index))
+                .and_then(|call| this.transcript(cx)?.get(call.index))
                 .and_then(|item| match &item.body {
                     Body::Tool(tool) => Some(presentation::subagent_title(tool)),
                     _ => None,
@@ -882,7 +884,7 @@ fn tool_row(
     tool: &ToolCall,
     cx: &App,
 ) -> Div {
-    let cwd = this.pane.metadata.cwd.clone().unwrap_or_default();
+    let cwd = this.pane(cx).metadata.cwd.clone().unwrap_or_default();
     let summary = presentation::tool_summary(tool, &cwd);
     let file = this.tool_files.get(&tool.call_id);
     let (status, status_label): (AnyElement, &'static str) = match tool.state {
@@ -945,7 +947,7 @@ fn tool_row(
                 .into_any_element(),
             _ => div().w(px(10.)).flex_shrink_0().into_any_element(),
         })
-        .child(icon(tool_icon_name(presentation::tool_kind(&tool.name))))
+        .child(icon(tool_icon_name(tool.semantic_kind())))
         .child(
             div()
                 .flex_shrink_0()
@@ -1059,8 +1061,65 @@ fn tool_row(
         .pt(px(4.))
         .child(header)
         .children(activity)
+        .children(agent_terminals(this, tool, key, cx))
         .children(output)
 }
+
+/// Terminals an ACP agent runs for this call, as they print: people watch, the agent
+/// alone types (TERM-02).
+fn agent_terminals(this: &ChatView, tool: &ToolCall, key: u64, cx: &App) -> Vec<AnyElement> {
+    let Some(content) = tool
+        .output
+        .as_ref()
+        .and_then(|output| output.structured.as_ref())
+        .and_then(|value| value.as_array())
+    else {
+        return vec![];
+    };
+    let runtime = this.rt(cx);
+    content
+        .iter()
+        .filter(|part| part["type"] == "terminal")
+        .filter_map(|part| part["terminalId"].as_str())
+        .filter_map(|id| Some((id, runtime.terminal_output(id)?)))
+        .map(|(id, (text, running))| {
+            let tail: String = {
+                let lines: Vec<&str> = text.lines().collect();
+                lines[lines.len().saturating_sub(OUTPUT_LINES)..].join("\n")
+            };
+            div()
+                .id(SharedString::from(format!(
+                    "chat-agent-terminal-{key}-{id}"
+                )))
+                .mt(px(4.))
+                .ml(px(40.))
+                .max_h(px(240.))
+                .overflow_y_scroll()
+                .p(px(10.))
+                .rounded(px(6.))
+                .bg(t::elevated())
+                .font_family(t::MONO)
+                .text_size(px(12.))
+                .text_color(t::secondary())
+                .child(if tail.is_empty() {
+                    "No output yet".to_owned()
+                } else {
+                    tail
+                })
+                .children(running.then(|| {
+                    div()
+                        .pt(px(6.))
+                        .text_color(t::faint())
+                        .child("Running · the agent controls this terminal")
+                }))
+                .nested_scroll()
+                .into_any_element()
+        })
+        .collect()
+}
+
+/// Lines of an agent terminal shown under its tool.
+const OUTPUT_LINES: usize = 200;
 
 /// A full-width, left-aligned button row with quiet hover (no fill change on rest).
 fn row_button(
@@ -1095,9 +1154,10 @@ fn permission_row(
     this: &ChatView,
     cx: &App,
 ) -> Div {
-    let cwd = this.pane.metadata.cwd.clone().unwrap_or_default();
+    let cwd = this.pane(cx).metadata.cwd.clone().unwrap_or_default();
     let summary = presentation::tool_summary(
         &ToolCall {
+            kind: Default::default(),
             call_id: String::new(),
             name: permission.tool.clone(),
             input: permission.input.clone(),
@@ -1161,7 +1221,7 @@ fn permission_row(
             IconName::Check,
             format!(
                 "{} asked · {}",
-                this.provider().name(),
+                this.agent_name(cx),
                 answers
                     .iter()
                     .map(|(question, answer)| format!("{question} → {answer}"))

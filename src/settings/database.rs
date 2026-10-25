@@ -12,7 +12,14 @@ use std::{
 use crate::state::{projects::ProjectSnapshot, session::SessionSnapshot};
 
 mod chat_history;
-pub use chat_history::{ChatHistoryBatch, ChatHistoryRows, ClosedChatRow};
+mod remote_history;
+mod remote_secrets;
+pub use remote_history::{RemoteHistoryPage, RemoteHistoryRequest};
+pub(crate) mod artifacts;
+mod runtime;
+pub use chat_history::{
+    ChatHistoryBatch, ChatHistoryRows, ClosedChatRow, HistoryCheckpoint, HistoryCheckpointItem,
+};
 
 const MAX_MIGRATION: i64 = 11;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +51,7 @@ fn has_table(db: &Connection, table: &str) -> Result<bool> {
     )?)
 }
 fn schema(db: &Connection) -> Result<Schema> {
+    runtime::validate_schema(db)?;
     if !has_table(db, "preferences")? {
         return Err(Error::InvalidSchema);
     }
@@ -180,6 +188,8 @@ pub(super) fn import(source: &Path, destination: &Path) -> Result<ImportReport> 
 pub(super) struct Database {
     db: Connection,
     access: Access,
+    path: PathBuf,
+    runtime_lease: Option<std::fs::File>,
 }
 impl Database {
     pub fn open(path: &Path, access: Access) -> Result<Self> {
@@ -193,7 +203,12 @@ impl Database {
             db.pragma_update(None, "journal_mode", "WAL")?;
             db.pragma_update(None, "foreign_keys", true)?;
         }
-        Ok(Self { db, access })
+        Ok(Self {
+            db,
+            access,
+            path: path.to_owned(),
+            runtime_lease: None,
+        })
     }
     pub fn load(&self) -> Result<Snapshot> {
         let transaction = self.db.unchecked_transaction()?;

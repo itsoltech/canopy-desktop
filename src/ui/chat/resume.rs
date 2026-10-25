@@ -8,9 +8,9 @@ impl EventEmitter<ChatResumeRequested> for ChatView {}
 
 impl ChatView {
     pub(super) fn request_resume(&mut self, cx: &mut Context<Self>) {
-        let empty = !self.has_conversation() && !self.is_working();
+        let empty = !self.has_conversation(cx) && !self.is_working(cx);
         cx.emit(ChatResumeRequested {
-            replace: empty.then_some(self.pane.id),
+            replace: empty.then_some(self.pane(cx).id),
         });
     }
 }

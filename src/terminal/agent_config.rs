@@ -7,6 +7,7 @@ pub struct Prepared {
     pub spec: LaunchSpec,
     pub environment: ShellEnvironment,
     pub files: Option<tempfile::TempDir>,
+    pub secret_values: Vec<String>,
 }
 pub fn prepare(
     catalog: &ToolCatalog,
@@ -22,9 +23,30 @@ fn prepare_with_data_dir(
     base: &ShellEnvironment,
     data_dir: Option<&Path>,
 ) -> Result<Prepared, String> {
+    // This function already runs on launch workers. Resolve only the selected profile.
+    let mut catalog = catalog.clone();
+    let tool = catalog
+        .tools
+        .iter_mut()
+        .find(|t| t.id == pane.tool)
+        .ok_or("Tool not found.")?;
+    let selected = pane
+        .metadata
+        .profile_id
+        .as_ref()
+        .or(tool.default_profile.as_ref());
+    if let Some(profile) = tool.profiles.iter_mut().find(|p| Some(&p.id) == selected) {
+        profile.settings = profile.settings.resolved()?;
+    }
     let spec = catalog.launch(pane, base)?;
     let mut environment = base.clone();
     let mut files = None;
+    let mut secret_values = Vec::new();
+    for (key, ids) in &catalog.get(&pane.tool).ok_or("Tool not found.")?.env_refs {
+        let value = crate::state::agent_settings::resolve_value(ids)?;
+        secret_values.push(value.clone());
+        environment.insert_override(key.clone(), value);
+    }
     let tool = catalog.get(&pane.tool).ok_or("Tool not found.")?;
     let profile = pane
         .metadata
@@ -32,6 +54,18 @@ fn prepare_with_data_dir(
         .as_ref()
         .or(tool.default_profile.as_ref())
         .and_then(|id| tool.profiles.iter().find(|p| &p.id == id));
+    if let Some(profile) = profile {
+        secret_values.extend(profile.settings.custom_env.values().cloned());
+        secret_values.extend(
+            [
+                profile.settings.append_system_prompt.clone(),
+                profile.settings.settings_json.clone(),
+            ]
+            .into_iter()
+            .filter(|v| !v.is_empty()),
+        );
+        environment.extend_overrides(profile.settings.custom_env.clone());
+    }
     if let (Some(agent), Some(profile)) = (Agent::from_id(&tool.id), profile) {
         let prefs = &profile.settings;
         prefs.validate(Some(agent))?;
@@ -83,6 +117,7 @@ fn prepare_with_data_dir(
         spec,
         environment,
         files,
+        secret_values,
     })
 }
 fn overlay(original: &Path, target: &Path, filename: &str, json: &str) -> Result<(), String> {

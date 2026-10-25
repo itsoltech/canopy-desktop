@@ -1,6 +1,7 @@
 //! Chat pane: a conversation with a headless coding agent (Claude Code).
 mod actions;
 mod activity;
+mod agent_options;
 mod attachments;
 mod code_blocks;
 mod composer;
@@ -30,7 +31,7 @@ mod turn_diff;
 mod view;
 pub(crate) use page::serve_previews;
 pub use turn_diff::TurnDiffView;
-pub use view::{ChatStateChanged, ChatView};
+pub use view::ChatView;
 
 /// Tab title until the first message names the chat.
 pub const NEW_CHAT_TITLE: &str = "New chat";

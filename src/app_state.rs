@@ -4,7 +4,9 @@ pub use integrations::{IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
 mod editors;
 pub use chats::{
-    ChatForkRequested, ChatGuardRequest, ChatResumeRequested, ForkRequest, PageTokens,
+    AgentOption, Archived, ChatForkRequested, ChatGuardRequest, ChatRecoveryRequested,
+    ChatResumeRequested, ChatRuntime, ChatRuntimeEvent, ForkRequest, LineState, PageTokens,
+    QueueLine, backend_of,
 };
 pub use editors::{Editors, GuardRequest};
 mod files;
@@ -23,9 +25,18 @@ pub use tools::{ToolsState, WorktreeAgent};
 mod terminals;
 pub use projects::{AgentFocusRequested, ProjectsState};
 pub use terminals::Terminals;
+#[allow(dead_code, reason = "installed by the remote server at startup")]
+pub(crate) mod chat_bridge;
 mod chat_history;
 mod chats;
+pub(crate) mod file_ops;
 mod model_catalog;
+#[allow(dead_code, reason = "called by the remote server through the bridge")]
+pub(crate) mod project_commands;
+pub(crate) mod remote;
+pub(crate) mod terminal_bridge;
+#[allow(dead_code, reason = "installed by the remote server at startup")]
+pub(crate) mod worktree_lifecycle;
 pub use chat_history::ChatHistory;
 pub(crate) use chats::ChatFolders;
 pub use chats::{ChatTarget, Chats};
@@ -58,6 +69,7 @@ pub struct AppState {
     pub editors: Entity<Editors>,
     pub toasts: Entity<crate::ui::toasts::ToastHost>,
     pub notch_status: Entity<NotchStatus>,
+    pub remote: Entity<remote::RemoteState>,
 }
 
 pub struct NotchStatus {
@@ -99,6 +111,7 @@ impl AppState {
             diffs: cx.new(|_| Diffs::new()),
             toasts: cx.new(|_| crate::ui::toasts::ToastHost::new()),
             notch_status: cx.new(|_| NotchStatus { error: None }),
+            remote: cx.new(|_| remote::RemoteState::new()),
         };
         cx.set_global(state.clone());
         state
@@ -145,13 +158,13 @@ impl AppState {
         if app.settings.read(cx).quitting {
             return;
         }
-        if app.editors.read(cx).any_dirty(cx) || app.chats.read(cx).any_unsent(cx) {
+        if app.editors.read(cx).any_dirty(cx) {
             let ids = app
                 .editors
                 .read(cx)
                 .views
                 .keys()
-                .chain(app.chats.read(cx).views.keys())
+                .chain(app.chats.read(cx).chat_ids())
                 .copied()
                 .collect();
             Editors::guard(ids, Self::quit, cx);
@@ -183,7 +196,7 @@ impl AppState {
                         ));
                         cx.notify();
                     });
-                } else if app.editors.read(cx).any_dirty(cx) || app.chats.read(cx).any_unsent(cx) {
+                } else if app.editors.read(cx).any_dirty(cx) {
                     app.task_drafts.update(cx, |s, cx| s.resume(cx));
                     app.integrations.update(cx, |s, cx| s.cancel_quit(cx));
                     let ids = app
@@ -191,7 +204,7 @@ impl AppState {
                         .read(cx)
                         .views
                         .keys()
-                        .chain(app.chats.read(cx).views.keys())
+                        .chain(app.chats.read(cx).chat_ids())
                         .copied()
                         .collect();
                     Editors::guard(ids, Self::quit, cx);
@@ -203,8 +216,30 @@ impl AppState {
         .detach();
     }
     fn finish_quit(cx: &mut App) {
+        let app = cx.global::<Self>().clone();
+        if app.settings.read(cx).quitting || app.remote.read(cx).quitting() {
+            return;
+        }
+        let remote = app.remote.update(cx, |remote, cx| remote.shutdown(cx));
+        cx.spawn(async move |cx| match remote.await {
+            Ok(()) => cx.update(Self::finish_quit_offline),
+            Err(error) => cx.update(|cx| {
+                app.remote.update(cx, |remote, cx| remote.cancel_quit(cx));
+                app.projects.update(cx, |projects, cx| {
+                    projects.error = Some(format!(
+                        "Could not stop remote access before closing: {error}. Canopy remains open."
+                    ));
+                    cx.notify();
+                });
+            }),
+        })
+        .detach();
+    }
+    fn finish_quit_offline(cx: &mut App) {
         let editors = cx.global::<Self>().editors.clone();
         if editors.read(cx).any_dirty(cx) {
+            let remote = cx.global::<Self>().remote.clone();
+            remote.update(cx, |remote, cx| remote.cancel_quit(cx));
             let ids = editors.read(cx).views.keys().copied().collect();
             Editors::guard(ids, Self::quit, cx);
             return;
@@ -260,6 +295,7 @@ impl AppState {
                 tools.update(cx,|state,cx|{state.quitting=false;cx.notify();});
                 git.update(cx,|git,cx|git.cancel_quit(cx));
                 changes.update(cx,|s,_|s.cancel_quit());
+                cx.update(|cx|cx.global::<Self>().remote.clone().update(cx,|remote,cx|remote.cancel_quit(cx)));
                 return;
             }
             let history=cx.update(|cx|cx.global::<AppState>().chat_history.clone());
@@ -274,6 +310,7 @@ impl AppState {
                 tools.update(cx,|state,cx|{state.quitting=false;cx.notify();});
                 git.update(cx,|git,cx|git.cancel_quit(cx));
                 changes.update(cx,|s,_|s.cancel_quit());
+                cx.update(|cx|cx.global::<Self>().remote.clone().update(cx,|remote,cx|remote.cancel_quit(cx)));
                 return;
             }
             let terminals=cx.update(|cx|cx.global::<AppState>().terminals.clone());
@@ -291,6 +328,7 @@ impl AppState {
                 tools.update(cx,|state,cx|{state.quitting=false;cx.notify();});
                 git.update(cx,|git,cx|git.cancel_quit(cx));
                 changes.update(cx,|s,_|s.cancel_quit());
+                cx.update(|cx|cx.global::<Self>().remote.clone().update(cx,|remote,cx|remote.cancel_quit(cx)));
                 return;
             }
             let agents = cx.update(|cx|cx.global::<AppState>().agents.clone());
@@ -329,8 +367,10 @@ impl AppState {
             diffs: cx.new(|_| Diffs::new()),
             toasts: cx.new(|_| crate::ui::toasts::ToastHost::new()),
             notch_status: cx.new(|_| NotchStatus { error: None }),
+            remote: cx.new(|_| remote::RemoteState::new()),
         };
         cx.set_global(state.clone());
+        state.remote.update(cx, |remote, cx| remote.bind(cx));
         state.files.update(cx, |files, cx| files.bind(cx));
         state.integrations.update(cx, |state, cx| state.bind(cx));
         state.agents.update(cx, |agents, cx| agents.bind(cx));
@@ -349,6 +389,31 @@ impl AppState {
     }
 }
 
+/// Removes expired uploads and unreferenced artifacts every minute, off the UI thread.
+fn maintain(
+    store: std::sync::Arc<canopy_desktop::artifacts::ArtifactStore>,
+    cx: &mut Context<SettingsState>,
+) -> Task<()> {
+    cx.spawn(async move |this, cx| {
+        loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(60))
+                .await;
+            if this.upgrade().is_none() {
+                return;
+            }
+            let store = store.clone();
+            if let Err(error) = cx
+                .background_executor()
+                .spawn(async move { store.cleanup() })
+                .await
+            {
+                eprintln!("Artifact cleanup: {error}");
+            }
+        }
+    })
+}
+
 pub struct SettingsState {
     pub values: Preferences,
     pub ready: bool,
@@ -358,6 +423,15 @@ pub struct SettingsState {
     pub warnings: Vec<canopy_desktop::settings::DecodeWarning>,
     remembered: Vec<Change>,
     client: Option<SettingsClient>,
+    /// This data directory's host identity, held for as long as Canopy runs.
+    runtime: Option<canopy_desktop::host::RuntimeHost>,
+    /// The host's chat catalog as read at startup, by chat ID; chats save their own
+    /// record before accepting messages.
+    chat_records: std::collections::HashMap<String, canopy_desktop::host::ChatRecord>,
+    /// Host-owned artifacts (images sent remotely); its calls block: background only.
+    artifacts: Option<std::sync::Arc<canopy_desktop::artifacts::ArtifactStore>>,
+    /// Periodic artifact cleanup while Canopy runs; dropped at quit.
+    maintenance: Option<Task<()>>,
     _task: Option<Task<()>>,
     _quit: Subscription,
 }
@@ -373,6 +447,10 @@ impl SettingsState {
             warnings: vec![],
             remembered: vec![],
             client: None,
+            runtime: None,
+            chat_records: Default::default(),
+            artifacts: None,
+            maintenance: None,
             _task: None,
             _quit: cx.on_app_quit(|_, _| async {}),
         }
@@ -403,16 +481,39 @@ impl SettingsState {
                     Err(error) => return Err(error),
                 };
                 let snapshot = client.load().await?;
-                Ok((client, snapshot))
+                // Before any tool or chat starts: takes the host lease, adopts existing
+                // chats once and turns interrupted dispatches into delivery_unknown.
+                let host = client.initialize_runtime().await?;
+                let records = client.load_runtime_chats().await?;
+                // Its own lease and startup cleanup block on the worker: off the UI thread.
+                let store = client.clone();
+                let artifacts = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let directory = canopy_desktop::platform::directories::data_dir()
+                            .map_err(|_| canopy_desktop::settings::Error::DataDirectory)?
+                            .join("artifacts");
+                        canopy_desktop::artifacts::ArtifactStore::open(store, directory)
+                    })
+                    .await?;
+                Ok((client, snapshot, host, records, artifacts))
             }
             .await;
             let mut project_init = None;
             let _ = this.update(cx, |this, cx| {
                 match result {
-                    Ok((client, snapshot)) => {
+                    Ok((client, snapshot, host, records, artifacts)) => {
                         project_init =
                             Some((client.clone(), snapshot.preferences.reopen_last_workspace));
                         this.client = Some(client);
+                        this.runtime = Some(host);
+                        let artifacts = std::sync::Arc::new(artifacts);
+                        this.maintenance = Some(maintain(artifacts.clone(), cx));
+                        this.artifacts = Some(artifacts);
+                        this.chat_records = records
+                            .into_iter()
+                            .map(|record| (record.id().to_owned(), record))
+                            .collect();
                         this.values = snapshot.preferences;
                         this.warnings = snapshot.warnings;
                         this.ready = true;
@@ -439,6 +540,7 @@ impl SettingsState {
             }
         });
         let quit = cx.on_app_quit(|this, _| {
+            this.maintenance = None;
             let task = this._task.take();
             let client = this.client.clone();
             async move {
@@ -462,8 +564,58 @@ impl SettingsState {
             warnings: vec![],
             remembered: vec![],
             client: None,
+            runtime: None,
+            chat_records: Default::default(),
+            artifacts: None,
+            maintenance: None,
             _task: Some(task),
         }
+    }
+    /// The host's artifact store (blocking calls: use a background executor).
+    pub fn artifacts(&self) -> Option<std::sync::Arc<canopy_desktop::artifacts::ArtifactStore>> {
+        self.artifacts.clone()
+    }
+    /// Startup's result in tests: an initialized host database.
+    #[cfg(test)]
+    pub fn install_test_client(
+        &mut self,
+        client: SettingsClient,
+        host: canopy_desktop::host::RuntimeHost,
+    ) {
+        self.client = Some(client);
+        self.runtime = Some(host);
+    }
+    /// The settings worker, once the database is open and the runtime initialized.
+    pub fn client(&self) -> Option<SettingsClient> {
+        self.client.clone()
+    }
+    /// This host's stable ID (`None` until startup finished).
+    #[allow(dead_code, reason = "read by the remote bridge")]
+    pub fn host_id(&self) -> Option<&str> {
+        self.runtime.as_ref().map(|host| host.id())
+    }
+    pub fn chat_record(&self, chat: &str) -> Option<&canopy_desktop::host::ChatRecord> {
+        self.chat_records.get(chat)
+    }
+    /// Catalog chats that need the user to choose their agent and account before
+    /// anything runs (history adopted without pane metadata).
+    #[allow(dead_code, reason = "read by the remote bridge and recovery UI")]
+    pub fn unresolved_chats(&self) -> impl Iterator<Item = &canopy_desktop::host::ChatRecord> {
+        self.chat_records
+            .values()
+            .filter(|record| record.recovery_reason().is_some())
+    }
+    /// Every chat of the host catalog as last read or saved.
+    pub fn chat_records(&self) -> impl Iterator<Item = &canopy_desktop::host::ChatRecord> {
+        self.chat_records.values()
+    }
+    /// A chat is being deleted: it is no longer listed, even before cleanup ends.
+    pub fn record_removed(&mut self, chat: &str) {
+        self.chat_records.remove(chat);
+    }
+    /// A chat saved its record: later reads see what was committed.
+    pub fn record_saved(&mut self, record: canopy_desktop::host::ChatRecord) {
+        self.chat_records.insert(record.id().to_owned(), record);
     }
     /// Background choices (e.g. last chat picks): queued while a write is in flight,
     /// newest value per key wins, written after it. Never dropped like `change`.

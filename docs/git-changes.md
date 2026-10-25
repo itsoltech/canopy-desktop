@@ -152,3 +152,59 @@ commita; tagi wskazujące blob/tree nie pojawiają się na timeline. Tagi mają 
 etykiety i pierwszeństwo w kompaktowym wierszu; +N oznacza pozostałe referencje,
 widoczne w szczegółach. Odczyt odbywa się raz na snapshot, poza renderem.
 Nie zmienia to polityki fetchowania tagów podczas Pull.
+
+## Native remote Git service
+
+`remote::resources::GitRpc` implements typed status, diff, history, refs, preflight
+and mutation RPCs with libgit2 and the existing Git domain operations. It receives
+the host's shared GitClient and resolved shell environment; it never runs the Git
+CLI. Authentication and root authorization precede metadata access. Git operations
+require the selected workspace itself to be a worktree root, not an authorized
+subdirectory that would silently widen access to its parent repository.
+
+Each mutation carries a five-minute, single-use preflight ID bound to the verified
+device, workspace, normalized typed intent (including all approvals), and exact
+HEAD/index/worktree snapshot. A reused command ID retrieves its durable result
+even after that plan expires. A different command needs a new valid plan. Snapshot
+capture checks twice and includes symbolic HEAD, refs/config, index bytes, file
+contents/modes and ignored paths. It is bounded to 200,000 entries, 64 directory
+levels and 256 MiB of hashed input per capture. A changed or oversized repository
+gets an explicit refusal. Status returns its captured precondition; this alone is
+not a destructive approval. `changes::edit_checked` checks again immediately
+before index writes or discard effects. Canopy gates do not lock external Git
+processes; the final check/publication interval remains a real filesystem boundary.
+
+Discard checks persisted dirty warnings for each selected path and reports device
+names and last-seen times, including offline warnings. Git history uses a
+HEAD-anchored continuation (100 entries per page, existing 10,000-commit cap); diffs
+stream bounded chunks and expose truncation. Ref and status responses enforce the
+control-frame limit. Mutations run outside the metadata worker's global queue so
+independent remote repositories can progress.
+
+Local mutations share the same host gate (`app_state::file_ops::gate`, given to
+`GitClient::use_host_gate` in `GitState::bind`). The worker reserves the canonical
+checkout for stage/unstage/discard, commit with hooks, Pull/Push, worktree create
+(repository and destination), removal/merge (the worktree and the merge target)
+and branch deletion. A nested path is covered by its reserved parent. The worker
+never waits for the gate: a checkout held by an editor save, an agent write or a
+remote operation fails immediately with "Canopy is already changing this checkout",
+so one remote operation cannot stall the single metadata worker. Remote callbacks
+that already hold the root (`run_resource_operation`, worktree lifecycle) do not
+reserve again. Gates exclude Canopy operations only, not external Git processes.
+
+Accepted operations outlive the RPC connection; Attempting is durable before
+side effects. Known results, commit IDs, warnings and partial worktree outcomes
+are retained for receipt replay. Network errors with uncertain delivery are
+DeliveryUnknown, not an automatic retry. Hooks retain the existing execution and
+post-commit warning behavior. Signing requests/configuration currently return
+`needs_host_interaction` before launching pinentry; macOS HTTPS likewise refuses
+before potentially interactive Keychain lookup. No unsigned fallback or hidden
+OS prompt is introduced. Native signing/auth qualification remains separate.
+
+Worktree stop/removal/merge requires the application's `WorktreeLifecycle` owner:
+preflight supplies process/editor/draft impacts, apply performs approved process
+cleanup, and finished resumes cleanup handles/closes a removed workspace after
+the Git result. Without that owner the operation refuses explicitly. Creation uses
+an exact authorized destination and cannot silently relocate to a proposed sibling.
+The existing removal analysis, branch checks, explicit discard/unmerged approvals,
+partial-success reporting and libgit2 publication safeguards remain authoritative.

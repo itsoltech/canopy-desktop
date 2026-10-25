@@ -6,6 +6,7 @@ use super::{render::centered, tools::diff_line, view::ChatView};
 use crate::ui::{components::*, markdown::MarkdownView, theme as t};
 use canopy_desktop::{
     chat::{
+        acp::PermissionOption,
         presentation::{self, Question},
         provider::Provider,
         session::Response,
@@ -55,6 +56,9 @@ pub(super) struct Request {
     pub replaces: Option<bool>,
     /// When the request was shown; input before `ARM` has passed is ignored.
     pub shown: Instant,
+    /// An ACP agent's own options, ids and kinds as it sent them (AGT-11); `None` for
+    /// Claude's and Codex's requests.
+    pub offered: Option<Vec<PermissionOption>>,
 }
 impl Request {
     fn armed(&self) -> bool {
@@ -159,6 +163,8 @@ enum Action {
     KeepPlanning,
     /// Pick (single choice) or toggle (several) an option of the current question.
     Option(usize),
+    /// The ACP agent's option with this id.
+    Offered(String),
 }
 
 fn choices(request: &Request) -> Vec<Choice> {
@@ -167,6 +173,21 @@ fn choices(request: &Request) -> Vec<Choice> {
         description,
         action,
     };
+    if let Some(offered) = &request.offered {
+        // Named as the agent names them; what "always" covers is the agent's to say.
+        return offered
+            .iter()
+            .map(|option| Choice {
+                label: option.name.clone(),
+                description: match option.kind.as_str() {
+                    "allow_once" | "reject_once" => "Only this time".into(),
+                    "allow_always" | "reject_always" => "The agent remembers this choice".into(),
+                    _ => String::new(),
+                },
+                action: Action::Offered(option.option_id.clone()),
+            })
+            .collect();
+    }
     match request.permission.kind {
         PermissionKind::Tool => {
             let mut list = vec![choice("Allow", "Only this time".into(), Action::Allow)];
@@ -265,7 +286,10 @@ fn answers(request: &Request) -> Vec<String> {
         .collect()
 }
 
-fn placeholder(kind: PermissionKind, provider: Provider) -> &'static str {
+fn placeholder(kind: PermissionKind, provider: Option<Provider>) -> &'static str {
+    let Some(provider) = provider else {
+        return "Choose one of the agent's options";
+    };
     match (kind, provider) {
         (PermissionKind::Tool, Provider::Claude) => "Tell Claude what to do instead",
         (PermissionKind::Tool, Provider::Codex) => "Tell Codex what to do instead",
@@ -280,10 +304,11 @@ impl ChatView {
     /// decides how a proposed Write is described.
     pub(super) fn sync_decision(&mut self, policy: MotionPolicy, cx: &mut Context<Self>) {
         let now = Instant::now();
-        let Some(session) = self.session.as_ref() else {
+        let runtime = self.rt(cx);
+        let Some(transcript) = runtime.transcript() else {
             return;
         };
-        let pending = session.pending_decisions();
+        let pending = runtime.pending_decisions();
         let first = pending.first().copied();
         let current = self.decision.active().map(|request| request.item);
         self.decision.position = (usize::from(first.is_some()), pending.len());
@@ -304,15 +329,11 @@ impl ChatView {
             });
             return;
         };
-        let Some(permission) = session
-            .transcript()
-            .items()
-            .iter()
-            .find_map(|i| match &i.body {
-                Body::Permission(p) if i.id == item => Some(p.clone()),
-                _ => None,
-            })
-        else {
+        let offered = runtime.decision_options(item);
+        let Some(permission) = transcript.items().iter().find_map(|i| match &i.body {
+            Body::Permission(p) if i.id == item => Some(p.clone()),
+            _ => None,
+        }) else {
             return;
         };
         if self.decision.request.is_none() && self.decision.draft.is_none() {
@@ -336,10 +357,10 @@ impl ChatView {
             Some(Proposal::Change(change)) if change.created => Some(change.path.clone()),
             _ => None,
         };
-        let asker = self.asker(&permission);
+        let asker = self.asker(&permission, cx);
         self.decision.composer = Some(ComposerChange {
             text: Some(String::new().into()),
-            placeholder: placeholder(permission.kind, self.provider()),
+            placeholder: placeholder(permission.kind, self.provider(cx)),
         });
         self.decision.request = Some(Request {
             item,
@@ -353,6 +374,7 @@ impl ChatView {
             replaces: None,
             shown: now,
             permission,
+            offered,
         });
         if self.decision.collapsed() {
             self.decision.toggle_fold(cx);
@@ -367,34 +389,6 @@ impl ChatView {
         if let Some(path) = check {
             self.check_replaces(item, path, cx);
         }
-    }
-
-    /// Tells the notch what this chat waits for, so a hidden chat asks for attention.
-    pub(super) fn report_decision(&mut self, cx: &mut Context<Self>) {
-        let decision = self
-            .decision
-            .active()
-            .map(|request| match request.permission.kind {
-                PermissionKind::Question => match request.questions.first() {
-                    Some(question) => format!("Question: {}", question.question),
-                    None => format!("{} has a question", self.provider().name()),
-                },
-                PermissionKind::Plan => "Plan ready for approval".to_owned(),
-                PermissionKind::Tool => format!("Permission: {}", request.permission.tool),
-            });
-        if decision == self.reported_decision {
-            return;
-        }
-        let (Some(run), pane) = (self.agent_run.clone(), self.pane.id) else {
-            return;
-        };
-        self.reported_decision = decision.clone();
-        cx.global::<crate::app_state::AppState>()
-            .agents
-            .clone()
-            .update(cx, |agents, cx| {
-                agents.set_decision(pane, &run, decision, cx)
-            });
     }
 
     fn check_replaces(&mut self, item: ItemId, path: PathBuf, cx: &mut Context<Self>) {
@@ -416,10 +410,10 @@ impl ChatView {
     }
 
     /// The subagent that asks, when it is not the main agent.
-    fn asker(&self, permission: &Permission) -> Option<String> {
+    fn asker(&self, permission: &Permission, cx: &App) -> Option<String> {
         let call = self.rows.permission_thread(permission)?;
         let index = self.rows.calls.get(call)?.index;
-        match &self.session.as_ref()?.transcript().get(index)?.body {
+        match &self.transcript(cx)?.get(index)?.body {
             Body::Tool(tool) => Some(presentation::subagent_title(tool)),
             _ => None,
         }
@@ -441,11 +435,8 @@ impl ChatView {
     }
 
     fn respond(&mut self, item: ItemId, response: Response, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session {
-            let lines = session.respond(item, response);
-            self.write(lines);
-            self.after_change(cx);
-        }
+        self.runtime
+            .update(cx, |runtime, cx| runtime.respond(item, response, cx));
     }
 
     fn typed(&self, cx: &App) -> Option<String> {
@@ -482,6 +473,9 @@ impl ChatView {
                 self.respond(item, Response::ApprovePlan { accept_edits }, cx)
             }
             Action::KeepPlanning => self.respond(item, Response::KeepPlanning(note), cx),
+            Action::Offered(option) => self.runtime.update(cx, |runtime, cx| {
+                runtime.respond_option(item, Some(option), cx)
+            }),
             Action::Option(option) => {
                 let Some(request) = self.decision.active_mut() else {
                     return;
@@ -575,6 +569,8 @@ impl ChatView {
         let item = request.item;
         match request.permission.kind {
             PermissionKind::Question => self.decision_next(window, cx),
+            // An ACP agent takes only its own options, no note.
+            PermissionKind::Tool if request.offered.is_some() => {}
             PermissionKind::Tool => {
                 if let Some(note) = self.typed(cx) {
                     self.respond(item, Response::Deny(Some(note)), cx);
@@ -624,6 +620,18 @@ impl ChatView {
             return;
         };
         let item = request.item;
+        if let Some(offered) = &request.offered {
+            // Its own rejection for this time, else for good, else the request is withdrawn.
+            let reject = ["reject_once", "reject_always"].iter().find_map(|kind| {
+                offered
+                    .iter()
+                    .find(|option| option.kind == *kind)
+                    .map(|option| option.option_id.clone())
+            });
+            self.runtime
+                .update(cx, |runtime, cx| runtime.respond_option(item, reject, cx));
+            return;
+        }
         let note = self.typed(cx);
         let response = match request.permission.kind {
             PermissionKind::Plan => Response::KeepPlanning(note),
@@ -710,7 +718,7 @@ impl ChatView {
                         _ => "Question".to_owned(),
                     },
                     question.map_or_else(
-                        || format!("{} has a question", self.provider().name()),
+                        || format!("{} has a question", self.agent_name(cx)),
                         |q| q.question.clone(),
                     ),
                 )
@@ -829,7 +837,7 @@ impl ChatView {
                     .max_h(px(PANEL_HEIGHT))
                     .overflow_y_scroll()
                     .gap(px(6.))
-                    .children(self.preview(request, key))
+                    .children(self.preview(request, key, cx))
                     .child(self.options(request, active, cx))
                     .nested_scroll(),
             );
@@ -877,7 +885,7 @@ impl ChatView {
         Some(centered(div().mx(px(14.)).child(reveal)).mb(px(-4.)))
     }
 
-    fn preview(&self, request: &Request, key: u64) -> Option<AnyElement> {
+    fn preview(&self, request: &Request, key: u64, cx: &App) -> Option<AnyElement> {
         if let Some(plan) = &request.plan {
             return Some(
                 div()
@@ -896,7 +904,7 @@ impl ChatView {
                     .into_any_element(),
             );
         }
-        let cwd = self.pane.metadata.cwd.clone().unwrap_or_default();
+        let cwd = self.pane(cx).metadata.cwd.clone().unwrap_or_default();
         Some(match request.proposal.as_ref()? {
             Proposal::Command { command, .. } => div()
                 .id(("chat-decision-command", key))
@@ -1135,6 +1143,7 @@ mod tests {
             proposal: None,
             replaces: None,
             shown: Instant::now(),
+            offered: None,
             permission,
         }
     }

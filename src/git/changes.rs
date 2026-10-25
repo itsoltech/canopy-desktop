@@ -218,6 +218,12 @@ pub fn diff(path: &Path, file: &FileChange) -> Result<FileDiff> {
     })
 }
 pub fn edit(path: &Path, edit: Edit) -> Result<()> {
+    edit_checked(path, edit, &|| Ok(()))
+}
+
+/// Validate a remote approval at the last available boundary before changing
+/// the index or worktree. The check does not claim to lock external writers.
+pub fn edit_checked(path: &Path, edit: Edit, check: &dyn Fn() -> Result<()>) -> Result<()> {
     let repo = repo(path)?;
     let snapshot = status(path)?;
     let mut index = repo.index().map_err(err)?;
@@ -252,6 +258,7 @@ pub fn edit(path: &Path, edit: Edit) -> Result<()> {
                     index.remove_path(&file.path).map_err(err)?;
                 }
             }
+            check()?;
             index.write().map_err(err)
         }
         Edit::Unstage(file) => {
@@ -285,6 +292,7 @@ pub fn edit(path: &Path, edit: Edit) -> Result<()> {
                         index.remove_path(&path).map_err(err)?;
                     }
                 }
+                check()?;
                 index.write().map_err(err)
             } else {
                 if let Some(head) = head {
@@ -292,6 +300,7 @@ pub fn edit(path: &Path, edit: Edit) -> Result<()> {
                 } else {
                     index.clear().map_err(err)?;
                 }
+                check()?;
                 index.write().map_err(err)
             }
         }
@@ -315,6 +324,7 @@ pub fn edit(path: &Path, edit: Edit) -> Result<()> {
                     return Err("Directory removal is not supported here.".into());
                 }
                 if std::fs::symlink_metadata(&target).is_ok() {
+                    check()?;
                     std::fs::remove_file(target).map_err(|e| e.to_string())?;
                 }
             } else {
@@ -323,6 +333,7 @@ pub fn edit(path: &Path, edit: Edit) -> Result<()> {
                     .force()
                     .disable_pathspec_match(true)
                     .path(&file.path);
+                check()?;
                 repo.checkout_index(Some(&mut index), Some(&mut checkout))
                     .map_err(err)?;
             }

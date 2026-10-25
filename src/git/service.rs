@@ -98,6 +98,8 @@ pub struct CommitRequest {
 #[derive(Clone)]
 pub struct GitClient {
     sender: SyncSender<Command>,
+    /// The host gate shared with editor saves, agents and remote resources.
+    gate: Arc<Mutex<crate::files::Gate>>,
     cache: Arc<Mutex<Cache>>,
     changes: ChangeCache,
     pub updates: async_channel::Receiver<()>,
@@ -128,6 +130,40 @@ fn create_change_watch(
     watch
 }
 
+/// A Git mutation reserves its checkouts in the host gate for its whole run. It
+/// never waits: a checkout another Canopy operation holds fails fast, so the
+/// single worker cannot block behind a remote or agent operation.
+fn reserve(
+    gate: &Mutex<crate::files::Gate>,
+    paths: &[&Path],
+) -> Result<Vec<crate::files::Reservation>> {
+    let gate = gate.lock().unwrap().clone();
+    // Canonical identities, as remote resources use; a nested path is covered
+    // by its reserved parent (reserving both would conflict with itself).
+    let mut roots: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
+    roots.sort();
+    roots.dedup_by(|nested, parent| nested.starts_with(parent));
+    roots
+        .iter()
+        .map(|root| {
+            gate.try_reserve_root(root).ok_or_else(|| {
+                "Canopy is already changing this checkout (a save, an agent or another device). Try again in a moment."
+                    .to_owned()
+            })
+        })
+        .collect()
+}
+/// A destination may not exist yet: its existing parent is resolved instead.
+fn canonical(path: &Path) -> PathBuf {
+    if let Ok(path) = std::fs::canonicalize(path) {
+        return path;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => canonical(parent).join(name),
+        _ => path.to_owned(),
+    }
+}
+
 fn suspend_change_watch(
     watch: &mut Option<super::change_watch::ChangeWatch>,
     path: &Path,
@@ -150,6 +186,8 @@ impl GitClient {
         let shared = cache.clone();
         let worker_stats = stats.clone();
         let tx = sender.clone();
+        let gate = Arc::new(Mutex::new(crate::files::Gate::default()));
+        let worker_gate = gate.clone();
         std::thread::Builder::new()
             .name("canopy-git".into())
             .spawn(move || {
@@ -204,7 +242,8 @@ impl GitClient {
                         }
                         Some(Command::Network(plan, op, upstream, cancel, reply)) => {
                             let path = plan.path.clone();
-                            let result = network::execute(plan, op, upstream, cancel);
+                            let result = reserve(&worker_gate, &[&path])
+                                .and_then(|_held| network::execute(plan, op, upstream, cancel));
                             scan_changes(&path, &change_cache, &worker_stats, &wake);
                             // Existing metadata watchers will coalesce ref changes.
                             let _ = reply.send(result);
@@ -251,7 +290,8 @@ impl GitClient {
                             let _ = reply.send(changes::diff(&path, &file));
                         }
                         Some(Command::Edit(path, edit, reply)) => {
-                            let result = changes::edit(&path, edit);
+                            let result = reserve(&worker_gate, &[&path])
+                                .and_then(|_held| changes::edit(&path, edit));
                             scan_changes(&path, &change_cache, &worker_stats, &wake);
                             let _ = reply.send(result);
                         }
@@ -262,14 +302,16 @@ impl GitClient {
                                     let _ = tx.try_send(phase.to_owned());
                                 }
                             };
-                            let result = changes::commit_with_hooks(
-                                &path,
-                                &request.message,
-                                request.head.as_deref(),
-                                &request.env,
-                                &request.cancel,
-                                &report,
-                            );
+                            let result = reserve(&worker_gate, &[&path]).and_then(|_held| {
+                                changes::commit_with_hooks(
+                                    &path,
+                                    &request.message,
+                                    request.head.as_deref(),
+                                    &request.env,
+                                    &request.cancel,
+                                    &report,
+                                )
+                            });
                             scan_changes(&path, &change_cache, &worker_stats, &wake);
                             let _ = reply.send(result);
                             for w in watches.values() {
@@ -319,7 +361,9 @@ impl GitClient {
                             }
                         }
                         Some(Command::Create(request, reply)) => {
-                            let result = create_with_metadata(&request);
+                            let result =
+                                reserve(&worker_gate, &[&request.repository, &request.destination])
+                                    .and_then(|_held| create_with_metadata(&request));
                             let _ = reply.send(result);
                             for w in watches.values() {
                                 w.dirty.store(true, Ordering::Release);
@@ -357,13 +401,17 @@ impl GitClient {
                                     break;
                                 }
                             }
-                            let result = execute_worktree_removal(
-                                &request,
-                                &action,
-                                &expected,
-                                approval,
-                                env.as_ref(),
-                            );
+                            let paths: Vec<_> =
+                                cleanup_paths.iter().map(PathBuf::as_path).collect();
+                            let result = reserve(&worker_gate, &paths).and_then(|_held| {
+                                execute_worktree_removal(
+                                    &request,
+                                    &action,
+                                    &expected,
+                                    approval,
+                                    env.as_ref(),
+                                )
+                            });
                             if let Some(path) = restart_watch.filter(|path| path.is_dir()) {
                                 change_watch = Some(create_change_watch(
                                     path,
@@ -380,7 +428,9 @@ impl GitClient {
                             deadline = Some(Instant::now());
                         }
                         Some(Command::DeleteBranchAfterRemoval(repository, analysis, reply)) => {
-                            let _ = reply.send(delete_branch_after_removal(&repository, &analysis));
+                            let _ = reply.send(reserve(&worker_gate, &[&repository]).and_then(
+                                |_held| delete_branch_after_removal(&repository, &analysis),
+                            ));
                             for w in watches.values() {
                                 w.dirty.store(true, Ordering::Release);
                             }
@@ -389,7 +439,8 @@ impl GitClient {
                         Some(Command::Remove(request, discard, reply)) => {
                             let restart_watch =
                                 suspend_change_watch(&mut change_watch, &request.path);
-                            let result = remove_worktree(&request, discard);
+                            let result = reserve(&worker_gate, &[&request.path])
+                                .and_then(|_held| remove_worktree(&request, discard));
                             if let Some(path) = restart_watch.filter(|path| path.is_dir()) {
                                 change_watch = Some(create_change_watch(
                                     path,
@@ -475,11 +526,31 @@ impl GitClient {
             .map_err(|e| e.to_string())?;
         Ok(Self {
             sender,
+            gate,
             cache,
             changes,
             updates,
             stats,
         })
+    }
+    /// Use the host's shared gate for this client's own mutations (commit, stage,
+    /// Pull/Push, worktrees). Remote resources pass their own reservation to
+    /// `run_resource_operation`, which does not reserve again.
+    pub fn use_host_gate(&self, gate: crate::files::Gate) {
+        *self.gate.lock().unwrap() = gate;
+    }
+    /// Run a remote resource operation outside the metadata worker's global
+    /// queue. The caller holds its resource gate and validates its precondition.
+    /// Existing libgit2 domain operations retain their own publication checks.
+    pub async fn run_resource_operation<T: Send + 'static, E: Send + 'static>(
+        &self,
+        operation: impl FnOnce() -> std::result::Result<T, E> + Send + 'static,
+    ) -> Result<std::result::Result<T, E>> {
+        let result = tokio::task::spawn_blocking(operation).await.map_err(|_| {
+            "Git resource worker stopped; reconcile the operation outcome.".to_owned()
+        })?;
+        let _ = self.refresh();
+        Ok(result)
     }
     pub fn changes_snapshot(&self, path: &Path) -> Option<Result<Arc<changes::ChangesSnapshot>>> {
         self.changes.lock().unwrap().get(path).cloned()

@@ -1,6 +1,8 @@
+pub mod control;
 pub mod environment;
 pub mod file_drop;
 pub mod input;
+mod metered;
 pub mod session;
 mod spawn;
 #[cfg(windows)]

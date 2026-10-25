@@ -35,14 +35,19 @@ pub struct GitState {
     quitting: bool,
 }
 
-fn pause_cleanup_handles(app: &AppState, paths: &[PathBuf], panes: &[PaneId], cx: &mut App) {
+pub(super) fn pause_cleanup_handles(
+    app: &AppState,
+    paths: &[PathBuf],
+    panes: &[PaneId],
+    cx: &mut App,
+) {
     app.files
         .update(cx, |files, cx| files.pause_for_cleanup(paths, cx));
     app.editors
         .update(cx, |editors, cx| editors.pause_for_cleanup(panes, cx));
 }
 
-fn resume_cleanup_handles(
+pub(super) fn resume_cleanup_handles(
     app: &AppState,
     paths: &[PathBuf],
     panes: &[PaneId],
@@ -102,6 +107,10 @@ impl GitState {
         }
     }
     pub fn bind(&mut self, app: &AppState, cx: &mut Context<Self>) {
+        // Local Git mutations exclude editor saves, agents and remote operations.
+        if let Some(client) = &self.client {
+            client.use_host_gate(super::file_ops::gate(cx));
+        }
         self.observer = Some(cx.observe(&app.projects, |this, projects, cx| {
             if this.quitting || !projects.read(cx).ready {
                 return;

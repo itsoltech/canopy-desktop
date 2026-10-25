@@ -4,6 +4,7 @@
 //! tolerates unknown fields, every tagged enum has a catch-all, and optional data
 //! defaults instead of failing the line. Shapes follow CLI 2.1.294 /
 //! `@anthropic-ai/claude-agent-sdk` 0.3.293.
+pub use crate::chat::backend::{ContextUsage, MessageLifecycle as Lifecycle};
 use crate::chat::config::{CommandInfo, Effort, Mode, ModelInfo};
 use crate::chat::provider::Provider;
 use crate::chat::transcript::{Attachment, Remember, Rule};
@@ -41,28 +42,6 @@ pub enum Inbound {
     },
     #[serde(other)]
     Unknown,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Lifecycle {
-    Queued,
-    /// Drained into a turn: folded into the running one or starting a new one.
-    Started,
-    Completed,
-    Cancelled,
-    Discarded,
-    Refused,
-    #[serde(other)]
-    Other,
-}
-impl Lifecycle {
-    pub fn terminal(self) -> bool {
-        matches!(
-            self,
-            Self::Completed | Self::Cancelled | Self::Discarded | Self::Refused
-        )
-    }
 }
 
 /// How the CLI schedules a user message sent while it may be busy. Always explicit:
@@ -825,15 +804,6 @@ pub fn rewind_files(request_id: &str, user_message_id: &str, dry_run: bool) -> V
     })
 }
 
-/// Context window use reported by `get_context_usage`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ContextUsage {
-    pub used: u64,
-    pub max: u64,
-    /// Reserved before the CLI compacts the conversation on its own.
-    pub buffer: u64,
-}
-
 pub fn context_usage(response: &Value) -> Option<ContextUsage> {
     let max = response["maxTokens"].as_u64().filter(|max| *max > 0)?;
     let buffer = response["categories"]
@@ -850,14 +820,7 @@ pub fn context_usage(response: &Value) -> Option<ContextUsage> {
     })
 }
 
-/// What restoring files would change, from a `rewind_files` dry run.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct RewindPreview {
-    pub possible: bool,
-    pub files: Vec<String>,
-    pub insertions: u64,
-    pub deletions: u64,
-}
+pub use crate::chat::backend::RewindPreview;
 
 pub fn rewind_preview(response: &Value) -> RewindPreview {
     RewindPreview {

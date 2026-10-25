@@ -25,6 +25,8 @@ pub(super) struct AgentForm {
     full_auto: bool,
     bypass: bool,
     clear_key: bool,
+    clear_prompt: bool,
+    clear_json: bool,
     has_key: bool,
     disabled: bool,
     original: AgentSettings,

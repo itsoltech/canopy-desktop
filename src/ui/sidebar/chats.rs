@@ -84,6 +84,44 @@ impl Sidebar {
                     .into_any_element(),
             );
         }
+        // Conversations kept without their agent and account wait for the user.
+        let settings = app.settings.read(cx);
+        let mut unresolved: Vec<_> = settings.unresolved_chats().collect();
+        unresolved.sort_by(|a, b| a.id().cmp(b.id()));
+        for record in unresolved {
+            let chat = record.id().to_owned();
+            let title = record
+                .metadata()
+                .title
+                .clone()
+                .unwrap_or_else(|| format!("Conversation {}", &chat[..chat.len().min(8)]));
+            let chats = app.chats.clone();
+            rows.push(
+                column()
+                    .gap_1()
+                    .px_2()
+                    .py_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(t::secondary())
+                            .child(format!("“{title}” needs an agent and account.")),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("restore-chat-{chat}")))
+                            .ghost()
+                            .small()
+                            .label("Restore chat…")
+                            .on_click(move |_, _, cx| {
+                                let chat = chat.clone();
+                                chats.update(cx, |_, cx| {
+                                    cx.emit(crate::app_state::ChatRecoveryRequested(chat))
+                                });
+                            }),
+                    )
+                    .into_any_element(),
+            );
+        }
         column().px_3().children(rows)
     }
     pub(super) fn chats_content(&self, now: Instant, cx: &Context<Self>) -> Div {
@@ -119,9 +157,11 @@ impl Sidebar {
             let context = ChatContext::new(project, git);
 
             let workspace_id = workspace.id;
+            // Panes of the layout, then catalog chats no pane shows (created
+            // remotely): those open a tab here when picked.
+            let mut entries: Vec<(PaneId, String, String, bool, Option<String>)> = vec![];
             for tab in workspace.tabs() {
                 for pane in tab.root.panes().into_iter().filter(is_session) {
-                    let id = pane.id;
                     let cli = pane.metadata.kind == PaneKind::Terminal;
                     let title = if cli {
                         if matches!(
@@ -133,16 +173,42 @@ impl Sidebar {
                             pane.metadata.title.as_deref().unwrap_or(&tab.title)
                         }
                     } else {
-                        workspace.chat_title(id).unwrap_or("New chat")
+                        workspace.chat_title(pane.id).unwrap_or("New chat")
                     }
                     .to_owned();
+                    entries.push((pane.id, title, pane.tool.clone(), cli, None));
+                }
+            }
+            entries.extend(
+                app.chats
+                    .read(cx)
+                    .detached()
+                    .filter(|chat| chat.workspace == workspace_id)
+                    .map(|chat| {
+                        (
+                            chat.id,
+                            chat.title.clone(),
+                            chat.tool.clone(),
+                            false,
+                            Some(chat.chat.clone()),
+                        )
+                    }),
+            );
+            {
+                for (id, title, tool, cli, detached) in entries {
                     let live = app.workspace.read(cx);
                     let selected =
                         live.id == workspace.id && live.selected_pane().is_some_and(|p| p.id == id);
-                    let provider = Provider::from_tool(&pane.tool);
+                    let provider = Provider::from_tool(&tool);
                     let agent = match provider {
                         Some(provider) => provider.name(),
-                        None => &pane.tool,
+                        // An ACP agent or other tool: its name in Preferences.
+                        None => app
+                            .tools
+                            .read(cx)
+                            .catalog
+                            .get(&tool)
+                            .map_or(tool.as_str(), |tool| tool.name.as_str()),
                     };
                     let activity = Activity::of(id, cx);
                     let model = model_label(id, cli, cx);
@@ -259,18 +325,39 @@ impl Sidebar {
                                     ),
                             ),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.projects.update(cx, |p, cx| {
-                            if cli {
-                                p.focus_agent_terminal(id, cx)
-                            } else {
-                                p.focus_agent(id, cx)
+                    .on_click({
+                        let detached = detached.clone();
+                        cx.listener(move |this, _, _, cx| match &detached {
+                            Some(chat) => {
+                                let chat = chat.clone();
+                                cx.global::<AppState>()
+                                    .chats
+                                    .clone()
+                                    .update(cx, |chats, cx| chats.open_detached(&chat, cx));
                             }
-                        });
-                    }));
+                            None => this.projects.update(cx, |p, cx| {
+                                if cli {
+                                    p.focus_agent_terminal(id, cx)
+                                } else {
+                                    p.focus_agent(id, cx)
+                                }
+                            }),
+                        })
+                    });
                     let owner = cx.entity().downgrade();
                     let items = Rc::new(
                         move |menu: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
+                            if let Some(chat) = detached.clone() {
+                                // Named in its tab once open; deleting asks like a tab.
+                                return menu.item(PopupMenuItem::new("Delete chat…").on_click(
+                                    move |_, _, cx| {
+                                        crate::app_state::Chats::request_delete_detached(
+                                            chat.clone(),
+                                            cx,
+                                        )
+                                    },
+                                ));
+                            }
                             let rename = owner.clone();
                             menu.item(PopupMenuItem::new("Rename chat…").on_click(
                                 move |_, _, cx| {
@@ -448,12 +535,14 @@ impl Sidebar {
 /// Shared by rows and collapsed parent summaries; an absent view is not an idle agent.
 pub(in crate::ui) fn navigation_status(id: PaneId, cx: &App) -> &'static str {
     let app = cx.global::<AppState>();
+    // The runtime says, with or without a view (a hidden, remote or sleeping chat).
     let status = app
         .chats
         .read(cx)
-        .views
-        .get(&id)
-        .map_or("Not started", |v| v.read(cx).navigation_status());
+        .runtime(id)
+        .map_or("Not started", |runtime| {
+            runtime.read(cx).navigation_status()
+        });
     if !matches!(status, "Error" | "Loading" | "Stopping")
         && let Some(session) = app.agents.read(cx).sessions.get(&id)
     {
@@ -473,8 +562,8 @@ pub(super) fn is_session(pane: &canopy_desktop::state::workspace::Pane) -> bool 
 fn model_label(id: PaneId, cli: bool, cx: &App) -> Option<String> {
     let app = cx.global::<AppState>();
     if !cli
-        && let Some(view) = app.chats.read(cx).views.get(&id)
-        && let Some(label) = view.read(cx).model_label(cx)
+        && let Some(runtime) = app.chats.read(cx).runtime(id)
+        && let Some(label) = runtime.read(cx).model_label(cx)
     {
         return Some(label);
     }

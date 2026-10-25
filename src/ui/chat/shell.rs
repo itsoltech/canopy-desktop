@@ -1,12 +1,8 @@
 //! `!` commands (DEC-072): the composer's shell mode, running a command in the chat's
 //! folder, its card in the conversation, and its result going to the agent.
 use super::{rows::Row, view::ChatView};
-use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::chat::{
-    shell::{Running, ShellEvent},
-    transcript::{ItemId, ShellRun},
-};
+use canopy_desktop::chat::transcript::{ItemId, ShellRun};
 use gpui_kit::component::{
     Sizable,
     button::{Button, ButtonVariants},
@@ -16,12 +12,6 @@ use gpui_kit::{prelude::FluentBuilder, *};
 
 /// Output lines shown before "Show more".
 const PREVIEW_LINES: usize = 12;
-
-/// A command running for this chat.
-pub(super) struct Shell {
-    pub(super) running: Running,
-    _pump: Task<()>,
-}
 
 impl ChatView {
     /// The composer runs shell commands: Enter runs its text.
@@ -52,8 +42,10 @@ impl ChatView {
         let value = self.composer.read(cx).value().to_string();
         let was_empty = std::mem::replace(&mut self.composer_was_empty, value.is_empty());
         self.goal_typed(&value, window, cx);
+        // `!` results go to Claude and Codex only; other agents get the text as typed.
         if self.shell
             || self.goal_mode
+            || self.provider(cx).is_none()
             || !was_empty
             || self.has_code_blocks()
             || !value.starts_with('!')
@@ -83,97 +75,10 @@ impl ChatView {
         true
     }
 
-    /// Runs `command` in the chat's folder; its card shows in the conversation and its
-    /// result goes to the agent when it ends.
-    pub(super) fn run_shell(
-        &mut self,
-        command: &str,
-        cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        let command = command.trim();
-        if command.is_empty() {
-            return Err("Type a command to run.".into());
-        }
-        let cwd = self
-            .cwd()
-            .ok_or("This chat has no folder to run commands in.")?;
-        let env = cx
-            .global::<AppState>()
-            .tools
-            .read(cx)
-            .environment
-            .clone()
-            .ok_or("The shell environment is still loading.")??;
-        let session = self
-            .session
-            .as_mut()
-            .filter(|session| !session.status().ended())
-            .ok_or("The agent isn't running.")?;
-        let (running, events) = Running::start(command, &cwd, &env.shell, &env.vars)?;
-        let id = session.begin_shell(command);
-        let pump = cx.spawn(async move |this, cx| {
-            while let Ok(event) = events.recv().await {
-                let ended = matches!(event, ShellEvent::Exit { .. });
-                let alive = this
-                    .update(cx, |this, cx| this.on_shell(id, event, cx))
-                    .is_ok();
-                if ended || !alive {
-                    break;
-                }
-            }
-        });
-        self.shells.insert(
-            id,
-            Shell {
-                running,
-                _pump: pump,
-            },
-        );
-        self.after_change(cx);
-        Ok(())
-    }
-
-    fn on_shell(&mut self, id: ItemId, event: ShellEvent, cx: &mut Context<Self>) {
-        let Some(session) = &mut self.session else {
-            return;
-        };
-        match event {
-            ShellEvent::Output(chunk) => session.shell_output(id, &chunk),
-            ShellEvent::Exit { code, elapsed } => {
-                let stopped = self.stopped_shells.remove(&id);
-                if let Some(shell) = self.shells.remove(&id) {
-                    // Exit describes the command, not proof that its entire group
-                    // released cwd. Keep the handle for deletion/quit as well.
-                    self.shell_resources.push(shell.running);
-                }
-                let session = self.session.as_mut().expect("session");
-                let lines = session.end_shell(
-                    id,
-                    code,
-                    stopped,
-                    elapsed.as_millis().min(u64::MAX as u128) as u64,
-                );
-                self.write(lines);
-            }
-        }
-        self.after_change(cx);
-    }
-
     /// Stop on a running command's card: it ends, and the agent hears it was stopped.
     pub(super) fn stop_shell(&mut self, id: ItemId, cx: &mut Context<Self>) {
-        if let Some(shell) = self.shells.get(&id) {
-            self.stopped_shells.insert(id);
-            shell.running.stop();
-            cx.notify();
-        }
-    }
-
-    /// The chat closes or its agent restarts: running commands end with it.
-    pub(super) fn stop_shells(&mut self) {
-        for (id, shell) in &self.shells {
-            self.stopped_shells.insert(*id);
-            shell.running.stop();
-        }
+        self.runtime
+            .update(cx, |runtime, cx| runtime.stop_shell(id, cx));
     }
 }
 
@@ -186,9 +91,10 @@ pub(super) fn shell_card(
     id: ItemId,
     run: &ShellRun,
     live: bool,
+    cx: &App,
 ) -> Div {
     let key = entry.key;
-    let running = run.running && this.shells.contains_key(&id) && live;
+    let running = run.running && this.rt(cx).shell_running(id) && live;
     let interrupted = run.running && !running;
     let lines: Vec<&str> = run.output.trim_end().lines().collect();
     let shown = if entry.extra.expanded {
@@ -223,7 +129,7 @@ pub(super) fn shell_card(
     let elapsed = run
         .elapsed_ms
         .map(|ms| super::tools::elapsed(ms as f32 / 1000.));
-    let agent = this.provider().name();
+    let agent = this.agent_name(cx);
     column()
         .pt(px(16.))
         .items_end()

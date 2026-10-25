@@ -28,7 +28,7 @@ pub(super) fn card(
     cx: &App,
 ) -> AnyElement {
     let state = SubagentState::of(tool);
-    let cwd = this.pane.metadata.cwd.clone().unwrap_or_default();
+    let cwd = this.pane(cx).metadata.cwd.clone().unwrap_or_default();
     let children = rows
         .children
         .get(&tool.call_id)
@@ -36,7 +36,7 @@ pub(super) fn card(
         .unwrap_or_default();
     let last_child = children
         .last_tool
-        .and_then(|index| this.session.as_ref()?.transcript().get(index))
+        .and_then(|index| this.transcript(cx)?.get(index))
         .and_then(|item| match &item.body {
             canopy_desktop::chat::transcript::Body::Tool(tool) => Some(tool),
             _ => None,
@@ -84,7 +84,7 @@ pub(super) fn card(
             .w_full()
             .gap(px(12.))
             .items_start()
-            .child(mark(this.provider(), dot))
+            .child(mark(this.agent_mark(cx), dot))
             .child(
                 column()
                     .flex_1()
@@ -151,7 +151,7 @@ pub(super) fn card(
 }
 
 /// The agent's mark with the state dot on its corner.
-fn mark(provider: canopy_desktop::chat::provider::Provider, dot: Hsla) -> Div {
+fn mark(agent: AnyElement, dot: Hsla) -> Div {
     div()
         .relative()
         .flex_shrink_0()
@@ -161,7 +161,7 @@ fn mark(provider: canopy_desktop::chat::provider::Provider, dot: Hsla) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .child(super::composer::provider_icon(provider))
+        .child(agent)
         .child(
             div()
                 .absolute()
@@ -182,7 +182,7 @@ impl ChatView {
         let task = thread.title.clone();
         let title = match self.threads.len() {
             0 | 1 => self
-                .pane
+                .pane(cx)
                 .metadata
                 .title
                 .clone()
@@ -226,7 +226,7 @@ impl ChatView {
 
     /// The composer while a subagent's conversation is open.
     pub(super) fn locked_composer(&self, cx: &mut Context<Self>) -> Div {
-        let working = self.is_working();
+        let working = self.is_working(cx);
         centered(
             row()
                 .w_full()
@@ -268,7 +268,7 @@ pub(super) fn group(
     sources: &[Source],
     cx: &App,
 ) -> Div {
-    let transcript = this.session.as_ref().map(|s| s.transcript());
+    let transcript = this.transcript(cx);
     let members: Vec<(Source, &ToolCall)> = sources
         .iter()
         .filter_map(|source| match &rows.item(*source, transcript)?.body {
@@ -300,7 +300,7 @@ pub(super) fn group(
         .w(px(28. + STEP * stacked.saturating_sub(1) as f32))
         .h(px(28.))
         .children(members.iter().take(3).enumerate().map(|(i, (_, tool))| {
-            mark(this.provider(), dot(SubagentState::of(tool)))
+            mark(this.agent_mark(cx), dot(SubagentState::of(tool)))
                 .absolute()
                 .top_0()
                 .left(px(STEP * i as f32))

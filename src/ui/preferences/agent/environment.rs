@@ -4,6 +4,7 @@ use canopy_desktop::motion;
 use std::collections::{BTreeMap, HashSet};
 pub(super) struct EnvironmentEditor {
     pub values: BTreeMap<String, String>,
+    pub refs: BTreeMap<String, Vec<String>>,
     pub disabled: bool,
     revealed: HashSet<String>,
     key: Entity<InputState>,
@@ -15,6 +16,7 @@ impl EnvironmentEditor {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
             values: Default::default(),
+            refs: Default::default(),
             disabled: false,
             revealed: Default::default(),
             key: cx.new(|cx| InputState::new(window, cx).placeholder("VARIABLE_NAME")),
@@ -30,10 +32,12 @@ impl EnvironmentEditor {
     pub fn load(
         &mut self,
         values: BTreeMap<String, String>,
+        refs: BTreeMap<String, Vec<String>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.values = values;
+        self.refs = refs;
         self.revealed.clear();
         self.form = Disclosure::new(false, Instant::now());
         self.error = None;
@@ -44,11 +48,17 @@ impl EnvironmentEditor {
     fn add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let key = self.key.read(cx).value().trim().to_owned();
         let value = self.value.read(cx).value().to_string();
+        if value.len() > 2560 {
+            self.error = Some("Use a value up to 2,560 bytes.".into());
+            cx.notify();
+            return;
+        }
         if let Err(error) = canopy_desktop::state::agent_settings::validate_env(&key, &value) {
             self.error = Some(error);
             cx.notify();
             return;
         }
+        self.refs.remove(&key);
         self.values.insert(key.clone(), value);
         self.revealed.remove(&key);
         self.error = None;
@@ -59,7 +69,7 @@ impl EnvironmentEditor {
     }
 }
 impl EnvironmentEditor {
-    fn env_row(&self, key: &str, value: &str, cx: &Context<Self>) -> Div {
+    fn env_row(&self, key: &str, value: &str, stored: bool, cx: &Context<Self>) -> Div {
         let reveal = key.to_owned();
         let remove = key.to_owned();
         let shown = self.revealed.contains(key);
@@ -87,7 +97,9 @@ impl EnvironmentEditor {
                     .font_family(t::MONO)
                     .text_size(px(12.))
                     .text_color(if shown { t::secondary() } else { t::faint() })
-                    .child(if shown {
+                    .child(if stored {
+                        "Saved securely".to_owned()
+                    } else if shown {
                         value.to_owned()
                     } else {
                         "•".repeat(value.chars().count().min(12))
@@ -103,7 +115,7 @@ impl EnvironmentEditor {
                     },
                     format!("{} {key}", if shown { "Hide" } else { "Show" }),
                 )
-                .disabled(self.disabled)
+                .disabled(self.disabled || stored)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if !this.revealed.remove(&reveal) {
                         this.revealed.insert(reveal.clone());
@@ -120,6 +132,7 @@ impl EnvironmentEditor {
                 .disabled(self.disabled)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.values.remove(&remove);
+                    this.refs.remove(&remove);
                     this.revealed.remove(&remove);
                     cx.notify();
                 })),
@@ -170,12 +183,18 @@ impl Render for EnvironmentEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
         motion::request_frame(window, self.form.active(now));
-        let rows = self
-            .values
-            .iter()
-            .map(|(key, value)| self.env_row(key, value, cx));
+        let keys: std::collections::BTreeSet<_> =
+            self.values.keys().chain(self.refs.keys()).collect();
+        let rows = keys.into_iter().map(|key| {
+            self.env_row(
+                key,
+                self.values.get(key).map(String::as_str).unwrap_or(""),
+                self.refs.contains_key(key),
+                cx,
+            )
+        });
         let form = self.add_form(cx);
-        column().gap(px(8.)).child(div().text_size(px(11.)).text_color(t::muted()).child("Extra environment variables for this profile. Values are stored in SQLite; use API key for credentials."))
+        column().gap(px(8.)).child(div().text_size(px(11.)).text_color(t::muted()).child("New and changed values are stored securely. Add the same variable name to replace a saved value."))
             .child(column().gap(px(4.)).children(rows))
             .children((!self.form.open).then(||row().child(button("new-env","+ Add variable").disabled(self.disabled).on_click(cx.listener(|this,_,_,cx|{this.form.toggle(Instant::now(),cx);cx.notify();})))))
             .child(self.form.body(if self.error.is_some(){160.}else{132.},form,now))

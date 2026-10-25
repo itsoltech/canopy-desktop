@@ -47,6 +47,8 @@ impl AgentForm {
             full_auto: false,
             bypass: false,
             clear_key: false,
+            clear_prompt: false,
+            clear_json: false,
             has_key: false,
             disabled: false,
             original: Default::default(),
@@ -118,12 +120,20 @@ impl AgentForm {
         self.json.update(cx, |s, cx| {
             s.set_value(settings.settings_json.clone(), window, cx)
         });
-        self.env
-            .update(cx, |s, cx| s.load(settings.custom_env.clone(), window, cx));
+        self.env.update(cx, |s, cx| {
+            s.load(
+                settings.custom_env.clone(),
+                settings.env_refs.clone(),
+                window,
+                cx,
+            )
+        });
         self.full_auto = settings.full_auto;
         self.bypass = settings.bypass_approvals;
         self.has_key = settings.api_key_ref.is_some();
         self.clear_key = key_edit.is_some_and(|v| v.is_empty());
+        self.clear_prompt = false;
+        self.clear_json = false;
         self.original = settings;
         cx.notify();
     }
@@ -157,6 +167,15 @@ impl AgentForm {
         s.append_system_prompt = self.prompt.read(cx).value().to_string();
         s.settings_json = self.json.read(cx).value().to_string();
         s.custom_env = self.env.read(cx).values.clone();
+        s.env_refs = self.env.read(cx).refs.clone();
+        if self.clear_prompt {
+            s.prompt_ref = None;
+            s.append_system_prompt.clear();
+        }
+        if self.clear_json {
+            s.settings_json_ref = None;
+            s.settings_json.clear();
+        }
         s.validate(Some(self.agent))?;
         let key = get("api_key");
         let edit = if self.clear_key {

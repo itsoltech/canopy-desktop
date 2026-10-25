@@ -158,12 +158,14 @@ impl Render for AgentForm {
                     "SYSTEM PROMPT",
                     stacked_setting(
                         "Append to system prompt",
-                        "Extra instructions added after the default system prompt in every session",
+                        if self.original.prompt_ref.is_some() { "Saved securely. Leave empty to keep it, or enter a replacement." } else { "Extra instructions added after the default system prompt in every session" },
                         true,
-                        textarea(&self.prompt)
-                            .disabled(self.disabled)
+                        column().gap_2().child(textarea(&self.prompt)
+                            .disabled(self.disabled || self.clear_prompt)
                             .h(px(72.))
-                            .w_full(),
+                            .w_full())
+                            .children(self.original.prompt_ref.is_some().then(|| checkbox("remove-saved-prompt", self.clear_prompt, "Remove saved system prompt")
+                                .disabled(self.disabled).on_click(cx.listener(|this, value, _, cx| { this.clear_prompt = *value; cx.notify(); })))),
                     ),
                 )
             }))
@@ -179,12 +181,14 @@ impl Render for AgentForm {
                     } else {
                         "Settings JSON override"
                     },
-                    help,
+                    if self.original.settings_json_ref.is_some() { "Saved securely. Leave empty to keep it, or enter a replacement." } else { help },
                     true,
-                    textarea(&self.json)
-                        .disabled(self.disabled)
+                    column().gap_2().child(textarea(&self.json)
+                        .disabled(self.disabled || self.clear_json)
                         .h(px(96.))
-                        .w_full(),
+                        .w_full())
+                        .children(self.original.settings_json_ref.is_some().then(|| checkbox("remove-saved-json", self.clear_json, "Remove saved JSON override")
+                            .disabled(self.disabled).on_click(cx.listener(|this, value, _, cx| { this.clear_json = *value; cx.notify(); })))),
                 ),
             ))
     }

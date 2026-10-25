@@ -97,12 +97,12 @@ fn a_recorded_session_builds_the_conversation() {
             _ => None,
         })
     };
-    let commands: Vec<&str> = tool("Bash")
+    let commands: Vec<&str> = tool("commandExecution")
         .filter(|(item, _)| item.parent.is_none())
         .map(|(_, t)| t.input["command"].as_str().unwrap())
         .collect();
     assert_eq!(commands, ["echo b > b.txt"]);
-    let (_, write) = tool("Write").next().expect("patch");
+    let (_, write) = tool("fileChange").next().expect("patch");
     assert_eq!(write.state, ToolState::Succeeded);
     let ToolView::Change(change) = tools::view(write) else {
         panic!("change view")
@@ -122,7 +122,7 @@ fn a_recorded_session_builds_the_conversation() {
         tools::Proposal::Change(_)
     ));
     // The subagent: a card, its command and reply under it.
-    let (_, agent) = tool("Agent").next().expect("subagent card");
+    let (_, agent) = tool("collabAgentToolCall").next().expect("subagent card");
     assert!(presentation::is_subagent(agent));
     assert_eq!(agent.state, ToolState::Succeeded);
     let children = items
@@ -167,7 +167,7 @@ fn a_command_running_past_its_turn_ends_in_its_own_card() {
             .items()
             .iter()
             .filter_map(|item| match &item.body {
-                Body::Tool(tool) if tool.name == "Bash" => Some((
+                Body::Tool(tool) if tool.name == "commandExecution" => Some((
                     tool.state,
                     tool.background,
                     tool.output.as_ref().map(|o| o.text.clone()),

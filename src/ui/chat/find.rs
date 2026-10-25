@@ -341,7 +341,7 @@ impl ChatView {
         let line: String = line.chars().take(200).collect();
         let rows = self.shown_rows();
         let quoted_in = |row: &super::rows::Row| {
-            let transcript = self.session.as_ref().map(|s| s.transcript());
+            let transcript = self.transcript(cx);
             let super::rows::Kind::Item(source) = row.kind else {
                 return false;
             };

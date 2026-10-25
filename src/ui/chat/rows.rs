@@ -15,15 +15,7 @@ use canopy_desktop::{
 use gpui_kit::*;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
 
-/// A session replaced by Restart, Edit or New session (or restored from history),
-/// kept whole so its diffs and subagent conversations still open.
-pub(super) struct Archived {
-    /// Stable session number of the chat (saved history, turn diff targets).
-    pub epoch: u64,
-    pub transcript: Transcript,
-    /// Who ran it (to come back to its session after a switch).
-    pub agent: Option<canopy_desktop::chat::history::AgentRef>,
-}
+pub(super) use crate::app_state::Archived;
 
 /// Where a row's item lives: the running session or a session replaced by Restart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -812,25 +804,17 @@ impl Rows {
     }
 
     /// Freezes the replaced session's rows above a separator; new output follows.
-    pub fn archive(
-        &mut self,
-        transcript: Transcript,
-        epoch: u64,
-        agent: Option<canopy_desktop::chat::history::AgentRef>,
-        label: &'static str,
-        cx: &mut App,
-    ) {
+    /// The running session was put away as `archived`: its rows stay, pointing at it,
+    /// above a separator.
+    pub fn archive(&mut self, archived: Arc<Archived>, cx: &mut App) {
         if self.thinking_shown() {
             let at = self.rows.len() - 1;
             self.rows.pop();
             self.scroller
                 .update(cx, |state, cx| state.splice(at..at + 1, 0, cx));
         }
-        self.freeze(Arc::new(Archived {
-            epoch,
-            transcript,
-            agent,
-        }));
+        let label = archived.label;
+        self.freeze(archived);
         if self.has_items() {
             let key = self.key();
             self.rows.push(Row {
@@ -872,19 +856,20 @@ impl Rows {
         self.children.clear();
     }
 
-    /// Adds a saved session above the running one: its rows (turns folded as when it
-    /// ran), then the separator `label`.
-    pub fn restore(
-        &mut self,
-        mut transcript: Transcript,
-        epoch: u64,
-        agent: Option<canopy_desktop::chat::history::AgentRef>,
-        label: &'static str,
-        cx: &mut App,
-    ) {
-        let changes = transcript.take_changes();
-        self.sync(&transcript, &changes, false, MotionPolicy::Reduced, cx);
-        self.archive(transcript, epoch, agent, label, cx);
+    /// Adds a session put away before these rows looked (saved, or replaced while no
+    /// view showed it): its rows (turns folded as when it ran), then its separator.
+    pub fn restore(&mut self, archived: Arc<Archived>, cx: &mut App) {
+        let changes: Vec<_> = (0..archived.transcript.items().len())
+            .map(Change::Inserted)
+            .collect();
+        self.sync(
+            &archived.transcript,
+            &changes,
+            false,
+            MotionPolicy::Reduced,
+            cx,
+        );
+        self.archive(archived, cx);
     }
 
     /// The conversation of a subagent of an earlier session (read-only, nothing more

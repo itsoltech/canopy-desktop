@@ -63,6 +63,32 @@ impl Page {
 /// `url(/abs/a.png)`, or a JS string) put in as data URIs: the page itself reads no
 /// files. Missing, oversized or non-image paths stay as they are.
 pub fn inline_images(html: &str) -> String {
+    inline_images_if(html, &|path| {
+        Path::new(path)
+            .is_absolute()
+            .then(|| std::fs::canonicalize(path).ok())
+            .flatten()
+    })
+}
+/// Remote page resources are limited to the authorized chat folder. The page
+/// receives bytes, never authority to read paths through its client renderer.
+pub fn inline_images_scoped(html: &str, root: &Path) -> String {
+    let root = std::fs::canonicalize(root).ok();
+    inline_images_if(html, &|path| {
+        let root = root.as_ref()?;
+        let path = Path::new(path);
+        let path = std::fs::canonicalize(if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            root.join(path)
+        })
+        .ok()?;
+        path.starts_with(root).then_some(path)
+    })
+}
+/// Bound the complete result before allocating image/base64 buffers.
+pub const MAX_INLINE_BYTES: usize = 32 * 1024 * 1024;
+fn inline_images_if(html: &str, resolve: &dyn Fn(&str) -> Option<std::path::PathBuf>) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
     while let Some(at) = rest.find(['"', '\'', '(']) {
@@ -72,7 +98,11 @@ pub fn inline_images(html: &str) -> String {
         let close = if quote == '(' { ')' } else { quote };
         let end = from.find(close).unwrap_or(0);
         let candidate = from[..end].trim().trim_matches(['"', '\'']);
-        match (end > 0).then(|| data_uri(candidate)).flatten() {
+        let budget = MAX_INLINE_BYTES.saturating_sub(out.len().saturating_add(from.len()));
+        match (end > 0)
+            .then(|| data_uri(candidate, budget, resolve))
+            .flatten()
+        {
             Some(uri) => {
                 out.push_str(&uri);
                 rest = &from[end..];
@@ -84,10 +114,13 @@ pub fn inline_images(html: &str) -> String {
     out
 }
 
-/// A local image as a data URI, when `path` is one.
-fn data_uri(path: &str) -> Option<String> {
+fn data_uri(
+    path: &str,
+    budget: usize,
+    resolve: &dyn Fn(&str) -> Option<std::path::PathBuf>,
+) -> Option<String> {
     let path = path.strip_prefix("file://").unwrap_or(path);
-    if !path.starts_with('/') || path.len() > 4096 || path.contains(['\n', '<', '>']) {
+    if path.len() > 4096 || path.contains(['\n', '<', '>']) || path.contains("://") {
         return None;
     }
     let media = match Path::new(path)
@@ -103,12 +136,39 @@ fn data_uri(path: &str) -> Option<String> {
         "svg" => "image/svg+xml",
         _ => return None,
     };
-    let metadata = std::fs::metadata(path).ok()?;
+    let path = resolve(path)?;
+    if !path.is_absolute() {
+        return None;
+    }
+    // Open the canonical authorized path, not the untrusted symlink spelling.
+    if !std::fs::metadata(&path).ok()?.is_file() {
+        return None;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // A file replaced by a FIFO or final symlink must not block shutdown or
+        // redirect this already scoped read.
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+    }
+    let file = options.open(path).ok()?;
+    let metadata = file.metadata().ok()?;
     if !metadata.is_file() || metadata.len() > MAX_IMAGE_BYTES {
         return None;
     }
+    let max = MAX_IMAGE_BYTES.min((budget.saturating_sub(64) / 4 * 3) as u64);
+    if metadata.len() > max {
+        return None;
+    }
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    file.take(max + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 > max {
+        return None;
+    }
     use base64::Engine as _;
-    let bytes = std::fs::read(path).ok()?;
     Some(format!(
         "data:{media};base64,{}",
         base64::engine::general_purpose::STANDARD.encode(bytes)
@@ -150,6 +210,36 @@ mod tests {
                 .unwrap_err()
                 .contains("limited")
         );
+    }
+
+    #[test]
+    fn remote_images_stay_in_folder_and_total_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let image = dir.path().join("ok.png");
+        let secret = outside.path().join("secret.png");
+        std::fs::write(&image, [1, 2, 3]).unwrap();
+        std::fs::write(&secret, [4, 5, 6]).unwrap();
+        let html = format!(r#"<img src="ok.png"><img src="{}">"#, secret.display());
+        let result = inline_images_scoped(&html, dir.path());
+        assert!(result.contains("data:image/png;base64,AQID"));
+        assert!(!result.contains("BAUG"));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&secret, dir.path().join("escape.png")).unwrap();
+            assert!(
+                !inline_images_scoped(r#"<img src="escape.png">"#, dir.path()).contains("data:")
+            );
+        }
+        let large = dir.path().join("large.png");
+        std::fs::File::create(&large)
+            .unwrap()
+            .set_len(MAX_IMAGE_BYTES)
+            .unwrap();
+        let html = r#"<img src="large.png">"#.repeat(4);
+        let result = inline_images_scoped(&html, dir.path());
+        assert!(result.len() <= MAX_INLINE_BYTES);
+        assert_eq!(result.matches("data:image/png").count(), 2);
     }
 
     #[test]

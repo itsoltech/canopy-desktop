@@ -54,10 +54,12 @@ impl TerminalView {
                 }));
             }
         }
-        if let Some(session) = self.session.as_ref() {
-            if !session.resize(geometry.size) {
+        if let Some(run) = self.run.as_ref() {
+            // A device holding input also owns the size; the host view follows it.
+            if !run.local_resize(geometry.size).unwrap_or(false) {
                 return;
             }
+            let session = run.session();
             // Reflow and geometry can be reflected in this frame, without waiting for PTY output.
             if changed && let Some(frame) = session.frame() {
                 self.set_resized_frame(frame, cx);

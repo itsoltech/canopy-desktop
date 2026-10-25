@@ -123,22 +123,27 @@ impl ChatView {
     /// Reads the task list and background calls again after the transcript changed;
     /// a new session starts with what it restored put away.
     pub(super) fn sync_activity(&mut self, cx: &mut Context<Self>) {
-        let Some(session) = &self.session else {
+        let runtime = self.runtime.read(cx);
+        let Some(transcript) = runtime.transcript() else {
             return;
         };
-        let transcript = session.transcript();
-        let at = (self.generation, transcript.revision());
+        let at = (runtime.generation(), transcript.revision());
         let panel = &mut self.activity;
         if panel.read_at == at {
             return;
         }
-        let fresh = panel.read_at.0 != self.generation;
+        let fresh = panel.read_at.0 != at.0;
         panel.read_at = at;
         panel.todos = activity::todos(transcript);
         // Background subagents have their own tray ("waiting for").
         panel.jobs = activity::jobs(
             transcript,
-            self.pane.metadata.cwd.as_deref().unwrap_or("/".as_ref()),
+            runtime
+                .pane_ref()
+                .metadata
+                .cwd
+                .as_deref()
+                .unwrap_or("/".as_ref()),
         )
         .into_iter()
         .filter(|job| job.kind != JobKind::Agent)
@@ -288,7 +293,7 @@ impl ChatView {
     ) -> Stateful<Div> {
         let running: Vec<&Job> = jobs.iter().filter(|job| !job.state.finished()).collect();
         let ended = jobs.len() - running.len();
-        let working = self.is_working();
+        let working = self.is_working(cx);
         let all_done = todos.is_none_or(Todos::finished) && running.is_empty();
         let current = todos
             .and_then(Todos::current)
@@ -393,7 +398,7 @@ impl ChatView {
     }
 
     fn todo_list(&self, todos: &Todos, cx: &mut Context<Self>) -> Div {
-        let working = self.is_working() && motion::policy(cx) == MotionPolicy::Full;
+        let working = self.is_working(cx) && motion::policy(cx) == MotionPolicy::Full;
         column()
             .px(px(10.))
             .pt(px(4.))
@@ -498,8 +503,7 @@ impl ChatView {
             .join(" · ");
         let call = job.call.clone();
         let stoppable = self
-            .session
-            .as_ref()
+            .native(cx)
             .is_some_and(|session| session.can_stop_background(&job.call));
         let index = job.index;
         row()
@@ -560,12 +564,8 @@ impl ChatView {
     }
 
     fn stop_background(&mut self, call: &str, cx: &mut Context<Self>) {
-        let Some(session) = &mut self.session else {
-            return;
-        };
-        let lines = session.stop_background(call);
-        self.write(lines);
-        self.after_change(cx);
+        self.runtime
+            .update(cx, |runtime, cx| runtime.stop_background(call, cx));
     }
 
     /// Scrolls the conversation to transcript item `index`, opening what folds it.

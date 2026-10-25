@@ -180,10 +180,12 @@ impl Workspace {
                         labels[index].clone(),
                         active,
                         metrics.widths[index],
-                        if canopy_desktop::chat::provider::Provider::from_tool(
-                            &tab.root.first().tool,
-                        )
-                        .is_some()
+                        if tab.root.first().metadata.kind
+                            == canopy_desktop::state::workspace::PaneKind::Chat
+                            || canopy_desktop::chat::provider::Provider::from_tool(
+                                &tab.root.first().tool,
+                            )
+                            .is_some()
                         {
                             let status = super::sidebar::navigation_status(tab.root.first().id, cx);
                             Some((status, super::sidebar::status_color(status)))

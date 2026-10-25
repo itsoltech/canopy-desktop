@@ -19,9 +19,15 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder, *};
 use std::time::Instant;
 
-/// Accounts are the Claude Code and Codex profiles configured in Preferences.
+/// Accounts are the profiles of the chat agents configured in Preferences: Claude
+/// Code, Codex and ACP agents (one without profiles is a single account).
 pub(super) struct Account {
-    pub provider: Provider,
+    /// The catalog tool that runs it.
+    pub tool: String,
+    /// Claude or Codex; `None` for an ACP agent.
+    pub provider: Option<Provider>,
+    /// The tool's name, for its mark.
+    pub agent: String,
     pub id: String,
     pub name: String,
 }
@@ -36,14 +42,22 @@ pub(super) fn provider_icon(provider: Provider) -> AnyElement {
     }
 }
 
+/// The mark of any chat agent: Claude's and Codex's own, else its tool's.
+pub(super) fn agent_icon(provider: Option<Provider>, agent: &str) -> AnyElement {
+    match provider {
+        Some(provider) => provider_icon(provider),
+        None => tool_icon(agent, IconName::Bot),
+    }
+}
+
 impl ChatView {
     pub(super) fn composer_island(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         self.apply_composer_change(window, cx);
-        let working = self.is_working();
+        let working = self.is_working(cx);
         let deciding = self.decision.active().is_some();
         self.insert_badges(window, cx);
         let empty = self.composer_empty(cx);
-        let ended = self.status().is_some_and(|status| status.ended());
+        let ended = self.rt(cx).status().is_some_and(|status| status.ended());
         // `!command`: the island turns burgundy and Enter runs it (DEC-072); in goal
         // mode it turns teal and Enter sets the goal (DEC-079).
         let shell = self.shell_mode(cx);
@@ -252,6 +266,13 @@ impl ChatView {
                                 .children(blocks)
                                 .child(field)
                                 .children(self.attachment_errors(cx))
+                                .children(self.rt(cx).notice().map(|notice| {
+                                    div()
+                                        .px(px(4.))
+                                        .text_size(px(12.))
+                                        .text_color(t::muted())
+                                        .child(notice.to_owned())
+                                }))
                                 .children(self.shell_error.clone().map(|error| {
                                     div()
                                         .px(px(4.))
@@ -264,7 +285,7 @@ impl ChatView {
                                         .w_full()
                                         .gap(px(2.))
                                         .child(self.pickers(window, cx))
-                                        .children(super::actions::context_ring(self))
+                                        .children(super::actions::context_ring(self, cx))
                                         .child(attach)
                                         .children(
                                             deciding.then(|| self.decision_buttons(empty, cx)),
@@ -290,9 +311,37 @@ impl ChatView {
     /// Model (with reasoning) and mode pickers in the room the buttons leave: with full
     /// labels when they fit, then only the model named, then icons only.
     fn pickers(&self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        if self.provider(cx).is_none() {
+            // An ACP agent: its own options, in one control.
+            let density = if f32::from(self.pickers_width.get()) >= 200. {
+                Density::Full
+            } else {
+                Density::Icons
+            };
+            let room = self.pickers_width.clone();
+            return row()
+                .relative()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .child(self.agent_options(density, cx))
+                .child(
+                    canvas(
+                        |_, _, _| (),
+                        move |bounds, _, window, _| {
+                            if room.get() != bounds.size.width {
+                                room.set(bounds.size.width);
+                                window.refresh();
+                            }
+                        },
+                    )
+                    .absolute()
+                    .inset_0(),
+                );
+        }
         let (_, model) = self.selection_label(cx);
         let effort = self.effort_label(cx);
-        let mode = self.settings.mode.label();
+        let mode = self.settings(cx).mode.label();
         let font = window.text_style().font();
         let measure = |text: &str| -> f32 {
             let run = TextRun {
@@ -360,7 +409,9 @@ impl ChatView {
                 Provider::Codex => "Codex",
             };
             accounts.extend(tool.profiles.iter().map(|profile| Account {
-                provider,
+                tool: tool.id.clone(),
+                provider: Some(provider),
+                agent: tool.name.clone(),
                 id: profile.id.clone(),
                 name: if tool.profiles.len() == 1 {
                     provider.name().into()
@@ -369,20 +420,34 @@ impl ChatView {
                 },
             }));
         }
+        for tool in catalog.tools.iter().filter(|tool| tool.acp && tool.enabled) {
+            let account = |id: String, name: String| Account {
+                tool: tool.id.clone(),
+                provider: None,
+                agent: tool.name.clone(),
+                id,
+                name,
+            };
+            if tool.profiles.is_empty() {
+                accounts.push(account(tool.id.clone(), tool.name.clone()));
+            }
+            accounts.extend(tool.profiles.iter().map(|profile| {
+                account(
+                    profile.id.clone(),
+                    if tool.profiles.len() == 1 {
+                        tool.name.clone()
+                    } else {
+                        format!("{} {}", tool.name, profile.name)
+                    },
+                )
+            }));
+        }
         (accounts, self.profile(cx))
     }
 
     /// The chat's account: its profile id, else the agent's default profile.
     pub(super) fn profile(&self, cx: &App) -> String {
-        self.pane
-            .metadata
-            .profile_id
-            .clone()
-            .or_else(|| {
-                let catalog = &cx.global::<AppState>().tools.read(cx).catalog;
-                catalog.get(self.provider().tool())?.default_profile.clone()
-            })
-            .unwrap_or_default()
+        self.rt(cx).profile(cx)
     }
 
     /// The entry for no chosen model: the account's default, named when known.
@@ -401,43 +466,11 @@ impl ChatView {
 
     /// The account's models: as its agent lists them, else as last remembered (DEC-098).
     pub(super) fn models(&self, cx: &App) -> Vec<ModelInfo> {
-        match self.session.as_ref().map(|s| s.models()) {
-            Some(models) if !models.is_empty() => models.to_vec(),
-            _ => cx
-                .global::<AppState>()
-                .model_catalog
-                .read(cx)
-                .models(&self.profile(cx))
-                .map(<[_]>::to_vec)
-                .unwrap_or_default(),
-        }
+        self.rt(cx).models(cx)
     }
 
-    /// The model the choices apply to; `None` means the account's default entry.
     pub(super) fn current_model(&self, cx: &App) -> Option<ModelInfo> {
-        let models = self.models(cx);
-        match self.settings.model.as_deref() {
-            Some(value) => models.into_iter().find(|m| m.value == value),
-            // Claude lists a `default` entry; Codex marks its default model.
-            None => {
-                let default = models.iter().position(|m| m.value == "default");
-                let index = default.or_else(|| models.iter().position(|m| m.default))?;
-                models.into_iter().nth(index)
-            }
-        }
-    }
-
-    /// The model named under the chat's title in the sidebar: "Opus 5.5".
-    pub(crate) fn model_label(&self, cx: &App) -> Option<String> {
-        let label = match self.current_model(cx) {
-            Some(model) => model.label(),
-            None => self.settings.model.clone()?,
-        };
-        let label = label
-            .strip_prefix("Default (")
-            .and_then(|l| l.strip_suffix(')'))
-            .map_or(label.clone(), str::to_owned);
-        (label != "Default").then_some(label)
+        self.rt(cx).current_model(cx)
     }
 
     /// Account and model names shown in the picker and the empty state.
@@ -447,9 +480,9 @@ impl ChatView {
             .into_iter()
             .find(|account| account.id == current)
             .map(|account| account.name)
-            .unwrap_or_else(|| self.provider().name().into());
+            .unwrap_or_else(|| self.agent_name(cx));
         let models = self.models(cx);
-        let model = match &self.settings.model {
+        let model = match &self.settings(cx).model {
             None => Self::default_model_label(&models),
             Some(value) => models
                 .iter()
@@ -465,17 +498,17 @@ impl ChatView {
     /// known; `None` for a model without reasoning levels.
     pub(super) fn effort_label(&self, cx: &App) -> Option<String> {
         let model = self.current_model(cx).filter(ModelInfo::supports_effort)?;
-        self.settings
+        self.settings(cx)
             .effort
             .or(model.default_effort)
             .map(|effort| effort.label().to_owned())
     }
 
     fn mode_picker(&self, density: Density, cx: &mut Context<Self>) -> impl IntoElement {
-        let mode = self.settings.mode;
-        let allowed = self.settings.allowed.clone();
+        let mode = self.settings(cx).mode;
+        let allowed = self.settings(cx).allowed.clone();
         // Without the model list yet, every mode stays offered; the CLI validates.
-        let codex = self.provider() == Provider::Codex;
+        let codex = self.provider(cx) == Some(Provider::Codex);
         let auto = codex
             || self
                 .current_model(cx)
@@ -558,7 +591,7 @@ impl ChatView {
                 .is_some_and(|chosen| !chosen.is_empty());
         let primary = match request.permission.kind {
             PermissionKind::Question => Some((if last { "Submit" } else { "Next" }, !answered)),
-            PermissionKind::Tool if !empty => Some(("Deny", false)),
+            PermissionKind::Tool if !empty && request.offered.is_none() => Some(("Deny", false)),
             PermissionKind::Plan if !empty => Some(("Keep planning", false)),
             _ => None,
         };
@@ -646,7 +679,7 @@ impl ChatView {
                     .child(swap(IconName::Square, progress)),
             )
             .on_click(cx.listener(move |this, _, window, cx| {
-                if this.is_working() {
+                if this.is_working(cx) {
                     this.interrupt(cx);
                 } else if this.editing.is_some() {
                     this.send_edit(window, cx);

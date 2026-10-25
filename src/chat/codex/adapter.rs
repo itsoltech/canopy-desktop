@@ -4,8 +4,7 @@
 //! as `mcp__server__tool`, subagents as `Agent` with their thread's items under them.
 //! Pure: no I/O, so recorded sessions replay deterministically in tests.
 use super::wire::{self, Message, id_text};
-use crate::chat::claude::adapter::{CliState, Signal};
-use crate::chat::claude::wire::ContextUsage;
+use crate::chat::backend::{CliState, ContextUsage, Signal};
 use crate::chat::goal::GoalEvent;
 use crate::chat::transcript::{
     Body, Decision, Notice, NoticeKind, Outcome, Permission, PermissionKind, Remember, Resolution,
@@ -98,7 +97,7 @@ impl Adapter {
                     indices.as_slice(),
                     [index] if matches!(
                         transcript.get(*index).map(|item| &item.body),
-                        Some(Body::Tool(tool)) if tool.name == "Bash" && tool.state == ToolState::Running
+                        Some(Body::Tool(tool)) if tool.name == "commandExecution" && tool.state == ToolState::Running
                     )
                 );
             if running {
@@ -323,7 +322,7 @@ impl Adapter {
                     None => {
                         self.plan = Some(t.push(
                             None,
-                            Body::Tool(tool("plan", "TodoWrite", input, ToolState::Succeeded)),
+                            Body::Tool(tool("plan", "plan", input, ToolState::Succeeded)),
                         ))
                     }
                 }
@@ -465,7 +464,7 @@ impl Adapter {
             "commandExecution" => {
                 let mut call = tool(
                     &id,
-                    "Bash",
+                    "commandExecution",
                     json!({"command": wire::command_text(text(item, "command").unwrap_or_default())}),
                     ToolState::Running,
                 );
@@ -525,7 +524,7 @@ impl Adapter {
                         let kind = change["kind"]["type"].as_str().unwrap_or("update");
                         let mut call = tool(
                             &format!("{id}#{n}"),
-                            if kind == "add" { "Write" } else { "Edit" },
+                            "fileChange",
                             json!({"file_path": path}),
                             state,
                         );
@@ -550,7 +549,7 @@ impl Adapter {
             "webSearch" => {
                 let mut call = tool(
                     &id,
-                    "WebSearch",
+                    "webSearch",
                     json!({"query": text(item, "query").unwrap_or_default()}),
                     if done {
                         ToolState::Succeeded
@@ -675,7 +674,12 @@ impl Adapter {
                     .and_then(|path| path.rsplit('/').next())
                     .map(|name| name.replace('_', " "))
                     .unwrap_or_else(|| "Subagent".into());
-                let card = tool(&thread, "Agent", json!({"description": name}), state);
+                let card = tool(
+                    &thread,
+                    "collabAgentToolCall",
+                    json!({"description": name}),
+                    state,
+                );
                 let index = t.push(parent, Body::Tool(card));
                 self.subagents.insert(thread, index);
             }
@@ -692,7 +696,7 @@ impl Adapter {
         let item = text(params, "itemId").map(str::to_owned);
         let (tool, input, kind, remember) = match method {
             "item/commandExecution/requestApproval" => (
-                "Bash",
+                "commandExecution",
                 json!({
                     "command": wire::command_text(text(params, "command").unwrap_or_default()),
                     "cwd": params["cwd"],
@@ -715,7 +719,8 @@ impl Adapter {
                         )),
                         _ => None,
                     });
-                let (input, result, name) = change.unwrap_or((json!({}), None, "Edit".into()));
+                let (input, result, name) =
+                    change.unwrap_or((json!({}), None, "fileChange".into()));
                 let files = item
                     .as_ref()
                     .and_then(|item| self.items.get(item))
@@ -726,7 +731,7 @@ impl Adapter {
                         "file_path": input["file_path"],
                         "result": result,
                         "files": files,
-                        "write": name == "Write",
+                        "write": result.as_ref().is_some_and(|r| r["type"] == "create") || name == "Write",
                         "description": params["reason"],
                         "decisions": params["availableDecisions"],
                     }),
@@ -758,7 +763,7 @@ impl Adapter {
                     })
                     .collect();
                 (
-                    "AskUserQuestion",
+                    "requestUserInput",
                     json!({"questions": questions}),
                     PermissionKind::Question,
                     None,
@@ -823,6 +828,7 @@ pub fn offers(params: &Value, decision: &str) -> bool {
 
 fn tool(id: &str, name: &str, input: Value, state: ToolState) -> ToolCall {
     ToolCall {
+        kind: Some(crate::chat::backend::tool_kind(name)),
         call_id: id.into(),
         name: name.into(),
         input,

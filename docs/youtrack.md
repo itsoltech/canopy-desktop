@@ -82,3 +82,11 @@ API references: [custom field types](https://www.jetbrains.com/help/youtrack/dev
 [specific issue field](https://www.jetbrains.com/help/youtrack/devportal/operations-api-issues-issueID-customFields.html),
 [state values](https://www.jetbrains.com/help/youtrack/devportal/resource-api-admin-customFieldSettings-bundles-state-bundleID-values.html),
 [state-machine events](https://www.jetbrains.com/help/youtrack/devportal/api-entity-StateMachineIssueCustomField.html).
+
+Native Tasks RPCs use the same project/schema/status/write adapters. Field
+forms retain the provider's `$type`, native values and opaque IDs; status fields
+cannot be overwritten through the ordinary edit form. Text documents remain
+structured values, and textual scalar input uses the desktop field conversion
+rules. The neutral assignee/milestone mutations are not implemented by this
+adapter: YouTrack assignees remain editable through their native user fields,
+with this limitation explicitly reflected in task capabilities.

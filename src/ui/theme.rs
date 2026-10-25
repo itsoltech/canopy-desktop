@@ -28,6 +28,13 @@ fn oklch(l: f32, c: f32, h: f32, alpha: f32) -> Hsla {
 pub fn bg() -> Hsla {
     rgb(0x191c22).into()
 }
+/// Machine-readable QR modules require fixed contrast independent of app theme.
+pub fn qr_light() -> Hsla {
+    rgb(0xffffff).into()
+}
+pub fn qr_dark() -> Hsla {
+    rgb(0x000000).into()
+}
 pub fn sidebar() -> Hsla {
     rgb(0x15181d).into()
 }

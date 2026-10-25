@@ -4,7 +4,9 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 pub const MAX_TEXT: usize = 2 * 1024 * 1024;
+mod gate;
 mod listing;
+pub use gate::{Gate, Reservation};
 pub mod search;
 mod tree_watch;
 pub use listing::*;
@@ -58,6 +60,12 @@ pub fn resolve(root: &Path, relative: &Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 fn bytes(path: &Path) -> Result<Vec<u8>, String> {
+    if !std::fs::symlink_metadata(path)
+        .map_err(|e| e.to_string())?
+        .is_file()
+    {
+        return Err("Not a regular file.".into());
+    }
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     if !file.metadata().map_err(|e| e.to_string())?.is_file() {
         return Err("Not a regular file.".into());
@@ -177,6 +185,26 @@ impl Document {
             bom: self.bom,
         })
     }
+}
+/// Publish a new text file atomically without exposing an empty intermediate
+/// file or overwriting a destination created by another process.
+pub fn create_text(root: &Path, relative: &Path, text: &str) -> Result<(), String> {
+    if text.len() > MAX_TEXT
+        || text.contains('\0')
+        || text.bytes().filter(|b| *b == b'\n').count() > 50_000
+    {
+        return Err("Text exceeds the editor limits.".into());
+    }
+    let path = resolve(root, relative)?;
+    let mut temp = tempfile::NamedTempFile::new_in(path.parent().ok_or("Missing parent")?)
+        .map_err(|e| e.to_string())?;
+    temp.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    if resolve(root, relative)? != path {
+        return Err("File target changed while creating.".into());
+    }
+    temp.persist_noclobber(path).map_err(|e| e.to_string())?;
+    Ok(())
 }
 pub fn create(root: &Path, relative: &Path) -> Result<(), String> {
     let path = resolve(root, relative)?;

@@ -1,39 +1,31 @@
-//! Chat pane: owns the headless agent session and its process for one PaneId.
+//! Chat pane: presents one chat's runtime (`ChatRuntime`) for one window. The
+//! runtime owns the agent; this view owns focus, the composer and its draft, scroll,
+//! rows and motion, and sends the user's intents to the runtime.
 use super::{
     decision::DecisionPanel,
     edit::Editing,
     queue::{QueueBar, Waiting},
     rows::Rows,
 };
-use crate::app_state::AppState;
+use crate::app_state::{ChatRuntime, ChatRuntimeEvent};
 use canopy_desktop::chat::mentions::{self, FileRef};
 use canopy_desktop::{
-    agents::launch as hook_launch,
     chat::{
-        codex::wire as codex_wire,
-        config::{ChatSettings, Effort, Mode},
-        history::{AgentRef, Boundary, EpochMeta, Saved, SavedEpoch},
-        launch::{HookConfig, fork_at, prepare_claude, prepare_codex},
+        agent::Capabilities,
+        backend_session::BackendSession,
         presentation,
-        process::{Event, Process},
         provider::Provider,
-        session::{ChatSession, CodexStart, Incoming, QueuedId, Status},
+        session::{ChatSession, Draft},
         transcript::{Body, Change, Transcript},
     },
-    motion::{self, Transition, TransitionSpec},
-    state::workspace::Pane,
+    motion::{self, MotionPolicy, Transition, TransitionSpec},
 };
 use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::*;
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
     time::Instant,
 };
-
-pub struct ChatStateChanged;
-
-impl EventEmitter<ChatStateChanged> for ChatView {}
 
 /// An opened subagent conversation (read-only), stacked for nested subagents.
 pub(super) struct Thread {
@@ -44,36 +36,10 @@ pub(super) struct Thread {
     pub archived: bool,
 }
 
-/// The chat's saved conversation, read once when the view is created.
-pub(super) enum History {
-    Loading(#[allow(dead_code)] Task<()>),
-    Loaded,
-}
-
-/// One in-flight shutdown shared by every caller (pane close, Stop worktree, quit).
-struct Closing {
-    generation: u64,
-    _task: Task<()>,
-    completion: async_channel::Receiver<()>,
-    result: Arc<std::sync::Mutex<Option<Result<(), String>>>>,
-}
-
 pub struct ChatView {
-    pub(super) pane: Pane,
-    pub(super) settings: ChatSettings,
-    pub(super) session: Option<ChatSession>,
-    process: Option<Arc<Process>>,
-    orphaned: Vec<Arc<Process>>,
-    pub(super) shell_resources: Vec<canopy_desktop::chat::shell::Running>,
-    /// Lines produced before the process exists (initialize, early messages).
-    outbox: Vec<serde_json::Value>,
-    pub(super) agent_run: Option<String>,
-    pub(super) generation: u64,
-    pub(super) starting: bool,
-    pub(super) error: Option<String>,
-    start_task: Option<Task<()>>,
-    pump: Option<Task<()>>,
-    closing: Option<Closing>,
+    pub(super) runtime: Entity<ChatRuntime>,
+    /// Session (runtime serial) the rows show, and how many of its items they hold.
+    synced: (u64, usize),
     pub(super) rows: Rows,
     /// Subagent conversations opened from their cards; the last one is shown.
     pub(super) threads: Vec<Thread>,
@@ -92,58 +58,15 @@ pub struct ChatView {
     needs_focus: bool,
     /// 0 = Send, 1 = Stop.
     pub(super) action: Transition,
-    /// What the notch was last told this chat waits for.
-    pub(super) reported_decision: Option<String>,
-    /// Restored with a provider session: earlier messages exist but are not shown.
-    pub(super) resumed: bool,
-    pub(super) sent_any: bool,
-    /// The registry closed this pane (or the app quits): never start again.
-    pub(super) closed: bool,
-    /// An account switch or an edit is restarting the process; ignore further switches.
-    pub(super) switching: bool,
     /// Row key whose Copy shows a check mark, and since when.
     pub(super) copied: Option<(u64, Instant)>,
     pub(super) copied_reset: Option<Task<()>>,
     /// A sent message being edited in the composer.
     pub(super) editing: Option<Editing>,
-    /// Starts fork the session after this point (an edit, or a forked chat) until the
-    /// new session has its own id.
-    pub(super) fork_at: Option<String>,
-    /// Sent as soon as the next session starts (the edited message).
-    pub(super) send_on_start: Option<canopy_desktop::chat::session::Draft>,
     pub(super) attachments: super::attachments::Attachments,
-    /// Working (true) or idle last told to the notch, for agents without hooks.
-    reported_activity: Option<bool>,
-    /// Whether the notch was last told the chat pursues its goal.
-    pub(super) reported_goal: Option<bool>,
-    /// Lets a Codex goal hold go when Codex starts no further turn.
-    pub(super) goal_hold_timer: Option<Task<()>>,
-    /// Ends of Claude goals already checked against its session file.
-    pub(super) goal_records: HashSet<canopy_desktop::chat::transcript::ItemId>,
     pub(super) navigator: super::navigator::Navigator,
-    /// Separator shown above the replaced session at the next start.
-    pub(super) boundary: Boundary,
-    /// Number of the running session in the chat's saved history.
-    pub(super) epoch: u64,
-    /// How the running session began and who runs it, as saved (DEC-065).
-    pub(super) epoch_meta: EpochMeta,
-    pub(super) history: History,
-    /// The last saved session, continued by the first start.
-    pub(super) restored: Option<SavedEpoch>,
-    /// Said in the conversation at the next start (history that couldn't be read).
-    pub(super) history_note: Option<String>,
-    /// Restored items already saved: their insertion isn't written again.
-    pub(super) history_skip: usize,
-    /// The saved history couldn't be read: nothing is written over it.
-    pub(super) history_off: bool,
-    /// Ids of saved rows that couldn't be read (a newer version): new ones go after.
-    item_floor: u64,
-    /// `start` was asked for while the history was loading.
-    start_waiting: bool,
     /// Redraws while a retry or limit countdown is shown.
     ticker: Option<Task<()>>,
-    /// The edited message sent at start, until the session is up (back on failure).
-    edit_recovery: Option<canopy_desktop::chat::session::Draft>,
     /// The ⌘F bar and its matches (DEC-069).
     pub(super) find: Option<super::find::Find>,
     /// The source of a clicked quote, lit for a moment.
@@ -174,10 +97,6 @@ pub struct ChatView {
     /// The overlay's height as drawn, also while the composer rests: Jump to latest
     /// sits on its top edge.
     pub(super) overlay_drawn: std::rc::Rc<std::cell::Cell<Pixels>>,
-    /// `!` commands running, by their card (DEC-072).
-    pub(super) shells: HashMap<canopy_desktop::chat::transcript::ItemId, super::shell::Shell>,
-    /// Commands the user (or closing) stopped, so the agent hears it.
-    pub(super) stopped_shells: HashSet<canopy_desktop::chat::transcript::ItemId>,
     /// Why the last `!` command couldn't run, under the composer.
     pub(super) shell_error: Option<String>,
     /// The composer runs shell commands: `!` typed into an empty field turned it on.
@@ -196,13 +115,27 @@ pub struct ChatView {
     pub(super) recall: Option<super::recall::Recall>,
     /// Pages agents showed, by tool call (DEC-076).
     pub(super) pages: super::page::Pages,
-    /// The running session's token for the page service (`preview_html`).
-    page_token: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl ChatView {
-    pub fn new(pane: Pane, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    /// A view of `pane`'s chat, through the registry's runtime for it.
+    #[cfg(test)]
+    pub fn new(
+        pane: canopy_desktop::state::workspace::Pane,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let chats = cx.global::<crate::app_state::AppState>().chats.clone();
+        let runtime = chats.update(cx, |chats, cx| chats.adopt(pane, cx));
+        Self::with_runtime(runtime, window, cx)
+    }
+
+    pub fn with_runtime(
+        runtime: Entity<ChatRuntime>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
@@ -211,7 +144,9 @@ impl ChatView {
         });
         // Remembered model lists stand in until the agent lists its own (DEC-098).
         let models = cx.observe(
-            &cx.global::<AppState>().model_catalog.clone(),
+            &cx.global::<crate::app_state::AppState>()
+                .model_catalog
+                .clone(),
             |_, _, cx| cx.notify(),
         );
         let subscription = cx.subscribe_in(
@@ -249,47 +184,21 @@ impl ChatView {
                 cx.notify();
             }
         });
-        let mut settings = pane.metadata.chat.as_deref().cloned().unwrap_or_default();
-        let resumed = pane.metadata.resume_id.is_some();
-        let history = match settings.id.clone() {
-            Some(chat) => {
-                let load = cx
-                    .global::<AppState>()
-                    .chat_history
-                    .clone()
-                    .update(cx, |history, cx| history.load(&chat, cx));
-                History::Loading(cx.spawn(async move |this, cx| {
-                    let saved = load.await;
-                    let _ = this.update(cx, |this, cx| this.restore_history(saved, cx));
-                }))
-            }
-            None => {
-                // A chat from before saved history: it gets an id now.
-                settings.id = Some(ChatSettings::new_id());
-                let this = cx.entity().downgrade();
-                cx.defer(move |cx| {
-                    let _ = this.update(cx, |this, cx| this.persist(None, cx));
-                });
-                History::Loaded
-            }
+        let observed = cx.observe(&runtime, |_, _, cx| cx.notify());
+        let events = cx.subscribe(&runtime, |this, _, event: &ChatRuntimeEvent, cx| {
+            this.on_runtime(event, cx)
+        });
+        let (serial, cwd) = {
+            let runtime = runtime.read(cx);
+            (runtime.serial(), runtime.cwd())
         };
-        Self {
-            settings,
-            session: None,
-            process: None,
-            orphaned: vec![],
-            shell_resources: vec![],
-            outbox: vec![],
-            agent_run: None,
-            generation: 0,
-            starting: false,
-            error: None,
-            start_task: None,
-            pump: None,
-            closing: None,
-            rows: Rows::new(cx)
-                .in_folder(files_root(&pane))
-                .with_badges(super::attachments::badge_factory(cx.entity().downgrade())),
+        let rows = Rows::new(cx)
+            .in_folder(cwd)
+            .with_badges(super::attachments::badge_factory(cx.entity().downgrade()));
+        let mut view = Self {
+            runtime,
+            synced: (serial, 0),
+            rows,
             threads: vec![],
             drill: Transition::new(1., Instant::now()),
             queue: QueueBar::default(),
@@ -302,34 +211,12 @@ impl ChatView {
             focused: false,
             needs_focus: false,
             action: Transition::new(0., Instant::now()),
-            reported_decision: None,
-            resumed,
-            sent_any: false,
-            closed: false,
-            switching: false,
             copied: None,
             copied_reset: None,
             editing: None,
-            fork_at: None,
-            send_on_start: None,
             attachments: Default::default(),
-            reported_activity: None,
-            reported_goal: None,
-            goal_hold_timer: None,
-            goal_records: HashSet::new(),
             navigator: Default::default(),
-            boundary: Boundary::Restarted,
-            epoch: 0,
-            epoch_meta: EpochMeta::default(),
-            history,
-            restored: None,
-            history_note: None,
-            history_skip: 0,
-            history_off: false,
-            item_floor: 0,
-            start_waiting: false,
             ticker: None,
-            edit_recovery: None,
             find: None,
             flash: None,
             lit: vec![],
@@ -343,8 +230,6 @@ impl ChatView {
             overlay_height: Default::default(),
             overlay_unfolded: Default::default(),
             overlay_drawn: Default::default(),
-            shells: HashMap::new(),
-            stopped_shells: HashSet::new(),
             shell_error: None,
             shell: false,
             goal_mode: false,
@@ -354,197 +239,86 @@ impl ChatView {
             composer_was_empty: true,
             recall: None,
             pages: Default::default(),
-            page_token: None,
-            _subscriptions: vec![subscription, models, search],
-            pane,
-        }
+            _subscriptions: vec![subscription, models, search, observed, events],
+        };
+        // What the runtime already holds shows at once, without replaying motion.
+        view.catch_up_archived(cx);
+        view.runtime_changed(serial, &[], MotionPolicy::Reduced, cx);
+        view
     }
 
-    pub fn cwd(&self) -> Option<std::path::PathBuf> {
-        self.pane.metadata.cwd.clone()
+    // The runtime, read for presentation.
+
+    pub(super) fn rt<'a>(&self, cx: &'a App) -> &'a ChatRuntime {
+        self.runtime.read(cx)
     }
-    /// The pane as it stands now (session, current choices): what reopens it.
-    pub fn pane(&self) -> Pane {
-        let mut pane = self.pane.clone();
-        pane.metadata.chat = Some(Box::new(self.settings.clone()));
-        pane
+    /// The Claude or Codex session, for their own features; `None` for other agents.
+    pub(super) fn native<'a>(&self, cx: &'a App) -> Option<&'a ChatSession> {
+        self.runtime.read(cx).native()
     }
-    /// Which agent the chat talks to (its pane's tool).
-    pub fn provider(&self) -> Provider {
-        Provider::from_tool(&self.pane.tool).unwrap_or_default()
+    /// The running session, whatever its agent.
+    pub(super) fn backend<'a>(&self, cx: &'a App) -> Option<&'a BackendSession> {
+        self.runtime.read(cx).backend()
+    }
+    pub(super) fn transcript<'a>(&self, cx: &'a App) -> Option<&'a Transcript> {
+        self.runtime.read(cx).transcript()
+    }
+    /// What the agent can do; features it lacks are offered nowhere (AGT-07).
+    pub(super) fn capabilities(&self, cx: &App) -> Capabilities {
+        self.rt(cx).capabilities(cx)
+    }
+    pub(super) fn agent_name(&self, cx: &App) -> String {
+        self.rt(cx).agent_name(cx)
+    }
+    /// The chat's agent mark (Claude's, Codex's, else its tool's).
+    pub(super) fn agent_mark(&self, cx: &App) -> AnyElement {
+        super::composer::agent_icon(self.provider(cx), &self.agent_name(cx))
+    }
+    pub(super) fn pane<'a>(&self, cx: &'a App) -> &'a canopy_desktop::state::workspace::Pane {
+        self.runtime.read(cx).pane_ref()
+    }
+    pub(super) fn settings<'a>(
+        &self,
+        cx: &'a App,
+    ) -> &'a canopy_desktop::chat::config::ChatSettings {
+        self.runtime.read(cx).settings()
+    }
+    pub fn cwd(&self, cx: &App) -> Option<std::path::PathBuf> {
+        self.rt(cx).cwd()
+    }
+    /// Claude or Codex; `None` for an ACP agent.
+    pub fn provider(&self, cx: &App) -> Option<Provider> {
+        self.rt(cx).provider()
+    }
+    pub fn chat_id(&self, cx: &App) -> Option<String> {
+        self.rt(cx).chat_id()
+    }
+    pub fn is_working(&self, cx: &App) -> bool {
+        self.rt(cx).is_working()
+    }
+    pub fn has_conversation(&self, cx: &App) -> bool {
+        self.rt(cx).has_conversation()
+    }
+    pub fn account_locked(&self, cx: &App) -> bool {
+        self.rt(cx).account_locked()
+    }
+    pub(super) fn can_restart(&self, cx: &App) -> bool {
+        self.rt(cx).can_restart()
+    }
+    pub(super) fn busy(&self, cx: &App) -> bool {
+        self.rt(cx).busy()
     }
 
-    /// Identifies the chat's saved history.
-    pub fn chat_id(&self) -> Option<String> {
-        self.settings.id.clone()
-    }
     pub fn set_title(
         &mut self,
         title: &str,
         state: Option<canopy_desktop::state::workspace::ChatTitleState>,
         cx: &mut Context<Self>,
     ) {
-        if self.pane.metadata.title.as_deref() != Some(title)
-            || self.pane.metadata.chat_title_state != state
-        {
-            self.pane.metadata.title = Some(title.to_owned());
-            self.pane.metadata.chat_title_state = state;
-            cx.notify();
-        }
+        self.runtime
+            .update(cx, |runtime, cx| runtime.set_title(title, state, cx));
     }
 
-    pub fn history_uncertain(&self) -> bool {
-        matches!(self.history, History::Loading(_)) || self.history_off
-    }
-
-    pub fn navigation_status(&self) -> &'static str {
-        if self.history_uncertain() && !self.history_off {
-            return "Loading";
-        }
-        if self.error.is_some() || self.history_off {
-            return "Error";
-        }
-        if self.starting {
-            return "Starting";
-        }
-        match self.status() {
-            Some(Status::Starting) => "Starting",
-            Some(Status::Working) => "Working",
-            Some(Status::NeedsDecision) => "Needs attention",
-            Some(Status::Interrupting) => "Stopping",
-            Some(Status::Ready) => "Idle",
-            Some(Status::Failed(_)) => "Error",
-            Some(Status::Exited { .. }) => "Exited",
-            None => "Not started",
-        }
-    }
-    /// Created only to show its history (a turn diff): the agent hasn't started.
-    pub fn dormant(&self) -> bool {
-        self.session.is_none() && !self.starting && !self.closed && self.error.is_none()
-    }
-
-    /// Shows the saved conversation: earlier sessions above their separators, the last
-    /// one continued by the agent at start.
-    fn restore_history(&mut self, saved: Result<Saved, String>, cx: &mut Context<Self>) {
-        self.history = History::Loaded;
-        let chat = self.settings.id.clone();
-        let saved = match saved {
-            Ok(saved) => saved,
-            Err(error) => {
-                // What is saved stays as it is; this run of the chat isn't saved.
-                self.history_off = true;
-                self.history_note = Some(format!(
-                    "Earlier messages couldn't be loaded ({error}); this conversation isn't saved."
-                ));
-                Saved::default()
-            }
-        };
-        self.item_floor = saved.floor.unwrap_or(0);
-        if saved.lost > 0 {
-            self.history_note = Some(format!(
-                "{} saved {} couldn't be read.",
-                saved.lost,
-                if saved.lost == 1 { "entry" } else { "entries" }
-            ));
-        }
-        let mut epochs = saved.epochs;
-        // Sessions saved before agents could be switched ran the chat's first agent.
-        let first = epochs
-            .iter()
-            .filter_map(|epoch| epoch.meta.agent.as_ref())
-            .next()
-            .map(|agent| AgentRef {
-                tool: agent.tool.clone(),
-                profile: agent.profile.clone(),
-                ..Default::default()
-            })
-            .unwrap_or_else(|| AgentRef {
-                tool: self.pane.tool.clone(),
-                profile: self.pane.metadata.profile_id.clone(),
-                ..Default::default()
-            });
-        let agent_of = |epoch: &SavedEpoch| Some(epoch.meta.agent.clone().unwrap_or(first.clone()));
-        let last = epochs.pop();
-        let history = cx.global::<AppState>().chat_history.clone();
-        let settle = |epoch: &mut SavedEpoch, cx: &mut Context<Self>| {
-            let changed = canopy_desktop::chat::history::settle(&mut epoch.items);
-            if let Some(chat) = &chat
-                && !changed.is_empty()
-            {
-                let items: Vec<_> = changed.iter().map(|&i| epoch.items[i].clone()).collect();
-                let index = epoch.index;
-                history.update(cx, |history, cx| {
-                    history.record(chat, index, None, items, false, cx)
-                });
-            }
-        };
-        for position in 0..epochs.len() {
-            let below = epochs
-                .get(position + 1)
-                .or(last.as_ref())
-                .and_then(|next| next.meta.before)
-                .unwrap_or(Boundary::Restarted);
-            let epoch = &mut epochs[position];
-            settle(epoch, cx);
-            let images = images_in(epoch.items.iter());
-            self.load_previews(images, cx);
-            let transcript = Transcript::restore(std::mem::take(&mut epoch.items));
-            let agent = agent_of(epoch);
-            self.rows
-                .restore(transcript, epoch.index, agent, below.label(), cx);
-        }
-        if let Some(mut last) = last {
-            settle(&mut last, cx);
-            self.epoch = last.index;
-            self.restored = Some(last);
-            // The conversation is on screen; nothing is missing anymore.
-            self.resumed = false;
-        }
-        // Sessions kept for a newer version: this run starts after them.
-        if let Some(unread) = saved.last_epoch.filter(|&unread| unread >= self.epoch) {
-            self.epoch = unread + 1;
-            if let Some(last) = self.restored.take() {
-                // Its rows stay saved, but it's not continued after a newer one.
-                let agent = agent_of(&last);
-                let transcript = Transcript::restore(last.items);
-                self.rows.restore(
-                    transcript,
-                    last.index,
-                    agent,
-                    Boundary::Restarted.label(),
-                    cx,
-                );
-            }
-        }
-        if std::mem::take(&mut self.start_waiting) {
-            self.start(cx);
-        }
-        cx.emit(ChatStateChanged);
-        cx.notify();
-    }
-    pub fn status(&self) -> Option<&Status> {
-        self.session.as_ref().map(ChatSession::status)
-    }
-    /// A process is running or starting; Stop worktree has something to stop.
-    pub fn is_live(&self) -> bool {
-        self.starting || self.process.is_some() || !self.closing_done()
-    }
-    pub fn is_working(&self) -> bool {
-        matches!(
-            self.status(),
-            Some(Status::Working | Status::NeedsDecision | Status::Interrupting)
-        )
-    }
-    pub fn can_restart(&self) -> bool {
-        !self.starting
-            && self.closing_done()
-            && (self.error.is_some() || self.status().is_some_and(Status::ended))
-    }
-    fn closing_done(&self) -> bool {
-        self.closing
-            .as_ref()
-            .is_none_or(|closing| closing.completion.is_closed())
-    }
     pub fn request_focus(&mut self, cx: &mut Context<Self>) {
         self.needs_focus = true;
         cx.notify();
@@ -564,511 +338,148 @@ impl ChatView {
         }
     }
 
-    /// Starts (or restarts) the agent with the pane's current account and choices.
-    pub fn start(&mut self, cx: &mut Context<Self>) {
-        if self.closed || self.starting || !self.closing_done() || self.process.is_some() {
-            return;
-        }
-        if matches!(self.history, History::Loading(_)) {
-            self.start_waiting = true;
-            return;
-        }
-        let app = cx.global::<AppState>().clone();
-        // Fresh launch identity: resume id and account may have changed since creation.
-        if let Some(pane) = app
-            .projects
-            .read(cx)
-            .runtime_workspaces(cx)
-            .into_iter()
-            .flat_map(|workspace| workspace.all_panes())
-            .find(|pane| pane.id == self.pane.id)
-        {
-            self.pane = pane;
-        }
-        let Some(env) = app.tools.read(cx).environment.clone() else {
-            self.error = Some("The shell environment is still loading.".into());
-            cx.notify();
-            return;
-        };
-        let env = match env {
-            Ok(env) => env,
-            Err(error) => {
-                self.error = Some(error);
+    // Following the runtime.
+
+    fn on_runtime(&mut self, event: &ChatRuntimeEvent, cx: &mut Context<Self>) {
+        match event {
+            ChatRuntimeEvent::Changed { serial, changes } => {
+                self.runtime_changed(*serial, changes, motion::policy(cx), cx)
+            }
+            ChatRuntimeEvent::Archived => {
+                // A replaced session's subagents are no longer running; an open edit
+                // belonged to it, and its draft comes back.
+                self.threads.clear();
+                if let Some(editing) = self.editing.take() {
+                    self.restore_draft(editing.draft, cx);
+                }
+                self.catch_up_archived(cx);
+                self.presentation_changed(cx);
+            }
+            ChatRuntimeEvent::Restored => {
+                self.catch_up_archived(cx);
+                self.presentation_changed(cx);
+            }
+            ChatRuntimeEvent::Reset => {
+                if let Some(editing) = self.editing.take() {
+                    self.restore_draft(editing.draft, cx);
+                }
+                self.rows = Rows::new(cx)
+                    .in_folder(self.cwd(cx))
+                    .with_badges(super::attachments::badge_factory(cx.entity().downgrade()));
+                self.threads.clear();
+                self.queue.clear();
+                self.presentation_changed(cx);
+            }
+            ChatRuntimeEvent::DraftReturned(draft) => {
+                self.restore_draft(draft.clone(), cx);
                 cx.notify();
-                return;
             }
-        };
-        // A replaced session's subagents are no longer running.
-        self.threads.clear();
-        // Unsent messages survive Restart and wait for the user again.
-        let mut queued = vec![];
-        let mut carried_goal = None;
-        let replaced = self.session.is_some();
-        if let Some(session) = &mut self.session {
-            queued = session.take_queue();
-            carried_goal = session.goal().cloned();
-            let transcript = session.take_transcript();
-            let agent = self.epoch_meta.agent.clone();
-            self.rows
-                .archive(transcript, self.epoch, agent, self.boundary.label(), cx);
+            ChatRuntimeEvent::Stopping => self.drop_live_pages(),
         }
-        let boundary = std::mem::replace(&mut self.boundary, Boundary::Restarted);
-        // An open edit belongs to the session being replaced; its draft comes back.
-        if let Some(editing) = self.editing.take() {
-            self.restore_draft(editing.draft, cx);
-        }
-        // Forking needs the session it continues. An edit, or a forked chat (its point is
-        // saved with its last part, DEC-093), branches off until the new session has an
-        // id: a Restart before that branches again instead of going on in the source's.
-        let fork = self
-            .fork_at
-            .clone()
-            .or_else(|| {
-                self.restored
-                    .as_ref()
-                    .filter(|_| !replaced)
-                    .and_then(|restored| restored.meta.fork_at.clone())
-            })
-            .filter(|_| self.pane.metadata.resume_id.is_some());
-        self.fork_at = fork.clone();
-        // Restart keeps the goal (it doesn't run on its own); an edit continues a
-        // conversation whose goal ended here: the agent's copy is cleared.
-        let carried_goal = carried_goal.filter(|_| boundary == Boundary::Restarted);
-        let stale_goal = replaced
-            && carried_goal.is_none()
-            && (fork.is_some() || self.pane.metadata.resume_id.is_some());
-        self.generation += 1;
-        self.closing = None;
-        self.error = None;
-        self.starting = true;
-        let provider = self.provider();
-        let (mut session, mut lines) = match provider {
-            Provider::Claude => ChatSession::with_settings(self.settings.clone()),
-            Provider::Codex => ChatSession::codex(
-                self.settings.clone(),
-                CodexStart {
-                    cwd: self.pane.metadata.cwd.clone().unwrap_or_default(),
-                    resume: self.pane.metadata.resume_id.clone(),
-                    fork_at: fork.clone(),
-                    images: self.settings.id.as_deref().and_then(|chat| {
-                        let data = canopy_desktop::platform::directories::data_dir().ok()?;
-                        Some(canopy_desktop::chat::history::attachments_dir(&data, chat))
-                    }),
-                    clear_goal: stale_goal,
-                },
-            ),
-        };
-        session.restore_queue(queued);
-        let continued = fork.is_some() || self.pane.metadata.resume_id.is_some();
-        let restored = self.restored.take().filter(|_| !replaced);
-        let meta = match &restored {
-            // The saved session goes on: it keeps how it began.
-            Some(epoch) => epoch.meta.clone(),
-            None => {
-                if replaced {
-                    self.epoch += 1;
-                }
-                // New sessions start at item 1 again: no unread rows to land on.
-                self.item_floor = 0;
-                EpochMeta {
-                    before: replaced.then_some(boundary),
-                    continued,
-                    agent: Some(self.agent_ref()),
-                    goal: carried_goal,
-                    fork_at: fork.clone(),
-                }
-            }
-        };
-        self.epoch_meta = meta.clone();
-        session.set_base(meta.base());
-        session.restore_goal(meta.goal.clone());
-        if stale_goal {
-            lines.extend(session.clear_stale_goal());
-        }
-        if let Some(epoch) = restored {
-            self.history_skip = epoch.items.len();
-            session.restore_history_after(epoch.items, self.item_floor);
-        } else if let Some(chat) = self.settings.id.as_ref().filter(|_| !self.history_off) {
-            let epoch = self.epoch;
-            app.chat_history.update(cx, |history, cx| {
-                history.record(chat, epoch, Some(meta), [], false, cx)
-            });
-        }
-        if let Some(note) = self.history_note.take() {
-            // Said once, not saved.
-            self.history_skip = session.transcript().items().len() + 1;
-            session.note(note);
-        }
-        if let Some(draft) = self.send_on_start.take() {
-            // Held until initialize, then sent as the new branch's first message; kept
-            // to give back if the start fails.
-            lines.extend(session.submit_draft(draft.clone()));
-            self.edit_recovery = Some(draft);
-        }
-        self.session = Some(session);
-        self.outbox = lines;
-        // A saved session from before agents were recorded learns who runs it.
-        self.record_meta(cx);
-        // Restored history shows before the agent answers anything.
-        self.after_change(cx);
-        let registration = match app
-            .agents
-            .update(cx, |agents, cx| agents.register(self.pane.clone(), cx))
-        {
-            Ok(registration) => registration,
-            Err(error) => {
-                self.fail_start(error, cx);
-                return;
-            }
-        };
-        self.agent_run = Some(registration.run.clone());
-        // A new run starts without anything reported to the notch.
-        self.reported_decision = None;
-        self.reported_activity = None;
-        // Without hooks, the notch learns the chat is up from here.
-        self.report_activity(false, cx);
-        let catalog = app.tools.read(cx).catalog.clone();
-        let pane = self.pane.clone();
-        let settings = self.settings.clone();
-        let generation = self.generation;
-        // Canopy's page tools for the agent (DEC-076); a fresh token per process. The
-        // registry is a global: this runs inside `Chats` updates.
-        let tokens = cx
-            .try_global::<crate::app_state::PageTokens>()
-            .map(|tokens| tokens.0.clone());
-        if let (Some(token), Some(tokens)) = (self.page_token.take(), &tokens) {
-            tokens.remove(&token);
-        }
-        let pages = tokens.map(|tokens| tokens.register());
-        self.page_token = pages.as_ref().map(|access| access.token.clone());
-        self.start_task = Some(cx.spawn(async move |this, cx| {
-            let started = cx
-                .background_executor()
-                .spawn(async move {
-                    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-                    if provider == Provider::Codex {
-                        // Codex picks the conversation over the protocol; no hooks (DEC-059).
-                        let mut launch = prepare_codex(&catalog, &pane, &env)?;
-                        if let Some(access) = &pages {
-                            canopy_desktop::chat::launch::add_page_tools(
-                                &mut launch,
-                                provider,
-                                &executable,
-                                access,
-                            )?;
-                        }
-                        return Process::start(
-                            launch.spec,
-                            launch.files,
-                            canopy_desktop::chat::session::parse_codex,
-                            codex_wire::MAX_LINE_BYTES,
-                        );
-                    }
-                    let helper = hook_launch::helper_path(&executable);
-                    hook_launch::validate_helper(&helper)?;
-                    let mut launch = prepare_claude(
-                        &catalog,
-                        &pane,
-                        &env,
-                        &settings,
-                        Some(HookConfig {
-                            helper: &helper,
-                            registration: &registration,
-                        }),
-                    )?;
-                    if let Some(at) = &fork {
-                        fork_at(&mut launch, at);
-                    }
-                    if let Some(access) = &pages {
-                        canopy_desktop::chat::launch::add_page_tools(
-                            &mut launch,
-                            provider,
-                            &executable,
-                            access,
-                        )?;
-                    }
-                    Process::start(
-                        launch.spec,
-                        launch.files,
-                        canopy_desktop::chat::session::parse_claude,
-                        canopy_desktop::chat::claude::wire::MAX_LINE_BYTES,
-                    )
-                })
-                .await;
-            let current = this
-                .update(cx, |this, _| this.generation == generation)
-                .unwrap_or(false);
-            if !current {
-                // Superseded (closed or restarted meanwhile): never adopt the process,
-                // and finish closing it inside this task so shutdown can await it.
-                if let Ok((process, _)) = started {
-                    let process = Arc::new(process);
-                    let closing = process.clone();
-                    let result = cx
-                        .background_executor()
-                        .spawn(async move { closing.close() })
-                        .await;
-                    if let Err(error) = result {
-                        let _ = this.update(cx, |this, cx| {
-                            this.orphaned.push(process);
-                            this.error = Some(error);
-                            cx.notify();
-                        });
-                    }
-                }
-                return;
-            }
-            let _ = this.update(cx, |this, cx| {
-                this.starting = false;
-                match started {
-                    Ok((process, events)) => {
-                        let process = Arc::new(process);
-                        for line in this.outbox.drain(..) {
-                            let _ = process.send(&line);
-                        }
-                        this.process = Some(process);
-                        this.pump = Some(this.pump(events, generation, cx));
-                    }
-                    Err(error) => this.fail_start(error, cx),
-                }
-                cx.emit(ChatStateChanged);
-                cx.notify();
-            });
-        }));
-        cx.emit(ChatStateChanged);
-        cx.notify();
     }
 
-    fn fail_start(&mut self, error: String, cx: &mut Context<Self>) {
-        self.starting = false;
-        self.error = Some(error);
-        if let Some(draft) = self.edit_recovery.take() {
-            self.restore_draft(draft, cx);
-        }
-        self.outbox.clear();
-        // The session never started: end it so the composer stops accepting messages.
-        if let Some(session) = &mut self.session {
-            session.close_requested();
-            session.on_event(Event::Exited(canopy_desktop::chat::process::Exit {
-                code: None,
-                signal: None,
-                stderr: String::new(),
-            }));
-        }
-        self.after_change(cx);
-        self.finish_agent(true, true, cx);
-        cx.emit(ChatStateChanged);
-        cx.notify();
-    }
-
-    fn pump(
-        &self,
-        events: async_channel::Receiver<Event<Incoming>>,
-        generation: u64,
+    /// Brings the rows up to session `serial`: `changes` name updated items, and every
+    /// item past those already shown is inserted. Repeated or late reports are
+    /// harmless: an older session's items are read from where it was put away.
+    fn runtime_changed(
+        &mut self,
+        serial: u64,
+        changes: &[Change],
+        policy: MotionPolicy,
         cx: &mut Context<Self>,
-    ) -> Task<()> {
-        cx.spawn(async move |this, cx| {
-            while let Ok(first) = events.recv().await {
-                // Everything already waiting becomes one update and one frame.
-                let mut batch = vec![first];
-                while batch.len() < 512
-                    && let Ok(event) = events.try_recv()
-                {
-                    batch.push(event);
+    ) {
+        if serial < self.synced.0 {
+            return;
+        }
+        if serial > self.synced.0 {
+            self.synced = (serial, 0);
+        }
+        let runtime = self.runtime.clone();
+        let synced = self.synced.1;
+        let checked = &self.checked_tools;
+        let rows = &mut self.rows;
+        let threads = &mut self.threads;
+        let queue = &mut self.queue;
+        let read = runtime.update(cx, |runtime, cx| {
+            let transcript = runtime.transcript_of(serial)?;
+            let len = transcript.items().len();
+            let mut fresh: Vec<Change> = changes
+                .iter()
+                .filter(|change| matches!(change, Change::Updated(index) if *index < synced))
+                .copied()
+                .collect();
+            fresh.dedup();
+            fresh.extend((synced..len).map(Change::Inserted));
+            let current = runtime.serial() == serial && runtime.backend().is_some();
+            let session = runtime.backend().filter(|_| current);
+            let thinking =
+                session.is_some_and(|s| presentation::thinking(s.transcript(), s.status()));
+            let files = file_tools(transcript, &fresh, checked);
+            rows.sync(transcript, &fresh, thinking, policy, cx);
+            let images = images_in(fresh.iter().filter_map(|change| match *change {
+                Change::Inserted(index) | Change::Updated(index) => transcript.get(index),
+            }));
+            if session.is_some() {
+                for thread in threads.iter_mut().filter(|thread| !thread.archived) {
+                    let thinking = thread_thinking(transcript, &thread.call);
+                    thread.rows.sync(transcript, &fresh, thinking, policy, cx);
                 }
-                let alive = this
-                    .update(cx, |this, cx| {
-                        if this.generation != generation {
-                            return false;
-                        }
-                        this.apply(batch, cx);
-                        true
-                    })
-                    .unwrap_or(false);
-                if !alive {
-                    break;
-                }
+                let waiting = if runtime.is_working() {
+                    vec![]
+                } else {
+                    waiting_subagents(transcript, rows, runtime.cwd().as_deref())
+                };
+                queue.sync(&waiting, &runtime.queue_lines(), policy);
             }
-        })
+            Some((len, images, files))
+        });
+        if let Some((len, images, files)) = read {
+            self.synced.1 = len;
+            self.load_previews(images, cx);
+            self.resolve_tool_files(files, cx);
+        }
+        self.presentation_changed(cx);
     }
 
-    fn apply(&mut self, batch: Vec<Event<Incoming>>, cx: &mut Context<Self>) {
-        let Some(session) = &mut self.session else {
-            return;
-        };
-        let mut lines = vec![];
-        let mut exited = false;
-        for event in batch {
-            exited |= matches!(event, Event::Exited(_));
-            lines.extend(session.on_incoming(event));
+    /// Rows for sessions the runtime put away since the rows last looked: the one they
+    /// showed is frozen in place, saved ones are added whole.
+    fn catch_up_archived(&mut self, cx: &mut Context<Self>) {
+        let shown = self.synced.0;
+        let archived = self.rt(cx).archived();
+        let pending = archived[self.rows.archived.len().min(archived.len())..].to_vec();
+        for archived in pending {
+            if archived.serial() == Some(shown) {
+                // The rows showed it running: the rest of it first, then freeze.
+                self.runtime_changed(shown, &[], motion::policy(cx), cx);
+                self.rows.archive(archived, cx);
+            } else {
+                self.load_previews(images_in(archived.transcript.items().iter()), cx);
+                self.rows.restore(archived, cx);
+            }
         }
-        self.write(lines);
-        if exited {
-            self.process = None;
-            self.pump = None;
-            let failed = matches!(self.status(), Some(Status::Failed(_)));
-            self.finish_agent(failed, true, cx);
-            cx.emit(ChatStateChanged);
-        }
-        self.after_change(cx);
     }
 
-    /// Mirrors session state into rows, persisted choices and the Send/Stop control.
-    pub(super) fn after_change(&mut self, cx: &mut Context<Self>) {
-        self.report_models(cx);
-        let Some(session) = &mut self.session else {
-            return;
-        };
-        let changes = session.take_changes();
-        let thinking = presentation::thinking(session.transcript(), session.status());
-        let working = matches!(
-            session.status(),
-            Status::Working | Status::NeedsDecision | Status::Interrupting
-        );
-        let mut settings = session.settings().clone();
-        // Rules remembered for the chat live in its settings, not the session's.
-        settings.allowed = self.settings.allowed.clone();
-        settings.id = self.settings.id.clone();
-        settings.allow(session.take_remembered());
+    /// Presentation that follows the runtime's state as a whole.
+    fn presentation_changed(&mut self, cx: &mut Context<Self>) {
         let policy = motion::policy(cx);
-        let session = self.session.as_ref().expect("session");
-        let transcript = session.transcript();
-        let files = file_tools(transcript, &changes, &self.checked_tools);
-        let waiting = if working {
-            vec![]
-        } else {
-            waiting_subagents(transcript, &self.rows, self.pane.metadata.cwd.as_deref())
-        };
-        self.rows.sync(transcript, &changes, thinking, policy, cx);
-        for thread in self.threads.iter_mut().filter(|thread| !thread.archived) {
-            let thinking = thread_thinking(transcript, &thread.call);
-            thread.rows.sync(transcript, &changes, thinking, policy, cx);
-        }
-        let images = images_in(changes.iter().filter_map(|change| match *change {
-            Change::Inserted(index) | Change::Updated(index) => transcript.get(index),
-        }));
-        self.queue.sync(&waiting, session.queue(), policy);
-        self.save_history(&changes, cx);
-        self.load_previews(images, cx);
         self.sync_decision(policy, cx);
-        self.report_decision(cx);
-        self.report_activity(working, cx);
-        self.sync_goal(cx);
         self.sync_activity(cx);
         self.sync_edit(cx);
         self.tick(cx);
-        if self
-            .session
-            .as_ref()
-            .is_some_and(|s| !matches!(s.status(), Status::Starting))
-        {
-            self.edit_recovery = None;
-        }
+        let working = self.is_working(cx);
         self.action.retarget(
             if working { 1. } else { 0. },
             TransitionSpec::new(motion::duration::FAST, motion::Easing::EaseInOut),
             Instant::now(),
             policy,
         );
-        if settings != self.settings {
-            // The CLI may change the mode itself (e.g. leaving plan mode).
-            self.settings = settings;
-            self.persist(None, cx);
-        }
-        self.resolve_tool_files(files, cx);
-        self.save_session(cx);
-        self.record_meta(cx);
         self.refresh_find(cx);
         cx.notify();
     }
 
-    /// Codex has no hooks in chat: its working/idle state goes to the notch from here.
-    fn report_activity(&mut self, working: bool, cx: &mut Context<Self>) {
-        if self.provider() != Provider::Codex || self.reported_activity == Some(working) {
-            return;
-        }
-        let Some(run) = self.agent_run.clone() else {
-            return;
-        };
-        self.reported_activity = Some(working);
-        let pane = self.pane.id;
-        cx.global::<AppState>()
-            .agents
-            .clone()
-            .update(cx, |agents, cx| {
-                agents.chat_activity(pane, &run, working, cx)
-            });
-    }
-
-    /// Hands changed items to the chat's saved history.
-    fn save_history(&mut self, changes: &[Change], cx: &mut Context<Self>) {
-        let skip = std::mem::take(&mut self.history_skip);
-        let (Some(chat), Some(session)) = (&self.settings.id, &self.session) else {
-            return;
-        };
-        if self.history_off {
-            return;
-        }
-        let transcript = session.transcript();
-        let items: Vec<_> = changes
-            .iter()
-            .filter_map(|change| match *change {
-                Change::Inserted(index) if index < skip => None,
-                Change::Inserted(index) | Change::Updated(index) => transcript.get(index).cloned(),
-            })
-            .collect();
-        if items.is_empty() {
-            return;
-        }
-        let urgent = items
-            .iter()
-            .any(|item| matches!(item.body, Body::TurnEnd(_)));
-        let epoch = self.epoch;
-        cx.global::<AppState>()
-            .chat_history
-            .clone()
-            .update(cx, |history, cx| {
-                history.record(chat, epoch, None, items, urgent, cx)
-            });
-    }
-
-    /// Records the provider session for resume once the session has a message; until
-    /// then the CLI has not written it, and the account may still change.
-    fn save_session(&mut self, cx: &mut Context<Self>) {
-        let Some(id) = self
-            .session
-            .as_ref()
-            .filter(|session| {
-                session
-                    .transcript()
-                    .items()
-                    .iter()
-                    .any(|item| matches!(item.body, Body::User(_)))
-            })
-            .and_then(ChatSession::session_id)
-            .map(str::to_owned)
-        else {
-            return;
-        };
-        if self.pane.metadata.resume_id.as_deref() == Some(id.as_str()) {
-            return;
-        }
-        let pane = self.pane.clone();
-        cx.global::<AppState>()
-            .projects
-            .clone()
-            .update(cx, |projects, cx| {
-                projects.record_agent_session(&pane, &id, cx)
-            });
-        self.pane.metadata.resume_id = Some(id);
-        // Branched: the new session is the one to go on in (`record_meta` saves it).
-        self.fork_at = None;
-        self.epoch_meta.fork_at = None;
-    }
-
     /// Checks off the UI thread which tool paths are files Canopy can open.
     fn resolve_tool_files(&mut self, files: Vec<(String, String)>, cx: &mut Context<Self>) {
-        let Some(cwd) = files_root(&self.pane).filter(|_| !files.is_empty()) else {
+        let Some(cwd) = self.cwd(cx).filter(|_| !files.is_empty()) else {
             return;
         };
         self.checked_tools
@@ -1101,16 +512,7 @@ impl ChatView {
         .detach();
     }
 
-    pub(super) fn write(&mut self, lines: Vec<serde_json::Value>) {
-        match &self.process {
-            Some(process) => {
-                for line in lines {
-                    let _ = process.send(&line);
-                }
-            }
-            None => self.outbox.extend(lines),
-        }
-    }
+    // Intents.
 
     pub(super) fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.goal_mode() {
@@ -1119,9 +521,12 @@ impl ChatView {
         }
         if self.shell_mode(cx) {
             let text = self.composer.read(cx).value().to_string();
-            match self.run_shell(&text, cx) {
+            match self
+                .runtime
+                .update(cx, |runtime, cx| runtime.run_shell(&text, cx))
+            {
                 // One command per `!`, as in Claude Code.
-                Ok(()) => {
+                Ok(_) => {
                     self.clear_composer(window, cx);
                     self.set_shell(false, window, cx);
                 }
@@ -1133,7 +538,7 @@ impl ChatView {
         let draft = self.composer_draft(cx);
         if self.attachments_blocked(cx)
             || (draft.text.trim().is_empty() && draft.attachments.is_empty())
-            || self.session.as_ref().is_none_or(|s| s.status().ended())
+            || !self.rt(cx).accepts_messages()
         {
             return;
         }
@@ -1153,65 +558,13 @@ impl ChatView {
         }
     }
 
-    pub(super) fn send_draft(
-        &mut self,
-        draft: canopy_desktop::chat::session::Draft,
-        cx: &mut Context<Self>,
-    ) {
-        let title = if draft.text.trim().is_empty() {
-            "Image".to_owned()
-        } else {
-            presentation::title(&draft.text)
-        };
-        let Some(session) = &mut self.session else {
+    pub(super) fn send_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
+        if !self.rt(cx).accepts_messages() {
             return;
-        };
-        let lines = session.submit_draft(draft);
-        self.write(lines);
-        self.activity_sent();
-        if !self.sent_any {
-            self.sent_any = true;
-            cx.global::<AppState>()
-                .projects
-                .clone()
-                .update(cx, |projects, cx| {
-                    projects.update_chat(self.pane.id, None, Some(&title), cx)
-                });
         }
-        self.after_change(cx);
-    }
-
-    /// Files the agent changed in `turn` of session `session` (running or earlier).
-    pub fn turn_changes(
-        &self,
-        session: u64,
-        turn: u64,
-    ) -> Option<Vec<canopy_desktop::chat::tools::FileChange>> {
-        let restored;
-        let transcript = if session == self.epoch {
-            match (&self.session, &self.restored) {
-                (Some(session), _) => session.transcript(),
-                // Not started yet (shown for a turn diff): the saved session.
-                (None, Some(saved)) => {
-                    restored = Transcript::restore(saved.items.clone());
-                    &restored
-                }
-                (None, None) => return None,
-            }
-        } else {
-            &self
-                .rows
-                .archived
-                .iter()
-                .find(|archived| archived.epoch == session)?
-                .transcript
-        };
-        let turn = canopy_desktop::chat::transcript::TurnId(turn);
-        transcript
-            .items()
-            .iter()
-            .any(|item| item.turn == turn)
-            .then(|| canopy_desktop::chat::tools::turn_changes(transcript, turn))
+        self.activity_sent();
+        self.runtime
+            .update(cx, |runtime, cx| runtime.send_draft(draft, cx));
     }
 
     /// Opens (or reuses) the pane with `turn`'s changes, scrolled to `file`.
@@ -1223,9 +576,11 @@ impl ChatView {
         cx: &mut Context<Self>,
     ) {
         use canopy_desktop::state::workspace::{PaneKind, PaneMetadata};
-        let epoch = epoch.unwrap_or(self.epoch);
+        let runtime = self.rt(cx);
+        let epoch = epoch.unwrap_or(runtime.epoch());
+        let chat = runtime.pane_ref().id;
         let target = canopy_desktop::chat::tools::TurnDiffTarget {
-            chat: self.pane.id,
+            chat,
             session: epoch,
             turn,
             file,
@@ -1233,15 +588,14 @@ impl ChatView {
         let Ok(resource) = serde_json::to_string(&target) else {
             return;
         };
-        let chat = self.pane.id;
-        let cwd = self.cwd();
-        let name = self
-            .pane
+        let cwd = runtime.cwd();
+        let name = runtime
+            .pane_ref()
             .metadata
             .title
             .clone()
             .unwrap_or_else(|| super::NEW_CHAT_TITLE.into());
-        let workspace = cx.global::<AppState>().workspace.clone();
+        let workspace = cx.global::<crate::app_state::AppState>().workspace.clone();
         workspace.update(cx, |w, cx| {
             let same_turn = |p: &canopy_desktop::state::workspace::Pane| {
                 p.metadata.kind == PaneKind::TurnDiff
@@ -1317,24 +671,34 @@ impl ChatView {
             },
             None => None,
         };
-        let transcript = match (&earlier, &self.session) {
-            (Some(archived), _) => &archived.transcript,
-            (None, Some(session)) => session.transcript(),
-            (None, None) => return,
-        };
-        let Some(title) = transcript.items().iter().find_map(|item| match &item.body {
-            Body::Tool(tool) if tool.call_id == call => Some(presentation::subagent_title(tool)),
-            _ => None,
-        }) else {
+        let runtime = self.runtime.clone();
+        let cwd = self.cwd(cx);
+        let opened = runtime.update(cx, |runtime, cx| {
+            let transcript = match (&earlier, runtime.transcript()) {
+                (Some(archived), _) => &archived.transcript,
+                (None, Some(transcript)) => transcript,
+                (None, None) => return None,
+            };
+            let title = transcript
+                .items()
+                .iter()
+                .find_map(|item| match &item.body {
+                    Body::Tool(tool) if tool.call_id == call => {
+                        Some(presentation::subagent_title(tool))
+                    }
+                    _ => None,
+                })?;
+            let rows = match &earlier {
+                Some(archived) => Rows::archived_thread(&call, archived.clone(), cwd, cx),
+                None => {
+                    let thinking = thread_thinking(transcript, &call);
+                    Rows::thread(&call, transcript, thinking, cwd, cx)
+                }
+            };
+            Some((title, rows))
+        });
+        let Some((title, rows)) = opened else {
             return;
-        };
-        let cwd = files_root(&self.pane);
-        let rows = match &earlier {
-            Some(archived) => Rows::archived_thread(&call, archived.clone(), cwd, cx),
-            None => {
-                let thinking = thread_thinking(transcript, &call);
-                Rows::thread(&call, transcript, thinking, cwd, cx)
-            }
         };
         self.threads.push(Thread {
             call,
@@ -1385,121 +749,96 @@ impl ChatView {
             if self.attachments_blocked(cx) {
                 return;
             }
-            if self.is_working() {
+            // Steering is the agent's own feature; without it the message waits.
+            if self.is_working(cx) && self.capabilities(cx).steer {
                 self.clear_composer(window, cx);
                 self.with_images(draft, cx, |this, draft, cx| {
-                    if let Some(session) = &mut this.session {
-                        let lines = session.steer_draft(draft);
-                        this.write(lines);
-                    }
-                    this.after_change(cx);
+                    this.runtime
+                        .update(cx, |runtime, cx| runtime.steer_draft(draft, cx));
                 });
             } else {
                 self.submit(window, cx);
             }
             return;
         }
-        let oldest = self.session.as_ref().and_then(|session| {
-            session
-                .queue()
-                .iter()
-                .filter(|q| q.steering.is_none())
-                .map(|q| q.id)
-                .next()
-        });
-        if let Some(id) = oldest {
+        let oldest = self.runtime.read(cx).first_queued();
+        if let Some(id) = oldest.filter(|_| self.capabilities(cx).steer) {
             self.steer(id, cx);
         }
     }
 
     pub(super) fn resume_queue(&mut self, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session {
-            let lines = session.resume_queue();
-            self.write(lines);
-            self.after_change(cx);
-        }
+        self.runtime
+            .update(cx, |runtime, cx| runtime.resume_queue(cx));
     }
 
-    pub(super) fn steer(&mut self, id: QueuedId, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session {
-            let lines = session.steer(id);
-            self.write(lines);
-            self.after_change(cx);
-        }
+    pub(super) fn steer(&mut self, id: String, cx: &mut Context<Self>) {
+        self.runtime
+            .update(cx, |runtime, cx| runtime.steer_queued(id, cx));
     }
 
     /// Moves a queued message back into the message field; a draft there takes its
     /// place at the end of the queue, so nothing typed is lost.
-    pub(super) fn edit(&mut self, id: QueuedId, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn edit(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let draft = self.composer_draft(cx);
-        let Some(session) = &mut self.session else {
-            return;
-        };
-        let Some(queued) = session.edit(id) else {
-            return;
-        };
-        session.enqueue_draft(draft);
-        self.set_composer_draft(queued, window, cx);
-        self.after_change(cx);
+        let taken = self
+            .runtime
+            .update(cx, |runtime, cx| runtime.take_queued(id, draft, cx));
+        // The composer is cleared now and refilled once the queue gave the message up.
+        self.clear_composer(window, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            if let Some(queued) = taken.await {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.set_composer_draft(queued, window, cx)
+                });
+            }
+        })
+        .detach();
     }
 
     /// Drag and drop in the queue: `id` goes in front of `before`.
-    pub(super) fn move_queued(&mut self, id: QueuedId, before: QueuedId, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session
-            && session.move_queued(id, Some(before))
-        {
-            self.after_change(cx);
-        }
+    pub(super) fn move_queued(&mut self, id: String, before: String, cx: &mut Context<Self>) {
+        self.runtime
+            .update(cx, |runtime, cx| runtime.move_queued(id, before, cx));
     }
 
-    pub(super) fn remove(&mut self, id: QueuedId, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session
-            && session.remove(id)
-        {
-            self.after_change(cx);
-        }
+    pub(super) fn remove(&mut self, id: String, cx: &mut Context<Self>) {
+        self.runtime
+            .update(cx, |runtime, cx| runtime.remove_queued(id, cx));
     }
 
-    /// Messages that would be lost if the pane closed now.
-    pub fn unsent(&self) -> usize {
-        self.session.as_ref().map_or(0, ChatSession::unsent)
-    }
-    /// Something was said here (now or in an earlier session): closing loses it.
-    pub fn has_conversation(&self) -> bool {
-        self.rows.has_items()
-    }
-    /// `!` commands still running.
-    pub fn running_commands(&self) -> usize {
-        self.shells.len()
-    }
-    pub fn has_unsent(&self) -> bool {
-        self.unsent() > 0
-    }
-    pub fn discard_queue(&mut self, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session {
-            session.discard_unsent();
-            self.after_change(cx);
-        }
+    /// The user's choice for a message whose delivery is uncertain.
+    pub(super) fn resolve_unknown(
+        &mut self,
+        id: String,
+        resolution: super::queue::Resolution,
+        cx: &mut Context<Self>,
+    ) {
+        use canopy_desktop::host::UnknownResolution;
+        let resolution = match resolution {
+            super::queue::Resolution::Delivered => UnknownResolution::Delivered,
+            super::queue::Resolution::Again => UnknownResolution::Resend {
+                message: uuid::Uuid::new_v4().to_string(),
+            },
+            super::queue::Resolution::Dismiss => UnknownResolution::Dismissed,
+        };
+        self.runtime.update(cx, |runtime, cx| {
+            runtime.resolve_unknown(id, resolution, cx)
+        });
     }
 
     pub(super) fn interrupt(&mut self, cx: &mut Context<Self>) {
-        if let Some(session) = &mut self.session {
-            let lines = session.interrupt();
-            self.write(lines);
-            self.after_change(cx);
-        }
+        self.runtime.update(cx, |runtime, cx| runtime.interrupt(cx));
     }
 
-    /// The oldest permission still waiting for the user.
-    /// Starting or closing: Restart waits for it.
-    pub(super) fn busy(&self) -> bool {
-        self.starting || !self.closing_done()
+    pub(super) fn restart(&mut self, cx: &mut Context<Self>) {
+        self.runtime.update(cx, |runtime, cx| runtime.restart(cx));
     }
 
     /// Keeps a retry or limit countdown current: a redraw each second while seconds
     /// show, every half minute while minutes do; nothing once no countdown runs.
     fn tick(&mut self, cx: &mut Context<Self>) {
-        if self.countdown_left().is_none() {
+        if self.countdown_left(cx).is_none() {
             self.ticker = None;
             return;
         }
@@ -1513,7 +852,7 @@ impl ChatView {
                 let left = this
                     .update(cx, |this, cx| {
                         cx.notify();
-                        let left = this.countdown_left();
+                        let left = this.countdown_left(cx);
                         if left.is_none() {
                             this.ticker = None;
                         }
@@ -1530,10 +869,8 @@ impl ChatView {
     }
 
     /// Seconds until the nearest retry or limit reset shown in the conversation.
-    fn countdown_left(&self) -> Option<u64> {
-        let session = self.session.as_ref()?;
-        session
-            .transcript()
+    fn countdown_left(&self, cx: &App) -> Option<u64> {
+        self.transcript(cx)?
             .items()
             .iter()
             .rev()
@@ -1545,279 +882,41 @@ impl ChatView {
             .min()
     }
 
-    /// Forgets a rule remembered for this chat. The running process keeps it until Restart:
-    /// the CLI cannot drop a session rule.
     pub(super) fn remove_rule(&mut self, rule: &str, cx: &mut Context<Self>) {
-        self.settings.allowed.retain(|allowed| allowed != rule);
-        self.persist(None, cx);
-        cx.notify();
+        self.runtime
+            .update(cx, |runtime, cx| runtime.remove_rule(rule, cx));
     }
-
     pub(super) fn set_model(&mut self, model: Option<String>, cx: &mut Context<Self>) {
-        self.change(|session| session.set_model(model), cx);
+        self.runtime
+            .update(cx, |runtime, cx| runtime.set_model(model, cx));
     }
-    pub(super) fn set_effort(&mut self, effort: Option<Effort>, cx: &mut Context<Self>) {
-        self.change(|session| session.set_effort(effort), cx);
-    }
-    pub(super) fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
-        self.change(|session| session.set_mode(mode), cx);
-    }
-    fn change(
+    pub(super) fn set_effort(
         &mut self,
-        f: impl FnOnce(&mut ChatSession) -> Vec<serde_json::Value>,
+        effort: Option<canopy_desktop::chat::config::Effort>,
         cx: &mut Context<Self>,
     ) {
-        let Some(session) = &mut self.session else {
-            return;
-        };
-        let lines = f(session);
-        let settings = session.settings().clone();
-        self.write(lines);
-        if settings != self.settings {
-            self.settings = settings;
-            self.persist(None, cx);
-            self.remember(cx);
-        }
-        self.after_change(cx);
+        self.runtime
+            .update(cx, |runtime, cx| runtime.set_effort(effort, cx));
     }
-
-    /// The account's models as its agent lists them, for every picker (DEC-098).
-    fn report_models(&self, cx: &mut Context<Self>) {
-        let Some(models) = self.session.as_ref().map(|s| s.models()) else {
-            return;
-        };
-        let catalog = cx.global::<AppState>().model_catalog.clone();
-        let profile = self.profile(cx);
-        if models.is_empty() || catalog.read(cx).models(&profile) == Some(models) {
-            return;
-        }
-        let models = models.to_vec();
-        catalog.update(cx, |catalog, cx| catalog.set_models(&profile, models, cx));
+    pub(super) fn set_mode(
+        &mut self,
+        mode: canopy_desktop::chat::config::Mode,
+        cx: &mut Context<Self>,
+    ) {
+        self.runtime
+            .update(cx, |runtime, cx| runtime.set_mode(mode, cx));
     }
-
-    /// Switches the account (Claude or Codex) before the first message: a new process
-    /// for the new profile, with `model` chosen (`None`: the account's default).
+    /// Switches the account before the first message (DEC-087).
     pub(super) fn set_account(
         &mut self,
-        provider: Provider,
+        tool: String,
         profile: String,
         model: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.closed
-            || self.switching
-            || self.account_locked()
-            || (self.pane.metadata.profile_id.as_deref() == Some(&profile)
-                && self.provider() == provider)
-        {
-            return;
-        }
-        self.switching = true;
-        if self.provider() != provider {
-            // The same intent in the other agent's modes; efforts differ per model.
-            self.settings.mode = match provider {
-                Provider::Claude => self.settings.mode.for_claude(),
-                Provider::Codex => self.settings.mode.for_codex(),
-            };
-            self.settings.effort = None;
-            self.pane.tool = provider.tool().to_owned();
-        }
-        self.pane.metadata.profile_id = Some(profile.clone());
-        // Models belong to the account: the one picked from its list, else its default.
-        self.settings.model = model;
-        self.persist(Some((provider, profile)), cx);
-        self.remember(cx);
-        let stop = self.shutdown(cx);
-        cx.spawn(async move |this, cx| {
-            let _ = stop.await;
-            let _ = this.update(cx, |this, cx| {
-                this.switching = false;
-                if this.closed {
-                    return;
-                }
-                this.session = None;
-                this.rows = Rows::new(cx)
-                    .in_folder(files_root(&this.pane))
-                    .with_badges(super::attachments::badge_factory(cx.entity().downgrade()));
-                this.threads.clear();
-                this.queue.clear();
-                this.start(cx);
-            });
-        })
-        .detach();
-    }
-
-    /// The conversation has messages: its agent and account are fixed (DEC-087).
-    pub fn account_locked(&self) -> bool {
-        self.resumed
-            || self.sent_any
-            || self.rows.has_items()
-            || self.pane.metadata.resume_id.is_some()
-    }
-
-    pub(super) fn persist(&mut self, account: Option<(Provider, String)>, cx: &mut Context<Self>) {
-        let pane = self.pane.id;
-        let settings = self.settings.clone();
-        cx.global::<AppState>()
-            .projects
-            .clone()
-            .update(cx, |projects, cx| {
-                if let Some((provider, profile)) = account {
-                    projects.set_chat_account(pane, provider.tool(), profile, cx);
-                }
-                projects.update_chat(pane, Some(settings), None, cx)
-            });
-    }
-
-    /// The latest choices become the defaults of the next new chat.
-    pub(super) fn remember(&self, cx: &mut Context<Self>) {
-        use canopy_desktop::settings::{Change, PreferenceKey};
-        let mut changes = vec![
-            match &self.settings.model {
-                Some(model) => Change::ChatModel(model.clone()),
-                None => Change::Reset(PreferenceKey::ChatModel),
-            },
-            match self.settings.effort {
-                Some(effort) => Change::ChatEffort(effort),
-                None => Change::Reset(PreferenceKey::ChatEffort),
-            },
-        ];
-        // Yolo applies only to the chat that chose it, never to the next new chat.
-        if !self.settings.mode.unguarded() {
-            changes.push(Change::ChatMode(self.settings.mode));
-        }
-        if let Some(profile) = &self.pane.metadata.profile_id {
-            changes.push(Change::ChatProfile(profile.clone()));
-        }
-        cx.global::<AppState>()
-            .settings
-            .clone()
-            .update(cx, |settings, cx| settings.remember(changes, cx));
-    }
-
-    pub(super) fn restart(&mut self, cx: &mut Context<Self>) {
-        if self.can_restart() {
-            self.process = None;
-            self.start(cx);
-        }
-    }
-
-    fn finish_agent(&mut self, failed: bool, natural: bool, cx: &mut Context<Self>) {
-        if let Some(run) = self.agent_run.take() {
-            let pane = self.pane.id;
-            cx.global::<AppState>()
-                .agents
-                .clone()
-                .update(cx, |agents, cx| {
-                    agents.finish(pane, &run, failed, natural, cx)
-                });
-        }
-    }
-
-    /// The pane is gone or the app quits: stop for good.
-    pub fn close(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
-        self.closed = true;
-        self.shutdown(cx)
-    }
-
-    /// Stops the agent process; every caller joins the same bounded close.
-    pub fn shutdown(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
-        if let Some(closing) = &self.closing
-            && closing.generation == self.generation
-            && closing
-                .result
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .is_none_or(Result::is_ok)
-        {
-            return wait(closing.completion.clone(), closing.result.clone(), cx);
-        }
-        self.generation += 1;
-        self.starting = false;
-        self.stop_shells();
-        self.drop_live_pages();
-        // A global, not `Chats`: closing runs inside a `Chats` update.
-        if let Some(token) = self.page_token.take()
-            && let Some(tokens) = cx.try_global::<crate::app_state::PageTokens>()
-        {
-            tokens.0.remove(&token);
-        }
-        self.pump = None;
-        let start = self.start_task.take();
-        self.finish_agent(false, false, cx);
-        if let Some(session) = &mut self.session {
-            session.close_requested();
-        }
-        // Retain failed resources so a later cleanup can retry the same close.
-        let process = self.process.clone();
-        let shells: Vec<_> = self
-            .shell_resources
-            .iter()
-            .cloned()
-            .chain(self.shells.values().map(|shell| shell.running.clone()))
-            .collect();
-        let (finished, completion) = async_channel::bounded::<()>(1);
-        let result = Arc::new(std::sync::Mutex::new(None));
-        let shared = result.clone();
-        let task = cx.spawn(async move |this, cx| {
-            // A start in flight sees the new generation and closes its own process.
-            if let Some(start) = start {
-                start.await;
-            }
-            let mut processes = this
-                .read_with(cx, |this, _| this.orphaned.clone())
-                .unwrap_or_default();
-            processes.extend(process);
-            let closed = cx
-                .background_executor()
-                .spawn(async move {
-                    let mut result = Ok(());
-                    for process in processes {
-                        let closed = process.close();
-                        if result.is_ok() {
-                            result = closed;
-                        }
-                    }
-                    for shell in shells {
-                        let closed = shell.close();
-                        if result.is_ok() {
-                            result = closed;
-                        }
-                    }
-                    result
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if closed.is_ok() {
-                    this.process = None;
-                    this.orphaned.clear();
-                    this.shell_resources.clear();
-                }
-                if let Some(session) = &mut this.session
-                    && !session.status().ended()
-                {
-                    session.on_event(Event::Exited(canopy_desktop::chat::process::Exit {
-                        code: None,
-                        signal: None,
-                        stderr: String::new(),
-                    }));
-                }
-                this.after_change(cx);
-                cx.emit(ChatStateChanged);
-            });
-            *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some(closed);
-            drop(finished);
+        self.runtime.update(cx, |runtime, cx| {
+            runtime.set_account(tool, profile, model, cx)
         });
-        self.closing = Some(Closing {
-            generation: self.generation,
-            _task: task,
-            completion: completion.clone(),
-            result: result.clone(),
-        });
-        cx.emit(ChatStateChanged);
-        cx.notify();
-        wait(completion, result, cx)
     }
 }
 
@@ -1860,7 +959,10 @@ fn file_tools(
     changes: &[canopy_desktop::chat::transcript::Change],
     checked: &HashSet<String>,
 ) -> Vec<(String, String)> {
-    use canopy_desktop::chat::transcript::{Change, ToolState};
+    use canopy_desktop::chat::{
+        backend::ToolKind,
+        transcript::{Change, ToolState},
+    };
     changes
         .iter()
         .filter_map(|change| {
@@ -1869,12 +971,10 @@ fn file_tools(
                 Body::Tool(tool)
                     if tool.state == ToolState::Succeeded && !checked.contains(&tool.call_id) =>
                 {
-                    let key = match tool.name.as_str() {
-                        "Read" | "Write" | "Edit" | "MultiEdit" => "file_path",
-                        "NotebookEdit" | "NotebookRead" => "notebook_path",
-                        _ => return None,
-                    };
-                    let path = tool.input.get(key)?.as_str()?.to_owned();
+                    if !matches!(tool.semantic_kind(), ToolKind::Read | ToolKind::Edit) {
+                        return None;
+                    }
+                    let path = tool.file_path()?.to_owned();
                     Some((tool.call_id.clone(), path))
                 }
                 _ => None,
@@ -1898,29 +998,9 @@ fn images_in<'a>(
         .collect()
 }
 
-/// The folder file mentions are relative to: the chat's working directory.
-fn files_root(pane: &Pane) -> Option<std::path::PathBuf> {
-    pane.metadata.cwd.clone()
-}
-
 fn thread_thinking(transcript: &canopy_desktop::chat::transcript::Transcript, call: &str) -> bool {
     transcript.items().iter().any(|item| {
         matches!(&item.body, Body::Tool(tool)
             if tool.call_id == call && presentation::thread_thinking(transcript, call, tool))
-    })
-}
-
-fn wait(
-    completion: async_channel::Receiver<()>,
-    result: Arc<std::sync::Mutex<Option<Result<(), String>>>>,
-    cx: &mut Context<ChatView>,
-) -> Task<Result<(), String>> {
-    cx.spawn(async move |_, _| {
-        let _ = completion.recv().await;
-        result
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-            .unwrap_or_else(|| Err("Chat cleanup result was lost.".into()))
     })
 }

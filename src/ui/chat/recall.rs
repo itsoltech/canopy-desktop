@@ -17,8 +17,8 @@ pub(super) struct Recall {
 impl ChatView {
     /// Messages the user wrote in the main conversation, newest first (earlier
     /// sessions included; `!` command results aren't messages).
-    fn written(&self) -> Vec<Draft> {
-        let transcript = self.session.as_ref().map(|s| s.transcript());
+    fn written(&self, cx: &App) -> Vec<Draft> {
+        let transcript = self.transcript(cx);
         let message = |item: &Item| match &item.body {
             Body::User(message)
                 if item.parent.is_none()
@@ -65,7 +65,7 @@ impl ChatView {
         if !(browsing || key == "up" && text.is_empty()) {
             return false;
         }
-        let drafts = self.written();
+        let drafts = self.written(cx);
         let next = match (&self.recall, key) {
             (Some(recall), "up") if browsing => recall.index + 1,
             (None, "up") | (Some(_), "up") => 0,

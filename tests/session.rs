@@ -219,6 +219,7 @@ fn chat_panes_keep_their_choices_and_other_panes_keep_their_shape() {
             mode: Mode::Yolo,
             allowed: vec!["Bash(npm test *)".into()],
             id: Some("11111111-1111-4111-8111-111111111111".into()),
+            agent_options: [("reasoning.setting/v2".to_owned(), "vendor:deep".to_owned())].into(),
         })),
         ..Default::default()
     };

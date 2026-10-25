@@ -1,5 +1,11 @@
 # Czat agentów (headless)
 
+Docelowy refactor opisuje [plan abstrakcji agentów i remote](agent-runtime-remote-plan.md)
+oraz [kontrakt odbioru](agent-runtime-remote-acceptance.md). To plan do implementacji;
+runtime czatu należy już do `AppState.chats` (`ChatRuntime`), a nie do widoku; kod nadal
+zawiera zależności od Claude/Codex.
+Opis etapów poniżej jest historią dotychczasowej integracji, a nie planem nowego remote.
+
 Moduł `canopy_desktop::chat` prowadzi rozmowę z agentem bez terminala: uruchamia
 CLI jako subprocess z potokami, rozmawia strukturalnym protokołem i buduje
 transkrypt neutralny wobec providera. Etap 1 obejmuje wyłącznie bibliotekę i testy;
@@ -13,7 +19,7 @@ niezależny i nie zmienia zachowania.
 | `chat::transcript` | `Transcript` z elementami `User`, `Text`, `Thinking`, `Tool`, `Permission`, `Notice`, `TurnEnd`; stabilne `ItemId`, `TurnId`; `Change::{Inserted, Updated}` dla wirtualizowanej listy |
 | `chat::claude::wire` | typy stream-json Claude Code, tolerancyjne wobec nieznanych typów i pól; budowanie linii wyjściowych |
 | `chat::claude::adapter` | czysty reducer zdarzeń Claude → transkrypt + sygnały dla sesji |
-| `chat::session` | `ChatSession` bez I/O: status, kolejka wiadomości, zgody, przerwanie, wyjście procesu |
+| `chat::session` | `ChatSession` bez I/O: status, Steer w locie, zgody, przerwanie, wyjście procesu, dowody doręczenia |
 | `chat::launch` | `prepare_claude`: argv/env z tej samej ścieżki co terminal + flagi protokołu |
 | `chat::process` | długożyjący subprocess: wątki stdin/stdout/stderr/wait, ograniczone zamykanie |
 
@@ -58,11 +64,11 @@ Zweryfikowany na CLI 2.1.294 (`@anthropic-ai/claude-agent-sdk` 0.3.293 jako refe
   `queued` → `started` (moment wczytania) → stan końcowy. Dymek Steer powstaje przy
   `started`. `session_state_changed idle` jest jedynym sygnałem „agent skończył wszystko”
   (po wstrzymanych wynikach i subagentach w tle).
-- Kolejka jest lokalna w `ChatSession` (karta na hover wiersza: cała wiadomość i kiedy wyjdzie): wiadomości napisane podczas pracy czekają w Canopy
-  i wysyłają się po jednej (`later`) po każdym `idle` (bez zdarzeń stanu: po `result`
-  i stanach końcowych naszych uuid). Stop (`interrupt` z `cancel_queued`, gdy CLI ma
-  `interrupt_cancel_queued_v1`) wstrzymuje kolejkę do kolejnej wysyłki lub Steer;
-  Steer anulowany przed wczytaniem wraca do kolejki. Restart przenosi kolejkę wstrzymaną.
+- Kolejka jest trwałym stanem hosta (CHAT-01/02, sekcja „Trwała kolejka hosta” niżej);
+  `ChatSession` w trybie `use_host_queue` nie trzyma kolejki wiadomości, tylko Steer w locie.
+  Dowodem doręczenia Claude jest `command_lifecycle started/completed` naszego UUID
+  (`discarded/cancelled/refused` przed `started` = odmowa); bez lifecycle pierwsze
+  zdarzenie tury po wysłaniu. `idle` bez dowodu daje niepewność, nie doręczenie.
 - Argumenty profilu wybierające sesję (`-r`, `--resume`, `--session-id`,
   `--fork-session`, `--resume-session-at`) też dają błąd: sesję wybiera tylko Canopy.
 - Resume: `--resume <uuid>` z `PaneMetadata.resume_id`; ID sesji z `system/init`,
@@ -137,20 +143,42 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   nie jest nadpisywana pierwszą wiadomością. Model, widok, fork, diff i notch są synchronizowane.
 - Usunięcie przechodzi przez Editors::guard_closing → Chats::guard. Nieznana/ładowana historia
   wymaga potwierdzenia bez uruchamiania agenta. Rewalidacja poprzedza skutki; odmowa nie
-  odrzuca kolejki. Rejestr metadanych obejmuje też czaty bez ChatView.
+  zmienia kolejki. Guard czyta `ChatRuntime` i metadane pane'ów, więc obejmuje też czaty bez ChatView.
 - Jedna operacja cleanup na PaneId blokuje dalszy zapis historii, czeka na agentów/starty/`!`,
   sprawdza użycie katalogu i odbiera wynik kasowania cwd, historii i załączników. Błędy zostają
   przy Chats z Retry cleanup; Stop i Quit dołączają do operacji, także bez widoku. Naturalny
   Exit shella nie zwalnia katalogu, jeśli grupa pozostaje niepotwierdzona; nie sygnalizujemy
   ponownie PID po reap. Nowe otwarcia plików/projektów w usuwanym katalogu są blokowane.
 - Dokładny zakres i reguły: [samodzielne rozmowy](features/standalone-chats.md).
-- Rejestr `AppState.chats` (`src/app_state/chats.rs`) tworzy `ChatView` z `Window`
-  dla czatów aktywnego taba po gotowości `AgentsState`; zamknięte pane'y przechodzą do
-  retiring z jednym, współdzielonym zamykaniem procesu. `AppState::{running_workspaces,
+- Rejestr `AppState.chats` (`src/app_state/chats.rs`) trzyma jeden `ChatRuntime` na rozmowę,
+  kluczem jest UUID czatu (`ChatSettings.id`), a nie PaneId (`src/app_state/chats/runtime.rs`,
+  encja bez `Window`). PaneId jest tylko lokalnym kluczem prezentacji (`panes: PaneId → ChatId`)
+  i nie trafia do protokołu. Runtime powstaje dla pokazanego czatu albo diffu tury po gotowości
+  `AgentsState`, przez `Chats::ensure_runtime(pane)` albo `Chats::ensure_runtime_for_chat(uuid)`:
+  ten drugi tworzy runtime z rekordu katalogu hosta bez pane'a, widoku i okna (zdalny Start/Send).
+  Ten sam czat nigdy nie dostaje drugiej encji: pane otwarty później dla takiego czatu (`open_detached`
+  z sidebaru) prezentuje istniejący runtime (`attach_pane`), a agent zostaje zarejestrowany pod
+  kluczem z chwili startu. `ChatView` z `Window` powstaje tylko dla pokazanego pane'a i zostaje dla
+  ukrytego taba; lazy start przy pokazaniu się nie zmienia.
+- `Chats::sync_model` działa bez okna: pane usunięty z layoutu nadal oznacza jawny Delete
+  (retiring z runtime'em i jednym zamykaniem procesu), a czat z katalogu bez pane'a („detached”,
+  np. utworzony zdalnie) zostaje, jest pokazany w sidebarze w swoim projekcie lub Private chats
+  i znika tylko z projektem zamkniętym w trakcie działania Canopy (nigdy przy starcie). Guard
+  zamknięcia projektu (`Editors::guard_closing_chats` → `Chats::guard_chats`) wymienia także te
+  czaty, ich pracę, kolejkę i liczbę obserwujących urządzeń; `close_confirmed` odmawia, gdy lista
+  zmieniła się po potwierdzeniu. Stop worktree, `running_workspaces` i Quit obejmują runtime'y bez
+  pane'a. Delete takiego czatu ma to samo potwierdzenie i cleanup (`request_delete_detached`). `AppState::{running_workspaces,
   workspace_running, stop_workspace_processes}` łączą terminale i czaty (sidebar Stop,
   usuwanie worktree, merge target); quit czeka na `Chats::shutdown`.
-- `ChatView` (`src/ui/chat/`) posiada `ChatSession`, `Process` i rejestrację hooków;
-  pompa przetwarza zdarzenia partiami i robi jedno `notify` na partię. Wiersze
+- `ChatRuntime` posiada `ChatSession`, `Process`, pompę, generację, rejestrację hooków, `!` komendy,
+  token stron, zapis historii, raporty notcha (decyzja, aktywność, goal) i close/shutdown. Pompa
+  przetwarza zdarzenia partiami i robi jedno `notify` na partię. Każda zmiana sesji daje jedno
+  `ChatRuntimeEvent::Changed{serial, changes}` (`take_changes` konsumuje tylko runtime); dalej
+  `Archived` (Restart/Edit), `Restored` (historia), `Reset` (zmiana konta), `DraftReturned`, `Stopping`.
+- `ChatView` (`src/ui/chat/`) posiada tylko prezentację: fokus, composer i szkic, wiersze, scroll,
+  ruch, panel decyzji, edycję i wątki subagentów; intencje wywołuje na runtime. Widok zna kursor
+  `(serial, liczba elementów)`: wstawia wszystko poza kursorem i odświeża zgłoszone `Updated`, więc
+  nowy albo spóźniony widok dogania runtime bez kopiowania transkryptu. Wiersze
   (`rows.rs`) są zsynchronizowane z transkryptem przez `Change` i
   `MessageScrollerState::splice/remeasure_items`; każdy blok tekstu ma własny
   `MarkdownView::chat` (polityka `markdown::prepare`: bez obrazów i HTML, kopiowanie kodu,
@@ -231,9 +259,9 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 
 - Belka kolejki (`src/ui/chat/queue.rs`) nad composerem: Steer, Edit (do pustego pola),
   Remove; Steer w locie pokazuje „Sending…” do `started`. ⌘⏎: zgoda → Allow, tekst w polu
-  podczas pracy → Steer, puste pole → Steer najstarszej pozycji. Zamknięcie taba/pane'a/
-  projektu i quit z niewysłaną kolejką przechodzi przez `Editors::guard` → `Chats::guard`
-  (prompt „Discard queued messages?”).
+  podczas pracy → Steer, puste pole → Steer najstarszej pozycji. Usunięcie czatu z
+  niedoręczoną kolejką przechodzi przez `Editors::guard_closing` → `Chats::guard`
+  (pytanie wymienia liczbę wiadomości). Quit kolejki nie dotyka i o nią nie pyta.
 - Subagenci: główna rozmowa pokazuje tylko elementy bez rodzica; wywołanie `Agent`/`Task`
   jest kartą (`src/ui/chat/subagent.rs`) ze stanem, licznikiem narzędzi i ostatnią
   aktywnością. Klik otwiera rozmowę subagenta w tym samym pane'ie (`Rows::thread`:
@@ -359,16 +387,17 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   do zapisu ze skróceniem (wynik narzędzia > 64 KiB → początek+koniec, `structured` > 128 KiB → pominięte,
   `Item.trimmed`), `settle` (strumienie kończą się, narzędzia → Cancelled, decyzje → `Resolution::Expired`,
   otwarta tura → notka + `TurnEnd{Interrupted}`).
-- Zapis: `AppState.chat_history` (`ChatHistory`) zbiera zmienione elementy z `ChatView::after_change`,
+- Zapis: `AppState.chat_history` (`ChatHistory`) zbiera zmienione elementy z `ChatRuntime::after_change`,
   jeden writer w tle (500 ms, koniec tury szybciej), flush w `finish_quit` przed zamknięciem czatów
   (błąd zostawia aplikację otwartą). Zamknięcie taba czatu (`Chats::retire`, także zamknięcie projektu)
   usuwa historię i `<dane>/chat-attachments/<id>`; po starcie `retain` usuwa czaty ani otwarte, ani zapisane
   na liście `/resume` z ostatnich 30 dni.
-- Odtworzenie: `ChatView::new` czyta historię, `start` czeka. Wcześniejsze epoki → `Rows.archived`
-  (`Archived{epoch, transcript}` — diffy, subagenci działają), ostatnia → `ChatSession::restore_history`
+- Odtworzenie: `ChatRuntime::new` czyta historię, `start` czeka. Wcześniejsze epoki →
+  `ChatRuntime::archived` (`Archived{epoch, transcript, agent, label}`, współdzielone przez `Rows.archived`
+  — diffy, subagenci działają), ostatnia → `ChatSession::restore_history`
   (`Transcript::restore`: identyfikatory i tury dalej, `fork_point`/Retry/`rewind_files` działają — sonda
   i test live `saved_history_continues_after_a_restart_and_restores_files`). Pane diffu tury tworzy uśpiony
-  `ChatView` (bez procesu) dla swojego czatu.
+  `ChatRuntime` (bez procesu i bez widoku) dla swojego czatu.
 - Załączniki (DEC-047/051/052): `UserMessage.attachments` (`Image{file, media_type, …}` / `Path`).
   `chat::attachments` skaluje obraz do 1568 px dłuższego boku (Lanczos3; PNG dla zrzutów, JPEG q85 dla zdjęć;
   ≤ 3,75 MB), zapisuje 0600 w folderze czatu; dane base64 tylko w pamięci, przy ponownym wysłaniu po
@@ -412,7 +441,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 
 ## Etap 8: kilku agentów w jednej rozmowie (wycofane, DEC-087)
 
-- Agenta i konto wybiera się tylko przed pierwszą wiadomością (`ChatView::set_account`, sekcja Accounts pickera
+- Agenta i konto wybiera się tylko przed pierwszą wiadomością (`ChatRuntime::set_account`, sekcja Accounts pickera
   znika, gdy `account_locked()`); `Workspace::set_chat_account` odrzuca pane z `resume_id`. Przełączenie w trakcie
   rozmowy, skrót kontekstu dla nowego agenta (`chat::handoff`), tacka kontekstu, „Continue with …” przy limicie
   i propozycja „Previous goal” zostały usunięte (etap 12).
@@ -489,7 +518,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   - Enter uruchamia `chat::shell::Running`: `$SHELL -c` w katalogu czatu, środowisko z `ShellEnvironment`, własna
     grupa procesów, Stop wysyła SIGTERM, a po 2 s SIGKILL;
   - karta to `Body::Shell(ShellRun)` w osobnej turze, z outputem ograniczonym do 32 KB z każdej strony;
-  - po zakończeniu `end_shell` wysyła (albo kolejkuje) wiadomość z `Attachment::Shell`: polecenie, kod wyjścia,
+  - po zakończeniu `finish_shell` daje runtime'owi wiadomość z `Attachment::Shell` (trwała kolejka hosta): polecenie, kod wyjścia,
     output skrócony do ~5 KB z każdej strony. Wiadomość nie ma własnego dymka ani znacznika w nawigatorze, a tacka
     kolejki pokazuje ją jako „Output of !cmd” bez Edit;
   - Restart i zamknięcie zatrzymują działające polecenia; po restarcie aplikacji karta
@@ -503,9 +532,9 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 - Zamykanie (QA etapu 9, DEC-076):
   - tab, pane, projekt i worktree z czatem, który ma rozmowę albo pracującego agenta, pytają „Delete this chat?” /
     „Delete N chats?”;
-  - pytanie wymienia też pracującego agenta, niewysłaną kolejkę i działające polecenia `!`;
+  - pytanie wymienia też pracującego agenta, niedoręczoną kolejkę i działające polecenia `!`;
   - pusty czat zamyka się bez pytania;
-  - quit niczego nie usuwa i pyta tylko o kolejkę.
+  - quit niczego nie usuwa i nie pyta o kolejkę: zostaje w bazie hosta i wraca wstrzymana.
   - DEC-095 (zamknięcie zostawia czat dla `/resume`) jest wstrzymane: po merge'u z usuwaniem i cleanupem
     z `chats/cleanup.rs` zamknięcie znów usuwa rozmowę.
 
@@ -669,7 +698,7 @@ aż warunek jest spełniony. Sprawdzone na żywo z Claude Code 2.1.295 i codex-c
   subagentów; ostatnia: `continued`, bez celu, `fork_at = resume_at`), kopiuje obrazy, które nazywają skopiowane
   wiadomości (`fork::images`), i zapisuje od razu pod nowym id czatu. Dopiero wtedy powstaje tab „<tytuł> (fork)”
   z tym samym narzędziem, kontem i wyborami, `resume_id` = sesja źródłowej części, bez zapamiętanych zgód.
-- Agent (DEC-093): `start()` bierze `fork_at` z mety przywróconej części (albo z `ChatView.fork_at`) i rozgałęzia
+- Agent (DEC-093): `start()` bierze `fork_at` z mety przywróconej części (albo z `ChatRuntime.fork_at`) i rozgałęzia
   sesję jak Edit: Claude `--resume <źródło> --resume-session-at <uuid> --fork-session`, Codex `thread/fork`
   z `cwd` nowego projektu. Punkt trzyma się, dopóki nowa sesja nie dostanie id (`save_session` czyści
   `fork_at`, `record_meta` zapisuje): Restart przed pierwszą wiadomością i restart aplikacji rozgałęziają znowu,
@@ -683,7 +712,7 @@ aż warunek jest spełniony. Sprawdzone na żywo z Claude Code 2.1.295 i codex-c
 
 - Lista zamkniętych czatów: `chat::closed::ClosedChat` (tytuł taba, narzędzie, `PaneMetadata` z sesją
   i wyborami, projekt: nazwa i ścieżka) w tabeli `_canopy_rust_closed_chats(chat, version, closed_at, payload)`.
-  Zapis przy zamknięciu (`ChatHistory::close`, `ChatView::pane`) jest wstrzymany razem z DEC-095 — zamknięcie
+  Zapis przy zamknięciu (`ChatHistory::close`, pane z `ChatRuntime`) jest wstrzymany razem z DEC-095 — zamknięcie
   usuwa rozmowę (`chats/cleanup.rs`); lista pokazuje wcześniej zapisane czaty.
 - `/resume` (DEC-094): komenda Canopy w podpowiedziach `/` (zastępuje wpis Claude, który headless nie działa);
   wybór usuwa słowo z pola i zgłasza `ChatResumeRequested { replace }` (pusty czat, w którym ją wpisano) →
@@ -724,3 +753,396 @@ aż warunek jest spełniony. Sprawdzone na żywo z Claude Code 2.1.295 i codex-c
   `settings::database::chat_history` (jeden wiersz katalogu), `tests/chat_models_live.rs` (live, ignorowane:
   `CANOPY_LIVE_CLAUDE=1 CANOPY_LIVE_CODEX=1 cargo test --locked --test chat_models_live -- --ignored`).
   GUI — QA.
+
+### Neutralne backendy i ACP v1
+
+`chat::agent::AgentDefinition` oddziela ID/nazwę/profil agenta od `BackendKind`
+(Claude, Codex, ACP). Dotychczasowy `Provider` pozostaje zgodnym API natywnego
+UI. `backend_session::BackendSession` udostępnia wspólne operacje runtime'u,
+capabilities i opcje; natywne rozszerzenia nadal obsługuje `ChatSession`.
+`BackendSession::submit` (`ChatSession::submit_accepted`, `AcpSession::submit`)
+przyjmuje stabilne ID wiadomości hosta i odrzuca zajętą sesję (`ready_for_message`);
+nie dodaje drugiej kolejki. `take_receipts` zwraca dowody: `Delivered`, `Refused`
+albo `Unknown` (koniec runu/`idle` bez dowodu). Trwałość i deduplikacja należą do hosta.
+
+`ToolCall.kind` jest semantycznym wynikiem adaptera. `None` oznacza stary zapis
+bez tego pola i używa zgodnego klasyfikatora nazw, bez migracji historii.
+`Some(Other)` oznacza jawnie nieznane narzędzie, również gdy jego tytuł przypomina
+znaną nazwę. Codex zachowuje własne nazwy protokołu zamiast nazw narzędzi Claude.
+Karty i grupowanie korzystają z `semantic_kind()`, a ścieżki z `file_path()`.
+Wspólne wyniki inicjalizacji, użycia kontekstu, lifecycle i podglądu rewind
+należą do `chat::backend`; stare ścieżki importu Claude mają zgodne reexporty.
+
+`acp::AcpSession` implementuje JSON-RPC ACP **v1** po stdio, zgodnie z
+[protokołem inicjalizacji](https://agentclientprotocol.com/protocol/v1/initialization)
+i [konfiguracji sesji](https://agentclientprotocol.com/protocol/v1/session-config-options).
+Runtime tworzy jeden `Process` przez `launch::prepare_acp`, przekazuje zdarzenia
+oraz zapisuje zwracane linie. Ten adapter nie wykonuje I/O. Host rozwiązuje
+środowisko konta/profilu przed launch; launcher waliduje argv, zachowuje izolowane
+środowisko i redakcję wartości sekretów. Zewnętrzne session/model/option/request
+IDs są nieprzezroczyste, a string i numeric JSON-RPC IDs pozostają rozróżnione.
+
+Obsługiwane są initialize, new/load, prompt, strumień tekstu/thinking/narzędzi,
+plan, komendy, cancel, permission options, config options oraz ogłoszone modele
+i tryby. Obrazy wejściowe wymagają ogłoszonego image capability i danych dostępnych
+na hoście. Brak wsparcia resume kończy start błędem zamiast tworzyć nową sesję.
+Steer, fork, rewind i goal dla ACP nie są emulowane promptami. Zmiana konfiguracji
+pozostawia poprzednią wartość do odpowiedzi; odmowa nie usuwa szkicu.
+
+Podczas load istniejący checkpoint pomija replay transkryptu. Bez checkpointu
+import jest buforowany (limit 32 MiB) i publikowany dopiero po udanej odpowiedzi
+load; błąd lub exit odrzuca całość. Opcje mogą być odświeżane niezależnie.
+Cancel odrzuca oczekujące decyzje i czeka na zakończenie oryginalnego promptu.
+Pierwsza odpowiedź na zgodę wygrywa, a ID wybranej opcji wraca bez interpretowania
+etykiety. `allow_always` nie jest przedstawiane jako zgoda ograniczona do czatu.
+Wyjście procesu nie uruchamia automatycznego retry wiadomości.
+
+HostCapabilities domyślnie nie ogłasza plików ani terminala. Po zainstalowaniu
+rzeczywistych handlerów runtime włącza je jawnie. Żądania `fs/read_text_file`,
+`fs/write_text_file`, `terminal/create`, `output`, `wait_for_exit`, `kill` i
+`release` trafiają przez typowane `HostRequest` do usług hosta. Adapter sprawdza
+sesję, limit 128 pending requests, parametry i pojedynczą odpowiedź. Host nadal
+odpowiada za zakres ścieżek, bufory edytora, dirty/conflict, limity outputu,
+terminal ownership i cleanup runu. Nie wolno ogłaszać tych capabilities na
+podstawie samych testów adaptera.
+
+Offline `tests/chat_acp.rs` używa fake procesu i kontrolowanych zdarzeń bez
+modeli, GUI ani sieci. To dowód protokołu/state machine, nie odbiór całego E2,
+rzeczywistego agenta ACP, usług hosta ani macOS/Windows/mobile.
+
+### Runtime, UI i usługi hosta dla ACP
+
+`ChatRuntime` (`app_state/chats/runtime.rs`) trzyma `BackendSession`. Wspólne
+ścieżki (start, pompa zdarzeń, transkrypt, historia, status, decyzje, Stop,
+cleanup, trwała kolejka) działają dla każdego backendu; rozszerzenia Claude/Codex
+(goal, Steer, rewind/edycja, `!`, modele i tryby, page tools) idą przez
+`native()` i nie istnieją dla ACP. UI ukrywa je według `capabilities()`:
+`/goal` tylko z `goal`, Steer z `steer`, fork i edycja tylko dla natywnych
+sesji, `!` tylko dla Claude/Codex.
+
+Agent ACP to narzędzie typu Custom z polem `acp: true` w katalogu narzędzi
+(opcjonalne pole JSON, bez migracji bazy; Preferences → Tools → „Agent Client
+Protocol”). `ToolCatalog::agent_definition` buduje `AgentDefinition` z
+executable, argumentów narzędzia, profilu i pane. Narzędzie bez profili jest
+jednym kontem o ID narzędzia. Konta ACP pojawiają się obok Claude/Codex na
+szynie wyboru konta (przed pierwszą wiadomością); taki agent nie trafia do menu
+terminali. Composer czatu ACP zamiast pickerów modelu i trybu ma jedno menu
+opcji agenta: `configOptions`, a gdy ich brak — `models`/`modes` z ACP, z
+nieprzezroczystymi ID. Zmiana czeka na odpowiedź agenta; odmowa zostawia
+poprzednią wartość i komunikat pod composerem. Potwierdzone przez agenta wartości
+opcji trafiają do `ChatSettings.agent_options` (nieprzezroczyste ID opcji i wartości,
+także `canopy:model`/`canopy:mode`). Nowa sesja dostaje je po kolei, po jednej zmianie
+naraz, tylko gdy agent nadal oferuje daną wartość; odmowa zostawia wartość agenta.
+
+Panel decyzji pokazuje opcje zgody ACP z ich nazwami; opis mówi tylko „jednorazowo”
+albo „agent zapamiętuje wybór” — bez przypisywania zakresu czatu. Esc/⌘⌫
+wybiera `reject_once`, potem `reject_always`, a bez nich anuluje prośbę. Notatka
+do odmowy nie istnieje w ACP, więc pole nie wysyła odmowy z tekstem.
+
+ACP korzysta z tej samej trwałej kolejki hosta co Claude/Codex. Dowodem doręczenia
+jest pierwsze `session/update` lub żądanie agenta w turze promptu albo odpowiedź
+na `session/prompt`; błąd odpowiedzi przed zdarzeniem tury to odmowa. Resume ACP
+zapisuje się tylko, gdy agent ogłosił `loadSession`.
+
+### Trwała kolejka hosta
+
+`runtime/queue.rs` jest jedynym dispatcherem wiadomości czatu (lokalnych i zdalnych):
+
+- Start aplikacji (`SettingsState::new`) po otwarciu bazy, przed narzędziami, woła
+  `initialize_runtime` (lease hosta, jedna migracja, `attempting` → `delivery_unknown`,
+  wszystkie kolejki wstrzymane) i `load_runtime_chats`. Host ID, rekordy czatów i
+  `ArtifactStore` (otwierany w tle, `<data>/artifacts`, sprzątanie co 60 s w tle,
+  zatrzymywane przy quit) trzyma `SettingsState`. Błąd startu runtime'u zatrzymuje start jak błąd ustawień.
+- Runtime zapisuje `ChatRecord` (agent, konto, workspace/private, `history_epoch`
+  bieżącej części) przed przyjęciem Send; wysyłka czeka na zapis rekordu tej części.
+  Rekord z `recovery_reason` (adoptowana historia bez metadanych) blokuje start i Send
+  z komunikatem — nigdy nie wybieramy domyślnego konta.
+- Send: `QueueDraft::command_for_message` (ID wiadomości + szkic + `SendContext` rekordu)
+  → `accept_runtime_message` atomowo zapisuje receipt i pozycję. Lokalne receipty są
+  potem potwierdzane (`acknowledge_runtime_command`). Wstrzymana kolejka bez innych
+  oczekujących pozycji zostaje wznowiona przez tę wysyłkę; ze starszymi czeka na Resume.
+- Dispatch: pierwsza `queued`, gdy kolejka nie jest wstrzymana ani zablokowana
+  (`attempting`/`delivery_unknown`) i sesja `ready_for_message` (Codex z celem: steer
+  do tury celu). Najpierw `transition_runtime_queue(queued→attempting)`, potem w tle
+  artefakty hosta pozycji (`artifact_ids`, obrazy wysłane zdalnie):
+  `ArtifactStore::read_retained_image` → `attachments::prepare_image` do folderu
+  załączników czatu, dane obrazów i `submit` pod ID wiadomości. To samo robią Steer
+  i Edit pozycji, więc wiadomość z samym obrazem nie traci treści. Odmowa `Process::send`
+  (limit 64 MiB/64 linii na proces i 256 MiB globalnie, zamknięte stdin) przed pierwszą
+  linią = `failed`, po części linii = `delivery_unknown`. Sesja uznała już wiadomość za
+  wysłaną, więc run kończy się (`abort_run`): kolejka zostaje wstrzymana, błąd mówi
+  o Restarcie, goal i rozmowa zostają dla Restartu, nic nie jest ponawiane samo.
+  `failed` wraca do composera z komunikatem.
+- Rozstrzygnięcie tylko z `take_receipts`: `delivered`, `failed` albo `delivery_unknown`
+  (także restart/zamknięcie runu bez dowodu). Sukces zapisu do stdin niczego nie dowodzi.
+- Stop wstrzymuje kolejkę (`Pause`), Resume ją wznawia i najpierw wysyła `RESUME_PROMPT`
+  (nietrwały prompt Canopy). `delivery_unknown` blokuje dalszy dispatch; tacka daje
+  trzy akcje z bieżącą rewizją: Delivered, Send again (nowe ID w tym samym miejscu,
+  ostrzeżenie o duplikacie), Dismiss.
+- Move/Remove/Edit/Pause/Resolve to `QueueMutation` z rewizją (`change_queue`). Konflikt
+  odświeża kolejkę i pokazuje komunikat; Edit z tacki zdejmuje pozycję do composera
+  (Remove), a tekst z pola idzie jako nowa wiadomość.
+- Steer (CHAT-03) to ta sama trwała wiadomość: ⌘⏎ z pola najpierw przyjmuje ją jak Send
+  (ID, receipt), Steer pozycji zachowuje jej ID i komendę. Pozycja przechodzi na początek
+  (`Move` z rewizją), dispatch zapisuje `attempting` i dopiero wtedy pisze ją w bieżącą
+  turę (`ChatSession::steer_accepted`: Claude `priority: next` pod ID wiadomości, Codex
+  `turn/steer`). Dowód: `started` Claude / odpowiedź Codex; odmowa = `failed` i powrót do
+  pola, brak dowodu = `delivery_unknown`. Gdy tura skończy się przed wysłaniem, pozycja
+  idzie jako zwykła następna wiadomość. Wstrzymana kolejka odmawia Steer z komunikatem.
+  Agent bez capability `steer` (ACP) nie zamienia Steer w Send: szkic wraca do pola.
+- API dla mostu gRPC: `ChatRuntime::accept_message(CommandInput, message, QueueDraft)`,
+  `change_queue(CommandInput, revision, QueueMutation)`, `host_queue()` (rewizja, pauza,
+  pozycje) i `queue_lines()`; wejście zachowuje DeviceId/epoch/ID komendy zdalnej.
+  Odczyty: `ChatRuntime::snapshot` (status, run, opcje agenta, decyzje z runem, kolejka,
+  obserwatorzy; bez transkryptu), `decisions()`, `Chats::chat_summaries`. Nazwane komendy
+  (`runtime/remote.rs`, `chats/commands.rs`) przyjmują `CommandKey` urządzenia i typowane
+  argumenty — bez uniwersalnego dispatchera: `remote_start/interrupt/restart/resume_queue/
+  steer/respond/set_option`, `Chats::create_chat(NewChat)` (UUID od klienta, jawne konto,
+  bez taba) i `delete_chat(DeletePreflight)`. Każda: accept (autoryzacja, dedupe), stan
+  bieżący sprawdzony ponownie (zmiana → `rejected`), `attempting` przed skutkiem, wynik
+  `succeeded`/`failed`/`delivery_unknown`. Odpowiedź na decyzję innego runu = `stale_run`,
+  już rozstrzygniętą = `already_resolved`; Delete kończy się po potwierdzonym cleanupie.
+  `observe`/`unobserve` liczą zdalne subskrypcje; obserwator jak widok blokuje usypianie.
+  Dalsze komendy: `PauseGoal/ResumeGoal/ClearGoal` (tylko z capability `goal`),
+  `StopBackground{call}`, `Rename{title}`; `Chats::fork_chat(ForkChat)` rozgałęzia
+  rozmowę w tym samym punkcie co lokalny Fork, jako nowy czat bez taba.
+  - Edycja jako fork (`ForkReplacement`): ścieżki z wiadomości rozwiązuje cel forka i
+    autoryzacja się nie poszerza. Fork do projektu: plik musi nazywać workspace tego
+    projektu (grant `READ` na jego checkout, ten sam root co cel); plik bez workspace
+    = odmowa. Fork prywatny: plik z workspace = odmowa (root ≠ `private`); plik bez
+    workspace (i ścieżka skilla) to plik prywatnego folderu źródła — tylko gdy źródło
+    jest prywatne i ma folder (kanonizowany na workerze, `source_folder`); źródło
+    projektowe nie ma prywatnego folderu, więc taki plik = `failed_precondition`.
+  - Prywatny fork dostaje własne kopie: na background executorze, po utworzeniu
+    nowego folderu `<dane>/chats/<uuid>` i przed atomowym `complete_runtime_fork`,
+    `commands/fork_files.rs` kopiuje WYŁĄCZNIE dołączone pliki/katalogi (nie cały cwd)
+    w te same względne miejsca i przepisuje ścieżki wiadomości na kopie. Folder
+    źródła musi kanonizować się tak samo jak przy walidacji (inaczej
+    `conditions_changed`). Kopia idzie bez podążania za linkami (Unix: `fstatat`
+    + `openat` z `O_NOFOLLOW`, plik `O_NONBLOCK`, ponowny `fstat`), tylko zwykłe
+    pliki i katalogi; link, FIFO, urządzenie, ścieżka spoza folderu źródła albo
+    przekroczenie limitu (64 MB treści, 1000 wpisów, 32 poziomy) kończy fork jako
+    `failed` bez rekordu i wiadomości, a nowy folder jest usuwany. Ścieżki sortowane
+    i deduplikowane: plik wewnątrz już skopiowanego katalogu nie jest kopiowany
+    drugi raz. Usunięcie źródła nie zabiera forkowi kontekstu zaakceptowanej
+    wiadomości. Windows: bez `openat`, każdy krok sprawdza `symlink_metadata`.
+- Szew serwera: `app_state::chat_bridge::install(cx) -> ChatBridge` (Send + Sync).
+  Każda operacja idzie ograniczonym kanałem (64) do wątku aplikacji; pełny kanał =
+  `resource_exhausted`, bez kolejki bez limitu. `subscribe(chat)` daje najpierw jeden
+  `ChatEvent::Snapshot` (stan + najnowsze `SNAPSHOT_ITEMS`=100 elementów wszystkich
+  części, `epochs_tail`, i znacznik starszych) z tej samej tury aplikacji co
+  rejestracja, potem `Items{serial}`, `State`, `Committed` (dowód zapisu historii z
+  `ChatHistory::HistoryCommitted`, dopiero po commicie), `SessionReplaced`, `Stopping`.
+  Pełny bufor (256) kończy subskrypcję (klient robi resync), a runtime działa dalej.
+  Subskrypcja liczy się jako jeden obserwator; `set_observers(id, n)` ustawia liczbę
+  klientów, za których stoi (współdzielona projekcja: rzeczywista liczba, 0 w czasie
+  oczekiwania na reconnect, więc czat może zasnąć). `watch_catalog` odświeża też
+  po zmianach terminali i niesie rekordy katalogu (root uprawnień, konto, epoka).
+  Bridge nie zna sieci, uwierzytelnienia ani Protobuf.
+  `steer(chat, input, message, draft, run)`: Steer nowego tekstu to jedna komenda Send
+  (`QueueDraft::command_for_steer`, intencja i run w fingerprint); inny run = `stale_run`
+  bez przyjęcia, zmiana runu w trakcie przyjęcia wstrzymuje kolejkę zamiast steerować
+  w inny run. Trwała wskazówka `steer_run` pozycji jest czyszczona przy starcie hosta.
+  Interrupt, Restart i StopBackground niosą `run` i sprawdzają go w efekcie (w wątku
+  aplikacji, po `attempting`), nie tylko przed wysłaniem. Run ID pochodzą z licznika
+  procesu zasianego zegarem, więc run poprzedniego procesu Canopy nigdy nie pasuje.
+  Katalog: `workspaces()` (projekty, kanoniczne rooty liczone na workerze, repozytorium),
+  `watch_catalog()` (cały katalog projektów i czatów od razu, potem po każdej zmianie
+  projektów, rejestru czatów lub rekordów — scalane, bez pollingu i bez tworzenia
+  runtime'ów), `open_project` (bez zmiany wybranego projektu hosta),
+  `close_project_preflight` / `close_project` (ponowne sprawdzenie, niezapisane pliki
+  edytora hosta = `needs_host_interaction`, sukces po cleanupie czatów).
+- Zdalne usługi (`app_state/remote/chat*`, `catalog*`):
+  - Jedna projekcja na obserwowany czat, wspólna dla klientów, z jednym strumieniem
+    `ReplayHub`. Snapshot i rejestracja ogona pod tą samą blokadą; ramki publikowane
+    pod nią (SYNC-01). Ostatni klient → `set_observers(0)` i 30 s łaski: reconnect
+    z kursorem dostaje brakujące ramki z ringu; potem projekcja i subskrypcja runtime'u
+    się kończą. `SessionReplaced`/`Stopping` zamyka strumień (resync). Maks. 64
+    projekcje (bezczynna zwalniana pierwsza), 100 elementów każda, cache obrazów
+    ograniczony do używanych. Nieudany start projekcji wypisuje subskrypcję runtime'u
+    także przy anulowanym RPC.
+  - Snapshot i strona historii: elementy ≤512 KiB pakowane do jednej ramki, większe
+    jako fragmenty ≤64 KiB tworzone leniwie z jednego współdzielonego kodowania
+    (limit elementu 32 MiB, kursor dopiero po złożeniu). Przyjęcie transferów: 4 na
+    urządzenie, 32 na hosta (`resource_exhausted`). Element live >4 MiB nie trafia do
+    ringu (wypchnąłby inne strumienie): klienci dostają `Resync` i czytają snapshot.
+  - Trwałość (SYNC-06/07): każda ramka elementu jest zapisana dopiero, gdy commit
+    historii poda SHA-256 `history::item_json` dokładnie tej wersji; starsze ramki
+    elementu stają się zapisane dopiero z dowodem nowszej wersji (samo zastąpienie
+    niczego nie zapisuje). `saved_sequence` to najwyższa ciągła zapisana ramka;
+    `TurnEnd.saved` tylko po dowodzie; elementy początkowe sprawdza
+    `read_history_checkpoint`. Bez dowodu (historia wyłączona, błąd dysku) znak nie
+    rośnie. Skrócony zapis ma ten sam hash co jego wersja live; strona historii niesie
+    `trimmed` z zapisanego wiersza.
+  - Załącznik ścieżki: względem checkoutu, a w Private chats (workspace pusty) względem
+    prywatnego folderu czatu; ścieżka poza nimi ma tylko etykietę i pustą ścieżkę
+    (nie do otwarcia, nigdy ścieżka klienta). Klient może wysłać plik prywatnego
+    folderu jako `FileRef` bez workspace.
+  - Fork (CHAT-08): historia do wskazanego końca tury jest kopiowana przez właściciela
+    historii, potem jedna transakcja `complete_runtime_fork` publikuje rekord, odziedziczone
+    referencje obrazów, opcjonalną edytowaną wiadomość (`replacement`, edycja jako fork)
+    i sukces komendy. Wiadomość jest sprawdzana względem celu forka przed czymkolwiek
+    i idzie pod komendą Send wyprowadzoną z forka (to samo urządzenie i epoka, ID
+    `resource_id(key, "fork-message")`, fingerprint z fingerprintu forka zapisany w jego
+    intencji). Błąd w tym miejscu = komenda `failed`, brak forka, wiadomości i
+    częściowego wyniku (bez adnotacji w odpowiedzi); skopiowana historia nielistowanego
+    czatu idzie z następnym cleanupem, prywatny folder jest usuwany od razu. Czat z
+    wyłączoną historią nie ma punktu do forka (`Rejected`: brak zapisanego punktu).
+  - Deduplikacja (CMD-02): każda mutacja czatu i katalogu liczy `wire_fingerprint`
+    (SHA-256 zdekodowanego żądania bez transportowej tożsamości komendy — host, ID,
+    epoka — z `expected_revision`, która jest częścią intencji) i sprawdza
+    `get_runtime_command_matching` przed szukaniem celu. To samo ID z innym body,
+    metodą, celem lub rewizją = `idempotency_conflict`, nigdy stary receipt. Handler
+    runtime'u (`RemoteKey{key, fingerprint}`) zapisuje komendę pod tym samym
+    fingerprintem, niezależnie od tego, jak cele rozwiązują się później.
+  - Edycja wysłanej wiadomości (`PreviewEdit`/`EditMessage`): podgląd pyta runtime
+    (`remote_edit_preview`, dry run plików agenta ≤10 s) i zwraca oryginał jako
+    `MessageDraft` (obrazy opublikowane, ścieżki względne, PR podpisane ponownie);
+    powód odmowy bez prefiksu kodu. `EditMessage` = `ChatCommand::Edit` (opcjonalne
+    przywrócenie plików przed edycją; sukces po starcie nowej gałęzi).
+  - Komendy `!` (`RunShell`/`StopShell`, zakres chat+terminal): `ChatCommand::RunShell`
+    z runem; receipt sukcesu niesie klucz karty (`history_epoch`, `item_id`) jako
+    wynik `chat.shell`. StopShell (`run`, `history_epoch`, `item`) zatrzymuje kartę
+    danego runu i części historii: w trwałym skutku `stale_run` przy innym runie,
+    `conditions_changed` przy innej części (ten sam numer elementu może być inną
+    kartą bieżącej części), dopiero potem sprawdzenie, czy karta jeszcze działa.
+  - Załącznik PR: tylko z podpisanym `context_id` z listy PR hosta (`PullContexts`,
+    HMAC kanonicznych pól i roota checkoutu, 15 min). Brak kontekstu =
+    `pr_context_required`; zmienione pola, inny checkout lub wygaśnięcie = odmowa.
+    `ChatsRpc::with_pull_contexts` dostaje ten sam signer co discovery.
+  - Katalog: lista i `WatchSummaries` filtrowane rootami urządzenia; najpierw cały
+    katalog, potem delty czatów/terminali, ponownie cały przy zmianie projektów.
+    Budzi go push aplikacji, zmiana dzierżawy terminala (`Run::observe`) i stan
+    hosta (draining kończy strumień). Credential urządzenia jest sprawdzany przed
+    KAŻDYM wysłanym zdarzeniem; zmiana autoryzacji (root, scope, rewizja) usuwa
+    wszystko zakolejkowane dla starej i wysyła nowy snapshot, revoke kończy strumień
+    przed kolejnym zdarzeniem. Katalog > 64 KiB idzie jako `CatalogSnapshotPart`
+    (strony ~64 KiB, wspólny `boundary`, `first`/`last`; projekt może kontynuować
+    checkouty na kolejnej stronie pod tym samym `project_id`); mniejszy jako zwykły
+    `snapshot`. Klient (`remote::client::catalog`, mobile `grpc/catalog.ts`) stage'uje
+    strony i podmienia katalog atomowo dopiero na `last` z tym samym boundary; delta
+    w trakcie, obcy boundary lub rozłączenie odrzuca staging (stary katalog zostaje).
+    `ReadCatalog` = jeden taki ciąg stron (używany przy connect i przez outbox);
+    unarne `ListResources` zwraca `resource_exhausted` (`catalog_too_large`) powyżej
+    1 MiB. Projekcja jest liczona do wspólnego budżetu `ReplayHub::reserve_assembly`
+    (32 MiB na host, inaczej `resource_exhausted`), wysłane zdarzenie do
+    `reserve_output` urządzenia (4 MiB/32 MiB) do czasu pobrania następnego; po
+    wysłaniu strumień trzyma tylko skróty wierszy. Most aplikacji trzyma jeden
+    współdzielony `Arc<CatalogEvent>` na strumień (najnowszy, bez kolejki wersji) i
+    nie buduje ani nie wysyła katalogu, gdy projekty, podsumowania czatów i rekordy
+    się nie zmieniły (np. token tekstu). Mutacje:
+    CreateChat (ID z komendy, jawne konto), Rename (tylko czaty; projekty, terminale
+    itd. nie mają rename w Canopy → `unsupported`), OpenProject, PreflightClose i
+    CloseResource (czat = Delete, projekt = Close, terminal urządzenia). Plan
+    zamknięcia jest związany z urządzeniem, zasobem i zamiarem, ważny 5 min, zużywany
+    przez jedną komendę; host sprawdza warunki (i dirty presence projektu) ponownie.
+    Retry tego samego ID zwraca zapisany stan przed sprawdzeniem celu, więc po
+    usunięciu celu lub zużyciu planu nie ma drugiego skutku ani mylącego not_found;
+    inna operacja, cel lub body (fingerprint) pod tym ID to `idempotency_conflict`.
+    Close projektu, którego cleanup czatów się nie udał, kończy się `failed`
+    (`cleanup_failed`), a projekt zostaje na liście jako `closing` (bez wejścia do
+    katalogu projektów i terminali), z korzeniem uprawnień do czasu udanego cleanupu.
+    Ponowny PreflightClose/CloseResource tego workspace'u (nowa komenda) ponawia tylko
+    nieudane cleanupy tych czatów; sukces usuwa go z listy. `WorkspaceRoots` śledzi
+    kanoniczne workspace'y z pushy katalogu (zadanie startuje przy pierwszym RPC
+    katalogu, kończy się z usługą).
+- Autoryzacja komend czatu używa `ChatRecord::authority_root` (kanoniczny checkout
+  albo "private"), ustawianego przy zapisie rekordu, create, fork i recover poza
+  wątkiem UI; pusty root odmawia, nie jest zgadywany.
+
+Usługi hosta (`runtime/host_services.rs`) są ogłaszane w `initialize`:
+`fs/read_text_file` czyta bufor otwartego edytora (z niezapisanymi zmianami),
+a bez niego plik przez `files::Document` (limity, UTF-8, brak linków poza
+folderem). `fs/write_text_file` odmawia, gdy plik ma niezapisane zmiany w
+edytorze Canopy albo zapisany dirty buffer innego urządzenia (`runtime_file_presence`,
+komunikat z nazwą urządzenia i last_seen), i zapisuje przez `Document::save` (BOM,
+CRLF, uprawnienia, odmowa przy zmianie na dysku); nowy plik powstaje w istniejącym
+katalogu. Zapisy Canopy jednego pliku (Save edytora, zapis agenta, zdalne Files/Git)
+rezerwują wspólną bramkę hosta `files::Gate` (globalna `app_state::file_ops`, ta sama
+dla serwera przez `ResourceLocks::with_gate`) po kanonicznym root i ścieżce; zapis
+agenta po rezerwacji ponownie sprawdza oba źródła dirty tuż przed zapisem. To nie
+jest CAS wobec innych programów.
+Ścieżki muszą być absolutne i leżeć w folderze czatu. `terminal/*` uruchamia komendę
+przez `shell::Running` w folderze czatu ze środowiskiem powłoki (macOS/Linux: powłoka
+i grupa procesów; Windows: program i argv bezpośrednio przez `prepare_launch`,
+uruchomiony wstrzymany w nowym Job Object, więc Stop i cleanup obejmują całe drzewo),
+limit 16 terminali i
+1 MiB outputu (ucinany od początku). Terminal należy do runu: Stop, wyjście
+procesu i `release` go kończą, a uchwyt trafia do wspólnego cleanupu. Karta
+narzędzia pokazuje jego output na żywo, bez wejścia i resize. Wyniki spóźnione
+po restarcie są odrzucane po generacji runu.
+
+LIFE-09: runtime bez żadnego `ChatView` i bez zdalnego obserwatora (także ukryty
+tab ma widok, więc nie usypia) po 60 s bez tury, decyzji, aktywnego dispatchu (wstrzymana kolejka i
+`delivery_unknown` nie blokują), `!`, terminali, pracy w tle i
+goalu — i tylko z zapisanym resume — zatrzymuje proces i trzyma rozmowę jako
+zapisaną część; kolejny start wznawia tę samą sesję w tej samej części historii.
+Globalny limit `MAX_CHAT_PROCESSES` (32) odmawia startu z komunikatem błędu i
+Restartem zamiast tworzyć kolejny proces. Sidebar i taby czytają status i model
+z runtime'u, nie z widoku.
+
+Rozmowy adoptowane bez metadanych (`unresolved`) są wymienione w sidebarze czatów
+z akcją „Restore chat…”. Dialog (`ui/chat_recovery.rs`) wymaga wyboru agenta, konta
+i folderu (nowy prywatny albo otwarty projekt); podpowiada tylko konto zapisane w
+historii tej rozmowy, nigdy domyślne. `Chats::recover` zapisuje rekord jawnym CAS
+(`recover_runtime_chat`: ten sam ID, powód i `history_epoch`); historia i ID zostają,
+a czat pojawia się jak czat bez taba. Konflikt lub nieznane konto zostawia rekord.
+
+Ograniczenia: brak testu z rzeczywistym agentem ACP i GUI; terminal ACP i `!` na
+Windows nie były uruchomione (brak hosta Windows: NOT RUN).
+
+### Zdalny katalog composera i strony
+
+`remote::discovery` odczytuje niesekretne definicje i konta z rzeczywistego
+`ToolCatalog` z zakresem `read`. Lista ma strony ograniczone bajtowo do control;
+kursor wiąże pozycję z rewizją publicznego katalogu. Zmiana katalogu wymaga
+ponownego odczytu pierwszej strony. Konto bez profili używa jawnego `tool.id`;
+ścieżki uruchamiania native i ACP interpretują je jednakowo, bez przełączenia
+na nowy domyślny profil, jeżeli katalog zmieni się przed uruchomieniem.
+
+Sonda wybranego konta uruchamia handshake bez promptu. Codex czeka na odpowiedzi
+modeli i skilli, ACP na aktualizację komend; brak kompletu metadanych po 15 s daje
+jawny stan niepełnego katalogu. Wybrany profil zachowuje model, tryb i effort.
+Odświeżanie nie zajmuje właściciela aktywnego czatu. Maksymalnie cztery sondy
+pracują równolegle; anulowanie RPC kończy sondę, a wspólny drain czeka na cleanup.
+Cache jest związany z rootem, agentem, kontem i konfiguracją; także trafienie
+w cache ponownie sprawdza aktualny grant.
+
+Odczyt PR sprawdza `read`, bieżące repozytorium oraz niezmienione konto przy
+każdym wysłaniu HTTP. Kontekst PR ma podpis związany z checkoutem i pełną treścią,
+ważny przez 15 minut. Nie jest samodzielnym uprawnieniem do zasobu.
+`ReadChatPage` odczytuje jeden rekord czatu i jeden wskazany element historii
+(albo element live), odrzucając skrócony zapis HTML. Obrazy względne i bezwzględne
+muszą pozostać po kanonikalizacji wewnątrz folderu czatu; folder czatu w projekcie
+musi należeć do autoryzowanego workspace. Inlining ma łączny limit 32 MiB i
+ogranicza odczyt pliku przed alokacją base64. Nieudana publikacja cofa upload;
+opublikowany wynik podlega limitowi i TTL magazynu artefaktów. Każdy odczyt
+fragmentu ponownie sprawdza aktualny grant.
+
+Regresje izolowane używają procesów fixture, tymczasowych repozytoriów i SQLite.
+Nie stanowią odbioru rzeczywistych providerów, GUI ani platform macOS/Windows/mobile;
+te próby pozostają `NOT RUN` do osobnego wykonania.
+
+### Zdalny szkic podczas wysyłania
+
+Desktop i mobile przechwytują wersję całego composera przed wysyłką: tekst,
+obrazy oraz załączniki i `SendContext`. Każda edycja, także zmiana samego obrazu
+lub cytatu przy identycznym tekście, tworzy nową wersję. Zapis do outboxu atomowo
+usuwa tylko przechwyconą wersję szkicu. Kontekstowy Send jest dostępny online;
+po przyjęciu czyści szkic przez porównanie wersji. Nowsza edycja pozostaje
+w kontrolce i prywatnym magazynie klienta, także po ponownym otwarciu rozmowy.
+Programowe `InputState::set_value` nie emituje `Change`, dlatego desktop jawnie
+zapisuje tekst i kontekst razem oraz odrzuca opóźnione autosave zużytej wersji.
+
+Kontekstowy Send ma typowany dziennik oryginalnego żądania i używa tego samego
+command ID przy jawnym uzgadnianiu utraconej odpowiedzi. Outbox offline nadal
+przyjmuje tylko tekst i obrazy. Czyszczenie szkicu nie usuwa dzienników uploadu
+ani plików obrazów potrzebnych przyjętej wiadomości. Cancel edit najpierw
+przywraca cały wcześniejszy composer, potem zapisuje przywrócony stan.
+Zakończenie Shell/Edit korzysta z tej samej ochrony wersji. Uzgodnienie dawnego
+Edit po utracie odpowiedzi zachowuje bieżący szkic; Cancel edit przywraca wcześniejszy.
+
+Regresje magazynu klienta używają barier i tymczasowych danych: A wysyłane,
+B edytowane przed wynikiem A, odtworzenie B po restarcie, brak odtworzenia
+zużytej wersji oraz błąd zapisu bez utraty szkicu. Te testy nie potwierdzają GUI
+ani odbioru natywnego macOS, Windows, iOS i Android — pozostaje `NOT RUN`.

@@ -8,6 +8,7 @@ mod viewport;
 use canopy_desktop::{
     state::workspace::Pane,
     terminal::{
+        control::{Holder, Lease, Run},
         environment::ShellEnvironment,
         session::{Frame, Mode, Session, Size, Status},
     },
@@ -53,9 +54,18 @@ struct CleanupOperation {
 }
 pub struct TerminalView {
     pane: Pane,
+    /// Remote identity of this terminal for its whole life; never a pane index.
+    terminal_id: String,
     agent_run: Option<String>,
     env: Option<Arc<ShellEnvironment>>,
     session: Option<Arc<Session>>,
+    /// The current run and its single input/resize owner (local or a device).
+    run: Option<Arc<Run>>,
+    /// Owner granted to the next run: whoever starts it.
+    next_holder: Holder,
+    /// Lease as of the last refresh; render reads this copy.
+    lease: Option<Lease>,
+    lease_timer: Option<Task<()>>,
     cleanup: Option<CleanupOperation>,
     frame: Option<Frame>,
     cursor: cursor::CursorStabilizer,
@@ -138,6 +148,28 @@ impl TerminalView {
     pub fn pane_id(&self) -> canopy_desktop::state::workspace::PaneId {
         self.pane.id
     }
+    pub fn pane(&self) -> &Pane {
+        &self.pane
+    }
+    pub fn terminal_id(&self) -> &str {
+        &self.terminal_id
+    }
+    /// A terminal created by a remote device: its ID and first input owner.
+    pub fn for_device(mut self, terminal_id: String, holder: Holder) -> Self {
+        self.terminal_id = terminal_id;
+        self.next_holder = holder;
+        self
+    }
+    pub fn run(&self) -> Option<Arc<Run>> {
+        self.run.clone()
+    }
+    pub fn is_starting(&self) -> bool {
+        self.starting
+    }
+    /// Why the last start failed, if it did.
+    pub fn start_error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
     pub fn cwd(&self) -> Option<&std::path::Path> {
         self.pane.metadata.cwd.as_deref()
     }
@@ -198,9 +230,14 @@ impl TerminalView {
         };
         Self {
             pane,
+            terminal_id: uuid::Uuid::new_v4().to_string(),
             agent_run: None,
             env,
             session: None,
+            run: None,
+            next_holder: Holder::Local,
+            lease: None,
+            lease_timer: None,
             cleanup: None,
             frame: None,
             cursor: Default::default(),

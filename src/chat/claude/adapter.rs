@@ -1,6 +1,7 @@
 //! Folds Claude stream-json messages into the provider-neutral transcript.
 //! Pure: no I/O, so recorded sessions replay deterministically in tests.
 use super::wire::{self, ApiEvent, Block, Delta, Inbound, System};
+pub use crate::chat::backend::{CliState, InitInfo, Signal};
 use crate::chat::goal::{self, GoalEvent};
 use crate::chat::presentation::HANDBACK_TOOL;
 use crate::chat::transcript::{
@@ -9,55 +10,6 @@ use crate::chat::transcript::{
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct InitInfo {
-    pub session_id: Option<String>,
-    pub model: Option<String>,
-    pub permission_mode: Option<String>,
-    pub version: Option<String>,
-    pub capabilities: Vec<String>,
-    pub api_key_source: Option<String>,
-    /// Skills the CLI offers (`plugin:name` for plugin skills).
-    pub skills: Vec<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CliState {
-    Running,
-    Idle,
-    RequiresAction,
-}
-
-/// What the session controller must react to after a message was applied.
-#[derive(Debug, PartialEq)]
-pub enum Signal {
-    ControlAck {
-        request_id: String,
-        error: Option<String>,
-        /// Success payload (e.g. models and permission mode for `initialize`).
-        response: Option<Value>,
-    },
-    Init(InitInfo),
-    SessionId(String),
-    State(CliState),
-    PermissionRequested,
-    PermissionWithdrawn,
-    TurnFinished,
-    /// Number of non-ambient background tasks the CLI is tracking.
-    BackgroundTasks(usize),
-    /// The CLI changed the permission mode itself (e.g. leaving plan mode).
-    PermissionMode(String),
-    /// A reply that must be written back to the CLI.
-    Reply(Value),
-    /// Progress of one of our user messages.
-    Lifecycle {
-        uuid: String,
-        state: wire::Lifecycle,
-    },
-    /// What the agent reported about the chat's goal.
-    Goal(GoalEvent),
-}
 
 #[derive(Default)]
 pub struct Adapter {
@@ -612,6 +564,7 @@ impl Adapter {
                 let index = transcript.push(
                     parent,
                     Body::Tool(ToolCall {
+                        kind: Some(super::super::backend::tool_kind(&name)),
                         call_id: id.clone(),
                         name,
                         input,

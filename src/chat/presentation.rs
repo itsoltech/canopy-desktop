@@ -85,7 +85,8 @@ pub const HANDBACK_TOOL: &str = "SubagentHandback";
 
 /// A tool call that runs a subagent; its output items carry the call id as parent.
 pub fn is_subagent(tool: &ToolCall) -> bool {
-    matches!(tool.name.as_str(), "Agent" | "Task")
+    tool.semantic_kind() == ToolKind::Agent
+        && !matches!(tool.name.as_str(), "SendMessage" | "TaskStop")
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,7 +189,7 @@ pub fn groups(item: &Item) -> bool {
                 && !is_subagent(tool)
                 && tool.name != crate::chat::page::SHOW_TOOL
                 && !matches!(
-                    tool_kind(&tool.name),
+                    tool.semantic_kind(),
                     ToolKind::Edit | ToolKind::Plan | ToolKind::Agent
                 )
         }
@@ -201,7 +202,7 @@ pub fn actions_label<'a>(items: impl IntoIterator<Item = &'a Item>) -> String {
     let (mut shell, mut read, mut search, mut web, mut other, mut thought) = (0, 0, 0, 0, 0, 0);
     for item in items {
         match &item.body {
-            Body::Tool(tool) => match tool_kind(&tool.name) {
+            Body::Tool(tool) => match tool.semantic_kind() {
                 ToolKind::Shell => shell += 1,
                 ToolKind::Read => read += 1,
                 ToolKind::Search => search += 1,
@@ -247,31 +248,7 @@ pub fn actions_label<'a>(items: impl IntoIterator<Item = &'a Item>) -> String {
     label
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ToolKind {
-    Shell,
-    Read,
-    Edit,
-    Search,
-    Web,
-    Agent,
-    Plan,
-    Other,
-}
-
-pub fn tool_kind(name: &str) -> ToolKind {
-    match name {
-        "Bash" | "BashOutput" | "KillShell" | "Monitor" => ToolKind::Shell,
-        "Read" | "NotebookRead" => ToolKind::Read,
-        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => ToolKind::Edit,
-        "Grep" | "Glob" | "LS" | "ToolSearch" => ToolKind::Search,
-        "WebFetch" | "WebSearch" => ToolKind::Web,
-        "Agent" | "Task" | "SendMessage" | "TaskStop" => ToolKind::Agent,
-        "TodoWrite" | "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet" | "ExitPlanMode"
-        | "EnterPlanMode" => ToolKind::Plan,
-        _ => ToolKind::Other,
-    }
-}
+pub use super::backend::{ToolKind, tool_kind};
 
 /// One-line description of a tool call: the command, path, pattern or task.
 pub fn tool_summary(tool: &ToolCall, cwd: &Path) -> String {
@@ -279,8 +256,8 @@ pub fn tool_summary(tool: &ToolCall, cwd: &Path) -> String {
     let text = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_owned);
     let path = |key: &str| text(key).map(|value| relative(&value, cwd));
     let summary = match tool.name.as_str() {
-        "Bash" => text("command"),
-        "Read" | "Write" | "Edit" | "MultiEdit" => path("file_path"),
+        "Bash" | "commandExecution" => text("command"),
+        "Read" | "Write" | "Edit" | "MultiEdit" | "fileChange" => path("file_path"),
         "NotebookEdit" | "NotebookRead" => path("notebook_path"),
         "Grep" => text("pattern").map(|pattern| match path("path") {
             Some(scope) => format!("{pattern} in {scope}"),
@@ -289,8 +266,8 @@ pub fn tool_summary(tool: &ToolCall, cwd: &Path) -> String {
         "Glob" => text("pattern"),
         "LS" => path("path"),
         "WebFetch" => text("url"),
-        "WebSearch" => text("query"),
-        "Agent" | "Task" => text("description").or_else(|| text("prompt")),
+        "WebSearch" | "webSearch" => text("query"),
+        "Agent" | "Task" | "collabAgentToolCall" => text("description").or_else(|| text("prompt")),
         crate::chat::page::PREVIEW_TOOL => Some("page preview".to_owned()),
         "TaskCreate" => text("subject"),
         "TaskUpdate" => {
@@ -303,11 +280,11 @@ pub fn tool_summary(tool: &ToolCall, cwd: &Path) -> String {
                 None => format!("#{id}"),
             })
         }
-        "TodoWrite" => input
+        "TodoWrite" | "plan" => input
             .get("todos")
             .and_then(Value::as_array)
             .map(|todos| format!("{} items", todos.len())),
-        "AskUserQuestion" => input
+        "AskUserQuestion" | "requestUserInput" => input
             .get("questions")
             .and_then(Value::as_array)
             .and_then(|q| q.first())
@@ -316,10 +293,12 @@ pub fn tool_summary(tool: &ToolCall, cwd: &Path) -> String {
             .map(str::to_owned),
         _ => None,
     };
-    let summary = summary.or_else(|| {
-        let partial = tool.input_partial.trim();
-        (!partial.is_empty()).then(|| partial.to_owned())
-    });
+    let summary = summary
+        .or_else(|| tool.file_path().map(|path| relative(path, cwd)))
+        .or_else(|| {
+            let partial = tool.input_partial.trim();
+            (!partial.is_empty()).then(|| partial.to_owned())
+        });
     single_line(summary.as_deref().unwrap_or_default(), 160)
 }
 
@@ -394,6 +373,7 @@ mod tests {
 
     fn tool(name: &str, input: Value) -> ToolCall {
         ToolCall {
+            kind: Default::default(),
             call_id: "t".into(),
             name: name.into(),
             input,

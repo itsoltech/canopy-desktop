@@ -1,4 +1,17 @@
 fn main() {
+    let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo OUT_DIR"));
+    tonic_prost_build::configure()
+        .file_descriptor_set_path(output.join("canopy-remote-v1.bin"))
+        .compile_protos(
+            &[
+                "proto/canopy/remote/v1/canopy.proto",
+                "proto/grpc/health/v1/health.proto",
+            ],
+            &["proto"],
+        )
+        .expect("compile the native Canopy gRPC contract (protoc is required)");
+    println!("cargo:rerun-if-changed=proto/canopy/remote/v1/canopy.proto");
+    println!("cargo:rerun-if-changed=proto/grpc/health/v1/health.proto");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         cc::Build::new()
             .file("native/video_preview.m")

@@ -1,5 +1,6 @@
 //! Versioned tool definitions and profiles. No processes or credentials live here.
 use crate::{
+    chat::agent::AgentDefinition,
     state::workspace::Pane,
     terminal::{environment::ShellEnvironment, session::LaunchSpec},
 };
@@ -32,6 +33,12 @@ pub struct ToolDefinition {
     pub enabled: bool,
     pub profiles: Vec<Profile>,
     pub default_profile: Option<String>,
+    /// A custom tool speaking the Agent Client Protocol: it opens as a chat, launched
+    /// with its executable, arguments and profile. Absent in older catalogs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub acp: bool,
+    #[serde(default)]
+    pub env_refs: std::collections::BTreeMap<String, Vec<String>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -185,6 +192,8 @@ impl Default for ToolCatalog {
                 enabled: true,
                 default_profile: profiles.first().map(|p| p.id.clone()),
                 profiles,
+                acp: false,
+                env_refs: Default::default(),
             }
         })
         .collect();
@@ -195,6 +204,14 @@ impl Default for ToolCatalog {
     }
 }
 impl ToolDefinition {
+    pub fn credential_refs(&self) -> impl Iterator<Item = &str> {
+        self.env_refs.values().flatten().map(String::as_str).chain(
+            self.profiles
+                .iter()
+                .flat_map(|p| p.settings.credential_refs()),
+        )
+    }
+
     pub fn is_agent(&self) -> bool {
         super::agent_settings::Agent::from_id(&self.id).is_some()
     }
@@ -232,8 +249,7 @@ impl ToolCatalog {
         let active_credentials: std::collections::HashSet<_> = self
             .tools
             .iter()
-            .flat_map(|tool| &tool.profiles)
-            .filter_map(|profile| profile.settings.api_key_ref.as_deref())
+            .flat_map(ToolDefinition::credential_refs)
             .collect();
         let mut retired = std::collections::HashSet::new();
         if self.retired_credentials.len() > 128 * 128
@@ -249,6 +265,17 @@ impl ToolCatalog {
         let mut names = std::collections::HashSet::new();
         let mut profile_ids = std::collections::HashSet::new();
         for tool in &self.tools {
+            if tool.env_refs.len() > 128
+                || tool.env_refs.values().any(|ids| ids.len() > 1)
+                || tool
+                    .credential_refs()
+                    .any(|id| uuid::Uuid::parse_str(id).is_err())
+            {
+                return Err("Invalid agent secret references.".into());
+            }
+            for key in tool.env_refs.keys() {
+                super::agent_settings::validate_env(key, "")?;
+            }
             if !text_valid(&tool.id)
                 || !text_valid(&tool.name)
                 || !ids.insert(&tool.id)
@@ -298,6 +325,9 @@ impl ToolCatalog {
             if required.is_some_and(|id| tool.id != id) {
                 return Err("Built-in tool identity cannot be changed.".into());
             }
+            if tool.acp && tool.kind != ToolKind::Custom {
+                return Err("Only custom tools can be ACP agents.".into());
+            }
         }
         for (id, kind) in [
             ("shell", ToolKind::Shell),
@@ -346,6 +376,55 @@ impl ToolCatalog {
         metadata.title = Some(tool.label(metadata.profile_id.as_deref()));
         let _ = workspace.set_pane_metadata(tab_id, pane_id, metadata);
     }
+    /// How to launch the ACP agent of chat `pane`: its tool's executable and arguments,
+    /// then its profile's, then the pane's. The profile is a reference, never a secret.
+    pub fn agent_definition(&self, pane: &Pane) -> Result<AgentDefinition, String> {
+        let tool = self
+            .get(&pane.tool)
+            .ok_or("This agent was deleted or is no longer configured.")?;
+        if !tool.enabled {
+            return Err("This agent is disabled in Preferences.".into());
+        }
+        if !tool.acp {
+            return Err("This tool is not an ACP agent.".into());
+        }
+        // A tool without profiles is its own single account (its id stands for it).
+        let profile = match pane
+            .metadata
+            .profile_id
+            .as_ref()
+            .or(tool.default_profile.as_ref())
+        {
+            Some(id) if tool.profiles.is_empty() && id == &tool.id => None,
+            Some(id) => Some(
+                tool.profiles
+                    .iter()
+                    .find(|p| &p.id == id)
+                    .ok_or("This profile no longer exists.")?,
+            ),
+            None => None,
+        };
+        let mut definition = AgentDefinition::acp(
+            tool.id.clone(),
+            tool.name.clone(),
+            tool.executable.clone().into(),
+        );
+        for (key, ids) in &tool.env_refs {
+            definition
+                .environment
+                .insert(key.clone(), super::agent_settings::resolve_value(ids)?);
+        }
+        definition.arguments = tool.arguments.clone();
+        if let Some(profile) = profile {
+            let settings = profile.settings.resolved()?;
+            definition.environment.extend(settings.custom_env);
+            definition.arguments.extend(profile.arguments.clone());
+            definition.profile = Some(profile.id.clone());
+        }
+        definition.arguments.extend(pane.metadata.arguments.clone());
+        definition.validate()?;
+        Ok(definition)
+    }
     pub fn launch(&self, pane: &Pane, env: &ShellEnvironment) -> Result<LaunchSpec, String> {
         let tool = self
             .get(&pane.tool)
@@ -359,6 +438,7 @@ impl ToolCatalog {
             .as_ref()
             .or(tool.default_profile.as_ref());
         let profile = profile_id
+            .filter(|id| !(tool.profiles.is_empty() && *id == &tool.id))
             .map(|id| {
                 tool.profiles
                     .iter()

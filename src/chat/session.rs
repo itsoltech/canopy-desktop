@@ -2,9 +2,10 @@
 //! No I/O — the owner forwards process events in and writes the returned lines out.
 use super::provider::Provider;
 use super::{
+    backend::{CliState, ContextUsage, InitInfo, MessageLifecycle as Lifecycle, Signal},
     claude::{
-        adapter::{Adapter, CliState, InitInfo, Signal},
-        wire::{self, ContextUsage, Inbound, Lifecycle, Priority},
+        adapter::Adapter,
+        wire::{self, Inbound, Priority},
     },
     config::{ChatSettings, Effort, Mode, ModelInfo, valid_rule},
     goal::{EndReason, Goal},
@@ -84,7 +85,7 @@ fn clean(text: Option<String>) -> Option<String> {
 /// Restoring files from before a user message (the CLI's file checkpoints).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Rewind {
-    Preview(wire::RewindPreview),
+    Preview(super::backend::RewindPreview),
     /// The dry run failed: files can't be offered for restoring.
     Unavailable(String),
     Done,
@@ -215,6 +216,14 @@ pub struct ChatSession {
     /// the queue and leave no message in the conversation.
     quiet: VecDeque<String>,
     quiet_turns: HashSet<TurnId>,
+    /// The runtime owns the outbound queue (durable host queue): `flush` never sends
+    /// queued messages and steers the agent didn't read are returned, not resent.
+    host_queue: bool,
+    /// The durably dispatched message waiting for backend evidence, and the draft when
+    /// it went in as a steer (shown once read).
+    awaiting: Option<String>,
+    awaiting_steer: Option<Draft>,
+    receipts: Vec<(String, super::backend::Receipt)>,
 }
 
 #[derive(Clone, Debug)]
@@ -301,6 +310,10 @@ impl ChatSession {
             goal_hold: false,
             quiet: VecDeque::new(),
             quiet_turns: HashSet::new(),
+            host_queue: false,
+            awaiting: None,
+            awaiting_steer: None,
+            receipts: vec![],
         }
     }
 
@@ -350,6 +363,10 @@ impl ChatSession {
         &self.settings
     }
     /// Models the account offers; empty until the CLI answered `initialize`.
+    /// Send readiness does not imply that background model/skill reads completed.
+    pub fn catalog_ready(&self) -> bool {
+        self.initialized && (self.provider() != Provider::Codex || !self.codex_catalog_pending())
+    }
     pub fn models(&self) -> &[ModelInfo] {
         &self.models
     }
@@ -503,9 +520,20 @@ impl ChatSession {
         stopped: bool,
         elapsed_ms: u64,
     ) -> Vec<Value> {
-        let Some(index) = self.transcript.position(id) else {
-            return vec![];
-        };
+        match self.finish_shell(id, exit, stopped, elapsed_ms) {
+            Some(draft) => self.submit_draft(draft),
+            None => vec![],
+        }
+    }
+    /// Ends the `!` command's card; its result is the message the owner sends.
+    pub fn finish_shell(
+        &mut self,
+        id: ItemId,
+        exit: Option<i32>,
+        stopped: bool,
+        elapsed_ms: u64,
+    ) -> Option<Draft> {
+        let index = self.transcript.position(id)?;
         let mut result = None;
         self.transcript.update(index, |body| {
             if let Body::Shell(run) = body {
@@ -523,13 +551,10 @@ impl ChatSession {
                 });
             }
         });
-        match result {
-            Some(result) => self.submit_draft(Draft {
-                attachments: vec![result],
-                ..Default::default()
-            }),
-            None => vec![],
-        }
+        result.map(|result| Draft {
+            attachments: vec![result],
+            ..Default::default()
+        })
     }
 
     /// Shows saved history before the session's first event: the conversation it
@@ -1036,6 +1061,16 @@ impl ChatSession {
         let signals = self
             .adapter
             .apply(message, &mut self.transcript, self.interrupting);
+        // Without lifecycle frames the first turn event after the message is its
+        // evidence: it was sent while nothing else ran.
+        if self.awaiting.is_some()
+            && !self.tracks_lifecycle()
+            && signals
+                .iter()
+                .any(|signal| !matches!(signal, Signal::ControlAck { .. }))
+        {
+            self.receipt(None, super::backend::Receipt::Delivered);
+        }
         let mut lines = vec![];
         for signal in signals {
             match signal {
@@ -1220,6 +1255,8 @@ impl ChatSession {
                     }
                 }
                 Signal::State(CliState::Idle) => {
+                    // Handled without saying whether it was read: uncertain, not resent.
+                    self.receipt(None, super::backend::Receipt::Unknown);
                     lines.extend(self.request_context());
                     // Authoritative: everything we sent was handled.
                     self.cli_idle = true;
@@ -1257,6 +1294,22 @@ impl ChatSession {
 
     fn on_lifecycle(&mut self, uuid: String, state: Lifecycle) {
         self.lifecycle_seen = true;
+        // A durably accepted steer shows where the agent read it.
+        if matches!(state, Lifecycle::Started)
+            && self.awaiting.as_deref() == Some(uuid.as_str())
+            && let Some(draft) = self.awaiting_steer.take()
+        {
+            self.push_steered(draft);
+        }
+        match state {
+            Lifecycle::Started | Lifecycle::Completed => {
+                self.receipt(Some(&uuid), super::backend::Receipt::Delivered)
+            }
+            Lifecycle::Cancelled | Lifecycle::Discarded | Lifecycle::Refused => {
+                self.receipt(Some(&uuid), super::backend::Receipt::Refused)
+            }
+            _ => {}
+        }
         let steering = self
             .queue
             .iter()
@@ -1318,6 +1371,7 @@ impl ChatSession {
                 .adapter
                 .close_turn(&mut self.transcript, &Outcome::Interrupted);
         }
+        self.receipt(None, super::backend::Receipt::Unknown);
         self.adapter.cancel_background(&mut self.transcript);
         self.background_tasks = 0;
         self.outstanding.clear();
@@ -1423,15 +1477,151 @@ impl ChatSession {
         id
     }
 
+    /// Dispatches a durably accepted message under its stable host identity.
+    /// Busy callers retain it in their durable queue; this entry point never enqueues.
+    pub fn submit_accepted(
+        &mut self,
+        draft: Draft,
+        message_id: &str,
+    ) -> Result<Vec<Value>, String> {
+        if !self.ready_for_message() {
+            return Err("Session is not ready for an accepted message.".into());
+        }
+        if message_id.is_empty() {
+            return Err("Message ID is empty.".into());
+        }
+        let draft = draft.trimmed().ok_or("Message is empty.")?;
+        let lines = self.send_with_id(draft, message_id.to_owned());
+        if lines.is_empty() {
+            return Err("Session is not ready for an accepted message.".into());
+        }
+        self.awaiting = Some(message_id.to_owned());
+        Ok(lines)
+    }
+
+    /// The runtime's durable queue owns outbound messages from now on.
+    pub fn use_host_queue(&mut self) {
+        self.host_queue = true;
+    }
+    /// Backend evidence about dispatched messages since the last call.
+    pub fn take_receipts(&mut self) -> Vec<(String, super::backend::Receipt)> {
+        std::mem::take(&mut self.receipts)
+    }
+    /// A durably accepted message can start a turn now.
+    pub fn ready_for_message(&self) -> bool {
+        !self.status.ended()
+            && self.initialized
+            && self.awaiting.is_none()
+            && self.quiet.is_empty()
+            && !self.queue.iter().any(|q| q.steering.is_some())
+            && self.accepts_turn()
+    }
+    /// Codex pursues its goal in a running turn: the next queued message goes into it
+    /// (as before the host queue) instead of waiting for the goal to end.
+    pub fn goal_steer_open(&self) -> bool {
+        self.provider == Provider::Codex
+            && self.initialized
+            && !self.status.ended()
+            && self.awaiting.is_none()
+            && !self.interrupting
+            && self.turn_open
+            && self.codex.adapter.turn.is_some()
+            && !self.queue.iter().any(|q| q.steering.is_some())
+            && self
+                .goal
+                .as_ref()
+                .is_some_and(|goal| goal.status == super::goal::GoalStatus::Pursuing)
+    }
+    /// A durably accepted message can be steered into the running turn now (Steer).
+    pub fn can_steer(&self) -> bool {
+        self.initialized
+            && !self.status.ended()
+            && self.awaiting.is_none()
+            && !self.interrupting
+            && self.turn_open
+            && !self.queue.iter().any(|q| q.steering.is_some())
+            && match self.provider {
+                Provider::Claude => true,
+                Provider::Codex => self.codex.adapter.turn.is_some(),
+            }
+    }
+    /// Steers a durably accepted message into the running turn under its host message
+    /// ID. Evidence: Claude reports the message started (lifecycle), Codex answers the
+    /// steer; without lifecycle reports Claude's evidence stays uncertain until idle.
+    pub fn steer_accepted(&mut self, draft: Draft, message_id: &str) -> Result<Vec<Value>, String> {
+        if draft.goal {
+            return Err("A goal starts its own turn; it can't be steered.".into());
+        }
+        if !self.can_steer() && !self.goal_steer_open() {
+            return Err("There is no running turn to steer into.".into());
+        }
+        if message_id.is_empty() {
+            return Err("Message ID is empty.".into());
+        }
+        let draft = draft.trimmed().ok_or("Message is empty.")?;
+        if self.provider == Provider::Codex {
+            let (request, line) = self
+                .codex_steer(&draft)
+                .ok_or("There is no running turn to steer into.")?;
+            self.codex.steers.insert(request, message_id.to_owned());
+            self.awaiting = Some(message_id.to_owned());
+            self.awaiting_steer = Some(draft);
+            return Ok(self.outgoing(vec![line]));
+        }
+        let line = wire::user_message(
+            &draft.text,
+            &draft.attachments,
+            draft.context.as_deref(),
+            message_id,
+            Priority::Next,
+        );
+        self.outstanding.insert(message_id.to_owned());
+        self.awaiting = Some(message_id.to_owned());
+        if self.tracks_lifecycle() {
+            // The bubble appears where the CLI reads it (`started`).
+            self.awaiting_steer = Some(draft);
+        } else {
+            self.push_steered(draft);
+        }
+        Ok(self.outgoing(vec![line]))
+    }
+    /// Steers the agent never read: back to the owner's queue (host queue only).
+    pub fn take_unread_steers(&mut self) -> Vec<Draft> {
+        if !self.host_queue {
+            return vec![];
+        }
+        let mut unread = vec![];
+        self.queue.retain(|q| {
+            if q.steering.is_none() {
+                unread.push(q.clone().draft());
+                false
+            } else {
+                true
+            }
+        });
+        unread
+    }
+    fn receipt(&mut self, id: Option<&str>, receipt: super::backend::Receipt) {
+        if id.is_some_and(|id| self.awaiting.as_deref() != Some(id)) {
+            return;
+        }
+        if let Some(id) = self.awaiting.take() {
+            self.awaiting_steer = None;
+            self.receipts.push((id, receipt));
+        }
+    }
+
     /// Starts a turn with `draft`.
     fn send(&mut self, draft: Draft) -> Vec<Value> {
+        self.send_with_id(draft, uuid::Uuid::new_v4().to_string())
+    }
+    fn send_with_id(&mut self, draft: Draft, uuid: String) -> Vec<Value> {
         // Codex needs its thread; `accepts_turn` waits for it, this keeps it so.
         if self.provider == Provider::Codex && self.codex_thread().is_none() {
             return vec![];
         }
         self.stopped = false;
         let turn = self.transcript.allocate_turn();
-        let uuid = uuid::Uuid::new_v4().to_string();
         if draft.goal {
             self.start_goal(&draft.text);
         }
@@ -1509,6 +1699,9 @@ impl ChatSession {
     fn flush(&mut self) -> Vec<Value> {
         if let Some(lines) = self.flush_quiet() {
             return lines;
+        }
+        if self.host_queue {
+            return vec![];
         }
         if let Some(lines) = self.steer_into_goal() {
             return lines;

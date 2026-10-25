@@ -97,3 +97,36 @@ GPUI review checklist:
 References:
 - [JQL functions](https://support.atlassian.com/jira-software-cloud/docs/jql-functions/)
 - [QLPreviewView](https://developer.apple.com/documentation/quicklookui/qlpreviewview)
+
+## Native remote attachment transport
+
+TasksService downloads through the same host-authenticated adapters and publishes
+an expiring Result artifact bound to the exact task and authority root. Every
+stream chunk includes that ArtifactRef, and subsequent native preview downloads
+use ArtifactService with current authorization. Upload mutations accept only
+finished TaskAttachment artifacts for the same task, never a file or chat upload.
+The 25 MiB provider transfer limit remains in force; failed partial publication
+is cancelled and completed unattached artifacts follow ArtifactStore TTL cleanup.
+
+## Desktop remote task discovery
+
+The remote desktop task view discovers accounts through
+`TasksService.ListIntegrations`, passing the selected host and optional current
+workspace. This uses TASKS authority and the workspace root grant; it does not
+read Settings metadata or require ADMIN. The returned account model contains
+only id, display name, provider and configured status. Unconfigured accounts
+remain visible but cannot be selected.
+
+Changing workspace clears the discovery list and requests a fresh list. If a
+request is already running, rediscovery follows its completion; an integration
+response from the previous workspace is discarded. An already-open task retains
+its original TaskRef scope for edits and attachment operations. Host switching
+drops the retained feature view and its pending work.
+
+Remote forms reuse the existing Jira and YouTrack field controls. Native values
+preserve opaque ids, compound choice values and Jira ADF integer versions;
+editable schemas, rather than read-only Task.fields projections, determine
+writable fields. Unsupported GitHub saved-filter operations are disabled.
+
+Verification is limited to compilation and focused native-value regression tests.
+No GUI, E2E, live provider or vault verification was performed for this work.

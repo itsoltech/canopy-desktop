@@ -469,7 +469,7 @@ pub(super) fn changes_card(
     cx: &App,
 ) -> Div {
     let key = entry.key;
-    let cwd = this.pane.metadata.cwd.clone();
+    let cwd = this.pane(cx).metadata.cwd.clone();
     let added: usize = files.iter().map(|f| f.added).sum();
     let removed: usize = files.iter().map(|f| f.removed).sum();
     let open = |file: Option<std::path::PathBuf>| {

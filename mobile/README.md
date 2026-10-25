@@ -1,6 +1,12 @@
 # Canopy Remote
 
-iOS companion app for [Canopy](https://itsol.tech/canopy) — control your desktop terminal from your phone over local Wi-Fi. Connects via WebRTC data channels after a one-time QR code pair.
+Native companion app for [Canopy](https://itsol.tech/canopy), using the unreleased
+Rust host's native gRPC protocol over LAN, VPN or an app-owned pinned SSH tunnel.
+
+Active routes use the local native module. Legacy WebRTC records remain preserved
+but are not automatically migrated. This requires a new native binary, not an OTA
+update. See [NATIVE-REMOTE.md](NATIVE-REMOTE.md) for implementation ownership,
+verification evidence and unfinished release work. Native/GUI acceptance is NOT RUN.
 
 ## Prerequisites
 
@@ -37,7 +43,7 @@ triggers to run.
 
 ## Dev against a local desktop
 
-1. Start the desktop app: `npm run dev` from the repo root
+1. Use a Rust host build with the native remote service implemented and enabled; the Electron development server is not this protocol.
 2. In Canopy: Preferences → Security → Remote Control → enable and select the reachable network adapter
 3. Open the REMOTE section in the left sidebar and click Pair
 4. Install the simulator build, tap Connect, scan the QR code
@@ -61,4 +67,4 @@ eas submit --profile production --platform ios
 
 ## Protocol
 
-See [docs/features/remote-control.md](../docs/features/remote-control.md) for the full pairing flow, WebRTC architecture, trust model, and listen mode behaviour.
+See [NATIVE-REMOTE.md](NATIVE-REMOTE.md) and the [runtime plan](../docs/agent-runtime-remote-plan.md) for the native pairing, identity, lifecycle and acceptance contract. Historical WebRTC documentation does not describe the active native route.

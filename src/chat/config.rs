@@ -197,6 +197,10 @@ pub struct ChatSettings {
     /// Edit and New session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// Choices of an ACP agent's own options, by their opaque option and value IDs;
+    /// offered again to the agent's next session (a refusal keeps its own value).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub agent_options: std::collections::BTreeMap<String, String>,
 }
 impl ChatSettings {
     pub fn valid(&self) -> bool {
@@ -205,6 +209,11 @@ impl ChatSettings {
                 .id
                 .as_deref()
                 .is_none_or(|id| uuid::Uuid::parse_str(id).is_ok())
+            && self.agent_options.len() <= 64
+            && self
+                .agent_options
+                .iter()
+                .all(|(id, value)| id.len() <= 256 && value.len() <= 256)
     }
 
     /// A new chat id.

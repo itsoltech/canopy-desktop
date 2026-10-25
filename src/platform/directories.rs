@@ -4,6 +4,60 @@ pub fn data_dir() -> Result<PathBuf, String> {
     select_data_dir(std::env::var_os("CANOPY_DATA_DIR"), platform_data_dir)
 }
 
+/// Unreleased runtime schemas must never be tried on the normal user database.
+/// This check does not create directories or open SQLite for writing.
+pub fn runtime_data_dir() -> Result<PathBuf, String> {
+    if cfg!(feature = "published-runtime-schema") {
+        return data_dir();
+    }
+    let selected = std::env::var_os("CANOPY_DATA_DIR")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .ok_or("This unpublished runtime build requires CANOPY_DATA_DIR pointing to an isolated data directory.")?;
+    validate_runtime_directory(&selected, &platform_data_dir()?)?;
+    Ok(selected)
+}
+
+fn validate_runtime_directory(selected: &Path, default: &Path) -> Result<(), String> {
+    let selected = canonical_candidate(selected)?;
+    let default = canonical_candidate(default)?;
+    if selected.starts_with(&default) {
+        return Err("An unpublished runtime build cannot use the normal Canopy data directory. Select an isolated copy with CANOPY_DATA_DIR.".into());
+    }
+    Ok(())
+}
+
+fn canonical_candidate(path: &Path) -> Result<PathBuf, String> {
+    let mut existing = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        std::env::current_dir()
+            .map_err(|_| "Current directory is unavailable.")?
+            .join(path)
+    };
+    let mut tail = Vec::new();
+    let root = loop {
+        match existing.canonicalize() {
+            Ok(path) => break path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name = existing
+                    .file_name()
+                    .ok_or("Data directory cannot be resolved.")?;
+                tail.push(name.to_owned());
+                if !existing.pop() {
+                    return Err("Data directory cannot be resolved.".into());
+                }
+            }
+            Err(_) => return Err("Data directory cannot be resolved.".into()),
+        }
+    };
+    let mut resolved = root;
+    for name in tail.into_iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved)
+}
+
 fn select_data_dir(
     override_path: Option<std::ffi::OsString>,
     fallback: impl FnOnce() -> Result<PathBuf, String>,
@@ -172,6 +226,30 @@ mod tests {
             PathBuf::from("relative-test-data/canopy.db")
         );
         assert!(select_data_dir(Some("".into()), || unreachable!()).is_err());
+    }
+
+    #[test]
+    fn unpublished_runtime_rejects_default_data_without_creating_anything() {
+        let root = tempfile::tempdir().unwrap();
+        let default = root.path().join("user-data");
+        assert!(validate_runtime_directory(&default, &default).is_err());
+        assert!(validate_runtime_directory(&default.join("nested"), &default).is_err());
+        assert!(
+            !default.exists(),
+            "preflight must not create the user directory"
+        );
+        assert!(validate_runtime_directory(&root.path().join("test-copy"), &default).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unpublished_runtime_rejects_a_symlink_to_default_data() {
+        let root = tempfile::tempdir().unwrap();
+        let default = root.path().join("user-data");
+        std::fs::create_dir(&default).unwrap();
+        let link = root.path().join("test-copy");
+        std::os::unix::fs::symlink(&default, &link).unwrap();
+        assert!(validate_runtime_directory(&link, &default).is_err());
     }
 
     #[test]

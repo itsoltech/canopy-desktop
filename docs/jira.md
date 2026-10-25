@@ -152,3 +152,12 @@ unsent draft. API success must be observed before claiming tenant qualification.
 - [Attachments](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-attachments/)
 - [Issue relationships](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-links/)
 - [Sprints](https://developer.atlassian.com/cloud/jira/software/rest/api-group-sprint/)
+
+Native Tasks RPCs retain accountId, transition IDs, structured field values and
+ADF documents. Transition submission rereads the current workflow, rejects
+missing required fields and fields outside that transition, and preserves
+explicit native values instead of submitting defaults. Cascading choices carry
+both parent and child identities. Ordinary description updates refuse rich
+content that the existing Markdown editor cannot preserve; native field forms
+can submit the original structured document. Provider success with a failed
+refresh remains a successful durable receipt with a refresh notice.

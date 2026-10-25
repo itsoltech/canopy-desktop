@@ -12,6 +12,13 @@ struct WorkspaceStop {
     completion: async_channel::Receiver<()>,
     result: Arc<std::sync::Mutex<Option<Result<(), String>>>>,
 }
+/// A terminal a remote device opened. It has no pane and changes no host layout;
+/// it belongs to its workspace and ends with it, on Close or on Quit.
+struct DetachedTerminal {
+    workspace: WorkspaceId,
+    view: Entity<TerminalView>,
+    _events: Subscription,
+}
 struct RetiringTerminal {
     workspace: WorkspaceId,
     pane: PaneId,
@@ -30,12 +37,162 @@ pub struct Terminals {
     agents_ready: bool,
     stop_jobs: HashMap<WorkspaceId, WorkspaceStop>,
     retiring: Vec<RetiringTerminal>,
+    detached: HashMap<String, DetachedTerminal>,
 }
 impl Terminals {
-    pub fn folder_references(&self, cx: &App) -> Vec<std::path::PathBuf> {
+    /// Every terminal view with its workspace: pane terminals and device-opened ones.
+    pub fn all(&self) -> Vec<(WorkspaceId, Entity<TerminalView>)> {
+        self.views
+            .iter()
+            .filter_map(|(pane, view)| Some((*self.workspaces.get(pane)?, view.clone())))
+            .chain(
+                self.detached
+                    .values()
+                    .map(|terminal| (terminal.workspace, terminal.view.clone())),
+            )
+            .collect()
+    }
+    /// The view with remote identity `id`.
+    pub fn find(&self, id: &str, cx: &App) -> Option<Entity<TerminalView>> {
+        self.detached
+            .get(id)
+            .map(|terminal| terminal.view.clone())
+            .or_else(|| {
+                self.views
+                    .values()
+                    .find(|view| view.read(cx).terminal_id() == id)
+                    .cloned()
+            })
+    }
+    pub fn is_detached(&self, id: &str) -> bool {
+        self.detached.contains_key(id)
+    }
+    fn live_views(&self) -> impl Iterator<Item = &Entity<TerminalView>> {
         self.views
             .values()
+            .chain(self.detached.values().map(|terminal| &terminal.view))
             .chain(self.retiring.iter().map(|r| &r.view))
+    }
+    /// Starts a terminal for a device in `cwd` of `workspace`; the same `id` again
+    /// returns the existing one. The process obeys the same limits as pane terminals.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Detached terminal creation needs its identity, workspace, launch selection, input holder, and GPUI owner context."
+    )]
+    pub fn open_detached(
+        &mut self,
+        id: String,
+        workspace: WorkspaceId,
+        cwd: std::path::PathBuf,
+        tool: String,
+        profile: Option<String>,
+        holder: canopy_desktop::terminal::control::Holder,
+        cx: &mut Context<Self>,
+    ) -> Result<Entity<TerminalView>, String> {
+        if let Some(terminal) = self.detached.get(&id) {
+            return Ok(terminal.view.clone());
+        }
+        let app = cx.global::<AppState>().clone();
+        if self.stopping || app.settings.read(cx).quitting {
+            return Err("The host is closing terminals.".into());
+        }
+        if app.git.read(cx).busy {
+            return Err("A Git operation is running on the host. Try again shortly.".into());
+        }
+        if self.workspace_stopping(workspace) {
+            return Err("Terminals of this workspace are stopping.".into());
+        }
+        if self.views.len() + self.detached.len() >= 64 {
+            return Err("The limit of 64 started terminals has been reached.".into());
+        }
+        let env = app
+            .tools
+            .read(cx)
+            .environment
+            .clone()
+            .ok_or("The shell environment is still loading. Try again shortly.")??;
+        let pane = canopy_desktop::state::workspace::Pane {
+            id: PaneId::new(),
+            tool,
+            metadata: canopy_desktop::state::workspace::PaneMetadata {
+                cwd: Some(cwd),
+                profile_id: profile,
+                ..Default::default()
+            },
+        };
+        let pane_id = pane.id;
+        let view = cx.new(|cx| TerminalView::new(pane, Ok(env), cx).for_device(id.clone(), holder));
+        let events = cx.subscribe(
+            &view,
+            move |this, view, _: &crate::ui::terminal::TerminalStateChanged, cx| {
+                if let Some(result) = view.read(cx).cleanup_result() {
+                    this.record_cleanup_result(pane_id, result);
+                }
+                cx.notify();
+            },
+        );
+        // Not painted: the device renders it, the host shows no pane for it.
+        view.update(cx, |view, cx| {
+            view.set_active(false, false, cx);
+            view.start(cx);
+        });
+        self.detached.insert(
+            id,
+            DetachedTerminal {
+                workspace,
+                view: view.clone(),
+                _events: events,
+            },
+        );
+        cx.notify();
+        Ok(view)
+    }
+    /// Stops a device-opened terminal (confirmed cleanup) and forgets it.
+    pub fn close_detached(&mut self, id: &str, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+        let Some(terminal) = self.detached.remove(id) else {
+            return Task::ready(Err("The terminal is no longer available.".into()));
+        };
+        let workspace = terminal.workspace;
+        self.retire(workspace, terminal.view, cx)
+    }
+    /// Moves a view to the retiring owners until its cleanup is confirmed.
+    fn retire(
+        &mut self,
+        workspace: WorkspaceId,
+        view: Entity<TerminalView>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let cleanup = view.update(cx, |view, cx| view.shutdown(cx));
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let completed = done.clone();
+        let pane = view.read(cx).pane_id();
+        let (finished, result) = async_channel::bounded(1);
+        let task = cx.spawn(async move |this, cx| {
+            let outcome = cleanup.await;
+            let _ = this.update(cx, |this, cx| {
+                this.record_cleanup_result(pane, outcome.clone());
+                cx.notify();
+            });
+            completed.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = finished.try_send(outcome);
+        });
+        self.retiring.push(RetiringTerminal {
+            workspace,
+            pane,
+            view,
+            _task: task,
+            done,
+        });
+        cx.notify();
+        cx.spawn(async move |_, _| {
+            result
+                .recv()
+                .await
+                .map_err(|_| "Terminal cleanup result was lost.".to_owned())?
+        })
+    }
+    pub fn folder_references(&self, cx: &App) -> Vec<std::path::PathBuf> {
+        self.live_views()
             .filter_map(|view| {
                 let view = view.read(cx);
                 (view.is_live() || view.cleanup_error().is_some())
@@ -45,14 +202,11 @@ impl Terminals {
             .collect()
     }
     pub fn uses_directory(&self, dir: &std::path::Path, cx: &App) -> bool {
-        self.views
-            .values()
-            .chain(self.retiring.iter().map(|r| &r.view))
-            .any(|view| {
-                let view = view.read(cx);
-                (view.is_live() || view.cleanup_error().is_some())
-                    && view.cwd().is_some_and(|cwd| cwd.starts_with(dir))
-            })
+        self.live_views().any(|view| {
+            let view = view.read(cx);
+            (view.is_live() || view.cleanup_error().is_some())
+                && view.cwd().is_some_and(|cwd| cwd.starts_with(dir))
+        })
     }
     pub fn new() -> Self {
         Self {
@@ -66,6 +220,7 @@ impl Terminals {
             agents_ready: false,
             stop_jobs: HashMap::new(),
             retiring: vec![],
+            detached: HashMap::new(),
         }
     }
     pub fn bind(&mut self, app: &AppState, cx: &mut Context<Self>) {
@@ -122,27 +277,18 @@ impl Terminals {
                     .workspaces
                     .remove(id)
                     .expect("started terminal has a workspace owner");
-                let cleanup = view.update(cx, |view, cx| view.shutdown(cx));
-                let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
-                let completed = done.clone();
-                let pane = *id;
-                let task = cx.spawn(async move |this, cx| {
-                    let result = cleanup.await;
-                    let state = result.clone();
-                    let _ = this.update(cx, |this, cx| {
-                        this.record_cleanup_result(pane, state);
-                        cx.notify();
-                    });
-                    completed.store(true, std::sync::atomic::Ordering::SeqCst);
-                });
-                self.retiring.push(RetiringTerminal {
-                    workspace,
-                    pane,
-                    view,
-                    _task: task,
-                    done,
-                });
+                self.retire(workspace, view, cx).detach();
             }
+        }
+        // A closed project ends the terminals devices opened in it.
+        let gone: Vec<_> = self
+            .detached
+            .iter()
+            .filter(|(_, terminal)| !all.iter().any(|w| w.id == terminal.workspace))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in gone {
+            self.close_detached(&id, cx).detach();
         }
         if !app.git.read(cx).busy
             && let Some(env) = app.tools.read(cx).environment.clone()
@@ -203,6 +349,12 @@ impl Terminals {
             .map(|w| w.id)
             .collect();
         running.extend(
+            self.detached
+                .values()
+                .filter(|terminal| terminal.view.read(cx).is_live())
+                .map(|terminal| terminal.workspace),
+        );
+        running.extend(
             self.retiring
                 .iter()
                 .filter(|terminal| {
@@ -239,13 +391,19 @@ impl Terminals {
                     .into_iter()
                     .find(|workspace| workspace.id == id)
                     .and_then(|workspace| {
-                        workspace.all_panes().iter().find_map(|pane| {
-                            self.cleanup_errors.get(&pane.id).cloned().or_else(|| {
-                                self.views
-                                    .get(&pane.id)
-                                    .and_then(|view| view.read(cx).cleanup_error())
+                        self.detached
+                            .values()
+                            .filter(|terminal| terminal.workspace == workspace.id)
+                            .find_map(|terminal| terminal.view.read(cx).cleanup_error())
+                            .or_else(|| {
+                                workspace.all_panes().iter().find_map(|pane| {
+                                    self.cleanup_errors.get(&pane.id).cloned().or_else(|| {
+                                        self.views
+                                            .get(&pane.id)
+                                            .and_then(|view| view.read(cx).cleanup_error())
+                                    })
+                                })
                             })
-                        })
                     })
             })
     }
@@ -320,6 +478,16 @@ impl Terminals {
                     .cloned()
             })
             .collect();
+        views.extend(
+            self.detached
+                .values()
+                .filter(|terminal| {
+                    terminal.workspace == id
+                        && (terminal.view.read(cx).is_live()
+                            || terminal.view.read(cx).cleanup_error().is_some())
+                })
+                .map(|terminal| terminal.view.clone()),
+        );
         for terminal in self
             .retiring
             .iter()
@@ -380,7 +548,11 @@ impl Terminals {
             terminal.workspace == id
                 && (!terminal.done.load(std::sync::atomic::Ordering::SeqCst)
                     || terminal.view.read(cx).cleanup_error().is_some())
-        }) {
+        }) || self
+            .detached
+            .values()
+            .any(|terminal| terminal.workspace == id && terminal.view.read(cx).is_live())
+        {
             return true;
         }
         let app = cx.global::<AppState>();
@@ -398,6 +570,7 @@ impl Terminals {
     pub fn running_count(&self, tool: &str, profile: Option<&str>, cx: &App) -> usize {
         self.views
             .values()
+            .chain(self.detached.values().map(|terminal| &terminal.view))
             .filter(|view| {
                 let view = view.read(cx);
                 view.tool_id() == tool
@@ -408,7 +581,12 @@ impl Terminals {
     }
     pub fn shutdown(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
         self.stopping = true;
-        let mut views: Vec<_> = self.views.values().cloned().collect();
+        let mut views: Vec<_> = self
+            .views
+            .values()
+            .chain(self.detached.values().map(|terminal| &terminal.view))
+            .cloned()
+            .collect();
         for terminal in &self.retiring {
             if !views
                 .iter()
@@ -455,6 +633,7 @@ impl Terminals {
                 match state {
                     Ok(()) => {
                         this.views.clear();
+                        this.detached.clear();
                         this.events.clear();
                         this.cleanup_errors.clear();
                         this.workspaces.clear();

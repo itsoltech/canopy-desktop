@@ -2,7 +2,7 @@
 
 use canopy_desktop::terminal::{
     environment::ShellEnvironment,
-    session::{INPUT_LIMIT_BYTES, LaunchSpec, Session, Size, Status},
+    session::{INPUT_LIMIT_BYTES, InputRefused, LaunchSpec, Session, Size, Status},
 };
 use std::{
     collections::HashMap,
@@ -92,7 +92,7 @@ fn resizing_reaches_the_child_tty() {
     while !s.resize(Size::bounded(100, 40)) {
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(s.input(b"ok\n".to_vec()));
+    assert!(s.queue_input(b"ok\n".to_vec()).is_ok());
     wait(&s);
     assert!(text(&s).contains("40 100"));
 }
@@ -103,11 +103,17 @@ fn input_reports_whether_the_pty_accepts_bytes() {
         "/bin/sh",
         &["-c", "IFS= read -r line; printf 'GOT:%s' \"$line\""],
     );
-    assert!(!s.input(vec![b'a'; INPUT_LIMIT_BYTES + 1]));
-    assert!(s.input(b"payload\n".to_vec()));
+    assert_eq!(
+        s.queue_input(vec![b'a'; INPUT_LIMIT_BYTES + 1]),
+        Err(InputRefused::TooLarge)
+    );
+    assert!(s.queue_input(b"payload\n".to_vec()).is_ok());
     wait(&s);
     assert!(text(&s).contains("GOT:payload"));
-    assert!(!s.input(b"late\n".to_vec()));
+    assert_eq!(
+        s.queue_input(b"late\n".to_vec()),
+        Err(InputRefused::NotRunning)
+    );
 }
 #[test]
 fn close_reaps_a_process_which_ignores_hangup() {

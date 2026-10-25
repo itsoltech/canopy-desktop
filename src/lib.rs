@@ -1,6 +1,8 @@
 //! Shared application policies, reusable by views without owning their state.
+pub mod host;
 pub mod motion;
 pub mod platform;
+pub mod remote;
 pub mod settings;
 
 pub mod state;
@@ -18,3 +20,5 @@ pub mod font_preview;
 pub mod http;
 pub mod integrations;
 pub mod markdown;
+
+pub mod artifacts;

@@ -460,9 +460,11 @@ impl Workspace {
         profile: &str,
     ) -> Result<bool, StateError> {
         let (tab, current) = self.locate(pane)?;
+        // Which tools can chat (Claude, Codex, ACP agents) is the catalog's to say.
         if current.metadata.kind != PaneKind::Chat
             || current.metadata.resume_id.is_some()
-            || crate::chat::provider::Provider::from_tool(tool).is_none()
+            || tool.is_empty()
+            || profile.is_empty()
         {
             return Err(StateError::InvalidMetadata);
         }
