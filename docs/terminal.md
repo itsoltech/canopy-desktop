@@ -13,7 +13,14 @@ więc znaki typu ; lub $ nie są interpretowane jako składnia shella.
 Środowisko eksportowane przez shell login/interactive jest odczytywane w tle,
 przy starcie katalogu narzędzi oraz przy Refresh/zapisie konfiguracji. Przechowujemy je wyłącznie w pamięci. Probe ma limit
 5 sekund i 1 MiB, ignoruje komunikaty startowe poza oznaczonym blokiem oraz
-nie wypisuje wartości zmiennych. PATH, TERM=xterm-256color, COLORTERM=truecolor
+nie wypisuje wartości zmiennych. Na Unix probe tworzy nową sesję (`setsid`),
+odłączoną od terminala uruchamiającego aplikację. Sama grupa procesów w tle
+pozostawiała controlling TTY i zatrzymywała interaktywny bash sygnałem SIGTTIN.
+Odczyt kończy się po pełnym znaczniku środowiska, bez czekania na exit hooks
+lub background job trzymający stdout. W każdym wyniku kończymy grupę probe’a
+i zbieramy jego proces. Rzeczywisty timeout wskazuje shell i akcję Refresh
+w Preferences → Tools; nie zastępujemy błędu pozornie poprawnym środowiskiem.
+PATH, TERM=xterm-256color, COLORTERM=truecolor
 i TERM_PROGRAM=Canopy trafiają do procesu. Przed uruchomieniem GPUI i wątków
 usuwamy odziedziczone po launcherze NO_COLOR, CLICOLOR, CLICOLOR_FORCE i FORCE_COLOR.
 To istotne przy uruchamianiu z narzędzi automatyzacji, które ustawiają NO_COLOR=1.

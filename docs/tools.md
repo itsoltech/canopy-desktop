@@ -44,6 +44,14 @@ równoległe żądania są scalane. Render nie wykonuje I/O. Terminals pozostaje
 właścicielem procesów. Zmiana konfiguracji nie restartuje działających procesów.
 Restart i nowe uruchomienie odczytują aktualną definicję danego profilu.
 
+Probe login/interactive na Unix jest odłączony od controlling TTY, więc bash
+nie zatrzymuje się na SIGTTIN po uruchomieniu Canopy z terminala. Pozostają
+limity 5 s/1 MiB i rzeczywista konfiguracja shella użytkownika. Po pełnym
+odczycie nie czekamy na zakończenie exit hooks; cleanup kończy grupę i zbiera
+proces również po sukcesie. Test z własnym PTY odtwarza uruchomienie z terminala
+bez czytania prywatnych plików startowych basha. Osobne regresje sprawdzają
+kompletne dane przed zawieszonym zakończeniem i cleanup przy timeout.
+
 ## Persist / restore
 
 Tabela `_canopy_rust_tools`, singleton `id=1`, `version=1`, payload JSON maks.

@@ -175,6 +175,21 @@ impl ShellEnvironment {
     }
 }
 
+#[cfg(unix)]
+struct ProbeChild(std::process::Child);
+#[cfg(unix)]
+impl Drop for ProbeChild {
+    fn drop(&mut self) {
+        // The detached session's leader stays unreaped until here, so its process
+        // group ID cannot be reused while cleanup targets the probe's children.
+        unsafe {
+            libc::kill(-(self.0.id() as i32), libc::SIGKILL);
+        }
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 #[cfg(windows)]
 fn environment_value<'a>(vars: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
     environment_value_for_platform(vars, key, true)
@@ -428,66 +443,69 @@ pub fn probe(shell: &Path, timeout: Duration) -> Result<HashMap<String, String>,
         let script = format!("printf '\\0{begin}\\0'; /usr/bin/env -0; printf '\\0{end}\\0'");
         let mut command = Command::new(shell);
         configure_probe(&mut command);
-        let mut child = command
-            .args(["-ilc", &script])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .process_group(0)
-            .spawn()
-            .map_err(|_| "Could not start the shell environment probe.")?;
-        let mut output = child.stdout.take().expect("piped stdout");
+        // A new process group alone remains attached to the launcher's terminal.
+        // Interactive bash then stops itself with SIGTTIN while trying to enable
+        // job control. setsid detaches that terminal and also owns the group.
         unsafe {
-            libc::fcntl(output.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK);
+            command.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = ProbeChild(
+            command
+                .args(["-ilc", &script])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|_| "Could not start the shell environment probe.")?,
+        );
+        let mut output = child.0.stdout.take().expect("piped stdout");
+        let flags = unsafe { libc::fcntl(output.as_raw_fd(), libc::F_GETFL) };
+        if flags == -1
+            || unsafe { libc::fcntl(output.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) }
+                == -1
+        {
+            return Err("Could not prepare the shell environment reader.".into());
         }
         let deadline = Instant::now() + timeout;
+        let end_frame = format!("\0{end}\0").into_bytes();
         let mut bytes = Vec::new();
         let mut buffer = [0; 8192];
-        let result = loop {
+        loop {
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "Shell environment probe timed out after {:.1}s while starting {}. Check its login/interactive startup scripts, then use Preferences → Tools → Refresh.",
+                    timeout.as_secs_f32(),
+                    shell.display()
+                ));
+            }
             match output.read(&mut buffer) {
                 Ok(n) if n > 0 => {
+                    let search_from = bytes.len().saturating_sub(end_frame.len());
                     bytes.extend_from_slice(&buffer[..n]);
                     if bytes.len() > 1_048_576 {
-                        break Err("Shell environment output exceeded 1 MiB.".into());
+                        return Err("Shell environment output exceeded 1 MiB.".into());
+                    }
+                    if bytes[search_from..]
+                        .windows(end_frame.len())
+                        .any(|part| part == end_frame)
+                    {
+                        // The payload is complete; exit hooks or background jobs
+                        // retaining stdout are not part of capturing environment.
+                        return parse(&bytes, &begin, &end);
                     }
                     continue;
                 }
-                Ok(_) => {}
+                Ok(_) => return parse(&bytes, &begin, &end),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(_) => break Err("Could not read the shell environment.".into()),
-            }
-            if let Ok(Some(status)) = child.try_wait() {
-                if !status.success() {
-                    break Err("Shell environment probe failed.".into());
-                }
-                // Drain bytes written between the last nonblocking read and try_wait.
-                while let Ok(n) = output.read(&mut buffer) {
-                    if n == 0 {
-                        break;
-                    }
-                    bytes.extend_from_slice(&buffer[..n]);
-                    if bytes.len() > 1_048_576 {
-                        break;
-                    }
-                }
-                if bytes.len() > 1_048_576 {
-                    break Err("Shell environment output exceeded 1 MiB.".into());
-                }
-                break parse(&bytes, &begin, &end);
-            }
-            if Instant::now() >= deadline {
-                break Err("Shell environment probe timed out.".into());
+                Err(_) => return Err("Could not read the shell environment.".into()),
             }
             std::thread::sleep(Duration::from_millis(10));
-        };
-        if result.is_err() {
-            unsafe {
-                libc::kill(-(child.id() as i32), libc::SIGKILL);
-            }
-            let _ = child.kill();
-            let _ = child.wait();
         }
-        result
     }
 }
 
@@ -535,6 +553,134 @@ fn parse(bytes: &[u8], begin: &str, end: &str) -> Result<HashMap<String, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    fn shell_fixture(script: &str) -> (tempfile::TempDir, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let shell = directory.path().join("probe-shell");
+        std::fs::write(&shell, format!("#!/bin/sh\n{script}")).unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o700)).unwrap();
+        (directory, shell)
+    }
+    #[cfg(unix)]
+    fn assert_probe_reaped(shell: &Path) {
+        let pid = std::fs::read_to_string(shell.with_extension("pid"))
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
+        assert_eq!(
+            unsafe { libc::kill(pid, 0) },
+            -1,
+            "the probe process must be collected before returning"
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn a_complete_environment_does_not_wait_for_a_shell_exit_hook() {
+        let (_directory, shell) = shell_fixture(
+            "printf '%s' \"$$\" > \"$0.pid\"\n/bin/sh -c \"$2\"\nexec /bin/sleep 30\n",
+        );
+        let vars = probe(&shell, Duration::from_secs(1)).unwrap();
+        assert!(vars.contains_key("PATH"));
+        assert_probe_reaped(&shell);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn a_stuck_startup_times_out_and_collects_its_process() {
+        let (_directory, shell) =
+            shell_fixture("printf '%s' \"$$\" > \"$0.pid\"\nexec /bin/sleep 30\n");
+        let error = probe(&shell, Duration::from_millis(200)).unwrap_err();
+        assert!(error.contains("timed out"));
+        assert!(error.contains("Preferences → Tools → Refresh"));
+        assert_probe_reaped(&shell);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn interactive_bash_probe_detaches_from_the_launchers_controlling_terminal() {
+        use std::{fs::File, os::fd::FromRawFd};
+        const CHILD_SHELL: &str = "CANOPY_TEST_PROBE_WITH_CONTROLLING_TERMINAL";
+        if let Some(shell) = std::env::var_os(CHILD_SHELL) {
+            // Fresh helper process, with its own controlling PTY. Skip personal
+            // startup files; this reproduces bash's job-control stop by itself.
+            assert!(
+                probe(Path::new(&shell), Duration::from_millis(500))
+                    .unwrap()
+                    .contains_key("PATH")
+            );
+            return;
+        }
+        let (_directory, shell) = shell_fixture("exec /bin/bash --noprofile --norc \"$@\"\n");
+        let mut master = -1;
+        let mut slave = -1;
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                )
+            },
+            0
+        );
+        let _master = unsafe { File::from_raw_fd(master) };
+        let slave = unsafe { File::from_raw_fd(slave) };
+        for descriptor in [_master.as_raw_fd(), slave.as_raw_fd()] {
+            assert_ne!(
+                unsafe { libc::fcntl(descriptor, libc::F_SETFD, libc::FD_CLOEXEC) },
+                -1
+            );
+        }
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact","terminal::environment::tests::interactive_bash_probe_detaches_from_the_launchers_controlling_terminal","--nocapture"])
+            .env(CHILD_SHELL,&shell).stdin(slave).stdout(Stdio::piped()).stderr(Stdio::piped());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() == -1 || libc::ioctl(0, libc::TIOCSCTTY, 0) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                let mut output = String::new();
+                child
+                    .stdout
+                    .take()
+                    .unwrap()
+                    .read_to_string(&mut output)
+                    .unwrap();
+                child
+                    .stderr
+                    .take()
+                    .unwrap()
+                    .read_to_string(&mut output)
+                    .unwrap();
+                assert!(
+                    status.success(),
+                    "the controlling-terminal fixture failed: {output}"
+                );
+                break;
+            }
+            if Instant::now() >= deadline {
+                unsafe {
+                    libc::kill(-(child.id() as i32), libc::SIGKILL);
+                }
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the controlling-terminal fixture stalled");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
     #[test]
     fn probe_removes_launcher_color_flags_and_advertises_its_terminal() {
         let mut command = Command::new("/bin/sh");
