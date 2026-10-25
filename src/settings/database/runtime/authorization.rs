@@ -1,6 +1,29 @@
 use super::*;
 use crate::host::DeviceGrant;
 
+// A data-only upgrade of the original approval default. Keep the marker in the
+// same transaction as the grants, so a failed startup neither partially widens
+// access nor repeats the upgrade on newly restricted devices. This internal key
+// is not exposed through the typed preferences API.
+const SHARING_DEFAULT_VERSION: &str = "_canopy_remote_sharing_default";
+
+pub(super) fn upgrade_default_sharing(tx: &Transaction<'_>) -> Result<()> {
+    if tx.execute(
+        "INSERT INTO preferences(key,value) VALUES(?1,'1') ON CONFLICT(key) DO NOTHING",
+        [SHARING_DEFAULT_VERSION],
+    )? == 0
+    {
+        return Ok(());
+    }
+    // Revision 1 means that nobody has edited these original permissions.
+    // Explicit root selections, custom scopes and revoked devices stay intact.
+    tx.execute(
+        "UPDATE _canopy_remote_devices SET scopes=?1,roots=?2,authorization_revision=authorization_revision+1 WHERE revoked_at IS NULL AND authorization_revision=1 AND scopes=?3 AND roots=?4",
+        params![host::ALL_SCOPES, "[\"*\"]", host::READ | host::CHAT | host::APPROVE, "[\"private\"]"],
+    )?;
+    Ok(())
+}
+
 fn grant(db: &Connection, id: &str) -> Result<DeviceGrant> {
     let row = db.query_row("SELECT device_id,name,scopes,roots,command_epoch,authorization_revision,revoked_at IS NOT NULL FROM _canopy_remote_devices WHERE device_id=?1", [id], |r| {
         Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,u32>(2)?,r.get::<_,String>(3)?,r.get::<_,i64>(4)?,r.get::<_,i64>(5)?,r.get::<_,bool>(6)?))
@@ -17,6 +40,18 @@ fn grant(db: &Connection, id: &str) -> Result<DeviceGrant> {
 }
 
 impl Database {
+    /// Public certificate only, for idempotent reciprocal issuance by the local host.
+    pub fn runtime_device_certificate(&self, id: String) -> Result<Option<Vec<u8>>> {
+        require_host(self)?;
+        self.db
+            .query_row(
+                "SELECT public_credential FROM _canopy_remote_devices WHERE device_id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
     /// Only the TLS transport's issuer-verified leaf DER may be supplied here.
     /// A claimed device ID or name is never an authentication credential.
     pub fn lookup_runtime_device(&self, leaf: Vec<u8>) -> Result<DeviceGrant> {
@@ -141,6 +176,167 @@ impl Database {
             return Err(Error::ResourceConflict);
         }
         self.runtime_host()
+    }
+}
+
+#[cfg(test)]
+mod sharing_tests {
+    use super::*;
+
+    fn register(db: &mut Database, scopes: u32, root: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        db.register_runtime_device(
+            DeviceRegistration::new(
+                id.clone(),
+                "Computer".into(),
+                id.as_bytes().to_vec(),
+                scopes,
+                vec![root.into()],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        id
+    }
+
+    #[test]
+    fn legacy_default_sharing_upgrades_once_and_preserves_explicit_restrictions() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("db");
+        crate::settings::database::create(&path).unwrap();
+        let mut db = Database::open(&path, Access::ReadWrite).unwrap();
+        let host = db.initialize_runtime().unwrap();
+        let chat_scopes = host::READ | host::CHAT | host::APPROVE;
+        let old = register(&mut db, chat_scopes, "private");
+        let edited = register(&mut db, chat_scopes, "private");
+        db.update_runtime_device_authorization(
+            edited.clone(),
+            1,
+            chat_scopes,
+            vec!["private".into()],
+        )
+        .unwrap();
+        let selected = register(&mut db, chat_scopes, "/selected");
+        let read_only = register(&mut db, host::READ, "private");
+        let revoked = register(&mut db, chat_scopes, "private");
+        db.revoke_runtime_device(revoked.clone()).unwrap();
+        let before = db.runtime_devices().unwrap();
+        let input = CommandInput::new(
+            CommandKey::remote(old.clone(), 1, uuid::Uuid::new_v4().to_string()).unwrap(),
+            "chat.start".into(),
+            uuid::Uuid::new_v4().to_string(),
+            b"{}".to_vec(),
+            vec![1; 32],
+        )
+        .unwrap()
+        .with_root("private".into())
+        .unwrap();
+        db.accept_runtime_command(input.clone(), host::CHAT)
+            .unwrap();
+        db.transition_runtime_command(
+            input.key.clone(),
+            CommandState::Accepted,
+            CommandState::Attempting,
+            None,
+        )
+        .unwrap();
+        let receipt = db
+            .transition_runtime_command(
+                input.key.clone(),
+                CommandState::Attempting,
+                CommandState::Succeeded,
+                Some(b"done".to_vec()),
+            )
+            .unwrap();
+        // Simulate a database written before the full-sharing default existed.
+        db.db
+            .execute(
+                "DELETE FROM preferences WHERE key=?1",
+                [SHARING_DEFAULT_VERSION],
+            )
+            .unwrap();
+        drop(db);
+
+        let mut db = Database::open(&path, Access::ReadWrite).unwrap();
+        assert_eq!(db.initialize_runtime().unwrap(), host);
+        let upgraded = db.lookup_runtime_device(old.as_bytes().to_vec()).unwrap();
+        assert_eq!(upgraded.id(), old);
+        assert_eq!(upgraded.epoch(), 1);
+        assert_eq!(upgraded.authorization_revision(), 2);
+        for root in ["private", "/a/new/project", "/another/project"] {
+            db.authorize_runtime_read(old.clone(), host::ALL_SCOPES, root.into())
+                .unwrap();
+        }
+        assert_eq!(
+            db.get_runtime_command(input.key.clone(), host::CHAT)
+                .unwrap(),
+            Some(receipt)
+        );
+        for id in [&edited, &selected, &read_only, &revoked] {
+            let unchanged = db
+                .runtime_devices()
+                .unwrap()
+                .into_iter()
+                .find(|d| d.id() == id)
+                .unwrap();
+            assert_eq!(&unchanged, before.iter().find(|d| d.id() == id).unwrap());
+        }
+        assert!(matches!(
+            db.lookup_runtime_device(revoked.as_bytes().to_vec()),
+            Err(Error::NotAuthorized)
+        ));
+
+        // New explicit restrictions and later changes to upgraded grants survive
+        // restart even when they exactly match the old default.
+        let later = register(&mut db, chat_scopes, "private");
+        db.update_runtime_device_authorization(old.clone(), 2, chat_scopes, vec!["private".into()])
+            .unwrap();
+        drop(db);
+        let mut db = Database::open(&path, Access::ReadWrite).unwrap();
+        db.initialize_runtime().unwrap();
+        for id in [old, later] {
+            db.authorize_runtime_read(id.clone(), host::CHAT, "private".into())
+                .unwrap();
+            assert!(matches!(
+                db.authorize_runtime_read(id, host::READ, "/new/project".into()),
+                Err(Error::NotAuthorized)
+            ));
+        }
+    }
+
+    #[test]
+    fn failed_sharing_upgrade_rolls_back_grants_and_marker() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("db");
+        crate::settings::database::create(&path).unwrap();
+        let mut db = Database::open(&path, Access::ReadWrite).unwrap();
+        db.initialize_runtime().unwrap();
+        let id = register(&mut db, host::READ | host::CHAT | host::APPROVE, "private");
+        db.db
+            .execute(
+                "DELETE FROM preferences WHERE key=?1",
+                [SHARING_DEFAULT_VERSION],
+            )
+            .unwrap();
+        db.db.execute_batch("CREATE TRIGGER fail_sharing BEFORE UPDATE ON _canopy_remote_devices BEGIN SELECT RAISE(ABORT,'injected write failure'); END;").unwrap();
+        drop(db);
+
+        let mut db = Database::open(&path, Access::ReadWrite).unwrap();
+        assert!(db.initialize_runtime().is_err());
+        assert_eq!(grant(&db.db, &id).unwrap().roots(), &["private"]);
+        let marker: bool = db
+            .db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM preferences WHERE key=?1)",
+                [SHARING_DEFAULT_VERSION],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!marker);
+        db.db.execute_batch("DROP TRIGGER fail_sharing").unwrap();
+        db.initialize_runtime().unwrap();
+        db.authorize_runtime_read(id, host::ALL_SCOPES, "/future/project".into())
+            .unwrap();
     }
 }
 

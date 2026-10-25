@@ -11,28 +11,7 @@ pub(super) struct Editing {
     restore: bool,
     reviewed: bool,
 }
-type SavedEdit = (Vec<u8>, Vec<u8>, Vec<String>, Option<Vec<u8>>);
 impl RemoteWindow {
-    pub(super) fn restore_edit(&mut self) {
-        let (Some(host), Some(chat)) = (&self.host, &self.chat) else {
-            return;
-        };
-        self.editing = host
-            .snapshot()
-            .record
-            .view(&format!("edit:{}", chat.chat_id))
-            .and_then(|v| serde_json::from_str::<SavedEdit>(v).ok())
-            .and_then(|(preview, previous, images, context)| {
-                Some(Editing {
-                    preview: p::EditPreview::decode(preview.as_slice()).ok()?,
-                    previous: p::MessageDraft::decode(previous.as_slice()).ok()?,
-                    images,
-                    context: context.and_then(|v| p::SendContext::decode(v.as_slice()).ok()),
-                    restore: false,
-                    reviewed: false,
-                })
-            });
-    }
     pub(super) fn save_edit(&mut self, cx: &mut Context<Self>) {
         let (Some(host), Some(chat)) = (self.host.clone(), self.chat.clone()) else {
             return;

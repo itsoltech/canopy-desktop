@@ -415,3 +415,20 @@ zachowana w historii. Właściciel czatu nadal waliduje konkretny punkt forka i
 kopiuje historię przed publikacją rekordu. Błąd transakcji nie publikuje czatu,
 referencji, kolejki ani succeeded. Ponowienie sukcesu nie tworzy nowych efektów;
 restart przywraca kolejkę jako wstrzymaną. Schemat pozostaje tą samą runtime.sql.
+
+## Full-sharing defaults for paired computers
+
+New host approvals default to all seven scopes and the `*` resource root, so
+existing and subsequently opened projects, private chats and global resources
+are included. The first runtime initialization with this policy atomically
+upgrades only active, unchanged legacy defaults (`authorization_revision=1`,
+Chat scopes, exactly `private`). The internal preferences key
+`_canopy_remote_sharing_default` records completion in the same transaction.
+Edited/custom grants and revoked devices are preserved, as are credential bytes,
+device IDs, command epochs, receipts, queues and history. A failed write rolls
+back both the grants and marker. No SQLite schema change is required.
+
+Reciprocal desktop pairing uses stable peer device IDs and reuses an already
+registered certificate. It never widens a later restricted grant or recreates a
+revoked grant. Client-side mutual/pause flags are stored alongside the existing
+connection; private key material remains in the OS credential store.

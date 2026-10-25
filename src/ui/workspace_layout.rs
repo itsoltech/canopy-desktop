@@ -99,13 +99,19 @@ impl Workspace {
                 t.root
                     .find(t.focused)
                     .filter(|p| {
-                        p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
+                        matches!(
+                            p.metadata.kind,
+                            canopy_desktop::state::workspace::PaneKind::Terminal
+                                | canopy_desktop::state::workspace::PaneKind::Chat
+                        )
                     })
                     .map(|p| (t.id, p.id, p.tool.clone(), p.metadata.clone()))
             });
             if let Some((tab, pane, tool, mut metadata)) = target {
-                metadata.resume_id = None;
-                metadata.task_prompt = None;
+                if metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal {
+                    metadata.resume_id = None;
+                    metadata.task_prompt = None;
+                }
                 let id = w.split(tab, pane, axis, tool)?;
                 w.set_pane_metadata(tab, id, metadata)?;
                 w.activate(tab)?;
@@ -117,9 +123,9 @@ impl Workspace {
             self.state.tools.update(cx, |tools, cx| {
                 tools.error = Some(match error {
                     canopy_desktop::state::workspace::StateError::DepthLimit => {
-                        "This terminal has reached the split limit.".into()
+                        "This pane has reached the split limit.".into()
                     }
-                    _ => "The terminal changed before it could be split. Try again.".into(),
+                    _ => "The pane changed before it could be split. Try again.".into(),
                 });
                 cx.notify();
             });
@@ -136,7 +142,8 @@ impl Workspace {
         let page = model.tool_panel().page();
         let open = model.tools_open();
         let maximize = !model.tool_panel().is_maximized();
-        let has_project = self.state.projects.read(cx).catalog.active.is_some();
+        let has_project = self.state.projects.read(cx).catalog.active.is_some()
+            || self.focused_remote(cx).is_some();
         let terminal = model.active().is_some_and(|t| {
             t.root.find(t.focused).is_some_and(|p| {
                 p.metadata.kind == canopy_desktop::state::workspace::PaneKind::Terminal
@@ -302,6 +309,7 @@ impl Workspace {
                             .tooltip(format!("{} ({})", page_label(page), tool_shortcut(page)))
                             .disabled(
                                 self.state.projects.read(cx).catalog.active.is_none()
+                                    && self.focused_remote(cx).is_none()
                                     && matches!(page, ToolPage::Files | ToolPage::Changes),
                             )
                             .on_click(cx.listener(move |s, _, _, cx| s.select_tool_page(page, cx)))
@@ -563,7 +571,19 @@ impl Workspace {
         }
         if open {
             let return_bar = maximized && model.primary_tab().is_some();
-            let content = self.inspector.clone().into_any_element();
+            let content = if self.focused_remote(cx).is_some() {
+                self.remote_tools
+                    .as_ref()
+                    .map(|(_, _, view)| view.clone().into_any_element())
+                    .unwrap_or_else(|| {
+                        div()
+                            .p_3()
+                            .child("Connecting to workspace…")
+                            .into_any_element()
+                    })
+            } else {
+                self.inspector.clone().into_any_element()
+            };
             let resize = ToolResize {
                 origin: point(px(x), px(t::TITLEBAR)),
                 width,

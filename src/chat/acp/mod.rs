@@ -106,6 +106,15 @@ pub struct PermissionOption {
     pub name: String,
     pub kind: String,
 }
+impl PermissionOption {
+    pub fn new(option_id: String, name: String, kind: String) -> Self {
+        Self {
+            option_id,
+            name,
+            kind,
+        }
+    }
+}
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct PermissionRequest {

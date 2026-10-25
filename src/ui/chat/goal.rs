@@ -56,7 +56,7 @@ impl ChatView {
             self.set_shell(false, window, cx);
         }
         self.goal_mode = on;
-        let placeholder = match (on, self.native(cx).and_then(|s| s.goal())) {
+        let placeholder = match (on, self.rt(cx).goal()) {
             (true, Some(_)) => REPLACES,
             (true, None) => PLACEHOLDER,
             (false, _) => super::decision::COMPOSER_PLACEHOLDER,
@@ -109,6 +109,18 @@ impl ChatView {
         let text = plain_condition(&draft);
         if text.is_empty() || text.chars().count() > goal::LIMIT || !self.rt(cx).accepts_messages()
         {
+            return;
+        }
+        if self.rt(cx).is_remote() {
+            self.save_remote_draft(cx);
+            self.send_draft(
+                Draft {
+                    text,
+                    goal: true,
+                    ..Default::default()
+                },
+                cx,
+            );
             return;
         }
         self.clear_composer(window, cx);
@@ -164,7 +176,7 @@ impl ChatView {
 
     /// Opens the row while the chat has a goal and closes it after.
     pub(super) fn sync_goal_row(&mut self, cx: &App) {
-        let goal = self.native(cx).and_then(|s| s.goal()).cloned();
+        let goal = self.rt(cx).goal().cloned();
         let now = Instant::now();
         let open = goal.is_some();
         self.goal_row

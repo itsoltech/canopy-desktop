@@ -21,6 +21,8 @@ Snapshot zawiera:
 - PaneId oraz focused PaneId;
 - metadane pane'a: tool ID, rodzaj widoku, cwd, profil, tytuł, resource,
   argumenty narzędzia i opcjonalny identyfikator wznowienia sesji providera;
+- opcjonalne `PaneMetadata.remote` z UUID hosta i czatu, bez lokalnego cwd;
+  taby i splity takiej rozmowy odtwarza wyłącznie urządzenie, na którym je zapisano;
 - opcjonalny `PaneMetadata.chat_title_state` (placeholder/named), bez zmiany schematu SQL;
   brak pola oznacza starszą nazwę czatu z fallbackiem do taba. Nazwy są utrwalane przy
   mutacji, nie przy odczycie; dock/swap/detach nie gubią tytułu rozmowy;

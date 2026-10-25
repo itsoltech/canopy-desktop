@@ -151,7 +151,7 @@ impl RemoteWindow {
                     .child(format!("{}{}", route.name(), if is_active { " · In use" } else { "" }))
                     .child(div().text_color(t::muted()).child(format!("{}{}", if route.ssh().is_some() { "SSH → " } else { "" }, route.endpoint()))))
                     .child(button(SharedString::from(format!("use-route-{id}")), "Connect").disabled(self.busy || is_active).on_click(cx.listener(move |this,_,_,cx|{
-                        let host=connect.clone();let id=connect_id.clone();this.run(async move{host.connect_via(id).await?;Ok(Update::Connected)},cx);
+                        let host=connect.clone();let id=connect_id.clone();let ready=prepare_connection(cx);this.run(async move{ready.await?;host.connect_via(id).await?;Ok(Update::Connected)},cx);
                     })))
                     .child(button(SharedString::from(format!("edit-route-{id}")), "Edit…").disabled(self.busy).on_click(cx.listener(move|this,_,window,cx|this.edit_route(Some(edit.clone()),window,cx))))
                     .child(icon_button(SharedString::from(format!("up-route-{id}")), IconName::ChevronUp, "Move route up").disabled(self.busy || index==0).on_click(cx.listener(move|this,_,_,cx|{

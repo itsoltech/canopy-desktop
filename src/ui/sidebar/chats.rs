@@ -568,8 +568,10 @@ pub(in crate::ui) fn navigation_status(id: PaneId, cx: &App) -> &'static str {
 
 /// Chats and CLI agents: the panes the sidebar lists as sessions.
 pub(super) fn is_session(pane: &canopy_desktop::state::workspace::Pane) -> bool {
-    pane.metadata.kind == PaneKind::Chat
-        || (pane.metadata.kind == PaneKind::Terminal && Provider::from_tool(&pane.tool).is_some())
+    pane.metadata.remote.is_none()
+        && (pane.metadata.kind == PaneKind::Chat
+            || (pane.metadata.kind == PaneKind::Terminal
+                && Provider::from_tool(&pane.tool).is_some()))
 }
 
 /// The chat's chosen model, else the model a CLI agent reported.

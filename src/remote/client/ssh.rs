@@ -14,16 +14,28 @@ use std::{
 
 pub struct SshTunnel {
     address: String,
+    return_port: Option<u16>,
     cancelled: Arc<AtomicBool>,
 }
 impl SshTunnel {
     pub fn address(&self) -> &str {
         &self.address
     }
+    pub fn return_port(&self) -> Option<u16> {
+        self.return_port
+    }
     pub fn open(
         route: SshRoute,
         endpoint: &str,
         vault: Arc<dyn CredentialStore>,
+    ) -> Result<Self, String> {
+        Self::open_with_return(route, endpoint, vault, None)
+    }
+    pub(super) fn open_with_return(
+        route: SshRoute,
+        endpoint: &str,
+        vault: Arc<dyn CredentialStore>,
+        local_port: Option<u16>,
     ) -> Result<Self, String> {
         let target = url::Url::parse(endpoint).map_err(|_| "Invalid tunnel destination.")?;
         let host = target
@@ -42,6 +54,46 @@ impl SshTunnel {
             listener.local_addr().map_err(|e| e.to_string())?
         );
         let cancelled = Arc::new(AtomicBool::new(false));
+        let return_port = if let Some(local_port) = local_port {
+            let session = authenticate(&route, vault.as_ref())?;
+            let (mut listener, port) = session.channel_forward_listen(0, Some("127.0.0.1"), Some(8))
+                .map_err(|_| "SSH server refused the return connection. Allow remote forwarding to connect these computers both ways.".to_owned())?;
+            session.set_blocking(false);
+            let stop = cancelled.clone();
+            std::thread::Builder::new()
+                .name("canopy-ssh-return".into())
+                .spawn(move || {
+                    let active = Arc::new(AtomicUsize::new(0));
+                    while !stop.load(Ordering::Acquire) {
+                        match listener.accept() {
+                            Ok(channel) if active.load(Ordering::Acquire) < 8 => {
+                                active.fetch_add(1, Ordering::AcqRel);
+                                let active = active.clone();
+                                let stop = stop.clone();
+                                let session = session.clone();
+                                std::thread::spawn(move || {
+                                    if let Ok(socket) = TcpStream::connect_timeout(
+                                        &SocketAddr::from(([127, 0, 0, 1], local_port)),
+                                        Duration::from_secs(3),
+                                    ) {
+                                        let _ = relay(session, channel, socket, &stop);
+                                    }
+                                    active.fetch_sub(1, Ordering::AcqRel);
+                                });
+                            }
+                            Ok(_) => {}
+                            Err(e) if e.code() == ssh2::ErrorCode::Session(-37) => {
+                                std::thread::sleep(Duration::from_millis(10))
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                })
+                .map_err(|e| e.to_string())?;
+            Some(port)
+        } else {
+            None
+        };
         let stop = cancelled.clone();
         std::thread::Builder::new()
             .name("canopy-client-ssh".into())
@@ -76,8 +128,15 @@ impl SshTunnel {
                     }
                 }
             })
-            .map_err(|e| e.to_string())?;
-        Ok(Self { address, cancelled })
+            .map_err(|e| {
+                cancelled.store(true, Ordering::Release);
+                e.to_string()
+            })?;
+        Ok(Self {
+            address,
+            return_port,
+            cancelled,
+        })
     }
 }
 impl Drop for SshTunnel {
@@ -218,14 +277,22 @@ fn authenticate(route: &SshRoute, vault: &dyn CredentialStore) -> Result<ssh2::S
 }
 fn forward(
     session: ssh2::Session,
-    mut socket: TcpStream,
+    socket: TcpStream,
     host: &str,
     port: u16,
     cancelled: &AtomicBool,
 ) -> Result<(), String> {
-    let mut channel = session
+    let channel = session
         .channel_direct_tcpip(host, port, None)
         .map_err(|_| "SSH server refused forwarding.")?;
+    relay(session, channel, socket, cancelled)
+}
+fn relay(
+    session: ssh2::Session,
+    mut channel: ssh2::Channel,
+    mut socket: TcpStream,
+    cancelled: &AtomicBool,
+) -> Result<(), String> {
     socket.set_nonblocking(true).map_err(|e| e.to_string())?;
     session.set_blocking(false);
     let mut to_remote = Vec::new();

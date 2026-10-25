@@ -17,7 +17,7 @@ impl Workspace {
         tab: TabId,
         cx: &mut Context<Self>,
     ) {
-        let ids = self
+        let ids: Vec<_> = self
             .state
             .workspace
             .read(cx)
@@ -27,9 +27,18 @@ impl Workspace {
             .map(|t| t.root.panes().iter().map(|p| p.id).collect())
             .unwrap_or_default();
         let target = self.state.workspace.clone();
-        crate::app_state::Editors::guard_closing(
-            ids,
+        crate::app_state::Editors::guard_detaching(
+            ids.clone(),
             move |cx| {
+                if target.read(cx).id != workspace
+                    || !target.read(cx).tabs().iter().any(|t| t.id == tab)
+                {
+                    return;
+                }
+                cx.global::<crate::app_state::AppState>()
+                    .chats
+                    .clone()
+                    .update(cx, |chats, _| chats.detach_views(&ids));
                 target.update(cx, |state, cx| {
                     if state.id == workspace && state.close(tab).is_ok() {
                         cx.notify();
@@ -121,7 +130,14 @@ impl Workspace {
                     &tab.root.panes().iter().map(|p| p.id).collect::<Vec<_>>(),
                     cx,
                 );
-                format!("{}{}", tab.title, if dirty { " •" } else { "" })
+                let host = tab
+                    .root
+                    .find(tab.focused)
+                    .and_then(|pane| self.state.chats.read(cx).runtime(pane.id))
+                    .and_then(|runtime| runtime.read(cx).remote_host())
+                    .map(|host| format!(" · {}", host.name()))
+                    .unwrap_or_default();
+                format!("{}{host}{}", tab.title, if dirty { " •" } else { "" })
             })
             .collect();
         let rem = f32::from(window.rem_size());

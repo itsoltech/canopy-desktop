@@ -7,6 +7,7 @@ pub mod enrollment;
 pub mod host;
 pub mod metrics;
 pub mod network;
+pub mod peer;
 pub mod resources;
 pub mod server;
 pub mod settings_rpc;

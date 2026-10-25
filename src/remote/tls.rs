@@ -132,6 +132,40 @@ impl HostIdentity {
     pub fn fingerprint(&self) -> [u8; 32] {
         Sha256::digest(&self.certificate).into()
     }
+    /// The stable host key also identifies this computer as a client. Only the
+    /// CSR leaves the computer; peer-specific ClientAuth certificates are issued
+    /// by the other host, with their own revocable device IDs.
+    pub(crate) fn peer_request(&self) -> Result<Vec<u8>, String> {
+        let key = KeyPair::from_pem(&self.bundle.parts[0]).map_err(crypto_error)?;
+        Ok(CertificateParams::new(Vec::<String>::new())
+            .map_err(crypto_error)?
+            .serialize_request(&key)
+            .map_err(crypto_error)?
+            .der()
+            .to_vec())
+    }
+    pub(crate) fn peer_key(&self) -> &str {
+        &self.bundle.parts[0]
+    }
+    pub(crate) fn issuer_certificate(&self) -> &[u8] {
+        &self.issuer_certificate
+    }
+    pub(crate) fn csr_matches_certificate(csr: &[u8], cert: &[u8]) -> Result<(), String> {
+        use rcgen::PublicKeyData;
+        Self::verify_csr(csr)?;
+        let request =
+            CertificateSigningRequestParams::from_der(&csr.into()).map_err(crypto_error)?;
+        let cert = CertificateDer::from(cert);
+        let parsed = rustls::server::ParsedCertificate::try_from(&cert).map_err(crypto_error)?;
+        if request.public_key.subject_public_key_info().as_slice()
+            != parsed.subject_public_key_info().as_ref()
+        {
+            return Err(
+                "The computer certificate request does not match its paired identity.".into(),
+            );
+        }
+        Ok(())
+    }
     /// Domain-separated stable key for immutable settings staging. Restoring the
     /// referenced issuer key is mandatory; a missing vault slot never generates
     /// a new fingerprint key or changes an already accepted secret's meaning.

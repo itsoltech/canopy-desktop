@@ -163,8 +163,10 @@ zdalny. Grupuje projekty po oczyszczonym origin, ale nie zmienia lokalnego model
 i gałęzi wykonuje worker libgit2; render korzysta z gotowych metadanych.
 
 Zdarzenie `sidebar::Navigation` rozróżnia wybór lokalny od zdalnego
-`ResourceRef` wraz z `HostClient`. `Workspace` montuje `RemoteWorkspace` w swoim
-obszarze treści; zdalny widok używa istniejącego klienta, subskrypcji i magazynu
-szkiców. Zamknięcie albo lokalna nawigacja odmontowuje ten widok, pozostawiając
-lokalne procesy i wybrany lokalny workspace bez zmian. Identyfikator zdalnego
-zasobu zawsze zawiera host, także gdy identyczny branch jest otwarty lokalnie.
+`ResourceRef` wraz z `HostClient`. Dla czatu `Workspace` otwiera zwykły lokalny
+tab i ten sam `ChatView`. Referencja host/czat znajduje się w metadanych pane'a;
+jego lokalne ID, drzewo splitów i fokus nie są wysyłane do hosta. `Chats` osobno
+trzyma klientowe projekcje, aby lokalny katalog, procesy i GC ich nie adoptowały.
+Zamknięcie taba odłącza prezentację. Pozostałe zdalne narzędzia korzystają z
+`RemoteWorkspace`. Identyfikator zasobu zawsze zawiera host, także gdy identyczny
+branch albo identyczne UUID czatu istnieją na różnych komputerach.

@@ -33,6 +33,55 @@ impl ChatView {
         if !self.settled(cx) {
             return;
         }
+        if self.rt(cx).is_remote() {
+            let preview = self
+                .runtime
+                .update(cx, |runtime, cx| runtime.client_preview(item, cx));
+            let revision = self.remote_revision;
+            cx.spawn_in(window, async move |this, cx| {
+                let result = preview.await;
+                let _ = this.update_in(cx, |this, window, cx| {
+                    if this.remote_revision != revision {
+                        return;
+                    }
+                    match result {
+                        Ok(preview) => {
+                            let previous = this.composer_draft(cx);
+                            this.runtime.update(cx, |runtime, cx| {
+                                runtime.save_client_edit(Some(previous.clone()), cx)
+                            });
+                            let original = preview
+                                .original
+                                .as_ref()
+                                .map(canopy_desktop::remote::client::presentation::draft)
+                                .unwrap_or_default();
+                            this.editing = Some(Editing {
+                                item,
+                                fork: None,
+                                draft: previous,
+                                preview: preview.files.map(|f| {
+                                    canopy_desktop::chat::backend::RewindPreview {
+                                        possible: f.possible,
+                                        files: f.paths,
+                                        insertions: f.insertions,
+                                        deletions: f.deletions,
+                                    }
+                                }),
+                                restore: false,
+                                sending: None,
+                                error: None,
+                                context: original.context.clone(),
+                            });
+                            this.set_composer_draft(original, window, cx);
+                        }
+                        Err(error) => this.shell_error = Some(error),
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+            return;
+        }
         let Some(session) = self.native(cx) else {
             return;
         };
@@ -81,6 +130,10 @@ impl ChatView {
         let Some(editing) = self.editing.take() else {
             return;
         };
+        if self.rt(cx).is_remote() {
+            self.runtime
+                .update(cx, |runtime, cx| runtime.save_client_edit(None, cx));
+        }
         self.set_composer_draft(editing.draft, window, cx);
         cx.notify();
     }
@@ -92,6 +145,25 @@ impl ChatView {
             || (draft.text.trim().is_empty() && draft.attachments.is_empty())
             || self.editing.as_ref().is_none_or(|e| e.sending.is_some())
         {
+            return;
+        }
+        if self.rt(cx).is_remote() {
+            if self
+                .rt(cx)
+                .remote_source()
+                .is_none_or(|s| s.preview.is_none())
+            {
+                self.shell_error = Some("Preview this edit again before sending it.".into());
+                cx.notify();
+                return;
+            }
+            self.save_remote_draft(cx);
+            let restore = self.editing.as_ref().is_some_and(|e| e.restore);
+            self.editing.as_mut().unwrap().sending = Some(draft.clone());
+            let revision = self.remote_revision;
+            self.runtime.update(cx, |runtime, cx| {
+                runtime.client_edit(draft, restore, revision, cx)
+            });
             return;
         }
         // Images of a message sent before a restart are read again first.
@@ -130,6 +202,9 @@ impl ChatView {
 
     /// Follows the CLI's answers about files (in `after_change`).
     pub(super) fn sync_edit(&mut self, cx: &mut Context<Self>) {
+        if self.rt(cx).is_remote() {
+            return;
+        }
         let ended = self
             .rt(cx)
             .backend()

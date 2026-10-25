@@ -167,6 +167,7 @@ pub enum ChatCommand {
     /// Steer an accepted, queued message (its ID) into the running turn.
     Steer {
         message: String,
+        run: u64,
     },
     Respond {
         run: u64,
@@ -176,6 +177,11 @@ pub enum ChatCommand {
     SetOption {
         id: String,
         value: String,
+    },
+    SetAgent {
+        tool: String,
+        profile: String,
+        model: Option<String>,
     },
     /// The chat's goal (set by sending a goal message).
     PauseGoal,
@@ -221,6 +227,7 @@ impl ChatCommand {
             Self::Steer { .. } => "chat.steer",
             Self::Respond { .. } => "chat.respond",
             Self::SetOption { .. } => "chat.set_option",
+            Self::SetAgent { .. } => "chat.set_agent",
             Self::PauseGoal => "chat.pause_goal",
             Self::ResumeGoal => "chat.resume_goal",
             Self::ClearGoal => "chat.clear_goal",
@@ -793,12 +800,17 @@ impl ChatRuntime {
         &mut self,
         key: RemoteKey,
         message: String,
+        run: u64,
         cx: &mut Context<Self>,
     ) -> Task<Result<CommandReceipt, String>> {
         let command = ChatCommand::Steer {
             message: message.clone(),
+            run,
         };
         self.durable(key, command, cx, move |this, cx| {
+            if this.generation != run {
+                return Outcome::Failed("stale_run: the run has changed.".into());
+            }
             if this.entry_draft(&message).is_none() {
                 return Outcome::Failed("The message is no longer waiting.".into());
             }
@@ -848,6 +860,42 @@ impl ChatRuntime {
             };
             this.after_change(cx);
             outcome
+        })
+    }
+
+    pub fn remote_set_agent(
+        &mut self,
+        key: RemoteKey,
+        tool: String,
+        profile: String,
+        model: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<CommandReceipt, String>> {
+        let command = ChatCommand::SetAgent {
+            tool: tool.clone(),
+            profile: profile.clone(),
+            model: model.clone(),
+        };
+        self.durable(key, command, cx, move |this, cx| {
+            if this.account_locked() || this.busy() || this.unsent() > 0 {
+                return Outcome::Failed(
+                    "The account can only change before the first message.".into(),
+                );
+            }
+            let catalog = &cx
+                .global::<crate::app_state::AppState>()
+                .tools
+                .read(cx)
+                .catalog;
+            if !catalog.get(&tool).is_some_and(|t| {
+                t.enabled
+                    && (t.profiles.iter().any(|p| p.id == profile)
+                        || (t.profiles.is_empty() && t.id == profile))
+            }) {
+                return Outcome::Failed("The selected agent account is unavailable.".into());
+            }
+            this.set_account(tool, profile, model, cx);
+            Outcome::Succeeded
         })
     }
 

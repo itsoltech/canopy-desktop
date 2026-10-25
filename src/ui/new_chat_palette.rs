@@ -18,12 +18,14 @@ struct Choice {
     name: String,
     path: Option<String>,
     shortcut: Option<&'static str>,
+    remote: Option<canopy_desktop::remote::proto::WorkspaceRef>,
 }
 
 /// What the chosen project gets: a new chat, or a fork of a conversation.
 pub enum Purpose {
     NewChat,
     Fork(Box<ForkRequest>),
+    RemoteFork(super::chat::ClientForkRequested),
 }
 
 pub struct NewChatPalette {
@@ -69,6 +71,7 @@ impl NewChatPalette {
             name: "Without a project".into(),
             path: None,
             shortcut: Some("⌥⌘N"),
+            remote: None,
         }];
         choices.extend(projects.items.iter().enumerate().map(|(index, project)| {
             Choice {
@@ -83,8 +86,31 @@ impl NewChatPalette {
                         .to_string(),
                 ),
                 shortcut: PROJECT_SHORTCUTS.get(index).copied(),
+                remote: None,
             }
         }));
+        if let Purpose::RemoteFork(request) = &purpose {
+            choices.truncate(1);
+            choices[0].name = "Without a project".into();
+            if let Some(host) = request.runtime.read(cx).remote_host()
+                && let Some(catalog) = host.shared_catalog()
+            {
+                for project in &catalog.projects {
+                    for checkout in &project.checkouts {
+                        if checkout.closing == Some(true) {
+                            continue;
+                        }
+                        choices.push(Choice {
+                            target: ChatTarget::NoProject,
+                            name: format!("{} · {}", project.name, checkout.name),
+                            path: Some(checkout.path.clone()),
+                            shortcut: PROJECT_SHORTCUTS.get(choices.len() - 1).copied(),
+                            remote: checkout.workspace.clone(),
+                        });
+                    }
+                }
+            }
+        }
         // Start on the space the user is in: the likeliest destination.
         let selected = match active {
             Some(id) => choices
@@ -153,6 +179,7 @@ impl NewChatPalette {
             return;
         };
         let target = choice.target;
+        let remote = choice.remote.clone();
         self.close(cx);
         let chats = cx.global::<AppState>().chats.clone();
         match &self.purpose {
@@ -161,6 +188,9 @@ impl NewChatPalette {
                 let request = (**request).clone();
                 chats.update(cx, |chats, cx| chats.fork(target, request, cx))
             }
+            Purpose::RemoteFork(request) => request
+                .runtime
+                .update(cx, |r, cx| r.client_fork(request.item, remote, cx)),
         }
     }
 
@@ -248,7 +278,7 @@ impl Render for NewChatPalette {
                             .text_color(t::muted())
                             .child(match self.purpose {
                                 Purpose::NewChat => "New chat in",
-                                Purpose::Fork(_) => "Fork into",
+                                Purpose::Fork(_) | Purpose::RemoteFork(_) => "Fork into",
                             }),
                     )
                     .child(

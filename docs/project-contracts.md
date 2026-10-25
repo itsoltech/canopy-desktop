@@ -405,6 +405,11 @@ Motion traktujemy jak design tokeny, nie lokalne dekoracje.
 
 ## Czat agentów
 
+- Widok czatu, taby i splity używają tych samych komponentów dla źródła lokalnego
+  i zdalnego. Czat należy do hosta; układ okna, fokus i szkic należą do klienta.
+  Zamknięcie taba/pane'a odłącza widok, także na hoście. Usunięcie rozmowy jest
+  odrębnym jawnym Delete. Identyfikator zdalnego czatu zawsze zawiera UUID hosta.
+
 - Czat to główna funkcja: New chat na górze sidebara (⌘N) używa aktualnie wybranego
   projektu/worktree i jego cwd; bez aktywnego projektu tworzy samodzielną rozmowę.
   New private chat w menu i ⌥⌘N zawsze tworzą prywatny czat.

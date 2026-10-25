@@ -1,7 +1,9 @@
 //! Device-owned native remote client. Host identity never follows the selected tab or route.
 pub mod catalog;
+pub mod presentation;
 mod chat_commands;
 mod commands;
+mod peers;
 pub use chat_commands::ChatMutation;
 pub mod pairing;
 mod projection;
@@ -18,7 +20,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 use store::{CredentialStore, HostRecord, Store};
@@ -41,6 +43,8 @@ pub struct ClientRegistry {
     inner: Arc<Registry>,
 }
 struct Registry {
+    peer: Arc<Mutex<Option<Arc<crate::remote::peer::LocalPeer>>>>,
+    peer_write: Mutex<()>,
     store: Arc<Mutex<Store>>,
     vault: Arc<dyn CredentialStore>,
     hosts: Mutex<BTreeMap<HostId, Arc<HostClient>>>,
@@ -53,6 +57,8 @@ impl ClientRegistry {
         let records = store.hosts();
         let registry = Self {
             inner: Arc::new(Registry {
+                peer: Arc::new(Mutex::new(None)),
+                peer_write: Mutex::new(()),
                 store: Arc::new(Mutex::new(store)),
                 vault,
                 hosts: Mutex::new(BTreeMap::new()),
@@ -86,6 +92,7 @@ impl ClientRegistry {
         routes::normalize(&mut record)?;
         self.inner.store.lock().unwrap().save(record.clone())?;
         let host = Arc::new(HostClient {
+            peer: self.inner.peer.clone(),
             id: record.id.clone(),
             state: Mutex::new(HostState {
                 catalog: p::Catalog::decode(record.catalog.as_slice())
@@ -105,6 +112,7 @@ impl ClientRegistry {
             store: self.inner.store.clone(),
             vault: self.inner.vault.clone(),
             generation: AtomicU64::new(0),
+            reconnecting: Arc::new(AtomicBool::new(false)),
             mutation: tokio::sync::Mutex::new(()),
             listeners: Mutex::new(Vec::new()),
         });
@@ -152,15 +160,20 @@ struct HostState {
     route_errors: BTreeMap<String, String>,
 }
 pub struct HostClient {
+    peer: Arc<Mutex<Option<Arc<crate::remote::peer::LocalPeer>>>>,
     id: HostId,
     state: Mutex<HostState>,
     store: Arc<Mutex<Store>>,
     vault: Arc<dyn CredentialStore>,
     generation: AtomicU64,
+    reconnecting: Arc<AtomicBool>,
     mutation: tokio::sync::Mutex<()>,
     listeners: Mutex<Vec<async_channel::Sender<()>>>,
 }
 impl HostClient {
+    pub fn start_connection(self: &Arc<Self>) {
+        peers::start_connection(self.clone());
+    }
     pub fn id(&self) -> &HostId {
         &self.id
     }
@@ -178,6 +191,21 @@ impl HostClient {
     }
     pub fn connection_error(&self) -> Option<String> {
         self.state.lock().unwrap().error.clone()
+    }
+    pub fn auto_connect(&self) -> bool {
+        self.state.lock().unwrap().record.auto_connect
+    }
+    pub fn is_mutual(&self) -> bool {
+        self.state.lock().unwrap().record.mutual
+    }
+    pub fn pause_connection(&self) -> Result<(), String> {
+        self.disconnect();
+        self.update_record(|record| {
+            record.auto_connect = false;
+            Ok(())
+        })?;
+        self.disconnect();
+        Ok(())
     }
     pub fn catalog(&self) -> Option<p::Catalog> {
         self.state.lock().unwrap().catalog.as_deref().cloned()
@@ -240,6 +268,12 @@ impl HostClient {
         self.connect_once(Some(route)).await
     }
     async fn connect_once(self: &Arc<Self>, route: Option<String>) -> Result<(), String> {
+        if !self.auto_connect() {
+            self.update_record(|record| {
+                record.auto_connect = true;
+                Ok(())
+            })?;
+        }
         self.disconnect();
         let generation = self.generation.load(Ordering::Acquire);
         {
@@ -258,6 +292,9 @@ impl HostClient {
             state.error = Some(error.clone());
             drop(state);
             self.changed();
+            if self.auto_connect() && self.peer.lock().unwrap().is_some() {
+                self.start_connection();
+            }
         }
         result
     }
@@ -315,7 +352,22 @@ impl HostClient {
         if generation != self.generation.load(Ordering::Acquire) {
             return Err("Connection cancelled.".into());
         }
+        let peer = self.peer.lock().unwrap().clone();
+        let return_port = tunnel.as_ref().and_then(ssh::SshTunnel::return_port);
+        let mutual = if !record.passive_peer
+            && let Some(peer) = &peer
+        {
+            peer.connect_back(channel.clone(), &record, return_port)
+                .await?
+        } else {
+            record.mutual
+        };
         self.update_record(|record| {
+            if generation != self.generation.load(Ordering::Acquire) {
+                return Err("Connection cancelled.".into());
+            }
+            record.mutual = mutual;
+            record.auto_connect = true;
             record.last_seen = Some(chrono::Utc::now().timestamp());
             record.epoch = Some(info.command_epoch);
             record.catalog = catalog.encode_to_vec();
@@ -332,7 +384,7 @@ impl HostClient {
             state.info = Some(info);
             state.phase = Phase::Ready;
             state.active_route = Some(route_id);
-            state.error = None;
+            state.error = (peer.is_some() && !mutual).then(|| "Connected one way. For a mutual connection, update Canopy on the other computer and allow Full access in Connections.".into());
         }
         self.changed();
         let weak = Arc::downgrade(self);
@@ -414,17 +466,7 @@ impl HostClient {
                     state.error = result.err();
                 }
                 host.changed();
-                let mut expected = generation;
-                for delay in [1, 2, 4, 8, 16] {
-                    tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-                    if host.generation.load(Ordering::Acquire) != expected {
-                        return;
-                    }
-                    if host.connect().await.is_ok() {
-                        return;
-                    }
-                    expected = host.generation.load(Ordering::Acquire);
-                }
+                host.start_connection();
             }
         });
         let mut state = self.state.lock().unwrap();
@@ -567,6 +609,9 @@ mod tests {
     }
     pub(super) fn record() -> HostRecord {
         HostRecord {
+            mutual: false,
+            passive_peer: false,
+            auto_connect: false,
             id: HostId::parse(&uuid::Uuid::new_v4().to_string()).unwrap(),
             name: "Host".into(),
             endpoint: "https://127.0.0.1:1".into(),

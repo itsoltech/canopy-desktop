@@ -8,9 +8,12 @@ use crate::{
         theme as t,
     },
 };
-use canopy_desktop::remote::{
-    enrollment::EnrollmentRpc,
-    network::{LocalAddress, local_addresses},
+use canopy_desktop::{
+    host::ALL_SCOPES,
+    remote::{
+        enrollment::EnrollmentRpc,
+        network::{LocalAddress, local_addresses},
+    },
 };
 use gpui_kit::{
     base::Disableable,
@@ -95,10 +98,10 @@ impl RemotePreferences {
             if pending != this.seen_pending {
                 if pending.is_some() {
                     this.editing = None;
-                    this.scopes = 7;
+                    this.scopes = ALL_SCOPES;
                     this.grant_advanced = false;
                     this.roots
-                        .update(cx, |field, cx| field.set_value("private", window, cx));
+                        .update(cx, |field, cx| field.set_value("*", window, cx));
                     this.refresh_addresses(cx);
                 } else if this.seen_pending.is_some() && uri.is_none() {
                     this.setup = false;
@@ -142,8 +145,8 @@ impl RemotePreferences {
             connections,
             address: cx.new(|cx| InputState::new(window, cx).default_value(address.clone())),
             advertised: cx.new(|cx| InputState::new(window, cx).placeholder("Automatic")),
-            roots: cx.new(|cx| TextareaState::new(window, cx).default_value("private")),
-            scopes: 7,
+            roots: cx.new(|cx| TextareaState::new(window, cx).default_value("*")),
+            scopes: ALL_SCOPES,
             editing: None,
             setup: false,
             advanced: false,
@@ -444,7 +447,7 @@ impl RemotePreferences {
             .child(div().text_color(t::muted()).child(if running.is_none() {
                 "Enable remote access to add a phone or another computer."
             } else {
-                "Devices you approve can reconnect without another invitation."
+                "Approve once to connect two computers in both directions. Phones can access this computer without running a host."
             }));
         if self.setup && running.is_some() {
             body=body.child(column().gap_3()
@@ -529,28 +532,40 @@ impl RemotePreferences {
             .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
             .child(
                 row().gap_2().children(
-                    [(1, "View only"), (7, "Chat"), (63, "Control")]
-                        .into_iter()
-                        .map(|(scopes, label)| {
-                            selection_button(
-                                ("permission-preset", scopes as usize),
-                                label,
-                                self.scopes == scopes,
-                            )
-                            .disabled(busy)
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    this.scopes = scopes;
-                                    cx.notify();
-                                },
-                            ))
-                        }),
+                    [
+                        (ALL_SCOPES, "Full access"),
+                        (63, "Control"),
+                        (7, "Chat"),
+                        (1, "View only"),
+                    ]
+                    .into_iter()
+                    .map(|(scopes, label)| {
+                        selection_button(
+                            ("permission-preset", scopes as usize),
+                            label,
+                            self.scopes == scopes,
+                        )
+                        .disabled(busy)
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.scopes = scopes;
+                                if scopes == ALL_SCOPES {
+                                    this.roots
+                                        .update(cx, |field, cx| field.set_value("*", window, cx));
+                                }
+                                cx.notify();
+                            },
+                        ))
+                    }),
                 ),
             )
             .child(div().text_color(t::muted()).child(match self.scopes {
                 1 => "Read history, files and Tasks. No changes or messages.",
                 7 => "Read, send messages and approve agent tools.",
                 63 => "Use chats, files, Git, terminals and Tasks. Host settings stay protected.",
+                ALL_SCOPES => {
+                    "Use all projects, chats, files, Git, terminals, Tasks and host settings."
+                }
                 _ => "Custom permissions",
             }))
             .child(
@@ -560,59 +575,83 @@ impl RemotePreferences {
             );
         let roots = self.roots(cx).unwrap_or_default();
         let all = roots.iter().any(|r| r == "*");
+        let private_only = roots.len() == 1 && roots[0] == "private";
         body = body.child(
-            row()
-                .gap_2()
-                .child(
-                    checkbox(
-                        "private-chat-access",
-                        all || roots.iter().any(|r| r == "private"),
-                        "Private chats",
-                    )
-                    .disabled(busy || all)
-                    .on_change(cx.listener(|this, checked, window, cx| {
-                        this.toggle_root("private".into(), *checked, window, cx)
-                    })),
-                )
-                .child("Private chats and global resources"),
+            checkbox("all-resource-access", all, "All projects and chats")
+                .disabled(busy)
+                .on_change(cx.listener(|this, checked, window, cx| {
+                    this.roots.update(cx, |field, cx| {
+                        field.set_value(if *checked { "*" } else { "private" }, window, cx)
+                    });
+                    this.error = None;
+                    cx.notify();
+                })),
         );
-        for project in &self.projects {
-            let Some(root) = project.canonical_root.to_str() else {
-                continue;
-            };
-            let root = root.to_owned();
+        if all {
+            body = body.child(div().text_color(t::muted()).child(
+                "Includes private chats and every project you open later. No need to share each one separately.",
+            ));
+        }
+        if private_only {
+            body = body.child(div().text_color(t::muted()).child("Only private chats are selected. Choose projects below, or enable All projects and chats."));
+        }
+        if !all {
             body = body.child(
                 row()
                     .gap_2()
                     .child(
                         checkbox(
-                            SharedString::from(format!("project-grant-{root}")),
-                            all || roots.contains(&root),
-                            project.name.clone(),
+                            "private-chat-access",
+                            all || roots.iter().any(|r| r == "private"),
+                            "Private chats",
                         )
                         .disabled(busy || all)
                         .on_change(cx.listener(
-                            move |this, checked, window, cx| {
-                                this.toggle_root(root.clone(), *checked, window, cx)
+                            |this, checked, window, cx| {
+                                this.toggle_root("private".into(), *checked, window, cx)
                             },
                         )),
                     )
-                    .child(
-                        column().flex_1().gap_1().child(project.name.clone()).child(
-                            div()
-                                .text_color(t::muted())
-                                .text_ellipsis()
-                                .child(project.canonical_root.display().to_string()),
+                    .child("Private chats and global resources"),
+            );
+            for project in &self.projects {
+                let Some(root) = project.canonical_root.to_str() else {
+                    continue;
+                };
+                let root = root.to_owned();
+                body = body.child(
+                    row()
+                        .gap_2()
+                        .child(
+                            checkbox(
+                                SharedString::from(format!("project-grant-{root}")),
+                                all || roots.contains(&root),
+                                project.name.clone(),
+                            )
+                            .disabled(busy || all)
+                            .on_change(cx.listener(
+                                move |this, checked, window, cx| {
+                                    this.toggle_root(root.clone(), *checked, window, cx)
+                                },
+                            )),
+                        )
+                        .child(
+                            column().flex_1().gap_1().child(project.name.clone()).child(
+                                div()
+                                    .text_color(t::muted())
+                                    .text_ellipsis()
+                                    .child(project.canonical_root.display().to_string()),
+                            ),
                         ),
-                    ),
-            );
-        }
-        if self.projects.is_empty() {
-            body = body.child(
-                div()
-                    .text_color(t::muted())
-                    .child("Open a project on this computer to share it here."),
-            );
+                );
+            }
+            if self.projects.is_empty() {
+                body = body.child(
+                    div()
+                        .text_color(t::muted())
+                        .child("Open a project on this computer to share it here."),
+                );
+            }
         }
         body = body.child(
             button(
@@ -638,7 +677,11 @@ impl RemotePreferences {
                 .child(
                     button(
                         "save-permissions",
-                        if pending.is_some() {
+                        if pending.is_some() && all && self.scopes == ALL_SCOPES {
+                            "Approve full access"
+                        } else if pending.is_some() && private_only {
+                            "Approve private chats only"
+                        } else if pending.is_some() {
                             "Approve device"
                         } else {
                             "Save permissions"
@@ -700,12 +743,44 @@ impl RemotePreferences {
                             .gap_1()
                             .child(device.name().to_owned())
                             .child(div().text_color(t::muted()).child(
+                                if device.scopes() == ALL_SCOPES
+                                    && device.roots().iter().any(|r| r == "*")
+                                {
+                                    "Full access · all projects and chats".into()
+                                } else {
+                                    shared_access(device.roots())
+                                },
+                            ))
+                            .child(div().text_color(t::muted()).child(
                                 if state.device_online(device.id()) {
                                     "Connected"
                                 } else {
                                     "Paired · offline"
                                 },
                             )),
+                    )
+                    .children(
+                        (device.scopes() != ALL_SCOPES || !device.roots().iter().any(|r| r == "*"))
+                            .then(|| {
+                                let id = device.id().to_owned();
+                                let revision = device.authorization_revision();
+                                button(
+                                    SharedString::from(format!("share-everything-{id}")),
+                                    "Share everything",
+                                )
+                                .disabled(busy)
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.state.update(cx, |state, cx| {
+                                            state.update_device(
+                                                id.clone(),
+                                                Some((revision, ALL_SCOPES, vec!["*".into()])),
+                                                cx,
+                                            )
+                                        });
+                                    },
+                                ))
+                            }),
                     )
                     .child(
                         button(SharedString::from(format!("edit-{id}")), "Permissions…")
@@ -750,7 +825,12 @@ impl RemotePreferences {
                 })),
             )
             .into_any_element();
-        let mut section = column().gap_3().child(body);
+        let mut section = column()
+            .gap_3()
+            .child(body)
+            .child(div().text_color(t::muted()).child(
+                "Connected computers share all projects and chats by default. Permissions can be restricted for each device.",
+            ));
         if let Some(connections) = &self.connections {
             let connections = connections.read(cx);
             let hosts = connections.hosts();
@@ -765,7 +845,7 @@ impl RemotePreferences {
                 section = section.child(div().text_color(t::red()).child(error.to_owned()));
             }
             if hosts.is_empty() && !connections.loading() {
-                section=section.child(div().text_color(t::muted()).child("Connect to a computer running Canopy. Its projects and agents appear in a separate remote window."));
+                section=section.child(div().text_color(t::muted()).child("Add a computer once. After approval, both computers' projects and chats appear in the sidebar."));
             }
             for host in hosts {
                 let status = match host.phase() {
@@ -781,10 +861,11 @@ impl RemotePreferences {
                     .iter()
                     .find(|route| Some(route.id()) == active.as_deref());
                 let status = format!(
-                    "{status}{} · {} routes",
+                    "{status}{} · {} routes{}",
                     via.map(|r| format!(" via {}", r.name()))
                         .unwrap_or_default(),
-                    routes.len()
+                    routes.len(),
+                    if host.is_mutual() { " · Two-way" } else { "" },
                 );
                 let route_host = host.clone();
                 section =
@@ -800,6 +881,11 @@ impl RemotePreferences {
                                     .gap_1()
                                     .child(host.name())
                                     .child(div().text_color(t::muted()).child(status))
+                                    .child(div().text_color(t::muted()).child(match host.shared_catalog() {
+                                        Some(catalog) if catalog.projects.is_empty() => format!("No shared projects. Open a project on {} or check its device permissions.", host.name()),
+                                        Some(catalog) => format!("{} shared projects", catalog.projects.len()),
+                                        None => "Catalog not loaded. Open this connection to load shared projects.".to_owned(),
+                                    }))
                                     .children(
                                         host.connection_error()
                                             .map(|error| div().text_color(t::red()).child(error)),
@@ -835,7 +921,9 @@ impl RemotePreferences {
                                             SharedString::from(format!("disconnect-{id}")),
                                             "Disconnect",
                                         )
-                                        .on_click(move |_, _, _| host.disconnect())
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            if let Err(error) = host.pause_connection() { this.error = Some(error); cx.notify(); }
+                                        }))
                                     }),
                             ),
                     );
@@ -937,4 +1025,26 @@ fn qr_view(qr: Arc<qrcodegen::QrCode>) -> impl IntoElement {
         },
     )
     .size(px(320.))
+}
+
+fn shared_access(roots: &[String]) -> String {
+    if roots.iter().any(|root| root == "*") {
+        "All current and future projects · private chats".into()
+    } else {
+        let count = roots
+            .iter()
+            .filter(|root| root.as_str() != "private")
+            .count();
+        match (count, roots.iter().any(|root| root == "private")) {
+            (0, true) => "Private chats only · no projects".into(),
+            (1, private) => format!(
+                "1 project folder{}",
+                if private { " · private chats" } else { "" }
+            ),
+            (count, private) => format!(
+                "{count} project folders{}",
+                if private { " · private chats" } else { "" }
+            ),
+        }
+    }
 }

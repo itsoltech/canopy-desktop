@@ -56,9 +56,33 @@ are grouping identities; they never grant filesystem authority. The device
 registry looks up the exact TLS-verified leaf certificate. Request-supplied IDs,
 device names and VPN membership cannot authenticate a request.
 
-Approval offers View only, Chat and Control presets, plus project/private
-checkboxes. Control excludes host administration. Custom scopes and canonical
-root paths remain under Advanced permissions; `*` is never granted implicitly.
+Approval defaults to **Full access**: all operation scopes, including host
+settings, and `*` for every current and future project and private chat. The
+All projects and chats control can restrict roots; View only, Chat and Control
+presets restrict operations. Control excludes host administration. Existing
+devices also have a Share everything action. On the first upgraded startup,
+untouched original grants (revision 1, Chat scopes, private only) are widened
+atomically. Edited grants, chosen project roots and revoked devices stay intact;
+an internal preferences marker prevents the upgrade from running again.
+
+Desktop pairing connects both computers after one invitation and approval.
+Adding a computer starts the local host if necessary. Over the authenticated
+connection, PeerService exchanges a CSR bound to the pinned host public key;
+the local host issues a separate revocable ClientAuth certificate. ConnectPeer
+then saves the reverse connection in the existing client registry. It requires
+ADMIN on private resources and never accepts an enrollment token as authority.
+Deterministic device IDs and existing-certificate lookup make retries idempotent;
+they never restore revoked grants or replace an existing connection's drafts,
+routes or keys. Each computer then reads the other's normal authorized catalog.
+Phones remain clients and do not start a reverse host.
+
+The return credential uses the computer's persisted host key with a distinct,
+peer-issued ClientAuth certificate; no private key is exchanged. PeerService
+requires that CSR's public key to match the pinned server certificate. A saved
+peer connection is restored on application startup. The first upgrade enables
+the listener for previously saved connections; later explicit disable choices
+are respected. An SSH connection owns a loopback return forward, so the peer
+does not need a new inbound network route or SSH credentials.
 Preferences lists devices and supports revision-checked permission updates and
 confirmed revoke. Authorization invalidations wake active subscriptions. Revoke prevents
 new effects and disclosures; it does not undo work already accepted by the host.

@@ -331,9 +331,13 @@ impl ChatView {
     /// Every account the picker shows lists its models again in the background, except
     /// the one whose agent already listed them in this chat (DEC-098).
     fn refresh_models(&mut self, cx: &mut Context<Self>) {
+        if self.rt(cx).is_remote() {
+            return;
+        }
         let (accounts, current) = self.accounts(cx);
         let locked = self.account_locked(cx);
-        let live = self.native(cx).is_some_and(|s| !s.models().is_empty());
+        let live =
+            self.rt(cx).is_remote() || self.native(cx).is_some_and(|s| !s.models().is_empty());
         let catalog = cx.global::<AppState>().model_catalog.clone();
         let pane = self.pane(cx).clone();
         for account in accounts {
@@ -772,6 +776,8 @@ impl ChatView {
         let list = |account: &Account| -> Vec<ModelInfo> {
             if account.id == current {
                 self.models(cx)
+            } else if self.rt(cx).is_remote() {
+                Vec::new()
             } else {
                 catalog
                     .models(&account.id)
@@ -960,7 +966,8 @@ impl ChatView {
         let highlighted = self.model_picker.highlighted;
         let hearts = tab.is_none();
         let searching = !self.model_picker.search.read(cx).value().trim().is_empty();
-        let live = self.native(cx).is_some_and(|s| !s.models().is_empty());
+        let remote = self.rt(cx).is_remote();
+        let live = remote || self.native(cx).is_some_and(|s| !s.models().is_empty());
         let catalog = cx.global::<AppState>().model_catalog.read(cx);
         // Under the list: why it is empty, or the account's models still on their way.
         let note = match tab.as_deref() {
@@ -968,6 +975,9 @@ impl ChatView {
                 Some("Models with a heart show here.".to_owned())
             }
             _ if choices.is_empty() => Some("No matching models".to_owned()),
+            Some(profile) if remote && profile != current => {
+                Some("Select this account to load its models from the host.".to_owned())
+            }
             Some(profile)
                 if !(profile == current && live)
                     && catalog.models(profile).is_none()

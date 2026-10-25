@@ -74,6 +74,15 @@ pub struct OptionChoice {
     pub label: String,
     pub description: Option<String>,
 }
+impl OptionChoice {
+    pub fn new(id: String, label: String) -> Self {
+        Self {
+            id,
+            label,
+            description: None,
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct SessionOption {

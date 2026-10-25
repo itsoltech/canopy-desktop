@@ -81,6 +81,9 @@ impl ChatRuntime {
 
     /// Queue lines in order: what waits, what is being delivered, what is uncertain.
     pub fn queue_lines(&self) -> Vec<QueueLine> {
+        if let Some(remote) = &self.remote {
+            return remote.lines();
+        }
         let mut lines: Vec<QueueLine> = self
             .queue
             .state
@@ -127,6 +130,10 @@ impl ChatRuntime {
     }
     /// Waiting messages are held: after Stop or a restart of Canopy, until Resume.
     pub fn queue_paused(&self) -> bool {
+        if let Some(remote) = &self.remote {
+            return remote.lines().iter().any(|l| l.id.starts_with("device:"))
+                || remote.projection.queue.as_ref().is_some_and(|q| q.paused);
+        }
         self.queue.state.as_ref().is_some_and(|queue| {
             queue.paused()
                 && queue
@@ -191,6 +198,9 @@ impl ChatRuntime {
     /// A record the host adopted without metadata needs the user's choice first and
     /// is never overwritten here.
     pub(super) fn save_record(&mut self, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            return;
+        }
         let Some(chat) = self.settings.id.clone() else {
             return;
         };
@@ -469,6 +479,10 @@ impl ChatRuntime {
 
     /// Sends a message: accepted into the queue, delivered when the agent can take it.
     pub fn send_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            self.send_remote(draft, false, cx);
+            return;
+        }
         self.send_draft_as(draft, false, cx)
     }
     /// `send_draft`; `steer`: once accepted it goes first and into the running turn.
@@ -556,6 +570,10 @@ impl ChatRuntime {
 
     /// Lets the held queue go on: work Stop cut short is finished first.
     pub fn resume_queue(&mut self, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            self.client_resume(cx);
+            return;
+        }
         let resume = self.change_locally(QueueMutation::Pause { paused: false }, cx);
         cx.spawn(async move |this, cx| {
             if resume.await.is_ok() {
@@ -583,6 +601,41 @@ impl ChatRuntime {
     }
     /// Drag and drop in the queue: `message` goes in front of `before`.
     pub fn move_queued(&mut self, message: String, before: String, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            match (
+                message.strip_prefix("device:"),
+                before.strip_prefix("device:"),
+            ) {
+                (Some(id), Some(before)) => {
+                    if let Some(host) = self.remote_host() {
+                        if let Err(error) = host.move_unsent(id, before) {
+                            self.note(error, cx);
+                        }
+                        cx.notify();
+                    }
+                    return;
+                }
+                (Some(_), _) | (_, Some(_)) => {
+                    self.note(
+                        "Messages saved on this device can be reordered after they reach the host."
+                            .into(),
+                        cx,
+                    );
+                    return;
+                }
+                _ => {}
+            }
+            self.remote_queue(
+                canopy_desktop::remote::proto::change_queue_request::Change::Move(
+                    canopy_desktop::remote::proto::QueueMove {
+                        message_id: message,
+                        before_message_id: Some(before),
+                    },
+                ),
+                cx,
+            );
+            return;
+        }
         if message != before {
             self.change_locally(
                 QueueMutation::Move {
@@ -595,6 +648,24 @@ impl ChatRuntime {
         }
     }
     pub fn remove_queued(&mut self, message: String, cx: &mut Context<Self>) {
+        if let Some(id) = message
+            .strip_prefix("device:")
+            .filter(|_| self.remote.is_some())
+        {
+            self.client_remove_saved(id.into(), cx);
+            return;
+        }
+        if self.remote.is_some() {
+            self.remote_queue(
+                canopy_desktop::remote::proto::change_queue_request::Change::Remove(
+                    canopy_desktop::remote::proto::QueueRemove {
+                        message_id: message,
+                    },
+                ),
+                cx,
+            );
+            return;
+        }
         self.change_locally(QueueMutation::Remove { message }, cx)
             .detach();
     }
@@ -617,6 +688,9 @@ impl ChatRuntime {
         replacement: Draft,
         cx: &mut Context<Self>,
     ) -> Task<Option<Draft>> {
+        if self.remote.is_some() {
+            return self.client_take_queued(message, replacement, cx);
+        }
         let Some(queued) = self.entry_draft(&message) else {
             return Task::ready(None);
         };
@@ -650,6 +724,35 @@ impl ChatRuntime {
         resolution: UnknownResolution,
         cx: &mut Context<Self>,
     ) {
+        if let Some(id) = message
+            .strip_prefix("device:")
+            .filter(|_| self.remote.is_some())
+        {
+            self.client_resolve_saved(
+                id.into(),
+                matches!(resolution, UnknownResolution::Resend { .. }),
+                cx,
+            );
+            return;
+        }
+        if self.remote.is_some() {
+            use canopy_desktop::remote::proto as p;
+            let resolution = match resolution {
+                UnknownResolution::Delivered => p::UnknownResolution::AcceptAsDelivered,
+                UnknownResolution::Resend { .. } => p::UnknownResolution::SendAgain,
+                UnknownResolution::Dismissed => p::UnknownResolution::Dismiss,
+            };
+            self.remote_queue(
+                p::change_queue_request::Change::Resolve(p::QueueResolve {
+                    message_id: message,
+                    resolution: resolution as i32,
+                    new_message_id: (resolution == p::UnknownResolution::SendAgain)
+                        .then(|| uuid::Uuid::new_v4().to_string()),
+                }),
+                cx,
+            );
+            return;
+        }
         self.change_locally(
             QueueMutation::ResolveUnknown {
                 message,
@@ -664,6 +767,10 @@ impl ChatRuntime {
     /// as a steer after `attempting` is recorded, never removed and sent around the
     /// queue. Without a turn to steer it simply goes next.
     pub fn steer_queued(&mut self, message: String, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            self.client_steer_queued(message, cx);
+            return;
+        }
         if self.entry_draft(&message).is_none() {
             return;
         }
@@ -749,6 +856,13 @@ impl ChatRuntime {
     }
     /// The oldest waiting message (⌘⏎ steers it).
     pub fn first_queued(&self) -> Option<String> {
+        if let Some(source) = &self.remote {
+            return source
+                .lines()
+                .into_iter()
+                .find(|l| l.state == LineState::Queued)
+                .map(|l| l.id);
+        }
         self.queue.state.as_ref().and_then(|queue| {
             queue
                 .entries()

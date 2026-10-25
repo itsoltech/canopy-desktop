@@ -305,9 +305,22 @@ impl Workspace {
     pub(super) fn close_editor_pane(&mut self, tab: TabId, pane: PaneId, cx: &mut Context<Self>) {
         let target = self.state.workspace.clone();
         let workspace = target.read(cx).id;
-        crate::app_state::Editors::guard_closing(
+        crate::app_state::Editors::guard_detaching(
             vec![pane],
             move |cx| {
+                if target.read(cx).id != workspace
+                    || !target
+                        .read(cx)
+                        .tabs()
+                        .iter()
+                        .any(|t| t.id == tab && t.root.find(pane).is_some())
+                {
+                    return;
+                }
+                cx.global::<crate::app_state::AppState>()
+                    .chats
+                    .clone()
+                    .update(cx, |chats, _| chats.detach_views(&[pane]));
                 target.update(cx, |state, cx| {
                     if state.id == workspace {
                         let _ = state.close_pane(tab, pane);

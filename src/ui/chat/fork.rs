@@ -6,6 +6,12 @@ use canopy_desktop::chat::{fork::Cut, provider::Provider, transcript::Body};
 use gpui_kit::*;
 
 impl EventEmitter<ChatForkRequested> for ChatView {}
+#[derive(Clone)]
+pub(crate) struct ClientForkRequested {
+    pub runtime: Entity<crate::app_state::ChatRuntime>,
+    pub item: canopy_desktop::remote::proto::ItemKey,
+}
+impl EventEmitter<ClientForkRequested> for ChatView {}
 
 impl ChatView {
     /// What forking at the turn end `end` takes; `None` when that part has no saved
@@ -56,6 +62,22 @@ impl ChatView {
 
     /// Fork clicked: the workspace asks where the new chat goes.
     pub(super) fn fork_reply(&mut self, end: Source, cx: &mut Context<Self>) {
+        if self.rt(cx).is_remote() {
+            let epoch = match end {
+                Source::Current(_) => self.rt(cx).epoch(),
+                Source::Archived { epoch, .. } => self.rows.archived[epoch].epoch,
+            };
+            if let Some(item) = self.rows.item(end, self.transcript(cx)) {
+                cx.emit(ClientForkRequested {
+                    runtime: self.runtime.clone(),
+                    item: canopy_desktop::remote::proto::ItemKey {
+                        history_epoch: epoch,
+                        item_id: item.id.0,
+                    },
+                });
+            }
+            return;
+        }
         if let Some(request) = self.fork_request(end, cx) {
             cx.emit(ChatForkRequested(request));
         }

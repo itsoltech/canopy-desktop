@@ -304,6 +304,21 @@ impl Editors {
     pub fn guard_closing(ids: Vec<PaneId>, action: impl Fn(&mut App) + 'static, cx: &mut App) {
         Self::guard_with(ids, vec![], action, true, cx)
     }
+    /// Local layout closure keeps shared chats running; only dirty documents
+    /// require a decision. Delete and project shutdown use their own guards.
+    pub fn guard_detaching(ids: Vec<PaneId>, action: impl Fn(&mut App) + 'static, cx: &mut App) {
+        let editors = cx.global::<AppState>().editors.clone();
+        if editors.read(cx).busy(&ids, cx) {
+            editors.update(cx, |_, cx| {
+                cx.emit(GuardRequest {
+                    ids,
+                    action: std::rc::Rc::new(action),
+                })
+            });
+        } else {
+            action(cx);
+        }
+    }
     /// `guard_closing` for whole projects: their catalog chats without a pane (created
     /// remotely) are deleted too, and listed first (LIFE-10).
     pub fn guard_closing_chats(

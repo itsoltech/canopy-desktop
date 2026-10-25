@@ -221,7 +221,7 @@ impl BackendSession {
                 _ => s.set_option(id, value),
             },
             Self::Native(s) => match id {
-                "model" => Ok(s.set_model(Some(value.into()))),
+                "model" => Ok(s.set_model((!value.is_empty()).then(|| value.into()))),
                 "mode" => Ok(s.set_mode(Mode::from_key(value).ok_or("Unknown mode.")?)),
                 "effort" => {
                     Ok(s.set_effort(Some(Effort::from_key(value).ok_or("Unknown effort.")?)))

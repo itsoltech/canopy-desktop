@@ -1,11 +1,30 @@
-//! The existing remote client as the work area's content. Connections and drafts
-//! have the same owners as a detached client window; local tabs stay untouched.
+//! Remote resource tools, including the inspector beside a normal chat pane.
+//! Chat navigation is forwarded to the shared ChatView and local tab layout.
 use super::*;
 
 pub struct RemoteWorkspace {
     view: Entity<RemoteWindow>,
 }
 impl RemoteWorkspace {
+    pub(in crate::ui) fn tools(
+        host: Arc<HostClient>,
+        workspace: Option<p::WorkspaceRef>,
+        page: Page,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let view = cx.new(|cx| {
+            let mut view = RemoteWindow::new(window, cx);
+            view.embedded = true;
+            view.compact_tools = true;
+            view.host = Some(host);
+            view.workspace = workspace;
+            view.page = page;
+            view.connect_on_open = true;
+            view
+        });
+        Self { view }
+    }
     pub fn new(
         host: Arc<HostClient>,
         resource: p::ResourceRef,
@@ -168,10 +187,11 @@ impl RemoteWindow {
             return;
         }
         let id = host.id().clone();
-        let task = self
-            .global
-            .runtime
-            .spawn(async move { host.connect().await });
+        let ready = prepare_connection(cx);
+        let task = self.global.runtime.spawn(async move {
+            ready.await?;
+            host.connect().await
+        });
         cx.spawn(async move |this, cx| {
             let result = task
                 .await
@@ -225,6 +245,12 @@ impl RemoteWindow {
     }
 }
 impl RemoteWorkspace {
+    pub(in crate::ui) fn open_file(&mut self, file: p::FileRef, cx: &mut Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            view.navigate(Page::Files, cx);
+            view.open_remote_file(file, cx);
+        });
+    }
     pub(in crate::ui) fn show(&mut self, page: Page, cx: &mut Context<Self>) {
         self.view.update(cx, |view, cx| {
             view.navigate(page, cx);

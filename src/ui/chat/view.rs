@@ -38,6 +38,8 @@ pub(super) struct Thread {
 
 pub struct ChatView {
     pub(super) runtime: Entity<ChatRuntime>,
+    pub(super) remote_revision: u64,
+    pub(super) remote_anchor: Option<(u64, u64)>,
     /// Session (runtime serial) the rows show, and how many of its items they hold.
     synced: (u64, usize),
     pub(super) rows: Rows,
@@ -172,6 +174,7 @@ impl ChatView {
                     this.wake_composer(cx);
                     this.update_suggest(cx);
                     this.end_recall(cx);
+                    this.save_remote_draft(cx);
                     cx.notify()
                 }
                 _ => {}
@@ -197,6 +200,8 @@ impl ChatView {
             .with_badges(super::attachments::badge_factory(cx.entity().downgrade()));
         let mut view = Self {
             runtime,
+            remote_revision: 0,
+            remote_anchor: None,
             synced: (serial, 0),
             rows,
             threads: vec![],
@@ -297,7 +302,7 @@ impl ChatView {
         self.rt(cx).is_working()
     }
     pub fn has_conversation(&self, cx: &App) -> bool {
-        self.rt(cx).has_conversation()
+        self.rt(cx).has_conversation() || self.transcript(cx).is_some_and(|t| !t.items().is_empty())
     }
     pub fn account_locked(&self, cx: &App) -> bool {
         self.rt(cx).account_locked()
@@ -356,11 +361,39 @@ impl ChatView {
                 self.presentation_changed(cx);
             }
             ChatRuntimeEvent::Restored => {
+                if self.remote_revision == 0
+                    && let Some(draft) = self.rt(cx).remote_source().and_then(|s| s.draft.clone())
+                {
+                    self.restore_draft(draft, cx);
+                }
+                self.restore_remote_edit(cx);
                 self.catch_up_archived(cx);
                 self.presentation_changed(cx);
             }
             ChatRuntimeEvent::Reset => {
-                if let Some(editing) = self.editing.take() {
+                if self
+                    .rt(cx)
+                    .remote_source()
+                    .is_some_and(|s| s.history_loading)
+                {
+                    let top = self.rows.scroller.read(cx).top_row();
+                    self.remote_anchor = self.rows.rows.get(top).and_then(|r| {
+                        let super::rows::Kind::Item(source) = r.kind else {
+                            return None;
+                        };
+                        let epoch = match source {
+                            super::rows::Source::Current(_) => self.synced.0.saturating_sub(1),
+                            super::rows::Source::Archived { epoch, .. } => {
+                                self.rows.archived.get(epoch)?.epoch
+                            }
+                        };
+                        Some((epoch, self.rows.item(source, self.transcript(cx))?.id.0))
+                    });
+                }
+                if !(self.rt(cx).is_remote()
+                    && self.editing.as_ref().is_some_and(|e| e.sending.is_some()))
+                    && let Some(editing) = self.editing.take()
+                {
                     self.restore_draft(editing.draft, cx);
                 }
                 self.rows = Rows::new(cx)
@@ -372,6 +405,40 @@ impl ChatView {
             }
             ChatRuntimeEvent::DraftReturned(draft) => {
                 self.restore_draft(draft.clone(), cx);
+                cx.notify();
+            }
+            ChatRuntimeEvent::DraftConsumed(revision) => {
+                if self.remote_revision == *revision {
+                    self.attachments.pending.clear();
+                    self.code_parts.clear();
+                    self.shell = false;
+                    self.goal_mode = false;
+                    self.decision.composer = Some(super::decision::ComposerChange {
+                        text: Some(String::new().into()),
+                        placeholder: super::decision::COMPOSER_PLACEHOLDER,
+                    });
+                    cx.notify();
+                }
+            }
+            ChatRuntimeEvent::EditFinished { revision, result } => {
+                match result {
+                    Ok(()) => {
+                        self.editing = None;
+                        if self.remote_revision == *revision {
+                            self.attachments.pending.clear();
+                            self.decision.composer = Some(super::decision::ComposerChange {
+                                text: Some(String::new().into()),
+                                placeholder: super::decision::COMPOSER_PLACEHOLDER,
+                            });
+                        }
+                    }
+                    Err(error) => {
+                        if let Some(editing) = &mut self.editing {
+                            editing.error = Some(error.clone());
+                            editing.sending = None;
+                        }
+                    }
+                }
                 cx.notify();
             }
             ChatRuntimeEvent::Stopping => self.drop_live_pages(),
@@ -410,16 +477,18 @@ impl ChatView {
                 .collect();
             fresh.dedup();
             fresh.extend((synced..len).map(Change::Inserted));
-            let current = runtime.serial() == serial && runtime.backend().is_some();
+            let current = runtime.serial() == serial && runtime.ready();
             let session = runtime.backend().filter(|_| current);
-            let thinking =
-                session.is_some_and(|s| presentation::thinking(s.transcript(), s.status()));
+            let thinking = current
+                && runtime
+                    .status()
+                    .is_some_and(|status| presentation::thinking(transcript, status));
             let files = file_tools(transcript, &fresh, checked);
             rows.sync(transcript, &fresh, thinking, policy, cx);
             let images = images_in(fresh.iter().filter_map(|change| match *change {
                 Change::Inserted(index) | Change::Updated(index) => transcript.get(index),
             }));
-            if session.is_some() {
+            if session.is_some() || runtime.is_remote() {
                 for thread in threads.iter_mut().filter(|thread| !thread.archived) {
                     let thinking = thread_thinking(transcript, &thread.call);
                     thread.rows.sync(transcript, &fresh, thinking, policy, cx);
@@ -439,6 +508,7 @@ impl ChatView {
             self.resolve_tool_files(files, cx);
         }
         self.presentation_changed(cx);
+        self.restore_remote_anchor(cx);
     }
 
     /// Rows for sessions the runtime put away since the rows last looked: the one they
@@ -479,6 +549,9 @@ impl ChatView {
 
     /// Checks off the UI thread which tool paths are files Canopy can open.
     fn resolve_tool_files(&mut self, files: Vec<(String, String)>, cx: &mut Context<Self>) {
+        if self.rt(cx).is_remote() {
+            return;
+        }
         let Some(cwd) = self.cwd(cx).filter(|_| !files.is_empty()) else {
             return;
         };
@@ -521,6 +594,12 @@ impl ChatView {
         }
         if self.shell_mode(cx) {
             let text = self.composer.read(cx).value().to_string();
+            if self.rt(cx).is_remote() {
+                self.save_remote_draft(cx);
+                self.runtime
+                    .update(cx, |runtime, cx| runtime.client_shell(text, cx));
+                return;
+            }
             match self
                 .runtime
                 .update(cx, |runtime, cx| runtime.run_shell(&text, cx))
@@ -540,6 +619,11 @@ impl ChatView {
             || (draft.text.trim().is_empty() && draft.attachments.is_empty())
             || !self.rt(cx).accepts_messages()
         {
+            return;
+        }
+        if self.rt(cx).is_remote() {
+            self.save_remote_draft(cx);
+            self.send_draft(draft, cx);
             return;
         }
         if canopy_desktop::chat::attachments::needs_data(&draft.attachments) {
@@ -751,6 +835,12 @@ impl ChatView {
             }
             // Steering is the agent's own feature; without it the message waits.
             if self.is_working(cx) && self.capabilities(cx).steer {
+                if self.rt(cx).is_remote() {
+                    self.save_remote_draft(cx);
+                    self.runtime
+                        .update(cx, |runtime, cx| runtime.steer_draft(draft, cx));
+                    return;
+                }
                 self.clear_composer(window, cx);
                 self.with_images(draft, cx, |this, draft, cx| {
                     this.runtime
@@ -781,14 +871,37 @@ impl ChatView {
     /// place at the end of the queue, so nothing typed is lost.
     pub(super) fn edit(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let draft = self.composer_draft(cx);
+        let remote = self.rt(cx).is_remote();
+        let revision = self.remote_revision;
         let taken = self
             .runtime
             .update(cx, |runtime, cx| runtime.take_queued(id, draft, cx));
         // The composer is cleared now and refilled once the queue gave the message up.
-        self.clear_composer(window, cx);
+        if !remote {
+            self.clear_composer(window, cx);
+        }
         cx.spawn_in(window, async move |this, cx| {
-            if let Some(queued) = taken.await {
+            if let Some(mut queued) = taken.await {
                 let _ = this.update_in(cx, |this, window, cx| {
+                    if remote && this.remote_revision != revision {
+                        let mut current = this.composer_draft(cx);
+                        if !current.text.is_empty() && !queued.text.is_empty() {
+                            current.text.push_str("\n\n");
+                        }
+                        current.text.push_str(&queued.text);
+                        current.attachments.append(&mut queued.attachments);
+                        if let Some(context) = queued.context {
+                            current.context = Some(match current.context {
+                                Some(current) => format!("{current}\n\n{context}"),
+                                None => context,
+                            });
+                        }
+                        current.goal |= queued.goal;
+                        queued = current;
+                        this.shell_error = Some(
+                            "The draft changed; the queued content was appended for review.".into(),
+                        );
+                    }
                     this.set_composer_draft(queued, window, cx)
                 });
             }

@@ -687,6 +687,7 @@ impl Sidebar {
                 )
             })
             .collect();
+        groups.extend(self.remote_connection_messages(cx));
         let error = git.error.as_ref().or(state.error.as_ref()).or(self
             .terminals
             .read(cx)

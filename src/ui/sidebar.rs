@@ -22,6 +22,8 @@ pub struct Sidebar {
     project_groups: std::collections::HashMap<String, Disclosure>,
     connections: Option<Entity<super::remote_client::Connections>>,
     remote_selection: Option<canopy_desktop::remote::proto::ResourceRef>,
+    selected_pane: Option<canopy_desktop::state::workspace::PaneId>,
+    remote_error: Option<String>,
     _connections_observer: Option<Subscription>,
     _tool_events: Vec<Subscription>,
     projects: Entity<crate::app_state::ProjectsState>,
@@ -47,7 +49,7 @@ impl Sidebar {
                 cx.notify();
             }),
             cx.observe(&app.chats, |_, _, cx| cx.notify()),
-            cx.observe(&app.workspace, |_, _, cx| cx.notify()),
+            cx.observe(&app.workspace, |this, _, cx| this.sync_chat_selection(cx)),
             cx.observe(&app.agents, |this, _, cx| {
                 this.reduced = canopy_desktop::motion::policy(cx)
                     == canopy_desktop::motion::MotionPolicy::Reduced;
@@ -92,6 +94,8 @@ impl Sidebar {
         Self {
             connections,
             remote_selection: None,
+            selected_pane: None,
+            remote_error: None,
             _connections_observer: connections_observer,
             git: app.git.clone(),
             terminals,

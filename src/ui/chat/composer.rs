@@ -266,6 +266,7 @@ impl ChatView {
                                 .children(blocks)
                                 .child(field)
                                 .children(self.attachment_errors(cx))
+                                .children(self.recovery_bar(cx))
                                 .children(self.rt(cx).notice().map(|notice| {
                                     div()
                                         .px(px(4.))
@@ -398,6 +399,22 @@ impl ChatView {
 
     /// Claude Code and Codex profiles, and the chat's own.
     pub(super) fn accounts(&self, cx: &App) -> (Vec<Account>, String) {
+        if let Some(source) = self.rt(cx).remote_source() {
+            let accounts = source
+                .agents
+                .iter()
+                .flat_map(|agent| {
+                    agent.accounts.iter().map(|account| Account {
+                        tool: agent.agent_id.clone(),
+                        provider: Provider::from_tool(&agent.agent_id),
+                        agent: agent.name.clone(),
+                        id: account.account_id.clone(),
+                        name: account.label.clone(),
+                    })
+                })
+                .collect();
+            return (accounts, self.profile(cx));
+        }
         let catalog = &cx.global::<AppState>().tools.read(cx).catalog;
         let mut accounts = vec![];
         for provider in Provider::ALL {

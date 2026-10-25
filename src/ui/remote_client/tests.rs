@@ -187,6 +187,15 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
         })).unwrap();
         hosts.push(registry.insert(record).unwrap());
     }
+    let unloaded_id = uuid::Uuid::new_v4().to_string();
+    let unloaded: HostRecord = serde_json::from_value(serde_json::json!({
+        "id":unloaded_id,"name":"Not connected yet","endpoint":"https://192.168.1.31:44330",
+        "server_name":"paired-host","certificate":[],"fingerprint":[],"device_id":"device",
+        "credential_ref":"never-read","ssh":null,"last_seen":null,"epoch":null,"closing_epoch":null,
+        "catalog":[],"outbox":[],"mutations":[],"views":{},"uploads":[],"chats":{}
+    }))
+    .unwrap();
+    let unloaded = registry.insert(unloaded).unwrap();
     let (app, local_chat) = cx.update(|cx| {
         gpui_kit::init(cx);
         crate::ui::theme::init(cx);
@@ -259,7 +268,7 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
             .read(cx)
             .hosts()
             .len()
-            == 3
+            == 4
     })
     .await;
     let original = cx.update(|cx| app.projects.read(cx).catalog.active);
@@ -274,6 +283,16 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
             window
                 .find("project-origin:https://gitlab.com/itsoltech/canopy-desktop")
                 .visible()
+        );
+        assert!(
+            window
+                .find(format!("remote-connect-{unloaded_id}"))
+                .visible()
+        );
+        assert_eq!(
+            unloaded.phase(),
+            Phase::Offline,
+            "showing an unloaded connection must not use its credentials"
         );
     })
     .unwrap();

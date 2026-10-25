@@ -405,7 +405,7 @@ impl Render for HtmlPreview {
     }
 }
 
-fn isolated_html(html: &str) -> String {
+pub(crate) fn isolated_html(html: &str) -> String {
     let policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-src 'none'\">";
     let source = format!("{policy}{html}")
         .replace('&', "&amp;")

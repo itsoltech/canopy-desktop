@@ -512,9 +512,24 @@ impl proto::chat_service_server::ChatService for ChatsRpc {
         self.auth
             .resource(grant.id(), host::READ, record.authority_root())
             .await?;
+        let mut offered = capabilities(&snapshot.capabilities);
+        for (operation, reason) in [
+            ("edit", snapshot.edit_unavailable),
+            ("shell", snapshot.shell_unavailable),
+        ] {
+            let reason = reason.or_else(|| {
+                (operation == "shell" && self.auth.scope(&grant, host::TERMINAL).is_err())
+                    .then(|| "Terminal access is not enabled for this device.".into())
+            });
+            offered.push(proto::Capability {
+                operation: operation.into(),
+                supported: reason.is_none(),
+                reason: reason.unwrap_or_default(),
+            });
+        }
         Ok(Response::new(proto::AgentOptions {
             chat: Some(chat),
-            capabilities: capabilities(&snapshot.capabilities),
+            capabilities: offered,
             options: snapshot
                 .options
                 .into_iter()
@@ -660,6 +675,20 @@ impl proto::chat_service_server::ChatService for ChatsRpc {
         let meta = required(r.command.take())?;
         let fingerprint = wire_fingerprint(&meta, &r);
         let chat = required(r.chat.clone())?;
+        if r.draft.is_none() {
+            return self
+                .command(
+                    grant,
+                    meta,
+                    Some(chat),
+                    ChatCommand::Steer {
+                        message: r.message_id,
+                        run: run(&r.run_id)?,
+                    },
+                    fingerprint,
+                )
+                .await;
+        }
         if let Some(receipt) = self
             .answered(&grant, &meta, &chat, host::CHAT, "chat.send", &fingerprint)
             .await?
@@ -692,6 +721,27 @@ impl proto::chat_service_server::ChatService for ChatsRpc {
         .await
         .map_err(|_| Status::unknown("Steer outcome is uncertain; reconcile its ID."))??;
         Ok(Response::new(self.receipt(&receipt)))
+    }
+    async fn set_chat_agent(
+        &self,
+        r: Request<proto::SetChatAgentRequest>,
+    ) -> Result<Response<proto::CommandReceipt>, Status> {
+        let grant = self.auth.authenticate(&r).await?;
+        let mut r = r.into_inner();
+        let meta = required(r.command.take())?;
+        let fingerprint = wire_fingerprint(&meta, &r);
+        self.command(
+            grant,
+            meta,
+            r.chat,
+            ChatCommand::SetAgent {
+                tool: r.agent_id,
+                profile: r.profile_id,
+                model: r.model,
+            },
+            fingerprint,
+        )
+        .await
     }
     async fn interrupt(
         &self,

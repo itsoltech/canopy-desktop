@@ -30,6 +30,7 @@ fn fixture() -> SessionSnapshot {
                 arguments: vec!["--example".into()],
                 kind: PaneKind::Terminal,
                 chat: None,
+                remote: None,
             },
         )
         .unwrap();

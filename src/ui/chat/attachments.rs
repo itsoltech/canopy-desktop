@@ -220,6 +220,7 @@ impl ChatView {
         self.set_composer_content(content, window, cx);
         self.composer
             .update(cx, |state, cx| state.focus(window, cx));
+        self.save_remote_draft(cx);
     }
 
     /// `set_composer_draft` without a window at hand (applied at the next render).
@@ -355,6 +356,11 @@ impl ChatView {
                             this.attach_image(&label, bytes, cx);
                         }
                         (_, None) => {
+                            if this.rt(cx).is_remote() {
+                                this.shell_error = Some("Use @ to choose a file on this computer's host. Local images can be attached here.".into());
+                                cx.notify();
+                                return;
+                            }
                             let mention = format!("[{}]", clean(&path.display().to_string()));
                             let attachment = Attachment::Path {
                                 path: path.clone(),
@@ -506,6 +512,10 @@ impl ChatView {
         cx: &mut Context<Self>,
         send: impl FnOnce(&mut Self, Draft, &mut Context<Self>) + 'static,
     ) {
+        if self.rt(cx).is_remote() {
+            send(self, draft, cx);
+            return;
+        }
         if !prepare::needs_data(&draft.attachments) {
             send(self, draft, cx);
             return;
@@ -571,12 +581,27 @@ impl ChatView {
         }
         let (file, format) = (file.clone(), format_of(media_type));
         let chat = self.chat_id(cx);
+        let remote = self.rt(cx).remote_source().and_then(|s| {
+            let artifact = s.originals.get(&file).and_then(|a| match &a.content {
+                Some(canopy_desktop::remote::proto::attachment::Content::Image(i)) => {
+                    Some(i.clone())
+                }
+                _ => None,
+            })?;
+            Some((s.host.clone()?, artifact))
+        });
+        let remote_only = self.rt(cx).is_remote() && file.starts_with("remote:");
+        let download = remote.and_then(|(host, artifact)| {
+            crate::ui::remote_client::executor(cx)
+                .ok()
+                .map(|runtime| runtime.spawn(async move { host.download(artifact).await.ok() }))
+        });
         cx.spawn(async move |this, cx| {
-            let bytes = cx
+            let bytes = if let Some(download) = download { download.await.ok().flatten() } else if remote_only { None } else { cx
                 .background_spawn(async move {
                     prepare::image_bytes(&folder(chat.as_deref()).ok()?, &attachment)
                 })
-                .await;
+                .await };
             let _ = this.update(cx, |this, cx| {
                 this.attachments.loading.remove(&file);
                 let Some(bytes) = bytes else {

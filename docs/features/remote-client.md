@@ -10,8 +10,9 @@ contract remains [the remote plan](../agent-runtime-remote-plan.md) and
 `src/remote/client/` owns a typed `ClientRegistry` keyed by host UUID. Each host owns
 its transport, pinned identity, catalog, connection generation, bounded change
 notifications, mutation gate and recovery records. `src/ui/remote_client::{add_computer, open_host, open_routes}`
-open a separate GPUI device window; it does not select or mutate local AppState
-workspace tabs. Settings/Tasks use retained feature views, dropped on host change.
+open a connection-management window. Opening a chat from it selects a normal tab
+in the main workspace. The chat uses the same `ui::chat::ChatView`, composer and
+conversation renderer as a local chat. Settings/Tasks retain their feature views.
 Each window subscribes independently to host changes.
 
 Preferences → Connections shares the retained registry owner with all client
@@ -21,6 +22,33 @@ Open connects explicitly; Routes opens its route manager without a connection.
 Add computer keeps the enrollment form open even if other computers are saved.
 Direct setup shows invitation and device name; SSH fields appear only when chosen.
 Successful approval connects automatically using the newly issued identity.
+
+Desktop pairing is mutual: adding A on B also installs B on A, without another
+invitation. Both hosts share all current and future projects, private chats,
+files, terminals, Tasks and settings by default. The permission editor can still
+restrict this. Untouched legacy private-only grants are upgraded once; edited
+restrictions are preserved. A connected empty catalog can still mean there are
+no open projects visible to this device, rather than a transport failure.
+
+The application host owner restores saved active connections on startup;
+opening Preferences itself only reads metadata. Disconnect persists a local
+pause. Reconnect enables the connection again. The first startup after upgrading
+also enables the local listener for existing saved connections, so they can
+establish their reverse direction. Later explicit host-disable choices persist.
+The sidebar keeps disconnected/unloaded computers visible with a Connect action.
+Older hosts or restricted grants without ADMIN keep their existing one-way
+access and show why reciprocal setup is unavailable. Remote access publishes
+live catalogs and operates on the host; it does not copy repositories or
+synchronize working files.
+
+For SSH, the initiating client owns an additional loopback-only remote forward
+to its own gRPC listener. Its port becomes the other computer's SSH return route;
+reconnecting refreshes that route without re-pairing. Both directions retain
+certificate pinning and mTLS. If the SSH server refuses remote forwarding, the
+connection reports that error instead of claiming two-way access. Direct peers
+advertise detected interface addresses; every connection attempt still applies
+the OS route eligibility checks below. Automatic retries back off to 60 seconds
+and stop when the connection is paused or its owner stops.
 
 A desktop computer has up to eight named routes (Home, Office, Tailscale, SSH,
 for example). Route order is persisted; Connect tries them in order, and each
@@ -198,12 +226,19 @@ nie są podstawą grupowania między komputerami.
 
 Worktree i czaty zachowują identyfikator komputera. Dwie gałęzie `main` ani czaty
 o tej samej nazwie nie są scalane. Wiersze podają środowisko, a niedostępny host
-zachowuje ostatni kompletny katalog. Kliknięcie zdalnego zasobu wybiera połączenie
-i otwiera istniejący klient gRPC w głównym obszarze, bez zmiany lokalnych tabów,
-wybranego workspace, bazy hosta ani jego procesów. Powrót do lokalnego wiersza
-odłącza widok zdalny; szkice klienta mają dotychczasowego trwałego właściciela.
+zachowuje ostatni kompletny katalog. Kliknięcie zdalnego czatu otwiera lub wybiera
+zwykły lokalny tab. `PaneMetadata.remote` przechowuje UUID hosta i czatu;
+przeciąganie, splity, fokus i persist/restore korzystają z tego samego modelu
+workspace co lokalne rozmowy. Zdalne pliki i narzędzia nadal mają osobne adaptery.
 Główne skróty tworzenia czatu, zapisu i zamknięcia działają w wybranym środowisku;
 zamknięcie widoku zdalnego nie usuwa czatu na hoście.
+
+`ChatRuntime` z klientowym źródłem nie uruchamia lokalnego agenta, nie zapisuje
+historii do lokalnej bazy hosta i nie uczestniczy w jego GC ani Delete. Odwrotna
+projekcja w `remote::client::presentation` udostępnia wspólne karty narzędzi,
+zgody, wiadomości, wyniki shella i cele. Wywołania używają oryginalnego hosta,
+epoki i punktu rozmowy. Zwykłe zamknięcie lokalnego taba również pozostawia czat
+w katalogu; jawne Delete i zamknięcie projektu zachowują osobne potwierdzenia.
 
 Nowe pola katalogu (`ProjectSummary.origin`, `WorkspaceSummary.branch`) są
 opcjonalne. Starszy host nadal działa, ale do grupowania po origin oraz pokazania

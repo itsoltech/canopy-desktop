@@ -442,11 +442,16 @@ fn serve(op: Op, hub: Entity<Hub>, cx: &mut App) {
                     ChatCommand::Interrupt { run } => r.remote_interrupt(key, run, cx),
                     ChatCommand::Restart { run } => r.remote_restart(key, run, cx),
                     ChatCommand::ResumeQueue => r.remote_resume_queue(key, cx),
-                    ChatCommand::Steer { message } => r.remote_steer(key, message, cx),
+                    ChatCommand::Steer { message, run } => r.remote_steer(key, message, run, cx),
                     ChatCommand::Respond { run, item, answer } => {
                         r.remote_respond(key, run, item, answer, cx)
                     }
                     ChatCommand::SetOption { id, value } => r.remote_set_option(key, id, value, cx),
+                    ChatCommand::SetAgent {
+                        tool,
+                        profile,
+                        model,
+                    } => r.remote_set_agent(key, tool, profile, model, cx),
                     goal @ (ChatCommand::PauseGoal
                     | ChatCommand::ResumeGoal
                     | ChatCommand::ClearGoal) => r.remote_goal(key, goal, cx),
@@ -554,7 +559,9 @@ fn subscribe(
             }
             ChatRuntimeEvent::Stopping => ChatEvent::Stopping,
             // A draft returned to a local composer is not a remote event.
-            ChatRuntimeEvent::DraftReturned(_) => return,
+            ChatRuntimeEvent::DraftReturned(_)
+            | ChatRuntimeEvent::DraftConsumed(_)
+            | ChatRuntimeEvent::EditFinished { .. } => return,
         };
         on_change(event, cx);
     });

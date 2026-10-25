@@ -1,6 +1,12 @@
 //! Shared saved connections for Preferences and client windows. Loading uses the
 //! client's existing OnceCell/store; opening Preferences never connects a host.
 use super::*;
+#[derive(Clone)]
+pub(crate) struct OpenChat {
+    pub host: Arc<HostClient>,
+    pub chat: p::ChatRef,
+}
+impl EventEmitter<OpenChat> for Connections {}
 
 #[derive(Default)]
 pub struct Connections {
@@ -88,4 +94,31 @@ pub fn connections(cx: &mut App) -> Result<Entity<Connections>> {
     let view = global.connections.clone();
     view.update(cx, |view, cx| view.load(global, cx));
     Ok(view)
+}
+
+/// Shared registry for the host's reciprocal connection service. Its file and
+/// credentials remain owned by the same client lifecycle as desktop windows.
+pub fn registry(cx: &mut App) -> Result<Task<std::result::Result<ClientRegistry, String>>> {
+    ensure_global(cx)?;
+    let global = cx.global::<ClientGlobal>().clone();
+    let task = global
+        .runtime
+        .clone()
+        .spawn(async move { global.load_registry().await });
+    Ok(cx.spawn(async move |_| {
+        task.await
+            .map_err(|_| "Connection registry stopped.".to_owned())?
+    }))
+}
+pub fn start_saved_connections(registry: ClientRegistry, cx: &mut App) {
+    let Some(global) = cx.try_global::<ClientGlobal>() else {
+        return;
+    };
+    for host in registry.hosts() {
+        if host.auto_connect() && host.phase() == Phase::Offline {
+            global.runtime.spawn(async move {
+                host.start_connection();
+            });
+        }
+    }
 }

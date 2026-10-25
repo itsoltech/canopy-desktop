@@ -13,6 +13,7 @@ use crate::state::{projects::ProjectSnapshot, session::SessionSnapshot};
 
 type Reply<T> = oneshot::Sender<Result<T>>;
 enum Command {
+    RuntimeDeviceCertificate(String, Reply<Option<Vec<u8>>>),
     GetRuntimeCommandMatching(
         crate::host::CommandKey,
         u32,
@@ -196,6 +197,11 @@ pub struct SettingsClient {
     sender: SyncSender<Command>,
 }
 impl SettingsClient {
+    pub async fn runtime_device_certificate(&self, id: String) -> Result<Option<Vec<u8>>> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::RuntimeDeviceCertificate(id, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
     pub async fn reserve_remote_secret(
         &self,
         key: crate::host::CommandKey,
@@ -742,6 +748,9 @@ impl SettingsClient {
                         }
                         Command::LoadRuntimeChat(id, reply) => {
                             let _ = reply.send(db.load_runtime_chat(id));
+                        }
+                        Command::RuntimeDeviceCertificate(id, reply) => {
+                            let _ = reply.send(db.runtime_device_certificate(id));
                         }
                         Command::LookupRuntimeDevice(leaf, reply) => {
                             let _ = reply.send(db.lookup_runtime_device(leaf));

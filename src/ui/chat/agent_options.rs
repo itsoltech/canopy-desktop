@@ -17,9 +17,8 @@ impl ChatView {
     ) -> impl IntoElement {
         let runtime = self.rt(cx);
         let options = runtime.agent_options();
-        let started = runtime.backend().is_some_and(|s| {
-            !matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
-                && !s.status().ended()
+        let started = runtime.status().is_some_and(|s| {
+            !matches!(s, canopy_desktop::chat::session::Status::Starting) && !s.ended()
         });
         let agent = self.agent_name(cx);
         // The model is what people look for first; else the first option the agent lists.

@@ -35,6 +35,7 @@ mod pane_layout;
 mod platform_ui;
 mod preferences;
 mod quick_open;
+mod remote_chat;
 pub mod remote_client;
 mod resume_palette;
 mod session_inspector;
@@ -123,7 +124,13 @@ pub struct Workspace {
     screen_reveal: Presence,
     sidebar: Entity<sidebar::Sidebar>,
     remote: Option<Entity<remote_client::RemoteWorkspace>>,
+    remote_tools: Option<(
+        String,
+        canopy_desktop::state::workspace::ToolPage,
+        Entity<remote_client::RemoteWorkspace>,
+    )>,
     _remote_navigation: Subscription,
+    _remote_chat_navigation: Option<Subscription>,
     sidebar_open: bool,
     sidebar_overlay: bool,
     sidebar_overlay_focus: FocusHandle,
@@ -351,6 +358,7 @@ impl Workspace {
                 this.state
                     .chats
                     .update(cx, |chats, cx| chats.sync(window, cx));
+                this.sync_remote_tools(window, cx);
             }),
             cx.observe_in(&state.projects, window, |this, _, window, cx| {
                 this.state
@@ -378,7 +386,8 @@ impl Workspace {
                     .chats
                     .update(cx, |chats, cx| chats.agents_changed(window, cx));
             }),
-            cx.observe_in(&state.chats, window, |_, _, window, cx| {
+            cx.observe_in(&state.chats, window, |this, _, window, cx| {
+                this.sync_remote_tools(window, cx);
                 window.refresh();
                 cx.notify();
             }),
@@ -406,6 +415,31 @@ impl Workspace {
                 },
             ),
             // A conversation kept without its agent and account: the user picks them.
+            cx.subscribe_in(
+                &state.chats,
+                window,
+                |this, _, request: &crate::ui::chat::ClientFileRequested, window, cx| {
+                    if this.focused_remote(cx).as_ref() != Some(&request.runtime) {
+                        return;
+                    }
+                    this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Files, cx);
+                    this.sync_remote_tools(window, cx);
+                    if let Some((_, _, view)) = &this.remote_tools {
+                        view.update(cx, |view, cx| view.open_file(request.file.clone(), cx));
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &state.chats,
+                window,
+                |this, _, request: &crate::ui::chat::ClientForkRequested, window, cx| {
+                    this.open_chat_palette(
+                        new_chat_palette::Purpose::RemoteFork(request.clone()),
+                        window,
+                        cx,
+                    )
+                },
+            ),
             cx.subscribe_in(
                 &state.chats,
                 window,
@@ -471,6 +505,14 @@ impl Workspace {
                 match event {
                     sidebar::Navigation::Local => this.remote = None,
                     sidebar::Navigation::Remote { host, resource } => {
+                        if let Some(canopy_desktop::remote::proto::resource_ref::Resource::Chat(
+                            chat,
+                        )) = &resource.resource
+                        {
+                            this.remote = None;
+                            this.open_remote_chat(host.clone(), chat.clone(), cx);
+                            return;
+                        }
                         if let Some(view) = &this.remote {
                             view.update(cx, |view, cx| {
                                 view.open(host.clone(), resource.clone(), cx)
@@ -491,6 +533,17 @@ impl Workspace {
                 cx.notify();
             },
         );
+        let remote_chat_navigation = remote_client::connections(cx).ok().map(|connections| {
+            cx.subscribe_in(
+                &connections,
+                window,
+                |this, _, event: &remote_client::OpenChat, window, cx| {
+                    this.remote = None;
+                    this.open_remote_chat(event.host.clone(), event.chat.clone(), cx);
+                    window.activate_window();
+                },
+            )
+        });
         let chat_requests = cx.subscribe_in(
             &sidebar,
             window,
@@ -609,7 +662,9 @@ impl Workspace {
             screen_reveal: Presence::new(true, presets::CONTENT_REVEAL, Instant::now()),
             sidebar,
             remote: None,
+            remote_tools: None,
             _remote_navigation: remote_navigation,
+            _remote_chat_navigation: remote_chat_navigation,
             sidebar_open: true,
             sidebar_overlay: false,
             sidebar_overlay_focus: cx.focus_handle(),
@@ -1000,7 +1055,15 @@ impl Render for Workspace {
                     .projects
                     .update(cx, |state, cx| state.open_folder(window, cx));
             }))
-            .on_action(cx.listener(|this, _: &CloseProject, _, cx| {
+            .on_action(cx.listener(|this, _: &CloseProject, window, cx| {
+                if this.focused_remote(cx).is_some() {
+                    this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Files, cx);
+                    this.sync_remote_tools(window, cx);
+                    if let Some((_, _, view)) = &this.remote_tools {
+                        view.update(cx, |v, cx| v.close_project(cx));
+                    }
+                    return;
+                }
                 if let Some(remote) = &this.remote {
                     remote.update(cx, |view, cx| view.close_project(cx));
                     return;
@@ -1089,6 +1152,10 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &ShowTerminals, _, cx| {
+                if this.focused_remote(cx).is_some() {
+                    this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Agent, cx);
+                    return;
+                }
                 if let Some(remote) = &this.remote {
                     remote.update(cx, |view, cx| view.show(remote_client::Page::Terminals, cx));
                     return;
@@ -1096,6 +1163,10 @@ impl Render for Workspace {
                 this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Tabs, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowFiles, _, cx| {
+                if this.focused_remote(cx).is_some() {
+                    this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Files, cx);
+                    return;
+                }
                 if let Some(remote) = &this.remote {
                     remote.update(cx, |view, cx| view.show(remote_client::Page::Files, cx));
                     return;
@@ -1125,6 +1196,10 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &ShowChanges, window, cx| {
+                if this.focused_remote(cx).is_some() {
+                    this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Changes, cx);
+                    return;
+                }
                 if let Some(remote) = &this.remote {
                     remote.update(cx, |view, cx| view.show(remote_client::Page::Git, cx));
                     return;
@@ -1155,6 +1230,10 @@ impl Render for Workspace {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &NewFile, window, cx| {
+                if this.focused_remote(cx).is_some() {
+                    this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Files, cx);
+                    return;
+                }
                 if let Some(remote) = &this.remote {
                     remote.update(cx, |view, cx| view.show(remote_client::Page::Files, cx));
                 } else {
@@ -1162,6 +1241,9 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &NewTab, _, cx| {
+                if this.new_chat_on_active_host(cx) {
+                    return;
+                }
                 if let Some(remote) = &this.remote {
                     remote.update(cx, |view, cx| view.new_chat(cx));
                 } else {
@@ -1169,6 +1251,9 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &NewChat, _, cx| {
+                if this.new_chat_on_active_host(cx) {
+                    return;
+                }
                 if let Some(remote) = &this.remote {
                     remote.update(cx, |view, cx| view.new_chat(cx));
                     return;
@@ -1222,6 +1307,12 @@ impl Render for Workspace {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &SaveFile, _, cx| {
+                if this.focused_remote(cx).is_some() {
+                    if let Some((_, _, view)) = &this.remote_tools {
+                        view.update(cx, |view, cx| view.save(cx));
+                    }
+                    return;
+                }
                 if let Some(remote) = &this.remote {
                     remote.update(cx, |view, cx| view.save(cx));
                     return;
@@ -1539,7 +1630,8 @@ impl Workspace {
             || self.modal.is_some()
             || self.task_detail_modal.is_some()
             || self.task_editor_modal.is_some()
-            || crate::app_state::Chats::unavailable(cx).is_some()
+            || (!matches!(&purpose, new_chat_palette::Purpose::RemoteFork(_))
+                && crate::app_state::Chats::unavailable(cx).is_some())
         {
             return;
         }

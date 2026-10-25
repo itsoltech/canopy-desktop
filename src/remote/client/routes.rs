@@ -194,9 +194,10 @@ impl HostClient {
             ssh_route.address = reachable[0].to_string();
             let vault = self.vault.clone();
             let address = route.endpoint().to_owned();
+            let return_port = self.peer.lock().unwrap().as_ref().map(|peer| peer.port());
             Some(
                 tokio::task::spawn_blocking(move || {
-                    ssh::SshTunnel::open(ssh_route, &address, vault)
+                    ssh::SshTunnel::open_with_return(ssh_route, &address, vault, return_port)
                 })
                 .await
                 .map_err(|_| "SSH worker failed.")??,

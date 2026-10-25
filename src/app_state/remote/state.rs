@@ -33,6 +33,8 @@ pub struct ListenerPreferences {
     version: u8,
     enabled: bool,
     address: SocketAddr,
+    #[serde(default)]
+    mutual_connections: bool,
 }
 impl Default for ListenerPreferences {
     fn default() -> Self {
@@ -40,10 +42,23 @@ impl Default for ListenerPreferences {
             version: 1,
             enabled: false,
             address: "127.0.0.1:44330".parse().expect("literal address"),
+            mutual_connections: false,
         }
     }
 }
 impl ListenerPreferences {
+    fn upgrade_mutual_connections(&mut self, has_connections: bool) {
+        if self.mutual_connections {
+            return;
+        }
+        if has_connections {
+            self.enabled = true;
+            if self.address.ip().is_loopback() {
+                self.address.set_ip("0.0.0.0".parse().unwrap());
+            }
+        }
+        self.mutual_connections = true;
+    }
     pub fn enabled(&self) -> bool {
         self.enabled
     }
@@ -94,6 +109,7 @@ impl ListenerPreferences {
 }
 
 struct HostSession {
+    registry: canopy_desktop::remote::client::ClientRegistry,
     server: RunningServer,
     chats: ChatsRpc,
     state: HostState,
@@ -104,6 +120,7 @@ struct HostSession {
 }
 impl HostSession {
     async fn stop(self) -> Result<(), String> {
+        self.registry.set_local_peer(None);
         let acknowledged_fault =
             self.state.status().readiness == proto::HostReadiness::StorageFault as i32;
         self.state
@@ -177,6 +194,48 @@ impl RemoteState {
     pub fn pending(&self) -> Option<canopy_desktop::remote::enrollment::PendingDevice> {
         self.session.as_ref()?.enrollment.pending()
     }
+    /// Adding another desktop also makes this desktop reachable. The requesting
+    /// UI awaits the actual listener and registry, not just preference persistence.
+    pub fn prepare_connection(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+        cx.spawn(async move |this, cx| {
+            for _ in 0..600 {
+                let result = this
+                    .update(cx, |this, cx| {
+                        if this.quitting {
+                            return Some(Err("Canopy is closing.".into()));
+                        }
+                        if this
+                            .address()
+                            .is_some_and(|address| !address.ip().is_loopback())
+                        {
+                            return Some(Ok(()));
+                        }
+                        if this.loaded && !this.busy {
+                            if this.attempted
+                                && this.session.is_none()
+                                && let Some(error) = &this.error
+                            {
+                                return Some(Err(error.clone()));
+                            }
+                            let mut address = this.preferences.address;
+                            if address.ip().is_loopback() {
+                                address.set_ip("0.0.0.0".parse().unwrap());
+                            }
+                            this.configure(true, &address.to_string(), cx);
+                        }
+                        None
+                    })
+                    .map_err(|_| "Remote connection owner closed.".to_owned())?;
+                if let Some(result) = result {
+                    return result;
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(50))
+                    .await;
+            }
+            Err("This computer's remote access did not start. Check Connections and retry.".into())
+        })
+    }
     pub fn bind(&mut self, cx: &mut Context<Self>) {
         let app = cx.global::<AppState>().clone();
         self.observers = vec![
@@ -191,6 +250,29 @@ impl RemoteState {
                     ListenerPreferences::load(&path)
                 })
                 .await;
+            let result = async {
+                let mut preferences = result?;
+                if !preferences.mutual_connections {
+                    let registry = cx
+                        .update(|cx| {
+                            crate::ui::remote_client::registry(cx).map_err(|e| e.to_string())
+                        })?
+                        .await?;
+                    preferences.upgrade_mutual_connections(
+                        registry.hosts().iter().any(|host| host.auto_connect()),
+                    );
+                    let saved = preferences.clone();
+                    cx.background_spawn(async move {
+                        saved.save(
+                            &canopy_desktop::platform::directories::runtime_data_dir()?
+                                .join("remote-host-v1.json"),
+                        )
+                    })
+                    .await?;
+                }
+                Ok::<_, String>(preferences)
+            }
+            .await;
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(value) => {
@@ -318,6 +400,21 @@ impl RemoteState {
                         cx,
                     ))
                 });
+                let registry = cx
+                    .update(|cx| crate::ui::remote_client::registry(cx).map_err(|e| e.to_string()))?
+                    .await?;
+                let local_peer = Arc::new(canopy_desktop::remote::peer::LocalPeer::new(
+                    identity.clone(),
+                    auth.client().clone(),
+                    address,
+                ));
+                let peer_rpc = canopy_desktop::remote::peer::PeerRpc::new(
+                    auth.clone(),
+                    local_peer.clone(),
+                    registry.clone(),
+                    state.clone(),
+                    operations.clone(),
+                );
                 let root_events = bridge
                     .watch_catalog()
                     .await
@@ -448,6 +545,11 @@ impl RemoteState {
                         .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
                 )
                 .add_service(
+                    proto::peer_service_server::PeerServiceServer::new(peer_rpc)
+                        .max_decoding_message_size(64 * 1024)
+                        .max_encoding_message_size(64 * 1024),
+                )
+                .add_service(
                     proto::catalog_service_server::CatalogServiceServer::new(catalog)
                         .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
                         .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
@@ -489,8 +591,13 @@ impl RemoteState {
                     settings,
                 };
                 let server = server::start(address, services).await?;
+                registry.set_local_peer(Some(local_peer));
+                cx.update(|cx| {
+                    crate::ui::remote_client::start_saved_connections(registry.clone(), cx)
+                });
                 Ok::<_, String>((
                     HostSession {
+                        registry,
                         server,
                         chats,
                         state,
@@ -561,6 +668,7 @@ impl RemoteState {
             version: 1,
             enabled,
             address,
+            mutual_connections: true,
         };
         self.busy = true;
         self.task = Some(cx.spawn(async move |this, cx| {
@@ -782,5 +890,34 @@ impl RemoteState {
         self.attempted = false;
         self.maybe_start(cx);
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ListenerPreferences;
+    #[test]
+    fn mutual_upgrade_enables_existing_connections_once_and_respects_later_disable() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("remote-host-v1.json");
+        std::fs::write(
+            &path,
+            r#"{"version":1,"enabled":false,"address":"127.0.0.1:45000"}"#,
+        )
+        .unwrap();
+        let mut preferences = ListenerPreferences::load(&path).unwrap();
+        preferences.upgrade_mutual_connections(true);
+        preferences.save(&path).unwrap();
+        let mut preferences = ListenerPreferences::load(&path).unwrap();
+        assert!(preferences.enabled());
+        assert_eq!(preferences.address().to_string(), "0.0.0.0:45000");
+        preferences.enabled = false;
+        preferences.save(&path).unwrap();
+        let mut preferences = ListenerPreferences::load(&path).unwrap();
+        preferences.upgrade_mutual_connections(true);
+        assert!(!preferences.enabled());
+        let mut new = ListenerPreferences::default();
+        new.upgrade_mutual_connections(false);
+        assert!(!new.enabled());
     }
 }

@@ -38,6 +38,25 @@ impl ChatView {
 
     /// Sends the last message again as a new turn.
     pub(super) fn retry(&mut self, cx: &mut Context<Self>) {
+        if self.rt(cx).is_remote() {
+            let draft = self.transcript(cx).and_then(|t| {
+                t.items().iter().rev().find_map(|i| match &i.body {
+                    canopy_desktop::chat::transcript::Body::User(m) if i.parent.is_none() => {
+                        Some(canopy_desktop::chat::session::Draft {
+                            text: m.text.clone(),
+                            attachments: m.attachments.clone(),
+                            context: m.context.clone(),
+                            goal: m.goal,
+                        })
+                    }
+                    _ => None,
+                })
+            });
+            if let Some(draft) = draft {
+                self.runtime.update(cx, |r, cx| r.retry_remote(draft, cx));
+            }
+            return;
+        }
         let Some(draft) = self.native(cx).and_then(|session| session.retry_draft()) else {
             return;
         };
@@ -49,7 +68,7 @@ impl ChatView {
         !self.is_working(cx)
             && self.decision.active().is_none()
             && self.editing.is_none()
-            && self.backend(cx).is_some()
+            && self.rt(cx).ready()
             && self.runtime.read(cx).queue_lines().is_empty()
     }
 }

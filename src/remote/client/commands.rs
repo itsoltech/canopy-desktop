@@ -302,6 +302,114 @@ impl HostClient {
             })
             .collect()
     }
+    /// Taking a never-sent message persists the recovered composer in the same
+    /// local write that removes the queue entry. Attempted messages keep their ID.
+    pub async fn take_unsent(
+        &self,
+        id: &str,
+        image_dir: &std::path::Path,
+        revision: u64,
+    ) -> Result<(crate::chat::session::Draft, Option<p::SendContext>), String> {
+        use sha2::{Digest, Sha256};
+        use std::io::Read;
+        let _gate = self.mutation.lock().await;
+        let record = self.snapshot().record;
+        let entry = record
+            .outbox
+            .iter()
+            .find(|e| e.id == id)
+            .ok_or("Message no longer exists.")?;
+        if entry.attempted {
+            return Err("Check the original delivery before editing this message.".into());
+        }
+        let request = p::SendMessageRequest::decode(entry.request.as_slice())
+            .map_err(|_| "Invalid saved message.")?;
+        let mut draft =
+            super::presentation::draft(request.draft.as_ref().ok_or("Missing saved draft.")?);
+        for id in &entry.uploads {
+            let upload = record
+                .uploads
+                .iter()
+                .find(|u| &u.id == id)
+                .ok_or("Missing saved image.")?;
+            let begin = p::BeginUploadRequest::decode(upload.begin.as_slice())
+                .map_err(|_| "Invalid saved image.")?;
+            if begin.size > 32 * 1024 * 1024 {
+                return Err("Saved image exceeds 32 MiB.".into());
+            }
+            let path = self.store.lock().unwrap().attachment_dir().join(id);
+            let mut bytes = Vec::new();
+            std::fs::File::open(path)
+                .map_err(|e| e.to_string())?
+                .take(begin.size + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            if bytes.len() as u64 != begin.size || Sha256::digest(&bytes).as_slice() != begin.sha256
+            {
+                return Err("Saved image changed. The queued message was kept.".into());
+            }
+            draft
+                .attachments
+                .push(crate::chat::attachments::prepare_image(&bytes, image_dir)?);
+        }
+        let chat = request.chat.as_ref().ok_or("Missing saved chat.")?;
+        let key = format!("native-draft:{}", chat.chat_id);
+        let value = serde_json::to_string(&(
+            &draft.text,
+            &draft.attachments,
+            &draft.context,
+            draft.goal,
+            request
+                .expected_context
+                .as_ref()
+                .map(prost::Message::encode_to_vec),
+        ))
+        .map_err(|e| e.to_string())?;
+        let mut state = self.state.lock().unwrap();
+        if state
+            .view_revisions
+            .get(&key)
+            .is_some_and(|saved| *saved > revision)
+        {
+            return Err("The draft changed while taking the queued message. Try again.".into());
+        }
+        let mut record = state.record.clone();
+        let index = record
+            .outbox
+            .iter()
+            .position(|e| e.id == entry.id && !e.attempted && e.request == entry.request)
+            .ok_or("The queued message changed. Check its delivery first.")?;
+        record.outbox.remove(index);
+        record.views.insert(key.clone(), value);
+        self.store.lock().unwrap().save(record.clone())?;
+        state.record = record;
+        state.view_revisions.insert(key, revision);
+        drop(state);
+        self.changed();
+        Ok((draft, request.expected_context))
+    }
+
+    pub fn move_unsent(&self, id: &str, before: &str) -> Result<(), String> {
+        self.update_record(|record| {
+            let at = record
+                .outbox
+                .iter()
+                .position(|e| e.id == id && !e.attempted)
+                .ok_or("Only never-sent messages can be reordered locally.")?;
+            let target = record
+                .outbox
+                .iter()
+                .position(|e| e.id == before && !e.attempted)
+                .ok_or("Only messages waiting on this device can be reordered together.")?;
+            let entry = record.outbox.remove(at);
+            record
+                .outbox
+                .insert(if at < target { target - 1 } else { target }, entry);
+            Ok(())
+        })?;
+        self.changed();
+        Ok(())
+    }
     pub async fn send_outbox(&self, id: &str) -> Result<p::CommandReceipt, String> {
         let _gate = self.mutation.lock().await;
         let channel = self.channel()?;
@@ -446,6 +554,90 @@ impl HostClient {
         })?;
         self.changed();
         Ok(())
+    }
+    /// Explicit user review of one uncertain send. This records an unknown
+    /// outcome as reviewed; it never treats it as delivered and never retries it.
+    pub async fn review_outbox(&self, id: &str) -> Result<(), String> {
+        let _gate = self.mutation.lock().await;
+        let (_, request, _) = self
+            .outbox()
+            .into_iter()
+            .find(|(key, _, _)| key == id)
+            .ok_or("Saved message not found.")?;
+        let meta = request.command.ok_or("The message has not been sent.")?;
+        let mut client = p::host_service_client::HostServiceClient::new(self.channel()?);
+        let query = p::GetCommandRequest {
+            host_id: self.id().as_str().into(),
+            command_id: meta.command_id.clone(),
+            command_epoch: meta.command_epoch,
+        };
+        let mut receipt = client
+            .get_command(query.clone())
+            .await
+            .map_err(rpc_error)?
+            .into_inner();
+        self.validate_receipt(&meta, &receipt)?;
+        if receipt.state == p::OperationState::DeliveryUnknown as i32 && !receipt.resolved_by_user {
+            receipt = client
+                .resolve_command(query)
+                .await
+                .map_err(rpc_error)?
+                .into_inner();
+            self.validate_receipt(&meta, &receipt)?;
+            if !receipt.resolved_by_user {
+                return Err("The host did not confirm the review.".into());
+            }
+        }
+        self.save_outbox_receipt(id, &receipt)?;
+        Ok(())
+    }
+    pub async fn resolve_outbox(&self, id: &str, resend: bool) -> Result<Option<String>, String> {
+        self.review_outbox(id).await?;
+        let next = resend.then(|| uuid::Uuid::new_v4().to_string());
+        self.update_record(|record| {
+            let at = record
+                .outbox
+                .iter()
+                .position(|entry| entry.id == id)
+                .ok_or("The saved message changed.")?;
+            let old = &record.outbox[at];
+            let receipt = old
+                .receipt
+                .as_ref()
+                .and_then(|b| p::CommandReceipt::decode(b.as_slice()).ok())
+                .ok_or("No reviewed result.")?;
+            if !receipt.resolved_by_user && ![3, 4, 5, 7].contains(&receipt.state) {
+                return Err(
+                    "The operation is still executing. Check it again before deciding.".into(),
+                );
+            }
+            let mut request =
+                p::SendMessageRequest::decode(old.request.as_slice()).map_err(|e| e.to_string())?;
+            if record.mutations.len() >= 100 {
+                return Err("Review saved operations before resolving this message.".into());
+            }
+            record.mutations.push(MutationRecord {
+                id: receipt.command_id.clone(),
+                epoch: receipt.command_epoch,
+                receipt: Some(receipt.encode_to_vec()),
+                chat_intent: None,
+            });
+            let old = record.outbox.remove(at);
+            if let Some(next) = &next {
+                request.command = None;
+                request.message_id = uuid::Uuid::new_v4().to_string();
+                record.outbox.push(OutboxEntry {
+                    id: next.clone(),
+                    request: request.encode_to_vec(),
+                    attempted: false,
+                    uploads: old.uploads,
+                    receipt: None,
+                });
+            }
+            Ok(())
+        })?;
+        self.changed();
+        Ok(next)
     }
     pub async fn reconcile(&self) -> Result<(), String> {
         let _gate = self.mutation.lock().await;
@@ -687,6 +879,9 @@ mod draft_tests {
         let registry = ClientRegistry::open(path, Arc::new(NoVault)).unwrap();
         let host = registry
             .insert(HostRecord {
+                mutual: false,
+                passive_peer: false,
+                auto_connect: false,
                 id: HostId::parse(&uuid::Uuid::new_v4().to_string()).unwrap(),
                 name: "Test".into(),
                 endpoint: "https://127.0.0.1:1".into(),
@@ -715,6 +910,57 @@ mod draft_tests {
             text: text.into(),
             ..Default::default()
         }
+    }
+    #[tokio::test]
+    async fn taking_an_offline_message_keeps_a_durable_draft_and_refuses_late_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("client.json");
+        let (registry, host) = fixture(path.clone());
+        let chat = p::ChatRef {
+            host_id: host.id().as_str().into(),
+            chat_id: "chat".into(),
+        };
+        let context = p::SendContext {
+            agent_id: "remote-agent".into(),
+            history_epoch: 9,
+            ..Default::default()
+        };
+        let first = host
+            .enqueue(chat.clone(), context.clone(), draft("queued"), vec![], 1)
+            .unwrap()
+            .0;
+        let second = host
+            .enqueue(chat.clone(), context.clone(), draft("later"), vec![], 1)
+            .unwrap()
+            .0;
+        host.move_unsent(&second, &first).unwrap();
+        assert_eq!(host.outbox()[0].0, second);
+        host.save_view_version("native-draft:chat".into(), "newer".into(), 3)
+            .unwrap();
+        assert!(host.take_unsent(&first, dir.path(), 2).await.is_err());
+        assert_eq!(host.outbox().len(), 2);
+        let (taken, expected) = host.take_unsent(&first, dir.path(), 4).await.unwrap();
+        assert_eq!(taken.text, "queued");
+        assert_eq!(expected, Some(context));
+        host.update_record(|r| {
+            r.outbox[0].attempted = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(host.take_unsent(&second, dir.path(), 5).await.is_err());
+        let id = host.id().clone();
+        drop(host);
+        drop(registry);
+        let restored = ClientRegistry::open(path, Arc::new(NoVault))
+            .unwrap()
+            .get(&id)
+            .unwrap();
+        let saved = restored.snapshot().record;
+        let recovered: serde_json::Value =
+            serde_json::from_str(saved.view("native-draft:chat").unwrap()).unwrap();
+        assert_eq!(recovered[0], "queued");
+        assert_eq!(restored.outbox().len(), 1);
+        assert_eq!(restored.outbox()[0].0, second);
     }
     #[test]
     fn completed_send_preserves_concurrent_draft_and_context_across_restart() {

@@ -98,6 +98,12 @@ pub(super) struct Find {
     pub presence: Presence,
     refresh: Option<Task<()>>,
     _events: Subscription,
+    remote: Vec<canopy_desktop::remote::proto::HistoryMatch>,
+    remote_current: Option<usize>,
+    remote_next: Option<String>,
+    remote_loading: bool,
+    remote_target: Option<canopy_desktop::remote::proto::ItemKey>,
+    remote_generation: u64,
 }
 
 /// The source of a clicked quote, lit for a moment.
@@ -142,6 +148,12 @@ impl ChatView {
             presence,
             refresh: None,
             _events: events,
+            remote: vec![],
+            remote_current: None,
+            remote_next: None,
+            remote_loading: false,
+            remote_target: None,
+            remote_generation: 0,
         });
         cx.notify();
     }
@@ -179,6 +191,9 @@ impl ChatView {
         let Some(query) = self.query(cx) else {
             return;
         };
+        if new_query && self.rt(cx).is_remote() {
+            self.search_remote(query.clone(), None, cx);
+        }
         let rows = self.shown_rows();
         let hits = search(rows, &query, cx);
         let order: HashMap<u64, usize> = rows
@@ -222,6 +237,7 @@ impl ChatView {
             self.reveal_hit(current, cx);
         }
         self.apply_highlights(cx);
+        self.reveal_remote_target(cx);
         cx.notify();
     }
 
@@ -238,6 +254,25 @@ impl ChatView {
 
     /// Enter / ⌘G (`1`), ⇧Enter / ⇧⌘G (`-1`).
     pub(super) fn find_step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if self.rt(cx).is_remote() && self.find.as_ref().is_some_and(|f| !f.remote.is_empty()) {
+            let find = self.find.as_mut().unwrap();
+            let current = find.remote_current.unwrap_or(0);
+            if delta > 0 && current + 1 == find.remote.len() && find.remote_next.is_some() {
+                let token = find.remote_next.clone();
+                let query = find.input.read(cx).value().to_string();
+                self.search_remote(query, token, cx);
+                return;
+            }
+            let next = (current as isize + delta).rem_euclid(find.remote.len() as isize) as usize;
+            find.remote_current = Some(next);
+            find.remote_target = find.remote[next].key;
+            let target = find.remote_target;
+            if !self.reveal_remote_target(cx) {
+                self.runtime
+                    .update(cx, |r, cx| r.client_history(target, cx));
+            }
+            return;
+        }
         let Some(find) = self.find.as_mut().filter(|find| find.open) else {
             return;
         };
@@ -253,6 +288,111 @@ impl ChatView {
         self.reveal_hit(next, cx);
         self.apply_highlights(cx);
         cx.notify();
+    }
+
+    fn search_remote(&mut self, query: String, token: Option<String>, cx: &mut Context<Self>) {
+        let Some(source) = self.rt(cx).remote_source() else {
+            return;
+        };
+        let Some(host) = source.host.clone() else {
+            return;
+        };
+        let chat = source.chat();
+        let Some(find) = self.find.as_mut() else {
+            return;
+        };
+        if token.is_none() {
+            find.remote.clear();
+            find.remote_current = None;
+            find.remote_next = None;
+            find.remote_target = None;
+        }
+        find.remote_loading = true;
+        find.remote_generation = find.remote_generation.wrapping_add(1);
+        let generation = find.remote_generation;
+        if query.trim().is_empty() {
+            find.remote_loading = false;
+            return;
+        }
+        let task = crate::ui::remote_client::executor(cx).unwrap().spawn({
+            let query = query.clone();
+            async move {
+                canopy_desktop::remote::proto::chat_service_client::ChatServiceClient::new(
+                    host.channel()?,
+                )
+                .search_history(canopy_desktop::remote::proto::SearchHistoryRequest {
+                    chat: Some(chat),
+                    text: query,
+                    page_token: token,
+                })
+                .await
+                .map(|r| r.into_inner())
+                .map_err(canopy_desktop::remote::client::rpc_error)
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await.unwrap_or_else(|e| Err(e.to_string()));
+            let _ = this.update(cx, |this, cx| {
+                let Some(find) = this.find.as_mut().filter(|f| {
+                    f.open
+                        && f.remote_generation == generation
+                        && f.input.read(cx).value().as_ref() == query
+                }) else {
+                    return;
+                };
+                find.remote_loading = false;
+                match result {
+                    Ok(page) => {
+                        let first = find.remote.len();
+                        find.remote.extend(page.matches);
+                        find.remote_next = page.next_page_token;
+                        find.remote_current = (first < find.remote.len()).then_some(first);
+                        find.remote_target = find.remote.get(first).and_then(|m| m.key);
+                        let target = find.remote_target;
+                        if !this.reveal_remote_target(cx) && target.is_some() {
+                            this.runtime
+                                .update(cx, |r, cx| r.client_history(target, cx));
+                        }
+                    }
+                    Err(error) => this.shell_error = Some(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    fn reveal_remote_target(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(target) = self.find.as_ref().and_then(|f| f.remote_target) else {
+            return false;
+        };
+        let rows = self.shown_rows();
+        let transcript = self.transcript(cx);
+        let row = rows.rows.iter().find_map(|row| {
+            let super::rows::Kind::Item(source) = row.kind else {
+                return None;
+            };
+            let epoch = match source {
+                super::rows::Source::Current(_) => self.rt(cx).epoch(),
+                super::rows::Source::Archived { epoch, .. } => rows.archived.get(epoch)?.epoch,
+            };
+            (epoch == target.history_epoch && rows.item(source, transcript)?.id.0 == target.item_id)
+                .then_some(row.key)
+        });
+        let hit = row.and_then(|key| {
+            self.find
+                .as_ref()?
+                .hits
+                .iter()
+                .find(|hit| hit.key == key)
+                .cloned()
+        });
+        if let Some(hit) = hit {
+            self.reveal(&hit, cx);
+            self.find.as_mut().unwrap().remote_target = None;
+            cx.notify();
+            return true;
+        }
+        false
     }
 
     fn reveal_hit(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -394,10 +534,20 @@ impl ChatView {
         let find = self.find.as_ref()?;
         let open = find.open;
         let empty = find.input.read(cx).value().is_empty();
-        let count = find.hits.len();
-        let counter = match find.current {
+        let remote = self.rt(cx).is_remote();
+        let count = if remote {
+            find.remote.len()
+        } else {
+            find.hits.len()
+        };
+        let counter = match if remote {
+            find.remote_current
+        } else {
+            find.current
+        } {
             Some(current) => format!("{} of {count}", current + 1),
             None if empty => String::new(),
+            None if find.remote_loading => "Searching…".to_owned(),
             None => "No results".to_owned(),
         };
         let step = |id: &'static str, name: IconName, label: &'static str, delta: isize| {

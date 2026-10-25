@@ -5,6 +5,12 @@ use std::{collections::BTreeMap, io::Write, path::PathBuf};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct HostRecord {
+    #[serde(default)]
+    pub(crate) mutual: bool,
+    #[serde(default)]
+    pub(crate) passive_peer: bool,
+    #[serde(default = "auto_connect_default")]
+    pub(crate) auto_connect: bool,
     pub(crate) id: HostId,
     pub(crate) name: String,
     pub(crate) endpoint: String,
@@ -28,6 +34,9 @@ pub struct HostRecord {
     #[serde(default)]
     pub(crate) chats: BTreeMap<String, CachedChat>,
 }
+fn auto_connect_default() -> bool {
+    true
+}
 impl HostRecord {
     pub fn id(&self) -> &HostId {
         &self.id
@@ -49,6 +58,9 @@ impl HostRecord {
     }
     pub fn device_id(&self) -> &str {
         &self.device_id
+    }
+    pub fn auto_connect(&self) -> bool {
+        self.auto_connect
     }
 }
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +257,13 @@ impl Store {
     }
     pub fn hosts(&self) -> Vec<HostRecord> {
         self.records.hosts.values().cloned().collect()
+    }
+    pub(super) fn committed_host(&self, id: &HostId) -> Result<Option<HostRecord>, String> {
+        Ok(Self::open(self.path.clone())?
+            .records
+            .hosts
+            .get(id)
+            .cloned())
     }
     pub fn save(&mut self, host: HostRecord) -> Result<(), String> {
         let old = self.records.hosts.insert(host.id.clone(), host.clone());

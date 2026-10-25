@@ -22,6 +22,7 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     Icon, IconName, Sizable,
     bubble::{Bubble, BubbleContent},
+    button::ButtonVariants,
     message::MessageAlignment,
     shimmer::ShimmerText,
     spinner::Spinner,
@@ -134,6 +135,7 @@ impl Render for ChatView {
             .children(self.find_bar(window, cx))
             .children(self.quote_button(window, cx))
             .children(self.quote_reply_popover(window, cx));
+        let body = body.children(self.history_button(cx));
         let composer = if in_thread {
             self.locked_composer(cx)
         } else {
@@ -742,9 +744,13 @@ fn item_row(
                 item.id,
                 &message.text,
                 live && this.settled(cx)
-                    && this
-                        .native(cx)
-                        .is_some_and(|s| s.fork_point(item.id).is_some()),
+                    && (this
+                        .rt(cx)
+                        .remote_source()
+                        .is_some_and(|s| s.enabled("edit"))
+                        || this
+                            .native(cx)
+                            .is_some_and(|s| s.fork_point(item.id).is_some())),
                 // Sent in another agent's part: it can't be edited from here.
                 match source {
                     Source::Archived { epoch, .. } => rows
@@ -766,7 +772,7 @@ fn item_row(
             // Only the main conversation forks (a subagent's thread has no session).
             let fork = end_at
                 .filter(|_| this.threads.is_empty())
-                .filter(|&at| this.fork_request(at, cx).is_some());
+                .filter(|&at| this.fork_request(at, cx).is_some() || (this.capabilities(cx).fork && this.rt(cx).is_remote() && rows.item(at,this.transcript(cx)).is_some_and(|item| matches!(&item.body,Body::TurnEnd(end) if end.resume_at.is_some()))));
             let transcript = this.transcript(cx);
             let end =
                 end_at
@@ -887,6 +893,25 @@ fn tool_row(
     let cwd = this.pane(cx).metadata.cwd.clone().unwrap_or_default();
     let summary = presentation::tool_summary(tool, &cwd);
     let file = this.tool_files.get(&tool.call_id);
+    let remote_file = this.rt(cx).remote_source().and_then(|source| {
+        source
+            .projection
+            .items
+            .iter()
+            .find_map(|item| match &item.body {
+                Some(canopy_desktop::remote::proto::transcript_item::Body::Tool(wire))
+                    if item.key.is_some_and(|key| {
+                        canopy_desktop::remote::client::presentation::call_id(
+                            key.history_epoch,
+                            &wire.call_id,
+                        ) == tool.call_id
+                    }) =>
+                {
+                    wire.files.first().cloned()
+                }
+                _ => None,
+            })
+    });
     let (status, status_label): (AnyElement, &'static str) = match tool.state {
         ToolState::Streaming | ToolState::Running => (
             Spinner::new().xsmall().color(t::muted()).into_any_element(),
@@ -972,6 +997,26 @@ fn tool_row(
                     px(20.),
                 ))
                 .into_any_element(),
+            None if remote_file.is_some() => {
+                let file = remote_file.unwrap();
+                let label = file.relative_path.clone();
+                let runtime = this.runtime.clone();
+                let view = view.downgrade();
+                button(SharedString::from(format!("remote-tool-file-{key}")), label)
+                    .ghost()
+                    .small()
+                    .compact()
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        let _ = view.update(cx, |_, cx| {
+                            cx.emit(super::ClientFileRequested {
+                                runtime: runtime.clone(),
+                                file: file.clone(),
+                            })
+                        });
+                    })
+                    .into_any_element()
+            }
             None => div()
                 .flex_1()
                 .min_w_0()

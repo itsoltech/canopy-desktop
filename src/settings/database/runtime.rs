@@ -286,6 +286,7 @@ impl Database {
                 params![VERSION, publication(), SCHEMA],
             )?;
         }
+        authorization::upgrade_default_sharing(&tx)?;
         tx.execute("UPDATE _canopy_command_inbox SET state='delivery_unknown',updated_at=?1 WHERE state='attempting'",[now()])?;
         tx.execute(
             "UPDATE _canopy_chat_queue SET state='delivery_unknown' WHERE state='attempting'",
@@ -797,11 +798,10 @@ fn adopt(tx: &Transaction) -> Result<()> {
                 .is_none()
                 .then_some("Restore the canonical checkout directory before running");
             let authority = authority.unwrap_or_default();
-            for pane in workspace
-                .all_panes()
-                .into_iter()
-                .filter(|p| p.metadata.kind == crate::state::workspace::PaneKind::Chat)
-            {
+            for pane in workspace.all_panes().into_iter().filter(|p| {
+                p.metadata.kind == crate::state::workspace::PaneKind::Chat
+                    && p.metadata.remote.is_none()
+            }) {
                 let Some(id) = pane.metadata.chat.as_ref().and_then(|c| c.id.clone()) else {
                     continue;
                 };

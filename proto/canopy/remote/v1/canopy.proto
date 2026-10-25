@@ -24,6 +24,25 @@ service EnrollmentService {
   rpc RequestPairing(PairingRequest) returns (PairingStatus);
   rpc GetPairingStatus(PairingStatusRequest) returns (PairingStatus);
 }
+// Establishes the other direction of an already approved desktop connection.
+// Both calls require mTLS and ADMIN on the private root. No enrollment token,
+// password or private key is exchanged. Retries preserve existing identities.
+service PeerService {
+  rpc GetPeerRequest(HostRequest) returns (PeerCertificateRequest);
+  rpc ConnectPeer(ConnectPeerRequest) returns (Empty);
+}
+message PeerCertificateRequest { string host_id = 1; bytes certificate_signing_request = 2; }
+message PeerHost {
+  string host_id = 1; string name = 2; string server_name = 3;
+  bytes certificate = 4; bytes certificate_sha256 = 5;
+  repeated string addresses = 6; uint32 port = 7;
+  // A loopback listener forwarded by the initiator's authenticated SSH session.
+  bool return_tunnel = 8;
+}
+message ConnectPeerRequest {
+  PeerHost peer = 1; bytes certificate = 2; repeated bytes certificate_chain = 3;
+  string host_id = 4;
+}
 service CatalogService {
   rpc ReadCatalog(HostRequest) returns (stream SummaryEvent);
   rpc ListAgents(AgentDiscoveryRequest) returns (AgentDiscovery);
@@ -50,6 +69,7 @@ service ChatService {
   rpc Restart(ChatCommandRequest) returns (CommandReceipt);
   rpc RespondDecision(RespondDecisionRequest) returns (CommandReceipt);
   rpc SetAgentOption(SetAgentOptionRequest) returns (CommandReceipt);
+  rpc SetChatAgent(SetChatAgentRequest) returns (CommandReceipt);
   rpc ForkChat(ForkChatRequest) returns (CommandReceipt);
   rpc SetGoal(SetGoalRequest) returns (CommandReceipt);
   rpc StopBackground(StopBackgroundRequest) returns (CommandReceipt);
@@ -301,6 +321,8 @@ message OptionChoice { string id = 1; string label = 2; optional string descript
 message AgentOption { string id = 1; string label = 2; optional string category = 3; string current_value = 4; repeated OptionChoice choices = 5; string effect = 6; }
 message AgentOptions { ChatRef chat = 1; repeated AgentOption options = 2; repeated Capability capabilities = 3; }
 message SetAgentOptionRequest { CommandMeta command = 1; ChatRef chat = 2; string option_id = 3; string value_id = 4; }
+// Explicit host account selection, allowed only before the first message.
+message SetChatAgentRequest { CommandMeta command = 1; ChatRef chat = 2; string agent_id = 3; string profile_id = 4; optional string model = 5; }
 message ForkChatRequest { CommandMeta command = 1; ChatRef chat = 2; uint64 history_epoch = 3; uint64 item_id = 4; optional WorkspaceRef destination = 5; optional MessageDraft replacement = 6; }
 enum GoalAction { GOAL_ACTION_UNSPECIFIED = 0; PAUSE_GOAL = 1; RESUME_GOAL = 2; CLEAR_GOAL = 3; }
 message SetGoalRequest { CommandMeta command = 1; ChatRef chat = 2; optional string objective = 3; optional GoalAction action = 4; }

@@ -34,6 +34,27 @@ pub(super) fn project_key(
 }
 
 impl Sidebar {
+    pub(super) fn sync_chat_selection(&mut self, cx: &mut Context<Self>) {
+        let workspace = cx.global::<crate::app_state::AppState>().workspace.read(cx);
+        let pane = workspace
+            .active()
+            .and_then(|tab| tab.root.find(tab.focused));
+        let id = pane.map(|pane| pane.id);
+        if self.selected_pane != id {
+            self.selected_pane = id;
+            self.remote_selection =
+                pane.and_then(|pane| pane.metadata.remote.as_ref())
+                    .map(|chat| p::ResourceRef {
+                        resource: Some(p::resource_ref::Resource::Chat(p::ChatRef {
+                            host_id: chat.host.clone(),
+                            chat_id: chat.chat.clone(),
+                        })),
+                    });
+            cx.emit(Navigation::Local);
+        }
+        cx.notify();
+    }
+
     pub(crate) fn local_selection(&mut self, cx: &mut Context<Self>) {
         self.remote_selection = None;
         cx.emit(Navigation::Local);
@@ -160,6 +181,17 @@ impl Sidebar {
     }
 
     pub(super) fn remote_catalogs(&self, cx: &App) -> Vec<(Arc<HostClient>, Arc<p::Catalog>)> {
+        self.remote_hosts(cx)
+            .into_iter()
+            .filter_map(|host| {
+                host.shared_catalog()
+                    .filter(|c| c.host_id == host.id().as_str())
+                    .map(|c| (host, c))
+            })
+            .collect()
+    }
+
+    fn remote_hosts(&self, cx: &App) -> Vec<Arc<HostClient>> {
         let local = cx
             .global::<crate::app_state::AppState>()
             .settings
@@ -171,12 +203,68 @@ impl Sidebar {
             .unwrap_or_default()
             .into_iter()
             .filter(|host| Some(host.id().as_str()) != local)
-            .filter_map(|host| {
-                host.shared_catalog()
-                    .filter(|c| c.host_id == host.id().as_str())
-                    .map(|c| (host, c))
-            })
             .collect()
+    }
+
+    pub(super) fn remote_connection_messages(&self, cx: &Context<Self>) -> Vec<AnyElement> {
+        let mut rows = vec![];
+        for host in self.remote_hosts(cx) {
+            let phase = host.phase();
+            let catalog = host.shared_catalog();
+            if phase == Phase::Ready && catalog.as_ref().is_some_and(|c| !c.projects.is_empty()) {
+                continue;
+            }
+            let name = host.name();
+            let message = match phase {
+                Phase::Offline => "Disconnected. Connect to load shared projects.".to_owned(),
+                Phase::Connecting => "Connecting and loading shared projects…".to_owned(),
+                Phase::Ready if catalog.is_none() => "Loading shared projects…".to_owned(),
+                Phase::Ready => format!(
+                    "No shared projects. Open a project on {name} or check its device permissions in Connections."
+                ),
+            };
+            let id = host.id().as_str().to_owned();
+            let error = host.connection_error();
+            let connect = host.clone();
+            rows.push(
+                column()
+                    .id(SharedString::from(format!("remote-status-{id}")))
+                    .px_2()
+                    .py_2()
+                    .gap_1()
+                    .child(div().text_sm().text_color(t::text()).child(name))
+                    .child(div().text_xs().text_color(t::muted()).child(message))
+                    .children(error.map(|error| div().text_xs().text_color(t::red()).child(error)))
+                    .when(phase == Phase::Offline, |row| {
+                        row.child(
+                            Button::new(SharedString::from(format!("remote-connect-{id}")))
+                                .ghost()
+                                .small()
+                                .compact()
+                                .label("Connect…")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.remote_error =
+                                        super::super::remote_client::open_host(connect.clone(), cx)
+                                            .err()
+                                            .map(|error| error.to_string());
+                                    cx.notify();
+                                })),
+                        )
+                    })
+                    .into_any_element(),
+            );
+        }
+        if let Some(error) = &self.remote_error {
+            rows.push(
+                div()
+                    .px_2()
+                    .text_xs()
+                    .text_color(t::red())
+                    .child(error.clone())
+                    .into_any_element(),
+            );
+        }
+        rows
     }
 
     pub(super) fn remote_projects(

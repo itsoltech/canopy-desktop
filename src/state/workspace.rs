@@ -58,6 +58,10 @@ pub struct Pane {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PaneMetadata {
+    /// A view of a chat owned by another host. Layout and pane ids stay local;
+    /// this reference never authorizes launching a local agent or deleting a chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<Box<RemoteChat>>,
     pub cwd: Option<PathBuf>,
     pub profile_id: Option<String>,
     pub title: Option<String>,
@@ -76,6 +80,84 @@ pub struct PaneMetadata {
     /// snapshots without chats keep their previous shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat: Option<Box<crate::chat::config::ChatSettings>>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteChat {
+    pub host: String,
+    pub chat: String,
+}
+impl RemoteChat {
+    pub fn new(host: String, chat: String) -> Option<Self> {
+        (uuid::Uuid::parse_str(&host).is_ok() && uuid::Uuid::parse_str(&chat).is_ok())
+            .then_some(Self { host, chat })
+    }
+    pub fn key(&self) -> String {
+        format!("{}:{}", self.host, self.chat)
+    }
+    fn valid(&self) -> bool {
+        Self::new(self.host.clone(), self.chat.clone()).is_some()
+    }
+}
+
+#[cfg(test)]
+mod remote_layout_tests {
+    use super::*;
+    #[test]
+    fn remote_chat_tabs_and_splits_roundtrip_without_local_paths_or_shared_layout_ids() {
+        let reference = RemoteChat::new(
+            "5b860d32-7cf5-4ffc-a288-dc10cefe73a4".into(),
+            "2e4b3884-0e7a-4cec-bc87-ab3ff73401ea".into(),
+        )
+        .unwrap();
+        let mut workspace = Workspace::new();
+        let tab = workspace.open_conversation("Remote work", "claude");
+        let first = workspace.active().unwrap().focused;
+        let metadata = PaneMetadata {
+            remote: Some(Box::new(reference.clone())),
+            kind: PaneKind::Chat,
+            title: Some("Remote work".into()),
+            ..Default::default()
+        };
+        workspace
+            .set_pane_metadata(tab, first, metadata.clone())
+            .unwrap();
+        let second = workspace
+            .split(tab, first, Axis::Horizontal, "claude")
+            .unwrap();
+        workspace.set_pane_metadata(tab, second, metadata).unwrap();
+        workspace.set_default_cwd(PathBuf::from("/local/project"));
+        assert!(workspace.valid());
+        let restored: Workspace =
+            serde_json::from_str(&serde_json::to_string(&workspace).unwrap()).unwrap();
+        assert_eq!(restored, workspace);
+        assert_ne!(first, second);
+        for pane in restored.all_panes() {
+            assert_eq!(pane.metadata.remote.as_deref(), Some(&reference));
+            assert!(pane.metadata.cwd.is_none());
+        }
+        workspace.close_pane(tab, first).unwrap();
+        assert_eq!(workspace.all_panes().len(), 1);
+        assert_eq!(
+            workspace.all_panes()[0].metadata.remote.as_deref(),
+            Some(&reference)
+        );
+    }
+    #[test]
+    fn the_same_chat_uuid_on_two_computers_is_two_distinct_resources() {
+        let a = RemoteChat::new(
+            "5b860d32-7cf5-4ffc-a288-dc10cefe73a4".into(),
+            "2e4b3884-0e7a-4cec-bc87-ab3ff73401ea".into(),
+        )
+        .unwrap();
+        let b = RemoteChat::new(
+            "1d9c4674-f74e-4c30-9b3c-74762688215a".into(),
+            a.chat.clone(),
+        )
+        .unwrap();
+        assert_ne!(a.key(), b.key());
+        assert!(RemoteChat::new("address-is-not-identity".into(), a.chat).is_none());
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ChatTitleState {
@@ -100,7 +182,9 @@ pub enum PaneKind {
 }
 impl PaneMetadata {
     fn valid(&self) -> bool {
-        self.cwd.as_ref().is_none_or(|p| p.is_absolute())
+        self.remote.as_ref().is_none_or(|remote| {
+            remote.valid() && self.kind == PaneKind::Chat && self.cwd.is_none()
+        }) && self.cwd.as_ref().is_none_or(|p| p.is_absolute())
             && self
                 .task_prompt
                 .as_ref()
@@ -153,7 +237,7 @@ impl SplitTree {
     fn fill_cwd(&mut self, path: &PathBuf) {
         match self {
             Self::Leaf(p) => {
-                if p.metadata.cwd.is_none() {
+                if p.metadata.cwd.is_none() && p.metadata.remote.is_none() {
                     p.metadata.cwd = Some(path.clone());
                 }
             }

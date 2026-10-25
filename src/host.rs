@@ -19,6 +19,7 @@ pub const FILES_GIT: u32 = 8;
 pub const TERMINAL: u32 = 16;
 pub const TASKS: u32 = 32;
 pub const ADMIN: u32 = 64;
+pub const ALL_SCOPES: u32 = READ | CHAT | APPROVE | FILES_GIT | TERMINAL | TASKS | ADMIN;
 
 pub const REMOTE_INBOX_RECORDS: u64 = 100_000;
 pub const REMOTE_INBOX_BYTES: u64 = 64 * 1024 * 1024;
@@ -84,6 +85,7 @@ impl ChatRecord {
         metadata: PaneMetadata,
     ) -> Option<Self> {
         (valid_id(&id)
+            && metadata.remote.is_none()
             && workspace
                 .as_ref()
                 .is_none_or(|root| !root.is_empty() && root != "*" && root.len() <= 4096)

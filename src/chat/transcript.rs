@@ -406,6 +406,28 @@ pub struct Transcript {
     changes: Vec<Change>,
 }
 impl Transcript {
+    /// Install a projection with host-owned identities. Returns true when rows
+    /// were removed/reordered, so presentation must rebuild its index atomically.
+    pub fn sync_projection(&mut self, items: Vec<Item>) -> bool {
+        let reset = self.items.len() > items.len()
+            || self.items.iter().zip(&items).any(|(a, b)| a.id != b.id);
+        if reset {
+            let revision = self.revision + 1;
+            *self = Self::restore(items);
+            self.revision = revision;
+            return true;
+        }
+        for (index, item) in items.into_iter().enumerate() {
+            if index == self.items.len() {
+                self.items.push(item);
+                self.record(Change::Inserted(index));
+            } else if self.items[index] != item {
+                self.items[index] = item;
+                self.record(Change::Updated(index));
+            }
+        }
+        false
+    }
     /// A transcript holding saved items (ids ascending); new items and turns continue
     /// after them. Every item is reported as inserted.
     pub fn restore(items: Vec<Item>) -> Self {

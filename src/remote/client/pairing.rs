@@ -222,6 +222,9 @@ impl PairingInvite {
         .map_err(|_| "Issued certificate does not match this device key.")?;
         save_bundle(vault.as_ref(), &reference, &key.serialize_pem(), &pem)?;
         Ok(HostRecord {
+            mutual: false,
+            passive_peer: false,
+            auto_connect: true,
             id: HostId::parse(&self.wire.host_id)?,
             name: self.wire.address.clone(),
             endpoint: address,
@@ -256,7 +259,7 @@ pub(crate) fn pem_certificate(der: &[u8]) -> String {
             .join("\n")
     )
 }
-fn save_bundle(
+pub(crate) fn save_bundle(
     vault: &dyn CredentialStore,
     reference: &str,
     key: &str,

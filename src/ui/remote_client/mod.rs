@@ -2,7 +2,9 @@
 mod activity;
 mod chat;
 mod connections;
+pub(crate) use connections::OpenChat;
 pub use connections::{Connections, connections};
+pub(crate) use connections::{registry, start_saved_connections};
 mod discovery;
 mod editing;
 mod embedded;
@@ -10,6 +12,7 @@ pub use embedded::RemoteWorkspace;
 mod lifecycle;
 mod notes;
 mod preview;
+pub(crate) use preview::isolated_html;
 mod routes;
 mod settings;
 mod terminal;
@@ -45,6 +48,12 @@ struct ClientGlobal {
     notes: Arc<std::sync::Mutex<BTreeMap<String, String>>>,
     connections: Entity<Connections>,
 }
+fn prepare_connection(cx: &mut App) -> Task<std::result::Result<(), String>> {
+    cx.global::<crate::app_state::AppState>()
+        .remote
+        .clone()
+        .update(cx, |state, cx| state.prepare_connection(cx))
+}
 impl Global for ClientGlobal {}
 impl ClientGlobal {
     async fn load_registry(&self) -> std::result::Result<ClientRegistry, String> {
@@ -77,6 +86,10 @@ fn ensure_global(cx: &mut App) -> Result<()> {
         });
     }
     Ok(())
+}
+pub(crate) fn executor(cx: &mut App) -> Result<Arc<tokio::runtime::Runtime>> {
+    ensure_global(cx)?;
+    Ok(cx.global::<ClientGlobal>().runtime.clone())
 }
 pub fn add_computer(cx: &mut App) -> Result<WindowHandle<Root>> {
     open_client(None, true, None, false, cx)
@@ -152,6 +165,7 @@ struct DeviceLayout {
 }
 struct RemoteWindow {
     embedded: bool,
+    compact_tools: bool,
     requested_resource: Option<p::ResourceRef>,
     window: AnyWindowHandle,
     global: ClientGlobal,
@@ -347,6 +361,7 @@ impl RemoteWindow {
             host: None,
             page: Page::Hosts,
             embedded: false,
+            compact_tools: false,
             requested_resource: None,
             fields,
             composer: cx.new(|cx| TextareaState::new(window, cx)),
@@ -613,7 +628,15 @@ impl RemoteWindow {
                 if !self.opening_setup
                     && let Some(host) = last
                 {
+                    let tool_context = self
+                        .compact_tools
+                        .then(|| (self.workspace.clone(), self.page));
                     self.select_host(host.clone(), cx);
+                    if let Some((workspace, page)) = tool_context {
+                        self.workspace = workspace;
+                        self.page = page;
+                        self.refresh_connection(cx);
+                    }
                     self.apply_requested_resource(cx);
                     if std::mem::take(&mut self.routes_on_open) {
                         self.page = Page::Hosts;
@@ -623,8 +646,10 @@ impl RemoteWindow {
                         if self.embedded {
                             self.connect_embedded(host, cx);
                         } else {
+                            let ready = prepare_connection(cx);
                             self.run(
                                 async move {
+                                    ready.await?;
                                     host.connect().await?;
                                     Ok(Update::Connected)
                                 },
@@ -1156,7 +1181,19 @@ impl RemoteWindow {
             && !self.busy
     }
     fn pair_host(&mut self, ssh: bool, cx: &mut Context<Self>) {
+        if self.value("pair", cx).trim().is_empty() {
+            return;
+        }
         let code = self.value("pair", cx);
+        let invite = match PairingInvite::parse(&code) {
+            Ok(invite) => invite,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        let ready = prepare_connection(cx);
         let name = self.value("name", cx);
         let endpoint = nonempty(self.value("endpoint", cx));
         let registry = self.registry.clone().unwrap();
@@ -1170,7 +1207,7 @@ impl RemoteWindow {
         let fingerprint = self.ssh_fingerprint.clone();
         self.info =
             "Requesting access. Approve this device in Connections on the other computer.".into();
-        self.run(async move{let invite=PairingInvite::parse(&code)?;let id=canopy_desktop::remote::client::HostId::parse(invite.host_id())?;if registry.get(&id).is_some(){return Err("This host is already paired. Change its route instead of creating another identity.".into());}
+        self.run(async move{ready.await?;let id=canopy_desktop::remote::client::HostId::parse(invite.host_id())?;if registry.get(&id).is_some(){return Err("This host is already paired. Change its route instead of creating another identity.".into());}
             let reference=uuid::Uuid::new_v4().to_string();let route=if ssh{let pin=fingerprint.ok_or("Inspect and verify the SSH host key first.")?;canopy_desktop::remote::client::ssh::save_credentials(registry.vault().as_ref(),&reference,&credential,passphrase.as_deref())?;Some(canopy_desktop::remote::client::store::SshRoute::new(address,port,username,pin,reference.clone()))}else{None};
             match invite.enroll_via(name,registry.vault(),cancelled,endpoint,route).await{Ok(record)=>Ok(Update::Paired(registry.insert(record)?)),Err(error)=>{if ssh{canopy_desktop::remote::client::ssh::remove_credentials(registry.vault().as_ref(),&reference)?;}Err(error)}}
         },cx);
@@ -1574,8 +1611,10 @@ impl Render for RemoteWindow {
                     .disabled(self.busy || phase == Phase::Connecting)
                     .on_click(cx.listener(|this, _, _, cx| {
                         let host = this.host.clone().unwrap();
+                        let ready = prepare_connection(cx);
                         this.run(
                             async move {
+                                ready.await?;
                                 host.connect().await?;
                                 Ok(Update::Connected)
                             },
@@ -1585,8 +1624,10 @@ impl Render for RemoteWindow {
                 )
                 .child(button("disconnect", "Disconnect").on_click(cx.listener(
                     |this, _, _, cx| {
-                        if let Some(host) = &this.host {
-                            host.disconnect();
+                        if let Some(host) = &this.host
+                            && let Err(error) = host.pause_connection()
+                        {
+                            this.error = Some(error);
                         }
                         this.detach();
                         cx.notify();
@@ -1615,6 +1656,21 @@ impl Render for RemoteWindow {
             Page::Terminal => self.render_terminal(cx),
             Page::Terminals => self.render_terminal_picker(cx),
         };
+        if self.compact_tools {
+            return column()
+                .id("remote-tools-scroll")
+                .size_full()
+                .min_w_0()
+                .min_h_0()
+                .overflow_y_scroll()
+                .child(column().p_3().gap_2().child(content))
+                .children(
+                    self.error
+                        .clone()
+                        .map(|e| div().p_2().text_color(t::red()).child(e)),
+                )
+                .into_any_element();
+        }
         let element = column()
             .size_full()
             .bg(t::bg())
@@ -1672,7 +1728,7 @@ impl Render for RemoteWindow {
                 canopy_desktop::remote::metrics::Outcome::Ok,
             );
         }
-        element
+        element.into_any_element()
     }
 }
 fn nonempty(value: String) -> Option<String> {

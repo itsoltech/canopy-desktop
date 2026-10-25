@@ -268,7 +268,7 @@ impl ChatView {
         };
         match trigger.kind {
             Kind::Command => {
-                let commands = self.backend(cx).map(|s| s.commands()).unwrap_or_default();
+                let commands = self.rt(cx).commands();
                 // `/goal` is Canopy's too (goal mode): offered even where the agent
                 // doesn't list it (Codex), never to an agent without goals.
                 let mut listed = commands.to_vec();
@@ -285,29 +285,31 @@ impl ChatView {
                 // `/resume` brings back a closed Canopy chat (DEC-094); the agent's own
                 // picker doesn't work headless, so Canopy's takes its place.
                 listed.retain(|c| c.name != closed::COMMAND);
-                listed.push(CommandInfo {
-                    name: closed::COMMAND.into(),
-                    description: "Resume a closed chat".into(),
-                    hint: None,
-                    path: None,
-                    skill: false,
-                });
+                if !self.rt(cx).is_remote() {
+                    listed.push(CommandInfo {
+                        name: closed::COMMAND.into(),
+                        description: "Resume a closed chat".into(),
+                        hint: None,
+                        path: None,
+                        skill: false,
+                    });
+                }
                 let commands = listed.as_slice();
                 suggest.choices = rank_commands(commands, &trigger.query)
                     .into_iter()
                     .map(|command| command_choice(command, false))
                     .collect();
                 // The agent reports them once it has started.
-                suggest.loading = !reported
+                suggest.loading = !self.rt(cx).is_remote()
+                    && !reported
                     && self.backend(cx).is_none_or(|s| {
                         matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
                     });
             }
             Kind::Skill => {
                 let skills: Vec<CommandInfo> = self
-                    .backend(cx)
-                    .map(|s| s.commands())
-                    .unwrap_or_default()
+                    .rt(cx)
+                    .commands()
                     .iter()
                     .filter(|command| command.skill)
                     .cloned()
@@ -316,10 +318,91 @@ impl ChatView {
                     .into_iter()
                     .map(|command| command_choice(command, true))
                     .collect();
-                suggest.loading = skills.is_empty()
+                suggest.loading = !self.rt(cx).is_remote()
+                    && skills.is_empty()
                     && self.backend(cx).is_none_or(|s| {
                         matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
                     });
+            }
+            Kind::File | Kind::Pull if self.rt(cx).is_remote() => {
+                let remote = self.rt(cx).remote_source().unwrap();
+                let workspace = remote.context().and_then(|s| s.workspace);
+                if let (Some(host), Some(workspace)) = (remote.host.clone(), workspace) {
+                    let query = trigger.query.clone();
+                    let wanted = trigger.clone();
+                    let is_pull = trigger.kind == Kind::Pull;
+                    suggest.loading = true;
+                    let task = crate::ui::remote_client::executor(cx)
+                        .unwrap()
+                        .spawn(async move {
+                            use canopy_desktop::remote::{client::rpc_error, proto as p};
+                            if is_pull {
+                                let found = p::catalog_service_client::CatalogServiceClient::new(
+                                    host.channel()?,
+                                )
+                                .list_pull_requests(p::PullRequestsRequest {
+                                    workspace: Some(workspace),
+                                    query,
+                                    page_token: None,
+                                })
+                                .await
+                                .map_err(rpc_error)?
+                                .into_inner();
+                                Ok::<_, String>((Vec::new(), found.pulls))
+                            } else {
+                                let found = p::files_service_client::FilesServiceClient::new(
+                                    host.channel()?,
+                                )
+                                .search_files(p::SearchFilesRequest {
+                                    workspace: Some(workspace),
+                                    query,
+                                    limit: MAX as u32,
+                                })
+                                .await
+                                .map_err(rpc_error)?
+                                .into_inner();
+                                Ok((found.entries, Vec::new()))
+                            }
+                        });
+                    suggest._task = Some(cx.spawn(async move |this, cx| {
+                        let found = task.await.unwrap_or_else(|e| Err(e.to_string()));
+                        let _ = this.update(cx, |this, cx| {
+                            if this.suggest.as_ref().is_none_or(|s| !s.open || s.trigger != wanted) {
+                                return;
+                            }
+                            let choices = found.map(|(files, pulls)| {
+                                let mut choices: Vec<Choice> = files.into_iter().map(|entry| {
+                                    let path = entry.relative_path;
+                                    Choice {
+                                        glyph:Glyph::Named(IconName::File), title:entry.name,
+                                        detail:path.clone(), name:path.clone(),
+                                        attachment:Attachment::Path { path:path.into(), label:None },
+                                    }
+                                }).collect();
+                                for choice in pulls {
+                                    let Some(mut pull) = choice.pull else { continue; };
+                                    pull.context_id = Some(choice.context_id);
+                                    let a = canopy_desktop::remote::proto::Attachment {
+                                        label:String::new(),
+                                        content:Some(canopy_desktop::remote::proto::attachment::Content::Pull(pull.clone())),
+                                    };
+                                    let Some(attachment) = canopy_desktop::remote::client::presentation::attachment(&a) else { continue; };
+                                    this.runtime.update(cx, |runtime, _| runtime.remember_remote_attachment(a));
+                                    choices.push(Choice {
+                                        glyph:Glyph::Custom(mentions::pull_icon(&pull.state)),
+                                        title:format!("#{} {}", pull.number, pull.title),
+                                        detail:format!("{} → {}", pull.head, pull.base),
+                                        name:format!("#{}", pull.number), attachment,
+                                    });
+                                }
+                                choices
+                            });
+                            this.suggested(&wanted, choices, cx);
+                        });
+                    }));
+                } else {
+                    suggest.error = Some("This chat has no project folder.".into());
+                }
             }
             Kind::File => match self.cwd(cx) {
                 Some(root) => {

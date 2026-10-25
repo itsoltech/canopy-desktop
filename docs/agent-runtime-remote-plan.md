@@ -593,20 +593,22 @@ oraz sprawdzeniem uprawnień w Canopy. Nie budujemy zewnętrznej PKI.
 
 Delete i operacje worktree wymagają ponadto odpowiedniego uprawnienia do zasobu
 oraz ważnego potwierdzenia skutków. Admin nie omija ograniczeń filesystemu,
-backendu ani serwisów dostawcy. Domyślne nowe urządzenie ma read; szerszy zakres
-wymaga jawnego wyboru przy parowaniu lub późniejszej zmiany na hoście.
+backendu ani serwisów dostawcy. Zgodnie z aktualną decyzją produktu domyślna zgoda
+udostępnia wszystkie zakresy i wszystkie obecne oraz przyszłe zasoby (`*`).
+Użytkownik może ograniczyć operacje lub projekty przy zatwierdzaniu i później.
 
 | ID | Wymaganie |
 | --- | --- |
 | SEC-01 | Wszystkie zwykłe RPC MUSZĄ weryfikować tożsamość hosta i credential klienta. Jedynym wyjątkiem od istniejącego credentialu klienta jest ograniczony enrollment opisany poniżej. SSH i VPN nie zastępują autoryzacji Canopy. TLS obowiązuje także na LAN. |
-| SEC-02 | Parowanie MUSI być wyłączone poza jawnym oknem 5 minut. Token ma jednorazowe użycie i minimum 128 bitów losowości z systemowego generatora. Nazwa lub deviceId nie są dowodem tożsamości. |
+| SEC-02 | Pierwszy enrollment MUSI być wyłączony poza jawnym oknem 5 minut. Token ma jednorazowe użycie i minimum 128 bitów losowości z systemowego generatora. Nazwa lub deviceId nie są dowodem tożsamości. |
 | SEC-03 | Nieautoryzowany klient NIE MOŻE odczytać katalogu, health szczegółowych usług ani transkryptu. Endpoint parowania ujawnia tylko dane potrzebne do ustanowienia zaufania. |
 | SEC-04 | Zmiana zakresu lub revoke MUSI działać również na istniejących streamach. W ciągu 1 s od zatwierdzenia host zamyka niedozwolone streamy, zwalnia PTY lease i odrzuca jeszcze niewykonane komendy. |
 | SEC-05 | Revoke NIE MOŻE być raportowane jako cofnięcie już rozpoczętego efektu. Pracujący agent pozostaje zasobem hosta; admin może go osobno zatrzymać. |
 | SEC-06 | Snapshot konfiguracji, diagnostyka i zwykły inbox NIE MOGĄ ujawniać tokenów, prywatnych kluczy ani credentiali konfiguracji. Sekrety dostawcy pozostają na hoście, a credentials klienta w jego magazynie systemowym. |
 | SEC-07 | Credential write MUSI mieć kontrolowany cleanup przy częściowym błędzie zapisu. Nie wolno traktować sekretu jak zwykłego pola JSON lub pozwolić na jego odczyt zwrotny. |
 | SEC-08 | Host MUSI sprawdzać zakres ResourceRef, kanoniczny root i reguły symlink/reparse przed I/O. Nie wolno polegać na tym, że UI ukryło niedozwoloną akcję. |
-| SEC-09 | Listener MUSI domyślnie wiązać loopback. LAN/VPN wymaga jawnego wyboru interfejsu. Zmiana listenera nie może zmienić HostId ani automatycznie zaufać innemu endpointowi. |
+| SEC-09 | Bez włączonego udostępniania listener pozostaje wyłączony lub na loopback. Dodanie komputera jest świadomym włączeniem udostępniania przez LAN/VPN, także dla połączenia zwrotnego. Zmiana listenera nie może zmienić HostId ani automatycznie zaufać innemu endpointowi. |
+| SEC-10 | Jedno zatwierdzenie połączenia desktop MUSI ustanowić oba kierunki bez drugiego QR. Zaufanie zwrotne wymaga uwierzytelnionego RPC z admin, dopasowania CSR do przypiętej tożsamości hosta i trwałego zapisu credentialu. Ponowienie nie tworzy duplikatów, nie przywraca odwołanej zgody ani ręcznie wstrzymanego połączenia. |
 
 Pozycja kolejki utworzona przez zakończony Send jest stanem rozmowy hosta.
 Revoke nadawcy nie usuwa tej pozycji ani nie cofa przyjętej wiadomości. Host może

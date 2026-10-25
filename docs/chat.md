@@ -160,8 +160,8 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   z sidebaru) prezentuje istniejący runtime (`attach_pane`), a agent zostaje zarejestrowany pod
   kluczem z chwili startu. `ChatView` z `Window` powstaje tylko dla pokazanego pane'a i zostaje dla
   ukrytego taba; lazy start przy pokazaniu się nie zmienia.
-- `Chats::sync_model` działa bez okna: pane usunięty z layoutu nadal oznacza jawny Delete
-  (retiring z runtime'em i jednym zamykaniem procesu), a czat z katalogu bez pane'a („detached”,
+- `Chats::sync_model` działa bez okna: zwykłe zamknięcie taba/pane'a odłącza widok,
+  a jawne Delete uruchamia retiring z jednym zamykaniem procesu. Czat bez pane'a („detached”,
   np. utworzony zdalnie) zostaje, jest pokazany w sidebarze w swoim projekcie lub Private chats
   i znika tylko z projektem zamkniętym w trakcie działania Canopy (nigdy przy starcie). Guard
   zamknięcia projektu (`Editors::guard_closing_chats` → `Chats::guard_chats`) wymienia także te
@@ -389,7 +389,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   otwarta tura → notka + `TurnEnd{Interrupted}`).
 - Zapis: `AppState.chat_history` (`ChatHistory`) zbiera zmienione elementy z `ChatRuntime::after_change`,
   jeden writer w tle (500 ms, koniec tury szybciej), flush w `finish_quit` przed zamknięciem czatów
-  (błąd zostawia aplikację otwartą). Zamknięcie taba czatu (`Chats::retire`, także zamknięcie projektu)
+  (błąd zostawia aplikację otwartą). Jawne Delete czatu (`Chats::retire`, także zamknięcie projektu)
   usuwa historię i `<dane>/chat-attachments/<id>`; po starcie `retain` usuwa czaty ani otwarte, ani zapisane
   na liście `/resume` z ostatnich 30 dni.
 - Odtworzenie: `ChatRuntime::new` czyta historię, `start` czeka. Wcześniejsze epoki →
@@ -530,13 +530,13 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   - Codex nie ma ręcznego `/compact` (kompaktuje sam);
   - `#` obejmuje tylko PR-y GitHuba.
 - Zamykanie (QA etapu 9, DEC-076):
-  - tab, pane, projekt i worktree z czatem, który ma rozmowę albo pracującego agenta, pytają „Delete this chat?” /
+  - zwykłe zamknięcie taba/pane'a pozostawia czat w katalogu i nie przerywa agenta;
+  - jawne Delete, projekt i worktree z czatem, który ma rozmowę albo pracującego agenta, pytają „Delete this chat?” /
     „Delete N chats?”;
   - pytanie wymienia też pracującego agenta, niedoręczoną kolejkę i działające polecenia `!`;
   - pusty czat zamyka się bez pytania;
   - quit niczego nie usuwa i nie pyta o kolejkę: zostaje w bazie hosta i wraca wstrzymana.
-  - DEC-095 (zamknięcie zostawia czat dla `/resume`) jest wstrzymane: po merge'u z usuwaniem i cleanupem
-    z `chats/cleanup.rs` zamknięcie znów usuwa rozmowę.
+  - odłączony czat pozostaje dostępny w sidebarze; Delete nadal usuwa go ze wszystkich urządzeń.
 
 ## Etap 10: strony HTML w rozmowie
 
@@ -1146,3 +1146,35 @@ Regresje magazynu klienta używają barier i tymczasowych danych: A wysyłane,
 B edytowane przed wynikiem A, odtworzenie B po restarcie, brak odtworzenia
 zużytej wersji oraz błąd zapisu bez utraty szkicu. Te testy nie potwierdzają GUI
 ani odbioru natywnego macOS, Windows, iOS i Android — pozostaje `NOT RUN`.
+
+## Jeden widok rozmowy na wszystkich komputerach
+
+Lokalne i zdalne rozmowy korzystają z `ui::chat::ChatView`, wspólnego composera,
+rendererów wiadomości i narzędzi, zgód, kolejki, celów oraz wyszukiwania. Adapter
+`remote::client::presentation` zachowuje semantykę narzędzi i rozdziela identyfikatory
+wywołań według epoki. Klientowy wariant `ChatRuntime` subskrybuje hosta; nie tworzy
+lokalnego procesu agenta ani lokalnej historii tej rozmowy.
+
+`PaneMetadata.remote` zawiera wyłącznie UUID hosta i czatu. Zwykłe taby, przeciąganie,
+splity i odtwarzanie sesji są własnością urządzenia. Ten sam czat można oglądać w
+kilku pane'ach i na kilku komputerach. Tab podaje nazwę komputera; jego zamknięcie
+odłącza prezentację. Dotyczy to również lokalnego taba hosta: Delete chat pozostaje
+odrębną operacją z dotychczasowym potwierdzeniem i cleanupem.
+
+Zdalny composer zapisuje szkic z rewizją w prywatnym magazynie klienta; zakończenie
+wysyłania nie czyści późniejszych zmian. Konta i opcje pochodzą z katalogu właściwego
+hosta. `SetChatAgent` zmienia jawnie wybrane konto tylko przed pierwszą wiadomością.
+Steer z `draft` wysyła nowy tekst; bez `draft` wskazuje istniejący `message_id` kolejki.
+Oba warianty sprawdzają generację uruchomienia. Wiadomość zapisaną wyłącznie na
+kliencie można przestawić w jego kolejce lub przenieść do composera; przeniesienie
+utrwala szkic razem z usunięciem wpisu kolejki. Wiadomość, której wysyłkę rozpoczęto,
+wymaga wcześniej uzgodnienia wyniku. Wpis potwierdzony w kolejce hosta nie jest
+pokazywany drugi raz jako lokalna wiadomość o nieznanym wyniku.
+Obrazy są pobierane jako zweryfikowane artefakty, pliki `@` i PR-y `#` zachowują zakres
+hosta, a HTML otrzymuje autoryzowane bajty w izolowanym podglądzie. Historia dochodzi
+stronami; wyszukiwanie korzysta z indeksu hosta. Kliknięcie pliku na karcie narzędzia
+otwiera plik właściwego hosta w bocznym panelu, bez odłączania widoku rozmowy.
+
+Sprawdzenia jednostkowe obejmują roundtrip tabów/splitów, rozdzielenie hostów,
+aktualizowanie wspólnego transkryptu oraz zachowanie kolejki po odłączeniu taba.
+Nie zastępują odbioru GUI ani rzeczywistego połączenia między komputerami.
