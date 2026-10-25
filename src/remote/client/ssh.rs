@@ -4,7 +4,7 @@ use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
-    net::{TcpListener, TcpStream, ToSocketAddrs},
+    net::{SocketAddr, TcpListener, TcpStream},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -86,11 +86,10 @@ impl Drop for SshTunnel {
     }
 }
 fn handshake(address: &str, port: u16) -> Result<ssh2::Session, String> {
-    let address = (address, port)
-        .to_socket_addrs()
-        .map_err(|_| "SSH address could not be resolved.")?
-        .next()
-        .ok_or("SSH address could not be resolved.")?;
+    let address = SocketAddr::new(
+        crate::remote::network::reachable_address(address, port)?,
+        port,
+    );
     let socket = TcpStream::connect_timeout(&address, Duration::from_secs(10))
         .map_err(|_| "SSH connection failed.")?;
     let mut session = ssh2::Session::new().map_err(|_| "SSH initialization failed.")?;

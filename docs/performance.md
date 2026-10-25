@@ -196,7 +196,7 @@ Desktop mierzy osobno otrzymanie/zastosowanie projekcji, zastosowanie jej przez
 właściciela GPUI i budowę drzewa widoku. To ostatnie nie obejmuje layoutu, GPU
 ani prezentacji; pełna klatka nadal wymaga profilera opisanego wyżej. Przyjęcie
 Edit/Shell i atomowa publikacja forka korzystają z tych samych hooków commitu.
-Preferences → Remote access → Copy diagnostics kopiuje lokalny snapshot.
+Preferences → Connections → Advanced settings → Copy diagnostics kopiuje lokalny snapshot.
 
 Mobile używa `performance.now()`, stałych trzech histogramów i maksymalnie 256
 rekordów bez treści. Mierzy unary round trip, odbiór/instalację czatu i React

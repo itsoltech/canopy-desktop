@@ -63,7 +63,7 @@ impl Render for Preferences {
             self.task_filters.clone().into_any_element()
         } else if page == "Integrations" {
             self.integrations.clone().into_any_element()
-        } else if page == "Remote access" {
+        } else if page == "Connections" {
             self.remote.clone().into_any_element()
         } else {
             self.tools_content.clone().into_any_element()

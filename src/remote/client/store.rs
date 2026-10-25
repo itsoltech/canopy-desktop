@@ -14,6 +14,8 @@ pub struct HostRecord {
     pub(crate) device_id: String,
     pub(crate) credential_ref: String,
     pub(crate) ssh: Option<SshRoute>,
+    #[serde(default)]
+    pub(crate) routes: Vec<ConnectionRoute>,
     pub(crate) last_seen: Option<i64>,
     pub(crate) epoch: Option<u64>,
     pub(crate) closing_epoch: Option<u64>,
@@ -36,6 +38,9 @@ impl HostRecord {
     pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
+    pub fn routes(&self) -> &[ConnectionRoute] {
+        &self.routes
+    }
     pub fn last_seen(&self) -> Option<i64> {
         self.last_seen
     }
@@ -46,7 +51,7 @@ impl HostRecord {
         &self.device_id
     }
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SshRoute {
     pub(crate) address: String,
     pub(crate) port: u16,
@@ -55,6 +60,18 @@ pub struct SshRoute {
     pub(crate) credential_ref: String,
 }
 impl SshRoute {
+    pub fn address(&self) -> &str {
+        &self.address
+    }
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
     pub fn new(
         address: String,
         port: u16,
@@ -69,6 +86,91 @@ impl SshRoute {
             fingerprint,
             credential_ref,
         }
+    }
+}
+/// A device-local way to reach an already paired identity. Order is preference;
+/// every route uses the host's existing certificate pin and client credential.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectionRoute {
+    id: String,
+    name: String,
+    endpoint: String,
+    ssh: Option<SshRoute>,
+}
+impl ConnectionRoute {
+    pub fn new(name: String, endpoint: String, ssh: Option<SshRoute>) -> Result<Self, String> {
+        let route = Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            endpoint,
+            ssh,
+        };
+        route.validate()?;
+        Ok(route)
+    }
+    pub fn edited(
+        &self,
+        name: String,
+        endpoint: String,
+        ssh: Option<SshRoute>,
+    ) -> Result<Self, String> {
+        let route = Self {
+            id: self.id.clone(),
+            name,
+            endpoint,
+            ssh,
+        };
+        route.validate()?;
+        Ok(route)
+    }
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+    pub fn ssh(&self) -> Option<&SshRoute> {
+        self.ssh.as_ref()
+    }
+    pub(super) fn validate(&self) -> Result<(), String> {
+        if uuid::Uuid::parse_str(&self.id).is_err()
+            || self.name.trim().is_empty()
+            || self.name.len() > 128
+        {
+            return Err("Give this route a name of up to 128 bytes.".into());
+        }
+        let url = url::Url::parse(&self.endpoint)
+            .map_err(|_| "Enter a Canopy HTTPS address, for example https://192.168.1.25:44330.")?;
+        if self.endpoint.len() > 2048
+            || url.scheme() != "https"
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || url.path() != "/"
+            || url.port() == Some(0)
+        {
+            return Err(
+                "Use an HTTPS computer address and port, without a path or credentials.".into(),
+            );
+        }
+        if let Some(ssh) = &self.ssh
+            && (ssh.address.trim().is_empty()
+                || ssh.address.len() > 253
+                || ssh.port == 0
+                || ssh.username.trim().is_empty()
+                || ssh.username.len() > 128
+                || !ssh.fingerprint.starts_with("SHA256:")
+                || ssh.fingerprint.len() != 50
+                || uuid::Uuid::parse_str(&ssh.credential_ref).is_err())
+        {
+            return Err("Complete the SSH server, login and verified host key.".into());
+        }
+        Ok(())
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -119,15 +221,19 @@ impl Store {
                     return Err("Remote client storage exceeds 64 MiB.".into());
                 }
                 let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-                let records: Records = serde_json::from_slice(&bytes)
+                let mut records: Records = serde_json::from_slice(&bytes)
                     .map_err(|_| "Remote client storage is invalid; it has not been replaced.")?;
-                if records.version != 1 {
+                if !matches!(records.version, 1 | 2) {
                     return Err("Unsupported remote client storage version.".into());
                 }
+                // Older builds must refuse, rather than overwrite a route list
+                // they cannot retain. The v1 record is upgraded in memory and
+                // written atomically on the next successful save.
+                records.version = 2;
                 records
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Records {
-                version: 1,
+                version: 2,
                 ..Default::default()
             },
             Err(e) => return Err(e.to_string()),

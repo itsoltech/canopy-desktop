@@ -9,10 +9,18 @@ describes the previous implementation only.
 
 ## Starting and stopping
 
-Preferences → Remote access configures an IP address and port. The listener is
-disabled by default; the default address is `127.0.0.1:44330` for SSH forwarding.
-An explicit LAN/VPN interface or wildcard bind enables direct native clients.
-Changing the advertised pairing address does not change the listener binding.
+Preferences → Connections groups This computer, Authorized devices and Other
+computers. Remote access is off by default. The switch retains the existing
+listener preference; Local network / VPN listens on IPv4 interfaces, while SSH
+only keeps the listener on loopback. Address and port overrides remain under
+Advanced settings. Disabling access never quits local agents.
+
+Add device creates a five-minute QR/link with a detected interface address.
+Users can select another detected address or an explicit VPN name. A loopback
+listener cannot advertise a LAN address; unspecified and multicast destinations
+are refused before enrollment. Interface discovery runs on a worker without a
+shell or network probe. Test on this computer opens a prefilled client; it still
+requires an explicit request and approval, with no authentication bypass.
 
 `RemoteState` starts only after storage, the agent environment and Git are ready.
 TLS private keys reside in the platform credential store. The database contains
@@ -35,7 +43,7 @@ access. Closing a remote view only detaches it; it does not stop or delete work.
 
 ## Pairing and permissions
 
-Create an invitation with the reachable host IP or SSH forward address. The QR
+Choose Add device to create an invitation for the selected network or SSH route. The QR
 and copied invitation contain the public host certificate, exact SHA-256 pin,
 TLS server name, route and five-minute one-time token. The native client creates
 its own key and signed PKCS#10 request. Host approval binds the invitation to
@@ -48,8 +56,11 @@ are grouping identities; they never grant filesystem authority. The device
 registry looks up the exact TLS-verified leaf certificate. Request-supplied IDs,
 device names and VPN membership cannot authenticate a request.
 
+Approval offers View only, Chat and Control presets, plus project/private
+checkboxes. Control excludes host administration. Custom scopes and canonical
+root paths remain under Advanced permissions; `*` is never granted implicitly.
 Preferences lists devices and supports revision-checked permission updates and
-revoke. Authorization invalidations wake active subscriptions. Revoke prevents
+confirmed revoke. Authorization invalidations wake active subscriptions. Revoke prevents
 new effects and disclosures; it does not undo work already accepted by the host.
 Accepted chat messages retain their images even if their original sender is revoked.
 

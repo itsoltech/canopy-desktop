@@ -9,10 +9,42 @@ contract remains [the remote plan](../agent-runtime-remote-plan.md) and
 
 `src/remote/client/` owns a typed `ClientRegistry` keyed by host UUID. Each host owns
 its transport, pinned identity, catalog, connection generation, bounded change
-notifications, mutation gate and recovery records. `src/ui/remote_client::open`
-opens a separate GPUI device window; it does not select or mutate local AppState
+notifications, mutation gate and recovery records. `src/ui/remote_client::{add_computer, open_host, open_routes}`
+open a separate GPUI device window; it does not select or mutate local AppState
 workspace tabs. Settings/Tasks use retained feature views, dropped on host change.
 Each window subscribes independently to host changes.
+
+Preferences → Connections shares the retained registry owner with all client
+windows. Opening preferences loads saved metadata without connecting or reading
+credentials. Other computers shows live status, active route and route count.
+Open connects explicitly; Routes opens its route manager without a connection.
+Add computer keeps the enrollment form open even if other computers are saved.
+Direct setup shows invitation and device name; SSH fields appear only when chosen.
+Successful approval connects automatically using the newly issued identity.
+
+A desktop computer has up to eight named routes (Home, Office, Tailscale, SSH,
+for example). Route order is persisted; Connect tries them in order, and each
+route has an explicit Connect action. The list marks the route in use and shows
+failed/skipped attempts. Adding, editing, reordering and removing routes keeps
+pairing, drafts, journals and permissions. Editing is checked against the version
+shown in the form, preventing a stale window from overwriting another edit.
+Removing the active route disconnects; at least one route must remain. Unused SSH
+credentials are removed only after the route change commits. The private JSON
+format upgrades v1 to v2 on successful save, preserving the previous single route;
+older one-route builds refuse v2 instead of dropping the new list. SQLite and
+Cargo dependencies are unchanged.
+
+Before desktop TCP/TLS or SSH, Canopy checks the current OS routing table and
+active interface. Private, link-local and Tailscale address ranges need a specific
+route; an ordinary Internet default does not qualify. Thus an Office route to
+192.168.128.0/24 is skipped on a Home-only 192.168.1.0/24 network, while an explicit
+VPN route can make it eligible. Linux uses a kernel FIB lookup including policy/VPN
+tables; macOS reads BSD route records; Windows uses IP Helper GetBestRoute2.
+DNS names resolve before admission and the checked IP is used for transport.
+No ping, TCP probe or SSH authentication is sent to an ineligible route. Eligibility
+is checked again on reconnect; the UI reports why a route was skipped. Route
+fallback performs only authenticated reads and never replays mutations/outbox.
+These desktop route checks are source implementation, not native platform proof.
 
 Direct routes use an explicit HTTPS endpoint. SSH routes use an app-owned libssh2
 forwarder on an ephemeral loopback port, with a displayed SHA-256 host-key
@@ -45,7 +77,8 @@ an explicit online send. Dispatch revalidates original host/chat/workspace,
 agent/profile and history epoch. Upload Begin/Finish and send envelopes retain
 original command IDs across uncertain responses. The generic online mutation
 journal stores identity and receipt, not request bodies or credentials. Unknown
-outcomes require reconciliation; there is no automatic replay or failover.
+outcomes require reconciliation. Reconnect does not replay mutations or move
+them to another host.
 
 Explicit reviewed epoch closure queries original IDs, calls `ResolveCommand` for
 `delivery_unknown`, persists the reviewed receipt without changing its outcome,

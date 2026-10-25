@@ -625,6 +625,17 @@ impl RemoteState {
         let Some(session) = &self.session else {
             return;
         };
+        let advertised_address = match canopy_desktop::remote::network::invitation_address(
+            session.server.address(),
+            &advertised_address,
+        ) {
+            Ok(address) => address,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
         match session
             .enrollment
             .begin(advertised_address, session.server.address().port())

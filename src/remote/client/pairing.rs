@@ -107,7 +107,28 @@ impl PairingInvite {
             &self.wire.certificate_sha256,
             None,
         )?;
+        let transport_address =
+            url::Url::parse(&address).map_err(|_| "Invalid pairing address.")?;
+        let first_hop = route
+            .as_ref()
+            .map(|ssh| (ssh.address.clone(), ssh.port))
+            .unwrap_or_else(|| {
+                (
+                    transport_address.host_str().unwrap_or_default().to_owned(),
+                    transport_address.port_or_known_default().unwrap_or(443),
+                )
+            });
+        let reachable = tokio::task::spawn_blocking(move || {
+            crate::remote::network::reachable_addresses(&first_hop.0, first_hop.1)
+        })
+        .await
+        .map_err(|_| "Network route lookup stopped.")??;
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Pairing cancelled.".into());
+        }
         let tunnel = if let Some(route) = route.clone() {
+            let mut route = route;
+            route.address = reachable[0].to_string();
             let vault = vault.clone();
             let address = address.clone();
             Some(
@@ -120,17 +141,25 @@ impl PairingInvite {
         } else {
             None
         };
-        let endpoint = tls::client_endpoint(
-            tunnel.as_ref().map(|t| t.address()).unwrap_or(&address),
-            &self.wire.server_name,
-            &self.wire.host_certificate,
-            &self.wire.certificate_sha256,
-            None,
-        )?;
-        let channel = endpoint
-            .connect()
-            .await
-            .map_err(|_| "Could not reach the pinned host.")?;
+        let (endpoint, addresses) = if let Some(tunnel) = &tunnel {
+            (tunnel.address(), vec!["127.0.0.1".parse().unwrap()])
+        } else {
+            (transport_address.as_str(), reachable)
+        };
+        let channel = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            super::routes::connect_tls(
+                endpoint,
+                addresses,
+                &self.wire.server_name,
+                &self.wire.host_certificate,
+                &self.wire.certificate_sha256,
+                None,
+                || cancelled.load(Ordering::Acquire),
+            ),
+        )
+        .await
+        .map_err(|_| "The pairing address did not respond in time.")??;
         let key = rcgen::KeyPair::generate().map_err(|_| "Could not create a device key.")?;
         let csr = rcgen::CertificateParams::new(Vec::<String>::new())
             .map_err(|_| "Could not create a device request.")?
@@ -202,6 +231,7 @@ impl PairingInvite {
             device_id: device.device_id,
             credential_ref: reference,
             ssh: route,
+            routes: vec![],
             last_seen: None,
             epoch: None,
             closing_epoch: None,

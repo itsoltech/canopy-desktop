@@ -696,6 +696,7 @@ mod draft_tests {
                 device_id: "device".into(),
                 credential_ref: "fake".into(),
                 ssh: None,
+                routes: vec![],
                 last_seen: None,
                 epoch: Some(1),
                 closing_epoch: None,

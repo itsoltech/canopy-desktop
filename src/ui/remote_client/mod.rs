@@ -1,13 +1,18 @@
 //! Independent device window. It never selects, closes or restores host-local tabs.
 mod activity;
 mod chat;
+mod connections;
+pub use connections::{Connections, connections};
 mod discovery;
 mod editing;
 mod lifecycle;
 mod notes;
 mod preview;
+mod routes;
 mod settings;
 mod terminal;
+#[cfg(test)]
+mod tests;
 mod workspace;
 use super::{components::*, theme as t};
 use canopy_desktop::remote::{
@@ -35,20 +40,61 @@ struct ClientGlobal {
     runtime: Arc<tokio::runtime::Runtime>,
     registry: Arc<tokio::sync::OnceCell<ClientRegistry>>,
     notes: Arc<std::sync::Mutex<BTreeMap<String, String>>>,
+    connections: Entity<Connections>,
 }
 impl Global for ClientGlobal {}
-pub fn open(cx: &mut App) -> Result<WindowHandle<Root>> {
+impl ClientGlobal {
+    async fn load_registry(&self) -> std::result::Result<ClientRegistry, String> {
+        self.registry
+            .get_or_try_init(|| async {
+                let path = canopy_desktop::platform::directories::runtime_data_dir()?
+                    .join("remote-client-v1.json");
+                tokio::task::spawn_blocking(move || {
+                    ClientRegistry::open(path, Arc::new(SystemCredentials))
+                })
+                .await
+                .map_err(|_| "Client storage worker failed.".to_owned())?
+            })
+            .await
+            .cloned()
+    }
+}
+fn ensure_global(cx: &mut App) -> Result<()> {
     if !cx.has_global::<ClientGlobal>() {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
             .build()?;
+        let connections = cx.new(|_| Connections::default());
         cx.set_global(ClientGlobal {
             runtime: Arc::new(runtime),
             registry: Arc::new(tokio::sync::OnceCell::new()),
             notes: Default::default(),
+            connections,
         });
     }
+    Ok(())
+}
+pub fn add_computer(cx: &mut App) -> Result<WindowHandle<Root>> {
+    open_client(None, true, None, false, cx)
+}
+pub fn open_invitation(invitation: String, cx: &mut App) -> Result<WindowHandle<Root>> {
+    open_client(Some(invitation), true, None, false, cx)
+}
+pub fn open_host(host: Arc<HostClient>, cx: &mut App) -> Result<WindowHandle<Root>> {
+    open_client(None, false, Some(host), false, cx)
+}
+pub fn open_routes(host: Arc<HostClient>, cx: &mut App) -> Result<WindowHandle<Root>> {
+    open_client(None, false, Some(host), true, cx)
+}
+fn open_client(
+    invitation: Option<String>,
+    setup: bool,
+    host: Option<Arc<HostClient>>,
+    routes: bool,
+    cx: &mut App,
+) -> Result<WindowHandle<Root>> {
+    ensure_global(cx)?;
     cx.open_window(
         WindowOptions {
             titlebar: Some(titlebar_options("Canopy — Remote")),
@@ -61,7 +107,18 @@ pub fn open(cx: &mut App) -> Result<WindowHandle<Root>> {
             ..Default::default()
         },
         |window, cx| {
-            let view = cx.new(|cx| RemoteWindow::new(window, cx));
+            let view = cx.new(|cx| {
+                let mut view = RemoteWindow::new(window, cx);
+                view.opening_setup = setup;
+                view.connect_on_open = host.is_some() && !routes;
+                view.routes_on_open = routes;
+                view.host = host;
+                if let Some(invitation) = invitation {
+                    view.fields["pair"]
+                        .update(cx, |field, cx| field.set_value(invitation, window, cx));
+                }
+                view
+            });
             cx.new(|cx| Root::new(view, window, cx))
         },
     )
@@ -160,6 +217,14 @@ struct RemoteWindow {
     terminal_selection: Option<((u32, u32), (u32, u32))>,
     local_images: Vec<String>,
     ssh_fingerprint: Option<String>,
+    pair_ssh: bool,
+    connection_advanced: bool,
+    opening_setup: bool,
+    connect_on_open: bool,
+    routes_on_open: bool,
+    route_form: bool,
+    route_ssh: bool,
+    route_edit: Option<canopy_desktop::remote::client::store::ConnectionRoute>,
     installing_file: bool,
     file_dirty: bool,
     draft_context: Option<p::SendContext>,
@@ -194,6 +259,7 @@ enum Update {
     HistoryMatches(p::HistoryMatches),
     HistoryJump(Vec<p::TranscriptItem>, p::ItemKey),
     SshFingerprint(String),
+    RouteSaved,
     LocalAttachment(String),
     TerminalHistory(p::TerminalFrame),
     ComposerStored(u64, bool, String),
@@ -204,6 +270,7 @@ impl RemoteWindow {
             "pair",
             "name",
             "host_label",
+            "route_name",
             "endpoint",
             "ssh_address",
             "ssh_port",
@@ -337,6 +404,14 @@ impl RemoteWindow {
             terminal_history_offset: 0,
             terminal_selection: None,
             ssh_fingerprint: None,
+            pair_ssh: false,
+            connection_advanced: false,
+            opening_setup: false,
+            connect_on_open: false,
+            routes_on_open: false,
+            route_form: false,
+            route_ssh: false,
+            route_edit: None,
             installing_file: false,
             file_dirty: false,
             draft_context: None,
@@ -405,22 +480,25 @@ impl RemoteWindow {
                 .detach();
             },
         ));
-        let cell = this.global.registry.clone();
+        this.fields["name"].update(cx, |field, cx| {
+            field.set_value("Canopy desktop", window, cx)
+        });
+        for name in ["ssh_address", "ssh_port"] {
+            this.subscriptions.push(cx.subscribe(
+                &this.fields[name],
+                |this, _, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.ssh_fingerprint = None;
+                        cx.notify();
+                    }
+                },
+            ));
+        }
+        let global = this.global.clone();
+        this.subscriptions
+            .push(cx.observe(&global.connections, |_, _, cx| cx.notify()));
         this.run(
-            async move {
-                let registry = cell
-                    .get_or_try_init(|| async {
-                        let path = canopy_desktop::platform::directories::runtime_data_dir()?
-                            .join("remote-client-v1.json");
-                        tokio::task::spawn_blocking(move || {
-                            ClientRegistry::open(path, Arc::new(SystemCredentials))
-                        })
-                        .await
-                        .map_err(|_| "Client storage worker failed.".to_string())?
-                    })
-                    .await?;
-                Ok(Update::Registry(registry.clone()))
-            },
+            async move { Ok(Update::Registry(global.load_registry().await?)) },
             cx,
         );
         this
@@ -514,18 +592,66 @@ impl RemoteWindow {
                 });
             }
             Update::Registry(registry) => {
-                let last = registry
-                    .hosts()
-                    .into_iter()
-                    .max_by_key(|host| host.last_seen());
+                let last = self.host.clone().or_else(|| {
+                    registry
+                        .hosts()
+                        .into_iter()
+                        .max_by_key(|host| host.last_seen())
+                });
+                self.global
+                    .connections
+                    .update(cx, |view, cx| view.install(registry.clone(), cx));
                 self.registry = Some(registry);
-                if let Some(host) = last {
-                    self.select_host(host, cx);
+                if !self.opening_setup
+                    && let Some(host) = last
+                {
+                    self.select_host(host.clone(), cx);
+                    if std::mem::take(&mut self.routes_on_open) {
+                        self.page = Page::Hosts;
+                    }
+                    if std::mem::take(&mut self.connect_on_open) && host.phase() == Phase::Offline {
+                        self.info = "Connecting…".into();
+                        self.run(
+                            async move {
+                                host.connect().await?;
+                                Ok(Update::Connected)
+                            },
+                            cx,
+                        );
+                    }
                 }
             }
             Update::Paired(host) => {
-                self.info = "Device paired. Connect to load resources.".into();
-                self.select_host(host, cx);
+                if let Some(registry) = &self.registry {
+                    self.global
+                        .connections
+                        .update(cx, |view, cx| view.install(registry.clone(), cx));
+                }
+                self.info = "Access approved. Connecting…".into();
+                self.opening_setup = false;
+                self.select_host(host.clone(), cx);
+                self.run(
+                    async move {
+                        host.connect().await?;
+                        Ok(Update::Connected)
+                    },
+                    cx,
+                );
+            }
+            Update::RouteSaved => {
+                self.route_form = false;
+                self.route_edit = None;
+                self.info =
+                    "Route saved. Connect using it, or reconnect to try routes in order.".into();
+                let fields = [
+                    self.fields["ssh_secret"].clone(),
+                    self.fields["ssh_passphrase"].clone(),
+                ];
+                let _ = self.window.update(cx, |_, window, cx| {
+                    for field in fields {
+                        field.update(cx, |f, cx| f.set_value("", window, cx));
+                    }
+                });
             }
             Update::Done(info) => self.info = info,
             Update::Connected => {
@@ -707,6 +833,9 @@ impl RemoteWindow {
         }
     }
     fn select_host(&mut self, host: Arc<HostClient>, cx: &mut Context<Self>) {
+        self.opening_setup = false;
+        self.route_form = false;
+        self.route_edit = None;
         self.agents = None;
         self.agent_catalog = None;
         self.pulls = None;
@@ -1023,6 +1152,8 @@ impl RemoteWindow {
         let credential = self.value("ssh_secret", cx);
         let passphrase = nonempty(self.value("ssh_passphrase", cx));
         let fingerprint = self.ssh_fingerprint.clone();
+        self.info =
+            "Requesting access. Approve this device in Connections on the other computer.".into();
         self.run(async move{let invite=PairingInvite::parse(&code)?;let id=canopy_desktop::remote::client::HostId::parse(invite.host_id())?;if registry.get(&id).is_some(){return Err("This host is already paired. Change its route instead of creating another identity.".into());}
             let reference=uuid::Uuid::new_v4().to_string();let route=if ssh{let pin=fingerprint.ok_or("Inspect and verify the SSH host key first.")?;canopy_desktop::remote::client::ssh::save_credentials(registry.vault().as_ref(),&reference,&credential,passphrase.as_deref())?;Some(canopy_desktop::remote::client::store::SshRoute::new(address,port,username,pin,reference.clone()))}else{None};
             match invite.enroll_via(name,registry.vault(),cancelled,endpoint,route).await{Ok(record)=>Ok(Update::Paired(registry.insert(record)?)),Err(error)=>{if ssh{canopy_desktop::remote::client::ssh::remove_credentials(registry.vault().as_ref(),&reference)?;}Err(error)}}
@@ -1030,62 +1161,145 @@ impl RemoteWindow {
     }
     fn render_hosts(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let mut body = column()
-            .gap_3()
-            .child("Hosts")
-            .child(self.field("pair", "Pairing code"))
-            .child(self.field("name", "This device’s name"))
-            .child(self.field(
-                "endpoint",
-                "HTTPS endpoint (optional when pairing; LAN or VPN)",
-            ))
-            .child(
-                button("pair-host", "Pair directly")
-                    .disabled(self.busy || self.registry.is_none())
-                    .on_click(cx.listener(|this, _, _, cx| this.pair_host(false, cx))),
-            )
-            .child(
-                button("cancel-pair", "Cancel pairing")
-                    .disabled(!self.busy)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.cancelled.store(true, Ordering::Release);
-                        cx.notify();
-                    })),
-            )
-            .child(self.field("ssh_address", "SSH server"))
-            .child(self.field("ssh_port", "SSH port (default 22)"))
-            .child(self.field("ssh_user", "SSH user"))
-            .child(self.field("ssh_secret", "SSH password or private key"))
-            .child(self.field("ssh_passphrase", "Private-key passphrase (optional)"))
-            .child(
-                button("probe-ssh", "Inspect SSH host key")
-                    .disabled(self.busy)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let address = this.value("ssh_address", cx);
-                        let port = this.value("ssh_port", cx).parse().unwrap_or(22);
-                        this.run(
-                            async move {
-                                Ok(Update::SshFingerprint(
-                                    tokio::task::spawn_blocking(move || {
-                                        canopy_desktop::remote::client::ssh::probe(&address, port)
-                                    })
-                                    .await
-                                    .map_err(|_| "SSH probe stopped.")??,
-                                ))
+            .gap_4()
+            .child(div().font_weight(FontWeight::SEMIBOLD).child("Connections"));
+        if self.opening_setup || self.host.is_none() {
+            body = body.child(section("ADD COMPUTER", "On the other computer, open Connections → Add device and copy its invitation here. Both computers must keep Canopy open.", vec![
+                row().gap_2()
+                    .child(selection_button("pair-direct-mode", "Local network / VPN", !self.pair_ssh).disabled(self.busy).on_click(cx.listener(|this,_,_,cx|{this.pair_ssh=false;cx.notify();})))
+                    .child(selection_button("pair-ssh-mode", "SSH tunnel", self.pair_ssh).disabled(self.busy).on_click(cx.listener(|this,_,_,cx|{this.pair_ssh=true;cx.notify();}))).into_any_element(),
+                form_field("Invitation", "Paste the invitation copied from the computer you want to access.", input(&self.fields["pair"]).disabled(self.busy)).into_any_element(),
+                form_field("This device’s name", "The other computer shows this name when asking its owner to approve access.", input(&self.fields["name"]).disabled(self.busy)).into_any_element(),
+            ]));
+            if self.pair_ssh {
+                body=body.child(column().gap_3()
+                    .child(div().text_color(t::muted()).child("SSH must already be enabled on the other computer. Verify its server fingerprint before sharing credentials."))
+                    .child(form_field("SSH server", "Computer name or IP address", input(&self.fields["ssh_address"]).disabled(self.busy)))
+                    .child(form_field("SSH username", "Your login on that computer", input(&self.fields["ssh_user"]).disabled(self.busy)))
+                    .child(form_field("SSH password or private key", "Stored securely on this device", input(&self.fields["ssh_secret"]).disabled(self.busy)))
+                    .child(button("probe-ssh", "Check SSH server").disabled(self.busy || self.value("ssh_address",cx).is_empty()).on_click(cx.listener(|this,_,_,cx|{
+                        let address=this.value("ssh_address",cx);let port=this.value("ssh_port",cx).parse().unwrap_or(22);
+                        this.info="Checking the SSH server…".into();
+                        this.run(async move{Ok(Update::SshFingerprint(tokio::task::spawn_blocking(move||canopy_desktop::remote::client::ssh::probe(&address,port)).await.map_err(|_|"SSH probe stopped.")??))},cx);
+                    }))));
+                if let Some(pin) = &self.ssh_fingerprint {
+                    body = body.child(
+                        div()
+                            .font_family(t::MONO)
+                            .text_color(t::muted())
+                            .child(format!("Verify with the computer’s owner: {pin}")),
+                    );
+                }
+            }
+            body = body.child(
+                button(
+                    "show-connection-details",
+                    if self.connection_advanced {
+                        "Hide advanced settings"
+                    } else {
+                        "Advanced settings…"
+                    },
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.connection_advanced = !this.connection_advanced;
+                    cx.notify();
+                })),
+            );
+            if self.connection_advanced {
+                body = body.child(form_field(
+                    "Canopy address override",
+                    "Usually leave empty. The invitation already includes the address and port.",
+                    input(&self.fields["endpoint"]).disabled(self.busy),
+                ));
+                if self.pair_ssh {
+                    body = body
+                        .child(form_field(
+                            "SSH port",
+                            "Leave empty for port 22",
+                            input(&self.fields["ssh_port"]).disabled(self.busy),
+                        ))
+                        .child(form_field(
+                            "Private-key passphrase",
+                            "Only for an encrypted private key",
+                            input(&self.fields["ssh_passphrase"]).disabled(self.busy),
+                        ));
+                }
+            }
+            let can_request = !self.busy
+                && self.registry.is_some()
+                && !self.value("pair", cx).trim().is_empty()
+                && !self.value("name", cx).trim().is_empty()
+                && (!self.pair_ssh
+                    || self.ssh_fingerprint.is_some()
+                        && !self.value("ssh_user", cx).is_empty()
+                        && !self.value("ssh_secret", cx).is_empty());
+            body = body.child(
+                row()
+                    .gap_2()
+                    .child(
+                        button(
+                            "pair-host",
+                            if self.busy {
+                                "Requesting access…"
+                            } else if self.pair_ssh {
+                                "Trust SSH key and request access"
+                            } else {
+                                "Request access"
                             },
-                            cx,
-                        );
+                        )
+                        .disabled(!can_request)
+                        .on_click(cx.listener(|this, _, _, cx| this.pair_host(this.pair_ssh, cx))),
+                    )
+                    .children(self.busy.then(|| {
+                        button("cancel-pair", "Cancel request").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.cancelled.store(true, Ordering::Release);
+                                cx.notify();
+                            },
+                        ))
                     })),
             );
-        if let Some(pin) = self.ssh_fingerprint.clone() {
+        } else if let Some(host) = &self.host {
             body = body
-                .child(format!("Verify with the server owner: {pin}"))
+                .child(format!(
+                    "{} · {}",
+                    host.name(),
+                    match host.phase() {
+                        Phase::Ready => "Connected",
+                        Phase::Connecting => "Connecting…",
+                        Phase::Offline => "Offline",
+                    }
+                ))
                 .child(
-                    button("pair-ssh", "Trust this SSH key and pair")
-                        .disabled(self.busy || self.registry.is_none())
-                        .on_click(cx.listener(|this, _, _, cx| this.pair_host(true, cx))),
+                    button("add-another-computer", "Add computer…").on_click(cx.listener(
+                        |this, _, window, cx| {
+                            this.opening_setup = true;
+                            this.connection_advanced = false;
+                            this.fields["endpoint"]
+                                .update(cx, |field, cx| field.set_value("", window, cx));
+                            cx.notify();
+                        },
+                    )),
+                )
+                .child(
+                    button(
+                        "show-route-details",
+                        if self.connection_advanced {
+                            "Hide connection details"
+                        } else {
+                            "Connection details…"
+                        },
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.connection_advanced = !this.connection_advanced;
+                        cx.notify();
+                    })),
                 );
         }
-        if let Some(host) = self.host.clone() {
+        if self.host.is_some() && !self.opening_setup {
+            body = body.child(self.render_routes(cx));
+        }
+        if self.host.is_some() && self.connection_advanced && !self.opening_setup {
             body = body
                 .child(self.field("host_label", "Label for this host on this device"))
                 .child(
@@ -1098,70 +1312,6 @@ impl RemoteWindow {
                                 async move {
                                     host.set_display_name(name)?;
                                     Ok(Update::Done("Host label saved on this device.".into()))
-                                },
-                                cx,
-                            );
-                        })),
-                );
-            body = body
-                .child(format!("Route for {} · {}", host.name(), host.endpoint()))
-                .child(
-                    button("direct-route", "Use direct connection")
-                        .disabled(self.busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let host = this.host.clone().unwrap();
-                            let endpoint = this.value("endpoint", cx);
-                            this.run(
-                                async move {
-                                    host.set_route(endpoint, None)?;
-                                    Ok(Update::Done(
-                                        "Route saved. Reconnect to load the host.".into(),
-                                    ))
-                                },
-                                cx,
-                            );
-                        })),
-                )
-                .child(
-                    button("ssh-route", "Trust this SSH key and use tunnel")
-                        .disabled(self.busy || self.ssh_fingerprint.is_none())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let host = this.host.clone().unwrap();
-                            let vault = this.registry.as_ref().unwrap().vault();
-                            let address = this.value("ssh_address", cx);
-                            let port = this.value("ssh_port", cx).parse().unwrap_or(22);
-                            let username = this.value("ssh_user", cx);
-                            let fingerprint = this.ssh_fingerprint.clone().unwrap();
-                            let credential = this.value("ssh_secret", cx);
-                            let passphrase = nonempty(this.value("ssh_passphrase", cx));
-                            let endpoint = this.value("endpoint", cx);
-                            this.run(
-                                async move {
-                                    let reference = uuid::Uuid::new_v4().to_string();
-                                    canopy_desktop::remote::client::ssh::save_credentials(
-                                        vault.as_ref(),
-                                        &reference,
-                                        &credential,
-                                        passphrase.as_deref(),
-                                    )?;
-                                    let route =
-                                        canopy_desktop::remote::client::store::SshRoute::new(
-                                            address,
-                                            port,
-                                            username,
-                                            fingerprint,
-                                            reference.clone(),
-                                        );
-                                    if let Err(error) = host.set_route(endpoint, Some(route)) {
-                                        canopy_desktop::remote::client::ssh::remove_credentials(
-                                            vault.as_ref(),
-                                            &reference,
-                                        )?;
-                                        return Err(error);
-                                    }
-                                    Ok(Update::Done(
-                                        "SSH route saved. Reconnect to start the tunnel.".into(),
-                                    ))
                                 },
                                 cx,
                             );

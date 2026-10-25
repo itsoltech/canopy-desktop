@@ -6,6 +6,7 @@ pub use chat_commands::ChatMutation;
 pub mod pairing;
 mod projection;
 mod resources;
+mod routes;
 pub mod ssh;
 pub mod store;
 use crate::remote::{proto as p, tls};
@@ -43,6 +44,7 @@ struct Registry {
     store: Arc<Mutex<Store>>,
     vault: Arc<dyn CredentialStore>,
     hosts: Mutex<BTreeMap<HostId, Arc<HostClient>>>,
+    listeners: Mutex<Vec<async_channel::Sender<()>>>,
 }
 impl ClientRegistry {
     /// Call on a worker, never render. The path belongs to this device's data directory.
@@ -54,6 +56,7 @@ impl ClientRegistry {
                 store: Arc::new(Mutex::new(store)),
                 vault,
                 hosts: Mutex::new(BTreeMap::new()),
+                listeners: Mutex::new(Vec::new()),
             }),
         };
         for record in records {
@@ -70,11 +73,17 @@ impl ClientRegistry {
     pub fn vault(&self) -> Arc<dyn CredentialStore> {
         self.inner.vault.clone()
     }
-    pub fn insert(&self, record: HostRecord) -> Result<Arc<HostClient>, String> {
+    pub fn events(&self) -> async_channel::Receiver<()> {
+        let (sender, receiver) = async_channel::bounded(1);
+        self.inner.listeners.lock().unwrap().push(sender);
+        receiver
+    }
+    pub fn insert(&self, mut record: HostRecord) -> Result<Arc<HostClient>, String> {
         let mut hosts = self.inner.hosts.lock().unwrap();
         if let Some(existing) = hosts.get(&record.id) {
             return Ok(existing.clone());
         }
+        routes::normalize(&mut record)?;
         self.inner.store.lock().unwrap().save(record.clone())?;
         let host = Arc::new(HostClient {
             id: record.id.clone(),
@@ -88,6 +97,8 @@ impl ClientRegistry {
                 info: None,
                 watch: None,
                 view_revisions: BTreeMap::new(),
+                active_route: None,
+                route_errors: BTreeMap::new(),
             }),
             store: self.inner.store.clone(),
             vault: self.inner.vault.clone(),
@@ -96,6 +107,13 @@ impl ClientRegistry {
             listeners: Mutex::new(Vec::new()),
         });
         hosts.insert(host.id.clone(), host.clone());
+        drop(hosts);
+        self.inner.listeners.lock().unwrap().retain(|listener| {
+            !matches!(
+                listener.try_send(()),
+                Err(async_channel::TrySendError::Closed(_))
+            )
+        });
         Ok(host)
     }
     pub fn disconnect_all(&self) {
@@ -128,6 +146,8 @@ struct HostState {
     info: Option<p::HostInfo>,
     watch: Option<tokio::task::AbortHandle>,
     view_revisions: BTreeMap<String, u64>,
+    active_route: Option<String>,
+    route_errors: BTreeMap<String, String>,
 }
 pub struct HostClient {
     id: HostId,
@@ -200,6 +220,7 @@ impl HostClient {
         state.channel = None;
         state.tunnel = None;
         state.phase = Phase::Offline;
+        state.active_route = None;
         drop(state);
         self.changed();
     }
@@ -208,14 +229,22 @@ impl HostClient {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'static>>
     {
         let host = self.clone();
-        Box::pin(async move { host.connect_once().await })
+        Box::pin(async move { host.connect_once(None).await })
     }
-    async fn connect_once(self: &Arc<Self>) -> Result<(), String> {
+    pub async fn connect_via(self: &Arc<Self>, route: String) -> Result<(), String> {
+        self.connect_once(Some(route)).await
+    }
+    async fn connect_once(self: &Arc<Self>, route: Option<String>) -> Result<(), String> {
         self.disconnect();
         let generation = self.generation.load(Ordering::Acquire);
-        self.state.lock().unwrap().phase = Phase::Connecting;
+        {
+            let mut state = self.state.lock().unwrap();
+            state.phase = Phase::Connecting;
+            state.error = None;
+            state.route_errors.clear();
+        }
         self.changed();
-        let result = self.connect_inner(generation).await;
+        let result = self.connect_inner(generation, route.as_deref()).await;
         if let Err(error) = &result
             && self.generation.load(Ordering::Acquire) == generation
         {
@@ -227,7 +256,11 @@ impl HostClient {
         }
         result
     }
-    async fn connect_inner(self: &Arc<Self>, generation: u64) -> Result<(), String> {
+    async fn connect_inner(
+        self: &Arc<Self>,
+        generation: u64,
+        selected: Option<&str>,
+    ) -> Result<(), String> {
         let record = self.snapshot().record;
         let vault = self.vault.clone();
         let reference = record.credential_ref.clone();
@@ -235,46 +268,45 @@ impl HostClient {
             tokio::task::spawn_blocking(move || pairing::identity(vault.as_ref(), &reference))
                 .await
                 .map_err(|_| "Credential worker failed.")??;
-        let tunnel = if let Some(route) = record.ssh.clone() {
-            let vault = self.vault.clone();
-            let address = record.endpoint.clone();
-            Some(
-                tokio::task::spawn_blocking(move || ssh::SshTunnel::open(route, &address, vault))
+        let candidates = record
+            .routes
+            .iter()
+            .filter(|r| selected.is_none_or(|id| r.id() == id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return Err("Connection route no longer exists.".into());
+        }
+        let connected = routes::try_routes(
+            &candidates,
+            || self.generation.load(Ordering::Acquire) != generation,
+            |route| {
+                let identity = identity.clone();
+                let route = route.clone();
+                let record = &record;
+                async move {
+                    let result = tokio::time::timeout(
+                        std::time::Duration::from_secs(30),
+                        self.open_route(record, &route, identity, generation),
+                    )
                     .await
-                    .map_err(|_| "SSH worker failed.")??,
-            )
-        } else {
-            None
-        };
-        let address = tunnel
-            .as_ref()
-            .map(|t| t.address())
-            .unwrap_or(&record.endpoint);
-        let channel = tls::client_endpoint(
-            address,
-            &record.server_name,
-            &record.certificate,
-            &record.fingerprint,
-            Some(identity),
-        )?
-        .connect()
-        .await
-        .map_err(|_| "Could not connect to the paired host. Check the route and certificate.")?;
-        let info = p::host_service_client::HostServiceClient::new(channel.clone())
-            .get_info(p::HostRequest {
-                host_id: self.id.0.clone(),
-            })
-            .await
-            .map_err(rpc_error)?
-            .into_inner();
-        if info.host_id != self.id.0 || info.protocol_version != 1 {
-            return Err("Host identity or protocol mismatch.".into());
-        }
-        // Paged and installed whole: a catalog over one frame stays readable.
-        let catalog = catalog::read_catalog(channel.clone(), &self.id.0).await?;
-        if catalog.host_id != self.id.0 {
-            return Err("Catalog host identity mismatch.".into());
-        }
+                    .unwrap_or_else(|_| Err("This route did not respond in time.".into()));
+                    if let Err(error) = &result
+                        && self.generation.load(Ordering::Acquire) == generation
+                    {
+                        self.state
+                            .lock()
+                            .unwrap()
+                            .route_errors
+                            .insert(route.id().into(), error.chars().take(512).collect());
+                        self.changed();
+                    }
+                    result
+                }
+            },
+        )
+        .await?;
+        let (route_id, (channel, tunnel, info, catalog)) = connected;
         if generation != self.generation.load(Ordering::Acquire) {
             return Err("Connection cancelled.".into());
         }
@@ -294,6 +326,7 @@ impl HostClient {
             state.catalog = Some(catalog);
             state.info = Some(info);
             state.phase = Phase::Ready;
+            state.active_route = Some(route_id);
             state.error = None;
         }
         self.changed();
@@ -372,6 +405,7 @@ impl HostClient {
                     state.channel = None;
                     state.tunnel = None;
                     state.phase = Phase::Offline;
+                    state.active_route = None;
                     state.error = result.err();
                 }
                 host.changed();
@@ -415,36 +449,6 @@ impl HostClient {
             record.name = name;
             Ok(())
         })?;
-        self.changed();
-        Ok(())
-    }
-    pub fn set_route(&self, endpoint: String, ssh: Option<store::SshRoute>) -> Result<(), String> {
-        let record = self.snapshot().record;
-        tls::client_endpoint(
-            &endpoint,
-            &record.server_name,
-            &record.certificate,
-            &record.fingerprint,
-            None,
-        )?;
-        self.disconnect();
-        let previous = record.ssh.filter(|old| {
-            ssh.as_ref()
-                .is_none_or(|new| new.credential_ref != old.credential_ref)
-        });
-        self.update_record(|r| {
-            r.endpoint = endpoint;
-            r.ssh = ssh;
-            Ok(())
-        })?;
-        if let Some(previous) = previous
-            && ssh::remove_credentials(self.vault.as_ref(), &previous.credential_ref).is_err()
-        {
-            self.state.lock().unwrap().error = Some(
-                "Route saved, but the previous SSH credential could not be removed from the vault."
-                    .into(),
-            );
-        }
         self.changed();
         Ok(())
     }
@@ -544,7 +548,7 @@ impl Drop for Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    struct FakeVault;
+    pub(super) struct FakeVault;
     impl CredentialStore for FakeVault {
         fn load(&self, _: &str) -> Result<String, String> {
             Err("not provisioned".into())
@@ -556,7 +560,7 @@ mod tests {
             Ok(())
         }
     }
-    fn record() -> HostRecord {
+    pub(super) fn record() -> HostRecord {
         HostRecord {
             id: HostId::parse(&uuid::Uuid::new_v4().to_string()).unwrap(),
             name: "Host".into(),
@@ -567,6 +571,7 @@ mod tests {
             device_id: "device".into(),
             credential_ref: "fake".into(),
             ssh: None,
+            routes: vec![],
             last_seen: None,
             epoch: Some(1),
             closing_epoch: None,

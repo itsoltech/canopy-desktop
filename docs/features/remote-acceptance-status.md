@@ -25,7 +25,7 @@ zalicza automatycznie scenariusza GUI ani komórki macierzy platform.
   Przyjęcie wiadomości usuwa tylko wysłaną rewizję szkicu, także przy zmianie
   samych obrazów lub kontekstu.
 - Procesowa diagnostyka mierzy etapy osobno i nie zawiera promptów, ścieżek
-  ani sekretów. Preferences → Remote access → Copy diagnostics eksportuje
+  ani sekretów. Preferences → Connections → Advanced settings → Copy diagnostics eksportuje
   lokalny snapshot. `HostService.ReadDiagnostics` wymaga Admin/Private.
 
 ## Dowody i pozostały odbiór
@@ -81,12 +81,21 @@ tej funkcjonalności na podstawie samej kompilacji i testów komponentowych.
    użyj odrębnej, spójnej kopii dotychczasowych danych wykonanej po zamknięciu
    aplikacji. Nie kopiuj prywatnej bazy wcześniejszego etapu na istniejący katalog.
    Niezgodny prerelease daje `UnsupportedSchema` i pozostawia plik bez zmian.
-3. W Preferences → Remote access włącz listener. Do pierwszej próby na jednym
-   komputerze wystarczy loopback; dla drugiego urządzenia wybierz adres LAN/VPN
-   albo własny tunel SSH. Nie zmieniaj tożsamości TLS przy zmianie trasy.
-4. Utwórz zaproszenie, otwórz klienta przez Connect to a host…, sparuj go i jawnie
-   zatwierdź zakresy oraz katalogi. Zweryfikuj zwykły Read bez Admin, potem
-   osobno Chat/Approve/Files/Git/Terminal/Tasks/Admin.
+3. W Preferences → Connections włącz Remote access. Wybierz **Test on this
+   computer…**. W otwartym oknie klienta naciśnij **Request access**, wróć do
+   Preferences i zatwierdź **Chat** oraz wybrany projekt lub Private chats.
+   Klient po zatwierdzeniu połączy się sam. Sprawdź katalog, utwórz czat z
+   jawnie wybranym kontem i wyślij wiadomość. Disconnect ma odpiąć klienta,
+   pozostawiając pracę na hoście.
+4. Dla drugiego urządzenia wybierz **Local network / VPN → Add device…**.
+   Wskaż adres osiągalny ze wspólnego Wi-Fi/VPN; skopiuj zaproszenie do
+   **Connections → Add computer…** albo zeskanuj QR w mobile. Zatwierdź
+   urządzenie na hoście. W **Other computers → Routes…** dodaj nazwane
+   adresy Dom, Biuro, Tailscale lub SSH, ustaw kolejność i sprawdź oznaczenie
+   In use. W domu trasa biurowa bez konkretnego wpisu routingu ma być
+   pominięta bez połączenia TCP; po włączeniu właściwego VPN ma być dostępna.
+   Każda trasa musi sprawdzać ten sam przypięty certyfikat. Osobno zweryfikuj
+   Read bez Admin, potem Chat/Approve/Files/Git/Terminal/Tasks/Admin.
 5. Wykonaj macierz AC-01..34 według dokumentu odbiorowego. Najpierw sprawdź
    send/stream/zgodę, rozłączenie podczas tury, retry tego samego ID, Stop,
    reconnect i Quit hosta. Sprawdź też szkic B wpisywany w trakcie wysyłania A,
@@ -97,5 +106,26 @@ tej funkcjonalności na podstawie samej kompilacji i testów komponentowych.
    `render` mierzy budowę widoku lub React commit, a nie fizyczną prezentację.
 
 Jedna migracja tej niewydanej funkcjonalności nadal znajduje się w `runtime.sql`.
-Etapy wdrożenia nie tworzą łańcucha migracji prywatnych schematów. Nie wykonano
-commitów ani push; zmiany są w bieżącym checkoutcie.
+Etapy wdrożenia nie tworzą łańcucha migracji prywatnych schematów. Bazową implementację zapisano i wypchnięto w `fcafcf8`; późniejsze zmiany
+ustawień Connections i tras wymagają osobnego odbioru.
+
+## Zmiany Connections i tras (2026-10-25)
+
+Po bazowym wdrożeniu dodano prostsze ustawienia/parowanie, wspólną listę połączeń,
+osiem nazwanych tras z kolejnością oraz sprawdzanie routingu przed TCP/SSH.
+Dotychczasowy endpoint staje się pierwszą trasą; szkice i identity zostają.
+
+Weryfikacja tej zmiany: 77 testów modułów remote PASS, 119 testów binarium PASS
+w serii z `--test-threads=1` (2 ignored). Obejmuje kliknięcia prawdziwego widoku
+w headless: wybór SSH/direct i dodanie trasy do tego samego rejestru bez parowania.
+Pierwsza seria równoległa miała jeden błąd istniejącego testu cleanupu projekcji:
+zdarzenie Observers dotarło po Unsubscribe, podczas gdy asercja wymaga końcowego
+Unsubscribe. Ten przypadek przeszedł osobno i w serii kolejnej; kod projekcji
+nie był zmieniany. Clippy all-targets kończy się kodem 0 z 11 istniejącymi
+ostrzeżeniami poza zmienionymi modułami. Formatowanie i kontrola diff PASS.
+
+Testy routingu obejmują Dom/Biuro, konkretną trasę VPN i odczyt lokalnej trasy
+z kernela Linuksa. Systemowe ścieżki macOS i Windows oraz rzeczywiste przejście
+Wi-Fi/VPN i wygląd ustawień na macOS nadal wymagają natywnego odbioru. Mobile
+nie zmieniano w tej poprawce desktopu. Nie wykonano GUI/E2E ani dostępu do
+prawdziwego vault/providerów.
