@@ -196,7 +196,9 @@ static void CanopyOpenExternally(NSURL *url) {
     // A timer, not a frame callback: WebKit holds frames back in a window nobody sees.
     // After fonts and the page's own animations (at most 1.5 s, for endless ones): the
     // snapshot then matches the page as it is once shown.
-    NSString *measure = @"(document.fonts?document.fonts.ready:Promise.resolve()).then(()=>"
+    NSString *measure = @"Promise.race([window.__canopyReady||Promise.resolve(),"
+                         "new Promise(r=>setTimeout(r,4000))]).then(()=>"
+                         "document.fonts?document.fonts.ready:Promise.resolve()).then(()=>"
                          "Promise.race([Promise.all((document.getAnimations?document.getAnimations():[])"
                          ".map(a=>a.finished.catch(()=>{}))),new Promise(r=>setTimeout(r,1500))]))"
                          ".then(()=>new Promise(r=>setTimeout(()=>r(window.__canopyHeight?"

@@ -564,6 +564,11 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   - wysokość z `body` przez `ResizeObserver`, konsola przez `WKScriptMessageHandler`.
 - Karta (`ui::chat::page`):
   - lokalne obrazy inline'owane w tle (`chat::page::inline_images`);
+  - zdalny HTML otrzymuje ten sam CSS motywu wewnątrz izolowanej ramki, z zachowaniem
+    oryginalnego tytułu i sugerowanej wysokości narzędzia. Ramka raportuje wysokość
+    treści do wspólnego kontenera; nie tworzy osobnego obszaru przewijania. Zrzut
+    czeka również na fonty i animacje dokumentu w ramce. Sandbox nadal ma tylko
+    `allow-scripts`, a CSP blokuje połączenia sieciowe i zasoby spoza inlinowanych danych;
   - zrzut renderowany poza ekranem w skali okna, ponawiany przy zmianie szerokości;
   - karta widoczna na ekranie od razu dostaje żywą stronę, która się „rozgrzewa”: przezroczysta (`alphaValue` 0),
     przepuszcza kliknięcia i kółko (`hitTest` nil), ale ładuje się i odtwarza animacje. Pod kursorem, gdy nic jej

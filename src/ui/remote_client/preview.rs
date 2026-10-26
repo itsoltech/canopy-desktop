@@ -406,15 +406,7 @@ impl Render for HtmlPreview {
 }
 
 pub(crate) fn isolated_html(html: &str) -> String {
-    let policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-src 'none'\">";
-    let source = format!("{policy}{html}")
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;");
-    format!(
-        "<!doctype html><style>html,body,iframe{{margin:0;width:100%;height:100%;border:0}}</style><iframe sandbox=\"allow-scripts\" srcdoc=\"{source}\"></iframe>"
-    )
+    canopy_desktop::chat::page::isolated_html(html, &crate::ui::chat::theme_css())
 }
 
 #[cfg(test)]
@@ -426,7 +418,7 @@ mod tests {
             isolated_html(r#""></iframe><script>window.top.location='file:///private'</script>"#);
         assert_eq!(page.matches("<iframe ").count(), 1);
         assert_eq!(page.matches("</iframe>").count(), 1);
-        assert!(!page.contains("<script>"));
+        assert!(!page.contains("<script>window.top.location"));
         assert!(page.contains("&lt;script&gt;"));
         assert!(page.contains("sandbox=\"allow-scripts\""));
     }

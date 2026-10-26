@@ -32,6 +32,7 @@ mod turn_diff;
 mod view;
 pub(crate) use fork::ClientForkRequested;
 pub(crate) use page::serve_previews;
+pub(crate) use page::theme_css;
 pub(crate) use remote::ClientFileRequested;
 pub use turn_diff::TurnDiffView;
 pub use view::ChatView;

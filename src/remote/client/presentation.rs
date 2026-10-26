@@ -120,7 +120,9 @@ pub fn item(value: &p::TranscriptItem) -> Option<t::Item> {
             input["description"] = json!(tool.title);
             if tool.page_item.is_some() {
                 input["html"] = json!("<p>Loading page…</p>");
-                input["title"] = json!(tool.title);
+                if !input["title"].is_string() {
+                    input["title"] = json!(tool.title);
+                }
             }
             if !tool.plan.is_empty() {
                 input["todos"] = json!(tool.plan.iter().map(|entry| json!({
@@ -286,6 +288,48 @@ pub fn goal(value: &p::GoalState) -> chat::goal::Goal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn html_page_metadata_survives_the_host_projection_without_bypassing_its_authorized_read() {
+        let input = json!({"title":"Przycisk z hoverem", "height":180, "html":"<button>Najedź na mnie</button>"});
+        let local = t::Item {
+            id: t::ItemId(8),
+            turn: t::TurnId(2),
+            parent: None,
+            trimmed: false,
+            body: t::Body::Tool(t::ToolCall {
+                call_id: "page".into(),
+                name: chat::page::SHOW_TOOL.into(),
+                kind: Some(chat::backend::ToolKind::Other),
+                input: input.clone(),
+                input_partial: String::new(),
+                state: t::ToolState::Succeeded,
+                output: None,
+                elapsed_seconds: None,
+                activity: None,
+                background: false,
+            }),
+        };
+        let projected = crate::remote::transcript::item(
+            &local,
+            4,
+            1,
+            2,
+            None,
+            std::path::Path::new("/"),
+            &Default::default(),
+        )
+        .unwrap();
+        let restored = item(&projected).unwrap();
+        let t::Body::Tool(tool) = restored.body else {
+            panic!("missing tool")
+        };
+        let page = chat::page::Page::from_input(&tool.input).unwrap();
+        let original = chat::page::Page::from_input(&input).unwrap();
+        assert_eq!(page.title, original.title);
+        assert_eq!(page.height, original.height);
+        assert_ne!(page.html, original.html);
+        assert!(page.html.contains("Loading"));
+    }
     #[test]
     fn remote_semantics_use_the_same_cards_without_trusting_a_tool_name() {
         let wire = p::TranscriptItem {

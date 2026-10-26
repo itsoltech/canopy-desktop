@@ -59,6 +59,28 @@ impl Page {
     }
 }
 
+/// Already-authorized remote content keeps its opaque sandbox origin. The
+/// viewer's theme belongs inside that document, where CSS variables are read.
+/// Only measured height and readiness cross back to the native page container.
+pub fn isolated_html(html: &str, css: &str) -> String {
+    let policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-src 'none'\">";
+    let source = format!(
+        "<!doctype html>{policy}<style>{css}</style><script>{}</script>{html}",
+        include_str!("page_frame.js"),
+    )
+    .replace('&', "&amp;")
+    .replace('"', "&quot;")
+    .replace('<', "&lt;")
+    .replace('>', "&gt;");
+    format!(
+        "<!doctype html><style>html,body{{margin:0;padding:0;background:transparent}}\
+         iframe{{display:block;width:100%;height:1px;border:0}}</style>\
+         <script>{}</script>\
+         <iframe sandbox=\"allow-scripts\" srcdoc=\"{source}\"></iframe>",
+        include_str!("page_host.js"),
+    )
+}
+
 /// `html` with images it points to by absolute path (`src="/abs/a.png"`, CSS
 /// `url(/abs/a.png)`, or a JS string) put in as data URIs: the page itself reads no
 /// files. Missing, oversized or non-image paths stay as they are.
@@ -189,6 +211,32 @@ Links open in the user's browser.";
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_viewer_theme_is_inside_the_opaque_document_before_author_styles() {
+        let css = ":root{--accent:rgb(1,2,3);--font-sans:system-ui}body{color:var(--accent)}";
+        let html = "<style>button{background:var(--accent)}</style><button>Hover</button>";
+        let isolated = isolated_html(html, css);
+        let encoded = isolated
+            .split("srcdoc=\"")
+            .nth(1)
+            .unwrap()
+            .split("\"")
+            .next()
+            .unwrap();
+        let source = encoded
+            .replace("&quot;", "\"")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&");
+        assert!(source.find(css).unwrap() < source.find(html).unwrap());
+        assert!(source.contains("connect-src 'none'"));
+        assert!(isolated.contains("sandbox=\"allow-scripts\""));
+        assert!(!isolated.contains("allow-same-origin"));
+        assert!(!isolated.contains("height:100%"));
+        assert!(isolated.contains("window.__canopyReady"));
+        assert_eq!(isolated.matches("<iframe ").count(), 1);
+    }
 
     #[test]
     fn calls_become_pages_within_limits() {
