@@ -142,7 +142,10 @@
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
       const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+      if (
+        e.shiftKey &&
+        (active === first || active === containerEl || !containerEl.contains(active))
+      ) {
         e.preventDefault()
         last.focus()
       } else if (!e.shiftKey && active === last) {
@@ -212,7 +215,7 @@
     <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
       {#if loading}
         <div class="flex items-center justify-center gap-2 py-8 text-md text-text-muted">
-          <LoaderCircle size={16} class="animate-spin" />
+          <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
           <span>{task ? 'Rendering from the PR template…' : 'Preparing the form…'}</span>
         </div>
       {:else if loadError}
@@ -316,7 +319,7 @@
         disabled={creating || loading || !!loadError || !title.trim()}
       >
         {#if creating}
-          <LoaderCircle size={13} class="animate-spin" />
+          <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
           Creating…
         {:else}
           Create PR

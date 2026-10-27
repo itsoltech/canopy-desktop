@@ -501,6 +501,8 @@
               aria-expanded={!collapsedFiles.has(file.path)}
               onclick={() => toggleCollapse(file.path)}
               onkeydown={(e) => {
+                // Enter/Space on the nested Copy button must activate it, not collapse the file.
+                if (e.target !== e.currentTarget) return
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   toggleCollapse(file.path)

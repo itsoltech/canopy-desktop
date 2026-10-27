@@ -225,7 +225,17 @@ export class SkillInstaller {
         new Promise<void>((resolve, reject) => {
           execFile(
             'git',
-            ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            // Check symlinks out as plain files: the containment check below is lexical, so a
+            // linked SKILL.md or subpath would otherwise read any local file into the skill.
+            [
+              'clone',
+              '-c',
+              'core.symlinks=false',
+              '--depth',
+              '1',
+              `https://github.com/${owner}/${repo}.git`,
+              tmpDir,
+            ],
             (error) => {
               if (error) reject(error)
               else resolve()

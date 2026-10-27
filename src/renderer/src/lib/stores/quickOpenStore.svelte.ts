@@ -8,6 +8,22 @@ const state: Record<string, LoadedState> = $state({})
 
 const STALE_AFTER_MS = 60_000
 
+// Hover-driven callers (terminal link provider, linkified text) ask again while the first
+// listing is still in flight; share it instead of re-listing the worktree on every call.
+// eslint-disable-next-line svelte/prefer-svelte-reactivity -- request bookkeeping, never rendered
+const inFlightListings = new Map<string, Promise<string[]>>()
+
+function listFilesOnce(worktreePath: string): Promise<string[]> {
+  let pending = inFlightListings.get(worktreePath)
+  if (!pending) {
+    pending = window.api
+      .quickOpenListFiles(worktreePath)
+      .finally(() => inFlightListings.delete(worktreePath))
+    inFlightListings.set(worktreePath, pending)
+  }
+  return pending
+}
+
 export function getFiles(worktreePath: string): string[] {
   return state[worktreePath]?.files ?? []
 }
@@ -28,7 +44,7 @@ export async function ensureLoaded(worktreePath: string): Promise<string[]> {
     state[worktreePath].loading = true
   }
   try {
-    const files = await window.api.quickOpenListFiles(worktreePath)
+    const files = await listFilesOnce(worktreePath)
     state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
     return files
   } catch {

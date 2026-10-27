@@ -331,7 +331,13 @@ export class WindowManager {
     return this.ptySessions.get(wcId)?.has(sessionId) ?? false
   }
 
+  // A window that closed while the caller awaited is already disposed; registering a watcher for
+  // it would leave a live native subscription that nothing ever stops.
   setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     let watchers = this.gitWatchers.get(wcId)
     if (!watchers) {
       watchers = new Map()
@@ -397,6 +403,10 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     this.fileWatchers.set(wcId, watcher)
   }
 

@@ -376,6 +376,8 @@ export class WorkspaceCommandService {
       snapshot,
     )
 
+    // Register before awaiting start() so a newer watch request or window close can stop it.
+    this.deps.windowManager.setGitWatcher(sender.id, repoRoot, watcher)
     const startResult = await watcher.start()
     if (startResult.isErr()) {
       const message = gitErrorMessage(startResult.error)
@@ -386,7 +388,6 @@ export class WorkspaceCommandService {
         paths: [repoRoot],
       })
     }
-    this.deps.windowManager.setGitWatcher(sender.id, repoRoot, watcher)
   }
 
   private collectRestoredLayouts(

@@ -1,8 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { captureFocusReturn } from './focusTrap'
+import { captureFocusReturn, cycleFocus } from './focusTrap'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('cycleFocus', () => {
+  it('wraps Shift+Tab to the last control while the dialog container itself has focus', () => {
+    const first = { focus: vi.fn() }
+    const last = { focus: vi.fn() }
+    // Dialogs focus their tabindex="-1" container on open; contains() is true for itself.
+    const container = { querySelectorAll: () => [first, last], contains: () => true }
+    vi.stubGlobal('document', { activeElement: container })
+    const event = { shiftKey: true, preventDefault: vi.fn() }
+
+    cycleFocus(container as unknown as HTMLElement, event as unknown as KeyboardEvent)
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(last.focus).toHaveBeenCalledOnce()
+  })
 })
 
 describe('captureFocusReturn', () => {

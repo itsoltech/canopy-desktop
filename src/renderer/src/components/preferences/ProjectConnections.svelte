@@ -147,7 +147,7 @@
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
       const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !dialogEl.contains(active))) {
+      if (e.shiftKey && (active === first || active === dialogEl || !dialogEl.contains(active))) {
         e.preventDefault()
         e.stopPropagation()
         last.focus()

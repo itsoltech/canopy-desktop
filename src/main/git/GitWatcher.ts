@@ -86,6 +86,11 @@ export class GitWatcher {
         message: errorMessage(e),
       }),
     ).map((sub) => {
+      // stop() ran while subscribe was pending: release the handle instead of keeping it.
+      if (this.stopped) {
+        void sub.unsubscribe().catch(() => {})
+        return
+      }
       this.subscription = sub
     })
   }

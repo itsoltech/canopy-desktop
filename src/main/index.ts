@@ -864,12 +864,14 @@ app.whenReady().then(async () => {
   }
 
   // Status-bar perf HUD (always available, gated by user preference in renderer)
+  // WindowManager keys windows by webContents id, which diverges from BrowserWindow.id once
+  // webviews or DevTools allocate webContents.
   ipcMain.handle('perf:hud:start', (event) => {
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     perfHudService.subscribe(event.sender)
   })
   ipcMain.handle('perf:hud:stop', (event) => {
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     perfHudService.unsubscribe(event.sender)
   })
 
@@ -1152,7 +1154,7 @@ app.whenReady().then(async () => {
 
   ipcMain.on('notch:setEnabled', (event, { enabled }: { enabled: boolean }) => {
     if (!notchOverlay) return
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     if (enabled) {
       notchOverlay.initialize()
     } else {

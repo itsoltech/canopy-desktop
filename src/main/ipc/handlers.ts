@@ -1416,13 +1416,14 @@ export function registerIpcHandlers(
       },
       payload.snapshot,
     )
+    // Register before awaiting start() so a newer watch request or window close can stop it.
+    windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
     const startResult = await watcher.start()
     if (startResult.isErr()) {
       // Log but don't throw — git watching is best-effort, the renderer
       // can still query git state on demand if the watcher fails to start.
       console.warn(gitErrorMessage(startResult.error))
     }
-    windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
   })
 
   ipcMain.handle('git:unwatch', (event, payload?: { repoRoot?: string }) => {
@@ -1482,11 +1483,12 @@ export function registerIpcHandlers(
       }
     })
 
+    // Register before awaiting start() so a newer watch request or window close can stop it.
+    windowManager.setFileWatcher(senderId, watcher)
     const result = await watcher.start()
     if (result.isErr()) {
       throw new Error(fileWatcherErrorMessage(result.error))
     }
-    windowManager.setFileWatcher(senderId, watcher)
   })
 
   ipcMain.handle('files:unwatch', (event) => {

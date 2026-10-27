@@ -111,7 +111,13 @@
     })
   }
 
+  // Sub-tab switches and watcher reloads can overlap; only the latest read for the file still
+  // shown may write the buffer, or one file's content lands under another file's tab.
+  let loadSeq = 0
+
   async function loadFile(path: string): Promise<void> {
+    const seq = ++loadSeq
+    const isStale = (): boolean => seq !== loadSeq || path !== lastLoadedPath
     loading = true
     error = null
     saveError = null
@@ -123,6 +129,7 @@
     externalChangeDetected = false
     try {
       const readResult = await loadEditorFile(paneId, path, MAX_EDIT_BYTES)
+      if (isStale()) return
       if (!readResult.ok) {
         error = readResult.message
         return
@@ -151,9 +158,10 @@
       fileMtimeMs = readResult.mtimeMs
       dirty = false
     } catch (e) {
+      if (isStale()) return
       error = e instanceof Error ? e.message : 'Failed to read file'
     } finally {
-      loading = false
+      if (seq === loadSeq) loading = false
     }
   }
 

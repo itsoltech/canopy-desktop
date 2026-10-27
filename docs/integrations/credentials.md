@@ -131,6 +131,9 @@ token in that connection to create its explicit binding.
   and the matching configured tracker bindings. If no tracker exists yet, a temporary shared
   migration binding is removed as soon as the sole compatible credential auto-binds to a tracker.
   The legacy entry is deleted only after the encrypted credential and all known bindings are saved.
+- Legacy connection-based tracker tokens are only ever read, replaced or deleted under their own
+  `taskTracker.token.<connectionId>` key. The connection list is renderer-writable, so a stored
+  `authPrefKey` naming any other preference is ignored instead of resolving that secret.
 - No credential data is written to `.canopy/config.json` or another repository file.
 
 ## Source files
