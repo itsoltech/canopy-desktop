@@ -82,7 +82,7 @@ pub(crate) fn theme_css() -> String {
         ":root{{--background:{};--foreground:{};--muted:{};--muted-foreground:{};--card:{};\
          --card-foreground:{};--border:{};--accent:{};--red:{};--green:{};--yellow:{};--radius:8px;\
          --font-sans:\"{font}\",-apple-system,system-ui,sans-serif;\
-         --font-mono:\"{}\",ui-monospace,Menlo,monospace;color-scheme:dark}}\
+         --font-mono:\"{}\",ui-monospace,Menlo,monospace;color-scheme:{}}}\
          html,body{{margin:0;padding:0;background:transparent;color:var(--foreground);\
          font-family:var(--font-sans);font-size:14px;line-height:1.5}}",
         css(t::bg()),
@@ -97,6 +97,7 @@ pub(crate) fn theme_css() -> String {
         css(t::green()),
         css(t::yellow()),
         t::MONO,
+        if t::is_light() { "light" } else { "dark" },
     )
 }
 

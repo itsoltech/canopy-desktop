@@ -340,3 +340,105 @@ fn chat_defaults_round_trip_and_invalid_values_warn() {
     assert!(Change::parse(PreferenceKey::ChatEffort, "extreme").is_err());
     assert!(Change::parse(PreferenceKey::ChatMode, "bypassPermissions").is_err());
 }
+
+#[test]
+fn appearance_round_trips_and_electron_theme_is_a_read_only_fallback() {
+    use canopy_desktop::appearance::{
+        AppearanceMode, Background, BackgroundMode, BackgroundTarget, ThemeFamily, ThemeVariant,
+    };
+    block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("electron.db");
+        let db = electron(&path);
+        // Electron applied its terminal theme and font app-wide.
+        for (key, value) in [
+            ("theme", "Solarized Light"),
+            ("fontFamily", "Fira Code"),
+            ("fontSize", "15"),
+        ] {
+            db.execute("INSERT INTO preferences VALUES(?1,?2)", [key, value])
+                .unwrap();
+        }
+        drop(db);
+        let client = SettingsClient::open(&path, Access::ReadWrite)
+            .await
+            .unwrap();
+        let legacy = client.load().await.unwrap().preferences;
+        assert_eq!(legacy.appearance.theme, ThemeFamily::Solarized);
+        assert_eq!(legacy.appearance.mode, AppearanceMode::Light);
+        assert_eq!(legacy.terminal.font_family, "Fira Code");
+        assert_eq!(legacy.terminal.font_size, 15);
+
+        let mut gradient = Background::default_for(ThemeVariant::Light, BackgroundTarget::Sidebar);
+        gradient.mode = BackgroundMode::Gradient;
+        let saved = client
+            .apply(vec![
+                Change::AppearanceTheme(ThemeFamily::Catppuccin),
+                Change::AppearanceMode(AppearanceMode::Auto),
+                Change::Background(
+                    ThemeVariant::Light,
+                    BackgroundTarget::Sidebar,
+                    gradient.clone(),
+                ),
+                Change::TerminalFontSize(18),
+            ])
+            .await
+            .unwrap()
+            .preferences;
+        // Native keys win over the Electron fallback.
+        assert_eq!(saved.appearance.theme, ThemeFamily::Catppuccin);
+        assert_eq!(saved.appearance.mode, AppearanceMode::Auto);
+        assert_eq!(
+            saved
+                .appearance
+                .backgrounds
+                .get(ThemeVariant::Light, BackgroundTarget::Sidebar),
+            &gradient
+        );
+        assert_eq!(
+            saved
+                .appearance
+                .backgrounds
+                .get(ThemeVariant::Dark, BackgroundTarget::Sidebar)
+                .mode,
+            BackgroundMode::Theme
+        );
+        assert_eq!(saved.terminal.font_size, 18);
+        assert_eq!(saved.terminal.font_family, "Fira Code");
+        client.shutdown().await.unwrap();
+
+        let db = Connection::open(&path).unwrap();
+        assert_eq!(raw(&db, "appearance.mode"), "auto");
+        assert_eq!(raw(&db, "theme"), "Solarized Light");
+        db.execute(
+            "UPDATE preferences SET value='neon' WHERE key='appearance.theme'",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "UPDATE preferences SET value='30' WHERE key='terminal.font_size'",
+            [],
+        )
+        .unwrap();
+        drop(db);
+        let reopened = SettingsClient::open(&path, Access::ReadOnly).await.unwrap();
+        let snapshot = reopened.load().await.unwrap();
+        // Invalid native values warn and fall back to the Electron value, then defaults.
+        assert_eq!(
+            snapshot.preferences.appearance.theme,
+            ThemeFamily::Solarized
+        );
+        assert_eq!(snapshot.preferences.terminal.font_size, 15);
+        for key in [
+            PreferenceKey::AppearanceTheme,
+            PreferenceKey::TerminalFontSize,
+        ] {
+            assert!(snapshot.warnings.iter().any(|w| w.key == key));
+        }
+        reopened.shutdown().await.unwrap();
+    });
+    assert!(Change::parse(PreferenceKey::AppearanceMode, "system").is_err());
+    assert!(Change::parse(PreferenceKey::TerminalFontSize, "7").is_err());
+    assert!(Change::parse(PreferenceKey::TerminalFontFamily, " ").is_err());
+    assert!("theme".parse::<PreferenceKey>().is_err());
+}

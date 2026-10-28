@@ -304,7 +304,7 @@ impl ChatView {
                 .id("chat-activity-current")
                 .text_size(px(12.))
                 .text_color(t::text())
-                .highlight_color(gpui_kit::white())
+                .highlight_color(t::shimmer_highlight())
                 .into_any_element(),
             (Some(text), _) => div().truncate().child(text).into_any_element(),
             (None, Some(todos)) if todos.finished() => div()
@@ -421,7 +421,7 @@ impl ChatView {
                         .id(("chat-activity-todo", index))
                         .text_size(px(12.))
                         .text_color(t::text())
-                        .highlight_color(gpui_kit::white())
+                        .highlight_color(t::shimmer_highlight())
                         .into_any_element(),
                     TodoStatus::InProgress => div()
                         .text_color(t::text())

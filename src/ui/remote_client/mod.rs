@@ -408,7 +408,10 @@ impl RemoteWindow {
             terminal_preedit: String::new(),
             terminal_bounds: Bounds::default(),
             terminal_size: (0, 0),
-            terminal_cell_size: (1., 1.),
+            terminal_cell_size: (
+                canopy_desktop::terminal::geometry::CELL_WIDTH,
+                canopy_desktop::terminal::geometry::CELL_HEIGHT,
+            ),
             terminal_input_id: 0,
             terminal_retries: 0,
             terminal_history: None,

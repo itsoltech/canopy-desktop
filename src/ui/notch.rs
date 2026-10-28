@@ -169,12 +169,12 @@ fn project_sessions(cx: &App) -> Vec<NotchSession> {
                     .into(),
                 status_color: match session.status {
                     canopy_desktop::agents::Status::Starting if session.awaiting_events => {
-                        t::yellow()
+                        t::notch_attention()
                     }
-                    canopy_desktop::agents::Status::Waiting => t::yellow(),
-                    canopy_desktop::agents::Status::Failed => t::red(),
-                    canopy_desktop::agents::Status::Working => t::accent(),
-                    _ => t::green(),
+                    canopy_desktop::agents::Status::Waiting => t::notch_attention(),
+                    canopy_desktop::agents::Status::Failed => t::notch_error(),
+                    canopy_desktop::agents::Status::Working => t::notch_working(),
+                    _ => t::notch_done(),
                 },
             }
         })
@@ -529,7 +529,7 @@ impl Render for Notch {
                                         .h(px(ROW_HEIGHT))
                                         .px(px(12.))
                                         .text_size(px(11.))
-                                        .text_color(t::muted())
+                                        .text_color(t::notch_muted())
                                         .child("No agents with this status")
                                 }))
                                 .children(visible.into_iter().map(|session| {
@@ -573,7 +573,7 @@ mod tests {
             workspace: "project".into(),
             context: "codex".into(),
             status: "Needs attention".into(),
-            status_color: super::t::yellow(),
+            status_color: super::t::notch_attention(),
         };
         assert!(show_session(&session, false, StatusFilter::Working));
         assert!(!show_session(&session, true, StatusFilter::Working));

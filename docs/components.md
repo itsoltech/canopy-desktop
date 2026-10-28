@@ -1,7 +1,7 @@
 # Komponenty interfejsu Canopy
 
 Punkt wejścia: `crate::ui::components`. Komponenty korzystają z tokenów
-`ui::theme` i z GPUI Kit 0.7.1. Istniejące Preferences i sidebar już ich używają.
+`ui::theme` (motyw w runtime, zob. „Motyw i tokeny kolorów”) i z GPUI Kit 0.7.1. Istniejące Preferences i sidebar już ich używają.
 
 ## Dostępne elementy
 
@@ -21,6 +21,9 @@ Punkt wejścia: `crate::ui::components`. Komponenty korzystają z tokenów
 | `modal::Confirmation` (+ `.destructive()`), `TextPrompt` (+ `.confirm_label(…)`) | Potwierdzenie z czasownikiem wyniku i opcjonalnym stylem destrukcyjnym; prompt jednego pola z nazwaną akcją | encja modala i `ModalDismissed` u właściciela |
 | `FileTree` + `FileTreeModel` + `FileNode` | Hierarchia plików/folderów, selection, expand i zdarzenie otwarcia | osobna `Entity<FileTree>` |
 | `section`, `setting`, `caption` | Sekcje ustawień, etykiety, pomoc i separatory | prezentacja |
+| `segmented_control(id, label, options, selected, on_select)` | Mała, zawsze widoczna grupa wykluczających się wyborów (Light/Dark/Auto); jedna sylwetka, zaznaczony segment podniesiony (`elevated` + `segment_shadow`), segmenty to przyciski radio z Tab i Enter/Space | wybór i callback u wywołującego |
+| `gradient_editor::GradientEditor` | Edytor gradientu tła (zob. „Tła okna i sidebaru”) | encja edytora: szkic i interakcja; zapis u właściciela przez zdarzenia |
+| `background::{window_surface, sidebar_surface, window_fill, window_backdrop, paint_canvas, SurfacePaint}` | Malowanie własnych teł okna i sidebaru | prezentacja; tło należy do ustawień |
 | `row`, `column`, `icon`, `custom_icon`, `tool_icon`, `badge`, `dot` | Układ i drobne elementy prezentacyjne | prezentacja |
 
 Moduły: `buttons.rs`, `controls.rs`, `settings.rs`, `file_tree.rs` oraz wspólne
@@ -60,6 +63,143 @@ klawiatury i menu; używaj traitów GPUI Kit, np. `Disableable`, kiedy potrzebne
 Tekstowe `button` ma wariant neutralny Canopy. Inputy nie implementują własnej
 edycji/IME/schowka; konfiguruj natywny `InputState`, nie osobną kontrolkę dla
 każdego typu pola.
+
+## Motyw i tokeny kolorów
+
+Kolory pochodzą wyłącznie z funkcji `ui::theme` (`t::bg()`, `t::text()`,
+`t::accent()`…). Każdy token czyta aktywny wariant motywu: rodzina
+(`ThemeFamily`: Canopy, Dracula, Monokai, Solarized, Nord, One, Gruvbox, Tokyo
+Night, Catppuccin, GitHub, Rosé Pine) w wariancie ciemnym albo jasnym. Kolory
+bazowe wariantu (`bg`, `sidebar`, `text`, `accent`, `green`, `red`, `yellow` i
+paleta terminala) są danymi w `src/appearance/palettes.rs`. `ui::theme` wylicza
+z nich tokeny pochodne (`elevated`, `panel`, `hover`, `selected`, `border`,
+`control_border`, `input_bg`, `secondary/muted/faint`, `scroll_edge_shadow`,
+`badge_ink`) osobnymi regułami dla ciemnych i jasnych wariantów; kolory
+semantyczne i tekst pomocniczy są dociągane do minimalnego kontrastu (WCAG 3:1,
+`secondary` 4,5:1). Palety wszystkich wariantów są liczone raz (`LazyLock`);
+odczyt tokenu w render to jeden atomowy load. Canopy Dark zachowuje dokładnie
+dawne wartości.
+
+Zasady:
+
+- Nowy kolor dodawaj jako token w `ui/theme.rs`, nigdy jako `rgb(0x…)`, `white()`
+  czy `black()` w widoku. Jeżeli wartość zależy od jasności tła, rozgałęź ją przez
+  `t::is_light()` albo dodaj pole do `Palette` i wylicz je w `derive` dla obu
+  wariantów (z wyjątkiem `canopy_dark`, który ma wartości jawne). Akcenty OKLCH
+  (`skill`, `goal`, `shell`, `effort`, znaki agentów, kafelki projektów, linie
+  historii) mają osobną jasność dla wariantów jasnych.
+- Stałe kolory są dopuszczalne tylko jako tokeny z uzasadnieniem: QR
+  (`qr_light/qr_dark`), znaki marek (`jira_brand`, `claude_brand`, `lazygit_brand`;
+  monochromatyczny znak OpenAI używa `text`), suwak wysiłku (`effort_sheen`, leży
+  na kolorowym torze) i notch — czarna nakładka sprzętowa, której tekst i statusy
+  biorą kolory z ciemnego wariantu aktywnej rodziny (`notch_*`).
+- Nie zapamiętuj kolorów w stanie widoku: po zmianie motywu wszystkie okna są
+  odświeżane, ale wartości policzone wcześniej (np. podświetlenie podglądu Read
+  w karcie narzędzia, CSS już otwartej strony HTML czatu) zostają do ich
+  ponownego utworzenia. Podświetlacze cache'ujące po `Arc<HighlightTheme>`
+  działają, bo każda zmiana tworzy nowy `Arc`.
+
+Zmiana motywu: `theme::bind(window, cx)` (raz, dla głównego okna) obserwuje
+`SettingsState` i wygląd okna. Po zmianie `appearance.theme`/`appearance.mode`
+albo wyglądu systemu w trybie Auto ustawia aktywny wariant
+(`appearance::set_active`), ponownie stosuje motyw gpui-component (`theme::init`:
+`ThemeMode` Light/Dark, kolory, tokeny, nowy highlight theme), budzi sesje
+terminali i odświeża wszystkie okna. Tryby Light/Dark ustawiają też natywny
+wygląd aplikacji (`cx.set_window_appearance`), więc menu i przyciski okien pasują
+do motywu; Auto czyści to nadpisanie i śledzi system na żywo.
+
+API dla Settings → Appearance (`crate::ui::theme`):
+
+| API | Znaczenie |
+| --- | --- |
+| `families() -> Vec<FamilyInfo>` | rodziny w kolejności prezentacji: `family`, `id`, `name`, `dark`/`light: Preview` (`name`, `bg`, `sidebar`, `text`, `accent`, `green`, `red` — kolory faktycznie użyte) |
+| `current(cx) -> Resolved` | zastosowana rodzina, wybrany tryb i rozwiązany wariant |
+| `is_light()`, `variant()` | wariant aktywny teraz |
+| `set_theme(ThemeFamily, cx)`, `set_mode(AppearanceMode, cx)` | zapis przez `SettingsState::remember` (kolejkowany, nie gubiony podczas ładowania/zapisu); zastosowanie po commicie |
+| `preview(family, variant) -> Preview` | kolory jednego wariantu (także `secondary`, `yellow`, `panel`, `border`, `control_border`, `input_bg`) do miniatur |
+| `set_background(ThemeVariant, BackgroundTarget, Background, cx)` | zapis tła okna albo sidebaru dla wariantu; istniejący podgląd tej powierzchni zostaje do commitu |
+| `preview_background(variant, target, Option<Background>, cx)` | pokazuje tło bez zapisu (`None` usuwa podgląd) i odświeża okna; podgląd równy zapisanej wartości znika przy następnej synchronizacji ustawień |
+| `background_for(variant, target, cx)`, `background(target, cx)` | tło pokazywane (podgląd albo zapisane) dla wariantu / dla wariantu wyświetlanego |
+| `terminal_font(cx) -> TerminalFont` | font terminala z ustawień: `font` (rodzina + fallbacki), `size`, zmierzona `cell` ([terminal.md](terminal.md)) |
+
+Typy tła (`canopy_desktop::appearance`, re-eksportowane z `ui::theme`):
+`Background { mode: BackgroundMode (Theme/Solid/Gradient), solid: HexColor,
+gradient: Gradient }`; `Gradient::new(angle 0–359, 2–6 × GradientStop { color,
+position 0–100 })` waliduje, `sorted_stops()` porządkuje do malowania.
+
+`bind` odświeża też okna, gdy zmienią się tła lub font terminala (bez zmiany
+motywu), i przelicza wtedy `TerminalFont`.
+
+## Tła okna i sidebaru
+
+`components::background` maluje tło z ustawień (Settings → Appearance) dla
+wariantu wyświetlanego. `SurfacePaint::of(&Background, theme)` daje `Theme(kolor
+motywu)`, `Solid` albo `Gradient(warstwy)`. Tryb Theme to dotychczasowe stałe
+kolory, bez warstw i bez kosztu.
+
+GPUI `linear_gradient` ma dwa punkty, więc gradient n punktów (posortowanych) to
+n − 1 warstw dwupunktowych na tych samych granicach i pod tym samym kątem:
+warstwa 0 = c0@p0 → c1@p1 (nieprzezroczysta), warstwa i = c(i+1) z alfą 0 @p(i)
+→ c(i+1) @p(i+1). Za p(i) warstwy niżej pokazują już c(i), więc mieszanie warstwy
+i po jej alfie jest dokładną interpolacją liniową c(i)→c(i+1); przed p(i) jest
+przezroczysta, za p(i+1) zakrywa wszystko kolorem c(i+1) (jak w CSS: przed
+pierwszym punktem kolor pierwszy, za ostatnim ostatni). Punkty o tej samej
+pozycji dostają rozpiętość 0,0001 (ostra krawędź bez dzielenia przez zero).
+`gradient_layers` jest czystą funkcją; test porównuje złożenie warstw (tak jak
+liczy shader) z interpolacją CSS dla 2–6 punktów.
+
+Gdzie maluje okno główne:
+
+- `window_surface` — kontener obszaru roboczego w `ui/mod.rs` (za paskiem tabów,
+  pane'ami, czatem, przeglądem worktree i stroną zdalną osadzoną w oknie).
+  Gradient maluje pierwsze dziecko (canvas bez hitboxa), kolor — `bg`. Granice
+  malowania są zapisywane per okno, żeby backdropy mogły je odtworzyć.
+- `sidebar_surface` — korzeń widoku sidebaru (także w nakładce wąskiego okna).
+- Przezroczyste nad własnym tłem okna (`window_fill(kolor motywu, cx)`; w trybie
+  Theme zwraca kolor motywu): pasek tabów i jego strip, nagłówek pane'a przy
+  podziale, korzeń czatu i osadzona strona zdalna. Nieaktywny tab ma
+  przezroczystą dolną krawędź (wcześniej kolor `panel`, czyli to samo w Theme).
+- Pas pod kompozytorem czatu (zanik + cień nad przewijaną rozmową) przy własnym
+  tle maluje `window_backdrop(od, do, cx)`: to samo tło przycięte do pasa, w
+  cienkich paskach o rosnącej przezroczystości (GPUI nie ma masek alfa).
+- Pełne kolory motywu zostają: pasek tytułu (chrome okna), panel narzędzi,
+  terminal, edytor, diffy i podglądy, menu, karty, kompozytor, karty na hover,
+  modale, bloki kodu, okno Settings i osobne okno Remote.
+
+`paint_canvas(paint, corners)` maluje tło w dowolnym elemencie z zaokrąglonymi
+rogami (rodzic w GPUI nie przycina dzieci) — miniatura w Settings i paski
+gradientu.
+
+## Edytor gradientu
+
+`gradient_editor::GradientEditor` (encja) trzyma tylko szkic (`GradientModel`:
+kąt, punkty w kolejności użytkownika, zaznaczenie) i stan interakcji. Emituje
+`GradientEditorEvent::Preview` w trakcie przeciągania i `Change` po każdej
+zatwierdzonej zmianie; właściciel pokazuje podgląd i zapisuje, scalając serie.
+`set_gradient(gradient, variant, …)` wczytuje wartość z zewnątrz (pomija, gdy to
+już szkic albo trwa przeciąganie).
+
+- Pasek 28 px pokazuje punkty od lewej do prawej (gradient 90° z warstw).
+  Kliknięcie paska dodaje punkt w kolorze interpolowanym w tym miejscu i od razu
+  pozwala go przeciągać. Uchwyty (16 px, zaznaczony 20 px z pierścieniem akcentu,
+  biała obwódka i cień — tokeny `gradient_handle_ring/shadow` — widoczne na każdym
+  kolorze) przeciąga się myszą; podczas przeciągania nasłuch `window.on_mouse_event`
+  działa w całym oknie jak przechwycenie wskaźnika, puszczenie przycisku (także
+  poza oknem) kończy przeciąganie.
+- Wiersz zaznaczonego punktu: ColorPicker gpui-component, pole hex, pozycja %,
+  usuń (wyłączone przy 2 punktach), „Add color” (wyłączone przy 6; środek
+  najszerszej luki). Pola zatwierdza Enter albo opuszczenie pola; błędna wartość
+  wraca do bieżącej.
+- Kierunek: pokrętło 56 px (przeciąganie ustawia kąt, Shift przyciąga do 15°;
+  strzałki ±1°, Shift ±15°), 8 przycisków kierunków (ikona strzałki obrócona o
+  kąt, nazwa dostępności „Towards top right (45°)”) i pole kąta.
+- Presety zależne od wariantu: ciemne Aurora, Dusk, Ocean, Forest, Ember; jasne
+  Mist, Dawn, Lagoon, Sage, Lilac.
+- Ostrzeżenie o czytelności (`readability_warning`, luminancja WCAG): w ciemnym
+  wariancie kolor jaśniejszy niż 0,25, w jasnym ciemniejszy niż 0,35.
+- Klawiatura: uchwyty są osiągalne Tab w kolejności pozycji (rola slider z
+  wartością), strzałki przesuwają o 1%, Shift o 10%, Home/End na końce,
+  Delete/Backspace usuwa punkt.
 
 ## Drzewo plików
 

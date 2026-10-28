@@ -100,8 +100,8 @@ impl Render for TerminalView {
                 }),
             )
             .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
-                this.wheel += f32::from(event.delta.pixel_delta(px(painter::CELL_HEIGHT)).y)
-                    / painter::CELL_HEIGHT;
+                let line = this.cell.height;
+                this.wheel += f32::from(event.delta.pixel_delta(px(line)).y) / line;
                 let lines = this.wheel as i32;
                 this.wheel -= lines as f32;
                 if lines != 0 {

@@ -4,7 +4,7 @@ use super::*;
 use canopy_desktop::{
     remote::client::rpc_error,
     terminal::{
-        geometry::{CELL_HEIGHT, CELL_WIDTH, GridGeometry},
+        geometry::{CellSize, GridGeometry},
         session::Size,
     },
 };
@@ -903,8 +903,15 @@ impl RemoteWindow {
                 width,
                 height,
                 Size::bounded(frame.columns as usize, frame.rows as usize),
+                self.grid_cell(),
             ),
-            None => GridGeometry::fit(width, height),
+            None => GridGeometry::fit(width, height, self.grid_cell()),
+        }
+    }
+    fn grid_cell(&self) -> CellSize {
+        CellSize {
+            width: self.terminal_cell_size.0,
+            height: self.terminal_cell_size.1,
         }
     }
     fn paint_terminal(
@@ -919,8 +926,16 @@ impl RemoteWindow {
             ElementInputHandler::new(bounds, cx.entity()),
             cx,
         );
-        self.terminal_cell_size = (CELL_WIDTH, CELL_HEIGHT);
-        let fit = GridGeometry::fit(f32::from(bounds.size.width), f32::from(bounds.size.height));
+        // The device's own terminal font sizes the grid it asks the host for.
+        let terminal_font = t::terminal_font(cx);
+        let (base_font, font_size, grid) =
+            (terminal_font.font, terminal_font.size, terminal_font.cell);
+        self.terminal_cell_size = (grid.width, grid.height);
+        let fit = GridGeometry::fit(
+            f32::from(bounds.size.width),
+            f32::from(bounds.size.height),
+            grid,
+        );
         let dimensions = (fit.size.columns as u32, fit.size.rows as u32);
         if self.terminal_size != dimensions && self.terminal_history.is_none() {
             self.terminal_size = dimensions;
@@ -969,7 +984,6 @@ impl RemoteWindow {
         // Incremental frames append replaced cells; paint in grid order.
         let mut cells: Vec<&p::TerminalCell> = frame.cells.iter().collect();
         cells.sort_by_key(|c| (c.row, c.column));
-        let base_font = t::terminal_font();
         let focused = self.terminal_focus.is_focused(window);
         window.paint_layer(bounds, |window| {
             let mut i = 0;
@@ -1033,14 +1047,14 @@ impl RemoteWindow {
                 }
                 let position = origin
                     + point(
-                        px(cell.column as f32 * CELL_WIDTH),
-                        px(cell.row as f32 * CELL_HEIGHT),
+                        px(cell.column as f32 * grid.width),
+                        px(cell.row as f32 * grid.height),
                     );
                 if is_selected {
                     window.paint_quad(fill(
                         Bounds::new(
                             position,
-                            size(px(columns as f32 * CELL_WIDTH), px(CELL_HEIGHT)),
+                            size(px(columns as f32 * grid.width), px(grid.height)),
                         ),
                         t::selected(),
                     ));
@@ -1071,10 +1085,10 @@ impl RemoteWindow {
                     let mut line =
                         window
                             .text_system()
-                            .shape_line(text.into(), px(13.), &[run], None);
-                    align_to_grid(&mut line, &byte_columns, columns);
+                            .shape_line(text.into(), font_size, &[run], None);
+                    align_to_grid(&mut line, &byte_columns, columns, grid.width);
                     let _ =
-                        line.paint(position, px(CELL_HEIGHT), TextAlign::Left, None, window, cx);
+                        line.paint(position, px(grid.height), TextAlign::Left, None, window, cx);
                 }
                 i = next;
             }
@@ -1089,10 +1103,10 @@ impl RemoteWindow {
                     Bounds::new(
                         origin
                             + point(
-                                px(frame.cursor_column as f32 * CELL_WIDTH),
-                                px(frame.cursor_row as f32 * CELL_HEIGHT),
+                                px(frame.cursor_column as f32 * grid.width),
+                                px(frame.cursor_row as f32 * grid.height),
                             ),
-                        size(px(CELL_WIDTH), px(CELL_HEIGHT)),
+                        size(px(grid.width), px(grid.height)),
                     ),
                     color,
                 ));
@@ -1106,17 +1120,17 @@ impl RemoteWindow {
                 };
                 let line = window.text_system().shape_line(
                     self.terminal_preedit.clone().into(),
-                    px(13.),
+                    font_size,
                     &[run],
                     None,
                 );
                 let _ = line.paint(
                     origin
                         + point(
-                            px(frame.cursor_column as f32 * CELL_WIDTH),
-                            px(frame.cursor_row as f32 * CELL_HEIGHT),
+                            px(frame.cursor_column as f32 * grid.width),
+                            px(frame.cursor_row as f32 * grid.height),
                         ),
-                    px(CELL_HEIGHT),
+                    px(grid.height),
                     TextAlign::Left,
                     None,
                     window,
@@ -1128,7 +1142,7 @@ impl RemoteWindow {
 }
 /// Same grid alignment as the local terminal painter: native shaping inside a
 /// cell, fixed advances between cells, without mutating GPUI's shared cache.
-fn align_to_grid(line: &mut ShapedLine, byte_columns: &[usize], columns: usize) {
+fn align_to_grid(line: &mut ShapedLine, byte_columns: &[usize], columns: usize, cell_width: f32) {
     let mut runs = line.runs.clone();
     let glyphs: Vec<_> = runs
         .iter()
@@ -1136,7 +1150,7 @@ fn align_to_grid(line: &mut ShapedLine, byte_columns: &[usize], columns: usize) 
         .map(|g| (g.index, f32::from(g.position.x)))
         .collect();
     let positions =
-        canopy_desktop::terminal::glyph_layout::positions(&glyphs, byte_columns, CELL_WIDTH);
+        canopy_desktop::terminal::glyph_layout::positions(&glyphs, byte_columns, cell_width);
     for (glyph, x) in runs
         .iter_mut()
         .flat_map(|r| r.glyphs.iter_mut())
@@ -1146,7 +1160,7 @@ fn align_to_grid(line: &mut ShapedLine, byte_columns: &[usize], columns: usize) 
     }
     **line = std::sync::Arc::new(LineLayout {
         font_size: line.font_size,
-        width: px(columns as f32 * CELL_WIDTH),
+        width: px(columns as f32 * cell_width),
         ascent: line.ascent,
         descent: line.descent,
         runs,

@@ -364,7 +364,7 @@ impl Workspace {
         row()
             .h(t::tabs_height())
             .flex_shrink_0()
-            .bg(t::panel())
+            .bg(components::background::window_fill(t::panel(), cx))
             .border_b_1()
             .border_color(t::border())
             .gap_1()

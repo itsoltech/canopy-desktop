@@ -32,7 +32,11 @@ pub fn workspace_tab(
         .gap_2()
         .cursor_pointer()
         .border_b_2()
-        .border_color(if active { t::accent() } else { t::panel() })
+        .border_color(if active {
+            t::accent()
+        } else {
+            transparent_black()
+        })
         .text_xs()
         .text_color(if active { t::text() } else { t::secondary() })
         .children(indicator.map(|(_, color)| {

@@ -232,7 +232,7 @@ impl ChatView {
                 .id("chat-goal-title")
                 .text_size(px(12.))
                 .text_color(t::text())
-                .highlight_color(gpui_kit::white())
+                .highlight_color(t::shimmer_highlight())
                 .into_any_element()
         } else {
             div().child(title).into_any_element()

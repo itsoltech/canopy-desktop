@@ -141,8 +141,9 @@ typu file promise, URL, obraz ze schowka oraz wewnętrzny drag z Files pozostaj�
 poza zakresem tej wersji. Rozpoznanie wklejonej ścieżki jako załącznika obrazu
 należy do CLI Codex/Claude i wymaga osobnej weryfikacji w działającej sesji.
 
-Font bazowy to JetBrains Mono, z jawnym systemowym fallbackiem do Nerd Fonts,
-preferującym JetBrainsMono Nerd Font Mono / NFM. Glify Nerd wymagają fontu
+Font bazowy to JetBrains Mono (zmienny w Settings → Appearance, zob. „Font
+terminala”), z jawnym systemowym fallbackiem do Nerd Fonts, preferującym
+JetBrainsMono Nerd Font Mono / NFM. Glify Nerd wymagają fontu
 zainstalowanego w systemie, podobnie jak w dotychczasowej konfiguracji Electrona.
 Nie zmieniamy ustawień ani konfiguracji powłoki użytkownika.
 
@@ -241,8 +242,8 @@ Akcje są ikonami z tooltipem w pasku zakładek: Earlier output, Copy selection
 i menu Terminal actions (Release control, Restart terminal…, Stop terminal…,
 Close view). Wszystkie wywołują te same operacje co wcześniej.
 
-Malarz używa geometrii lokalnej (`GridGeometry`, stałe `CELL_WIDTH/CELL_HEIGHT`,
-font 13 px, wyrównanie glifów do siatki, scalanie teł i rozciąganie skrajnych
+Malarz używa geometrii lokalnej (`GridGeometry` z komórką fontu terminala
+urządzenia, zob. „Font terminala”, wyrównanie glifów do siatki, scalanie teł i rozciąganie skrajnych
 teł do marginesów, zaznaczenie `selected`, kursor 45%/18% zależnie od fokusu).
 Siatka ramki hosta jest centrowana jak lokalnie; mysz i zaznaczanie liczą
 komórki z tej samej geometrii. Lokalnego `TerminalView` nie użyto ponownie:
@@ -251,6 +252,55 @@ ramek zdalnych wymagałby osobnej abstrakcji. Wypełnienie wysokości zależy od
 rodzica: kontener strony w `remote_client/mod.rs` jest przewijany, dlatego
 powierzchnia ma minimalną wysokość (`min_h_96`) do czasu, aż strona Terminal
 dostanie nieprzewijany kontener `size_full`.
+
+## Paleta kolorów i motyw
+
+Domyślne kolory terminala (ANSI 0–15, tło i pierwszy plan) należą do aktywnego
+wariantu motywu: `canopy_desktop::appearance::TerminalColors` w
+`src/appearance/palettes.rs`, po jednym zestawie na wariant (oficjalne palety
+terminalowe rodzin, Canopy Dark zachowuje dawną paletę z tłem `#202020`).
+Indeksy 16–255 (kostka xterm i rampa szarości) nie zależą od motywu; pozostałe
+kolory nazwane używają pierwszego planu, `NamedColor::Background` — tła.
+`session::palette(index)` czyta `appearance::active_terminal()` (jeden atomowy
+odczyt, bezpieczny z dowolnego wątku), także dla odpowiedzi na OSC color request.
+Kolory z sekwencji (truecolor) i nadpisania OSC zostają bez zmian.
+
+Komórki `Frame` mają kolory rozwiązane w chwili projekcji, dlatego zmiana motywu
+(`ui::theme::bind`) wywołuje `TerminalView::repaint_palette`, czyli
+`Session::notify`: lokalny widok i obserwatorzy zdalni odczytują ramkę ponownie,
+bez zmiany emulatora i rewizji. Widok zdalny maluje kolory RGBA wyliczone przez
+hosta — pokazuje paletę motywu hosta, nie urządzenia (protokół nie przenosi
+indeksów kolorów).
+
+## Font terminala
+
+`terminal.font_family` (lista po przecinku) i `terminal.font_size` (8–24 px,
+domyślnie JetBrains Mono 13 px) ustawia Settings → Appearance. Właściciel motywu
+(`ui::theme::bind`) przy każdej zmianie tych ustawień buduje `TerminalFont`
+(global `TerminalFontState`, odczyt `theme::terminal_font(cx)`):
+
+- rodzina główna to pierwsza zainstalowana z listy użytkownika, a gdy żadna nie
+  jest — pierwsza zainstalowana z łańcucha Canopy (JetBrains Mono, JetBrainsMono
+  Nerd Font Mono/NFM/Nerd Font/NF, Symbols Nerd Font Mono, FiraCode Nerd Font,
+  Menlo). Pozostałe nazwy (także niezainstalowane z listy użytkownika) zostają
+  fallbackami glifów w tej kolejności, bez powtórzeń. Listę zainstalowanych
+  rodzin (`TextSystem::all_font_names`) czytamy raz, w tle; do tego czasu rodziną
+  główną jest pierwsza z listy;
+- komórka (`terminal::geometry::CellSize`) jest mierzona z fontu: szerokość to
+  advance znaku `m` w rozwiązanej rodzinie, wysokość zachowuje dawny stosunek
+  17/13 (zaokrąglony do pikseli; 13 px → 17 px). Bez pomiaru szerokość wynika ze
+  stosunku domyślnej komórki 7,83/13.
+
+`GridGeometry::fit/with_size` przyjmują `CellSize`. `TerminalView::resize`
+(prepaint canvasu) porównuje komórkę z ostatnią; zmiana fontu działa jak resize:
+nowa siatka, `local_resize` PTY (SIGWINCH dla TUI), ramka po reflow w tej samej
+klatce i natychmiastowe wycentrowanie zamiast czekania na koniec resize. Malarz
+kształtuje tekst rozmiarem fontu i wyrównuje glify do szerokości komórki; mysz,
+zaznaczanie, kursor, IME i przewijanie kółkiem liczą w tej samej komórce. Widok
+terminala zdalnego używa fontu urządzenia i z niego wylicza rozmiar siatki
+proszony u hosta. Zmiana odświeża okna; widoki ukryte przeliczą siatkę przy
+następnym pokazaniu. Widoki kodu (edytor, bloki kodu) zostają przy fontcie
+`theme::MONO` motywu.
 
 ## Geometria i tło
 

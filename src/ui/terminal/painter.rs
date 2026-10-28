@@ -4,7 +4,6 @@ use alacritty_terminal::{
     term::cell::Flags,
     vte::ansi::{CursorShape, Rgb},
 };
-pub use canopy_desktop::terminal::geometry::{CELL_HEIGHT, CELL_WIDTH};
 use gpui_kit::*;
 fn color(c: Rgb) -> Hsla {
     rgb((u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)).into()
@@ -23,8 +22,10 @@ pub fn paint(
     let Some(frame) = &view.frame else {
         return;
     };
-    let base_font = theme::terminal_font();
+    let terminal_font = theme::terminal_font(cx);
+    let (base_font, font_size) = (terminal_font.font, terminal_font.size);
     let geometry = view.grid_geometry();
+    let (cell_width, cell_height) = (geometry.cell.width, geometry.cell.height);
     let origin = bounds.origin + point(px(geometry.left), px(geometry.top));
     window.paint_layer(bounds, |window| {
         // Background spans include spacer cells and fill all four margins/corners.
@@ -87,12 +88,12 @@ pub fn paint(
             }
             let pos = origin
                 + point(
-                    px(cell.column as f32 * CELL_WIDTH),
-                    px(cell.row as f32 * CELL_HEIGHT),
+                    px(cell.column as f32 * cell_width),
+                    px(cell.row as f32 * cell_height),
                 );
             if cell.selected {
                 window.paint_quad(fill(
-                    Bounds::new(pos, size(px(columns as f32 * CELL_WIDTH), px(CELL_HEIGHT))),
+                    Bounds::new(pos, size(px(columns as f32 * cell_width), px(cell_height))),
                     theme::selected(),
                 ));
             }
@@ -123,11 +124,12 @@ pub fn paint(
                     ),
                     ..Default::default()
                 };
-                let mut line = window
-                    .text_system()
-                    .shape_line(text.into(), px(13.), &[run], None);
-                align_to_grid(&mut line, &byte_columns, columns);
-                let _ = line.paint(pos, px(CELL_HEIGHT), TextAlign::Left, None, window, cx);
+                let mut line =
+                    window
+                        .text_system()
+                        .shape_line(text.into(), font_size, &[run], None);
+                align_to_grid(&mut line, &byte_columns, columns, cell_width);
+                let _ = line.paint(pos, px(cell_height), TextAlign::Left, None, window, cx);
             }
             i = next;
         }
@@ -140,17 +142,17 @@ pub fn paint(
             let painted_cursor = painted_cursor.unwrap();
             let pos = origin
                 + point(
-                    px(painted_cursor.position.1 as f32 * CELL_WIDTH),
-                    px(painted_cursor.position.0 as f32 * CELL_HEIGHT),
+                    px(painted_cursor.position.1 as f32 * cell_width),
+                    px(painted_cursor.position.0 as f32 * cell_height),
                 );
             let (offset, sz) = match painted_cursor.shape {
-                CursorShape::Beam => (point(px(0.), px(0.)), size(px(2.), px(CELL_HEIGHT))),
+                CursorShape::Beam => (point(px(0.), px(0.)), size(px(2.), px(cell_height))),
                 CursorShape::Underline => (
-                    point(px(0.), px(CELL_HEIGHT - 2.)),
-                    size(px(CELL_WIDTH), px(2.)),
+                    point(px(0.), px(cell_height - 2.)),
+                    size(px(cell_width), px(2.)),
                 ),
                 CursorShape::Hidden => return,
-                _ => (point(px(0.), px(0.)), size(px(CELL_WIDTH), px(CELL_HEIGHT))),
+                _ => (point(px(0.), px(0.)), size(px(cell_width), px(cell_height))),
             };
             let mut cursor = theme::text();
             cursor.a = if view.focus.is_focused(window) {
@@ -168,23 +170,25 @@ pub fn paint(
                 color: theme::yellow(),
                 ..Default::default()
             };
-            let line = window.text_system().shape_line(text, px(13.), &[run], None);
+            let line = window
+                .text_system()
+                .shape_line(text, font_size, &[run], None);
             let cursor = painted_cursor
                 .map(|cursor| cursor.position)
                 .unwrap_or(frame.cursor);
             let pos = origin
                 + point(
-                    px(cursor.1 as f32 * CELL_WIDTH),
-                    px(cursor.0 as f32 * CELL_HEIGHT),
+                    px(cursor.1 as f32 * cell_width),
+                    px(cursor.0 as f32 * cell_height),
                 );
-            let _ = line.paint(pos, px(CELL_HEIGHT), TextAlign::Left, None, window, cx);
+            let _ = line.paint(pos, px(cell_height), TextAlign::Left, None, window, cx);
         }
     });
 }
 
 // Do not mutate GPUI's shared line cache: retain native shaping within each cell
 // in an owned layout, while removing proportional advances between cells.
-fn align_to_grid(line: &mut ShapedLine, byte_columns: &[usize], columns: usize) {
+fn align_to_grid(line: &mut ShapedLine, byte_columns: &[usize], columns: usize, cell_width: f32) {
     let mut runs = line.runs.clone();
     let glyphs: Vec<_> = runs
         .iter()
@@ -192,7 +196,7 @@ fn align_to_grid(line: &mut ShapedLine, byte_columns: &[usize], columns: usize) 
         .map(|g| (g.index, f32::from(g.position.x)))
         .collect();
     let positions =
-        canopy_desktop::terminal::glyph_layout::positions(&glyphs, byte_columns, CELL_WIDTH);
+        canopy_desktop::terminal::glyph_layout::positions(&glyphs, byte_columns, cell_width);
     for (glyph, x) in runs
         .iter_mut()
         .flat_map(|r| r.glyphs.iter_mut())
@@ -202,7 +206,7 @@ fn align_to_grid(line: &mut ShapedLine, byte_columns: &[usize], columns: usize) 
     }
     **line = std::sync::Arc::new(LineLayout {
         font_size: line.font_size,
-        width: px(columns as f32 * CELL_WIDTH),
+        width: px(columns as f32 * cell_width),
         ascent: line.ascent,
         descent: line.descent,
         runs,

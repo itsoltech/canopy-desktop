@@ -187,6 +187,7 @@ impl Workspace {
         canopy_desktop::motion::request_frame(window, animating);
         // The toolbar around the strip owns its height and bottom border.
         let tabs = tab_strip("workspace-tabs")
+            .bg(transparent_black())
             .w_full()
             .h_full()
             .border_b_0()

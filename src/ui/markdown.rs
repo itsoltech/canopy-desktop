@@ -326,7 +326,7 @@ fn markdown_style(reading: bool, chat: bool) -> TextViewStyle {
         .style()
         .clone();
     TextViewStyle::default()
-        .with_dark(true)
+        .with_dark(!t::is_light())
         .with_foreground(t::text())
         .with_muted_foreground(t::secondary())
         .with_link(t::accent())
@@ -679,7 +679,7 @@ const CODE_LINE: f32 = 19.;
 /// The code inside a code card: no own background, padding or wrapping.
 fn code_style() -> TextViewStyle {
     TextViewStyle::default()
-        .with_dark(true)
+        .with_dark(!t::is_light())
         .with_foreground(t::text())
         .with_muted_foreground(t::secondary())
         .with_selection(t::accent().opacity(0.22))

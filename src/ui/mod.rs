@@ -1015,12 +1015,7 @@ impl Render for Workspace {
         motion::request_frame(window, sidebar_animating);
         let inspector_open = self.state.workspace.read(cx).tools_open();
         let main = if let Some(remote) = &self.remote {
-            div()
-                .flex_1()
-                .min_w_0()
-                .h_full()
-                .child(remote.clone())
-                .into_any_element()
+            remote.clone().into_any_element()
         } else {
             self.render_work_area(
                 sidebar_width,
@@ -1031,6 +1026,13 @@ impl Render for Workspace {
             )
             .into_any_element()
         };
+        // The window background (Settings → Appearance) spans the work area,
+        // behind tabs, panes and chats; panels keep their theme surfaces.
+        let main = components::background::window_surface(
+            div().relative().flex_1().min_w_0().h_full(),
+            cx,
+        )
+        .child(main);
         column()
             .id("workspace")
             .key_context(

@@ -1,4 +1,5 @@
 mod agent;
+mod appearance;
 mod general;
 mod integrations;
 mod jira;
@@ -99,6 +100,8 @@ impl Render for Preferences {
             unavailable_page(page.clone()).into_any_element()
         } else if page == "General" {
             self.content.clone().into_any_element()
+        } else if page == "Appearance" {
+            self.appearance.clone().into_any_element()
         } else if page == "Task filters" {
             self.task_filters.clone().into_any_element()
         } else if page == "Integrations" {
@@ -213,6 +216,7 @@ struct Preferences {
     search: Entity<InputState>,
     navigation: Entity<PreferencesNavigation>,
     content: Entity<PreferencesContent>,
+    appearance: Entity<appearance::AppearancePreferences>,
     tools_content: Entity<ToolsPreferences>,
     integrations: Entity<integrations::IntegrationsPreferences>,
     task_filters: Entity<task_filters::TaskFiltersPreferences>,
@@ -263,6 +267,7 @@ impl Preferences {
             reveal: Presence::new(true, motion::presets::CONTENT_REVEAL, Instant::now()),
             search: cx.new(|cx| InputState::new(window, cx).placeholder("Search settings…")),
             content: cx.new(|cx| PreferencesContent::new(window, cx)),
+            appearance: cx.new(|cx| appearance::AppearancePreferences::new(window, cx)),
         }
     }
 }

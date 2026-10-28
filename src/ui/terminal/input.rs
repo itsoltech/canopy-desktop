@@ -1,4 +1,4 @@
-use super::{TerminalView, painter};
+use super::TerminalView;
 use crate::app_state::AppState;
 use canopy_desktop::terminal::{
     control::Refused,
@@ -198,10 +198,10 @@ impl EntityInputHandler for TerminalView {
         Some(Bounds::new(
             bounds.origin
                 + point(
-                    px(geometry.left + cursor.1 as f32 * painter::CELL_WIDTH),
-                    px(geometry.top + cursor.0 as f32 * painter::CELL_HEIGHT),
+                    px(geometry.left + cursor.1 as f32 * geometry.cell.width),
+                    px(geometry.top + cursor.0 as f32 * geometry.cell.height),
                 ),
-            size(px(painter::CELL_WIDTH), px(painter::CELL_HEIGHT)),
+            size(px(geometry.cell.width), px(geometry.cell.height)),
         ))
     }
     fn character_index_for_point(

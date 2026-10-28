@@ -157,6 +157,10 @@ impl Workspace {
                             }),
                         ),
                     )
+                    .bg(super::components::background::window_fill(
+                        super::theme::sidebar(),
+                        cx,
+                    ))
                 }))
                 .child(pane_body(
                     if pane.metadata.kind == canopy_desktop::state::workspace::PaneKind::Chat {

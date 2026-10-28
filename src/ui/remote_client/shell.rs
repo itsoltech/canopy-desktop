@@ -379,7 +379,12 @@ impl Render for RemoteWindow {
         let element = column()
             .track_focus(&self.focus)
             .size_full()
-            .bg(t::bg())
+            // Embedded in the main window it lies on the window background.
+            .bg(if self.embedded {
+                crate::ui::components::background::window_fill(t::bg(), cx)
+            } else {
+                t::bg()
+            })
             .text_color(t::text())
             .text_size(px(13.))
             .when(!self.embedded, |d| {

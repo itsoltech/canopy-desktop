@@ -195,7 +195,7 @@ impl Render for ChatView {
             }))
             .size_full()
             .relative()
-            .bg(t::bg())
+            .bg(crate::ui::components::background::window_fill(t::bg(), cx))
             .children(self.thread_header(cx))
             .child(
                 div()
@@ -234,6 +234,26 @@ impl ChatView {
         // conversation: the list's length and scrollbar don't change as it shrinks.
         let frozen = self.resting.on || self.resting.height(Instant::now()).is_some();
         let background = t::bg();
+        // Over a custom window background the shade repaints that background
+        // instead of fading to the theme color.
+        let custom = crate::ui::components::background::window_backdrop(0., 0.9, cx).zip(
+            crate::ui::components::background::window_backdrop(0.9, 1., cx),
+        );
+        let (fade, shade) = match custom {
+            Some((fade, shade)) => (div().relative().child(fade), div().relative().child(shade)),
+            None => (
+                div().bg(linear_gradient(
+                    180.,
+                    linear_color_stop(background.opacity(0.), 0.),
+                    linear_color_stop(background.opacity(0.9), 1.),
+                )),
+                div().bg(linear_gradient(
+                    180.,
+                    linear_color_stop(background.opacity(0.9), 0.),
+                    linear_color_stop(background, 1.),
+                )),
+            ),
+        };
         column()
             .absolute()
             .left_0()
@@ -249,27 +269,8 @@ impl ChatView {
                     .bottom_0()
                     .left_0()
                     .right(px(SCROLLBAR))
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .h(px(COMPOSER_FADE))
-                            .bg(linear_gradient(
-                                180.,
-                                linear_color_stop(background.opacity(0.), 0.),
-                                linear_color_stop(background.opacity(0.9), 1.),
-                            )),
-                    )
-                    .child(
-                        div()
-                            .id("chat-composer-shade")
-                            .flex_1()
-                            .bg(linear_gradient(
-                                180.,
-                                linear_color_stop(background.opacity(0.9), 0.),
-                                linear_color_stop(background, 1.),
-                            ))
-                            .occlude(),
-                    ),
+                    .child(fade.flex_shrink_0().h(px(COMPOSER_FADE)))
+                    .child(shade.id("chat-composer-shade").flex_1().occlude()),
             )
             .children(self.banner(cx))
             .children(status)

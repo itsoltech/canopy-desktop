@@ -1,4 +1,7 @@
 use super::{Error, Result};
+use crate::appearance::{
+    AppearanceMode, Background, BackgroundTarget, Backgrounds, ThemeFamily, ThemeVariant,
+};
 use crate::chat::config::{Effort, Mode, valid_model};
 use serde::Serialize;
 use std::str::FromStr;
@@ -15,9 +18,16 @@ pub enum PreferenceKey {
     ChatModel,
     ChatEffort,
     ChatMode,
+    /// Device-local look: theme family, light/dark/auto and custom backgrounds.
+    AppearanceTheme,
+    AppearanceMode,
+    Background(ThemeVariant, BackgroundTarget),
+    /// Stored for the terminal font settings; not consumed by the terminal yet.
+    TerminalFontFamily,
+    TerminalFontSize,
 }
 impl PreferenceKey {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 17] = [
         Self::ReopenLastWorkspace,
         Self::NotchEnabled,
         Self::ResourceUsage,
@@ -27,6 +37,14 @@ impl PreferenceKey {
         Self::ChatModel,
         Self::ChatEffort,
         Self::ChatMode,
+        Self::AppearanceTheme,
+        Self::AppearanceMode,
+        Self::Background(ThemeVariant::Dark, BackgroundTarget::Window),
+        Self::Background(ThemeVariant::Dark, BackgroundTarget::Sidebar),
+        Self::Background(ThemeVariant::Light, BackgroundTarget::Window),
+        Self::Background(ThemeVariant::Light, BackgroundTarget::Sidebar),
+        Self::TerminalFontFamily,
+        Self::TerminalFontSize,
     ];
     pub fn as_str(self) -> &'static str {
         match self {
@@ -39,6 +57,22 @@ impl PreferenceKey {
             Self::ChatModel => "chat.model",
             Self::ChatEffort => "chat.effort",
             Self::ChatMode => "chat.mode",
+            Self::AppearanceTheme => "appearance.theme",
+            Self::AppearanceMode => "appearance.mode",
+            Self::Background(ThemeVariant::Dark, BackgroundTarget::Window) => {
+                "appearance.background.dark.window"
+            }
+            Self::Background(ThemeVariant::Dark, BackgroundTarget::Sidebar) => {
+                "appearance.background.dark.sidebar"
+            }
+            Self::Background(ThemeVariant::Light, BackgroundTarget::Window) => {
+                "appearance.background.light.window"
+            }
+            Self::Background(ThemeVariant::Light, BackgroundTarget::Sidebar) => {
+                "appearance.background.light.sidebar"
+            }
+            Self::TerminalFontFamily => "terminal.font_family",
+            Self::TerminalFontSize => "terminal.font_size",
         }
     }
 }
@@ -82,6 +116,50 @@ pub struct Preferences {
     pub new_tab_tool: ToolId,
     pub new_worktree_tool: ToolId,
     pub chat: ChatDefaults,
+    pub appearance: AppearancePreferences,
+    pub terminal: TerminalPreferences,
+}
+
+/// The app's look on this device. Not mirrored to remote clients.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct AppearancePreferences {
+    pub theme: ThemeFamily,
+    pub mode: AppearanceMode,
+    pub backgrounds: Backgrounds,
+}
+
+pub const TERMINAL_FONT_SIZES: std::ops::RangeInclusive<u8> = 8..=24;
+pub const DEFAULT_TERMINAL_FONT_FAMILY: &str = "JetBrains Mono";
+pub const DEFAULT_TERMINAL_FONT_SIZE: u8 = 13;
+/// Longest accepted font family list (a comma-separated fallback list is allowed).
+const TERMINAL_FONT_FAMILY_LIMIT: usize = 256;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct TerminalPreferences {
+    pub font_family: String,
+    /// Pixels, within `TERMINAL_FONT_SIZES`.
+    pub font_size: u8,
+}
+impl Default for TerminalPreferences {
+    fn default() -> Self {
+        Self {
+            font_family: DEFAULT_TERMINAL_FONT_FAMILY.into(),
+            font_size: DEFAULT_TERMINAL_FONT_SIZE,
+        }
+    }
+}
+fn font_family(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()
+        && value.len() <= TERMINAL_FONT_FAMILY_LIMIT
+        && !value.chars().any(char::is_control))
+    .then(|| value.to_owned())
+}
+fn font_size(value: &str) -> Option<u8> {
+    value
+        .parse::<u8>()
+        .ok()
+        .filter(|size| TERMINAL_FONT_SIZES.contains(size))
 }
 
 /// What the last chat used; `None` falls back to the account profile.
@@ -101,6 +179,8 @@ impl Default for Preferences {
             new_tab_tool: ToolId::default(),
             new_worktree_tool: ToolId::default(),
             chat: ChatDefaults::default(),
+            appearance: AppearancePreferences::default(),
+            terminal: TerminalPreferences::default(),
         }
     }
 }
@@ -131,6 +211,11 @@ pub enum Change {
     ChatModel(String),
     ChatEffort(Effort),
     ChatMode(Mode),
+    AppearanceTheme(ThemeFamily),
+    AppearanceMode(AppearanceMode),
+    Background(ThemeVariant, BackgroundTarget, Background),
+    TerminalFontFamily(String),
+    TerminalFontSize(u8),
     Reset(PreferenceKey),
 }
 impl Change {
@@ -164,6 +249,23 @@ impl Change {
             PreferenceKey::ChatMode => {
                 Self::ChatMode(Mode::from_key(value).ok_or(Error::InvalidValue(key))?)
             }
+            PreferenceKey::AppearanceTheme => {
+                Self::AppearanceTheme(ThemeFamily::from_key(value).ok_or(Error::InvalidValue(key))?)
+            }
+            PreferenceKey::AppearanceMode => Self::AppearanceMode(
+                AppearanceMode::from_key(value).ok_or(Error::InvalidValue(key))?,
+            ),
+            PreferenceKey::Background(variant, target) => Self::Background(
+                variant,
+                target,
+                Background::decode(value).ok_or(Error::InvalidValue(key))?,
+            ),
+            PreferenceKey::TerminalFontFamily => {
+                Self::TerminalFontFamily(font_family(value).ok_or(Error::InvalidValue(key))?)
+            }
+            PreferenceKey::TerminalFontSize => {
+                Self::TerminalFontSize(font_size(value).ok_or(Error::InvalidValue(key))?)
+            }
         })
     }
     pub fn key(&self) -> PreferenceKey {
@@ -182,14 +284,65 @@ impl Change {
             Self::ChatModel(v) => (PreferenceKey::ChatModel, Some(v.clone())),
             Self::ChatEffort(v) => (PreferenceKey::ChatEffort, Some(v.key().into())),
             Self::ChatMode(v) => (PreferenceKey::ChatMode, Some(v.key().into())),
+            Self::AppearanceTheme(v) => (PreferenceKey::AppearanceTheme, Some(v.key().into())),
+            Self::AppearanceMode(v) => (PreferenceKey::AppearanceMode, Some(v.key().into())),
+            Self::Background(variant, target, v) => (
+                PreferenceKey::Background(*variant, *target),
+                Some(v.encode()),
+            ),
+            Self::TerminalFontFamily(v) => (
+                PreferenceKey::TerminalFontFamily,
+                Some(font_family(v).unwrap_or_else(|| DEFAULT_TERMINAL_FONT_FAMILY.into())),
+            ),
+            Self::TerminalFontSize(v) => (
+                PreferenceKey::TerminalFontSize,
+                Some(
+                    v.clamp(TERMINAL_FONT_SIZES.start(), TERMINAL_FONT_SIZES.end())
+                        .to_string(),
+                ),
+            ),
             Self::Reset(key) => (*key, None),
         }
     }
 }
 
-pub(super) fn decode(schema: Schema, values: Vec<(PreferenceKey, Option<String>)>) -> Snapshot {
+/// Electron's app-wide theme and terminal font keys, read only as fallbacks for
+/// the native keys and never written.
+pub(super) const LEGACY_KEYS: [&str; 3] = ["theme", "fontFamily", "fontSize"];
+
+pub(super) fn decode(
+    schema: Schema,
+    values: Vec<(PreferenceKey, Option<String>)>,
+    legacy: Vec<(String, String)>,
+) -> Snapshot {
     let mut preferences = Preferences::default();
     let mut warnings = Vec::new();
+    // Electron applied its terminal theme to the whole app: carry it over until
+    // the native keys are written. Native keys below take precedence.
+    for (key, raw) in legacy {
+        match key.as_str() {
+            "theme" => {
+                if let Some((family, variant)) = ThemeFamily::from_electron(&raw) {
+                    preferences.appearance.theme = family;
+                    preferences.appearance.mode = match variant {
+                        ThemeVariant::Dark => AppearanceMode::Dark,
+                        ThemeVariant::Light => AppearanceMode::Light,
+                    };
+                }
+            }
+            "fontFamily" => {
+                if let Some(family) = font_family(&raw) {
+                    preferences.terminal.font_family = family;
+                }
+            }
+            "fontSize" => {
+                if let Some(size) = font_size(raw.trim()) {
+                    preferences.terminal.font_size = size;
+                }
+            }
+            _ => {}
+        }
+    }
     for (key, raw) in values {
         let Some(raw) = raw else {
             continue;
@@ -204,6 +357,13 @@ pub(super) fn decode(schema: Schema, values: Vec<(PreferenceKey, Option<String>)
             Ok(Change::ChatModel(v)) => preferences.chat.model = Some(v),
             Ok(Change::ChatEffort(v)) => preferences.chat.effort = Some(v),
             Ok(Change::ChatMode(v)) => preferences.chat.mode = Some(v),
+            Ok(Change::AppearanceTheme(v)) => preferences.appearance.theme = v,
+            Ok(Change::AppearanceMode(v)) => preferences.appearance.mode = v,
+            Ok(Change::Background(variant, target, v)) => {
+                *preferences.appearance.backgrounds.get_mut(variant, target) = v
+            }
+            Ok(Change::TerminalFontFamily(v)) => preferences.terminal.font_family = v,
+            Ok(Change::TerminalFontSize(v)) => preferences.terminal.font_size = v,
             _ => warnings.push(DecodeWarning { key }),
         }
     }

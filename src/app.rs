@@ -61,6 +61,7 @@ pub fn run() {
                     crate::app_state::AppState::quit(cx);
                     false
                 });
+                crate::ui::theme::bind(window, cx);
                 let view = cx.new(|cx| crate::ui::Workspace::new(window, cx));
                 cx.new(|cx| Root::new(view, window, cx))
             }) {

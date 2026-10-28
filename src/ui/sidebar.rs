@@ -456,10 +456,9 @@ impl Render for Sidebar {
                 .map(|p| p.id),
             cx,
         );
-        column()
+        super::components::background::sidebar_surface(column(), cx)
             .size_full()
             .track_focus(&self.focus)
-            .bg(t::sidebar())
             .border_r_1()
             .border_color(t::border())
             .child(self.new_chat(cx))

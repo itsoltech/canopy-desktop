@@ -7,6 +7,7 @@ pub use button_loading::ButtonLoading;
 mod skeleton;
 pub mod toast;
 pub use skeleton::{panel_loading, skeleton_bar};
+pub mod background;
 mod controls;
 pub mod file_tree;
 pub mod files;
@@ -16,14 +17,17 @@ pub mod git_tracking;
 pub mod history;
 pub mod hover_card;
 pub use hover_card::{HoverCardExt, HoverCards};
+pub mod gradient_editor;
 pub mod integrations;
 pub mod media;
+mod segmented;
 pub mod session;
 mod settings;
 pub mod task_detail;
 pub mod tasks;
 pub use buttons::*;
 pub use controls::*;
+pub use segmented::segmented_control;
 pub use settings::*;
 
 use super::theme as t;
@@ -79,16 +83,16 @@ pub fn custom_icon(name: &'static str) -> Icon {
 pub fn tool_icon(name: &str, fallback: IconName) -> AnyElement {
     match name {
         "Claude Code" => custom_icon("claude")
-            .text_color(rgb(0xd97757))
+            .text_color(t::claude_brand())
             .into_any_element(),
         "Codex" => custom_icon("openai")
-            .text_color(rgb(0x000000))
+            .text_color(t::openai_brand())
             .into_any_element(),
         "Gemini CLI" => img("canopy/gemini.svg").size(px(14.)).into_any_element(),
         "OpenCode" => custom_icon("code").into_any_element(),
         "Shell" | "Droid" => custom_icon("terminal").into_any_element(),
         "LazyGit" => custom_icon("git-branch")
-            .text_color(rgb(0xf05033))
+            .text_color(t::lazygit_brand())
             .into_any_element(),
         _ => icon(fallback).into_any_element(),
     }

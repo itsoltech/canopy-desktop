@@ -660,7 +660,7 @@ impl ChatView {
                     .size(px(DOT))
                     .rounded_full()
                     .bg(if filled {
-                        gpui_kit::white().opacity(0.6)
+                        t::effort_sheen().opacity(0.6)
                     } else {
                         t::text().opacity(0.25)
                     })
@@ -673,7 +673,7 @@ impl ChatView {
                     .size(px(KNOB))
                     .rounded_full()
                     .opacity(shown)
-                    .bg(gpui_kit::white())
+                    .bg(t::effort_sheen())
                     .shadow_md(),
             )
             .child(

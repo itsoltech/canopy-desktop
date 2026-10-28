@@ -83,6 +83,8 @@ pub struct TerminalView {
     bounds: Bounds<Pixels>,
     columns: Size,
     anchor: canopy_desktop::terminal::geometry::GridAnchor,
+    /// Cell of the terminal font the grid was last fitted with.
+    cell: canopy_desktop::terminal::geometry::CellSize,
     settle_deadline: std::time::Instant,
     settle_task: Option<Task<()>>,
     preedit: String,
@@ -255,6 +257,7 @@ impl TerminalView {
             bounds: Bounds::default(),
             columns: Size::bounded(80, 24),
             anchor: Default::default(),
+            cell: Default::default(),
             settle_deadline: std::time::Instant::now(),
             settle_task: None,
             preedit: String::new(),

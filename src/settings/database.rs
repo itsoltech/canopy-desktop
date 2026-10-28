@@ -403,7 +403,13 @@ fn read_snapshot(db: &Connection, schema: Schema) -> Result<Snapshot> {
         let (key, value) = row?;
         values.push((key.parse::<PreferenceKey>()?, Some(value)));
     }
-    Ok(contract::decode(schema, values))
+    let legacy = db
+        .prepare("SELECT key,value FROM preferences WHERE key IN (?1,?2,?3)")?
+        .query_map(rusqlite::params_from_iter(contract::LEGACY_KEYS), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(contract::decode(schema, values, legacy))
 }
 
 fn read_projects(db: &Connection) -> Result<ProjectSnapshot> {

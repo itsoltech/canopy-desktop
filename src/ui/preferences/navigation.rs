@@ -15,13 +15,12 @@ fn nav_icon(name: &str, fallback: IconName) -> gpui_kit::component::Icon {
 }
 /// Entries without working settings yet. They stay in the list, greyed out,
 /// and open a page that says so (see docs/settings.md for the evidence).
-const UNAVAILABLE: [&str; 10] = [
+const UNAVAILABLE: [&str; 9] = [
     "Updates",
     "Privacy",
     "Shortcuts",
     "Notch",
     "Misc",
-    "Appearance",
     "Sidebar",
     "Skills",
     "Git",

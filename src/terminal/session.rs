@@ -12,7 +12,7 @@ use alacritty_terminal::{
     sync::FairMutex,
     term::{Config, Term, TermMode, cell::Flags},
     tty,
-    vte::ansi::{Color, CursorShape, NamedColor, Rgb},
+    vte::ansi::{Color, CursorShape, Rgb},
 };
 use std::{
     borrow::Cow,
@@ -938,25 +938,10 @@ mod windows_tests {
         assert!(!files_path.exists());
     }
 }
+/// Default color `index` (ANSI, xterm cube/ramp or named) of the active theme
+/// variant. Frames resolve it at projection, so a theme change re-projects.
 pub fn palette(index: usize) -> Rgb {
-    let ansi = [
-        0x1b1b1b, 0xe06c75, 0x98c379, 0xe5c07b, 0x61afef, 0xc678dd, 0x56b6c2, 0xc8c8c8, 0x666666,
-        0xff7a85, 0xb5e890, 0xffd68a, 0x80c7ff, 0xdf9aff, 0x75d5df, 0xffffff,
-    ];
-    let hex = if index < 16 {
-        ansi[index]
-    } else if index < 232 {
-        let n = index - 16;
-        let cube = |n: usize| if n == 0 { 0 } else { 55 + n * 40 };
-        (cube(n / 36) << 16) | (cube((n / 6) % 6) << 8) | cube(n % 6)
-    } else if index < 256 {
-        let v = 8 + (index - 232) * 10;
-        (v << 16) | (v << 8) | v
-    } else if index == NamedColor::Background as usize {
-        0x202020
-    } else {
-        0xc8c8c8
-    };
+    let hex = crate::appearance::active_terminal().color(index);
     Rgb {
         r: (hex >> 16) as u8,
         g: (hex >> 8) as u8,
@@ -967,6 +952,7 @@ pub fn palette(index: usize) -> Rgb {
 #[cfg(test)]
 mod projection_tests {
     use super::*;
+    use alacritty_terminal::vte::ansi::NamedColor;
     #[derive(Clone)]
     struct Sink;
     impl EventListener for Sink {

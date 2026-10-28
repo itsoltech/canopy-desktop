@@ -286,6 +286,13 @@ impl TerminalView {
         });
         wait_for_cleanup(completion, result, cx)
     }
+    /// The theme's terminal palette changed: frames hold resolved colors, so wake
+    /// the session to re-project them (locally and for remote viewers).
+    pub(crate) fn repaint_palette(&self) {
+        if let Some(session) = &self.session {
+            session.notify();
+        }
+    }
     pub(super) fn refresh(&mut self, cx: &mut Context<Self>) {
         if let Some(session) = &self.session {
             let status = Some(session.status());

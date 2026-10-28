@@ -16,12 +16,79 @@ Publiczne API zapisuje wyłącznie poniższe klucze:
 | perf.hud.enabled | bool / true, false | false |
 | newTab.toolId | niepusty identyfikator narzędzia | shell |
 | newWorktree.toolId | niepusty identyfikator narzędzia | shell |
+| chat.profileId / chat.model / chat.effort / chat.mode | ostatnie wybory czatu | brak (profil konta) |
+| appearance.theme | `ThemeFamily` / canopy, dracula, monokai, solarized, nord, one, gruvbox, tokyo-night, catppuccin, github, rose-pine | canopy |
+| appearance.mode | `AppearanceMode` / light, dark, auto | dark |
+| appearance.background.{dark,light}.{window,sidebar} | `Background` / JSON (niżej) | tryb theme |
+| terminal.font_family | niepusta lista fontów, ≤ 256 znaków, bez znaków sterujących | JetBrains Mono |
+| terminal.font_size | liczba 8–24 (px) | 13 |
 
 Brak wartości oznacza fallback w pamięci, bez dopisywania do bazy.
 Niepoprawna wartość daje ostrzeżenie zawierające tylko klucz i fallback;
 odczyt nie naprawia danych automatycznie. Nieznane identyfikatory narzędzi
 zachowujemy — sprawdzanie dostępności narzędzi będzie osobną operacją.
 Reset usuwa wybrany klucz.
+
+### Wygląd (motyw, tła, font terminala)
+
+Domyślnie Canopy + Dark, czyli dotychczasowy wygląd; Auto jest opcją użytkownika.
+Tło to obiekt JSON (limit 2048 bajtów, nieznane pola odrzucane):
+
+```json
+{"mode":"gradient","solid":"#1b2230","gradient":{"angle":135,"stops":[{"color":"#141a26","position":0},{"color":"#2a2240","position":100}]}}
+```
+
+`mode` ∈ theme/solid/gradient; kolor solid i gradient są przechowywane także,
+gdy wybrany jest inny tryb. Kąt 0–359 (CSS: 0 = do góry), 2–6 punktów, pozycje
+0–100, kolory `#rrggbb`. Domyślne kolory solid/gradient zależą od wariantu i celu
+(`Background::default_for`). Font terminala czyta malarz terminala
+([terminal.md](terminal.md)).
+
+Migracja z Electrona jest tylko odczytem: gdy brak kluczy natywnych, `theme`
+Electrona (nazwa motywu terminala, stosowanego tam do całej aplikacji) wyznacza
+rodzinę i tryb (`Solarized Light` → solarized + light, `Default` → canopy + dark),
+a `fontFamily`/`fontSize` — font terminala. Klucze Electrona nie są nadpisywane
+ani usuwane; niepoprawny klucz natywny daje ostrzeżenie i wraca do tej wartości.
+
+Wygląd jest lokalny dla urządzenia: nie należy do `HostPreferences`, nie ma go w
+zdalnym patchu ustawień, a jego zmiana nie zmienia rewizji CAS zdalnych ustawień
+(`ControlState::revision` pomija `appearance` i `terminal`). Nie wymaga to zmian
+schematu ani funkcji `published-runtime-schema` — to zwykłe wiersze `preferences`.
+Zmiany z UI idą przez `ui::theme::set_*` → `SettingsState::remember`; render nie
+zapisuje ustawień. Opis systemu motywów: [components.md](components.md).
+
+### Strona Settings → Appearance
+
+`src/ui/preferences/appearance.rs` (`AppearancePreferences`), według zatwierdzonej
+makiety; wszystko działa od razu we wszystkich oknach.
+
+- **THEME**: segmented **Mode** Light/Dark/Auto (`theme::set_mode`; przy Auto
+  podpowiedź „Follows macOS: the app is dark now.”) i siatka 11 kart rodzin
+  (`theme::families()`, kliknięcie → `theme::set_theme`). Karta pokazuje
+  miniaturę wariantu wyświetlanego teraz i nazwę rodziny; zaznaczona ma obwódkę
+  akcentu i ✓. Liczba kolumn wynika z szerokości strony (118 px + odstęp 10 px,
+  2–6 kolumn). Karty są przyciskami radio dostępnymi z Tab (Enter/Space).
+- **BACKGROUND**: segmented „Dark appearance / Light appearance” wybiera edytowany
+  wariant (domyślnie wyświetlany; dla drugiego podpowiedź „Shown while the app is
+  light.”), podgląd miniatury okna (sidebar 34% + obszar roboczy) malowany tym
+  samym kodem co okno główne, z przerywaną obwódką edytowanej powierzchni, potem
+  segmented Window/Sidebar, segmented Theme/Color/Gradient i „Use for sidebar too”
+  / „Use for window too” (kopiuje tło do drugiej powierzchni tego wariantu). Color:
+  ColorPicker + pole hex (Enter/blur zatwierdza, błędna wartość wraca do zapisanej)
+  i ostrzeżenie o czytelności. Gradient: `GradientEditor` ([components.md](components.md)).
+- **TERMINAL FONT**: Font family (pole tekstowe, lista po przecinku; Enter/blur
+  zapisuje, puste lub > 256 znaków wraca do zapisanej) i Font size (NumberInput
+  8–24, każda poprawna wartość zapisuje się od razu).
+
+Edycje tła są najpierw pokazywane przez `theme::preview_background`, potem
+zapisywane `theme::set_background`. Podgląd zostaje, dopóki zapis nie wróci z
+`SettingsState` (inaczej powierzchnia mignęłaby starą wartością), i znika, gdy
+zapisana wartość jest taka sama. Przeciąganie punktu/pokrętła tylko podgląda;
+zatwierdzenie (puszczenie myszy, pole, klawisz, preset, ColorPicker) zapisuje po
+250 ms ciszy, więc serie (suwak ColorPickera, powtarzanie klawisza) dają jeden
+zapis. Zmiana powierzchni lub wariantu zapisuje oczekującą edycję od razu, a
+zamknięcie strony (`on_release`) też ją zapisuje. Font i rozmiar idą przez
+`SettingsState::remember`.
 
 Nieznane preferencje, inne tabele i zaszyfrowane wartości pozostają zachowane.
 API nie udostępnia sekretów ani ich deszyfrowania. Zgodność formatu SQLite
@@ -76,8 +143,8 @@ target/release/canopy-settings set /path/to/working.db notch.enabled true
 target/release/canopy-settings init /path/to/new.db
 ```
 
-Polecenie show otwiera bazę tylko do odczytu i wypisuje jedynie kontrakt pięciu
-preferencji. Set służy do bazy roboczej; nie kierujemy go do oryginału Electrona.
+Polecenie show otwiera bazę tylko do odczytu i wypisuje jedynie kontrakt
+preferencji z powyższej tabeli. Set służy do bazy roboczej; nie kierujemy go do oryginału Electrona.
 Szczegóły błędów SQLite nie są wypisywane, aby nie ujawnić treści danych.
 
 ## Sprawdzenia i kolejny etap
@@ -100,7 +167,7 @@ tytułem i podtytułem „Not available yet”. Wiersz w działającej stronie w
 
 | Pozycja | Powód |
 | --- | --- |
-| Nawigacja: Updates, Privacy, Shortcuts, Notch, Misc, Appearance, Sidebar, Skills, Git, File Watcher | brak strony; wcześniej kliknięcie nic nie robiło |
+| Nawigacja: Updates, Privacy, Shortcuts, Notch, Misc, Sidebar, Skills, Git, File Watcher | brak strony; wcześniej kliknięcie nic nie robiło |
 | BACKUP (eksport/import) w stopce nawigacji | same ikony bez akcji |
 | Search settings… w nagłówku | wartość pola nie jest nigdzie czytana; ⌘K tylko ustawia focus |
 | General → Run setup wizard | przycisk bez akcji; w Rust nie ma kreatora |

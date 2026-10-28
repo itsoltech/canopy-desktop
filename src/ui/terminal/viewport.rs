@@ -7,17 +7,26 @@ impl TerminalView {
                 f32::from(self.bounds.size.width),
                 f32::from(self.bounds.size.height),
                 self.frame.as_ref().map(|f| f.size).unwrap_or(self.columns),
+                self.cell,
             ))
     }
 
     pub(super) fn resize(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
-        let changed = self.bounds.size != bounds.size;
+        // A new terminal font changes the cell: refit and re-center at once.
+        let cell = crate::ui::theme::terminal_font(cx).cell;
+        let refont = self.cell != cell;
+        self.cell = cell;
+        let changed = self.bounds.size != bounds.size || refont;
         self.bounds = bounds;
         let geometry = canopy_desktop::terminal::geometry::GridGeometry::fit(
             f32::from(bounds.size.width),
             f32::from(bounds.size.height),
+            cell,
         );
         self.anchor.initialize(geometry);
+        if refont {
+            self.anchor.settle(geometry);
+        }
         if changed {
             self.settle_deadline =
                 std::time::Instant::now() + canopy_desktop::motion::duration::QUICK;
@@ -38,6 +47,7 @@ impl TerminalView {
                                 let g = canopy_desktop::terminal::geometry::GridGeometry::fit(
                                     f32::from(this.bounds.size.width),
                                     f32::from(this.bounds.size.height),
+                                    this.cell,
                                 );
                                 this.anchor.settle(g);
                                 this.settle_task = None;
