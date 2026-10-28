@@ -7,7 +7,8 @@ case "$profile" in
   release) app_name='Canopy'; app_id='tech.itsol.canopy.rust.release' ;;
   profiling) app_name='Canopy Profile'; app_id='tech.itsol.canopy.rust.profile' ;;
   dev) app_name='Canopy Dev'; app_id='tech.itsol.canopy.rust.dev' ;;
-  *) echo 'Usage: build-macos.sh [release|profiling|dev] [Cargo options]' >&2; exit 2 ;;
+  dev-fast) app_name='Canopy Dev Fast'; app_id='tech.itsol.canopy.rust.dev-fast' ;;
+  *) echo 'Usage: build-macos.sh [release|profiling|dev|dev-fast] [Cargo options]' >&2; exit 2 ;;
 esac
 cargo build --locked --profile "$profile" "$@"
 output="$profile"

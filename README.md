@@ -23,6 +23,8 @@ Pierwsza kompilacja GPUI jest znacznie dłuższa niż kolejne kompilacje aplikac
 ```sh
 cargo dev
 # To samo: cargo run --locked
+cargo dev-fast
+# To samo: cargo run --locked --profile dev-fast
 cargo inspect
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
@@ -37,6 +39,24 @@ Katalog danych to `$XDG_DATA_HOME/canopy-rust` lub domyślnie
 `target/release/Canopy.app`. `./scripts/run-macos.sh dev` uruchamia build
 bez optymalizacji; `cargo dev` również pozostaje poleceniem debug.
 Pakiety są lokalne, bez podpisu wydawniczego.
+
+Do codziennych zmian używaj profilu `dev-fast`:
+
+```sh
+cargo build --locked --profile dev-fast
+# Na macOS: zbuduj pakiet lub zbuduj i uruchom go
+./scripts/build-macos.sh dev-fast
+./scripts/run-macos.sh dev-fast
+```
+
+Pakiet trafia do `target/dev-fast/Canopy Dev Fast.app`. Profil dziedziczy
+kontrole debug z `dev`, włącza kompilację przyrostową i ustawia `opt-level = 1`
+dla aplikacji oraz `opt-level = 2` dla zależności. Symbole `line-tables-only`
+zachowują nazwy plików i numery linii w backtrace, ale nie wartości zmiennych
+w debuggerze — do tego używaj `dev`. Pierwszy build tworzy osobny cache zależności
+i może być długi; profil ma skracać kolejne przebudowy. Nie zmienia ustawień
+release ani profiling. Przyspieszenie kompilacji i płynność GUI wymagają pomiaru;
+profil nie jest zamiennikiem weryfikacji release/profiling.
 
 `cargo inspect` włącza feature inspektora GPUI; skrót: Cmd+Option+I. Profil do przyszłych pomiarów:
 `cargo build --locked --profile profiling`. Nie jest to potwierdzenie 120 FPS.

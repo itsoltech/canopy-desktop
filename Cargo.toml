@@ -68,6 +68,17 @@ wuff = "=0.2.9"
 # Exercise real GPUI focus and key dispatch in keyboard-navigation regressions.
 gpui-kit = { version = "=0.7.1", features = ["test-support"] }
 
+# Daily iteration: retain development checks while reducing rebuild/debug-info cost.
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 1
+incremental = true
+debug = "line-tables-only"
+
+# Dependencies change less often; optimize them for interactive GPUI use.
+[profile.dev-fast.package."*"]
+opt-level = 2
+
 [profile.profiling]
 inherits = "release"
 debug = 2
