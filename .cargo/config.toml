@@ -1,3 +1,4 @@
 [alias]
 dev = "run --locked"
+dev-fast = "run --locked --profile dev-fast"
 inspect = "run --locked --features dev-inspector"

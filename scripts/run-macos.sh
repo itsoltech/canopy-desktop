@@ -1,5 +1,5 @@
 #!/bin/sh
-# Optimized preview by default. Use `dev` only when debugging Rust code.
+# Release preview by default; `dev-fast` for iteration, `dev` for full debugging.
 set -eu
 cd "$(dirname "$0")/.."
 profile="${1:-release}"
@@ -9,5 +9,6 @@ case "$profile" in
   release) bundle='target/release/Canopy.app' ;;
   profiling) bundle='target/profiling/Canopy Profile.app' ;;
   dev) bundle='target/debug/Canopy Dev.app' ;;
+  dev-fast) bundle='target/dev-fast/Canopy Dev Fast.app' ;;
 esac
 open "$bundle"
