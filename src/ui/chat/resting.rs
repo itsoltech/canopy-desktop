@@ -157,6 +157,11 @@ impl ChatView {
             && self.editing.is_none()
             && self.suggest.as_ref().is_none_or(|s| !s.open)
             && self.shell_error.is_none()
+            // An error stays until dismissed: it keeps the composer open to show it.
+            && self
+                .rt(cx)
+                .notice()
+                .is_none_or(|n| n.kind != crate::app_state::ChatNoticeKind::Error)
             && !self.shell_mode(cx)
             && !self.goal_mode()
             && !self.has_code_blocks()

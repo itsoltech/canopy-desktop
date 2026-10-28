@@ -202,6 +202,8 @@ pub fn tab_min_width() -> Rems {
 pub fn tab_max_width() -> Rems {
     rems(18.)
 }
+/// Widest host name in a tab's badge, in rems.
+pub const TAB_BADGE_TEXT: f32 = 6.;
 pub fn navigation_overlay() -> Hsla {
     black().opacity(0.65)
 }

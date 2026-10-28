@@ -366,7 +366,7 @@ impl Render for SessionInspector {
             .gap(px(16.))
             .pt(px(12.))
             .pb(px(20.))
-            .pr(px(8.));
+            .px_3();
         if self.sessions.is_empty() {
             body = body.child(
                 session_section("AGENT SESSIONS").child(

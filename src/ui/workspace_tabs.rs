@@ -130,14 +130,19 @@ impl Workspace {
                     &tab.root.panes().iter().map(|p| p.id).collect::<Vec<_>>(),
                     cx,
                 );
-                let host = tab
-                    .root
+                format!("{}{}", tab.title, if dirty { " •" } else { "" })
+            })
+            .collect();
+        // A tab showing another computer's chat names it in a badge.
+        let hosts: Vec<Option<String>> = workspace
+            .tabs()
+            .iter()
+            .map(|tab| {
+                tab.root
                     .find(tab.focused)
                     .and_then(|pane| self.state.chats.read(cx).runtime(pane.id))
                     .and_then(|runtime| runtime.read(cx).remote_host())
-                    .map(|host| format!(" · {}", host.name()))
-                    .unwrap_or_default();
-                format!("{}{host}{}", tab.title, if dirty { " •" } else { "" })
+                    .map(|host| host.name())
             })
             .collect();
         let rem = f32::from(window.rem_size());
@@ -148,19 +153,25 @@ impl Workspace {
         let metrics = scroll::TabMetrics {
             widths: labels
                 .iter()
-                .map(|label| {
-                    let run = TextRun {
-                        len: label.len(),
-                        font: font.clone(),
-                        ..Default::default()
+                .zip(&hosts)
+                .map(|(label, host)| {
+                    let width = |text: &str, size: f32| {
+                        let run = TextRun {
+                            len: text.len(),
+                            font: font.clone(),
+                            ..Default::default()
+                        };
+                        f32::from(
+                            window
+                                .text_system()
+                                .shape_line(text.to_owned().into(), px(rem * size), &[run], None)
+                                .width,
+                        )
                     };
-                    let text = window.text_system().shape_line(
-                        label.clone().into(),
-                        px(rem * 0.75),
-                        &[run],
-                        None,
-                    );
-                    (f32::from(text.width) + rem * 3.5).clamp(minimum, maximum)
+                    let badge = host.as_deref().map_or(0., |host| {
+                        width(host, 0.65625).min(rem * t::TAB_BADGE_TEXT) + rem * 1.75
+                    });
+                    (width(label, 0.75) + badge + rem * 3.5).clamp(minimum, maximum)
                 })
                 .collect(),
             viewport: width,
@@ -174,8 +185,11 @@ impl Workspace {
             canopy_desktop::motion::policy(cx),
         );
         canopy_desktop::motion::request_frame(window, animating);
+        // The toolbar around the strip owns its height and bottom border.
         let tabs = tab_strip("workspace-tabs")
             .w_full()
+            .h_full()
+            .border_b_0()
             .track_scroll(&self.tab_scroll.handle)
             .on_scroll_wheel(cx.listener(|this, _, _, _| this.tab_scroll.interrupt()))
             .children(self.state.workspace.read(cx).tabs().iter().enumerate().map(
@@ -209,6 +223,7 @@ impl Workspace {
                             None
                         },
                     )
+                    .children(hosts[index].clone().map(tab_host_badge))
                     .on_hover(cx.listener(move |this, hovered, _, cx| {
                         if *hovered {
                             this.hovered_tab = Some(id);
@@ -329,5 +344,6 @@ impl Workspace {
             tabs,
             self.tab_scroll.handle.clone(),
         )
+        .h_full()
     }
 }

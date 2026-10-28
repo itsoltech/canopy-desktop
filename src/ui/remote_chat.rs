@@ -143,3 +143,91 @@ impl Workspace {
         cx.notify();
     }
 }
+
+/// Starts a chat on another computer, in `workspace` or as a private chat, and
+/// opens it here. The agent is the one a new chat here would use when the host
+/// offers it, else the host's first.
+pub(crate) fn new_chat_on(
+    host: Arc<HostClient>,
+    workspace: Option<proto::WorkspaceRef>,
+    cx: &mut App,
+) {
+    let app = cx.global::<crate::app_state::AppState>().clone();
+    let preferred = crate::app_state::Chats::provider(cx).tool().to_owned();
+    let executor = match remote_client::executor(cx) {
+        Ok(executor) => executor,
+        Err(error) => {
+            app.chats.update(cx, |chats, cx| {
+                chats.error = Some(error.to_string());
+                cx.notify();
+            });
+            return;
+        }
+    };
+    let task = executor.spawn(async move {
+        let mut client = proto::catalog_service_client::CatalogServiceClient::new(host.channel()?);
+        let agents = client
+            .list_agents(proto::AgentDiscoveryRequest {
+                host_id: host.id().as_str().into(),
+                workspace: workspace.clone(),
+                page_token: None,
+            })
+            .await
+            .map_err(canopy_desktop::remote::client::rpc_error)?
+            .into_inner()
+            .agents;
+        let agent = agents
+            .iter()
+            .find(|a| a.agent_id == preferred)
+            .or(agents.first())
+            .map(|a| a.agent_id.clone())
+            .ok_or_else(|| format!("{} has no agents set up.", host.name()))?;
+        let receipt = host
+            .mutate(None, |channel, command| {
+                let agent = agent.clone();
+                async move {
+                    proto::catalog_service_client::CatalogServiceClient::new(channel)
+                        .create_chat(proto::CreateChatRequest {
+                            command: Some(command),
+                            workspace,
+                            agent_id: agent,
+                            profile_id: None,
+                        })
+                        .await
+                }
+            })
+            .await?;
+        let chat = RemoteChat::new(host.id().as_str().into(), receipt.resource_id)
+            .ok_or_else(|| "The computer returned an invalid chat.".to_owned())?;
+        Ok::<_, String>((chat, agent))
+    });
+    cx.spawn(async move |cx| {
+        let result = task.await.unwrap_or_else(|e| Err(e.to_string()));
+        cx.update(|cx| {
+            let opened = result.and_then(|(chat, agent)| {
+                let target = app.projects.read(cx).catalog.active;
+                app.projects.update(cx, |p, cx| {
+                    p.open_chat(
+                        target,
+                        "New chat",
+                        &agent,
+                        PaneMetadata {
+                            kind: PaneKind::Chat,
+                            title: Some("New chat".into()),
+                            remote: Some(Box::new(chat)),
+                            ..Default::default()
+                        },
+                        cx,
+                    )
+                })
+            });
+            if let Err(error) = opened {
+                app.chats.update(cx, |chats, cx| {
+                    chats.error = Some(error);
+                    cx.notify();
+                });
+            }
+        })
+    })
+    .detach();
+}

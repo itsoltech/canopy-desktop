@@ -130,3 +130,38 @@ writable fields. Unsupported GitHub saved-filter operations are disabled.
 
 Verification is limited to compilation and focused native-value regression tests.
 No GUI, E2E, live provider or vault verification was performed for this work.
+
+## Zdalne zadania — wygląd i sterowanie
+
+Strona Tasks zdalnego komputera używa lokalnych komponentów zadań. Lewa kolumna
+(320 px, jak panel zadań) ma `provider_heading` z ikonami New task i Refresh,
+dropdown konta (tylko skonfigurowane; liczba kont do konfiguracji pod spodem),
+dropdown projektu z odświeżeniem i Load more, dla Jira/YouTrack dropdown
+zapisanych filtrów z panelem Condition/Name (Save filter, Delete filter), pole
+wyszukiwania z Search (Enter też szuka), segmenty Open/Closed i licznik.
+Lista to `task_row` przez adapter DTO → `TaskItem` (status Jira jako badge,
+nazwy osób z projekcji pól; nierozwiązane ID tagów YouTrack nie są pokazywane).
+Ładowanie pokazuje `task_skeleton`, puste stany `task_empty_state`, błędy
+`integration_message` w miejscu pracy.
+
+Szczegóły korzystają z `task_detail`: nagłówek (provider / klucz), tytuł, zakładki
+Description/Comments i kolumna metadanych (≥1000 px; węziej metadane są nad opisem,
+poniżej 720 px lista i szczegóły dzielą jedną kolumnę z przyciskiem powrotu).
+Opis jest renderowany Markdownem; edycję tytułu i opisu otwiera ikona Edit, a
+zapisany lokalny szkic otwiera edytor automatycznie. Metadane: status (segmenty
+albo Change status… dla formularza przejścia), szczegóły Jira (Type, Assignee,
+Reporter, Priority, Due date, Sprint), etykiety/osoby/kamień milowy jak lokalny
+`OptionPicker` (chipy z ×, lista z filtrem), akcje jak lokalne panele Jira/YouTrack
+(Edit fields, Link issue, Log work, Move to sprint…, Move to backlog, Watch/Vote,
+Delete issue…), załączniki i aktywność Jira (powiązania, work log, historia).
+Log work przyjmuje czas „1h 30m”/„90m” i start `YYYY-MM-DD HH:MM` (czas lokalny,
+konwersja `jira::date_time`, domyślnie teraz). Attach file… otwiera systemowy
+wybór pliku; ścieżka trafia do istniejącego przygotowania uploadu, a gotowy plik
+czeka na Upload/Remove (ponowienie z potwierdzeniem). Komentarze ładują się przy
+wejściu w zakładkę i mają karty `comment_card`. Stopka: status, gałąź i New worktree.
+
+Operacje, bramka busy, szkice i zakres zadania pozostały bez zmian; potwierdzenia
+nazywają obiekt i wynik („Delete “KEY”?”, „Remove”). Kontener strony w
+`remote_client/mod.rs` przewija treść, więc widok ma minimalną wysokość 520 px
+zamiast pełnego wypełnienia. Sprawdzenia: kompilacja, clippy i testy jednostkowe
+(parser czasu pracy); GUI nie było uruchamiane.

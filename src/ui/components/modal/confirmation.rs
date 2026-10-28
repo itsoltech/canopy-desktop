@@ -1,7 +1,11 @@
 use super::super::{ButtonLoading, button, icon_button, primary_loading_button};
 use super::*;
 use canopy_desktop::motion::{self, Presence, presets};
-use gpui_kit::{base::Disableable, component::IconName};
+use gpui_kit::{
+    base::Disableable,
+    component::{IconName, button::ButtonVariants},
+    prelude::FluentBuilder,
+};
 use std::time::Instant;
 type Confirm = Box<dyn Fn(&mut App) -> Result<(), SharedString>>;
 type Completion = Box<dyn Fn(&App) -> (bool, Option<String>)>;
@@ -20,6 +24,7 @@ pub struct Confirmation {
     loading: ButtonLoading,
     completion: Option<Completion>,
     completion_events: Option<Subscription>,
+    destructive: bool,
 }
 impl EventEmitter<ModalDismissed> for Confirmation {}
 impl Confirmation {
@@ -53,7 +58,13 @@ impl Confirmation {
             loading: ButtonLoading::default(),
             completion: None,
             completion_events: None,
+            destructive: false,
         }
+    }
+    /// Danger styling for an irreversible result; the label must still name it.
+    pub fn destructive(mut self) -> Self {
+        self.destructive = true;
+        self
     }
     fn close(&mut self, cx: &mut Context<Self>) {
         if self.submitted {
@@ -152,6 +163,7 @@ impl Render for Confirmation {
                     .disabled(disabled)
                     .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
                 primary_loading_button("accept-confirm", self.label.clone(), &self.loading)
+                    .when(self.destructive, |button| button.danger())
                     .disabled(disabled && !self.loading.active())
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
             ));

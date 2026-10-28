@@ -286,9 +286,17 @@ fn answers(request: &Request) -> Vec<String> {
         .collect()
 }
 
+/// The ACP agent's own rejection: for this time, else for good; `None` withdraws
+/// the request.
+fn reject_option(offered: &[PermissionOption]) -> Option<&PermissionOption> {
+    ["reject_once", "reject_always"]
+        .iter()
+        .find_map(|kind| offered.iter().find(|option| option.kind == *kind))
+}
+
 fn placeholder(kind: PermissionKind, provider: Option<Provider>) -> &'static str {
     let Some(provider) = provider else {
-        return "Choose one of the agent's options";
+        return "Choose an option, or write a reply to reject";
     };
     match (kind, provider) {
         (PermissionKind::Tool, Provider::Claude) => "Tell Claude what to do instead",
@@ -569,8 +577,13 @@ impl ChatView {
         let item = request.item;
         match request.permission.kind {
             PermissionKind::Question => self.decision_next(window, cx),
-            // An ACP agent takes only its own options, no note.
-            PermissionKind::Tool if request.offered.is_some() => {}
+            // An ACP agent takes only its own options, no note: typed text rejects, then
+            // goes as the next message.
+            PermissionKind::Tool if request.offered.is_some() => {
+                if self.typed(cx).is_some() {
+                    self.reject_and_send(item, window, cx);
+                }
+            }
             PermissionKind::Tool => {
                 if let Some(note) = self.typed(cx) {
                     self.respond(item, Response::Deny(Some(note)), cx);
@@ -582,6 +595,31 @@ impl ChatView {
                 }
             }
         }
+    }
+
+    /// An ACP agent's request answered with text: the agent's rejection (it has no
+    /// room for a note), then the text as an ordinary message, queued while the agent
+    /// works.
+    fn reject_and_send(&mut self, item: ItemId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(request) = self
+            .decision
+            .active()
+            .filter(|r| r.item == item && r.armed())
+        else {
+            return;
+        };
+        // Nothing is rejected when the text couldn't go after it.
+        if self.attachments_blocked(cx) || !self.rt(cx).accepts_messages() {
+            return;
+        }
+        let reject = request
+            .offered
+            .as_deref()
+            .and_then(reject_option)
+            .map(|option| option.option_id.clone());
+        self.runtime
+            .update(cx, |runtime, cx| runtime.respond_option(item, reject, cx));
+        self.submit(window, cx);
     }
 
     /// A folded panel opens first, so nothing is answered unseen.
@@ -621,13 +659,7 @@ impl ChatView {
         };
         let item = request.item;
         if let Some(offered) = &request.offered {
-            // Its own rejection for this time, else for good, else the request is withdrawn.
-            let reject = ["reject_once", "reject_always"].iter().find_map(|kind| {
-                offered
-                    .iter()
-                    .find(|option| option.kind == *kind)
-                    .map(|option| option.option_id.clone())
-            });
+            let reject = reject_option(offered).map(|option| option.option_id.clone());
             self.runtime
                 .update(cx, |runtime, cx| runtime.respond_option(item, reject, cx));
             return;
@@ -1016,12 +1048,28 @@ impl ChatView {
         let chosen = request.chosen.get(request.step);
         let multi = request.permission.kind == PermissionKind::Question
             && request.questions.get(request.step).is_some_and(|q| q.multi);
+        // With text typed for an ACP agent, Enter picks its rejection and sends the text.
+        let enter = request
+            .offered
+            .as_deref()
+            .and_then(reject_option)
+            .filter(|_| self.typed(cx).is_some())
+            .map(|option| option.option_id.clone());
         column().gap(px(2.)).children(
             choices(request)
                 .into_iter()
                 .enumerate()
-                .map(|(index, choice)| {
-                    let selected = matches!(choice.action, Action::Option(o) if chosen.is_some_and(|c| c.contains(&o)));
+                .map(|(index, mut choice)| {
+                    let rejects = matches!(&choice.action, Action::Offered(id) if Some(id) == enter.as_ref());
+                    if rejects {
+                        choice.description = if choice.description.is_empty() {
+                            "Enter sends your text after it".into()
+                        } else {
+                            format!("{} · Enter sends your text after it", choice.description)
+                        };
+                    }
+                    let selected = rejects
+                        || matches!(choice.action, Action::Option(o) if chosen.is_some_and(|c| c.contains(&o)));
                     row()
                         .id(ElementId::NamedInteger(
                             format!("chat-decision-option-{key}").into(),
@@ -1073,7 +1121,7 @@ impl ChatView {
     }
 }
 
-fn text_action(id: impl Into<ElementId>, label: &'static str) -> Stateful<Div> {
+pub(super) fn text_action(id: impl Into<ElementId>, label: &'static str) -> Stateful<Div> {
     div()
         .id(id)
         .keyboard(label)
@@ -1204,5 +1252,28 @@ mod tests {
         assert_eq!(labels(&questions), ["x", "y"]);
         questions.step = 1;
         assert_eq!(labels(&questions), ["z"]);
+    }
+
+    #[test]
+    fn typed_text_rejects_with_the_agents_own_option_first() {
+        let option =
+            |id: &str, kind: &str| PermissionOption::new(id.into(), id.into(), kind.into());
+        let offered = vec![
+            option("always", "reject_always"),
+            option("allow", "allow_once"),
+            option("once", "reject_once"),
+        ];
+        let id = |offered: &[PermissionOption]| reject_option(offered).map(|o| o.option_id.clone());
+        assert_eq!(
+            id(&offered).as_deref(),
+            Some("once"),
+            "this time before for good"
+        );
+        assert_eq!(id(&offered[..2]).as_deref(), Some("always"));
+        assert_eq!(
+            id(&offered[1..2]),
+            None,
+            "without a rejection the request is withdrawn"
+        );
     }
 }

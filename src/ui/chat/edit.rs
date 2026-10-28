@@ -9,6 +9,8 @@ use canopy_desktop::chat::{
     session::{Draft, Rewind},
     transcript::{Body, ItemId},
 };
+use canopy_desktop::motion;
+use gpui_kit::component::{IconName, Sizable, spinner::Spinner};
 use gpui_kit::{prelude::FluentBuilder, *};
 
 pub(super) struct Editing {
@@ -20,9 +22,14 @@ pub(super) struct Editing {
     /// What restoring files would change, once the CLI has answered.
     pub preview: Option<RewindPreview>,
     pub restore: bool,
-    /// The edited message, waiting for the restore to finish.
+    /// The edited message, waiting for the restore to finish (or, remotely, for the
+    /// host to take the edit).
     pub sending: Option<Draft>,
+    /// The host is checking the message again (after a restart, or Check again).
+    pub checking: bool,
     pub error: Option<String>,
+    /// The error offers Check again: the host's preview of the edit is gone or failed.
+    pub recheck: bool,
     /// Context sent with the edited message (after a switch); it goes again.
     pub context: Option<String>,
 }
@@ -34,6 +41,14 @@ impl ChatView {
             return;
         }
         if self.rt(cx).is_remote() {
+            // One check at a time; the pencil shows it until the host answers.
+            if self.edit_check.as_ref().is_some_and(|(_, l)| l.active()) {
+                return;
+            }
+            let mut loading = ButtonLoading::default();
+            loading.set(true, cx);
+            self.edit_check = Some((item, loading));
+            cx.notify();
             let preview = self
                 .runtime
                 .update(cx, |runtime, cx| runtime.client_preview(item, cx));
@@ -41,7 +56,11 @@ impl ChatView {
             cx.spawn_in(window, async move |this, cx| {
                 let result = preview.await;
                 let _ = this.update_in(cx, |this, window, cx| {
+                    if let Some((_, loading)) = &mut this.edit_check {
+                        loading.set(false, cx);
+                    }
                     if this.remote_revision != revision {
+                        cx.notify();
                         return;
                     }
                     match result {
@@ -69,7 +88,9 @@ impl ChatView {
                                 }),
                                 restore: false,
                                 sending: None,
+                                checking: false,
                                 error: None,
+                                recheck: false,
                                 context: original.context.clone(),
                             });
                             this.set_composer_draft(original, window, cx);
@@ -115,7 +136,9 @@ impl ChatView {
             preview: None,
             restore: false,
             sending: None,
+            checking: false,
             error: None,
+            recheck: false,
             context: message.context.clone(),
         });
         self.set_composer_draft(message, window, cx);
@@ -143,7 +166,10 @@ impl ChatView {
         let draft = self.composer_draft(cx);
         if self.attachments_blocked(cx)
             || (draft.text.trim().is_empty() && draft.attachments.is_empty())
-            || self.editing.as_ref().is_none_or(|e| e.sending.is_some())
+            || self
+                .editing
+                .as_ref()
+                .is_none_or(|e| e.sending.is_some() || e.checking)
         {
             return;
         }
@@ -153,13 +179,22 @@ impl ChatView {
                 .remote_source()
                 .is_none_or(|s| s.preview.is_none())
             {
-                self.shell_error = Some("Preview this edit again before sending it.".into());
+                // Said in the edit tray, with Check again to ask for a new preview.
+                let error = format!("{} no longer has this edit's preview.", self.host_name(cx));
+                if let Some(editing) = &mut self.editing {
+                    editing.error = Some(error);
+                    editing.recheck = true;
+                }
                 cx.notify();
                 return;
             }
             self.save_remote_draft(cx);
             let restore = self.editing.as_ref().is_some_and(|e| e.restore);
-            self.editing.as_mut().unwrap().sending = Some(draft.clone());
+            let editing = self.editing.as_mut().unwrap();
+            editing.sending = Some(draft.clone());
+            editing.error = None;
+            editing.recheck = false;
+            cx.notify();
             let revision = self.remote_revision;
             self.runtime.update(cx, |runtime, cx| {
                 runtime.client_edit(draft, restore, revision, cx)
@@ -231,7 +266,7 @@ impl ChatView {
             Some(Rewind::Done) if sending => self.fork_edit(cx),
             Some(Rewind::Failed(error)) if sending => {
                 // Nothing was sent: the text stays to be sent with or without files.
-                editing.error = Some(format!("Files couldn't be restored: {error}"));
+                editing.error = Some(format!("Couldn't restore the files: {error}"));
                 editing.restore = false;
                 editing.sending = None;
             }
@@ -274,23 +309,68 @@ impl ChatView {
         cx.notify();
     }
 
-    /// Above the composer while editing: what happens on send, with Cancel.
+    /// The pencil's spinner while the host checks message `item` for editing.
+    pub(super) fn edit_loading(&self, item: ItemId) -> Option<&ButtonLoading> {
+        self.edit_check
+            .as_ref()
+            .filter(|(checked, _)| *checked == item)
+            .map(|(_, loading)| loading)
+    }
+
+    /// Above the composer while editing: what happens on send, with Cancel. Without
+    /// an edit, a saved remote request waiting for review takes the same place.
     pub(super) fn edit_bar(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let editing = self.editing.as_ref()?;
+        let Some(editing) = self.editing.as_ref() else {
+            return self.recovery_bar(cx);
+        };
+        let remote = self.rt(cx).is_remote();
         let files = editing
             .preview
             .as_ref()
             .filter(|p| p.possible && !p.files.is_empty());
-        let note = match (&editing.error, files, editing.sending.is_some()) {
-            (Some(error), _, _) => error.clone(),
-            (_, _, true) => "Restoring files…".to_owned(),
-            (_, Some(_), _) => String::new(),
-            (_, None, _) => {
-                "The conversation continues from before this message; files stay as they are."
-                    .to_owned()
+        let sending = editing.sending.is_some();
+        // Work under way is said with a spinner, never in the error's red.
+        let progress = if editing.checking {
+            Some(format!("Checking the message on {}…", self.host_name(cx)))
+        } else if sending && editing.restore {
+            Some("Restoring files…".to_owned())
+        } else if sending && remote {
+            Some(format!("Sending the edit to {}…", self.host_name(cx)))
+        } else if sending {
+            Some("Sending the edit…".to_owned())
+        } else {
+            None
+        };
+        let note = match (&editing.error, files) {
+            _ if progress.is_some() => None,
+            (Some(_), _) => None,
+            (_, Some(_)) => None,
+            (_, None) => {
+                Some("The conversation continues from before this message; files stay as they are.")
             }
         };
-        let restore = files.map(|preview| {
+        let error = editing
+            .error
+            .clone()
+            .filter(|_| progress.is_none())
+            .map(|error| {
+                row()
+                    .gap(px(6.))
+                    .items_start()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(12.))
+                            .text_color(t::red())
+                            .child(error),
+                    )
+                    .children(editing.recheck.then(|| {
+                        super::decision::text_action("chat-edit-recheck", "Check again")
+                            .on_click(cx.listener(|this, _, _, cx| this.check_remote_edit(cx)))
+                    }))
+            });
+        let restore = files.filter(|_| !editing.checking).map(|preview| {
             let count = preview.files.len();
             let checked = editing.restore;
             row()
@@ -312,12 +392,41 @@ impl ChatView {
                     preview.deletions
                 ))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(editing) = &mut this.editing {
+                    if let Some(editing) = &mut this.editing
+                        && editing.sending.is_none()
+                    {
                         editing.restore ^= true;
                         cx.notify();
                     }
                 }))
         });
+        // Once the edit is on its way it can't be called back.
+        let cancel = div()
+            .id("chat-edit-cancel")
+            .flex_shrink_0()
+            .px(px(6.))
+            .h(px(20.))
+            .flex()
+            .items_center()
+            .rounded(px(5.))
+            .text_size(px(12.))
+            .map(|cancel| {
+                if sending {
+                    cancel.text_color(t::secondary().opacity(0.5))
+                } else {
+                    cancel
+                        .keyboard("Cancel editing")
+                        .cursor_pointer()
+                        .text_color(t::secondary())
+                        .hover(|style| style.bg(t::hover()).text_color(t::text()))
+                        .tooltip(|window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new("Cancel (Esc)")
+                                .build(window, cx)
+                        })
+                        .on_click(cx.listener(|this, _, window, cx| this.cancel_edit(window, cx)))
+                }
+            })
+            .child("Cancel");
         Some(
             centered(
                 column()
@@ -342,44 +451,43 @@ impl ChatView {
                                     .text_color(t::muted())
                                     .child("Editing message"),
                             )
-                            .child(
-                                div()
-                                    .id("chat-edit-cancel")
-                                    .keyboard("Cancel editing")
-                                    .px(px(6.))
-                                    .h(px(20.))
-                                    .flex()
-                                    .items_center()
-                                    .rounded(px(5.))
-                                    .cursor_pointer()
-                                    .text_size(px(12.))
-                                    .text_color(t::secondary())
-                                    .hover(|style| style.bg(t::hover()).text_color(t::text()))
-                                    .child("Cancel")
-                                    .tooltip(|window, cx| {
-                                        gpui_kit::component::tooltip::Tooltip::new("Cancel (Esc)")
-                                            .build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.cancel_edit(window, cx)
-                                    })),
-                            ),
+                            .child(cancel),
                     )
                     .children(restore)
-                    .when(!note.is_empty(), |bar| {
-                        bar.child(
-                            div()
-                                .text_size(px(12.))
-                                .text_color(if editing.error.is_some() {
-                                    t::red()
-                                } else {
-                                    t::faint()
-                                })
-                                .child(note),
-                        )
-                    }),
+                    .children(progress.map(|label| progress_row(label, cx)))
+                    .children(error)
+                    .children(
+                        note.map(|note| {
+                            div().text_size(px(12.)).text_color(t::faint()).child(note)
+                        }),
+                    ),
             )
             .mb(px(-4.)),
         )
+    }
+}
+
+/// Work under way, in a tray: an extra-small spinner and a muted line (a still mark
+/// with Reduced Motion).
+pub(super) fn progress_row(label: impl Into<SharedString>, cx: &App) -> Div {
+    row().gap(px(8.)).child(busy_mark(cx)).child(
+        div()
+            .flex_1()
+            .min_w_0()
+            .text_size(px(12.))
+            .text_color(t::muted())
+            .child(label.into()),
+    )
+}
+
+/// An extra-small spinner, or the loader's still mark with Reduced Motion.
+pub(super) fn busy_mark(cx: &App) -> AnyElement {
+    if motion::policy(cx) == motion::MotionPolicy::Reduced {
+        icon(IconName::Loader)
+            .size(px(12.))
+            .text_color(t::muted())
+            .into_any_element()
+    } else {
+        Spinner::new().xsmall().color(t::muted()).into_any_element()
     }
 }

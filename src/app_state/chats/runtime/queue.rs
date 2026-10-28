@@ -3,7 +3,7 @@
 //! records `attempting` before it writes a message to the agent and settles it only on
 //! the backend's evidence. Local UI and remote commands go through the same handlers
 //! with their own command keys (device, epoch, command ID).
-use super::{ChatRuntime, ChatRuntimeEvent, ChatStateChanged};
+use super::{ChatNotice, ChatRuntime, ChatRuntimeEvent, ChatStateChanged};
 use crate::app_state::AppState;
 use canopy_desktop::{
     chat::{
@@ -298,9 +298,9 @@ impl ChatRuntime {
             let Some(record) = record else {
                 let _ = this.update(cx, |this, cx| {
                     this.queue.saving_record = false;
-                    this.notice = Some(
-                        "This chat's project folder is unavailable; it couldn't be saved.".into(),
-                    );
+                    this.notice = Some(ChatNotice::error(
+                        "Couldn't save this chat: its project folder is unavailable.",
+                    ));
                     cx.notify();
                 });
                 return;
@@ -318,7 +318,7 @@ impl ChatRuntime {
                         this.queue.record = Some(record);
                         match queue {
                             Ok(queue) => this.queue.state = Some(queue),
-                            Err(e) => this.notice = Some(error(e)),
+                            Err(e) => this.notice = Some(ChatNotice::error(error(e))),
                         }
                         // Saved meanwhile under a newer account or history part.
                         this.save_record(cx);
@@ -330,7 +330,10 @@ impl ChatRuntime {
                         this.dispatch(cx);
                     }
                     (Err(e), _) => {
-                        this.notice = Some(format!("This chat couldn't be saved: {}", error(e)));
+                        this.notice = Some(ChatNotice::error(format!(
+                            "Couldn't save this chat: {}",
+                            error(e)
+                        )));
                     }
                     _ => {}
                 }
@@ -467,7 +470,7 @@ impl ChatRuntime {
             }
             if let Err(error) = &result {
                 let _ = this.update(cx, |this, cx| {
-                    this.notice = Some(error.clone());
+                    this.notice = Some(ChatNotice::error(error.clone()));
                     cx.notify();
                 });
             }
@@ -487,9 +490,9 @@ impl ChatRuntime {
     }
     /// `send_draft`; `steer`: once accepted it goes first and into the running turn.
     pub(super) fn send_draft_as(&mut self, draft: Draft, steer: bool, cx: &mut Context<Self>) {
-        self.notice = None;
+        self.notice = ChatNotice::after_send(self.notice.take());
         if let Some(reason) = &self.recovery {
-            self.notice = Some(reason.clone());
+            self.notice = Some(ChatNotice::info(reason.clone()));
             cx.emit(ChatRuntimeEvent::DraftReturned(draft));
             cx.notify();
             return;
@@ -531,7 +534,9 @@ impl ChatRuntime {
             )
         };
         let Some((input, queued)) = command else {
-            self.notice = Some("This message can't be sent (empty or too large).".into());
+            self.notice = Some(ChatNotice::error(
+                "This message can't be sent (empty or too large).",
+            ));
             cx.emit(ChatRuntimeEvent::DraftReturned(draft));
             cx.notify();
             return;
@@ -559,7 +564,9 @@ impl ChatRuntime {
             }
             Err(error) => {
                 let _ = this.update(cx, |this, cx| {
-                    this.notice = Some(format!("The message wasn't accepted: {error}"));
+                    this.notice = Some(ChatNotice::error(format!(
+                        "The message wasn't accepted: {error}"
+                    )));
                     cx.emit(ChatRuntimeEvent::DraftReturned(draft));
                     cx.notify();
                 });
@@ -709,7 +716,7 @@ impl ChatRuntime {
                 Ok(draft) => draft,
                 Err((draft, error)) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.notice = Some(error);
+                        this.notice = Some(ChatNotice::error(error));
                         cx.notify();
                     });
                     draft
@@ -775,10 +782,10 @@ impl ChatRuntime {
             return;
         }
         if !self.capabilities(cx).steer {
-            self.notice = Some(format!(
+            self.notice = Some(ChatNotice::info(format!(
                 "{} can't take a message during its turn; it waits in the queue.",
                 self.agent_name(cx)
-            ));
+            )));
             cx.notify();
             return;
         }
@@ -819,9 +826,9 @@ impl ChatRuntime {
             .and_then(|entry| entry.steer_run());
         if run.is_some_and(|run| run != self.generation) {
             self.hold_queue(cx);
-            self.notice = Some(
-                "The agent restarted before the message was steered; it waits in the queue.".into(),
-            );
+            self.notice = Some(ChatNotice::info(
+                "The agent restarted before the message was steered; it waits in the queue.",
+            ));
             cx.notify();
             return;
         }
@@ -830,7 +837,9 @@ impl ChatRuntime {
     /// Marks accepted `message` for Steer and moves it first in line.
     fn steer_accepted_message(&mut self, message: String, cx: &mut Context<Self>) {
         if self.queue_paused() {
-            self.notice = Some("The queue is held. Resume it to send this message.".into());
+            self.notice = Some(ChatNotice::info(
+                "The queue is held. Resume it to send this message.",
+            ));
             cx.notify();
             return;
         }
@@ -1056,7 +1065,7 @@ impl ChatRuntime {
                     },
                     Err(reason) => {
                         // Nothing was written: the message failed; it returns to the user.
-                        this.notice = Some(reason);
+                        this.notice = Some(ChatNotice::error(reason));
                         this.settle(message, QueueState::Failed, Some(draft), cx);
                     }
                 }
@@ -1126,7 +1135,7 @@ impl ChatRuntime {
             let (state, returned) = match receipt {
                 Receipt::Delivered => (QueueState::Delivered, None),
                 Receipt::Refused => {
-                    self.notice = Some("The agent didn't take this message.".into());
+                    self.notice = Some(ChatNotice::error("The agent didn't take this message."));
                     (QueueState::Failed, Some(draft))
                 }
                 Receipt::Unknown => (QueueState::DeliveryUnknown, None),
@@ -1189,7 +1198,9 @@ impl ChatRuntime {
                 }
                 if let Err(error) = settled {
                     // Left attempting: the next start reports it as delivery unknown.
-                    this.notice = Some(format!("Delivery state couldn't be saved: {error}"));
+                    this.notice = Some(ChatNotice::error(format!(
+                        "Couldn't save the delivery state: {error}"
+                    )));
                 }
                 if let Some(draft) = returned {
                     cx.emit(ChatRuntimeEvent::DraftReturned(draft));

@@ -2,7 +2,6 @@ use super::{controls::*, *};
 use gpui_kit::component::{
     IndexPath,
     checkbox::Checkbox,
-    radio::RadioGroup,
     select::{SelectEvent, SelectState},
 };
 
@@ -370,11 +369,20 @@ impl Editor {
         cx.notify();
     }
     pub(super) fn title(&self) -> &'static str {
-        match self.draft {
-            Draft::Preferences(_) => "Host preferences",
-            Draft::Agent(_) => "Agent",
-            Draft::Profile(_, _) => "Profile",
-            Draft::Integration(_) => "Integration",
+        let new = match &self.draft {
+            Draft::Preferences(_) => false,
+            Draft::Agent(a) => !self.catalog.agents.iter().any(|v| v.id == a.id),
+            Draft::Profile(p, _) => !self.catalog.profiles.iter().any(|v| v.id == p.id),
+            Draft::Integration(i) => !self.catalog.integrations.iter().any(|v| v.id == i.id),
+        };
+        match (&self.draft, new) {
+            (Draft::Preferences(_), _) => "Defaults on this computer",
+            (Draft::Agent(_), true) => "New agent",
+            (Draft::Agent(_), false) => "Edit agent",
+            (Draft::Profile(_, _), true) => "New profile",
+            (Draft::Profile(_, _), false) => "Edit profile",
+            (Draft::Integration(_), true) => "Connect integration",
+            (Draft::Integration(_), false) => "Edit integration",
         }
     }
     pub(super) fn write(&self, cx: &App) -> Result<Write, String> {
@@ -514,24 +522,51 @@ impl Editor {
         })
     }
 }
+fn flag_label(key: &str) -> &str {
+    match key {
+        "Notch" => "Show the notch",
+        "Full auto" => "Full auto: run without asking",
+        "Bypass approvals" => "Skip approval prompts",
+        "Enabled" => "Available for new chats",
+        other => other,
+    }
+}
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut body = column().gap_3().child(self.title());
+        let mut body = column().gap(px(16.));
         if matches!(self.draft, Draft::Agent(_)) {
-            body = body.child(
-                RadioGroup::new("backend")
-                    .children(["Claude", "Codex", "ACP"])
-                    .selected_index(Some(self.backend))
-                    .disabled(true)
-                    .on_change(cx.listener(|s, ix, _, cx| {
-                        s.backend = *ix;
-                        cx.notify();
-                    })),
-            );
+            body = body.child(form_field(
+                "Type",
+                "Set when the agent is created.",
+                row().child(badge(
+                    ["Claude", "Codex", "ACP"]
+                        .get(self.backend)
+                        .copied()
+                        .unwrap_or("ACP"),
+                )),
+            ));
         }
         if matches!(self.draft, Draft::Integration(_)) {
-            body=body.child(RadioGroup::new("provider").children(["GitHub","Jira","YouTrack"]).selected_index(Some(self.kind)).disabled(!self.enabled).on_change(cx.listener(|s,ix,_,cx|{s.kind = *ix;cx.notify();}))).child("Removing a credential disconnects this integration. Linked tasks and projects remain.");
+            body = body.child(form_field(
+                "Provider",
+                "Removing the credential disconnects this integration. Linked tasks and projects remain.",
+                chrome::segmented(["GitHub", "Jira", "YouTrack"].into_iter().enumerate().map(
+                    |(index, label)| {
+                        chrome::segment(
+                            SharedString::from(format!("provider:{index}")),
+                            label,
+                            self.kind == index,
+                        )
+                        .disabled(!self.enabled)
+                        .on_click(cx.listener(move |s, _, _, cx| {
+                            s.kind = index;
+                            cx.notify();
+                        }))
+                    },
+                )),
+            ));
         }
+        let mut fields = vec![];
         for (key, label) in &self.labels {
             if matches!(self.draft, Draft::Profile(_, true))
                 && [
@@ -547,81 +582,104 @@ impl Render for Editor {
             {
                 continue;
             }
-            if let Some(select) = self.selects.get(key) {
-                body = body.child(form_field(
+            fields.push(if let Some(select) = self.selects.get(key) {
+                form_field(
                     *label,
                     "",
-                    dropdown(select).disabled(!self.enabled),
-                ));
+                    dropdown(select).w_full().disabled(!self.enabled),
+                )
             } else {
-                body = body.child(labeled(*label, &self.fields[key], !self.enabled));
-            }
+                labeled(*label, &self.fields[key], !self.enabled)
+            });
         }
-        for (key, checked) in &self.flags {
-            if matches!(self.draft, Draft::Profile(_, true)) {
-                continue;
-            }
-            let key = *key;
-            body = body.child(
-                Checkbox::new(key)
-                    .label(key)
-                    .checked(*checked)
-                    .disabled(!self.enabled)
-                    .on_change(cx.listener(move |s, v, _, cx| {
-                        s.flags.insert(key, *v);
-                        cx.notify();
-                    })),
-            );
+        body = body.child(field_grid(fields));
+        if !matches!(self.draft, Draft::Profile(_, true)) && !self.flags.is_empty() {
+            body = body.child(column().gap(px(8.)).children(self.flags.iter().map(
+                |(key, checked)| {
+                    let key = *key;
+                    Checkbox::new(key)
+                        .label(flag_label(key).to_owned())
+                        .checked(*checked)
+                        .disabled(!self.enabled)
+                        .on_change(cx.listener(move |s, v, _, cx| {
+                            s.flags.insert(key, *v);
+                            cx.notify();
+                        }))
+                },
+            )));
         }
-        for field in [&self.credential, &self.prompt, &self.settings]
+        let secrets = [&self.credential, &self.prompt, &self.settings]
             .into_iter()
             .flatten()
-        {
-            body = body.child(field.clone());
+            .cloned()
+            .collect::<Vec<_>>();
+        if !secrets.is_empty() {
+            body = body.child(
+                column()
+                    .gap(px(12.))
+                    .pt(px(16.))
+                    .border_t_1()
+                    .border_color(t::border())
+                    .child(caption("SECRETS"))
+                    .children(secrets),
+            );
         }
         if matches!(self.draft, Draft::Agent(_) | Draft::Profile(_, _)) {
-            body = body.child("Environment (write only)");
-            for (_, field) in &self.environment {
-                body = body.child(field.clone());
-            }
-            body = body
-                .child(labeled(
-                    "New variable name",
-                    &self.new_environment,
-                    !self.enabled,
-                ))
-                .child(
-                    button("add-env", "Add variable")
-                        .disabled(!self.enabled)
-                        .on_click(cx.listener(|s, _, window, cx| {
-                            let name = value(&s.new_environment, cx).trim().to_owned();
-                            if name.is_empty()
-                                || name.contains('=')
-                                || name.contains('\0')
-                                || s.environment.iter().any(|(n, _)| n == &name)
-                            {
-                                s.error = Some(
-                                    "Enter a unique environment variable name without = or NUL."
-                                        .into(),
-                                );
-                            } else {
-                                let field = cx.new(|cx| {
-                                    SecretField::new(&name, false, None, window, cx).allow_empty()
-                                });
-                                s.environment.push((name, field));
-                                s.new_environment
-                                    .update(cx, |v, cx| v.set_value("", window, cx));
-                                s.error = None;
-                            }
-                            cx.notify();
-                        })),
-                );
+            body = body.child(
+                column()
+                    .gap(px(12.))
+                    .pt(px(16.))
+                    .border_t_1()
+                    .border_color(t::border())
+                    .child(
+                        column()
+                            .gap(px(4.))
+                            .child(caption("ENVIRONMENT VARIABLES"))
+                            .child(div().text_size(px(11.)).text_color(t::muted()).child(
+                                "Values are write-only: saved values are never shown here.",
+                            )),
+                    )
+                    .children(self.environment.iter().map(|(_, field)| field.clone()))
+                    .child(
+                        row()
+                            .gap(px(8.))
+                            .child(
+                                input(&self.new_environment)
+                                    .flex_1()
+                                    .disabled(!self.enabled),
+                            )
+                            .child(
+                                button("add-env", "Add variable")
+                                    .icon(icon(gpui_kit::component::IconName::Plus))
+                                    .disabled(!self.enabled)
+                                    .on_click(cx.listener(|s, _, window, cx| {
+                                        let name = value(&s.new_environment, cx).trim().to_owned();
+                                        if name.is_empty()
+                                            || name.contains('=')
+                                            || name.contains('\0')
+                                            || s.environment.iter().any(|(n, _)| n == &name)
+                                        {
+                                            s.error = Some(
+                                                "Enter a unique variable name without = or NUL."
+                                                    .into(),
+                                            );
+                                        } else {
+                                            let field = cx.new(|cx| {
+                                                SecretField::new(&name, false, None, window, cx)
+                                                    .allow_empty()
+                                            });
+                                            s.environment.push((name, field));
+                                            s.new_environment
+                                                .update(cx, |v, cx| v.set_value("", window, cx));
+                                            s.error = None;
+                                        }
+                                        cx.notify();
+                                    })),
+                            ),
+                    ),
+            );
         }
-        body.children(
-            self.error
-                .clone()
-                .map(|e| div().text_color(t::red()).child(e)),
-        )
+        body.children(self.error.clone().map(chrome::failure))
     }
 }
 

@@ -57,6 +57,28 @@ pub fn checkbox(
         .accessibility_label(label)
 }
 
+/// A checkbox with its visible label: one name for people and screen readers, and
+/// the label toggles it too. Help text goes in as a child, under the label.
+pub fn labeled_checkbox(
+    id: impl Into<ElementId>,
+    checked: bool,
+    label: impl Into<SharedString>,
+) -> Checkbox {
+    Checkbox::new(id)
+        .checked(checked)
+        .label(label.into())
+        .text_size(px(13.))
+}
+
+/// Help under a `labeled_checkbox` label, styled like `form_field` help.
+pub fn checkbox_help(text: impl Into<SharedString>) -> Div {
+    div()
+        .text_size(px(11.))
+        .line_height(px(14.85))
+        .text_color(t::muted())
+        .child(text.into())
+}
+
 /// Shared multiline control; the caller owns the editing state.
 pub fn textarea(
     state: &Entity<gpui_kit::component::input::TextareaState>,

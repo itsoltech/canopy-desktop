@@ -66,6 +66,9 @@ pub(super) struct RowExtra {
     pub collapsed: std::collections::HashSet<String>,
     /// The user opened or closed the row: thinking no longer folds on its own.
     pub touched: bool,
+    /// Opened on its own while an ACP agent terminal of the call runs; it folds once
+    /// the terminal exits, unless the user toggled it meanwhile.
+    pub terminal_open: bool,
     /// First work row of a finished turn: "Worked for …" folds the work up to the reply.
     pub fold: Option<Fold>,
     /// Index of the row whose `fold` hides this one while it is closed.
@@ -920,6 +923,30 @@ impl Rows {
         }
     }
 
+    /// Opens a tool row while its ACP agent terminal runs and folds it once that exits,
+    /// never one the user toggled. Returns whether the row changed.
+    pub fn follow_terminal(&mut self, key: u64, running: bool, cx: &mut App) -> bool {
+        let Some((index, row)) = self
+            .rows
+            .iter_mut()
+            .enumerate()
+            .find(|(_, row)| row.key == key)
+        else {
+            return false;
+        };
+        let Some(output) = &mut row.output else {
+            return false;
+        };
+        if !terminal_toggles(output.open, &row.extra, running) {
+            return false;
+        }
+        output.toggle(Instant::now(), cx);
+        row.extra.terminal_open = running;
+        self.scroller
+            .update(cx, |state, cx| state.remeasure_items(index..index + 1, cx));
+        true
+    }
+
     /// Whether row-local motion (entrance, disclosures) still needs frames.
     pub fn animating(&self, now: Instant) -> bool {
         self.reveal.is_animating(now)
@@ -943,6 +970,17 @@ impl Rows {
 pub(super) type BadgeFactory = std::rc::Rc<
     dyn Fn(&[canopy_desktop::chat::transcript::Attachment]) -> crate::ui::markdown::BadgeRenderer,
 >;
+
+/// A running agent terminal opens its closed tool row; its exit folds the row only if
+/// the terminal opened it. A row the user toggled stays as they left it.
+fn terminal_toggles(open: bool, extra: &RowExtra, running: bool) -> bool {
+    !extra.touched
+        && if running {
+            !open
+        } else {
+            open && extra.terminal_open
+        }
+}
 
 /// A thinking summary: quieter chat Markdown, selectable and searchable.
 fn thinking_markdown(text: Arc<str>, cx: &mut App) -> Entity<MarkdownView> {
@@ -1054,6 +1092,61 @@ mod tests {
                 Body::Permission(p) => thread.permission_thread(p) == Some(call.as_str()),
                 _ => item.parent.as_deref() == Some(call.as_str()),
             }));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn agent_terminal_opens_while_running_and_a_manual_toggle_wins(cx: &mut TestAppContext) {
+        let mut transcript = Transcript::default();
+        let index = transcript.push(
+            None,
+            Body::Tool(canopy_desktop::chat::transcript::ToolCall {
+                kind: None,
+                call_id: "call".into(),
+                name: "Run tests".into(),
+                input: serde_json::Value::Null,
+                input_partial: String::new(),
+                state: canopy_desktop::chat::transcript::ToolState::Running,
+                output: None,
+                elapsed_seconds: None,
+                activity: None,
+                background: false,
+            }),
+        );
+        cx.update(|cx| {
+            let mut rows = Rows::new(cx);
+            rows.sync(
+                &transcript,
+                &[Change::Inserted(index)],
+                false,
+                MotionPolicy::Reduced,
+                cx,
+            );
+            let key = rows.rows[rows.current[&index]].key;
+            let open = |rows: &Rows| {
+                rows.rows
+                    .iter()
+                    .find(|row| row.key == key)
+                    .and_then(|row| row.output.as_ref())
+                    .is_some_and(|output| output.open)
+            };
+            assert!(!open(&rows));
+            // Running: open; exited: folded again.
+            assert!(rows.follow_terminal(key, true, cx));
+            assert!(open(&rows));
+            assert!(!rows.follow_terminal(key, true, cx));
+            assert!(rows.follow_terminal(key, false, cx));
+            assert!(!open(&rows));
+            // A row the terminal did not open stays closed after it exits.
+            assert!(!rows.follow_terminal(key, false, cx));
+
+            // The user opens it again while it runs: the exit leaves it open.
+            assert!(rows.follow_terminal(key, true, cx));
+            rows.toggle_output(key, cx);
+            rows.toggle_output(key, cx);
+            assert!(open(&rows));
+            assert!(!rows.follow_terminal(key, false, cx));
+            assert!(open(&rows));
         });
     }
 

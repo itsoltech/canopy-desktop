@@ -1,5 +1,4 @@
 use super::*;
-use gpui_kit::component::{input::Input, radio::RadioGroup};
 
 pub(super) fn text(
     value: impl Into<SharedString>,
@@ -22,7 +21,7 @@ pub(super) fn labeled(
     field: &Entity<InputState>,
     disabled: bool,
 ) -> Div {
-    form_field(label, "", Input::new(field).disabled(disabled))
+    form_field(label, "", input(field).w_full().disabled(disabled))
 }
 /// Fixed configured marker; no secret is ever supplied by a settings snapshot.
 pub(super) struct SecretField {
@@ -92,43 +91,66 @@ impl SecretField {
         })
     }
 }
+impl SecretField {
+    fn choose(&mut self, mode: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if mode == 1 && self.unsupported.is_some() {
+            return;
+        }
+        self.mode = mode;
+        if mode != 1 {
+            self.input.update(cx, |v, cx| v.set_value("", window, cx));
+            if let Some(m) = &self.multiline {
+                m.update(cx, |v, cx| v.set_value("", window, cx));
+            }
+        }
+        cx.notify();
+    }
+}
+/// Write-only secret: the saved value is never shown, only whether one exists.
 impl Render for SecretField {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let choices = [
+            if self.configured {
+                "Keep"
+            } else {
+                "Leave unset"
+            },
+            if self.configured { "Replace" } else { "Set" },
+            "Remove",
+        ];
         column()
-            .gap_2()
-            .child(format!(
-                "{} · {}",
-                self.label,
-                if self.configured {
-                    "•••••••• (configured)"
-                } else {
-                    "Not configured"
-                }
-            ))
+            .gap(px(8.))
             .child(
-                RadioGroup::new("secret-action")
-                    .children(["Unchanged", "Set", "Remove"])
-                    .selected_index(Some(self.mode))
-                    .disabled(!self.enabled)
-                    .on_change(cx.listener(|s, ix, window, cx| {
-                        if *ix == 1 && s.unsupported.is_some() {
-                            return;
-                        }
-                        s.mode = *ix;
-                        if *ix != 1 {
-                            s.input.update(cx, |v, cx| v.set_value("", window, cx));
-                            if let Some(m) = &s.multiline {
-                                m.update(cx, |v, cx| v.set_value("", window, cx));
-                            }
-                        }
-                        cx.notify();
-                    })),
+                row()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(t::secondary())
+                            .child(self.label.clone()),
+                    )
+                    .child(badge(if self.configured { "Saved" } else { "Not set" })),
             )
-            .children(
-                self.unsupported
-                    .clone()
-                    .map(|reason| div().text_color(t::muted()).child(reason)),
-            )
+            .child(chrome::segmented(choices.into_iter().enumerate().map(
+                |(index, label)| {
+                    chrome::segment(
+                        SharedString::from(format!("secret:{}:{index}", self.label)),
+                        label,
+                        self.mode == index,
+                    )
+                    .disabled(!self.enabled || (index == 1 && self.unsupported.is_some()))
+                    .on_click(cx.listener(move |s, _, window, cx| s.choose(index, window, cx)))
+                },
+            )))
+            .children(self.unsupported.clone().map(|reason| {
+                div()
+                    .text_size(px(11.))
+                    .text_color(t::muted())
+                    .child(reason)
+            }))
             .children((self.mode == 1).then(|| {
                 if let Some(m) = &self.multiline {
                     textarea(m)
@@ -136,7 +158,8 @@ impl Render for SecretField {
                         .disabled(!self.enabled)
                         .into_any_element()
                 } else {
-                    Input::new(&self.input)
+                    input(&self.input)
+                        .w_full()
                         .disabled(!self.enabled)
                         .into_any_element()
                 }

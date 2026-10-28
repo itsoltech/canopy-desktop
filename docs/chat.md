@@ -131,12 +131,20 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   nadal działa na nieaktywnym workspace bez przełączania widoku. Centrum i panel
   narzędzi mają niezależny wybór, więc nawigacja rozmów nie zmienia terminala.
   Szczegóły: [układ workspace'u](features/workspace-layout.md).
-- Pusty stan jest przy composerze: krótka podpowiedź zadania i ewentualne
-  przejście do istniejącego terminala. Konto, model i ścieżka nie są ponownie
-  wypisywane na środku ekranu. Agenci CLI mają własne wiersze w drzewie;
-  ich wybór zachowuje terminal i nie tworzy rozmowy headless.
-- New chat nie uruchamia się automatycznie przy starcie/przełączaniu kontekstu. Pusty stan
-  ma CTA. New tab bez projektu tworzy czat; tworzenie terminala skrótem splitu wymaga projektu.
+- Pusty stan jest przy composerze: krótka podpowiedź zadania, a pod nią zwarte
+  szczegóły rozmowy (`ui/chat/details.rs`, linie prowadzone ikoną jak w kartach
+  sidebara): agent i model (`agent_name`, `model_label`), dla zdalnego czatu
+  „On {komputer}”, projekt i HEAD z tagiem `default` albo „Private chat, no project”,
+  folder roboczy (`~/…`, ucinany w środku) z Copy path. Lokalny czat bierze
+  projekt z `Chats::workspace_of_chat` (inaczej po cwd) i HEAD z `GitState`;
+  zdalny — workspace z podsumowania hosta i jego współdzielonego katalogu (ścieżka
+  w postaci z tamtego komputera). Konto, wybór modelu i tryb zostają w pickerach
+  composera. Wznowiony lokalny czat mówi wprost, że to stan stały: „Messages from before the resume
+  aren't shown here. The agent still has the full conversation.” Szczegóły znikają z pierwszą wiadomością (rysuje je tylko pusty stan);
+  widok odświeża się na zmiany `GitState` tylko, gdy rozmowa jest pusta. Agenci CLI
+  mają własne wiersze w drzewie; ich wybór zachowuje terminal i nie tworzy rozmowy headless.
+- New chat nie uruchamia się automatycznie przy starcie/przełączaniu kontekstu. Worktree
+  bez tabów pokazuje przegląd z CTA ([komponenty](components.md#przegląd-worktree-bez-tabów)). New tab bez projektu tworzy czat; tworzenie terminala skrótem splitu wymaga projektu.
 - Tytuł rozmowy należy do `PaneMetadata.title`. Opcjonalny `chat_title_state` odróżnia
   placeholder od nadanej nazwy; starsze zapisy używają nazwy taba jako fallbacku.
   Dock/swap/detach i zmiana nazwy grupy utrwalają ten fallback przed operacją. Ręczna nazwa
@@ -211,6 +219,15 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   szerokość tej grupy w `pickers_width`; render mierzy etykiety (`shape_line`, 12 px) i wybiera gęstość: pełne
   etykiety (model z effortem i tryb), sama nazwa modelu (tryb jako ikonka) albo same ikonki. Ukryta etykieta trafia do tooltipa
   i etykiety dostępności; załącznik i Send/Stop nigdy nie wychodzą poza composer.
+- Komunikat pod polem (`ChatRuntime::notice`, `ChatNotice { kind: Error | Info, text }`): runtime ustawia go,
+  gdy czegoś nie dało się zrobić (Error: zapis czatu, odmowa wiadomości, błąd hosta, plik spoza obrazów
+  w zdalnym czacie) albo coś czeka (Info: agent bez Steer, wstrzymana kolejka, łączenie z komputerem).
+  Wiersz `ChatView::notice_row` (`composer.rs`): `CircleX` czerwony albo `Info` wyciszony, tekst 12 px
+  `secondary`, 20 px „Dismiss” (`icon_button`) woła `ChatRuntime::dismiss_notice`. Błąd zostaje do zamknięcia
+  albo zastąpienia innym komunikatem; informacja znika przy następnej wysyłce (`ChatNotice::after_send`,
+  lokalnie i zdalnie). Wejście i wyjście: wysokość (`MotionReveal`) i krycie razem, `STATE_CHANGE`
+  jak wiersz kolejki; stan `NoticeRow` śledzi runtime w obserwatorze widoku i trzyma tekst do końca wyjścia.
+  Treść błędów: „co się stało: powód”, np. „Couldn't save this chat: …”.
 - Composer „odpoczywa” podczas scrollowania rozmowy (jak `resting` w T3 Code, `ui/chat/resting.rs`):
   - liczy się zmiana pozycji listy, niezależnie od źródła (kółko, touchpad, przeciąganie scrollbara):
     `sync_resting` w każdym renderze porównuje `ChatScrollerState::position` / `scroll_top` z poprzednią klatką;
@@ -219,8 +236,8 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
     kontekstu znikają. Decyzję podejmuje czyste `Resting::observe` (testy w module);
   - nie liczą się: dopisywanie treści przy śledzeniu końca (lista nie jest przewinięta w górę), glide
     nawigatora i skoki na koniec (`ChatScrollerState::ends`);
-  - tylko zwykły jednoliniowy szkic: decyzja, edycja, otwarte podpowiedzi, shell, błędy załączników lub polecenia
-    oraz podwątek subagenta zostawiają pełny composer (i budzą zwinięty);
+  - tylko zwykły jednoliniowy szkic: decyzja, edycja, otwarte podpowiedzi, shell, błędy załączników lub polecenia,
+    komunikat błędu pod polem oraz podwątek subagenta zostawiają pełny composer (i budzą zwinięty);
   - pełny composer wraca po przewinięciu w dół do końca (każdym sposobem), kółku w dół na samym końcu, Jump to latest / ostatnim kroku
     nawigatora, pisaniu i kliknięciu tekstu; pisanie w trakcie ruchu blokuje jego resztę (momentum);
   - wysokość wyspy przechodzi płynnie (RESIZE) od poprzedniej do zmierzonej (canvas w `Resting::measured`),
@@ -365,9 +382,21 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   Pliki: `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING=1` w środowisku czatu; `rewind_files` (dry run → tacka
   z opcją „Also restore N files”, domyślnie wyłączoną; właściwy przed forkiem). Uuid wiadomości użytkownika
   (`UserMessage.uuid`) to klucz cofnięcia.
+- Tacka edycji mówi, co trwa, spinnerem (`edit::progress_row`, xsmall + 12 px `muted`; nieruchomy znak przy
+  Reduce Motion): „Restoring files…” tylko przy zaznaczonym przywracaniu, „Sending the edit to {host}…”
+  w zdalnym czacie, „Checking the message on {host}…” podczas ponownego podglądu (`Editing.checking`, nie
+  `error`). Wysłanej edycji nie da się anulować (Cancel wyszarzony). Zdalny ołówek czeka na podgląd hosta jako
+  `loading_icon_button` (`ChatView::edit_check`, `ButtonLoading`) i zostaje widoczny. Gdy host nie ma już
+  podglądu edycji, tacka pokazuje „{host} no longer has this edit's preview.” z akcją „Check again”
+  (`Editing.recheck`, ponowny `client_preview`); tę samą akcję ma nieudane sprawdzenie po restarcie.
 - Kontekst: `get_context_usage` po każdym `idle` (jedno zapytanie w locie, nie przy zamykaniu) →
   kółko w composerze z ostrzeżeniem od 80% przestrzeni przed buforem autokompaktowania. Karta na hover ma
   miernik kontekstu i każdego limitu planu (procent, pasek, szczegół: tokeny / godzina odnowienia).
+  Kółko czyta wspólny odczyt (`actions::context_reading`), nie `native()`: lokalny Claude/Codex
+  podaje bieżące wartości, czat zdalny — `Usage.context_used/max/buffer` z ostatniego `TurnEnd`
+  projekcji (opis: „after the last turn on {host}”), bez limitu planu. Brak danych = brak kółka,
+  bez zastępczego „—”. Host wysyła dziś te pola puste (`remote/transcript.rs`), więc zdalnie kółko
+  pojawi się dopiero, gdy host zacznie je wypełniać. ACP nie raportuje zużycia (`usage: None`).
 - Notice: kompaktowanie z `compact_metadata` (trigger, pre_tokens), limit z godziną odnowienia
   i ponowienie API z odliczaniem (`Notice.until`, odświeżanie co 1 s tylko podczas odliczania).
 - `components::AnimatedHeight`: mierzona wysokość z animacją RESIZE (panel decyzji, „Show more” w kartach).
@@ -462,6 +491,9 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
   odpowiedzi z kodem, thinking, plan, raport subagenta, części archiwalne) pokazanej rozmowy; karty narzędzi pomija.
   Trafienia to `TextViewState::set_range_highlights`, bieżące przewija `Rows::uncover` (otwiera fold/grupę/thinking)
   → `ChatScrollerState::reveal_row` → `reveal_range`. Liczenie tylko w handlerach, po zmianach treści z debounce.
+  W zdalnym czacie wyniki przychodzą stronami z indeksu hosta: licznik „N of M+” (tooltip „More matches load
+  as you go”), gdy host ma kolejną stronę (`remote_next`); podczas pobierania spinner xsmall przy liczniku
+  (także przy wybranym wyniku), a Next (przycisk i Enter) czeka na odpowiedź.
 - Cytowanie (DEC-070, `ui/chat/quote.rs`, `chat::quotes`): puszczenie myszy w rozmowie z zaznaczeniem
   (`TextSelection::selected_text`) pokazuje przycisk „Quote”; znika po odznaczeniu, przewinięciu, pisaniu i Esc.
   Cytat to `Attachment::Quote` z wzmianką `[❝ …]` w tekście (badge jak załącznik, tooltip z całością, ≤ 4 000 znaków),
@@ -826,14 +858,17 @@ cleanup, trwała kolejka) działają dla każdego backendu; rozszerzenia Claude/
 sesji, `!` tylko dla Claude/Codex.
 
 Agent ACP to narzędzie typu Custom z polem `acp: true` w katalogu narzędzi
-(opcjonalne pole JSON, bez migracji bazy; Preferences → Tools → „Agent Client
-Protocol”). `ToolCatalog::agent_definition` buduje `AgentDefinition` z
+(opcjonalne pole JSON, bez migracji bazy; Preferences → Tools → checkbox „Chat agent”
+z etykietą klikalną razem z polem i pomocą „Opens in a chat instead of a terminal. The
+program must support Agent Client Protocol (ACP).”; „Enable tool” to ten sam
+`labeled_checkbox`). `ToolCatalog::agent_definition` buduje `AgentDefinition` z
 executable, argumentów narzędzia, profilu i pane. Narzędzie bez profili jest
 jednym kontem o ID narzędzia. Konta ACP pojawiają się obok Claude/Codex na
 szynie wyboru konta (przed pierwszą wiadomością); taki agent nie trafia do menu
 terminali. Composer czatu ACP zamiast pickerów modelu i trybu ma jedno menu
 opcji agenta: `configOptions`, a gdy ich brak — `models`/`modes` z ACP, z
-nieprzezroczystymi ID. Zmiana czeka na odpowiedź agenta; odmowa zostawia
+nieprzezroczystymi ID. Bez opcji menu nazywa agenta: „Options appear once {agent}
+starts” przed startem, „{agent} has no options” po nim. Zmiana czeka na odpowiedź agenta; odmowa zostawia
 poprzednią wartość i komunikat pod composerem. Potwierdzone przez agenta wartości
 opcji trafiają do `ChatSettings.agent_options` (nieprzezroczyste ID opcji i wartości,
 także `canopy:model`/`canopy:mode`). Nowa sesja dostaje je po kolei, po jednej zmianie
@@ -842,7 +877,13 @@ naraz, tylko gdy agent nadal oferuje daną wartość; odmowa zostawia wartość 
 Panel decyzji pokazuje opcje zgody ACP z ich nazwami; opis mówi tylko „jednorazowo”
 albo „agent zapamiętuje wybór” — bez przypisywania zakresu czatu. Esc/⌘⌫
 wybiera `reject_once`, potem `reject_always`, a bez nich anuluje prośbę. Notatka
-do odmowy nie istnieje w ACP, więc pole nie wysyła odmowy z tekstem.
+do odmowy nie istnieje w ACP, więc tekst w polu idzie po odmowie jako zwykła
+wiadomość: Enter albo przycisk „Reject and send” (`primary`, tooltip „Enter”)
+wybiera odmowę agenta w tej samej kolejności co Esc i wysyła tekst przez `submit`
+(w trakcie tury czeka w kolejce). Pod polem podpowiedź „{Agent} can't take a note
+with its answer. Your text goes as the next message.”, a opcja odmowy ma dopisek
+„Enter sends your text after it”. Puste pole: „Choose an option, or write a reply
+to reject”.
 
 ACP korzysta z tej samej trwałej kolejki hosta co Claude/Codex. Dowodem doręczenia
 jest pierwsze `session/update` lub żądanie agenta w turze promptu albo odpowiedź
@@ -883,7 +924,11 @@ zapisuje się tylko, gdy agent ogłosił `loadSession`.
 - Stop wstrzymuje kolejkę (`Pause`), Resume ją wznawia i najpierw wysyła `RESUME_PROMPT`
   (nietrwały prompt Canopy). `delivery_unknown` blokuje dalszy dispatch; tacka daje
   trzy akcje z bieżącą rewizją: Delivered, Send again (nowe ID w tym samym miejscu,
-  ostrzeżenie o duplikacie), Dismiss.
+  ostrzeżenie o duplikacie), Dismiss. Grupa trzech przycisków ma jedną kartę na hover
+  („Delivery unknown” z powodem i fakt na każdą akcję); same przyciski nie mają
+  tooltipów, × zachowuje nazwę dostępności „Dismiss”. „Resume” w wierszu „Queue paused”
+  też ma kartę („Resume queue”: jedna wiadomość na turę, praca przerwana Stopem
+  kończy się pierwsza) zamiast jednoliniowego tooltipa.
 - Move/Remove/Edit/Pause/Resolve to `QueueMutation` z rewizją (`change_queue`). Konflikt
   odświeża kolejkę i pokazuje komunikat; Edit z tacki zdejmuje pozycję do composera
   (Remove), a tekst z pola idzie jako nowa wiadomość.
@@ -1076,6 +1121,15 @@ limit 16 terminali i
 procesu i `release` go kończą, a uchwyt trafia do wspólnego cleanupu. Karta
 narzędzia pokazuje jego output na żywo, bez wejścia i resize. Wyniki spóźnione
 po restarcie są odrzucane po generacji runu.
+Output terminala jest treścią disclosure narzędzia (`measured_body`, ten sam szewron,
+PANEL + CONTENT_REVEAL i `AnimatedHeight` przy dopisywaniu), w polu `tools::output_box`
+w kolumnie tekstu jak treści kart. Wiersz otwiera się sam, póki terminal działa
+(w nagłówku dopisek „Agent terminal”), i zwija po jego wyjściu
+(`ChatView::follow_agent_terminals` przy zmianie runtime'u, `Rows::follow_terminal`).
+Ręczne przełączenie (`touched`) wygrywa: wiersz zostaje taki, jak go zostawiono.
+Po wyjściu nagłówek pokazuje tylko status wywołania (✓/✕ według stanu narzędzia od
+agenta); podsumowania outputu nie wyciągamy. Kod wyjścia nie jest dziś udostępniany
+z `HostTerminals` do UI. Zwolniony terminal (`release`, koniec runu) znika z karty.
 
 LIFE-09: runtime bez żadnego `ChatView` i bez zdalnego obserwatora (także ukryty
 tab ma widok, więc nie usypia) po 60 s bez tury, decyzji, aktywnego dispatchu (wstrzymana kolejka i
@@ -1179,6 +1233,23 @@ Obrazy są pobierane jako zweryfikowane artefakty, pliki `@` i PR-y `#` zachowuj
 hosta, a HTML otrzymuje autoryzowane bajty w izolowanym podglądzie. Historia dochodzi
 stronami; wyszukiwanie korzysta z indeksu hosta. Kliknięcie pliku na karcie narzędzia
 otwiera plik właściwego hosta w bocznym panelu, bez odłączania widoku rozmowy.
+Taki plik ma wygląd lokalnej pigułki (`file_pill::look`: ikona typu, nazwa skracana
+w kontenerze `flex_1/min_w_0`, liczniki i status zostają w wierszu); tooltip podaje
+pełną ścieżkę i nazwę hosta, a kliknięcie emituje `ClientFileRequested`.
+
+Żądanie zapisane na urządzeniu (Send, Edit, Fork, `!`, zatrzymanie polecenia), którego wyniku
+host nie potwierdził, pokazuje tacka nad composerem w miejscu kolejki (`remote::recovery_bar`, gdy nic nie
+jest edytowane): kropka i zdanie według `CommandReceipt.state` — brak potwierdzenia „Message not confirmed
+by {host}” (żółta), ACCEPTED/ATTEMPTING „{host} is processing it” (akcent), DELIVERY_UNKNOWN „{host}
+couldn't confirm it” (żółta), NOT_FOUND „{host} has no record of it” (czerwona). Pod nim treść żądania
+(z `ChatMutation`), pełna w karcie na hover ze statusem. Akcje jak w kolejce: „Check status”
+(`client_reconcile`) i „Send again” (`client_retry_saved`, tylko bez potwierdzenia albo przy NOT_FOUND).
+`RemoteSession.recovering` trzyma trwającą akcję: jej przycisk ma spinner (`ButtonLoading`), Send again
+znika na czas sprawdzania. Przycisk „Earlier messages” jest kryjący (`loading_button`, `shadow_md`), ze
+spinnerem podczas pobierania strony; błąd strony (`RemoteSession.history_error`) zamienia go w „Couldn't
+load · Retry” z ikoną ostrzeżenia. Plik spoza obrazów dodany w zdalnym czacie daje błąd pod polem: „{host}
+can't open {plik} from this computer. Type @ to choose a file on {host}, or attach an image.” (dla kilku
+plików „N files”).
 
 Sprawdzenia jednostkowe obejmują roundtrip tabów/splitów, rozdzielenie hostów,
 aktualizowanie wspólnego transkryptu oraz zachowanie kolejki po odłączeniu taba.

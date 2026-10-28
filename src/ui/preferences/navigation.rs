@@ -1,5 +1,5 @@
 use super::*;
-use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::{component::scroll::ScrollableElement, prelude::FluentBuilder};
 
 fn nav_icon(name: &str, fallback: IconName) -> gpui_kit::component::Icon {
     match name {
@@ -12,6 +12,26 @@ fn nav_icon(name: &str, fallback: IconName) -> gpui_kit::component::Icon {
         "Skills" => custom_icon("wrench"),
         _ => icon(fallback),
     }
+}
+/// Entries without working settings yet. They stay in the list, greyed out,
+/// and open a page that says so (see docs/settings.md for the evidence).
+const UNAVAILABLE: [&str; 10] = [
+    "Updates",
+    "Privacy",
+    "Shortcuts",
+    "Notch",
+    "Misc",
+    "Appearance",
+    "Sidebar",
+    "Skills",
+    "Git",
+    "File Watcher",
+];
+pub(super) fn unavailable(page: &str) -> bool {
+    UNAVAILABLE.contains(&page)
+}
+fn not_available_tooltip(window: &mut Window, cx: &mut App) -> AnyView {
+    gpui_kit::component::tooltip::Tooltip::new(NOT_AVAILABLE).build(window, cx)
 }
 fn navigation(page: &str, cx: &Context<PreferencesNavigation>) -> Div {
     let groups = [
@@ -53,10 +73,11 @@ fn navigation(page: &str, cx: &Context<PreferencesNavigation>) -> Div {
                 ("Git", IconName::Network),
                 ("Integrations", IconName::Network),
                 ("Task filters", IconName::Settings2),
-                ("Connections", IconName::Network),
                 ("File Watcher", IconName::Folder),
             ],
         ),
+        // Electron keeps remote access under Security; Globe is unique in this list.
+        ("SECURITY", vec![("Connections", IconName::Globe)]),
     ];
     column()
         .w(px(SIDEBAR))
@@ -83,28 +104,16 @@ fn navigation(page: &str, cx: &Context<PreferencesNavigation>) -> Div {
                                 .child(column().gap(px(1.)).children(items.into_iter().map(
                                     |(name, glyph)| {
                                         let active = name == page;
+                                        let inert = unavailable(name);
                                         row()
                                             .id(SharedString::from(format!("prefs-nav-{name}")))
                                             .on_click(cx.listener(move |this, _, _, cx| {
-                                                if matches!(
-                                                    name,
-                                                    "General"
-                                                        | "Tools"
-                                                        | "Claude"
-                                                        | "Codex"
-                                                        | "Gemini"
-                                                        | "OpenCode"
-                                                        | "Terminal"
-                                                        | "Integrations"
-                                                        | "Task filters"
-                                                        | "Connections"
-                                                ) {
-                                                    this.page.update(cx, |page, cx| {
-                                                        *page = name.to_owned();
-                                                        cx.notify();
-                                                    });
-                                                }
+                                                this.page.update(cx, |page, cx| {
+                                                    *page = name.to_owned();
+                                                    cx.notify();
+                                                });
                                             }))
+                                            .when(inert, |row| row.tooltip(not_available_tooltip))
                                             .cursor_pointer()
                                             .relative()
                                             .h(px(33.))
@@ -119,16 +128,19 @@ fn navigation(page: &str, cx: &Context<PreferencesNavigation>) -> Div {
                                                 transparent_black()
                                             })
                                             .text_size(px(13.))
-                                            .text_color(if active {
-                                                t::text()
-                                            } else {
-                                                t::secondary()
+                                            .text_color(match (inert, active) {
+                                                (true, true) => t::muted(),
+                                                (true, false) => t::faint(),
+                                                (false, true) => t::text(),
+                                                (false, false) => t::secondary(),
                                             })
-                                            .child(nav_icon(name, glyph).text_color(if active {
-                                                t::accent()
-                                            } else {
-                                                t::muted()
-                                            }))
+                                            .child(nav_icon(name, glyph).text_color(
+                                                match (inert, active) {
+                                                    (true, _) => t::faint(),
+                                                    (false, true) => t::accent(),
+                                                    (false, false) => t::muted(),
+                                                },
+                                            ))
                                             .child(name)
                                             .children(active.then(|| {
                                                 div()
@@ -146,7 +158,10 @@ fn navigation(page: &str, cx: &Context<PreferencesNavigation>) -> Div {
                 ),
         )
         .child(
+            // Settings export/import is not implemented yet.
             row()
+                .id("prefs-backup")
+                .tooltip(not_available_tooltip)
                 .h(px(44.))
                 .px(px(12.))
                 .gap(px(12.))
@@ -154,8 +169,8 @@ fn navigation(page: &str, cx: &Context<PreferencesNavigation>) -> Div {
                 .border_color(t::border())
                 .child(caption("BACKUP").font_weight(FontWeight::NORMAL))
                 .child(div().flex_1())
-                .child(custom_icon("download"))
-                .child(custom_icon("upload")),
+                .child(custom_icon("download").text_color(t::faint()))
+                .child(custom_icon("upload").text_color(t::faint())),
         )
 }
 fn transparent_black() -> Hsla {

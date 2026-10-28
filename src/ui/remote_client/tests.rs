@@ -121,6 +121,92 @@ async fn adding_a_route_uses_the_shared_registry_without_another_pairing(cx: &mu
 }
 
 #[gpui_kit::test]
+async fn settings_edit_routes_inline_without_connecting_or_opening_a_window(
+    cx: &mut TestAppContext,
+) {
+    use super::{ConnectionSetup, ConnectionSetupEvent};
+    use std::{cell::Cell, rc::Rc};
+    cx.background_executor.allow_parking();
+    let directory = tempfile::tempdir().unwrap();
+    let registry = ClientRegistry::open(
+        directory.path().join("clients.json"),
+        Arc::new(NoCredentials),
+    )
+    .unwrap();
+    let record: HostRecord = serde_json::from_value(serde_json::json!({
+        "id":uuid::Uuid::new_v4().to_string(),"name":"Mac Studio",
+        "endpoint":"https://192.168.1.30:44330","server_name":"paired-host","certificate":[],
+        "fingerprint":[],"device_id":"device","credential_ref":"never-read","ssh":null,
+        "last_seen":null,"epoch":null,"closing_epoch":null,"catalog":[],"outbox":[],
+        "mutations":[],"views":{},"uploads":[],"chats":{}
+    }))
+    .unwrap();
+    let host = registry.insert(record).unwrap();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::ui::theme::init(cx);
+        ensure_global(cx).unwrap();
+        cx.global::<ClientGlobal>()
+            .registry
+            .set(registry.clone())
+            .unwrap_or_else(|_| panic!("new registry"));
+    });
+    let mut setup = None;
+    let routes_host = host.clone();
+    let handle = cx.open_window(size(px(720.), px(1400.)), |window, cx| {
+        let entity = ConnectionSetup::routes(routes_host, window, cx).unwrap();
+        setup = Some(entity.clone());
+        Root::new(entity, window, cx)
+    });
+    let setup = setup.unwrap();
+    let closed = Rc::new(Cell::new(false));
+    let _events = cx.update(|cx| {
+        let closed = closed.clone();
+        cx.subscribe(&setup, move |_, event: &ConnectionSetupEvent, _| {
+            closed.set(matches!(event, ConnectionSetupEvent::Closed))
+        })
+    });
+    let view = cx.update(|cx| setup.read(cx).view.clone());
+    cx.wait_for(handle.into(), Duration::from_secs(2), |_, cx| {
+        !view.read(cx).busy
+    })
+    .await;
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            cx.windows().len(),
+            1,
+            "Routes must not open the device window"
+        );
+        window.click("new-connection-route", cx);
+        window.click("route-name-input", cx);
+        window.input("Office", cx);
+        window.click("route-endpoint-input", cx);
+        window.input("192.168.128.30:44330", cx);
+        window.click("save-connection-route", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle.into(), Duration::from_secs(2), |_, cx| {
+        !view.read(cx).busy
+    })
+    .await;
+    cx.update_window(handle.into(), |_, window, cx| {
+        assert!(view.read(cx).error.is_none(), "{:?}", view.read(cx).error);
+        assert_eq!(host.routes().len(), 2);
+        assert_eq!(host.routes()[1].name(), "Office");
+        assert_eq!(
+            host.phase(),
+            Phase::Offline,
+            "Editing routes must not connect"
+        );
+        window.render_frame(cx);
+        window.click("close-computer-routes", cx);
+    })
+    .unwrap();
+    assert!(closed.get(), "Done closes the inline routes");
+}
+
+#[gpui_kit::test]
 async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
     cx: &mut TestAppContext,
 ) {
@@ -294,19 +380,26 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
             Phase::Offline,
             "showing an unloaded connection must not use its credentials"
         );
+        // A project only another computer shares starts collapsed, like a
+        // local one away from the selection.
+        window.click(
+            "project-origin:https://gitlab.com/itsoltech/canopy-desktop",
+            cx,
+        );
     })
     .unwrap();
+    cx.run_until_parked();
     for host in &hosts {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let row = format!("remote-worktree:{}:main", host.id().as_str());
+            let row = format!("worktree-remote-{}-main", host.id().as_str());
             let label = window.find(row).label().unwrap().to_owned();
             assert!(
                 label.contains("main") && label.contains(&host.name()),
                 "{label}"
             );
             window.click(
-                format!("remote-chat:{}:same-chat-id", host.id().as_str()),
+                format!("chat-remote-{}-same-chat-id", host.id().as_str()),
                 cx,
             );
         })

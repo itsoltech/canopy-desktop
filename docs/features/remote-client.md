@@ -9,17 +9,20 @@ contract remains [the remote plan](../agent-runtime-remote-plan.md) and
 
 `src/remote/client/` owns a typed `ClientRegistry` keyed by host UUID. Each host owns
 its transport, pinned identity, catalog, connection generation, bounded change
-notifications, mutation gate and recovery records. `src/ui/remote_client::{add_computer, open_host, open_routes}`
-open a connection-management window. Opening a chat from it selects a normal tab
+notifications, mutation gate and recovery records. `src/ui/remote_client::open_host`
+opens the device window for one computer; adding a computer and editing its routes
+use `remote_client::ConnectionSetup` inline in Preferences → Connections. Opening a chat from it selects a normal tab
 in the main workspace. The chat uses the same `ui::chat::ChatView`, composer and
 conversation renderer as a local chat. Settings/Tasks retain their feature views.
 Each window subscribes independently to host changes.
 
 Preferences → Connections shares the retained registry owner with all client
 windows. Opening preferences loads saved metadata without connecting or reading
-credentials. Other computers shows live status, active route and route count.
-Open connects explicitly; Routes opens its route manager without a connection.
-Add computer keeps the enrollment form open even if other computers are saved.
+credentials. Other computers shows live status, the route in use and the shared
+project count. Open connects explicitly; Routes (row menu) expands the route manager
+below the row without a connection.
+Add computer expands the enrollment form at the end of the list, also when other
+computers are saved; Cancel closes it and cancels a waiting request.
 Direct setup shows invitation and device name; SSH fields appear only when chosen.
 Successful approval connects automatically using the newly issued identity.
 
@@ -56,7 +59,8 @@ route has an explicit Connect action. The list marks the route in use and shows
 failed/skipped attempts. Adding, editing, reordering and removing routes keeps
 pairing, drafts, journals and permissions. Editing is checked against the version
 shown in the form, preventing a stale window from overwriting another edit.
-Removing the active route disconnects; at least one route must remain. Unused SSH
+Removing a route is confirmed in the shared Canopy modal; removing the active
+route disconnects, and at least one route must remain. Unused SSH
 credentials are removed only after the route change commits. The private JSON
 format upgrades v1 to v2 on successful save, preserving the previous single route;
 older one-route builds refuse v2 instead of dropping the new list. SQLite and
@@ -119,17 +123,9 @@ host Quit RPC.
 
 - Catalog: projects/workspaces/chats/terminals, host project opening, chat and
   terminal creation; scoped selection and per-device layout restore.
-- Chat: staged snapshots and verified fragments, live append/replacement,
-  backward history anchored before the first installed item, paged search and
-  explicit jump, shared Markdown rendering, variable-height list, drafts/outbox,
-  capability-gated images/steer/goal/fork/cancel, goal state/accounting and pause/resume/clear, opaque option choices, native
-  permission/question/plan forms, queue controls and uncertain-delivery actions,
-  background stop, rename and explicitly preflighted deletion. Closing the view
-  only detaches it. Decisions are never answered by cancellation/disconnect.
-  Forks preserve the source workspace; Fork with draft sends a typed replacement.
-  Native image selection checks file bytes and bounds reads to 32 MiB. Context
-  attachments (including completed shell output) persist with the draft context
-  and survive reconnect; they require an explicit online send.
+- Chat: always the shared `ui::chat::ChatView` tab in the main window, driven by the
+  client runtime (`app_state/chats/runtime/remote.rs`, `client.rs`). The device window
+  and embedded workspace only open it; they no longer render a chat themselves.
 - Files: scoped directories/paging/search/create, hash-checked reads, editable
   UTF-8 buffers, private draft restore, dirty presence, expected-hash save and
   confirmed discard. Binary reads can open a private attachment preview.
@@ -206,13 +202,67 @@ contract with private native staging and a sandboxed iframe. See
 [mobile source handoff](../../mobile/NATIVE-REMOTE.md) for the R13 mobile behavior
 and explicit native/GUI NOT RUN status.
 
-The [desktop view handoff](../../src/ui/remote_client/README.md) describes the
-semantic tool/plan/diff cards, epoch-scoped subthreads, scoped composer catalogs,
-Edit/rewind, explicit Shell, destination picker and project-close risk review.
-Agent discovery accumulates bounded pages independently of Send. Closing
-workspaces expose Retry cleanup and cannot receive new chats or forks. Notes
-retain the existing process-local, device-local workspace scratchpad semantics;
-export uses an explicitly selected host file rather than an invented shared path.
+The [desktop view handoff](../../src/ui/remote_client/README.md) lists the device
+surfaces. Agent discovery accumulates bounded pages independently of Send. Closing
+workspaces expose Retry cleanup and cannot receive new chats. Notes retain the
+existing process-local, device-local workspace scratchpad semantics; export writes
+an explicitly named new host file rather than an invented shared path.
+
+## Interfejs okna Remote i narzędzi zdalnych
+
+Okno „Canopy — Remote”, zdalny workspace w głównym oknie i wąski panel narzędzi
+korzystają z tych samych komponentów co Preferences i lokalne Files/Changes
+(`src/ui/remote_client/shell.rs`, `chrome.rs`). Kod nie zmienia `src/remote/**` ani
+`src/app_state/**`.
+
+- Nawigacja jak w Preferences: sekcja COMPUTERS z kropką statusu i stanem
+  „Connected” / „Connecting…” / „Offline” (nigdy `{:?}`), „Add computer…”, a po
+  wybraniu komputera WORKSPACE (Projects, Files, Changes, Notes, Tasks) i COMPUTER
+  (Connection, Host settings). Pozycje są przyciskami z focusem i nazwą dostępności.
+- Nagłówek strony: tytuł, podtytuł (checkout · komputer) i dolna linia; po prawej
+  stan połączenia, Connect/Reconnect i Disconnect (Disconnect zatrzymuje też
+  automatyczne ponawianie offline). Pod nagłówkiem: informacja o pracy offline na
+  zapisanych danych, ostatnie połączenie i błąd połączenia.
+- Komunikaty są przy kontrolce, która je wywołała: `run_in(scope, …)` pokazuje
+  spinner na tej kontrolce i błąd/wynik obok (`notice(scope)`); stare jednolinijkowe
+  pole statusu na dole okna zostało usunięte. `run` bez zakresu (trasy, terminal)
+  zostaje komunikatem strony. Nawigacja czyści komunikaty.
+- Stany puste mają jedno zdanie i akcję (np. „Open Projects”, „Connect”), a ładowanie
+  spinner z wyciszonym tekstem.
+- Projects: checkouty jako wiersze z gałęzią, czaty (otwierają zwykły tab ChatView),
+  terminale ze stanem, start terminala, New chat (miejsce docelowe, wybór agenta i
+  konta jako lista z zaznaczeniem, „Create chat”) oraz otwarcie projektu po ścieżce.
+- Files: wiersze w geometrii lokalnego drzewa plików, pasek folderu (w górę, przeładuj,
+  nowy plik/folder przez `TextPrompt`, który od razu odświeża folder), wyszukiwanie,
+  edytor z Preview…/Discard edits…/Save. Szeroki układ: lista obok edytora; panel
+  narzędzi: lista nad edytorem. „Mark as edited” jest w sekcji ADVANCED.
+- Changes: zakładki Files/History, litery statusu i wiersze plików jak lokalny panel
+  Changes (Stage/Unstage/Discard jako ikony), skrócone hashe drugoplanowo, panel diffu,
+  commit z podpisem, Pull/Push, a remote/upstream i worktree w sekcjach
+  „REMOTE AND UPSTREAM” i „WORKTREES” z opisami zrozumiałymi bez żargonu.
+- Host settings: sekcje jak w Preferences (preferencje, agenci, profile, integracje z
+  ikoną dostawcy, urządzenia), edytor w karcie z polami w dwóch kolumnach i sekretami
+  Keep/Replace/Remove. Niepewne operacje, ich czyszczenie i zakresy urządzeń są w
+  sekcji DIAGNOSTICS.
+- Potwierdzenia korzystają z `components::modal::Confirmation` z czasownikiem
+  wyniku; nieodwracalne akcje mają styl destrukcyjny (`Confirmation::destructive`).
+  `TextPrompt::confirm_label` nazywa akcję zapisu w prompcie.
+- Podglądy (załącznik, tekst/Markdown, HTML) mają przeciągalny pasek tytułu z akcjami
+  i komunikaty błędów w stylu aplikacji.
+- Strony Terminal, lista terminali i Tasks dostają całą wysokość obszaru treści (bez
+  zewnętrznego scrolla i wcięcia); lista terminali dodaje własne wcięcie.
+  `RemoteWindow::new_shell_terminal` startuje powłokę w wybranym checkoucie.
+
+Martwy zdalny stos czatu (`remote_client/chat.rs`, `editing.rs`, `activity.rs`) usunięto:
+nic nie ustawiało `Page::Chat` poza odtworzeniem układu, które od razu przekazuje czat
+do ChatView. Wariant `Page::Chat` zostaje wyłącznie dla zgodności zapisanych układów.
+
+Weryfikacja: `cargo build --locked`, `cargo clippy --locked --all-targets` bez
+ostrzeżeń, `cargo test --locked --bin canopy-desktop remote_client` (7 z 8 przechodzi;
+`selecting_another_computer_while_the_registry_loads_keeps_the_requested_destination`
+nie przechodził już przed zmianą — brak `AppState` w teście). GUI nie zostało
+sprawdzone w oknie.
+
 ## Wspólny sidebar komputerów
 
 Główne okno pokazuje lokalny katalog razem z katalogami zapisanych połączeń.

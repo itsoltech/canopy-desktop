@@ -21,9 +21,11 @@ mod commands;
 mod runtime;
 #[allow(unused_imports, reason = "the remote bridge's typed chat API")]
 pub use commands::{ChatSummary, DeletePreflight, ForkChat, ForkReplacement, NewChat};
+pub(crate) use runtime::Recovering;
 pub use runtime::backend_of;
 pub use runtime::{
-    AgentOption, Archived, ChatRuntime, ChatRuntimeEvent, ChatStateChanged, LineState, QueueLine,
+    AgentOption, Archived, ChatNotice, ChatNoticeKind, ChatRuntime, ChatRuntimeEvent,
+    ChatStateChanged, LineState, QueueLine,
 };
 #[allow(unused_imports, reason = "the remote bridge's typed chat API")]
 pub use runtime::{

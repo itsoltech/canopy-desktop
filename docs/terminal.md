@@ -228,6 +228,30 @@ dzierżawy, projekcję, fragmenty, tokeny historii i deduplikację komend oraz
 izolowany proces `/bin/cat` w PTY dla backpressure, uprawnień i disconnect.
 Nie uruchamiano GUI, realnych providerów ani magazynu sekretów.
 
+### Widok terminala zdalnego (desktop)
+
+`ui/remote_client/terminal.rs` składa stronę z tych samych komponentów co lokalny
+pane: `tab_strip`/`workspace_tab` z terminalami bieżącego workspace'u z katalogu
+hosta (kropka oznacza zakończony proces), `terminal_surface` + `terminal_viewport`
+z canvasem wypełniającym dostępną wysokość i `process_status_bar`. Bez dzierżawy
+pasek mówi „Input is controlled by another device…” (gdy katalog zna innego
+właściciela) albo „Read only…”, z przyciskiem Take control. Historia ma pasek
+„Showing earlier output…” z Back to live output, zakończony proces — Restart.
+Akcje są ikonami z tooltipem w pasku zakładek: Earlier output, Copy selection
+i menu Terminal actions (Release control, Restart terminal…, Stop terminal…,
+Close view). Wszystkie wywołują te same operacje co wcześniej.
+
+Malarz używa geometrii lokalnej (`GridGeometry`, stałe `CELL_WIDTH/CELL_HEIGHT`,
+font 13 px, wyrównanie glifów do siatki, scalanie teł i rozciąganie skrajnych
+teł do marginesów, zaznaczenie `selected`, kursor 45%/18% zależnie od fokusu).
+Siatka ramki hosta jest centrowana jak lokalnie; mysz i zaznaczanie liczą
+komórki z tej samej geometrii. Lokalnego `TerminalView` nie użyto ponownie:
+jest związany z sesją PTY/Alacritty, kursorem i lifecycle'em pane'a, więc adapter
+ramek zdalnych wymagałby osobnej abstrakcji. Wypełnienie wysokości zależy od
+rodzica: kontener strony w `remote_client/mod.rs` jest przewijany, dlatego
+powierzchnia ma minimalną wysokość (`min_h_96`) do czasu, aż strona Terminal
+dostanie nieprzewijany kontener `size_full`.
+
 ## Geometria i tło
 
 Siatka ma symetryczne marginesy poziome i pionowe. Prostokąty tła skrajnych

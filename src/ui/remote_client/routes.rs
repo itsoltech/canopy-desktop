@@ -1,7 +1,9 @@
 //! Device-local routes. Editing one never changes the paired host identity.
 use super::*;
+use crate::ui::components::{integrations::integration_message, modal::Confirmation};
 use canopy_desktop::remote::client::store::{ConnectionRoute, SshRoute};
-use gpui_kit::component::IconName;
+use gpui_kit::component::{IconName, button::Button};
+use std::collections::HashMap;
 
 impl RemoteWindow {
     fn edit_route(
@@ -126,109 +128,395 @@ impl RemoteWindow {
             cx,
         );
     }
+    fn remove_route(
+        &mut self,
+        host: Arc<HostClient>,
+        id: String,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let key = self.window.window_id();
+        if cx
+            .try_global::<RouteConfirmations>()
+            .is_some_and(|confirmations| confirmations.0.contains_key(&key))
+        {
+            return;
+        }
+        let owner = cx.entity();
+        let target = owner.downgrade();
+        let focus = window.focused(cx).unwrap_or_else(|| cx.focus_handle());
+        let modal = cx.new(|cx| {
+            let mut modal = Confirmation::new(
+                format!("Remove “{name}”?"),
+                "Other routes and the pairing with this computer stay. Removing the route in use disconnects this window.",
+                "Remove",
+                focus,
+                move |cx| {
+                    let (host, id) = (host.clone(), id.clone());
+                    target
+                        .update(cx, |this, cx| {
+                            if this.busy {
+                                return Err(SharedString::from(
+                                    "Another action is still running. Try again in a moment.",
+                                ));
+                            }
+                            this.run(
+                                async move {
+                                    host.remove_route(&id)?;
+                                    Ok(Update::Done("Route removed.".into()))
+                                },
+                                cx,
+                            );
+                            Ok(())
+                        })
+                        .map_err(|_| SharedString::from("This window was closed."))?
+                },
+                window,
+                cx,
+            )
+            .destructive();
+            modal.wait_for(&owner, |this| (this.busy, this.error.clone()), cx);
+            modal
+        });
+        cx.subscribe(&modal, move |_, _, _: &ModalDismissed, cx| {
+            cx.default_global::<RouteConfirmations>().0.remove(&key);
+            cx.notify();
+        })
+        .detach();
+        cx.default_global::<RouteConfirmations>()
+            .0
+            .insert(key, modal);
+        cx.notify();
+    }
     pub(super) fn render_routes(&mut self, cx: &mut Context<Self>) -> Div {
         let host = self.host.clone().unwrap();
         let routes = host.routes();
         let active = host.active_route();
-        let mut body = column().gap_3()
-            .child(div().font_weight(FontWeight::MEDIUM).child("Connection routes"))
-            .child(div().text_color(t::muted()).child("One computer, one pairing. Canopy tries routes in this order and skips networks that are unavailable here."));
+        let mut list = column().flex_shrink_0();
         for (index, route) in routes.iter().enumerate() {
-            let id = route.id().to_owned();
-            let edit = route.clone();
-            let is_active = active.as_deref() == Some(id.as_str());
-            let connect = host.clone();
-            let connect_id = id.clone();
-            let up = host.clone();
-            let up_id = id.clone();
-            let down = host.clone();
-            let down_id = id.clone();
-            let remove = host.clone();
-            let remove_id = id.clone();
-            let name = route.name().to_owned();
-            body = body.child(column().gap_1().py_2().border_b_1().border_color(t::border())
-                .child(row().gap_2().child(column().flex_1().gap_1()
-                    .child(format!("{}{}", route.name(), if is_active { " · In use" } else { "" }))
-                    .child(div().text_color(t::muted()).child(format!("{}{}", if route.ssh().is_some() { "SSH → " } else { "" }, route.endpoint()))))
-                    .child(button(SharedString::from(format!("use-route-{id}")), "Connect").disabled(self.busy || is_active).on_click(cx.listener(move |this,_,_,cx|{
-                        let host=connect.clone();let id=connect_id.clone();let ready=prepare_connection(cx);this.run(async move{ready.await?;host.connect_via(id).await?;Ok(Update::Connected)},cx);
-                    })))
-                    .child(button(SharedString::from(format!("edit-route-{id}")), "Edit…").disabled(self.busy).on_click(cx.listener(move|this,_,window,cx|this.edit_route(Some(edit.clone()),window,cx))))
-                    .child(icon_button(SharedString::from(format!("up-route-{id}")), IconName::ChevronUp, "Move route up").disabled(self.busy || index==0).on_click(cx.listener(move|this,_,_,cx|{
-                        let host=up.clone();let id=up_id.clone();this.run(async move{host.move_route(&id,index-1)?;Ok(Update::Done("Route order saved.".into()))},cx);
-                    })))
-                    .child(icon_button(SharedString::from(format!("down-route-{id}")), IconName::ChevronDown, "Move route down").disabled(self.busy || index+1==routes.len()).on_click(cx.listener(move|this,_,_,cx|{
-                        let host=down.clone();let id=down_id.clone();this.run(async move{host.move_route(&id,index+1)?;Ok(Update::Done("Route order saved.".into()))},cx);
-                    })))
-                    .child(icon_button(SharedString::from(format!("remove-route-{id}")), IconName::Close, "Remove route").disabled(self.busy || routes.len()==1).on_click(cx.listener(move|_this,_,window,cx|{
-                        let answer=window.prompt(PromptLevel::Warning,&format!("Remove route “{name}”?"),Some("Other routes, pairing and drafts are kept. Removing the route in use disconnects this window."),&[PromptButton::cancel("Cancel"),PromptButton::new("Remove route")],cx);
-                        let host=remove.clone();let id=remove_id.clone();cx.spawn_in(window,async move|this,cx|{if answer.await==Ok(1){let _=this.update(cx,|this,cx|this.run(async move{host.remove_route(&id)?;Ok(Update::Done("Route removed.".into()))},cx));}}).detach();
-                    }))))
-                .children(host.route_error(route.id()).map(|error|div().text_color(t::muted()).child(error))));
+            let in_use = active.as_deref() == Some(route.id());
+            list = list.child(self.route_row(&host, route, index, routes.len(), in_use, cx));
         }
-        if !self.route_form {
-            return body.child(
+        let confirmation = cx
+            .try_global::<RouteConfirmations>()
+            .and_then(|confirmations| confirmations.0.get(&self.window.window_id()))
+            .cloned();
+        let body = section(
+            "ROUTES",
+            "Canopy tries these in order and skips networks that aren’t available here. The pairing stays the same.",
+            vec![list.into_any_element()],
+        )
+        .children(confirmation);
+        if self.route_form {
+            return body.child(self.route_form(cx));
+        }
+        body.child(
+            row().child(
                 button("new-connection-route", "Add route…")
+                    .icon(icon(IconName::Plus))
                     .disabled(self.busy || routes.len() >= 8)
                     .on_click(cx.listener(|this, _, window, cx| this.edit_route(None, window, cx))),
-            );
-        }
-        body = body
-            .child(form_field(
-                "Route name",
-                "For example Home, Office or Tailscale",
-                input(&self.fields["route_name"])
-                    .id("route-name-input")
-                    .disabled(self.busy),
-            ))
+            ),
+        )
+        .children(
+            self.error
+                .clone()
+                .map(|error| integration_message(error, true)),
+        )
+    }
+    fn route_row(
+        &self,
+        host: &Arc<HostClient>,
+        route: &ConnectionRoute,
+        index: usize,
+        count: usize,
+        in_use: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let id = route.id().to_owned();
+        let name = route.name().to_owned();
+        let edit = route.clone();
+        let (connect, up, down, remove) = (host.clone(), host.clone(), host.clone(), host.clone());
+        let (connect_id, up_id, down_id, remove_id) =
+            (id.clone(), id.clone(), id.clone(), id.clone());
+        let detail = match route.ssh() {
+            Some(ssh) => format!("Through SSH · {}@{}", ssh.username(), ssh.address()),
+            None => display_endpoint(route.endpoint()),
+        };
+        row()
+            .flex_shrink_0()
+            .gap(px(12.))
+            .py(px(12.))
+            .border_t(px(if index == 0 { 0. } else { 1. }))
+            .border_color(t::border())
+            .child(
+                if route.ssh().is_some() {
+                    custom_icon("terminal")
+                } else {
+                    icon(IconName::Globe)
+                }
+                .flex_shrink_0(),
+            )
+            .child(
+                column()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(4.))
+                    .child(
+                        row()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(13.))
+                                    .child(name.clone()),
+                            )
+                            .children(in_use.then(|| badge("In use").flex_shrink_0())),
+                    )
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(11.))
+                            .line_height(px(14.85))
+                            .text_color(t::muted())
+                            .child(detail),
+                    )
+                    .children(host.route_error(route.id()).map(|error| {
+                        div()
+                            .text_size(px(11.))
+                            .line_height(px(14.85))
+                            .text_color(t::red())
+                            .child(error)
+                    })),
+            )
             .child(
                 row()
-                    .gap_2()
+                    .flex_shrink_0()
+                    .gap(px(6.))
                     .child(
-                        selection_button("route-direct", "Local network / VPN", !self.route_ssh)
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.route_ssh = false;
-                                cx.notify();
+                        button(SharedString::from(format!("use-route-{id}")), "Connect")
+                            .disabled(self.busy || in_use)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let host = connect.clone();
+                                let id = connect_id.clone();
+                                let ready = prepare_connection(cx);
+                                this.run(
+                                    async move {
+                                        ready.await?;
+                                        host.connect_via(id).await?;
+                                        Ok(Update::Connected)
+                                    },
+                                    cx,
+                                );
                             })),
                     )
                     .child(
-                        selection_button("route-ssh", "SSH tunnel", self.route_ssh)
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.route_ssh = true;
-                                cx.notify();
-                            })),
+                        icon_button(
+                            SharedString::from(format!("up-route-{id}")),
+                            IconName::ChevronUp,
+                            "Move route up",
+                        )
+                        .disabled(self.busy || index == 0)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let host = up.clone();
+                            let id = up_id.clone();
+                            this.run(
+                                async move {
+                                    host.move_route(&id, index - 1)?;
+                                    Ok(Update::Done("Route order saved.".into()))
+                                },
+                                cx,
+                            );
+                        })),
+                    )
+                    .child(
+                        icon_button(
+                            SharedString::from(format!("down-route-{id}")),
+                            IconName::ChevronDown,
+                            "Move route down",
+                        )
+                        .disabled(self.busy || index + 1 == count)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let host = down.clone();
+                            let id = down_id.clone();
+                            this.run(
+                                async move {
+                                    host.move_route(&id, index + 1)?;
+                                    Ok(Update::Done("Route order saved.".into()))
+                                },
+                                cx,
+                            );
+                        })),
+                    )
+                    .child(
+                        icon_button_base(
+                            SharedString::from(format!("edit-route-{id}")),
+                            "Edit route",
+                        )
+                        .icon(custom_icon("pencil"))
+                        .disabled(self.busy)
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.edit_route(Some(edit.clone()), window, cx)
+                            },
+                        )),
+                    )
+                    .child(
+                        icon_button(
+                            SharedString::from(format!("remove-route-{id}")),
+                            IconName::Close,
+                            "Remove route",
+                        )
+                        .disabled(self.busy || count == 1)
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.remove_route(
+                                    remove.clone(),
+                                    remove_id.clone(),
+                                    name.clone(),
+                                    window,
+                                    cx,
+                                )
+                            },
+                        )),
                     ),
             )
+    }
+    fn route_form(&self, cx: &mut Context<Self>) -> Div {
+        let heading = self
+            .route_edit
+            .as_ref()
+            .map(|route| format!("Edit “{}”", route.name()))
+            .unwrap_or_else(|| "Add route".into());
+        let input_for = |field: &'static str| input(&self.fields[field]).disabled(self.busy);
+        let mut form = column()
+            .flex_shrink_0()
+            .gap(px(16.))
+            .p(px(16.))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(t::border())
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(heading),
+            )
             .child(form_field(
-                "Canopy address",
+                "Connection",
                 if self.route_ssh {
-                    "Address as reached from the SSH server, usually 127.0.0.1:44330"
+                    "Reach Canopy through an SSH server you can sign in to."
                 } else {
-                    "Computer IP or VPN name, for example 192.168.1.25:44330"
+                    "Reach Canopy directly on your network or VPN."
                 },
-                input(&self.fields["endpoint"])
-                    .id("route-endpoint-input")
-                    .disabled(self.busy),
-            ));
+                segmented([
+                    segment("route-direct", "Local network / VPN", !self.route_ssh)
+                        .disabled(self.busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.route_ssh = false;
+                            cx.notify();
+                        })),
+                    segment("route-ssh", "SSH tunnel", self.route_ssh)
+                        .disabled(self.busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.route_ssh = true;
+                            cx.notify();
+                        })),
+                ]),
+            ))
+            .child(field_grid([
+                form_field(
+                    "Route name",
+                    "For example Home, Office or Tailscale",
+                    input_for("route_name").id("route-name-input"),
+                ),
+                form_field(
+                    "Canopy address",
+                    if self.route_ssh {
+                        "As reached from the SSH server, usually 127.0.0.1:44330"
+                    } else {
+                        "Computer IP or VPN name, for example 192.168.1.25:44330"
+                    },
+                    input_for("endpoint").id("route-endpoint-input"),
+                ),
+            ]));
         if self.route_ssh {
-            body = body
-                .child(self.field("ssh_address", "SSH server"))
-                .child(self.field("ssh_port", "SSH port (default 22)"))
-                .child(self.field("ssh_user", "SSH username"))
+            form = form
+                .child(field_grid([
+                    form_field(
+                        "SSH server",
+                        "Computer name or IP address",
+                        input_for("ssh_address"),
+                    ),
+                    form_field("SSH port", "Leave empty for port 22", input_for("ssh_port")),
+                    form_field(
+                        "SSH username",
+                        "Your login on that server",
+                        input_for("ssh_user"),
+                    ),
+                    form_field(
+                        "Private-key passphrase",
+                        "Only for an encrypted private key",
+                        input_for("ssh_passphrase"),
+                    ),
+                ]))
                 .child(form_field(
                     "SSH password or private key",
                     if self.route_edit.as_ref().is_some_and(|r| r.ssh().is_some()) {
-                        "Leave blank to keep the saved credential for this server and login."
+                        "Leave empty to keep the saved credential for this server and login."
                     } else {
                         "Stored securely on this device."
                     },
-                    input(&self.fields["ssh_secret"]).disabled(self.busy),
+                    input_for("ssh_secret"),
                 ))
-                .child(self.field("ssh_passphrase", "Private-key passphrase (optional)"))
+                .child(self.server_key(cx));
+        }
+        form.children(
+            self.error
+                .clone()
+                .map(|error| integration_message(error, true)),
+        )
+        .child(
+            row()
+                .gap(px(8.))
+                .justify_end()
                 .child(
-                    button("check-route-ssh", "Check SSH server")
+                    button("cancel-connection-route", "Cancel")
+                        .disabled(self.busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.route_form = false;
+                            this.route_edit = None;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    primary_button(
+                        "save-connection-route",
+                        if self.route_ssh {
+                            "Trust key and save"
+                        } else {
+                            "Save route"
+                        },
+                    )
+                    .disabled(
+                        self.busy
+                            || self.value("route_name", cx).trim().is_empty()
+                            || self.value("endpoint", cx).trim().is_empty(),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.save_connection_route(cx))),
+                ),
+        )
+    }
+    /// The SSH host key must be checked and compared before credentials are saved.
+    fn server_key(&self, cx: &mut Context<Self>) -> Div {
+        column()
+            .flex_shrink_0()
+            .gap(px(8.))
+            .child(
+                row().child(
+                    button("check-route-ssh", "Check server key")
                         .disabled(self.busy || self.value("ssh_address", cx).trim().is_empty())
                         .on_click(cx.listener(|this, _, _, cx| {
                             let address = this.value("ssh_address", cx);
@@ -253,43 +541,57 @@ impl RemoteWindow {
                                 cx,
                             );
                         })),
-                )
-                .children(self.ssh_fingerprint.as_ref().map(|pin| {
-                    div()
-                        .text_color(t::muted())
-                        .child(format!("Verify with the computer’s owner: {pin}"))
-                }));
-        }
-        body.child(
-            row()
-                .gap_2()
-                .child(
-                    button(
-                        "save-connection-route",
-                        if self.route_ssh {
-                            "Trust SSH key and save route"
-                        } else {
-                            "Save route"
-                        },
-                    )
-                    .disabled(
-                        self.busy
-                            || self.value("route_name", cx).trim().is_empty()
-                            || self.value("endpoint", cx).trim().is_empty(),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.save_connection_route(cx))),
-                )
-                .child(
-                    button("cancel-connection-route", "Cancel")
-                        .disabled(self.busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.route_form = false;
-                            this.route_edit = None;
-                            cx.notify();
-                        })),
                 ),
-        )
+            )
+            .children(self.ssh_fingerprint.as_ref().map(|pin| {
+                column()
+                    .gap(px(4.))
+                    .p(px(10.))
+                    .rounded(px(4.))
+                    .bg(t::hover())
+                    .child(
+                        div().text_size(px(11.)).text_color(t::muted()).child(
+                            "Server key. Confirm it with the computer’s owner before saving.",
+                        ),
+                    )
+                    .child(
+                        div()
+                            .font_family(t::MONO)
+                            .text_size(px(12.))
+                            .text_color(t::text())
+                            .child(pin.clone()),
+                    )
+            }))
     }
+}
+/// Route removal confirmations, one per remote window. The window's fields belong
+/// to its owner module, so the modal lives here and renders with the route list.
+#[derive(Default)]
+struct RouteConfirmations(HashMap<WindowId, Entity<Confirmation>>);
+impl Global for RouteConfirmations {}
+
+/// One choice group sharing a single silhouette, as in Preferences.
+fn segmented(segments: impl IntoIterator<Item = Button>) -> Div {
+    row()
+        .flex_shrink_0()
+        .gap(px(2.))
+        .p(px(2.))
+        .rounded(px(6.))
+        .bg(t::hover())
+        .children(segments)
+}
+fn segment(id: &'static str, label: &'static str, selected: bool) -> Button {
+    selection_button(id, label, selected)
+        .border_0()
+        .text_color(if selected { t::text() } else { t::secondary() })
+}
+/// Saved endpoints are URLs; people recognise the host and port.
+fn display_endpoint(endpoint: &str) -> String {
+    endpoint
+        .strip_prefix("https://")
+        .unwrap_or(endpoint)
+        .trim_end_matches('/')
+        .to_owned()
 }
 fn endpoint_address(value: &str) -> Result<String, String> {
     let value = value.trim();

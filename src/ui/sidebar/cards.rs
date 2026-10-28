@@ -1,11 +1,10 @@
 //! Hover cards of the sidebar tree: what a project, worktree or session is and
 //! how its agents are doing, one icon-led line per fact.
-use super::activity::{Activity, Tally, project_tile, provider_mark};
+use super::activity::{Activity, Tally, project_tile};
 use super::chats::context::ChatContext;
 use super::projects::tag;
 use crate::ui::components::hover_card::content as card;
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::chat::provider::Provider;
 use canopy_desktop::state::workspace::{PaneId, WorkspaceId};
 use gpui_kit::component::{Icon, IconName};
 use gpui_kit::{prelude::FluentBuilder, *};
@@ -13,22 +12,26 @@ use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
 pub(super) struct SessionCard {
-    pub id: PaneId,
+    /// The local pane, read live; a remote session shows `activity` instead.
+    pub id: Option<PaneId>,
+    pub activity: Activity,
     pub title: String,
-    pub provider: Option<Provider>,
+    pub mark: (Hsla, &'static str),
     pub agent: String,
     pub model: Option<String>,
     pub cli: bool,
     pub context: ChatContext,
     pub folder: Folder,
+    /// The computer the session runs on, when it isn't this one.
+    pub host: Option<String>,
 }
 
 impl SessionCard {
     pub fn render(&self, cx: &App) -> Div {
         // Read when shown, so the card follows the agent while it stays open.
-        let activity = Activity::of(self.id, cx);
+        let activity = self.id.map_or(self.activity, |id| Activity::of(id, cx));
         let context = &self.context;
-        let (mark, path) = provider_mark(self.provider);
+        let (mark, path) = self.mark;
         card::body()
             .child(
                 column()
@@ -75,6 +78,7 @@ impl SessionCard {
                                 )
                             }),
                     )
+                    .children(self.host.clone().map(host))
                     .child(match &context.folder {
                         None => card::fact(Icon::default().path("canopy/box.svg"))
                             .text_color(t::muted())
@@ -107,8 +111,8 @@ pub(super) struct WorktreeCard {
     pub available: bool,
     pub project: String,
     pub folder: Folder,
-    /// The worktree's workspace, once it was opened in Canopy.
-    pub workspace: Option<WorkspaceId>,
+    pub sessions: Sessions,
+    pub host: Option<String>,
 }
 
 impl WorktreeCard {
@@ -157,13 +161,9 @@ impl WorktreeCard {
                         card::fact(Icon::default().path("canopy/box.svg"))
                             .child(self.project.clone()),
                     )
+                    .children(self.host.clone().map(host))
                     .child(self.folder.fact())
-                    .child(match self.workspace {
-                        Some(id) => sessions(super::tally(&[id], cx)),
-                        None => card::fact(Icon::new(IconName::Bot))
-                            .text_color(t::muted())
-                            .child("Not opened yet"),
-                    }),
+                    .child(self.sessions.fact(cx)),
             )
     }
 }
@@ -173,7 +173,9 @@ pub(super) struct ProjectCard {
     /// Worktrees and local branches; `Err` says why there is no repository.
     pub repository: Result<(usize, usize), &'static str>,
     pub folder: Folder,
-    pub workspaces: Vec<WorkspaceId>,
+    pub sessions: Sessions,
+    /// Other computers sharing this project.
+    pub hosts: Vec<String>,
     pub error: Option<String>,
 }
 
@@ -217,7 +219,10 @@ impl ProjectCard {
             .child(
                 card::facts()
                     .child(self.folder.fact())
-                    .child(sessions(super::tally(&self.workspaces, cx)))
+                    .when(!self.hosts.is_empty(), |facts| {
+                        facts.child(host(self.hosts.join(", ")))
+                    })
+                    .child(self.sessions.fact(cx))
                     .children(self.error.clone().map(card::error)),
             )
     }
@@ -251,6 +256,32 @@ impl Folder {
                 .child(self.shown.get_or_init(|| home_relative(&self.path)).clone()),
         )
     }
+}
+
+/// Where a card counts its sessions from.
+pub(super) enum Sessions {
+    Local(Vec<WorkspaceId>),
+    /// A remote catalog's chats, counted when the row rendered.
+    Remote(Tally),
+    /// A worktree never opened in Canopy.
+    NotOpened,
+}
+
+impl Sessions {
+    fn fact(&self, cx: &App) -> Div {
+        match self {
+            Self::Local(ids) => sessions(super::tally(ids, cx)),
+            Self::Remote(tally) => sessions(*tally),
+            Self::NotOpened => card::fact(Icon::new(IconName::Bot))
+                .text_color(t::muted())
+                .child("Not opened yet"),
+        }
+    }
+}
+
+/// The computer a remote row lives on.
+fn host(name: String) -> Div {
+    card::fact(Icon::default().path("canopy/monitor.svg")).child(format!("On {name}"))
 }
 
 /// How many agent sessions there are and how many work or wait for the user.

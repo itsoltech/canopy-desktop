@@ -186,7 +186,7 @@ pub(super) fn body(view: &Entity<ChatView>, entry: &Row, card: &ToolCard) -> Div
             .children(more(view, key, expanded, total, shown))
             .into_any_element()
         }
-        ToolView::Shell { stdout, stderr, .. } => output_box(key)
+        ToolView::Shell { stdout, stderr, .. } => output_box(("chat-tool-output-scroll", key))
             .children(
                 (!stdout.trim().is_empty())
                     .then(|| div().text_color(t::secondary()).child(clip(stdout))),
@@ -209,11 +209,13 @@ pub(super) fn body(view: &Entity<ChatView>, entry: &Row, card: &ToolCard) -> Div
             }))
             .nested_scroll()
             .into_any_element(),
-        ToolView::Web { text, .. } | ToolView::Generic { output: text, .. } => output_box(key)
-            .text_color(t::secondary())
-            .child(clip(text))
-            .nested_scroll()
-            .into_any_element(),
+        ToolView::Web { text, .. } | ToolView::Generic { output: text, .. } => {
+            output_box(("chat-tool-output-scroll", key))
+                .text_color(t::secondary())
+                .child(clip(text))
+                .nested_scroll()
+                .into_any_element()
+        }
     };
     // Bodies start at the text column, like the prose around them.
     div().mt(px(4.)).child(inner)
@@ -292,9 +294,10 @@ fn framed(content: impl IntoElement) -> Div {
         .child(content)
 }
 
-fn output_box(key: u64) -> Stateful<Div> {
+/// The scrolling box of command and agent terminal output.
+pub(super) fn output_box(id: impl Into<ElementId>) -> Stateful<Div> {
     div()
-        .id(("chat-tool-output-scroll", key))
+        .id(id)
         .max_h(px(240.))
         .overflow_y_scroll()
         .p(px(10.))

@@ -6,7 +6,7 @@ mod buttons;
 pub use button_loading::ButtonLoading;
 mod skeleton;
 pub mod toast;
-pub use skeleton::skeleton_bar;
+pub use skeleton::{panel_loading, skeleton_bar};
 mod controls;
 pub mod file_tree;
 pub mod files;
@@ -107,6 +107,8 @@ pub use nested_scroll::{NestedScroll, NestedScroller};
 mod pane_divider;
 pub use pane_divider::pane_divider;
 
+mod identity;
+pub use identity::{checkout_tag, project_tile};
 mod tabs;
 pub use tabs::*;
 mod pane;
@@ -114,9 +116,6 @@ pub use pane::*;
 
 pub mod modal;
 pub use modal::{ModalDismissed, TextPrompt};
-
-mod project;
-pub use project::empty_state;
 
 mod terminal;
 pub use terminal::{process_status_bar, terminal_message, terminal_surface, terminal_viewport};

@@ -1,808 +1,939 @@
+//! Remote task browser and task details, composed from the local task components.
 use super::*;
+use crate::ui::components::{
+    integrations::{integration_message, provider_heading, provider_icon},
+    task_detail as view,
+    tasks::{TASK_ROW_HEIGHT, task_empty_state, task_row, task_skeleton},
+};
+use gpui_kit::component::{IconName, scroll::ScrollableElement};
+
+/// Width at which task details gain the separate metadata column.
+const WIDE: f32 = 1000.;
+/// Below this width the browser and the details share one column.
+const NARROW: f32 = 720.;
+const BROWSER_WIDTH: f32 = 320.;
+
 impl Render for TasksView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let disabled = !self.ready();
-        let mut body = column()
-            .gap_3()
-            .child(
-                row().gap_2().child(div().flex_1().child("Tasks")).child(
-                    button("accounts", "Refresh integrations")
-                        .disabled(disabled)
-                        .on_click(cx.listener(|s, _, _, cx| s.load_integrations(cx))),
-                ),
-            )
-            .children(self.busy.then(|| div().child("Loading…")))
-            .children(
-                self.error
-                    .clone()
-                    .map(|e| div().text_color(t::red()).child(e)),
-            )
-            .children(
-                (!self.notice.is_empty())
-                    .then(|| div().text_color(t::muted()).child(self.notice.clone())),
-            );
-        let mut accounts = row().gap_2().flex_wrap();
-        for i in &self.integrations {
-            let i = i.clone();
-            accounts = accounts.child(
-                selection_button(
-                    SharedString::from(format!("account:{}", i.id)),
-                    i.name.clone(),
-                    self.integration.as_ref().is_some_and(|v| v.id == i.id),
-                )
-                .disabled(disabled || !i.configured)
-                .on_click(cx.listener(move |s, _, _, cx| s.choose_integration(i.clone(), cx))),
-            );
-        }
-        body = body.child(accounts);
-        if self.integrations.is_empty() {
-            body = body.child("Connect GitHub, Jira or YouTrack in Host settings to browse tasks.");
-        }
-        if self.integration.is_some() {
-            body = body.child(
-                button(
-                    "projects",
-                    self.project
-                        .as_ref()
-                        .map(|p| format!("Project: {}…", p.label))
-                        .unwrap_or_else(|| "Choose project…".into()),
-                )
-                .disabled(disabled)
-                .on_click(cx.listener(|s, _, _, cx| s.load_choices(Choices::Projects, false, cx))),
-            );
-        }
-        if self.choice_kind.is_some() {
-            body = body.child(self.render_choices(cx));
-        }
-        if self.project.is_some() {
-            body = body
-                .child(labeled("Search tasks", &self.query, disabled))
-                .child(
-                    RadioGroup::new("task-state")
-                        .children(["Open", "Closed"])
-                        .selected_index(Some(self.state))
-                        .disabled(disabled)
-                        .on_change(cx.listener(|s, ix, _, cx| {
-                            s.state = *ix;
-                            s.search(false, cx);
-                        })),
-                )
-                .child(
-                    row()
-                        .gap_2()
-                        .child(
-                            button("search", "Search")
-                                .disabled(disabled)
-                                .on_click(cx.listener(|s, _, _, cx| s.search(false, cx))),
-                        )
-                        .child(
-                            button("create", "Create task…")
-                                .disabled(disabled)
-                                .on_click(cx.listener(|s, _, w, cx| s.new_task(w, cx))),
-                        ),
-                );
-            let filters_disabled = disabled || self.provider() == "github";
-            let mut filters = row().gap_2().flex_wrap().child(
-                selection_button("all-filters", "No saved filter", self.filter.is_none())
-                    .disabled(filters_disabled)
-                    .on_click(cx.listener(|s, _, w, cx| {
-                        s.filter = None;
-                        s.filter_expression
-                            .update(cx, |v, cx| v.set_value("", w, cx));
-                        s.search(false, cx);
-                    })),
-            );
-            for f in &self.filters {
-                let f = f.clone();
-                filters = filters.child(
-                    selection_button(
-                        SharedString::from(format!("filter:{}", f.id)),
-                        f.name.clone(),
-                        self.filter.as_ref().is_some_and(|v| v.id == f.id),
-                    )
-                    .disabled(filters_disabled)
-                    .on_click(cx.listener(move |s, _, w, cx| {
-                        s.filter = Some(f.clone());
-                        s.filter_name
-                            .update(cx, |v, cx| v.set_value(f.name.clone(), w, cx));
-                        s.filter_expression
-                            .update(cx, |v, cx| v.set_value(f.expression.clone(), w, cx));
-                        s.search(false, cx);
-                    })),
-                );
-            }
-            body = body
-                .child(filters)
-                .child(labeled(
-                    "Filter expression",
-                    &self.filter_expression,
-                    filters_disabled,
-                ))
-                .child(labeled(
-                    "Saved filter name",
-                    &self.filter_name,
-                    filters_disabled,
-                ))
-                .child(
-                    row()
-                        .gap_2()
-                        .child(
-                            button("save-filter", "Save filter")
-                                .disabled(filters_disabled)
-                                .on_click(cx.listener(|s, _, _, cx| s.save_filter(cx))),
-                        )
-                        .child(
-                            button("remove-filter", "Remove saved filter")
-                                .disabled(
-                                    filters_disabled
-                                        || self.filter.as_ref().is_none_or(|f| f.builtin),
-                                )
-                                .on_click(cx.listener(|s, _, _, cx| s.remove_filter(cx))),
-                        ),
-                );
-            if self.provider() == "github" {
-                body = body.child("Saved provider filters are unavailable for GitHub. Use search and Open or Closed.");
-            }
-            if self.tasks.is_empty() && !self.busy {
-                body = body.child("No tasks loaded. Search this project or change the filter.");
-            }
-            body = body
-                .child(
-                    uniform_list(
-                        "task-results",
-                        self.tasks.len(),
-                        cx.processor(|s, range: std::ops::Range<usize>, _, cx| {
-                            range
-                                .filter_map(|ix| {
-                                    let task = &s.tasks[ix];
-                                    let reference = task.task.clone()?;
-                                    Some(
-                                        selection_button(
-                                            SharedString::from(format!(
-                                                "task:{}:{}",
-                                                reference.integration_id, reference.task_id
-                                            )),
-                                            format!(
-                                                "{} · {} · {}",
-                                                reference.task_id, task.title, task.state
-                                            ),
-                                            s.task.as_ref().and_then(|t| t.task.as_ref())
-                                                == Some(&reference),
-                                        )
-                                        .w_full()
-                                        .h_8()
-                                        .disabled(!s.ready())
-                                        .on_click(
-                                            cx.listener(move |s, _, _, cx| {
-                                                s.open_task(reference.clone(), cx)
-                                            }),
-                                        ),
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                        }),
-                    )
-                    .h_48(),
-                )
-                .children(self.next.as_ref().map(|_| {
-                    button("more-tasks", "Load more tasks")
-                        .disabled(disabled)
-                        .on_click(cx.listener(|s, _, _, cx| s.search(true, cx)))
-                }));
-        }
-        let detail =
-            (self.task.is_some() || self.mode == FormMode::Create).then(|| self.render_detail(cx));
-        column()
-            .gap_3()
-            .child(
-                row()
-                    .items_start()
-                    .flex_wrap()
-                    .gap_4()
-                    .child(body.flex_1().min_w_64())
-                    .children(detail.map(|d| d.flex_1().min_w_64())),
-            )
-            .child(self.render_pending_upload(cx))
+        let owner = cx.entity().downgrade();
+        // Layout follows this view's own width (embedded panes are narrower than the window).
+        let measure = canvas(
+            move |bounds, _, cx| {
+                let width = f32::from(bounds.size.width);
+                let _ = owner.update(cx, |s, cx| {
+                    if (s.width - width).abs() > 0.5 {
+                        s.width = width;
+                        cx.notify();
+                    }
+                });
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0();
+        let open = self.task.is_some() || self.mode == FormMode::Create;
+        let narrow = self.width > 0. && self.width < NARROW;
+        let wide = self.width == 0. || self.width >= WIDE;
+        row()
+            .relative()
+            .size_full()
+            .min_h(px(520.))
+            .items_stretch()
+            .text_color(t::text())
+            .child(measure)
+            .when(!narrow || !open, |r| {
+                r.child(self.render_browser(narrow, cx))
+            })
+            .when(!narrow || open, |r| {
+                r.child(self.render_detail_area(wide, narrow, cx))
+            })
     }
 }
+
 impl TasksView {
-    fn render_choices(&self, cx: &mut Context<Self>) -> Div {
-        let query = value(&self.choice_query, cx).to_lowercase();
-        let choices: Vec<_> = self
-            .choices
-            .iter()
-            .filter(|c| {
-                c.label.to_lowercase().contains(&query) || c.id.to_lowercase().contains(&query)
-            })
-            .cloned()
-            .collect();
-        column()
-            .gap_2()
-            .child(labeled("Find a value", &self.choice_query, false))
-            .child(
-                uniform_list(
-                    "task-choices",
-                    choices.len(),
-                    cx.processor(move |s, range: std::ops::Range<usize>, _, cx| {
-                        range
-                            .map(|ix| {
-                                let choice = choices[ix].clone();
-                                button(
-                                    SharedString::from(format!("choice:{}", choice.id)),
-                                    choice.label.clone(),
-                                )
-                                .w_full()
-                                .h_8()
-                                .disabled(!s.ready())
-                                .on_click(
-                                    cx.listener(move |s, _, w, cx| s.choose(choice.clone(), w, cx)),
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                    }),
-                )
-                .h_40(),
-            )
-            .children(self.choice_next.as_ref().map(|_| {
-                button("more-choices", "Load more values")
-                    .disabled(!self.ready())
-                    .on_click(cx.listener(|s, _, _, cx| {
-                        if let Some(kind) = s.choice_kind.clone() {
-                            s.load_choices(kind, true, cx);
-                        }
-                    }))
-            }))
-            .child(
-                button("close-choices", "Close choices").on_click(cx.listener(|s, _, _, cx| {
-                    s.choice_kind = None;
-                    cx.notify();
-                })),
-            )
+    fn project_label(&self) -> String {
+        self.project
+            .as_ref()
+            .map(|p| p.label.clone())
+            .unwrap_or_default()
     }
-    fn render_detail(&self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn local_provider(&self) -> canopy_desktop::integrations::Provider {
+        adapter::provider(self.provider())
+    }
+    fn render_browser(&self, narrow: bool, cx: &mut Context<Self>) -> Div {
         let disabled = !self.ready();
-        let creating = self.mode == FormMode::Create;
-        let mut body = column()
-            .gap_3()
-            .border_t_1()
-            .border_color(t::border())
-            .pt_3()
-            .child(if creating {
-                "Create task".to_owned()
-            } else {
-                self.task
+        let open = self.task.is_some() || self.mode == FormMode::Create;
+        let heading = match &self.integration {
+            Some(integration) => provider_heading(
+                self.local_provider(),
+                self.project
                     .as_ref()
-                    .map(|t| t.title.clone())
-                    .unwrap_or_default()
-            });
-        if let Some(task) = &self.task {
-            body = body.child(format!(
-                "{} · {}",
-                task.task.as_ref().map(|t| t.task_id.as_str()).unwrap_or(""),
-                task.state
-            ));
-            if !task.url.is_empty() {
-                let url = task.url.clone();
-                body = body.child(
-                    button("open-task-url", "Open in browser")
-                        .on_click(move |_, _, cx| cx.open_url(&url)),
-                );
+                    .map(|p| p.label.clone())
+                    .unwrap_or_else(|| "Tasks".into()),
+                integration.name.clone(),
+            )
+            .flex_1(),
+            None => column()
+                .flex_1()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .line_height(px(20.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child("Tasks"),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .line_height(px(16.))
+                        .text_color(t::muted())
+                        .child("Browse the tasks of this computer’s accounts."),
+                ),
+        };
+        let header = row()
+            .gap(px(8.))
+            .py(px(12.))
+            .flex_shrink_0()
+            .child(heading)
+            .child(
+                row()
+                    .flex_shrink_0()
+                    .gap(px(6.))
+                    .child(
+                        icon_button("create-task", IconName::Plus, "New task")
+                            .disabled(disabled || self.project.is_none())
+                            .on_click(cx.listener(|s, _, w, cx| s.new_task(w, cx))),
+                    )
+                    .child(
+                        loading_icon_button(
+                            "refresh-tasks",
+                            IconName::RotateCw,
+                            "Refresh tasks",
+                            Some(&self.refresh_loading),
+                        )
+                        .disabled(
+                            (disabled || self.project.is_none()) && !self.refresh_loading.active(),
+                        )
+                        .on_click(cx.listener(|s, _, _, cx| s.search(false, cx))),
+                    ),
+            );
+        let unconfigured = self.integrations.iter().filter(|i| !i.configured).count();
+        let accounts = (!self.integrations.is_empty()).then(|| {
+            column()
+                .gap(px(4.))
+                .flex_shrink_0()
+                .child(
+                    row()
+                        .gap(px(6.))
+                        .child(
+                            dropdown(&self.integration_picker)
+                                .placeholder("Choose account")
+                                .flex_1()
+                                .min_w_0()
+                                .disabled(disabled),
+                        )
+                        .child(
+                            icon_button("refresh-accounts", IconName::RotateCw, "Refresh accounts")
+                                .disabled(disabled)
+                                .on_click(cx.listener(|s, _, _, cx| s.load_integrations(cx))),
+                        ),
+                )
+                .children((unconfigured > 0).then(|| {
+                    div()
+                        .text_size(px(10.))
+                        .text_color(t::muted())
+                        .child(if unconfigured == 1 {
+                            "1 account needs setup in Host settings.".to_owned()
+                        } else {
+                            format!("{unconfigured} accounts need setup in Host settings.")
+                        })
+                }))
+        });
+        let projects = self.integration.is_some().then(|| {
+            column()
+                .gap(px(6.))
+                .flex_shrink_0()
+                .child(
+                    row()
+                        .gap(px(6.))
+                        .child(
+                            dropdown(&self.project_picker)
+                                .placeholder(if self.loading == Loading::Projects {
+                                    "Loading projects…"
+                                } else {
+                                    "Choose project"
+                                })
+                                .flex_1()
+                                .min_w_0()
+                                .disabled(disabled),
+                        )
+                        .child(
+                            loading_icon_button(
+                                "refresh-projects",
+                                IconName::RotateCw,
+                                "Refresh projects",
+                                Some(&self.projects_loading),
+                            )
+                            .disabled(disabled && !self.projects_loading.active())
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                s.load_choices(Choices::Projects, false, cx)
+                            })),
+                        ),
+                )
+                .children(self.projects_next.as_ref().map(|_| {
+                    button("more-projects", "Load more projects")
+                        .disabled(disabled)
+                        .on_click(
+                            cx.listener(|s, _, _, cx| s.load_choices(Choices::Projects, true, cx)),
+                        )
+                }))
+        });
+        let tracker = self.provider() != "github";
+        let filters = (self.project.is_some() && tracker).then(|| self.render_filters(cx));
+        let search = self.project.is_some().then(|| {
+            column()
+                .gap(px(8.))
+                .flex_shrink_0()
+                .child(
+                    row()
+                        .gap(px(6.))
+                        .child(input(&self.query).flex_1().disabled(disabled))
+                        .child(
+                            loading_button("task-search", "Search", &self.refresh_loading)
+                                .disabled(disabled && !self.refresh_loading.active())
+                                .on_click(cx.listener(|s, _, _, cx| s.search(false, cx))),
+                        ),
+                )
+                .child(
+                    row()
+                        .gap(px(8.))
+                        .child(
+                            row()
+                                .gap(px(2.))
+                                .p(px(2.))
+                                .rounded(px(6.))
+                                .bg(t::hover())
+                                .children(["Open", "Closed"].into_iter().enumerate().map(
+                                    |(ix, label)| {
+                                        selection_button(
+                                            SharedString::from(format!("task-state-{ix}")),
+                                            label,
+                                            self.state == ix,
+                                        )
+                                        .border_0()
+                                        .disabled(disabled)
+                                        .on_click(
+                                            cx.listener(move |s, _, _, cx| {
+                                                if s.state != ix {
+                                                    s.state = ix;
+                                                    s.search(false, cx);
+                                                }
+                                            }),
+                                        )
+                                    },
+                                )),
+                        )
+                        .child(div().flex_1())
+                        .child(
+                            div()
+                                .text_size(px(10.))
+                                .text_color(t::muted())
+                                .child(format!("{} loaded", self.tasks.len())),
+                        ),
+                )
+        });
+        let list = if self.integrations.is_empty() {
+            if self.busy {
+                task_skeleton().flex_1().into_any_element()
+            } else {
+                centered(task_empty_state(
+                    "Connect a task provider",
+                    "Set up GitHub, Jira or YouTrack in Host settings to browse tasks here.",
+                ))
             }
-            body = body.child(
-                button("refresh-task", "Refresh task")
+        } else if self.integration.is_none() {
+            centered(task_empty_state(
+                "Choose an account",
+                "Pick one of this computer’s task accounts to browse its projects.",
+            ))
+        } else if self.project.is_none() {
+            if self.loading == Loading::Projects && self.projects.is_empty() {
+                task_skeleton().flex_1().into_any_element()
+            } else {
+                centered(task_empty_state(
+                    "Choose a project",
+                    "Pick a project to browse and search its tasks.",
+                ))
+            }
+        } else if self.tasks.is_empty() {
+            if self.loading == Loading::Tasks || self.loading == Loading::Projects {
+                task_skeleton().flex_1().into_any_element()
+            } else {
+                centered(task_empty_state(
+                    "No matching tasks",
+                    "Change the search or filter, then search again.",
+                ))
+            }
+        } else {
+            self.render_task_list(cx).into_any_element()
+        };
+        column()
+            .h_full()
+            .min_h_0()
+            .gap(px(10.))
+            .px(px(12.))
+            .pb(px(12.))
+            .when(narrow, |c| c.flex_1().min_w_0())
+            .when(!narrow, |c| {
+                c.w(px(BROWSER_WIDTH))
+                    .flex_shrink_0()
+                    .border_r_1()
+                    .border_color(t::border())
+            })
+            .child(header)
+            .children(
+                (!open)
+                    .then(|| self.error.clone().map(|e| integration_message(e, true)))
+                    .flatten(),
+            )
+            .children(accounts)
+            .children(projects)
+            .children(filters)
+            .children(search)
+            .child(list)
+    }
+    fn render_filters(&self, cx: &mut Context<Self>) -> Div {
+        let disabled = !self.ready();
+        column()
+            .gap(px(8.))
+            .flex_shrink_0()
+            .child(
+                row()
+                    .gap(px(6.))
+                    .child(
+                        dropdown(&self.filter_picker)
+                            .placeholder("No saved filter")
+                            .flex_1()
+                            .min_w_0()
+                            .disabled(disabled),
+                    )
+                    .child(
+                        icon_button(
+                            "manage-filters",
+                            if self.manage_filters {
+                                IconName::ChevronUp
+                            } else {
+                                IconName::Settings
+                            },
+                            if self.manage_filters {
+                                "Hide filter settings"
+                            } else {
+                                "Edit filter"
+                            },
+                        )
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            s.manage_filters = !s.manage_filters;
+                            cx.notify();
+                        })),
+                    ),
+            )
+            .children(self.manage_filters.then(|| {
+                column()
+                    .gap(px(10.))
+                    .p(px(10.))
+                    .rounded(px(6.))
+                    .bg(t::hover())
+                    .child(form_field(
+                        "Condition",
+                        "Applies to the next search. Leave empty to show every task.",
+                        input(&self.filter_expression).disabled(disabled),
+                    ))
+                    .child(form_field(
+                        "Name",
+                        "",
+                        input(&self.filter_name).disabled(disabled),
+                    ))
+                    .child(
+                        row()
+                            .gap(px(6.))
+                            .justify_end()
+                            .child(
+                                button("remove-filter", "Delete filter")
+                                    .text_color(t::red())
+                                    .disabled(
+                                        disabled || self.filter.as_ref().is_none_or(|f| f.builtin),
+                                    )
+                                    .on_click(cx.listener(|s, _, _, cx| s.remove_filter(cx))),
+                            )
+                            .child(
+                                button("save-filter", "Save filter")
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(|s, _, _, cx| s.save_filter(cx))),
+                            ),
+                    )
+            }))
+    }
+    fn render_task_list(&self, cx: &mut Context<Self>) -> Div {
+        let more = usize::from(self.next.is_some());
+        let list = uniform_list(
+            "task-results",
+            self.tasks.len() + more,
+            cx.processor(|s, range: std::ops::Range<usize>, _, cx| {
+                let provider = s.local_provider();
+                let project = s.project_label();
+                range
+                    .map(|ix| {
+                        if ix >= s.tasks.len() {
+                            return row()
+                                .h(px(TASK_ROW_HEIGHT))
+                                .justify_center()
+                                .child(
+                                    loading_button(
+                                        "more-tasks",
+                                        "Load more tasks",
+                                        &s.more_loading,
+                                    )
+                                    .disabled(!s.ready() && !s.more_loading.active())
+                                    .on_click(cx.listener(|s, _, _, cx| s.search(true, cx))),
+                                )
+                                .into_any_element();
+                        }
+                        let task = &s.tasks[ix];
+                        let item = adapter::item(task, provider, &project, &s.names);
+                        let reference = task.task.clone();
+                        let selected = s.task.as_ref().and_then(|t| t.task.as_ref())
+                            == reference.as_ref()
+                            && reference.is_some();
+                        task_row(&item, selected)
+                            .on_click(cx.listener(move |s, _, _, cx| {
+                                if let Some(reference) = reference.clone()
+                                    && s.ready()
+                                {
+                                    s.open_task(reference, cx);
+                                }
+                            }))
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .size_full()
+        .track_scroll(&self.task_list);
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .child(list)
+            .vertical_scrollbar(&self.task_list)
+    }
+    fn render_detail_area(&self, wide: bool, narrow: bool, cx: &mut Context<Self>) -> Div {
+        let content = if self.mode == FormMode::Create {
+            self.render_create(narrow, cx).into_any_element()
+        } else if let Some(task) = &self.task {
+            self.render_task(task, wide, narrow, cx).into_any_element()
+        } else if self.loading == Loading::Task {
+            detail_skeleton().into_any_element()
+        } else {
+            centered(task_empty_state(
+                "No task selected",
+                "Choose a task from the list to read and update it here.",
+            ))
+        };
+        column()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .min_h_0()
+            .gap(px(12.))
+            .px(px(16.))
+            .pb(px(12.))
+            .children(self.render_upload_banner(cx))
+            .child(content)
+    }
+    fn render_task(&self, task: &p::Task, wide: bool, narrow: bool, cx: &mut Context<Self>) -> Div {
+        let disabled = !self.ready();
+        let provider = self.local_provider();
+        let reference = adapter::reference(task, provider, &self.project_label());
+        let url = task.url.clone();
+        let actions = row()
+            .gap(px(8.))
+            .child(
+                icon_button("edit-task", IconName::Replace, "Edit title and description")
+                    .disabled(disabled || self.editing || self.mode != FormMode::Detail)
+                    .on_click(cx.listener(|s, _, _, cx| {
+                        s.editing = true;
+                        s.tab = DetailTab::Description;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                loading_icon_button("refresh-task", IconName::RotateCw, "Refresh task", None)
                     .disabled(disabled)
                     .on_click(cx.listener(|s, _, _, cx| {
                         if let Ok(reference) = s.task_ref() {
                             s.open_task(reference, cx);
                         }
                     })),
-            );
-            for capability in &task.capabilities {
-                if !capability.supported {
-                    body = body.child(
-                        div()
-                            .text_color(t::muted())
-                            .child(format!("{}: {}", capability.operation, capability.reason)),
-                    );
-                }
-            }
-        }
-        if self.mode == FormMode::Detail || creating {
-            body = body
-                .child(labeled("Title", &self.title, disabled))
-                .child(form_field("Description", "Markdown", self.body.clone()));
-            if creating {
-                for field in &self.fields {
-                    body = body.child(field.render());
-                }
-            }
-            body = body.child(
-                row()
-                    .gap_2()
-                    .child(
-                        button(
-                            "save-task",
-                            if creating {
-                                "Create task"
-                            } else {
-                                "Save title and description"
-                            },
-                        )
-                        .disabled(
-                            disabled
-                                || (creating
-                                    && self.provider() == "jira"
-                                    && self.issue_type.is_none()),
-                        )
-                        .on_click(cx.listener(|s, _, _, cx| s.save_task(cx))),
-                    )
-                    .child(
-                        button("save-draft", "Save draft on this device")
-                            .disabled(disabled)
-                            .on_click(cx.listener(|s, _, _, cx| s.save_draft(cx))),
-                    ),
-            );
-        }
-        if creating {
-            if self.provider() == "github" {
-                body = body.child(format!(
-                    "Labels: {} · Assignees: {} · Milestone: {}",
-                    self.create_labels.join(", "),
-                    self.create_assignees.join(", "),
-                    self.create_milestone.as_deref().unwrap_or("None")
-                ));
-                for (kind, label) in [
-                    ("label", "Choose labels…"),
-                    ("assignee", "Choose assignees…"),
-                    ("milestone", "Choose milestone…"),
-                ] {
-                    body =
-                        body.child(button(kind, label).disabled(disabled).on_click(cx.listener(
-                            move |s, _, _, cx| s.load_choices(Choices::Metadata(kind), false, cx),
-                        )));
-                }
-                body = body.child(
-                    button("clear-create-milestone", "Clear milestone")
-                        .disabled(disabled)
-                        .on_click(cx.listener(|s, _, _, cx| {
-                            s.create_milestone = None;
-                            cx.notify();
-                        })),
-                );
-            }
-            return body;
-        }
-        let Some(task) = &self.task else { return body };
-        if self.provider() != "github" {
-            body = body.child(
-                button("edit-fields", "Edit provider fields…")
-                    .disabled(disabled || !self.supported("edit"))
-                    .on_click(cx.listener(|s, _, _, cx| s.load_schema(FormMode::Fields, cx))),
-            );
-        }
-        for status in &task.statuses {
-            body = body.child(format!("{}: {}", status.name, status.label));
-            if let Some(reason) = &status.read_only_reason {
-                body = body.child(reason.clone());
-                continue;
-            }
-            if status.requires_form {
-                body = body.child(
-                    button(
-                        SharedString::from(format!("transitions:{}", status.id)),
-                        "Choose transition…",
-                    )
-                    .disabled(disabled)
-                    .on_click(cx.listener(|s, _, _, cx| s.load_schema(FormMode::Transition, cx))),
-                );
-            } else {
-                let mut choices = row().gap_2().flex_wrap();
-                for choice in &status.choices {
-                    let id = status.id.clone();
-                    let choice = choice.clone();
-                    choices = choices.child(
-                        selection_button(
-                            SharedString::from(format!("status:{}:{}", id, choice.id)),
-                            choice.label.clone(),
-                            status.selected_id.as_ref() == Some(&choice.id),
-                        )
-                        .disabled(disabled)
-                        .on_click(cx.listener(move |s, _, _, cx| {
-                            s.mutate(
-                                Mutation::Status(p::TaskStatusChoice {
-                                    field_id: id.clone(),
-                                    choice_id: choice.id.clone(),
-                                    ..Default::default()
-                                }),
-                                cx,
-                            )
-                        })),
-                    );
-                }
-                body = body.child(choices);
-            }
-        }
-        if matches!(self.mode, FormMode::Fields | FormMode::Transition) {
-            for t in &self.schema.transitions {
-                let t = t.clone();
-                body = body.child(
-                    selection_button(
-                        SharedString::from(format!("transition:{}", t.id)),
-                        format!("{} → {}", t.name, t.destination),
-                        self.transition
-                            .as_ref()
-                            .is_some_and(|v| v.choice_id == t.id),
-                    )
-                    .disabled(disabled)
-                    .on_click(
-                        cx.listener(move |s, _, w, cx| s.choose_transition(t.clone(), w, cx)),
-                    ),
-                );
-            }
-            for field in &self.fields {
-                body = body.child(field.render());
-            }
-            body = body.child(
-                button(
-                    "save-fields",
-                    if self.mode == FormMode::Transition {
-                        "Apply transition"
-                    } else {
-                        "Save fields"
-                    },
+            )
+            .children((!url.is_empty()).then(|| {
+                icon_button(
+                    "open-task-url",
+                    IconName::ExternalLink,
+                    "Open task in browser",
                 )
-                .disabled(disabled)
-                .on_click(cx.listener(|s, _, _, cx| s.save_fields(cx))),
-            );
-        }
-        body = body
-            .child(format!("Labels: {}", task.labels.join(", ")))
-            .child(format!("Assignees: {}", task.assignees.join(", ")))
-            .child(format!(
-                "Milestone: {}",
-                task.milestone
-                    .as_ref()
-                    .map(|m| m.label.as_str())
-                    .unwrap_or("None")
-            ));
-        let mut metadata = row().gap_2().flex_wrap();
-        for (kind, label, capability) in [
-            ("label", "Choose labels…", "labels"),
-            ("assignee", "Choose assignees…", "assignees"),
-            ("milestone", "Choose milestone…", "milestone"),
-        ] {
-            metadata = metadata.child(
-                button(kind, label)
-                    .disabled(disabled || !self.supported(capability))
-                    .on_click(cx.listener(move |s, _, _, cx| {
-                        s.load_choices(Choices::Metadata(kind), false, cx)
-                    })),
-            );
-        }
-        body = body
-            .child(metadata)
-            .children(self.supported("milestone").then(|| {
-                button("clear-milestone", "Remove milestone")
-                    .disabled(disabled || task.milestone.is_none())
-                    .on_click(cx.listener(|s, _, _, cx| {
-                        s.mutate(Mutation::Milestone(p::TaskOptionalChoice { id: None }), cx)
-                    }))
-            }));
-        body=body.child("Comments").child(row().gap_2().child(button("comments","Load comments").disabled(disabled).on_click(cx.listener(|s,_,_,cx|s.load_comments(false,cx)))).child(button("new-comment","New comment").disabled(disabled).on_click(cx.listener(|s,_,w,cx|{s.comment_id=None;s.comment_rich=None;s.comment.update(cx,|v,cx|v.set_value("",w,cx));cx.notify();}))))
-            .child(uniform_list("task-comments",self.comments.len(),cx.processor(|s,range:std::ops::Range<usize>,_,cx|range.map(|ix|{let c=s.comments[ix].clone();let remove=c.clone();row().gap_2().h_8().child(button(SharedString::from(format!("comment:{}",c.id)),format!("{} · {} · {}",c.author,c.created_at,c.body.lines().next().unwrap_or(""))).disabled(!s.ready()).on_click(cx.listener(move|s,_,w,cx|s.edit_comment(c.clone(),w,cx))))
-                .child(button(SharedString::from(format!("delete-comment:{}",remove.id)),"Delete…").disabled(!s.ready()||!remove.can_delete).on_click(cx.listener(move|s,_,w,cx|s.confirm("Delete comment?".into(),"This removes the selected comment from the host provider.",Mutation::Comment(p::TaskCommentWrite{comment_id:Some(remove.id.clone()),delete:true,..Default::default()}),w,cx))))}).collect::<Vec<_>>())).h_40())
-            .children(self.comments_next.as_ref().map(|_|button("more-comments","Load more comments").disabled(disabled).on_click(cx.listener(|s,_,_,cx|s.load_comments(true,cx)))))
-            .child(form_field(if self.comment_id.is_some(){"Selected comment"}else{"New comment"},"",self.comment_rich.as_ref().map(|f|f.render()).unwrap_or_else(||self.comment.clone().into_any_element())))
-            .child(button("save-comment",if self.comment_id.is_some(){"Save comment"}else{"Add comment"}).disabled(disabled||self.comment_id.as_ref().is_some_and(|id|!self.comments.iter().any(|c|&c.id==id&&c.can_edit))).on_click(cx.listener(|s,_,_,cx|s.save_comment(cx))));
-        body = body.child(self.render_jira_metadata(cx));
-        body = body.child("Attachments");
-        for a in &task.task_attachments {
-            let a = a.clone();
-            let remove = a.clone();
-            body = body.child(
-                row()
-                    .gap_2()
-                    .child(
-                        button(
-                            SharedString::from(format!("attachment:{}", a.id)),
-                            format!("{} · {} bytes", a.name, a.size),
-                        )
-                        .disabled(disabled)
-                        .on_click(
-                            cx.listener(move |s, _, _, cx| s.preview_attachment(a.clone(), cx)),
-                        ),
-                    )
-                    .child(
-                        button(
-                            SharedString::from(format!("delete-attachment:{}", remove.id)),
-                            "Delete…",
-                        )
-                        .disabled(disabled || !remove.can_delete)
-                        .on_click(cx.listener(move |s, _, w, cx| {
-                            s.confirm(
-                                format!("Delete attachment “{}”?", remove.name),
-                                "This removes the attachment from this task.",
-                                Mutation::Attachment(p::TaskAttachmentWrite {
-                                    action: Some(p::task_attachment_write::Action::DeleteId(
-                                        remove.id.clone(),
-                                    )),
-                                    name: remove.name.clone(),
-                                }),
-                                w,
-                                cx,
-                            )
-                        })),
-                    ),
-            );
-        }
-        if self.supported("attachment.write") {
-            body = body
-                .child(labeled(
-                    "Local attachment path",
-                    &self.attachment_path,
-                    disabled,
-                ))
-                .child(
-                    button("prepare-attachment", "Prepare attachment")
-                        .disabled(disabled || self.pending_upload.is_some())
-                        .on_click(cx.listener(|s, _, _, cx| s.prepare_attachment(cx))),
-                );
-        }
-        if self.supported("links") {
-            body = body
-                .child(labeled("Linked issue key", &self.link_target, disabled))
-                .child(
-                    RadioGroup::new("link-direction")
-                        .children(["Outward", "Inward"])
-                        .selected_index(Some(usize::from(!self.link_outward)))
-                        .disabled(disabled)
-                        .on_change(cx.listener(|s, ix, _, cx| {
-                            s.link_outward = *ix == 0;
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    button("link-types", "Choose link type…")
-                        .disabled(disabled)
-                        .on_click(
-                            cx.listener(|s, _, _, cx| s.load_choices(Choices::Links, false, cx)),
-                        ),
-                );
-        }
-        if self.supported("worklogs") {
-            body = body
-                .child(labeled("Duration (seconds)", &self.work_seconds, disabled))
-                .child(labeled(
-                    "Started (ISO date and time with offset)",
-                    &self.work_started,
-                    disabled,
-                ))
-                .child(
-                    button("worklog", "Log work using comment above")
-                        .disabled(disabled)
-                        .on_click(cx.listener(|s, _, _, cx| s.worklog(cx))),
-                );
-        }
-        if self.supported("sprints") {
-            body = body.child(
-                row()
-                    .gap_2()
-                    .child(
-                        button("boards", "Choose board and sprint…")
-                            .disabled(disabled)
-                            .on_click(cx.listener(|s, _, _, cx| {
-                                s.load_choices(Choices::Boards, false, cx)
-                            })),
-                    )
-                    .child(
-                        button("clear-sprint", "Move to backlog")
-                            .disabled(disabled)
-                            .on_click(cx.listener(|s, _, _, cx| {
-                                s.mutate(Mutation::Sprint(p::TaskOptionalChoice { id: None }), cx)
-                            })),
-                    ),
-            );
-        }
-        for (cap, label, enable) in [
-            ("watch", "Watch", true),
-            ("watch", "Stop watching", false),
-            ("vote", "Vote", true),
-            ("vote", "Remove vote", false),
-        ] {
-            if self.supported(cap) {
-                body = body.child(
-                    button(SharedString::from(format!("{cap}:{enable}")), label)
-                        .disabled(disabled)
-                        .on_click(cx.listener(move |s, _, _, cx| {
-                            s.mutate(
-                                if cap == "watch" {
-                                    Mutation::Watching(enable)
-                                } else {
-                                    Mutation::Voted(enable)
-                                },
-                                cx,
-                            )
-                        })),
-                );
-            }
-        }
-        body = body
-            .child(labeled("Worktree branch", &self.branch, disabled))
+                .on_click(move |_, _, cx| cx.open_url(&url))
+            }))
             .child(
-                button("worktree", "Create worktree from task")
-                    .disabled(disabled || task.task.as_ref().is_none_or(|t| t.workspace.is_none()))
-                    .on_click(cx.listener(|s, _, _, cx| s.task_worktree(cx))),
+                icon_button(
+                    "close-task",
+                    if narrow {
+                        IconName::ArrowLeft
+                    } else {
+                        IconName::Close
+                    },
+                    "Back to task list",
+                )
+                .on_click(cx.listener(|s, _, _, cx| s.close_task(cx))),
             );
-        if let Some(id) = &self.returned_workspace {
-            let workspace = p::WorkspaceRef {
-                host_id: self.host.id().as_str().into(),
-                workspace_id: id.clone(),
-            };
-            body = body.child(
-                button("open-created-worktree", "Open created worktree")
+        let comments = self.comments_loaded.then_some(self.comments.len());
+        let tabs = view::tab_bar(DetailTab::ALL.map(|tab| {
+            view::tab_button(tab, self.tab, comments)
+                .on_click(cx.listener(move |s, _, _, cx| s.select_tab(tab, cx)))
+        }));
+        let page = match self.tab {
+            DetailTab::Description => {
+                let main = if matches!(self.mode, FormMode::Fields | FormMode::Transition) {
+                    self.render_fields_form(cx).into_any_element()
+                } else if self.editing {
+                    self.render_editor(cx).into_any_element()
+                } else if task.description.trim().is_empty() {
+                    div()
+                        .text_size(px(12.))
+                        .text_color(t::muted())
+                        .child("No description")
+                        .into_any_element()
+                } else {
+                    self.description.clone().into_any_element()
+                };
+                view::description(
+                    (!wide).then(|| {
+                        self.render_metadata(task, cx)
+                            .pb(px(16.))
+                            .border_b_1()
+                            .border_color(t::border())
+                            .into_any_element()
+                    }),
+                    main,
+                )
+                .into_any_element()
+            }
+            DetailTab::Comments => self.render_comments(cx).into_any_element(),
+        };
+        let body = row()
+            .items_stretch()
+            .flex_1()
+            .min_h_0()
+            .gap(px(24.))
+            .child(
+                column().flex_1().min_w_0().gap(px(12.)).child(tabs).child(
+                    div()
+                        .id(SharedString::from(format!(
+                            "remote-task-page-{}-{}",
+                            reference.id,
+                            self.tab.position()
+                        )))
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scrollbar()
+                        .child(page),
+                ),
+            )
+            .children(wide.then(|| {
+                div()
+                    .id("remote-task-metadata")
+                    .w(px(240.))
+                    .flex_shrink_0()
+                    .pl(px(20.))
+                    .border_l_1()
+                    .border_color(t::border())
+                    .overflow_y_scrollbar()
+                    .child(self.render_metadata(task, cx).pb(px(16.)))
+            }));
+        column()
+            .flex_1()
+            .min_h_0()
+            .gap(px(16.))
+            .pt(px(12.))
+            .child(view::header(&reference, false, actions))
+            .child(view::title(task.title.clone()))
+            .children(self.error.clone().map(|e| integration_message(e, true)))
+            .child(body)
+            .child(self.render_footer(task, cx))
+    }
+    fn render_footer(&self, task: &p::Task, cx: &mut Context<Self>) -> Div {
+        let disabled = !self.ready();
+        let scoped = task.task.as_ref().is_some_and(|t| t.workspace.is_some());
+        let busy_form = self.editing
+            || self.mode != FormMode::Detail
+            || self.action.is_some()
+            || self.tab == DetailTab::Comments;
+        let create = if busy_form {
+            button("worktree", "New worktree")
+        } else {
+            primary_button("worktree", "New worktree")
+        };
+        row()
+            .flex_shrink_0()
+            .gap(px(8.))
+            .pt(px(16.))
+            .border_t_1()
+            .border_color(t::border())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(11.))
+                    .text_color(t::muted())
+                    .child(self.notice.clone()),
+            )
+            .children(self.returned_workspace.as_ref().map(|id| {
+                let workspace = p::WorkspaceRef {
+                    host_id: self.host.id().as_str().into(),
+                    workspace_id: id.clone(),
+                };
+                button("open-created-worktree", "Open worktree")
                     .disabled(disabled)
                     .on_click(
                         cx.listener(move |_, _, _, cx| cx.emit(OpenWorkspace(workspace.clone()))),
+                    )
+            }))
+            .child(
+                input(&self.branch)
+                    .w(px(180.))
+                    .disabled(disabled || !scoped),
+            )
+            .child(
+                create
+                    .when(!scoped, |b| {
+                        b.tooltip("Open this task from a project workspace to create a worktree.")
+                    })
+                    .disabled(disabled || !scoped)
+                    .on_click(cx.listener(|s, _, _, cx| s.task_worktree(cx))),
+            )
+    }
+    fn render_editor(&self, cx: &mut Context<Self>) -> Div {
+        let disabled = !self.ready();
+        column()
+            .gap(px(12.))
+            .pb(px(16.))
+            .child(form_field(
+                "Title",
+                "",
+                input(&self.title).disabled(disabled),
+            ))
+            .child(form_field("Description", "Markdown", self.body.clone()))
+            .child(
+                row()
+                    .gap(px(8.))
+                    .child(
+                        button("save-draft", "Save draft")
+                            .disabled(disabled)
+                            .on_click(cx.listener(|s, _, _, cx| s.save_draft(cx))),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        button("cancel-edit", "Cancel")
+                            .disabled(disabled)
+                            .on_click(cx.listener(|s, _, w, cx| s.cancel_edit(w, cx))),
+                    )
+                    .child(
+                        primary_loading_button("save-task", "Save", &self.save_loading)
+                            .disabled(disabled && !self.save_loading.active())
+                            .on_click(cx.listener(|s, _, _, cx| s.save_task(cx))),
+                    ),
+            )
+    }
+    fn render_fields_form(&self, cx: &mut Context<Self>) -> Div {
+        let disabled = !self.ready();
+        let transition = self.mode == FormMode::Transition;
+        let mut form = column().gap(px(12.)).pb(px(16.)).child(
+            div()
+                .text_size(px(14.))
+                .font_weight(FontWeight::MEDIUM)
+                .child(if transition {
+                    "Change status"
+                } else {
+                    "Edit fields"
+                }),
+        );
+        if transition {
+            form = form.child(
+                column()
+                    .gap(px(4.))
+                    .child(caption("TRANSITION"))
+                    .children(self.schema.transitions.iter().map(|t| {
+                        let choice = t.clone();
+                        selection_button(
+                            SharedString::from(format!("transition:{}", t.id)),
+                            format!("{} → {}", t.name, t.destination),
+                            self.transition
+                                .as_ref()
+                                .is_some_and(|v| v.choice_id == t.id),
+                        )
+                        .w_full()
+                        .disabled(disabled)
+                        .on_click(cx.listener(move |s, _, w, cx| {
+                            s.choose_transition(choice.clone(), w, cx)
+                        }))
+                    }))
+                    .children(self.schema.transitions.is_empty().then(|| {
+                        div()
+                            .text_size(px(12.))
+                            .text_color(t::muted())
+                            .child("No transitions are available for this task.")
+                    })),
+            );
+        }
+        form = form.children(self.fields.iter().map(|f| f.render()));
+        if transition {
+            form = form.child(form_field("Comment", "Optional", self.comment.clone()));
+        }
+        form.child(
+            row()
+                .gap(px(8.))
+                .justify_end()
+                .child(
+                    button("cancel-fields", "Cancel")
+                        .disabled(disabled)
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            s.mode = FormMode::Detail;
+                            s.fields.clear();
+                            s.field_events.clear();
+                            s.transition = None;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    primary_loading_button(
+                        "save-fields",
+                        if transition {
+                            "Change status"
+                        } else {
+                            "Save fields"
+                        },
+                        &self.save_loading,
+                    )
+                    .disabled(
+                        (disabled || (transition && self.transition.is_none()))
+                            && !self.save_loading.active(),
+                    )
+                    .on_click(cx.listener(|s, _, _, cx| s.save_fields(cx))),
+                ),
+        )
+    }
+    fn render_create(&self, narrow: bool, cx: &mut Context<Self>) -> Div {
+        let disabled = !self.ready();
+        let jira = self.provider() == "jira";
+        let mut form = column().gap(px(12.)).pb(px(16.));
+        if jira {
+            form = form.child(
+                column()
+                    .gap(px(6.))
+                    .child(caption("ISSUE TYPE"))
+                    .child(
+                        row()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.))
+                                    .text_color(if self.issue_type.is_some() {
+                                        t::text()
+                                    } else {
+                                        t::muted()
+                                    })
+                                    .child(
+                                        self.issue_type
+                                            .as_ref()
+                                            .map(|t| t.label.clone())
+                                            .unwrap_or_else(|| "Not chosen".into()),
+                                    ),
+                            )
+                            .child(
+                                button("issue-types", "Choose type…")
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(|s, _, _, cx| {
+                                        s.load_choices(Choices::Types, false, cx)
+                                    })),
+                            ),
+                    )
+                    .children(
+                        (self.choice_kind == Some(Choices::Types))
+                            .then(|| self.render_picker("Issue type", cx)),
                     ),
             );
         }
-        if self.supported("delete") {
-            let id = task
-                .task
-                .as_ref()
-                .map(|t| t.task_id.clone())
-                .unwrap_or_default();
-            body=body.child(button("delete-task","Delete task…").disabled(disabled).on_click(cx.listener(move|s,_,w,cx|s.confirm(format!("Delete task {id}?"),"This deletes the task from its provider. This action cannot be undone here.",Mutation::Delete(p::TaskDelete{confirmation:id.clone(),subtasks:false}),w,cx))));
+        form = form
+            .child(form_field(
+                "Title",
+                "",
+                input(&self.title).disabled(disabled),
+            ))
+            .child(form_field("Description", "Markdown", self.body.clone()))
+            .children(self.fields.iter().map(|f| f.render()));
+        if self.provider() == "github" {
+            form = form.child(self.render_option_field("label", "Labels", cx));
+            form = form.child(self.render_option_field("assignee", "Assignees", cx));
+            form = form.child(self.render_option_field("milestone", "Milestone", cx));
         }
-        body
-    }
-}
-impl TasksView {
-    fn render_jira_metadata(&self, cx: &mut Context<Self>) -> Div {
-        let mut body = column().gap_2();
-        if self.provider() != "jira" {
-            return body;
-        }
-        let Some(task) = &self.task else { return body };
-        let disabled = !self.ready();
-        for field in &task.fields {
-            let v = fields::json(field.current_value.as_ref());
-            match field.id.as_str() {
-                "issuelinks" => {
-                    body = body.child("Linked issues");
-                    for link in v.as_array().into_iter().flatten() {
-                        let Some(id) = link["id"].as_str() else {
-                            continue;
-                        };
-                        let id = id.to_owned();
-                        let outward = link.get("outwardIssue").is_some();
-                        let issue = if outward {
-                            &link["outwardIssue"]
-                        } else {
-                            &link["inwardIssue"]
-                        };
-                        let key = issue["key"].as_str().unwrap_or_default().to_owned();
-                        let label = format!(
-                            "{} {}",
-                            link["type"][if outward { "outward" } else { "inward" }]
-                                .as_str()
-                                .unwrap_or("Related"),
-                            key
-                        );
-                        let mut reference = task.task.clone();
-                        if let Some(t) = &mut reference {
-                            t.task_id = key;
-                        }
-                        body=body.child(row().gap_2().child(button(SharedString::from(format!("linked:{id}")),label).disabled(disabled).on_click(cx.listener(move|s,_,_,cx|{if let Some(t)=&reference{s.open_task(t.clone(),cx);}})))
-                        .child(button(SharedString::from(format!("unlink:{id}")),"Remove link…").disabled(disabled).on_click(cx.listener(move|s,_,w,cx|s.confirm("Remove issue link?".into(),"Both issues remain. Only this relationship is removed.",Mutation::Link(p::TaskLinkWrite{delete_link_id:Some(id.clone()),..Default::default()}),w,cx)))));
-                    }
-                }
-                "worklog" => {
-                    body = body.child("Work logs");
-                    for log in v["worklogs"].as_array().into_iter().flatten() {
-                        body = body.child(format!(
-                            "{} · {} · {} seconds",
-                            log["author"]["displayName"].as_str().unwrap_or(""),
-                            log["started"].as_str().unwrap_or(""),
-                            log["timeSpentSeconds"]
-                        ));
-                    }
-                }
-                "watches" => {
-                    body = body.child(format!(
-                        "Watching: {} · {} watchers",
-                        v["isWatching"].as_bool().unwrap_or(false),
-                        v["watchCount"]
-                    ));
-                }
-                "votes" => {
-                    body = body.child(format!(
-                        "Voted: {} · {} votes",
-                        v["hasVoted"].as_bool().unwrap_or(false),
-                        v["votes"]
-                    ));
-                }
-                "canopy.jira.metadata" => {
-                    if v["description_editable"] == false {
-                        body=body.child("This description contains rich Jira content. Use Edit provider fields to preserve its document structure.");
-                    }
-                    if v["complete"] == false {
-                        body=body.child("Jira metadata is incomplete; refresh before relying on missing details.");
-                    }
-                }
-                _ if field.name.to_lowercase().contains("sprint") => {
-                    let values = v.as_array().cloned().unwrap_or_else(|| vec![v]);
-                    for v in values {
-                        body = body.child(format!(
-                            "{}: {}",
-                            field.name,
-                            v["name"].as_str().or(v.as_str()).unwrap_or("None")
-                        ));
-                    }
-                }
-                _ => {}
-            }
-        }
-        body = body.child(
-            button("activity", "Load history")
-                .disabled(disabled)
-                .on_click(cx.listener(|s, _, _, cx| s.history(false, cx))),
-        );
-        body = body.child(
-            uniform_list(
-                "task-activity",
-                self.activity.len(),
-                cx.processor(|s, range: std::ops::Range<usize>, _, _| {
-                    range
-                        .map(|ix| div().h_8().child(s.activity[ix].clone()))
-                        .collect::<Vec<_>>()
-                }),
+        let header = row()
+            .flex_shrink_0()
+            .gap(px(8.))
+            .child(provider_icon(self.local_provider()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(12.))
+                    .text_color(t::secondary())
+                    .child(format!("{}  /  New task", self.project_label())),
             )
-            .h_32(),
-        );
-        body.children(self.activity_next.as_ref().map(|_| {
-            button("more-history", "Load more history")
-                .disabled(disabled)
-                .on_click(cx.listener(|s, _, _, cx| s.history(true, cx)))
-        }))
+            .child(
+                icon_button(
+                    "cancel-create",
+                    if narrow {
+                        IconName::ArrowLeft
+                    } else {
+                        IconName::Close
+                    },
+                    "Discard new task",
+                )
+                .on_click(cx.listener(|s, _, _, cx| {
+                    s.mode = FormMode::Detail;
+                    s.fields.clear();
+                    s.field_events.clear();
+                    s.choice_kind = None;
+                    cx.notify();
+                })),
+            );
+        column()
+            .flex_1()
+            .min_h_0()
+            .gap(px(16.))
+            .pt(px(12.))
+            .child(header)
+            .child(view::title("New task"))
+            .children(self.error.clone().map(|e| integration_message(e, true)))
+            .child(
+                div()
+                    .id("remote-new-task")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .child(form),
+            )
+            .child(
+                row()
+                    .flex_shrink_0()
+                    .gap(px(8.))
+                    .pt(px(16.))
+                    .border_t_1()
+                    .border_color(t::border())
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(11.))
+                            .text_color(t::muted())
+                            .child(self.notice.clone()),
+                    )
+                    .child(
+                        button("save-draft", "Save draft")
+                            .disabled(disabled)
+                            .on_click(cx.listener(|s, _, _, cx| s.save_draft(cx))),
+                    )
+                    .child(
+                        primary_loading_button("save-task", "Create task", &self.save_loading)
+                            .disabled(
+                                (disabled || (jira && self.issue_type.is_none()))
+                                    && !self.save_loading.active(),
+                            )
+                            .on_click(cx.listener(|s, _, _, cx| s.save_task(cx))),
+                    ),
+            )
+    }
+    fn render_upload_banner(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let (_, task, name) = self.pending_upload.as_ref()?;
+        // Shown inline in the attachments of its own task; elsewhere as a banner.
+        if self.task.as_ref().and_then(|t| t.task.as_ref()) == Some(task) {
+            return None;
+        }
+        let target = task.clone();
+        Some(
+            row()
+                .flex_shrink_0()
+                .mt(px(12.))
+                .gap(px(8.))
+                .child(
+                    integration_message(
+                        format!("“{name}” is ready to upload to {}.", task.task_id),
+                        false,
+                    )
+                    .flex_1(),
+                )
+                .child(
+                    button("open-upload-task", "Open task")
+                        .disabled(!self.ready())
+                        .on_click(cx.listener(move |s, _, _, cx| s.open_task(target.clone(), cx))),
+                ),
+        )
+    }
+    fn close_task(&mut self, cx: &mut Context<Self>) {
+        self.task = None;
+        self.editing = false;
+        self.action = None;
+        self.choice_kind = None;
+        if matches!(self.mode, FormMode::Fields | FormMode::Transition) {
+            self.mode = FormMode::Detail;
+            self.fields.clear();
+            self.field_events.clear();
+        }
+        self.sync_description(cx);
+        cx.notify();
+    }
+    fn cancel_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(task) = self.task.clone() else {
+            return;
+        };
+        self.title
+            .update(cx, |v, cx| v.set_value(task.title.clone(), window, cx));
+        self.body
+            .update(cx, |v, cx| v.set_value(&task.description, window, cx));
+        self.editing = false;
+        cx.notify();
     }
 }
-impl TasksView {
-    fn render_pending_upload(&self, cx: &mut Context<Self>) -> Div {
-        let mut body = column().gap_2();
-        if let Some((_, task, name)) = &self.pending_upload {
-            let target = task.clone();
-            body = body
-                .child(format!("Prepared attachment: {name} → {}", task.task_id))
-                .child(
-                    row()
-                        .gap_2()
-                        .child(
-                            button("open-upload-task", "Open original task")
-                                .disabled(!self.ready())
-                                .on_click(
-                                    cx.listener(move |s, _, _, cx| s.open_task(target.clone(), cx)),
-                                ),
-                        )
-                        .child(
-                            button(
-                                "resume-upload",
-                                if self.upload_attempted {
-                                    "Review attachment retry…"
-                                } else {
-                                    "Upload and attach"
-                                },
-                            )
-                            .disabled(!self.ready())
-                            .on_click(cx.listener(|s, _, w, cx| s.confirm_upload(w, cx))),
-                        )
-                        .child(
-                            button("discard-upload", "Remove local attachment")
-                                .disabled(!self.ready())
-                                .on_click(cx.listener(|s, _, _, cx| s.discard_upload(cx))),
-                        ),
-                );
-        }
-        body
-    }
+
+fn centered(content: Div) -> AnyElement {
+    column()
+        .flex_1()
+        .justify_center()
+        .child(content)
+        .into_any_element()
+}
+
+fn detail_skeleton() -> Div {
+    column()
+        .flex_1()
+        .gap(px(16.))
+        .pt(px(16.))
+        .child(skeleton_bar().w(px(160.)).h(px(12.)))
+        .child(skeleton_bar().w(px(320.)).h(px(20.)))
+        .child(skeleton_bar().w_full().h(px(10.)))
+        .child(skeleton_bar().w_full().h(px(10.)))
+        .child(skeleton_bar().w(px(240.)).h(px(10.)))
 }

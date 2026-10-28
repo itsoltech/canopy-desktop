@@ -9,7 +9,7 @@ use gpui_kit::component::{
     IconName,
     input::{InputEvent, InputState},
 };
-use gpui_kit::*;
+use gpui_kit::{prelude::FluentBuilder, *};
 use std::{
     collections::HashMap,
     ops::Range,
@@ -256,6 +256,10 @@ impl ChatView {
     pub(super) fn find_step(&mut self, delta: isize, cx: &mut Context<Self>) {
         if self.rt(cx).is_remote() && self.find.as_ref().is_some_and(|f| !f.remote.is_empty()) {
             let find = self.find.as_mut().unwrap();
+            // Next waits for the page the host is still sending.
+            if delta > 0 && find.remote_loading {
+                return;
+            }
             let current = find.remote_current.unwrap_or(0);
             if delta > 0 && current + 1 == find.remote.len() && find.remote_next.is_some() {
                 let token = find.remote_next.clone();
@@ -540,19 +544,23 @@ impl ChatView {
         } else {
             find.hits.len()
         };
+        // The host sends matches a page at a time: "+" while more pages wait.
+        let more = remote && find.remote_next.is_some();
+        let loading = remote && find.remote_loading;
         let counter = match if remote {
             find.remote_current
         } else {
             find.current
         } {
+            Some(current) if more => format!("{} of {count}+", current + 1),
             Some(current) => format!("{} of {count}", current + 1),
             None if empty => String::new(),
-            None if find.remote_loading => "Searching…".to_owned(),
+            None if loading => "Searching…".to_owned(),
             None => "No results".to_owned(),
         };
         let step = |id: &'static str, name: IconName, label: &'static str, delta: isize| {
             icon_button(id, name, label)
-                .disabled(count == 0)
+                .disabled(count == 0 || (delta > 0 && loading))
                 .on_click(cx.listener(move |this, _, _, cx| this.find_step(delta, cx)))
         };
         Some(
@@ -595,12 +603,23 @@ impl ChatView {
                             ),
                         )
                         .child(
-                            div()
+                            row()
+                                .id("chat-find-counter")
                                 .flex_shrink_0()
+                                .gap(px(6.))
                                 .px(px(6.))
                                 .text_size(px(12.))
                                 .text_color(t::muted())
-                                .child(counter),
+                                .children(loading.then(|| super::edit::busy_mark(cx)))
+                                .child(counter)
+                                .when(more, |counter| {
+                                    counter.tooltip(|window, cx| {
+                                        gpui_kit::component::tooltip::Tooltip::new(
+                                            "More matches load as you go",
+                                        )
+                                        .build(window, cx)
+                                    })
+                                }),
                         )
                         .child(step(
                             "chat-find-previous",

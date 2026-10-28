@@ -13,9 +13,12 @@ Punkt wejścia: `crate::ui::components`. Komponenty korzystają z tokenów
 | `Disclosure::measured_body(id, content, now)` | Rozwijanie treści o zmiennej wysokości, mierzonej przez GPUI Kit; wspólne motion, bez dodatkowego scrolla | stan Disclosure w widoku |
 | `button(id, label)` | Przycisk tekstowy w stylu Canopy | callback / widok nadrzędny |
 | `icon_button(id, icon, accessible_label)` | Kompaktowy przycisk z tooltipem i nazwą dostępności | callback / widok nadrzędny |
+| `untitled_icon_button(id, icon, accessible_label)` | `icon_button` bez tooltipa, gdy kontrolkę objaśnia karta na hover wokół niej | callback / widok nadrzędny |
 | `input(&state)` | Wspólna baza pola tekstowego; wariant osadzony przez `.appearance(false)` | `Entity<InputState>` w widoku |
 | `dropdown(&state)` | Select z dowolnym delegatem GPUI, wspólny trigger i menu | `Entity<SelectState<D>>` w widoku |
 | `checkbox(id, checked, label)` | Checkbox z nazwą dostępności | bool w widoku |
+| `labeled_checkbox(id, checked, label)` + `checkbox_help(text)` | Checkbox z widoczną, klikalną etykietą (ta sama nazwa dostępności); pomoc jako dziecko pod etykietą, 11 px muted jak w `form_field` | bool w widoku |
+| `modal::Confirmation` (+ `.destructive()`), `TextPrompt` (+ `.confirm_label(…)`) | Potwierdzenie z czasownikiem wyniku i opcjonalnym stylem destrukcyjnym; prompt jednego pola z nazwaną akcją | encja modala i `ModalDismissed` u właściciela |
 | `FileTree` + `FileTreeModel` + `FileNode` | Hierarchia plików/folderów, selection, expand i zdarzenie otwarcia | osobna `Entity<FileTree>` |
 | `section`, `setting`, `caption` | Sekcje ustawień, etykiety, pomoc i separatory | prezentacja |
 | `row`, `column`, `icon`, `custom_icon`, `tool_icon`, `badge`, `dot` | Układ i drobne elementy prezentacyjne | prezentacja |
@@ -197,7 +200,8 @@ w `sidebar/chats.rs`, projekty i worktree w `sidebar/projects.rs`, tokeny w `the
 - Wiersze wchodzą z fade i 4 px, kolejne co STAGGER (maks. 5), przy rozwinięciu
   grupy i nowej sesji. Reduced Motion (`motion::policy`, odświeżane przy zmianie
   agentów) i `App::reduce_motion` pokazują stan końcowy bez pętli.
-- Projekt ma monogram na stałym odcieniu z nazwy (`project_hue`, `project_tile`).
+- Projekt ma monogram na stałym odcieniu z nazwy (`project_hue`, `components::project_tile`). Przy
+  nazwie `właściciel/repozytorium` monogram i odcień liczą się z samego repozytorium.
   Worktree ma ikonę gałęzi (bieżący w akcencie) i tag `default` dla checkoutu repo.
 - Akcje projektu/worktree/sesji są na hover (bieżący worktree i zaznaczona sesja
   stale) i zawsze w menu kontekstowym. Zwinięte grupy i stopka pokazują kropki
@@ -216,6 +220,24 @@ w `sidebar/chats.rs`, projekty i worktree w `sidebar/projects.rs`, tokeny w `the
     wszystkich worktree, błąd Git; bez repo „Folder without Git”/„Git unavailable”.
   Folder jest skrócony do `~/…` przy pierwszym otwarciu karty (nie w renderze
   sidebaru) i ucinany w środku, bo koniec ścieżki nazywa worktree.
+- Projekty, worktree i sesje z innych komputerów rysują te same wiersze co lokalne
+  (`ProjectHeader`, `WorktreeRow`, `SessionRow` w `sidebar/projects.rs` i
+  `sidebar/chats.rs`); różni się tylko źródło stanu i akcji. Wiersz lokalny nie
+  nazywa komputera. Zdalny worktree i zdalna sesja mają ikonę monitora przy nazwie,
+  a sesja w drugiej linii status i nazwę komputera; karta ma fakt „On {komputer}”.
+  Status zdalnego czatu pochodzi z katalogu hosta (`Activity::remote`), zdalny
+  terminal ma kafelek terminala i stan Running/Exited. Gdy komputer jest offline
+  lub się łączy, status sesji mówi „Offline”/„Connecting…”. Zdalne worktree
+  zwijają się jak lokalne (`worktree_groups` po `remote:{host}:{workspace}`), a
+  projekt udostępniany tylko przez inny komputer startuje zwinięty. Zdalne
+  prywatne czaty stoją w Private chats zaraz po lokalnych, przed „Open tabs…”.
+  Komputer bez udostępnionych projektów ma jeden zwarty wiersz: monitor, nazwa,
+  kropka stanu i Connect, gdy jest offline; szczegóły i błąd połączenia są w karcie.
+- Menu przy New chat ma sekcję „Other computers” z „New chat on {komputer}” dla
+  połączonych komputerów. Czat powstaje w wybranym zdalnym worktree tego komputera,
+  inaczej jako prywatny, z agentem, którego użyłby nowy czat tutaj (gdy host go ma),
+  albo pierwszym agentem hosta (`remote_chat::new_chat_on`). Tooltip New chat
+  nazywa komputer zaznaczonego zdalnego zasobu.
 - Karta należy do całego wiersza i stoi przy krawędzi sidebara. Akcje wiersza
   i kropki liczników mają własne tooltipy, więc są `aside` (`hides_hover_card`):
   najechanie na nie chowa kartę zamiast pokazywać dwa dymki naraz.
@@ -289,6 +311,8 @@ Elementy prezentacyjne znajdują się w `components/tabs.rs` i `components/pane.
 | API | Rola |
 | --- | --- |
 | `tab_strip`, `workspace_tab`, `tab_drop_slot` | Pasek, pojedynczy tab i wolna strefa na końcu |
+| `tab_host_badge` | Plakietka z monitorem i nazwą komputera po tytule taba zdalnego czatu (szerokość taba ją uwzględnia, nazwa do `TAB_BADGE_TEXT`) |
+| `panel_loading` (`components/skeleton.rs`) | Spinner i jedna wyciszona linia, np. prawy panel, gdy zdalny workspace się łączy |
 | `pane_surface`, `pane_header`, `pane_handle`, `pane_body` | Powierzchnia pane'a, nagłówek, uchwyt i obszar treści |
 | `pane_drop_highlight(DropHighlight)` | Podświetlenie środka lub połowy docelowego pane'a |
 | `split_surface`, `split_child` | Układ dwóch części zależny od PaneAxis |
@@ -390,8 +414,8 @@ inspektora, a Escape przywrócił interakcje. Stan disabled sprawdzono również
 na rzeczywistym przycisku Commit staged bez staged zmian.
 
 - Nagłówki projektów i worktree używają Disclosure i standardowych przycisków.
-- empty_state(action, status, error) — centralny pusty stan; caller odpowiada
-  za dostępność akcji, komunikaty oraz motion/pozycjonowanie.
+- Pusty work area worktree (bez tabów) rysuje `Workspace::worktree_overview`
+  (`src/ui/worktree_overview.rs`), opisany w „Przegląd worktree bez tabów” niżej.
 - primary_button(id, label) — akcentowany wariant istniejącego button.
 - components::modal: modal_surface, modal_header, modal_field, modal_actions,
   modal_backdrop — elementy prezentacyjne modala, konfigurowalne przez Styled.
@@ -674,3 +698,37 @@ Sidebar ma osobne scrolle projektów i Private chats, z przypiętymi nagłówkam
 Wymuszone ograniczenia rozmiaru są prezentacją, nie mutacją preferencji.
 Nakładka wąskiego sidebara używa `gpui_kit::base::FocusTrapElement` i przywraca
 poprzedni fokus. Kontrakt: [workspace-layout](features/workspace-layout.md).
+
+## Przegląd worktree bez tabów
+
+Gdy wybrany worktree (albo przestrzeń Private chats) nie ma żadnego taba, work
+area pokazuje `Workspace::worktree_overview` (`src/ui/worktree_overview.rs`)
+zamiast samego CTA. Treść jest wyśrodkowana w obu osiach marginesami `auto`
+w przewijanym kontenerze, więc w niskim oknie przewija się od góry zamiast
+ucinać. Bez motion.
+
+- Nagłówek: kafelek projektu (monogram i odcień jak w sidebarze), nazwa
+  `właściciel/repozytorium` z origin (inaczej nazwa folderu repo), HEAD z ikoną
+  gałęzi i tagami `default`/`locked`; bez Git — „Folder without Git”,
+  „Git unavailable”, „Reading Git…”.
+- Fakty: folder (`~/…`, ucinany w środku) z Copy path; dla dodatkowego worktree
+  „Created from {branch}” z `Project::worktree_base`.
+- Akcje: New chat (primary, wyłączony z powodem `Chats::unavailable` pod
+  akcjami), Open terminal (tylko z projektem), Resume chat… (paleta `/resume`).
+- Chats: czaty katalogu bez taba w tym workspace (`Chats::detached`, np.
+  utworzone zdalnie) ze znakiem agenta i statusem `navigation_status`;
+  kliknięcie otwiera tab (`open_detached`). Sekcja znika, gdy ich nie ma.
+- Files / Changes / Tasks: ghost przyciski otwierające stronę panelu narzędzi
+  (`select_tool_page`), tooltip ze skrótem akcji.
+- Private chats: tytuł i jedno zdanie, New chat i Resume chat…; bez folderu,
+  terminala i narzędzi projektu.
+
+Dane pochodzą wyłącznie z istniejących modeli: `ProjectsState.catalog`,
+`GitState` (worker libgit2), `Chats`, `ToolsState`. Katalog domowy jest
+odczytywany raz na proces (`OnceLock`). Liczba zmian, ahead/behind i ostatni
+commit nie są pokazywane: `ChangesState` obserwuje repo tylko przy widocznym
+Changes, a historia należy do `HistoryView`, więc w tym miejscu byłyby nieaktualne.
+`Checkout::of`, `home_relative`, `path_label` i `agent_mark` są współdzielone ze
+szczegółami pustego czatu (`ui/chat/details.rs`). Monogram (`project_tile`) i tag
+`default`/`locked` (`checkout_tag`) pochodzą z `components/identity.rs`, tak samo jak
+w sidebarze i jego kartach.

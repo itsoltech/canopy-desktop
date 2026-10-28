@@ -87,9 +87,9 @@ impl ChatView {
                 }
                 if options.is_empty() {
                     menu = menu.label(if started {
-                        "This agent offers no options"
+                        format!("{agent} has no options")
                     } else {
-                        "Its options show once it starts"
+                        format!("Options appear once {agent} starts")
                     });
                 }
                 if !switch.is_empty() {

@@ -4,9 +4,12 @@ use super::{rows::Row, tools, view::ChatView};
 use crate::ui::components::hover_card::content as card;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{
+    backend::ContextUsage,
     presentation,
+    provider::Provider,
     transcript::{ItemId, TurnEnd},
 };
+use canopy_desktop::remote::proto as p;
 use gpui_kit::component::{IconName, button::Button};
 use gpui_kit::{prelude::FluentBuilder, *};
 use std::time::{Duration, Instant};
@@ -75,7 +78,12 @@ impl ChatView {
 
 /// Hidden until the message is hovered, or the button itself has keyboard focus.
 fn action(id: impl Into<ElementId>, name: IconName, label: &'static str) -> Button {
-    icon_button(id, name, label)
+    hidden_action(icon_button(id, name, label))
+}
+
+/// `action`'s size and reveal for any icon button.
+fn hidden_action(button: Button) -> Button {
+    button
         .size(px(24.))
         .min_w(px(24.))
         .max_w(px(24.))
@@ -136,11 +144,19 @@ pub(super) fn user_actions(
         ))
         .children(editable.then(|| {
             let view = view.downgrade();
-            action(("chat-edit", key), IconName::Copy, "Edit message")
-                .icon(custom_icon("pencil"))
-                .on_click(move |_, window, cx| {
-                    let _ = view.update(cx, |this, cx| this.start_edit(item, window, cx));
-                })
+            // While the host checks the message, the pencil turns into a spinner and stays.
+            let loading = this.edit_loading(item);
+            let checking = loading.is_some_and(ButtonLoading::active);
+            hidden_action(loading_icon_button(
+                ("chat-edit", key),
+                custom_icon("pencil"),
+                "Edit message",
+                loading,
+            ))
+            .when(checking, |button| button.opacity(1.))
+            .on_click(move |_, window, cx| {
+                let _ = view.update(cx, |this, cx| this.start_edit(item, window, cx));
+            })
         }))
         .children(other_agent.map(|agent| {
             div()
@@ -229,39 +245,88 @@ fn turn_numbers(end: &TurnEnd, billing: bool) -> String {
     parts.join(" · ")
 }
 
+/// How full a chat's context is, wherever its agent runs.
+struct ContextReading {
+    usage: Option<ContextUsage>,
+    /// A ChatGPT plan's usage limit (Codex, on this computer only).
+    rate: Option<canopy_desktop::chat::codex::adapter::RateLimit>,
+    source: ContextSource,
+}
+
+/// Where a context reading comes from, for the card's wording.
+enum ContextSource {
+    /// The live session on this computer.
+    Local(Provider),
+    /// The last turn another computer reported; `None` while its name is unknown.
+    Remote(Option<String>),
+}
+
+/// The context reading every kind of chat shares: the live Claude or Codex session,
+/// the last turn a host reported for a chat on another computer. Agents that report
+/// no usage (ACP today) have none, and the ring stays away.
+fn context_reading(runtime: &crate::app_state::ChatRuntime) -> Option<ContextReading> {
+    if let Some(remote) = runtime.remote_source() {
+        // Only the newest turn counts: an older reading would understate the context.
+        let end = remote
+            .projection
+            .items
+            .iter()
+            .rev()
+            .find_map(|item| match &item.body {
+                Some(p::transcript_item::Body::TurnEnd(end)) => Some(end),
+                _ => None,
+            })?;
+        let usage = end.usage.as_ref()?;
+        let usage = ContextUsage {
+            used: usage.context_used?,
+            max: usage.context_max.filter(|max| *max > 0)?,
+            buffer: usage.context_buffer.unwrap_or(0),
+        };
+        return Some(ContextReading {
+            usage: Some(usage),
+            rate: None,
+            source: ContextSource::Remote(runtime.remote_host().map(|host| host.name())),
+        });
+    }
+    let session = runtime.native()?;
+    let (usage, rate) = (session.context(), session.rate_limit());
+    (usage.is_some() || rate.is_some()).then(|| ContextReading {
+        usage,
+        rate,
+        source: ContextSource::Local(session.provider()),
+    })
+}
+
 /// The context indicator next to the pickers: how full the model's context window is.
 pub(super) fn context_ring(this: &ChatView, cx: &App) -> Option<Stateful<Div>> {
-    let session = this.native(cx)?;
-    let usage = session.context();
-    // A ChatGPT plan's usage limit (Codex), shown with the context.
-    let rate = session.rate_limit();
-    if usage.is_none() && rate.is_none() {
-        return None;
-    }
+    let reading = context_reading(this.rt(cx))?;
     let mut meters = vec![];
-    if let Some(usage) = usage {
+    if let Some(usage) = reading.usage {
         // The CLI compacts once the free space before its buffer runs out: the ring
         // fills toward that point.
         let limit = usage.max.saturating_sub(usage.buffer).max(1);
+        let tokens = format!(
+            "{} / {} tokens",
+            presentation::tokens(usage.used),
+            presentation::tokens(usage.max),
+        );
         meters.push(Meter {
             label: "Context".into(),
             percent: (usage.used as f32 / limit as f32 * 100.).clamp(0., 100.),
-            detail: match session.provider() {
-                canopy_desktop::chat::provider::Provider::Claude => format!(
-                    "{} / {} tokens · Claude compacts the conversation near {}",
-                    presentation::tokens(usage.used),
-                    presentation::tokens(usage.max),
+            detail: match &reading.source {
+                ContextSource::Local(Provider::Claude) => format!(
+                    "{tokens} · Claude compacts the conversation near {}",
                     presentation::tokens(limit)
                 ),
-                canopy_desktop::chat::provider::Provider::Codex => format!(
-                    "{} / {} tokens",
-                    presentation::tokens(usage.used),
-                    presentation::tokens(usage.max),
-                ),
+                ContextSource::Local(Provider::Codex) => tokens,
+                ContextSource::Remote(Some(host)) => {
+                    format!("{tokens} · after the last turn on {host}")
+                }
+                ContextSource::Remote(None) => format!("{tokens} · after the last turn"),
             },
         });
     }
-    if let Some(rate) = rate {
+    if let Some(rate) = reading.rate {
         let window = match rate.window_mins {
             Some(10080) => "Weekly limit".to_owned(),
             Some(300) => "5-hour limit".to_owned(),

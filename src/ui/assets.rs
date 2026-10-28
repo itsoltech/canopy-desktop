@@ -18,6 +18,7 @@ impl AssetSource for Assets {
             "canopy/reply.svg" => Some(include_bytes!("../../assets/icons/reply.svg")),
             "canopy/rotate-ccw.svg" => Some(include_bytes!("../../assets/icons/rotate-ccw.svg")),
             "canopy/box.svg" => Some(include_bytes!("../../assets/icons/box.svg")),
+            "canopy/monitor.svg" => Some(include_bytes!("../../assets/icons/monitor.svg")),
             "canopy/target.svg" => Some(include_bytes!("../../assets/icons/target.svg")),
             "canopy/diamond.svg" => Some(include_bytes!("../../assets/icons/diamond.svg")),
             "canopy/braces.svg" => Some(include_bytes!("../../assets/icons/braces.svg")),

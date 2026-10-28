@@ -1,5 +1,10 @@
 //! A project is grouped by origin; every child retains its host-scoped identity.
+use super::activity::{self, Activity, Tally};
+use super::chats::{SessionRow, context::ChatContext};
+use super::projects::{ProjectHeader, WorktreeRow};
 use super::*;
+use crate::ui::components::hover_card::content as card;
+use canopy_desktop::chat::provider::Provider;
 use canopy_desktop::{
     git::RepositoryIdentity,
     remote::{
@@ -7,8 +12,8 @@ use canopy_desktop::{
         proto as p,
     },
 };
-use gpui_kit::component::{Selectable, Sizable, button::ButtonVariants};
-use std::{collections::BTreeMap, sync::Arc};
+use gpui_kit::component::{Sizable, button::ButtonVariants};
+use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 
 #[derive(Clone)]
 pub enum Navigation {
@@ -61,125 +66,6 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn remote_row(
-        &self,
-        host: Arc<HostClient>,
-        resource: p::ResourceRef,
-        title: String,
-        status: &str,
-        nested: bool,
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        let key = match &resource.resource {
-            Some(p::resource_ref::Resource::Workspace(w)) => {
-                format!("remote-worktree:{}:{}", w.host_id, w.workspace_id)
-            }
-            Some(p::resource_ref::Resource::Chat(c)) => {
-                format!("remote-chat:{}:{}", c.host_id, c.chat_id)
-            }
-            Some(p::resource_ref::Resource::Terminal(t)) => {
-                format!("remote-terminal:{}:{}", t.host_id, t.terminal_id)
-            }
-            _ => unreachable!("sidebar resources"),
-        };
-        let selected = self.remote_selection.as_ref() == Some(&resource);
-        let phase = host.phase();
-        let online = phase == Phase::Ready;
-        let environment = host.name();
-        let state = match phase {
-            Phase::Ready => status,
-            Phase::Connecting => "Connecting…",
-            Phase::Offline => "Offline · cached",
-        };
-        Button::new(SharedString::from(key))
-            .ghost()
-            .small()
-            .compact()
-            .selected(selected)
-            .w_full()
-            .min_w_0()
-            .h(if nested {
-                t::chat_row_height()
-            } else {
-                rems(2.)
-            })
-            .pl(if nested { rems(2.) } else { rems(1.25) })
-            .pr_2()
-            .rounded(t::sidebar_row_radius())
-            .accessibility_label(format!("{title}, {environment}, {state}"))
-            .tooltip(format!("{title} · {environment} · {state}"))
-            .child(
-                row()
-                    .w_full()
-                    .min_w_0()
-                    .gap_2()
-                    .child(
-                        Icon::default()
-                            .path(if nested {
-                                "canopy/message-circle-plus.svg"
-                            } else {
-                                "canopy/git-branch.svg"
-                            })
-                            .size_3p5()
-                            .text_color(t::faint()),
-                    )
-                    .child(
-                        column()
-                            .flex_1()
-                            .min_w_0()
-                            .items_start()
-                            .child(
-                                div()
-                                    .w_full()
-                                    .truncate()
-                                    .text_sm()
-                                    .text_color(t::text())
-                                    .child(title),
-                            )
-                            .when(nested, |d| {
-                                d.child(
-                                    div()
-                                        .w_full()
-                                        .truncate()
-                                        .text_xs()
-                                        .text_color(t::muted())
-                                        .child(format!("{environment} · {state}")),
-                                )
-                            }),
-                    )
-                    .when(!nested, |d| {
-                        d.child(
-                            div()
-                                .max_w(rems(7.))
-                                .truncate()
-                                .text_xs()
-                                .text_color(t::muted())
-                                .child(if online {
-                                    environment
-                                } else {
-                                    format!(
-                                        "{environment} · {}",
-                                        if phase == Phase::Connecting {
-                                            "Connecting…"
-                                        } else {
-                                            "Offline"
-                                        }
-                                    )
-                                }),
-                        )
-                    }),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.remote_selection = Some(resource.clone());
-                cx.emit(Navigation::Remote {
-                    host: host.clone(),
-                    resource: resource.clone(),
-                });
-                cx.notify();
-            }))
-            .into_any_element()
-    }
-
     pub(super) fn remote_catalogs(&self, cx: &App) -> Vec<(Arc<HostClient>, Arc<p::Catalog>)> {
         self.remote_hosts(cx)
             .into_iter()
@@ -191,7 +77,7 @@ impl Sidebar {
             .collect()
     }
 
-    fn remote_hosts(&self, cx: &App) -> Vec<Arc<HostClient>> {
+    pub(super) fn remote_hosts(&self, cx: &App) -> Vec<Arc<HostClient>> {
         let local = cx
             .global::<crate::app_state::AppState>()
             .settings
@@ -206,6 +92,8 @@ impl Sidebar {
             .collect()
     }
 
+    /// Hosts without shared projects to list: one compact row each, the
+    /// details in its hover card.
     pub(super) fn remote_connection_messages(&self, cx: &Context<Self>) -> Vec<AnyElement> {
         let mut rows = vec![];
         for host in self.remote_hosts(cx) {
@@ -215,40 +103,112 @@ impl Sidebar {
                 continue;
             }
             let name = host.name();
-            let message = match phase {
-                Phase::Offline => "Disconnected. Connect to load shared projects.".to_owned(),
-                Phase::Connecting => "Connecting and loading shared projects…".to_owned(),
-                Phase::Ready if catalog.is_none() => "Loading shared projects…".to_owned(),
-                Phase::Ready => format!(
-                    "No shared projects. Open a project on {name} or check its device permissions in Connections."
+            let (state, color, detail) = match phase {
+                Phase::Offline => (
+                    "Offline",
+                    t::faint(),
+                    "Connect to see the projects it shares.",
+                ),
+                Phase::Connecting => ("Connecting…", t::muted(), "Loading shared projects."),
+                Phase::Ready if catalog.is_none() => {
+                    ("Loading…", t::muted(), "Loading shared projects.")
+                }
+                Phase::Ready => (
+                    "No projects",
+                    t::muted(),
+                    "Open a project there, or check this device's permissions in Connections.",
                 ),
             };
             let id = host.id().as_str().to_owned();
             let error = host.connection_error();
+            let key = format!("remote-host-{id}");
+            let group = SharedString::from(format!("group-{key}"));
             let connect = host.clone();
+            let card_name = name.clone();
             rows.push(
-                column()
-                    .id(SharedString::from(format!("remote-status-{id}")))
-                    .px_2()
-                    .py_2()
-                    .gap_1()
-                    .child(div().text_sm().text_color(t::text()).child(name))
-                    .child(div().text_xs().text_color(t::muted()).child(message))
-                    .children(error.map(|error| div().text_xs().text_color(t::red()).child(error)))
+                row()
+                    .id(SharedString::from(key.clone()))
+                    .hover_card(
+                        key.clone(),
+                        gpui_kit::base::Placement::Right,
+                        move |_, _| {
+                            card::body()
+                                .child(
+                                    column()
+                                        .gap_0p5()
+                                        .child(card::title(card_name.clone()))
+                                        .child(card::status(color, state, detail, t::muted())),
+                                )
+                                .children(
+                                    error
+                                        .clone()
+                                        .map(|error| card::facts().child(card::error(error))),
+                                )
+                                .into_any_element()
+                        },
+                    )
+                    .group(group.clone())
+                    .pl(rems(0.375))
+                    .pr_1()
+                    .gap_1p5()
+                    .h_8()
+                    .rounded(t::sidebar_row_radius())
+                    .hover(|s| s.bg(t::hover()))
+                    .child(
+                        Icon::default()
+                            .path("canopy/monitor.svg")
+                            .size_3p5()
+                            .flex_shrink_0()
+                            .text_color(t::faint()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .text_color(t::secondary())
+                            .child(name.clone()),
+                    )
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .gap_1()
+                            .text_xs()
+                            .text_color(t::muted())
+                            .child(div().size(rems(0.375)).rounded_full().bg(
+                                if host.connection_error().is_some() {
+                                    t::red()
+                                } else {
+                                    color
+                                },
+                            ))
+                            .child(state),
+                    )
                     .when(phase == Phase::Offline, |row| {
                         row.child(
-                            Button::new(SharedString::from(format!("remote-connect-{id}")))
-                                .ghost()
-                                .small()
-                                .compact()
-                                .label("Connect…")
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.remote_error =
-                                        super::super::remote_client::open_host(connect.clone(), cx)
-                                            .err()
-                                            .map(|error| error.to_string());
-                                    cx.notify();
-                                })),
+                            div()
+                                .id(SharedString::from(format!("aside-{key}")))
+                                .flex_shrink_0()
+                                .hides_hover_card()
+                                .child(
+                                    Button::new(SharedString::from(format!("remote-connect-{id}")))
+                                        .ghost()
+                                        .xsmall()
+                                        .compact()
+                                        .label("Connect")
+                                        .accessibility_label(format!("Connect to {name}"))
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.remote_error =
+                                                super::super::remote_client::open_host(
+                                                    connect.clone(),
+                                                    cx,
+                                                )
+                                                .err()
+                                                .map(|error| error.to_string());
+                                            cx.notify();
+                                        })),
+                                ),
                         )
                     })
                     .into_any_element(),
@@ -265,6 +225,17 @@ impl Sidebar {
             );
         }
         rows
+    }
+
+    fn navigate(
+        &mut self,
+        host: Arc<HostClient>,
+        resource: p::ResourceRef,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_selection = Some(resource.clone());
+        cx.emit(Navigation::Remote { host, resource });
+        cx.notify();
     }
 
     pub(super) fn remote_projects(
@@ -292,6 +263,7 @@ impl Sidebar {
                         .push(terminal);
                 }
             }
+            let name = host.name();
             for project in &catalog.projects {
                 let origin = project
                     .origin
@@ -304,89 +276,80 @@ impl Sidebar {
                 let title = origin
                     .as_ref()
                     .map_or_else(|| project.name.clone(), |o| o.path().to_owned());
-                let toggle = key.clone();
-                let header = Button::new(SharedString::from(format!("project-{key}")))
-                    .ghost()
-                    .small()
-                    .compact()
-                    .w_full()
-                    .min_w_0()
-                    .h_8()
-                    .accessibility_label(format!(
-                        "{} {title}",
-                        if disclosure.open {
-                            "Collapse"
-                        } else {
-                            "Expand"
-                        }
-                    ))
-                    .tooltip(
-                        origin
-                            .as_ref()
-                            .map_or_else(|| title.clone(), RepositoryIdentity::canonical_url),
-                    )
-                    .child(
-                        row()
-                            .w_full()
-                            .min_w_0()
-                            .gap_2()
-                            .child(disclosure.chevron(now))
-                            .child(super::activity::project_tile(&title))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_sm()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(title),
-                            ),
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(d) = this.project_groups.get_mut(&toggle) {
-                            d.toggle(Instant::now(), cx);
-                        }
-                        cx.notify();
-                    }))
-                    .into_any_element();
+                let shared = |workspace: &p::WorkspaceRef| -> Vec<&p::ChatSummary> {
+                    chats
+                        .get(workspace.workspace_id.as_str())
+                        .into_iter()
+                        .flatten()
+                        .filter(|chat| chat.workspace.as_ref() == Some(workspace))
+                        .copied()
+                        .collect()
+                };
+                let checkouts: Vec<_> = project
+                    .checkouts
+                    .iter()
+                    .filter_map(|c| {
+                        let workspace = c
+                            .workspace
+                            .clone()
+                            .filter(|w| w.host_id == host.id().as_str())?;
+                        Some((c, workspace))
+                    })
+                    .collect();
+                let tally = Tally::count(
+                    checkouts
+                        .iter()
+                        .flat_map(|(_, w)| shared(w))
+                        .map(|chat| Activity::remote(chat.state, chat.goal.is_some())),
+                );
+                let header = self.project_header(
+                    ProjectHeader {
+                        key: format!("project-{key}"),
+                        group: key.clone(),
+                        label: title.clone(),
+                        tally,
+                        card: Rc::new(super::cards::ProjectCard {
+                            name: title.clone(),
+                            repository: Ok((checkouts.len(), 0)),
+                            folder: super::cards::Folder::new(project.path.clone().into()),
+                            sessions: super::cards::Sessions::Remote(tally),
+                            hosts: vec![name.clone()],
+                            error: host.connection_error(),
+                        }),
+                        menu: None,
+                        blocked: false,
+                    },
+                    disclosure,
+                    now,
+                    cx,
+                );
                 let (_, rows) = groups.entry(key).or_insert_with(|| (header, vec![]));
                 if !disclosure.open && !disclosure.active(now) {
                     continue;
                 }
-                for checkout in &project.checkouts {
-                    let Some(workspace) = checkout
-                        .workspace
-                        .clone()
-                        .filter(|w| w.host_id == host.id().as_str())
-                    else {
-                        continue;
-                    };
-                    let title = checkout
+                for (checkout, workspace) in checkouts {
+                    let label = checkout
                         .branch
                         .clone()
                         .unwrap_or_else(|| checkout.name.clone());
-                    let state = if checkout.closing.unwrap_or(false) {
-                        "Closing"
-                    } else {
-                        "Worktree"
+                    let main = checkout.repository_path.as_deref() == Some(checkout.path.as_str());
+                    let context = ChatContext {
+                        project: title.clone(),
+                        checkout: label.clone(),
+                        folder: Some(checkout.path.clone().into()),
+                        head: Some(label.clone()),
+                        main_checkout: main,
+                        git_error: None,
                     };
-                    rows.push(self.remote_row(
-                        host.clone(),
-                        p::ResourceRef {
-                            resource: Some(p::resource_ref::Resource::Workspace(workspace.clone())),
-                        },
-                        title,
-                        state,
-                        false,
-                        cx,
-                    ));
-                    for chat in chats
-                        .get(workspace.workspace_id.as_str())
-                        .into_iter()
-                        .flatten()
-                        .filter(|chat| chat.workspace.as_ref() == Some(&workspace))
-                    {
-                        self.push_remote_chat(&host, chat, rows, cx);
+                    let mut sessions = vec![];
+                    for chat in shared(&workspace) {
+                        sessions.extend(self.remote_chat(
+                            &host,
+                            chat,
+                            &context,
+                            sessions.len(),
+                            cx,
+                        ));
                     }
                     for terminal in terminals
                         .get(workspace.workspace_id.as_str())
@@ -394,65 +357,226 @@ impl Sidebar {
                         .flatten()
                         .filter(|t| t.workspace.as_ref() == Some(&workspace))
                     {
-                        if let Some(reference) = terminal
-                            .terminal
-                            .clone()
-                            .filter(|t| t.host_id == host.id().as_str())
-                        {
-                            rows.push(self.remote_row(
-                                host.clone(),
-                                p::ResourceRef {
-                                    resource: Some(p::resource_ref::Resource::Terminal(reference)),
-                                },
-                                terminal.title.clone(),
-                                "Terminal",
-                                true,
-                                cx,
-                            ));
-                        }
+                        sessions.extend(self.remote_terminal(
+                            &host,
+                            terminal,
+                            &context,
+                            sessions.len(),
+                            cx,
+                        ));
                     }
+                    let tally = Tally::count(
+                        shared(&workspace)
+                            .into_iter()
+                            .map(|chat| Activity::remote(chat.state, chat.goal.is_some())),
+                    );
+                    let resource = p::ResourceRef {
+                        resource: Some(p::resource_ref::Resource::Workspace(workspace.clone())),
+                    };
+                    let selected = self.remote_selection.as_ref() == Some(&resource);
+                    let target = host.clone();
+                    rows.push(self.worktree_row(
+                        WorktreeRow {
+                            key: format!(
+                                "worktree-remote-{}-{}",
+                                workspace.host_id, workspace.workspace_id
+                            ),
+                            group: format!(
+                                "remote:{}:{}",
+                                workspace.host_id, workspace.workspace_id
+                            ),
+                            label: label.clone(),
+                            main,
+                            selected,
+                            disabled: checkout.closing.unwrap_or(false),
+                            host: Some(name.clone()),
+                            card: Rc::new(super::cards::WorktreeCard {
+                                head: label,
+                                main,
+                                current: selected,
+                                locked: false,
+                                missing: false,
+                                available: host.phase() == Phase::Ready,
+                                project: title.clone(),
+                                folder: super::cards::Folder::new(checkout.path.clone().into()),
+                                sessions: super::cards::Sessions::Remote(tally),
+                                host: Some(name.clone()),
+                            }),
+                            on_click: Rc::new(move |this, cx| {
+                                this.navigate(target.clone(), resource.clone(), cx)
+                            }),
+                            terminal: None,
+                            menu: None,
+                            tally: Some(tally),
+                            chats: Some(super::chats::session_rail(sessions)),
+                        },
+                        now,
+                        cx,
+                    ));
                 }
             }
         }
     }
 
-    fn push_remote_chat(
-        &self,
-        host: &Arc<HostClient>,
-        chat: &p::ChatSummary,
-        rows: &mut Vec<AnyElement>,
-        cx: &Context<Self>,
-    ) {
-        if let Some(reference) = chat
-            .chat
-            .clone()
-            .filter(|c| c.host_id == host.id().as_str())
-        {
-            let status = match p::ChatState::try_from(chat.state).ok() {
-                Some(p::ChatState::Working) => "Working",
-                Some(p::ChatState::NeedsDecision) => "Needs approval",
-                Some(p::ChatState::ChatFailed) => "Error",
-                Some(p::ChatState::ChatStarting) => "Starting",
-                _ => "Chat",
-            };
-            rows.push(self.remote_row(
-                host.clone(),
-                p::ResourceRef {
-                    resource: Some(p::resource_ref::Resource::Chat(reference)),
-                },
-                chat.title.clone(),
-                status,
-                true,
-                cx,
-            ));
+    /// What a remote session's row says while its computer isn't connected.
+    fn remote_status(host: &HostClient, activity: Activity) -> (&'static str, Hsla) {
+        match host.phase() {
+            Phase::Ready => (activity.label(), activity.color()),
+            Phase::Connecting => ("Connecting…", t::muted()),
+            Phase::Offline => ("Offline", t::faint()),
         }
     }
 
-    pub(super) fn remote_private_chats(&self, cx: &Context<Self>) -> Vec<AnyElement> {
+    fn remote_chat(
+        &self,
+        host: &Arc<HostClient>,
+        chat: &p::ChatSummary,
+        context: &ChatContext,
+        index: usize,
+        cx: &Context<Self>,
+    ) -> Option<AnyElement> {
+        let reference = chat
+            .chat
+            .clone()
+            .filter(|c| c.host_id == host.id().as_str())?;
+        let provider = Provider::from_tool(&chat.agent_id);
+        let agent = provider.map_or(chat.agent_id.clone(), |p| p.name().to_owned());
+        let activity = Activity::remote(chat.state, chat.goal.is_some());
+        let name = host.name();
+        let resource = p::ResourceRef {
+            resource: Some(p::resource_ref::Resource::Chat(reference.clone())),
+        };
+        let selected = self.remote_selection.as_ref() == Some(&resource);
+        let status = Self::remote_status(host, activity);
+        let target = host.clone();
+        Some(self.session_row(
+            SessionRow {
+                key: format!("remote-{}-{}", reference.host_id, reference.chat_id),
+                title: chat.title.clone(),
+                mark: activity::provider_mark(provider),
+                activity,
+                status,
+                detail: Some(name.clone()),
+                cli: false,
+                host: true,
+                selected,
+                enabled: true,
+                index,
+                label: format!(
+                    "{}, {}, {}, {agent}, {}, on {name}{}",
+                    context.project,
+                    chat.title,
+                    context.checkout,
+                    status.0,
+                    if selected { ", selected" } else { "" }
+                ),
+                card: Rc::new(super::cards::SessionCard {
+                    id: None,
+                    activity,
+                    title: chat.title.clone(),
+                    mark: activity::provider_mark(provider),
+                    agent,
+                    model: None,
+                    cli: false,
+                    folder: super::cards::Folder::new(context.folder.clone().unwrap_or_default()),
+                    context: context.clone(),
+                    host: Some(name),
+                }),
+                on_click: Rc::new(move |this, cx| {
+                    this.navigate(target.clone(), resource.clone(), cx)
+                }),
+                menu: None,
+            },
+            cx,
+        ))
+    }
+
+    fn remote_terminal(
+        &self,
+        host: &Arc<HostClient>,
+        terminal: &p::TerminalSummary,
+        context: &ChatContext,
+        index: usize,
+        cx: &Context<Self>,
+    ) -> Option<AnyElement> {
+        let reference = terminal
+            .terminal
+            .clone()
+            .filter(|t| t.host_id == host.id().as_str())?;
+        let activity = if terminal.running {
+            Activity::Idle
+        } else {
+            Activity::Exited
+        };
+        let status = match host.phase() {
+            Phase::Ready if terminal.running => ("Running", t::secondary()),
+            Phase::Ready => ("Exited", t::faint()),
+            _ => Self::remote_status(host, activity),
+        };
+        let name = host.name();
+        let resource = p::ResourceRef {
+            resource: Some(p::resource_ref::Resource::Terminal(reference.clone())),
+        };
+        let selected = self.remote_selection.as_ref() == Some(&resource);
+        let target = host.clone();
+        Some(self.session_row(
+            SessionRow {
+                key: format!(
+                    "remote-terminal-{}-{}",
+                    reference.host_id, reference.terminal_id
+                ),
+                title: terminal.title.clone(),
+                mark: activity::terminal_mark(),
+                activity,
+                status,
+                detail: Some(name.clone()),
+                cli: false,
+                host: true,
+                selected,
+                enabled: true,
+                index,
+                label: format!(
+                    "{}, {}, terminal, {}, on {name}{}",
+                    context.project,
+                    terminal.title,
+                    status.0,
+                    if selected { ", selected" } else { "" }
+                ),
+                card: Rc::new(super::cards::SessionCard {
+                    id: None,
+                    activity,
+                    title: terminal.title.clone(),
+                    mark: activity::terminal_mark(),
+                    agent: "Terminal".into(),
+                    model: None,
+                    cli: false,
+                    folder: super::cards::Folder::new(context.folder.clone().unwrap_or_default()),
+                    context: context.clone(),
+                    host: Some(name),
+                }),
+                on_click: Rc::new(move |this, cx| {
+                    this.navigate(target.clone(), resource.clone(), cx)
+                }),
+                menu: None,
+            },
+            cx,
+        ))
+    }
+
+    /// Private chats of other computers, listed after this computer's own.
+    pub(super) fn remote_private_chats(&self, first: usize, cx: &Context<Self>) -> Vec<AnyElement> {
+        let private = ChatContext {
+            project: "Without a project".into(),
+            checkout: "Private folder".into(),
+            folder: None,
+            head: None,
+            main_checkout: false,
+            git_error: None,
+        };
         let mut rows = vec![];
         for (host, catalog) in self.remote_catalogs(cx) {
             for chat in catalog.chats.iter().filter(|chat| chat.workspace.is_none()) {
-                self.push_remote_chat(&host, chat, &mut rows, cx);
+                rows.extend(self.remote_chat(&host, chat, &private, first + rows.len(), cx));
             }
         }
         rows

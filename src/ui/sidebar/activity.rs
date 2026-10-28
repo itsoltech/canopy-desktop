@@ -49,6 +49,22 @@ impl Activity {
             _ => Self::NotStarted,
         }
     }
+    /// A chat on another computer, from its catalog state.
+    pub fn remote(state: i32, goal: bool) -> Self {
+        use canopy_desktop::remote::proto::ChatState;
+        match ChatState::try_from(state).ok() {
+            Some(ChatState::Working) if goal => Self::Goal,
+            Some(ChatState::Working) => Self::Working,
+            Some(ChatState::NeedsDecision) => Self::Attention,
+            Some(ChatState::Idle) => Self::Idle,
+            Some(ChatState::ChatStarting) => Self::Starting,
+            Some(ChatState::Interrupting) => Self::Stopping,
+            Some(ChatState::Exited) => Self::Exited,
+            Some(ChatState::ChatFailed) => Self::Error,
+            Some(ChatState::Dormant) => Self::NotStarted,
+            _ => Self::NoStatus,
+        }
+    }
     pub fn label(self) -> &'static str {
         match self {
             Self::Working => "Working",
@@ -107,17 +123,22 @@ pub(super) fn provider_mark(provider: Option<Provider>) -> (Hsla, &'static str) 
     }
 }
 
+/// A plain shell on another computer: no agent behind it.
+pub(super) fn terminal_mark() -> (Hsla, &'static str) {
+    (t::secondary(), "canopy/square-terminal.svg")
+}
+
 /// The agent's provider tile with its activity edge and status badge.
-/// `group` is the row's hover group: the badge's cut-out follows the row fill.
+/// `key` names the row's animations; `group` is its hover group, so the
+/// badge's cut-out follows the row fill.
 pub(super) fn agent_avatar(
-    pane: PaneId,
-    provider: Option<Provider>,
+    key: &str,
+    (mark, path): (Hsla, &'static str),
     activity: Activity,
     group: &SharedString,
     selected: bool,
     reduced: bool,
 ) -> Div {
-    let (mark, path) = provider_mark(provider);
     let (fill, edge, ink) = match activity {
         Activity::NotStarted => (transparent_black(), t::control_border(), t::muted()),
         Activity::Exited => (t::hover(), t::border(), t::faint()),
@@ -142,8 +163,8 @@ pub(super) fn agent_avatar(
                 .border_color(edge)
                 .child(Icon::default().path(path).size_3p5().text_color(ink)),
         )
-        .children(activity_edge(pane, activity, reduced))
-        .children(badge(pane, activity, group, selected, reduced))
+        .children(activity_edge(key, activity, reduced))
+        .children(badge(key, activity, group, selected, reduced))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -156,7 +177,7 @@ enum Edge {
     Dashes,
 }
 
-fn activity_edge(pane: PaneId, activity: Activity, reduced: bool) -> Option<AnyElement> {
+fn activity_edge(key: &str, activity: Activity, reduced: bool) -> Option<AnyElement> {
     let (edge, color) = match activity {
         Activity::Working => (Edge::Trace, t::accent()),
         Activity::Goal => (Edge::Trace, t::goal()),
@@ -181,7 +202,7 @@ fn activity_edge(pane: PaneId, activity: Activity, reduced: bool) -> Option<AnyE
     Some(
         frame
             .with_animation(
-                SharedString::from(format!("activity-edge-{pane:?}")),
+                SharedString::from(format!("activity-edge-{key}")),
                 Animation::new(period).repeat_synced(),
                 move |frame, phase| frame.child(edge_canvas(edge, color, phase)),
             )
@@ -287,7 +308,7 @@ impl Outline {
 }
 
 fn badge(
-    pane: PaneId,
+    key: &str,
     activity: Activity,
     group: &SharedString,
     selected: bool,
@@ -341,7 +362,7 @@ fn badge(
             div()
                 .absolute()
                 .with_animation(
-                    SharedString::from(format!("attention-halo-{pane:?}")),
+                    SharedString::from(format!("attention-halo-{key}")),
                     Animation::new(duration::PULSE * 3),
                     move |halo, progress| {
                         let phase = 1. - (1. - (progress * 3.).fract()).powi(2);
@@ -365,7 +386,7 @@ fn badge(
     layers.push(
         div()
             .with_animation(
-                SharedString::from(format!("status-badge-{pane:?}-{}", activity.label())),
+                SharedString::from(format!("status-badge-{key}-{}", activity.label())),
                 Animation::new(duration::QUICK),
                 move |_, progress| {
                     let scale = pop.sample(progress);
@@ -386,13 +407,17 @@ pub(super) struct Tally {
 }
 impl Tally {
     pub fn of(panes: impl IntoIterator<Item = PaneId>, cx: &App) -> Self {
-        panes.into_iter().fold(Self::default(), |mut tally, pane| {
-            let activity = Activity::of(pane, cx);
-            tally.sessions += 1;
-            tally.working += activity.working() as usize;
-            tally.needs_you += activity.needs_you() as usize;
-            tally
-        })
+        Self::count(panes.into_iter().map(|pane| Activity::of(pane, cx)))
+    }
+    pub fn count(activities: impl IntoIterator<Item = Activity>) -> Self {
+        activities
+            .into_iter()
+            .fold(Self::default(), |mut tally, activity| {
+                tally.sessions += 1;
+                tally.working += activity.working() as usize;
+                tally.needs_you += activity.needs_you() as usize;
+                tally
+            })
     }
     pub fn is_empty(self) -> bool {
         self.working + self.needs_you == 0
@@ -450,25 +475,4 @@ impl Tally {
     }
 }
 
-/// A project's monogram on its identity hue.
-pub(super) fn project_tile(name: &str) -> Div {
-    let hue = t::project_hue(name);
-    let initials: String = name
-        .split(['-', '_', ' ', '.'])
-        .filter_map(|word| word.chars().next())
-        .take(2)
-        .flat_map(char::to_uppercase)
-        .collect();
-    div()
-        .size(t::project_tile_size())
-        .flex_shrink_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(rems(0.3125))
-        .bg(t::project_tile(hue))
-        .text_color(t::project_tile_text(hue))
-        .text_size(rems(0.6875))
-        .font_weight(FontWeight::BOLD)
-        .child(initials)
-}
+pub(super) use crate::ui::components::project_tile;

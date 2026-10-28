@@ -1,5 +1,17 @@
+//! Remote terminal page: the local terminal pane's tabs, surface, grid painter
+//! and status bars over host-rendered frames.
 use super::*;
-use canopy_desktop::remote::client::rpc_error;
+use canopy_desktop::{
+    remote::client::rpc_error,
+    terminal::{
+        geometry::{CELL_HEIGHT, CELL_WIDTH, GridGeometry},
+        session::Size,
+    },
+};
+use gpui_kit::component::{
+    IconName,
+    menu::{DropdownMenu, PopupMenuItem},
+};
 use prost::Message;
 impl RemoteWindow {
     pub(super) fn open_terminal(&mut self, cx: &mut Context<Self>) {
@@ -415,12 +427,10 @@ impl RemoteWindow {
         true
     }
     fn terminal_cell(&self, position: Point<Pixels>) -> (u32, u32) {
-        let x = f32::from(position.x - self.terminal_bounds.origin.x).max(0.);
-        let y = f32::from(position.y - self.terminal_bounds.origin.y).max(0.);
-        (
-            (y / self.terminal_cell_size.1.max(1.)) as u32,
-            (x / self.terminal_cell_size.0.max(1.)) as u32,
-        )
+        let x = f32::from(position.x - self.terminal_bounds.origin.x);
+        let y = f32::from(position.y - self.terminal_bounds.origin.y);
+        let (row, column) = self.terminal_geometry().cell_at(x, y);
+        (row as u32, column as u32)
     }
     fn read_terminal_history(&mut self, cx: &mut Context<Self>) {
         let Some(host) = self.host.clone() else {
@@ -488,6 +498,212 @@ impl RemoteWindow {
             cx,
         );
     }
+    fn take_terminal_input(&mut self, cx: &mut Context<Self>) {
+        let (Some(host), Some(terminal)) = (self.host.clone(), self.terminal.clone()) else {
+            return;
+        };
+        let generation = self.generation;
+        let release_host = host.clone();
+        let release_terminal = terminal.clone();
+        let runtime = self.global.runtime.clone();
+        let task = self
+            .global
+            .runtime
+            .spawn(async move { host.acquire_input(terminal, true).await });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let acquired = result
+                .as_ref()
+                .ok()
+                .and_then(|result| result.as_ref().ok())
+                .cloned();
+            let installed = this
+                .update(cx, |this, cx| {
+                    if this.generation != generation {
+                        return false;
+                    }
+                    match result {
+                        Ok(Ok(lease)) => this.install_lease(lease),
+                        Ok(Err(error)) => this.error = Some(error),
+                        Err(_) => this.error = Some("Couldn’t take control of input.".into()),
+                    }
+                    cx.notify();
+                    true
+                })
+                .unwrap_or(false);
+            if !installed && let Some(lease) = acquired {
+                runtime.spawn(
+                    async move { release_host.release_input(release_terminal, lease).await },
+                );
+            }
+        })
+        .detach();
+    }
+    fn release_terminal_input(&mut self, cx: &mut Context<Self>) {
+        if let Some(task) = self.renew.take() {
+            task.abort();
+        }
+        if let (Some(host), Some(terminal), Some(lease)) = (
+            self.host.clone(),
+            self.terminal.clone(),
+            self.terminal_lease.take(),
+        ) {
+            self.run(
+                async move {
+                    host.release_input(terminal, lease).await?;
+                    Ok(Update::Done("Input control released.".into()))
+                },
+                cx,
+            );
+        }
+    }
+    fn switch_terminal(&mut self, terminal: p::TerminalRef, cx: &mut Context<Self>) {
+        if self.terminal.as_ref() == Some(&terminal) {
+            return;
+        }
+        self.navigate(Page::Terminal, cx);
+        self.terminal = Some(terminal);
+        self.terminal_frame = None;
+        self.terminal_history = None;
+        self.terminal_history_offset = 0;
+        self.terminal_run.clear();
+        self.terminal_selection = None;
+        self.save_layout(cx);
+        if self.ready() {
+            self.open_terminal(cx);
+        }
+    }
+    /// Terminals of the current workspace, shown like the local terminal tabs.
+    fn render_terminal_tabs(
+        &self,
+        summary: Option<&p::TerminalSummary>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let terminals: Vec<p::TerminalSummary> = self
+            .host
+            .as_ref()
+            .and_then(|host| host.shared_catalog())
+            .map(|catalog| {
+                catalog
+                    .terminals
+                    .iter()
+                    .filter(|t| t.workspace == self.workspace || t.terminal == self.terminal)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let held = self.terminal_lease.as_ref().is_some_and(|l| l.held);
+        let history = self.terminal_history.is_some();
+        let owner = cx.entity().downgrade();
+        let running = summary.is_none_or(|s| s.running);
+        let ready = self.ready();
+        let mut strip = tab_strip("remote-terminal-tabs");
+        for summary in terminals {
+            let Some(terminal) = summary.terminal.clone() else {
+                continue;
+            };
+            let active = self.terminal.as_ref() == Some(&terminal);
+            strip = strip.child(
+                workspace_tab(
+                    SharedString::from(format!("remote-terminal-tab:{}", terminal.terminal_id)),
+                    if summary.title.is_empty() {
+                        "Terminal".to_owned()
+                    } else {
+                        summary.title.clone()
+                    },
+                    active,
+                    160.,
+                    (!summary.running).then_some(("Exited", t::muted())),
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.switch_terminal(terminal.clone(), cx)),
+                ),
+            );
+        }
+        let creating = self.pending == Some("new-terminal");
+        strip = strip.child(
+            div()
+                .flex_shrink_0()
+                .h_full()
+                .flex()
+                .items_center()
+                .px_1()
+                .child(
+                    icon_button("terminal-new", IconName::Plus, "New terminal")
+                        .loading(creating)
+                        .disabled(!ready || self.workspace.is_none() || creating)
+                        .on_click(cx.listener(|this, _, _, cx| this.new_shell_terminal(cx))),
+                ),
+        );
+        strip.child(div().flex_1()).child(
+            row()
+                .flex_shrink_0()
+                .h_full()
+                .px_2()
+                .gap_1()
+                .child(
+                    icon_button(
+                        "terminal-history",
+                        IconName::ArrowUp,
+                        if history {
+                            "Show earlier output"
+                        } else {
+                            "Earlier output"
+                        },
+                    )
+                    .disabled(!ready)
+                    .on_click(cx.listener(|this, _, _, cx| this.read_terminal_history(cx))),
+                )
+                .child(
+                    icon_button("terminal-copy", IconName::Copy, "Copy selection")
+                        .disabled(self.terminal_selection.is_none())
+                        .on_click(cx.listener(|this, _, _, cx| this.copy_terminal(cx))),
+                )
+                .child(
+                    icon_button("terminal-menu", IconName::Ellipsis, "Terminal actions")
+                        .dropdown_menu(move |menu, _, _| {
+                            let release = owner.clone();
+                            let restart = owner.clone();
+                            let stop = owner.clone();
+                            let close = owner.clone();
+                            menu.item(
+                                PopupMenuItem::new("Release control")
+                                    .disabled(!held)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = release
+                                            .update(cx, |this, cx| this.release_terminal_input(cx));
+                                    }),
+                            )
+                            .separator()
+                            .item(
+                                PopupMenuItem::new("Restart terminal…")
+                                    .disabled(!ready)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = restart.update(cx, |this, cx| {
+                                            this.terminal_lifecycle(true, cx)
+                                        });
+                                    }),
+                            )
+                            .item(
+                                PopupMenuItem::new("Stop terminal…")
+                                    .disabled(!ready || !running)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = stop.update(cx, |this, cx| {
+                                            this.terminal_lifecycle(false, cx)
+                                        });
+                                    }),
+                            )
+                            .separator()
+                            .item(
+                                PopupMenuItem::new("Close view").on_click(move |_, _, cx| {
+                                    let _ = close
+                                        .update(cx, |this, cx| this.navigate(Page::Catalog, cx));
+                                }),
+                            )
+                        }),
+                ),
+        )
+    }
     pub(super) fn render_terminal(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let entity = cx.entity();
         let surface = canvas(
@@ -496,216 +712,162 @@ impl RemoteWindow {
                 entity.update(cx, |this, cx| this.paint_terminal(bounds, window, cx));
             },
         )
-        .w_full()
-        .h_96();
-        let mut body = column().gap_2().child(
-            row()
-                .gap_2()
-                .child(
-                    button("terminal-input-control", "Take input control")
-                        .disabled(!self.ready())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let host = this.host.clone().unwrap();
-                            let terminal = this.terminal.clone();
-                            let generation = this.generation;
-                            let release_host = host.clone();
-                            let release_terminal = terminal.clone();
-                            let runtime = this.global.runtime.clone();
-                            let task = this.global.runtime.spawn(async move {
-                                host.acquire_input(terminal.ok_or("Missing terminal.")?, true)
-                                    .await
-                            });
-                            cx.spawn(async move |this, cx| {
-                                let result = task.await;
-                                let acquired = result
-                                    .as_ref()
-                                    .ok()
-                                    .and_then(|result| result.as_ref().ok())
-                                    .cloned();
-                                let installed = this
-                                    .update(cx, |this, cx| {
-                                        if this.generation != generation {
-                                            return false;
-                                        }
-                                        match result {
-                                            Ok(Ok(lease)) => this.install_lease(lease),
-                                            Ok(Err(error)) => this.error = Some(error),
-                                            Err(_) => {
-                                                this.error = Some("Lease worker stopped.".into())
-                                            }
-                                        }
-                                        cx.notify();
-                                        true
-                                    })
-                                    .unwrap_or(false);
-                                if !installed
-                                    && let (Some(terminal), Some(lease)) =
-                                        (release_terminal, acquired)
-                                {
-                                    runtime.spawn(async move {
-                                        release_host.release_input(terminal, lease).await
-                                    });
-                                }
-                            })
-                            .detach();
-                        })),
-                )
-                .child(
-                    button("terminal-history", "Earlier output")
-                        .disabled(!self.ready())
-                        .on_click(cx.listener(|this, _, _, cx| this.read_terminal_history(cx))),
-                )
-                .child(button("terminal-live", "Live output").on_click(cx.listener(
-                    |this, _, _, cx| {
-                        this.terminal_history = None;
-                        this.terminal_history_offset = 0;
-                        cx.notify();
-                    },
-                )))
-                .child(
-                    button("terminal-copy", "Copy selection")
-                        .on_click(cx.listener(|this, _, _, cx| this.copy_terminal(cx))),
-                ),
-        );
-        body = body.child(
-            row()
-                .gap_2()
-                .child(
-                    button("terminal-release", "Release input control")
-                        .disabled(!self.terminal_lease.as_ref().is_some_and(|l| l.held))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(task) = this.renew.take() {
-                                task.abort();
-                            }
-                            if let (Some(host), Some(terminal), Some(lease)) = (
-                                this.host.clone(),
-                                this.terminal.clone(),
-                                this.terminal_lease.take(),
-                            ) {
-                                this.run(
-                                    async move {
-                                        host.release_input(terminal, lease).await?;
-                                        Ok(Update::Done("Input control released.".into()))
-                                    },
-                                    cx,
-                                );
-                            }
-                        })),
-                )
-                .child(
-                    button("terminal-stop", "Stop terminal…")
-                        .disabled(!self.ready())
-                        .on_click(cx.listener(|this, _, _, cx| this.terminal_lifecycle(false, cx))),
-                )
-                .child(
-                    button("terminal-restart", "Restart terminal…")
-                        .disabled(!self.ready())
-                        .on_click(cx.listener(|this, _, _, cx| this.terminal_lifecycle(true, cx))),
-                )
-                .child(
-                    button("terminal-detach", "Close view")
-                        .on_click(cx.listener(|this, _, _, cx| this.navigate(Page::Catalog, cx))),
-                ),
-        );
-        body = body.child(
-            div()
-                .id("remote-terminal-grid")
-                .track_focus(&self.terminal_focus)
-                .on_key_down(cx.listener(|this, event, _, cx| this.terminal_key(event, cx)))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                        this.terminal_focus.focus(window, cx);
-                        if this.terminal_mouse(event.position, 0, false, event.modifiers, cx) {
-                            return;
-                        }
-                        let cell = this.terminal_cell(event.position);
-                        this.terminal_selection = Some((cell, cell));
-                        cx.notify();
-                    }),
-                )
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                        this.terminal_mouse(event.position, 2, false, event.modifiers, cx);
-                    }),
-                )
-                .on_mouse_down(
-                    MouseButton::Middle,
-                    cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                        this.terminal_mouse(event.position, 1, false, event.modifiers, cx);
-                    }),
-                )
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|this, event: &MouseUpEvent, _, cx| {
-                        this.terminal_mouse(event.position, 0, true, event.modifiers, cx);
-                    }),
-                )
-                .on_mouse_up(
-                    MouseButton::Right,
-                    cx.listener(|this, event: &MouseUpEvent, _, cx| {
-                        this.terminal_mouse(event.position, 2, true, event.modifiers, cx);
-                    }),
-                )
-                .on_mouse_up(
-                    MouseButton::Middle,
-                    cx.listener(|this, event: &MouseUpEvent, _, cx| {
-                        this.terminal_mouse(event.position, 1, true, event.modifiers, cx);
-                    }),
-                )
-                .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
-                    let delta = f32::from(event.delta.pixel_delta(px(this.terminal_cell_size.1)).y);
-                    let count = (delta.abs() / this.terminal_cell_size.1.max(1.))
-                        .ceil()
-                        .clamp(1., 8.) as usize;
-                    for _ in 0..count {
-                        if !this.terminal_mouse(
-                            event.position,
-                            if delta > 0. { 64 } else { 65 },
-                            false,
-                            event.modifiers,
-                            cx,
-                        ) {
-                            break;
-                        }
+        .size_full();
+        let summary = self
+            .host
+            .as_ref()
+            .and_then(|host| host.shared_catalog())
+            .and_then(|catalog| {
+                catalog
+                    .terminals
+                    .iter()
+                    .find(|t| t.terminal == self.terminal)
+                    .cloned()
+            });
+        let held = self.terminal_lease.as_ref().is_some_and(|l| l.held);
+        let running = summary.as_ref().is_none_or(|s| s.running);
+        let ready = self.ready();
+        let grid = div()
+            .id("remote-terminal-grid")
+            .size_full()
+            .track_focus(&self.terminal_focus)
+            .on_key_down(cx.listener(|this, event, _, cx| this.terminal_key(event, cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    this.terminal_focus.focus(window, cx);
+                    if this.terminal_mouse(event.position, 0, false, event.modifiers, cx) {
+                        return;
                     }
-                }))
-                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
-                    let modes = this
-                        .terminal_frame
-                        .as_ref()
-                        .map(|f| f.input_modes)
-                        .unwrap_or_default();
-                    if modes & 512 != 0 || modes & 256 != 0 && event.pressed_button.is_some() {
-                        let code = match event.pressed_button {
-                            Some(MouseButton::Left) => 32,
-                            Some(MouseButton::Middle) => 33,
-                            Some(MouseButton::Right) => 34,
-                            _ => 35,
-                        };
-                        if this.terminal_mouse(event.position, code, false, event.modifiers, cx) {
-                            return;
-                        }
+                    let cell = this.terminal_cell(event.position);
+                    this.terminal_selection = Some((cell, cell));
+                    cx.notify();
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    this.terminal_mouse(event.position, 2, false, event.modifiers, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    this.terminal_mouse(event.position, 1, false, event.modifiers, cx);
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseUpEvent, _, cx| {
+                    this.terminal_mouse(event.position, 0, true, event.modifiers, cx);
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(|this, event: &MouseUpEvent, _, cx| {
+                    this.terminal_mouse(event.position, 2, true, event.modifiers, cx);
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Middle,
+                cx.listener(|this, event: &MouseUpEvent, _, cx| {
+                    this.terminal_mouse(event.position, 1, true, event.modifiers, cx);
+                }),
+            )
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
+                let delta = f32::from(event.delta.pixel_delta(px(this.terminal_cell_size.1)).y);
+                let count = (delta.abs() / this.terminal_cell_size.1.max(1.))
+                    .ceil()
+                    .clamp(1., 8.) as usize;
+                for _ in 0..count {
+                    if !this.terminal_mouse(
+                        event.position,
+                        if delta > 0. { 64 } else { 65 },
+                        false,
+                        event.modifiers,
+                        cx,
+                    ) {
+                        break;
                     }
-                    if event.pressed_button == Some(MouseButton::Left) {
-                        let cell = this.terminal_cell(event.position);
-                        if let Some((start, _)) = this.terminal_selection {
-                            this.terminal_selection = Some((start, cell));
+                }
+            }))
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                let modes = this
+                    .terminal_frame
+                    .as_ref()
+                    .map(|f| f.input_modes)
+                    .unwrap_or_default();
+                if modes & 512 != 0 || modes & 256 != 0 && event.pressed_button.is_some() {
+                    let code = match event.pressed_button {
+                        Some(MouseButton::Left) => 32,
+                        Some(MouseButton::Middle) => 33,
+                        Some(MouseButton::Right) => 34,
+                        _ => 35,
+                    };
+                    if this.terminal_mouse(event.position, code, false, event.modifiers, cx) {
+                        return;
+                    }
+                }
+                if event.pressed_button == Some(MouseButton::Left) {
+                    let cell = this.terminal_cell(event.position);
+                    if let Some((start, _)) = this.terminal_selection {
+                        this.terminal_selection = Some((start, cell));
+                        cx.notify();
+                    }
+                }
+            }))
+            .child(surface);
+        let waiting = self.terminal_frame.is_none() && self.terminal_history.is_none();
+        terminal_surface("remote-terminal")
+            .flex_1()
+            .min_h_96()
+            .child(self.render_terminal_tabs(summary.as_ref(), cx))
+            .child(terminal_viewport(grid).children(waiting.then(|| {
+                terminal_message(if ready { "Connecting…" } else { "Offline" })
+                    .absolute()
+                    .left(px(12.))
+                    .top(px(12.))
+            })))
+            .children(self.terminal_history.is_some().then(|| {
+                process_status_bar(
+                    "Showing earlier output. Typing is paused.",
+                    [button("terminal-live", "Back to live output")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.terminal_history = None;
+                            this.terminal_history_offset = 0;
                             cx.notify();
-                        }
-                    }
-                }))
-                .child(surface),
-        );
-        body.child(if self.terminal_history.is_some() {
-            "Earlier output · read only"
-        } else if self.terminal_lease.as_ref().is_some_and(|l| l.held) {
-            "You have input control"
-        } else {
-            "Read only · take input control to type"
-        })
-        .into_any_element()
+                        }))
+                        .into_any_element()],
+                )
+            }))
+            .children(
+                (self.terminal_history.is_none() && running && !held).then(|| {
+                    process_status_bar(
+                        if summary
+                            .as_ref()
+                            .is_some_and(|s| s.input_device_id.is_some())
+                        {
+                            "Input is controlled by another device. Typing here is paused."
+                        } else {
+                            "Read only. Take control to type in this terminal."
+                        },
+                        [button("terminal-input-control", "Take control")
+                            .disabled(!ready)
+                            .on_click(cx.listener(|this, _, _, cx| this.take_terminal_input(cx)))
+                            .into_any_element()],
+                    )
+                }),
+            )
+            .children((!running).then(|| {
+                process_status_bar(
+                    "Process exited",
+                    [button("terminal-restart", "Restart")
+                        .disabled(!ready)
+                        .on_click(cx.listener(|this, _, _, cx| this.terminal_lifecycle(true, cx)))
+                        .into_any_element()],
+                )
+            }))
+            .into_any_element()
     }
     fn terminal_lifecycle(&mut self, restart: bool, cx: &mut Context<Self>) {
         let host = self.host.clone().unwrap();
@@ -725,6 +887,26 @@ impl RemoteWindow {
             Ok(Update::Done("Terminal operation completed.".into()))
         })), cx);
     }
+    /// Grid placement shared by painting and pointer mapping. The host frame's
+    /// own size is centered exactly like the local terminal grid.
+    fn terminal_geometry(&self) -> GridGeometry {
+        let (width, height) = (
+            f32::from(self.terminal_bounds.size.width),
+            f32::from(self.terminal_bounds.size.height),
+        );
+        match self
+            .terminal_history
+            .as_ref()
+            .or(self.terminal_frame.as_ref())
+        {
+            Some(frame) => GridGeometry::with_size(
+                width,
+                height,
+                Size::bounded(frame.columns as usize, frame.rows as usize),
+            ),
+            None => GridGeometry::fit(width, height),
+        }
+    }
     fn paint_terminal(
         &mut self,
         bounds: Bounds<Pixels>,
@@ -737,14 +919,9 @@ impl RemoteWindow {
             ElementInputHandler::new(bounds, cx.entity()),
             cx,
         );
-        let scale = f32::from(window.rem_size()) / 16.;
-        let cw = canopy_desktop::terminal::geometry::CELL_WIDTH * scale;
-        let ch = canopy_desktop::terminal::geometry::CELL_HEIGHT * scale;
-        self.terminal_cell_size = (cw, ch);
-        let dimensions = (
-            (f32::from(bounds.size.width) / cw) as u32,
-            (f32::from(bounds.size.height) / ch) as u32,
-        );
+        self.terminal_cell_size = (CELL_WIDTH, CELL_HEIGHT);
+        let fit = GridGeometry::fit(f32::from(bounds.size.width), f32::from(bounds.size.height));
+        let dimensions = (fit.size.columns as u32, fit.size.rows as u32);
         if self.terminal_size != dimensions && self.terminal_history.is_none() {
             self.terminal_size = dimensions;
             let owner = cx.entity().downgrade();
@@ -773,6 +950,7 @@ impl RemoteWindow {
                 });
             });
         }
+        let geometry = self.terminal_geometry();
         let Some(frame) = self
             .terminal_history
             .as_ref()
@@ -780,71 +958,141 @@ impl RemoteWindow {
         else {
             return;
         };
+        let origin = bounds.origin + point(px(geometry.left), px(geometry.top));
+        let selection = self
+            .terminal_selection
+            .map(|(a, b)| if a <= b { (a, b) } else { (b, a) });
+        let selected = |cell: &p::TerminalCell| {
+            selection
+                .is_some_and(|(s, e)| (cell.row, cell.column) >= s && (cell.row, cell.column) <= e)
+        };
+        // Incremental frames append replaced cells; paint in grid order.
+        let mut cells: Vec<&p::TerminalCell> = frame.cells.iter().collect();
+        cells.sort_by_key(|c| (c.row, c.column));
+        let base_font = t::terminal_font();
+        let focused = self.terminal_focus.is_focused(window);
         window.paint_layer(bounds, |window| {
-            for cell in &frame.cells {
-                let position =
-                    bounds.origin + point(px(cell.column as f32 * cw), px(cell.row as f32 * ch));
-                let foreground = rgba(cell.foreground_rgba);
-                let background = rgba(cell.background_rgba);
-                let selected = self.terminal_selection.is_some_and(|(a, b)| {
-                    let (s, e) = if a <= b { (a, b) } else { (b, a) };
-                    (cell.row, cell.column) >= s && (cell.row, cell.column) <= e
-                });
+            let mut i = 0;
+            while i < cells.len() {
+                let first = cells[i];
+                let mut end = i + 1;
+                let mut columns = first.column_span.max(1);
+                while let Some(cell) = cells.get(end) {
+                    if cell.row != first.row
+                        || cell.background_rgba != first.background_rgba
+                        || cell.column != first.column + columns
+                    {
+                        break;
+                    }
+                    columns += cell.column_span.max(1);
+                    end += 1;
+                }
+                let rect = geometry.background(
+                    first.row as usize,
+                    first.column as usize,
+                    columns as usize,
+                );
                 window.paint_quad(fill(
                     Bounds::new(
-                        position,
-                        size(px(cw * cell.column_span.max(1) as f32), px(ch)),
+                        bounds.origin + point(px(rect.x), px(rect.y)),
+                        size(px(rect.width), px(rect.height)),
                     ),
-                    if selected {
-                        t::selected()
-                    } else {
-                        background.into()
-                    },
+                    Hsla::from(rgba(first.background_rgba)),
                 ));
-                if cell.column_span == 0 || cell.flags & 512 != 0 {
+                i = end;
+            }
+            let mut i = 0;
+            while i < cells.len() {
+                let cell = cells[i];
+                if cell.column_span == 0 {
+                    i += 1;
                     continue;
                 }
-                let mut font = t::terminal_font();
-                if cell.flags & 1 != 0 {
-                    font.weight = FontWeight::BOLD;
+                let mut text = cell.text.clone();
+                let mut byte_columns = vec![0; cell.text.len()];
+                let mut columns = cell.column_span as usize;
+                let mut next = i + 1;
+                let is_selected = selected(cell);
+                if cell.column_span == 1 {
+                    while let Some(other) = cells.get(next) {
+                        if other.row != cell.row
+                            || other.column as usize != cell.column as usize + columns
+                            || other.column_span != 1
+                            || other.foreground_rgba != cell.foreground_rgba
+                            || other.background_rgba != cell.background_rgba
+                            || other.flags != cell.flags
+                            || selected(other) != is_selected
+                        {
+                            break;
+                        }
+                        byte_columns.extend(std::iter::repeat_n(columns, other.text.len()));
+                        text.push_str(&other.text);
+                        columns += 1;
+                        next += 1;
+                    }
                 }
-                if cell.flags & 2 != 0 {
-                    font.style = FontStyle::Italic;
+                let position = origin
+                    + point(
+                        px(cell.column as f32 * CELL_WIDTH),
+                        px(cell.row as f32 * CELL_HEIGHT),
+                    );
+                if is_selected {
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            position,
+                            size(px(columns as f32 * CELL_WIDTH), px(CELL_HEIGHT)),
+                        ),
+                        t::selected(),
+                    ));
                 }
-                let run = TextRun {
-                    len: cell.text.len(),
-                    font,
-                    color: foreground.into(),
-                    underline: (cell.flags & 4 != 0).then_some(UnderlineStyle {
-                        thickness: px(scale),
-                        color: None,
-                        wavy: cell.flags & 4096 != 0,
-                    }),
-                    strikethrough: (cell.flags & 32 != 0).then_some(StrikethroughStyle {
-                        thickness: px(scale),
-                        color: None,
-                    }),
-                    ..Default::default()
-                };
-                let line = window.text_system().shape_line(
-                    cell.text.clone().into(),
-                    px(13. * scale),
-                    &[run],
-                    None,
-                );
-                let _ = line.paint(position, px(ch), TextAlign::Left, None, window, cx);
+                if cell.flags & 512 == 0 && !text.is_empty() {
+                    let mut font = base_font.clone();
+                    if cell.flags & 1 != 0 {
+                        font.weight = FontWeight::BOLD;
+                    }
+                    if cell.flags & 2 != 0 {
+                        font.style = FontStyle::Italic;
+                    }
+                    let run = TextRun {
+                        len: text.len(),
+                        font,
+                        color: rgba(cell.foreground_rgba).into(),
+                        underline: (cell.flags & 4 != 0).then_some(UnderlineStyle {
+                            thickness: px(1.),
+                            color: None,
+                            wavy: cell.flags & 4096 != 0,
+                        }),
+                        strikethrough: (cell.flags & 32 != 0).then_some(StrikethroughStyle {
+                            thickness: px(1.),
+                            color: None,
+                        }),
+                        ..Default::default()
+                    };
+                    let mut line =
+                        window
+                            .text_system()
+                            .shape_line(text.into(), px(13.), &[run], None);
+                    align_to_grid(&mut line, &byte_columns, columns);
+                    let _ =
+                        line.paint(position, px(CELL_HEIGHT), TextAlign::Left, None, window, cx);
+                }
+                i = next;
             }
-            if frame.input_modes & 16 != 0 && self.terminal_history.is_none() {
+            if frame.input_modes & 16 != 0
+                && self.terminal_history.is_none()
+                && frame.cursor_row < frame.rows.max(1)
+                && frame.cursor_column < frame.columns.max(1)
+            {
                 let mut color = t::text();
-                color.a = 0.4;
+                color.a = if focused { 0.45 } else { 0.18 };
                 window.paint_quad(fill(
                     Bounds::new(
-                        bounds.origin
+                        origin
                             + point(
-                                px(frame.cursor_column as f32 * cw),
-                                px(frame.cursor_row as f32 * ch),
+                                px(frame.cursor_column as f32 * CELL_WIDTH),
+                                px(frame.cursor_row as f32 * CELL_HEIGHT),
                             ),
-                        size(px(cw), px(ch)),
+                        size(px(CELL_WIDTH), px(CELL_HEIGHT)),
                     ),
                     color,
                 ));
@@ -852,23 +1100,23 @@ impl RemoteWindow {
             if !self.terminal_preedit.is_empty() {
                 let run = TextRun {
                     len: self.terminal_preedit.len(),
-                    font: t::terminal_font(),
+                    font: base_font.clone(),
                     color: t::yellow(),
                     ..Default::default()
                 };
                 let line = window.text_system().shape_line(
                     self.terminal_preedit.clone().into(),
-                    px(13. * scale),
+                    px(13.),
                     &[run],
                     None,
                 );
                 let _ = line.paint(
-                    bounds.origin
+                    origin
                         + point(
-                            px(frame.cursor_column as f32 * cw),
-                            px(frame.cursor_row as f32 * ch),
+                            px(frame.cursor_column as f32 * CELL_WIDTH),
+                            px(frame.cursor_row as f32 * CELL_HEIGHT),
                         ),
-                    px(ch),
+                    px(CELL_HEIGHT),
                     TextAlign::Left,
                     None,
                     window,
@@ -877,6 +1125,33 @@ impl RemoteWindow {
             }
         });
     }
+}
+/// Same grid alignment as the local terminal painter: native shaping inside a
+/// cell, fixed advances between cells, without mutating GPUI's shared cache.
+fn align_to_grid(line: &mut ShapedLine, byte_columns: &[usize], columns: usize) {
+    let mut runs = line.runs.clone();
+    let glyphs: Vec<_> = runs
+        .iter()
+        .flat_map(|r| r.glyphs.iter())
+        .map(|g| (g.index, f32::from(g.position.x)))
+        .collect();
+    let positions =
+        canopy_desktop::terminal::glyph_layout::positions(&glyphs, byte_columns, CELL_WIDTH);
+    for (glyph, x) in runs
+        .iter_mut()
+        .flat_map(|r| r.glyphs.iter_mut())
+        .zip(positions)
+    {
+        glyph.position.x = px(x);
+    }
+    **line = std::sync::Arc::new(LineLayout {
+        font_size: line.font_size,
+        width: px(columns as f32 * CELL_WIDTH),
+        ascent: line.ascent,
+        descent: line.descent,
+        runs,
+        len: line.len(),
+    });
 }
 fn assemble_frame(
     fragment: &mut Option<(String, u64, Vec<u8>, Vec<u8>)>,

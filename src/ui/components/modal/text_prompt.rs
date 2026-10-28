@@ -69,6 +69,11 @@ impl TextPrompt {
             _input_events: input_events,
         }
     }
+    /// Names the committed result, e.g. `Create`; defaults to `Save`.
+    pub fn confirm_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.confirm = label.into();
+        self
+    }
     fn close(&mut self, cx: &mut Context<Self>) {
         if self.closing {
             return;

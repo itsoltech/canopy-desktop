@@ -22,7 +22,6 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     Icon, IconName, Sizable,
     bubble::{Bubble, BubbleContent},
-    button::ButtonVariants,
     message::MessageAlignment,
     shimmer::ShimmerText,
     spinner::Spinner,
@@ -315,9 +314,11 @@ impl ChatView {
                 .child(div().text_lg().font_weight(FontWeight::MEDIUM).text_color(t::text())
                     .child(if resumed { "Continue this conversation" } else { "What would you like to work on?" }))
                 .child(div().text_sm().text_color(t::secondary()).child(if resumed {
-                    "Earlier messages aren't shown yet. The agent still has the conversation context."
+                    "Messages from before the resume aren't shown here. The agent still has the full conversation."
                 } else { "Describe a task, ask a question, or mention a file below." }))
                 .children(connecting.then(|| div().text_xs().text_color(t::muted()).child("Connecting to agent…")))
+                // Where and with whom the chat works; gone with the first message.
+                .child(self.details(cx).mt_3())
 )
     }
 
@@ -957,10 +958,14 @@ fn tool_row(
         .and_then(tools::header)
         .map(|(label, detail)| (label.to_owned(), detail))
         .unwrap_or_else(|| (tool.name.clone(), None));
-    let has_output = match &card {
+    let own_output = match &card {
         Some(card) => tools::has_body(card),
         None => presentation::has_output(tool),
     };
+    // An ACP agent's terminals unfold under the call like its other output.
+    let terminals = agent_terminals(this, tool, cx);
+    let terminal_running = terminals.iter().any(|terminal| terminal.running);
+    let has_output = own_output || !terminals.is_empty();
     let now = Instant::now();
     let line = row()
         .w_full()
@@ -997,24 +1002,41 @@ fn tool_row(
                     px(20.),
                 ))
                 .into_any_element(),
+            // A file on the host looks like a local one; it opens in the host's preview.
             None if remote_file.is_some() => {
                 let file = remote_file.unwrap();
-                let label = file.relative_path.clone();
+                let tooltip = match this.rt(cx).remote_host() {
+                    Some(host) => format!("{} · {}", file.relative_path, host.name()),
+                    None => file.relative_path.clone(),
+                };
                 let runtime = this.runtime.clone();
                 let view = view.downgrade();
-                button(SharedString::from(format!("remote-tool-file-{key}")), label)
-                    .ghost()
-                    .small()
-                    .compact()
-                    .on_click(move |_, _, cx| {
-                        cx.stop_propagation();
-                        let _ = view.update(cx, |_, cx| {
-                            cx.emit(super::ClientFileRequested {
-                                runtime: runtime.clone(),
-                                file: file.clone(),
-                            })
-                        });
-                    })
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .flex()
+                    .child(
+                        crate::ui::markdown::file_pill::look(
+                            ("chat-remote-tool-file", key),
+                            &canopy_desktop::chat::mentions::Target {
+                                path: file.relative_path.clone().into(),
+                                line: None,
+                            },
+                            tooltip.into(),
+                            px(12.),
+                            px(20.),
+                        )
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            let _ = view.update(cx, |_, cx| {
+                                cx.emit(super::ClientFileRequested {
+                                    runtime: runtime.clone(),
+                                    file: file.clone(),
+                                })
+                            });
+                        }),
+                    )
                     .into_any_element()
             }
             None => div()
@@ -1028,6 +1050,13 @@ fn tool_row(
                 .into_any_element(),
         })
         .children(detail)
+        .children(terminal_running.then(|| {
+            div()
+                .flex_shrink_0()
+                .text_size(px(12.))
+                .text_color(t::faint())
+                .child("Agent terminal")
+        }))
         .child(
             div()
                 .id(("chat-tool-status", key))
@@ -1057,85 +1086,13 @@ fn tool_row(
     } else {
         row().h(px(28.)).child(line).into_any_element()
     };
-    let output = match (&entry.output, &tool.output) {
-        (Some(disclosure), Some(_)) if has_output && card.is_some() => {
-            Some(disclosure.measured_body(
-                ("chat-tool-output", key),
-                // "Show more" eases the card's height.
-                AnimatedHeight::new(
-                    ("chat-tool-height", key),
-                    motion::policy(cx) == motion::MotionPolicy::Full,
-                    tools::body(view, entry, card.as_deref().expect("card")),
-                ),
-                now,
-            ))
+    let own = match (&entry.output, &tool.output) {
+        (Some(_), Some(_)) if own_output && card.is_some() => {
+            Some(tools::body(view, entry, card.as_deref().expect("card")).into_any_element())
         }
-        (Some(disclosure), Some(output)) if has_output => Some(
-            disclosure.measured_body(
-                ("chat-tool-output", key),
-                div()
-                    .id(("chat-tool-output-scroll", key))
-                    .mt(px(4.))
-                    .ml(px(40.))
-                    .max_h(px(240.))
-                    .overflow_y_scroll()
-                    .p(px(10.))
-                    .rounded(px(6.))
-                    .bg(t::elevated())
-                    .font_family(t::MONO)
-                    .text_size(px(12.))
-                    .text_color(if output.is_error {
-                        t::red()
-                    } else {
-                        t::secondary()
-                    })
-                    .child(output.text.chars().take(OUTPUT_CHARS).collect::<String>())
-                    .children((output.text.chars().count() > OUTPUT_CHARS).then(|| {
-                        div()
-                            .pt(px(6.))
-                            .text_color(t::faint())
-                            .child("Output truncated")
-                    }))
-                    .nested_scroll(),
-                now,
-            ),
-        ),
-        _ => None,
-    };
-    column()
-        .pt(px(4.))
-        .child(header)
-        .children(activity)
-        .children(agent_terminals(this, tool, key, cx))
-        .children(output)
-}
-
-/// Terminals an ACP agent runs for this call, as they print: people watch, the agent
-/// alone types (TERM-02).
-fn agent_terminals(this: &ChatView, tool: &ToolCall, key: u64, cx: &App) -> Vec<AnyElement> {
-    let Some(content) = tool
-        .output
-        .as_ref()
-        .and_then(|output| output.structured.as_ref())
-        .and_then(|value| value.as_array())
-    else {
-        return vec![];
-    };
-    let runtime = this.rt(cx);
-    content
-        .iter()
-        .filter(|part| part["type"] == "terminal")
-        .filter_map(|part| part["terminalId"].as_str())
-        .filter_map(|id| Some((id, runtime.terminal_output(id)?)))
-        .map(|(id, (text, running))| {
-            let tail: String = {
-                let lines: Vec<&str> = text.lines().collect();
-                lines[lines.len().saturating_sub(OUTPUT_LINES)..].join("\n")
-            };
+        (Some(_), Some(output)) if own_output => Some(
             div()
-                .id(SharedString::from(format!(
-                    "chat-agent-terminal-{key}-{id}"
-                )))
+                .id(("chat-tool-output-scroll", key))
                 .mt(px(4.))
                 .ml(px(40.))
                 .max_h(px(240.))
@@ -1145,22 +1102,156 @@ fn agent_terminals(this: &ChatView, tool: &ToolCall, key: u64, cx: &App) -> Vec<
                 .bg(t::elevated())
                 .font_family(t::MONO)
                 .text_size(px(12.))
-                .text_color(t::secondary())
-                .child(if tail.is_empty() {
-                    "No output yet".to_owned()
+                .text_color(if output.is_error {
+                    t::red()
                 } else {
-                    tail
+                    t::secondary()
                 })
-                .children(running.then(|| {
+                .child(output.text.chars().take(OUTPUT_CHARS).collect::<String>())
+                .children((output.text.chars().count() > OUTPUT_CHARS).then(|| {
                     div()
                         .pt(px(6.))
                         .text_color(t::faint())
-                        .child("Running · the agent controls this terminal")
+                        .child("Output truncated")
                 }))
                 .nested_scroll()
+                .into_any_element(),
+        ),
+        _ => None,
+    };
+    // A card's "Show more" and a terminal's new lines ease the body's height.
+    let eased = card.is_some() || !terminals.is_empty();
+    let body = if terminals.is_empty() {
+        own
+    } else {
+        Some(
+            column()
+                .children(terminals.into_iter().map(|terminal| terminal.render(key)))
+                .children(own)
+                .into_any_element(),
+        )
+    };
+    let output = entry.output.as_ref().zip(body).map(|(disclosure, body)| {
+        disclosure.measured_body(
+            ("chat-tool-output", key),
+            if eased {
+                AnimatedHeight::new(
+                    ("chat-tool-height", key),
+                    motion::policy(cx) == motion::MotionPolicy::Full,
+                    body,
+                )
                 .into_any_element()
+            } else {
+                body
+            },
+            now,
+        )
+    });
+    column()
+        .pt(px(4.))
+        .child(header)
+        .children(activity)
+        .children(output)
+}
+
+/// A terminal an ACP agent runs for a call: people watch, the agent alone types
+/// (TERM-02).
+struct AgentTerminal {
+    id: String,
+    /// Its newest lines.
+    tail: String,
+    running: bool,
+}
+
+impl AgentTerminal {
+    /// Inside the call's disclosure, in the same box as other tool output.
+    fn render(self, key: u64) -> AnyElement {
+        div()
+            .mt(px(4.))
+            .child(
+                tools::output_box(SharedString::from(format!(
+                    "chat-agent-terminal-{key}-{}",
+                    self.id
+                )))
+                .text_color(t::secondary())
+                .child(if self.tail.is_empty() {
+                    "No output yet".to_owned()
+                } else {
+                    self.tail
+                })
+                .nested_scroll(),
+            )
+            .into_any_element()
+    }
+}
+
+/// IDs of the terminals the call's content embeds, in order.
+fn terminal_ids(tool: &ToolCall) -> impl Iterator<Item = &str> {
+    tool.output
+        .as_ref()
+        .and_then(|output| output.structured.as_ref())
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|part| part["type"] == "terminal")
+        .filter_map(|part| part["terminalId"].as_str())
+}
+
+/// The call's terminals the run still holds (a released one has nothing left to show).
+fn agent_terminals(this: &ChatView, tool: &ToolCall, cx: &App) -> Vec<AgentTerminal> {
+    let runtime = this.rt(cx);
+    terminal_ids(tool)
+        .filter_map(|id| {
+            let (text, running) = runtime.terminal_output(id)?;
+            let lines: Vec<&str> = text.lines().collect();
+            Some(AgentTerminal {
+                id: id.to_owned(),
+                tail: lines[lines.len().saturating_sub(OUTPUT_LINES)..].join("\n"),
+                running,
+            })
         })
         .collect()
+}
+
+impl ChatView {
+    /// Tool rows follow their ACP agent terminals: open while one runs, folded once
+    /// they exit. A row the user opened or closed keeps their choice.
+    pub(super) fn follow_agent_terminals(&mut self, cx: &mut Context<Self>) {
+        let runtime = self.runtime.read(cx);
+        if !matches!(
+            runtime.backend(),
+            Some(canopy_desktop::chat::backend_session::BackendSession::Acp(
+                _
+            ))
+        ) {
+            return;
+        }
+        let Some(transcript) = runtime.transcript() else {
+            return;
+        };
+        let follow: Vec<(u64, bool)> = self
+            .rows
+            .rows
+            .iter()
+            .filter(|row| row.output.is_some() && !row.extra.touched)
+            .filter_map(|row| {
+                let Kind::Item(Source::Current(index)) = row.kind else {
+                    return None;
+                };
+                let Body::Tool(tool) = &transcript.get(index)?.body else {
+                    return None;
+                };
+                let mut states = terminal_ids(tool)
+                    .filter_map(|id| runtime.terminal_output(id).map(|(_, running)| running))
+                    .peekable();
+                states.peek()?;
+                Some((row.key, states.any(|running| running)))
+            })
+            .collect();
+        for (key, running) in follow {
+            self.rows.follow_terminal(key, running, cx);
+        }
+    }
 }
 
 /// Lines of an agent terminal shown under its tool.

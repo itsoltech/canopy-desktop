@@ -298,7 +298,7 @@ fn reason(text: &str) -> Option<Vec<u8>> {
 pub struct StateKey {
     goal: Option<canopy_desktop::chat::goal::Goal>,
     error: Option<String>,
-    notice: Option<String>,
+    notice: Option<super::ChatNotice>,
     recovery: Option<String>,
     working: bool,
     options: Vec<AgentOption>,
@@ -346,7 +346,7 @@ impl ChatRuntime {
             status: self.navigation_status(),
             working: self.is_working(),
             error: self.error.clone(),
-            notice: self.notice.clone(),
+            notice: self.notice.as_ref().map(|notice| notice.text.clone()),
             recovery: self.recovery.clone(),
             account_locked: self.account_locked(),
             capabilities: self.capabilities(cx),
@@ -918,7 +918,7 @@ impl ChatRuntime {
                 this.notice = None;
                 this.set_agent_option(&id, &value, cx);
                 match this.notice.take() {
-                    Some(error) => Outcome::Failed(error),
+                    Some(error) => Outcome::Failed(error.text),
                     None => {
                         this.notice = before;
                         Outcome::Succeeded

@@ -3,10 +3,11 @@ mod task_drafts;
 pub use integrations::{IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
 mod editors;
+pub(crate) use chats::Recovering;
 pub use chats::{
-    AgentOption, Archived, ChatForkRequested, ChatGuardRequest, ChatRecoveryRequested,
-    ChatResumeRequested, ChatRuntime, ChatRuntimeEvent, ForkRequest, LineState, PageTokens,
-    QueueLine, backend_of,
+    AgentOption, Archived, ChatForkRequested, ChatGuardRequest, ChatNotice, ChatNoticeKind,
+    ChatRecoveryRequested, ChatResumeRequested, ChatRuntime, ChatRuntimeEvent, ForkRequest,
+    LineState, PageTokens, QueueLine, backend_of,
 };
 pub use editors::{Editors, GuardRequest};
 mod files;

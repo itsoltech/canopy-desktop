@@ -331,7 +331,20 @@ impl ChatView {
     }
 
     /// Images become image attachments, anything else a path for the agent to read.
-    pub(super) fn attach_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+    pub(super) fn attach_paths(&mut self, mut paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if self.rt(cx).is_remote() {
+            // The host can't read this computer's files; only images travel with the
+            // message.
+            let (images, others): (Vec<_>, Vec<_>) =
+                paths.into_iter().partition(|p| prepare::is_image_path(p));
+            paths = images;
+            if !others.is_empty() {
+                let text = unreadable_on_host(&self.host_name(cx), &others);
+                self.runtime.update(cx, |runtime, cx| {
+                    runtime.show_notice(crate::app_state::ChatNotice::error(text), cx)
+                });
+            }
+        }
         for path in paths {
             let image = prepare::is_image_path(&path);
             cx.spawn(async move |this, cx| {
@@ -356,11 +369,6 @@ impl ChatView {
                             this.attach_image(&label, bytes, cx);
                         }
                         (_, None) => {
-                            if this.rt(cx).is_remote() {
-                                this.shell_error = Some("Use @ to choose a file on this computer's host. Local images can be attached here.".into());
-                                cx.notify();
-                                return;
-                            }
                             let mention = format!("[{}]", clean(&path.display().to_string()));
                             let attachment = Attachment::Path {
                                 path: path.clone(),
@@ -1147,6 +1155,17 @@ pub(super) fn badge_factory(view: WeakEntity<ChatView>) -> super::rows::BadgeFac
                 .into_any_element()
         })
     })
+}
+
+/// Files of this computer a remote chat's host can't open, and what to do instead.
+fn unreadable_on_host(host: &str, paths: &[PathBuf]) -> String {
+    let what = match paths {
+        [path] => clean(&name_of(path)),
+        _ => format!("{} files", paths.len()),
+    };
+    format!(
+        "{host} can't open {what} from this computer. Type @ to choose a file on {host}, or attach an image."
+    )
 }
 
 #[cfg(test)]

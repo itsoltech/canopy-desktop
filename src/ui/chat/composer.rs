@@ -1,14 +1,14 @@
 //! Composer island: message field, account/model, reasoning and mode pickers, Send/Stop.
 use super::suggest::SuggestKey;
 use super::{render::centered, view::ChatView};
-use crate::app_state::AppState;
+use crate::app_state::{AppState, ChatNotice, ChatNoticeKind};
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{
     config::{Mode, ModelInfo},
     provider::Provider,
     transcript::PermissionKind,
 };
-use canopy_desktop::motion;
+use canopy_desktop::motion::{self, Presence, PresenceSpec, presets};
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     IconName, Sizable,
@@ -265,15 +265,9 @@ impl ChatView {
                                 .children(goal.then(|| self.goal_label(cx)))
                                 .children(blocks)
                                 .child(field)
+                                .children(self.reply_hint(cx))
                                 .children(self.attachment_errors(cx))
-                                .children(self.recovery_bar(cx))
-                                .children(self.rt(cx).notice().map(|notice| {
-                                    div()
-                                        .px(px(4.))
-                                        .text_size(px(12.))
-                                        .text_color(t::muted())
-                                        .child(notice.to_owned())
-                                }))
+                                .children(self.notice_row(window, cx))
                                 .children(self.shell_error.clone().map(|error| {
                                     div()
                                         .px(px(4.))
@@ -609,6 +603,8 @@ impl ChatView {
         let primary = match request.permission.kind {
             PermissionKind::Question => Some((if last { "Submit" } else { "Next" }, !answered)),
             PermissionKind::Tool if !empty && request.offered.is_none() => Some(("Deny", false)),
+            // An ACP agent takes no note: its rejection, then the text as a message.
+            PermissionKind::Tool if !empty => Some(("Reject and send", false)),
             PermissionKind::Plan if !empty => Some(("Keep planning", false)),
             _ => None,
         };
@@ -646,7 +642,7 @@ impl ChatView {
                     .label(label)
                     .accessibility_label(label)
                     .tooltip(match label {
-                        "Next" | "Submit" => "Enter",
+                        "Next" | "Submit" | "Reject and send" => "Enter",
                         _ => "Send with your note (Enter)",
                     })
                     .disabled(disabled)
@@ -705,7 +701,143 @@ impl ChatView {
                 }
             }))
     }
+
+    /// Follows the runtime's notice: the row grows in, swaps its text, or leaves.
+    pub(super) fn sync_notice(&mut self, policy: motion::MotionPolicy, cx: &App) {
+        let notice = self.rt(cx).notice().cloned();
+        self.notice.sync(notice, Instant::now(), policy);
+    }
+
+    /// Under the field: an error (red mark) or an explanation (muted mark), with
+    /// Dismiss. Height and opacity grow together, like a queue row.
+    fn notice_row(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
+        let now = Instant::now();
+        let row_state = &mut self.notice;
+        let animating = row_state.presence.is_animating(now);
+        motion::request_frame(window, animating);
+        if !row_state.open && !animating {
+            row_state.shown = None;
+            return None;
+        }
+        let notice = row_state.shown.clone()?;
+        let progress = row_state.presence.progress(now);
+        let open = row_state.open;
+        let (mark, color) = match notice.kind {
+            ChatNoticeKind::Error => (IconName::CircleX, t::red()),
+            ChatNoticeKind::Info => (IconName::Info, t::muted()),
+        };
+        let content = row()
+            .w_full()
+            .items_start()
+            .gap(px(8.))
+            .pl(px(4.))
+            .opacity(progress)
+            .child(icon(mark).text_color(color).mt(px(1.)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .text_color(t::secondary())
+                    .child(notice.text),
+            )
+            .child(
+                icon_button("chat-notice-dismiss", IconName::Close, "Dismiss")
+                    // While it leaves, the row no longer takes clicks.
+                    .disabled(!open)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.runtime.update(cx, |r, cx| r.dismiss_notice(cx))
+                    })),
+            );
+        Some(
+            div()
+                .w_full()
+                // The column's gap closes with the row.
+                .mt(px(-6. * (1. - progress)))
+                .child(gpui_kit::base::MotionReveal::new(
+                    "chat-notice-reveal",
+                    progress,
+                    content.into_any_element(),
+                )),
+        )
+    }
+
+    /// While an ACP agent asks permission and the field has text: what Enter does
+    /// with it (the agent's answer has no room for a note).
+    fn reply_hint(&self, cx: &App) -> Option<Div> {
+        let request = self.decision.active()?;
+        if request.permission.kind != PermissionKind::Tool
+            || request.offered.is_none()
+            || self.composer_empty(cx)
+        {
+            return None;
+        }
+        Some(
+            row()
+                .items_start()
+                .gap(px(8.))
+                .px(px(4.))
+                .child(
+                    icon(IconName::Info)
+                        .size(px(12.))
+                        .mt(px(2.))
+                        .text_color(t::muted()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(12.))
+                        .line_height(px(16.))
+                        .text_color(t::muted())
+                        .child(format!(
+                            "{} can't take a note with its answer. Your text goes as the next message.",
+                            self.agent_name(cx)
+                        )),
+                ),
+        )
+    }
 }
+
+/// The composer's notice row: the notice shown (kept while it leaves) and its
+/// enter/exit.
+pub(super) struct NoticeRow {
+    shown: Option<ChatNotice>,
+    open: bool,
+    presence: Presence,
+}
+impl Default for NoticeRow {
+    fn default() -> Self {
+        Self {
+            shown: None,
+            open: false,
+            presence: Presence::new(false, NOTICE_MOTION, Instant::now()),
+        }
+    }
+}
+impl NoticeRow {
+    fn sync(&mut self, notice: Option<ChatNotice>, now: Instant, policy: motion::MotionPolicy) {
+        match notice {
+            Some(notice) => {
+                self.shown = Some(notice);
+                if !self.open {
+                    self.open = true;
+                    self.presence.set_open(true, now, policy);
+                }
+            }
+            None if self.open => {
+                self.open = false;
+                self.presence.set_open(false, now, policy);
+            }
+            None => {}
+        }
+    }
+}
+const NOTICE_MOTION: PresenceSpec = PresenceSpec {
+    enter: presets::STATE_CHANGE,
+    exit: presets::STATE_CHANGE,
+};
 
 /// One mark per work mode, shown on the picker and in its menu.
 fn mode_icon(mode: Mode) -> gpui_kit::component::Icon {

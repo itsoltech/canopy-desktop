@@ -1,30 +1,30 @@
 //! Independent device window. It never selects, closes or restores host-local tabs.
-mod activity;
-mod chat;
+mod catalog;
+mod chrome;
 mod connections;
 pub(crate) use connections::OpenChat;
 pub use connections::{Connections, connections};
 pub(crate) use connections::{registry, start_saved_connections};
 mod discovery;
-mod editing;
 mod embedded;
 pub use embedded::RemoteWorkspace;
+mod hosts;
+mod inline;
+pub use inline::{ConnectionSetup, ConnectionSetupEvent};
 mod lifecycle;
 mod notes;
 mod preview;
 pub(crate) use preview::isolated_html;
 mod routes;
 mod settings;
+mod shell;
 mod terminal;
 #[cfg(test)]
 mod tests;
 mod workspace;
 use super::{components::*, theme as t};
 use canopy_desktop::remote::{
-    client::{
-        ChatProjection, ClientRegistry, HostClient, Phase, pairing::PairingInvite,
-        store::SystemCredentials,
-    },
+    client::{ClientRegistry, HostClient, Phase, pairing::PairingInvite, store::SystemCredentials},
     proto as p,
 };
 use gpui_kit::component::{
@@ -39,6 +39,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Instant,
 };
 
 #[derive(Clone)]
@@ -91,25 +92,9 @@ pub(crate) fn executor(cx: &mut App) -> Result<Arc<tokio::runtime::Runtime>> {
     ensure_global(cx)?;
     Ok(cx.global::<ClientGlobal>().runtime.clone())
 }
-pub fn add_computer(cx: &mut App) -> Result<WindowHandle<Root>> {
-    open_client(None, true, None, false, cx)
-}
-pub fn open_invitation(invitation: String, cx: &mut App) -> Result<WindowHandle<Root>> {
-    open_client(Some(invitation), true, None, false, cx)
-}
+/// Device window for one paired computer. Adding a computer and editing its
+/// routes happen inline in Settings → Connections (`ConnectionSetup`).
 pub fn open_host(host: Arc<HostClient>, cx: &mut App) -> Result<WindowHandle<Root>> {
-    open_client(None, false, Some(host), false, cx)
-}
-pub fn open_routes(host: Arc<HostClient>, cx: &mut App) -> Result<WindowHandle<Root>> {
-    open_client(None, false, Some(host), true, cx)
-}
-fn open_client(
-    invitation: Option<String>,
-    setup: bool,
-    host: Option<Arc<HostClient>>,
-    routes: bool,
-    cx: &mut App,
-) -> Result<WindowHandle<Root>> {
     ensure_global(cx)?;
     cx.open_window(
         WindowOptions {
@@ -125,14 +110,8 @@ fn open_client(
         |window, cx| {
             let view = cx.new(|cx| {
                 let mut view = RemoteWindow::new(window, cx);
-                view.opening_setup = setup;
-                view.connect_on_open = host.is_some() && !routes;
-                view.routes_on_open = routes;
-                view.host = host;
-                if let Some(invitation) = invitation {
-                    view.fields["pair"]
-                        .update(cx, |field, cx| field.set_value(invitation, window, cx));
-                }
+                view.connect_on_open = true;
+                view.host = Some(host);
                 view
             });
             cx.new(|cx| Root::new(view, window, cx))
@@ -143,6 +122,8 @@ fn open_client(
 pub(super) enum Page {
     Hosts,
     Catalog,
+    /// Persisted by older layouts. Restoring it hands the chat to a normal ChatView
+    /// tab; the device window never renders a chat itself.
     Chat,
     Files,
     Notes,
@@ -173,38 +154,23 @@ struct RemoteWindow {
     host: Option<Arc<HostClient>>,
     page: Page,
     fields: BTreeMap<&'static str, Entity<InputState>>,
-    composer: Entity<TextareaState>,
     file_text: Entity<TextareaState>,
+    focus: FocusHandle,
     busy: bool,
+    /// Operation in flight; its control shows the loading state.
+    pending: Option<&'static str>,
+    /// Owner of the current error/info, rendered beside the control that caused it.
+    scope: Option<&'static str>,
     error: Option<String>,
     info: String,
     cancelled: Arc<AtomicBool>,
-    chat: Option<p::ChatRef>,
     workspace: Option<p::WorkspaceRef>,
     terminal: Option<p::TerminalRef>,
-    projection: ChatProjection,
-    markdown: BTreeMap<String, Entity<super::markdown::MarkdownView>>,
-    chat_list: ListState,
-    chat_rows: Vec<(u64, u64, u64)>,
-    chat_indices: Vec<usize>,
-    options: Option<p::AgentOptions>,
-    fork_request: Option<(p::ItemKey, bool)>,
-    editing: Option<editing::Editing>,
-    shell_mode: bool,
     agents: Option<p::AgentDiscovery>,
-    agent_catalog: Option<p::AgentCatalog>,
     discovery_busy: bool,
     discovery_abort: Option<tokio::task::AbortHandle>,
     discovery_revision: u64,
-    pulls: Option<p::PullRequests>,
-    mentions: Option<p::DirectoryEntries>,
     notes: BTreeMap<String, Entity<TextareaState>>,
-    activity_expanded: std::collections::BTreeSet<String>,
-    activity_thread: Option<(u64, String)>,
-    activity_children: std::collections::BTreeSet<(u64, String)>,
-    history_token: Option<String>,
-    history_matches: Option<p::HistoryMatches>,
-    history_query: String,
     stream: Option<tokio::task::AbortHandle>,
     host_watch: Option<Task<()>>,
     subscriptions: Vec<Subscription>,
@@ -215,15 +181,15 @@ struct RemoteWindow {
     git_history: Option<p::GitHistory>,
     git_refs: Option<p::GitRefs>,
     git_diff: Option<String>,
+    git_history_tab: bool,
+    hovered: Option<SharedString>,
     worktree_flags: [bool; 4],
     git_sign: bool,
     features: settings::FeatureViews,
-    attachments: Vec<p::Attachment>,
     terminal_frame: Option<p::TerminalFrame>,
     terminal_run: String,
     terminal_lease: Option<p::InputLease>,
     terminal_tx: Option<tokio::sync::mpsc::Sender<p::TerminalClientEvent>>,
-    decisions: BTreeMap<String, Entity<chat::DecisionView>>,
     generation: u64,
     terminal_focus: FocusHandle,
     terminal_preedit: String,
@@ -235,11 +201,24 @@ struct RemoteWindow {
     terminal_history: Option<p::TerminalFrame>,
     terminal_history_offset: u32,
     terminal_selection: Option<((u32, u32), (u32, u32))>,
-    local_images: Vec<String>,
     ssh_fingerprint: Option<String>,
     pair_ssh: bool,
-    connection_advanced: bool,
+    /// Add computer: endpoint override and SSH tuning.
+    advanced: Disclosure,
+    /// Connection page: device-local label for the selected computer.
+    details: Disclosure,
+    /// Files: host-side edit marker.
+    file_diagnostics: Disclosure,
+    /// Changes: remote and upstream for Pull/Push.
+    git_remote: Disclosure,
+    /// Changes: worktree create/remove/merge/stop.
+    worktrees: Disclosure,
+    confirmation: Option<Entity<modal::Confirmation>>,
+    prompt: Option<Entity<TextPrompt>>,
+    modal_events: Option<Subscription>,
     opening_setup: bool,
+    /// Settings → Connections renders only this flow (`inline.rs`).
+    inline: Option<inline::Inline>,
     connect_on_open: bool,
     routes_on_open: bool,
     route_form: bool,
@@ -247,13 +226,13 @@ struct RemoteWindow {
     route_edit: Option<canopy_desktop::remote::client::store::ConnectionRoute>,
     installing_file: bool,
     file_dirty: bool,
-    draft_context: Option<p::SendContext>,
-    composer_revision: u64,
     renew: Option<tokio::task::AbortHandle>,
 }
 type PendingOperation =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<Update, String>> + Send>>;
 enum Update {
+    /// Title, consequence and the reviewed operation. The title selects the
+    /// confirmation verb and destructive styling (`confirm_action`).
     Confirm(String, String, PendingOperation),
     Preview(
         Arc<canopy_desktop::integrations::attachments::PreviewFile>,
@@ -261,13 +240,10 @@ enum Update {
     ),
     TextPreview(String, String, bool),
     HtmlPreview(String),
-    EditPreview(p::EditPreview),
-    EditSent(p::ItemKey, Option<(u64, bool)>),
     Done(String),
     Connected,
     Registry(ClientRegistry),
     Paired(Arc<HostClient>),
-    Options(p::AgentOptions),
     Directory(p::DirectoryEntries),
     DirectoryPage(p::DirectoryEntries),
     File(p::FileRef, Vec<u8>, String, bool),
@@ -275,14 +251,26 @@ enum Update {
     GitHistory(p::GitHistory),
     GitRefs(p::GitRefs),
     GitDiff(String),
-    History(Vec<p::TranscriptItem>, Option<String>),
-    HistoryMatches(p::HistoryMatches),
-    HistoryJump(Vec<p::TranscriptItem>, p::ItemKey),
     SshFingerprint(String),
     RouteSaved,
-    LocalAttachment(String),
     TerminalHistory(p::TerminalFrame),
-    ComposerStored(u64, bool, String),
+}
+/// Confirmation verb and whether the result is destructive.
+fn confirm_action(title: &str) -> (&'static str, bool) {
+    match title {
+        "Discard these changes?" => ("Discard", true),
+        "Discard file edits?" => ("Discard edits", true),
+        "Close project on host?" => ("Close project", true),
+        "Remove worktree?" => ("Remove worktree", true),
+        "Merge worktree?" => ("Merge", false),
+        "Stop worktree processes?" => ("Stop processes", true),
+        "Create worktree?" => ("Create worktree", false),
+        "Stop terminal?" => ("Stop", true),
+        "Restart terminal?" => ("Restart", true),
+        "Export notes?" => ("Export", false),
+        "Create workspace entry?" => ("Create", false),
+        _ => ("Continue", false),
+    }
 }
 impl RemoteWindow {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -336,24 +324,41 @@ impl RemoteWindow {
         ]
         .into_iter()
         .map(|name| {
+            let placeholder = match name {
+                "pair" => "canopy://pair…",
+                "path" => "Workspace root",
+                "query" => "Search files…",
+                "project_path" => "/path/on/the/other/computer",
+                "tool" => "shell",
+                "commit" => "Commit message",
+                "remote" => "origin",
+                "upstream_branch" => "Same as the current branch",
+                "ssh_address" => "Computer name or IP address",
+                "ssh_port" => "22",
+                "branch" => "feature/name",
+                _ => "",
+            };
             (
                 name,
                 cx.new(|cx| {
-                    InputState::new(window, cx).masked(matches!(
-                        name,
-                        "pair"
-                            | "ssh_secret"
-                            | "ssh_passphrase"
-                            | "credential"
-                            | "environment_value"
-                            | "system_prompt"
-                            | "settings_json"
-                    ))
+                    InputState::new(window, cx)
+                        .masked(matches!(
+                            name,
+                            "pair"
+                                | "ssh_secret"
+                                | "ssh_passphrase"
+                                | "credential"
+                                | "environment_value"
+                                | "system_prompt"
+                                | "settings_json"
+                        ))
+                        .placeholder(placeholder)
                 }),
             )
         })
         .collect();
         let global = cx.global::<ClientGlobal>().clone();
+        let now = Instant::now();
         let mut this = Self {
             window: window.window_handle(),
             global,
@@ -364,38 +369,21 @@ impl RemoteWindow {
             compact_tools: false,
             requested_resource: None,
             fields,
-            composer: cx.new(|cx| TextareaState::new(window, cx)),
             file_text: cx.new(|cx| TextareaState::new(window, cx)),
+            focus: cx.focus_handle(),
             busy: false,
+            pending: None,
+            scope: None,
             error: None,
             info: String::new(),
             cancelled: Arc::new(AtomicBool::new(false)),
-            chat: None,
             workspace: None,
             terminal: None,
-            projection: Default::default(),
-            markdown: BTreeMap::new(),
-            chat_list: ListState::new(0, ListAlignment::Bottom, px(400.)),
-            chat_rows: Vec::new(),
-            chat_indices: Vec::new(),
-            options: None,
-            fork_request: None,
-            editing: None,
-            shell_mode: false,
             agents: None,
-            agent_catalog: None,
             discovery_busy: false,
             discovery_abort: None,
             discovery_revision: 0,
-            pulls: None,
-            mentions: None,
             notes: BTreeMap::new(),
-            activity_expanded: Default::default(),
-            activity_thread: None,
-            activity_children: Default::default(),
-            history_token: None,
-            history_matches: None,
-            history_query: String::new(),
             stream: None,
             host_watch: None,
             subscriptions: vec![],
@@ -406,15 +394,15 @@ impl RemoteWindow {
             git_history: None,
             git_refs: None,
             git_diff: None,
+            git_history_tab: false,
+            hovered: None,
             worktree_flags: [false; 4],
             git_sign: false,
             features: Default::default(),
-            attachments: vec![],
             terminal_frame: None,
             terminal_run: String::new(),
             terminal_lease: None,
             terminal_tx: None,
-            decisions: BTreeMap::new(),
             generation: 0,
             terminal_focus: cx.focus_handle(),
             terminal_preedit: String::new(),
@@ -428,8 +416,16 @@ impl RemoteWindow {
             terminal_selection: None,
             ssh_fingerprint: None,
             pair_ssh: false,
-            connection_advanced: false,
+            advanced: Disclosure::new(false, now),
+            details: Disclosure::new(false, now),
+            file_diagnostics: Disclosure::new(false, now),
+            git_remote: Disclosure::new(false, now),
+            worktrees: Disclosure::new(false, now),
+            confirmation: None,
+            prompt: None,
+            modal_events: None,
             opening_setup: false,
+            inline: None,
             connect_on_open: false,
             routes_on_open: false,
             route_form: false,
@@ -437,21 +433,8 @@ impl RemoteWindow {
             route_edit: None,
             installing_file: false,
             file_dirty: false,
-            draft_context: None,
-            composer_revision: HostClient::next_view_revision(),
             renew: None,
-            local_images: vec![],
         };
-        this.subscriptions.push(cx.subscribe(
-            &this.composer,
-            |this, input, event: &InputEvent, cx| {
-                if !matches!(event, InputEvent::Change) {
-                    return;
-                }
-                let _ = input;
-                this.save_composer(cx);
-            },
-        ));
         this.subscriptions.push(cx.subscribe(
             &this.file_text,
             |this, input, event: &InputEvent, cx| {
@@ -463,14 +446,7 @@ impl RemoteWindow {
                 };
                 let text = input.read(cx).value().to_string();
                 let hash = this.file_hash.clone();
-                let key = format!(
-                    "file:{}:{}",
-                    file.workspace
-                        .as_ref()
-                        .map(|w| w.workspace_id.as_str())
-                        .unwrap_or_default(),
-                    file.relative_path
-                );
+                let key = workspace::file_view_key(&file);
                 let value = serde_json::to_string(&(hash.clone(), text)).unwrap();
                 let revision = HostClient::next_view_revision();
                 let mark = !this.file_dirty;
@@ -496,11 +472,13 @@ impl RemoteWindow {
                     if let Ok(Err(error)) = work.await {
                         let _ = this.update(cx, |this, cx| {
                             this.error = Some(error);
+                            this.scope = Some("editor");
                             cx.notify();
                         });
                     }
                 })
                 .detach();
+                cx.notify();
             },
         ));
         this.fields["name"].update(cx, |field, cx| {
@@ -517,6 +495,23 @@ impl RemoteWindow {
                 },
             ));
         }
+        // Enter submits the field's own action; the visible button stays the primary path.
+        for name in ["path", "query", "project_path", "pair"] {
+            this.subscriptions.push(cx.subscribe(
+                &this.fields[name],
+                move |this, _, event: &InputEvent, cx| match event {
+                    InputEvent::PressEnter { .. } => match name {
+                        "path" => this.load_directory(cx),
+                        "query" => this.search_files(cx),
+                        "project_path" => this.open_project(cx),
+                        _ if this.can_request(cx) => this.pair_host(this.pair_ssh, cx),
+                        _ => {}
+                    },
+                    InputEvent::Change => cx.notify(),
+                    _ => {}
+                },
+            ));
+        }
         let global = this.global.clone();
         this.subscriptions
             .push(cx.observe(&global.connections, |_, _, cx| cx.notify()));
@@ -529,14 +524,25 @@ impl RemoteWindow {
     fn value(&self, field: &'static str, cx: &App) -> String {
         self.fields[field].read(cx).value().to_string()
     }
-    fn field(&self, field: &'static str, label: &'static str) -> impl IntoElement {
-        column()
-            .gap_1()
-            .child(div().text_color(t::muted()).child(label))
-            .child(input(&self.fields[field]))
-    }
     fn run(
         &mut self,
+        future: impl std::future::Future<Output = Result<Update, String>> + Send + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        self.start(None, future, cx);
+    }
+    /// `run` whose result and loading state belong to one control.
+    fn run_in(
+        &mut self,
+        scope: &'static str,
+        future: impl std::future::Future<Output = Result<Update, String>> + Send + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        self.start(Some(scope), future, cx);
+    }
+    fn start(
+        &mut self,
+        scope: Option<&'static str>,
         future: impl std::future::Future<Output = Result<Update, String>> + Send + 'static,
         cx: &mut Context<Self>,
     ) {
@@ -544,7 +550,10 @@ impl RemoteWindow {
             return;
         }
         self.busy = true;
+        self.pending = scope;
+        self.scope = scope;
         self.error = None;
+        self.info.clear();
         let task = self.global.runtime.spawn(future);
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
@@ -553,10 +562,13 @@ impl RemoteWindow {
                 .unwrap_or_else(|_| Err("Remote operation worker stopped.".into()));
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.pending = None;
                 if this.generation != generation {
                     cx.notify();
                     return;
                 }
+                // A progress message ends with its operation; results set their own.
+                this.info.clear();
                 match result {
                     Ok(update) => this.apply(update, cx),
                     Err(error) => this.error = Some(error),
@@ -567,10 +579,25 @@ impl RemoteWindow {
         .detach();
         cx.notify();
     }
+    /// Notice owned by `scope`: the failure, a running step, or a confirmed result.
+    fn notice(&self, scope: &'static str) -> Option<AnyElement> {
+        if self.scope != Some(scope) {
+            return None;
+        }
+        if let Some(error) = &self.error {
+            return Some(chrome::failure(error.clone()).into_any_element());
+        }
+        if self.info.is_empty() {
+            return None;
+        }
+        Some(if self.pending == Some(scope) {
+            chrome::loading(self.info.clone()).into_any_element()
+        } else {
+            chrome::done(self.info.clone()).into_any_element()
+        })
+    }
     fn apply(&mut self, update: Update, cx: &mut Context<Self>) {
         match update {
-            Update::EditPreview(preview) => self.install_edit(preview, cx),
-            Update::EditSent(item, original) => self.finish_edit(item, original, cx),
             Update::HtmlPreview(html) => {
                 if let Err(error) = preview::open_html(html, cx) {
                     self.error = Some(error.to_string());
@@ -587,32 +614,7 @@ impl RemoteWindow {
                 }
             }
             Update::Confirm(title, detail, operation) => {
-                use gpui_kit::component::WindowExt;
-                let owner = cx.entity().downgrade();
-                let generation = self.generation;
-                let operation = Arc::new(std::sync::Mutex::new(Some(operation)));
-                let _ = self.window.update(cx, move |_, window, cx| {
-                    window.open_dialog(cx, move |dialog, _, _| {
-                        let owner = owner.clone();
-                        let operation = operation.clone();
-                        dialog
-                            .title(title.clone())
-                            .child(detail.clone())
-                            .on_ok(move |_, _, cx| {
-                                if let Some(operation) = operation.lock().unwrap().take() {
-                                    let _ = owner.update(cx, |this, cx| {
-                                        if this.generation != generation {
-                                            this.error = Some("The selected resource changed. Review the operation again.".into());
-                                            cx.notify();
-                                            return;
-                                        }
-                                        this.run(operation, cx);
-                                    });
-                                }
-                                true
-                            })
-                    });
-                });
+                self.open_confirmation(title, detail, operation, cx)
             }
             Update::Registry(registry) => {
                 let last = self.host.clone().or_else(|| {
@@ -642,19 +644,10 @@ impl RemoteWindow {
                         self.page = Page::Hosts;
                     }
                     if std::mem::take(&mut self.connect_on_open) && host.phase() == Phase::Offline {
-                        self.info = "Connecting…".into();
                         if self.embedded {
                             self.connect_embedded(host, cx);
                         } else {
-                            let ready = prepare_connection(cx);
-                            self.run(
-                                async move {
-                                    ready.await?;
-                                    host.connect().await?;
-                                    Ok(Update::Connected)
-                                },
-                                cx,
-                            );
+                            self.connect(cx);
                         }
                     }
                 }
@@ -665,16 +658,20 @@ impl RemoteWindow {
                         .connections
                         .update(cx, |view, cx| view.install(registry.clone(), cx));
                 }
-                self.info = "Access approved. Connecting…".into();
                 self.opening_setup = false;
                 self.select_host(host.clone(), cx);
-                self.run(
+                self.run_in(
+                    "connection",
                     async move {
                         host.connect().await?;
                         Ok(Update::Connected)
                     },
                     cx,
                 );
+                self.info = "Access approved. Connecting…".into();
+                if self.inline.is_some() {
+                    cx.emit(ConnectionSetupEvent::Paired);
+                }
             }
             Update::RouteSaved => {
                 self.route_form = false;
@@ -692,37 +689,8 @@ impl RemoteWindow {
                 });
             }
             Update::Done(info) => self.info = info,
-            Update::Connected => {
-                self.info = "Connected".into();
-                self.refresh_connection(cx);
-            }
+            Update::Connected => self.refresh_connection(cx),
             Update::TerminalHistory(frame) => self.terminal_history = Some(frame),
-            Update::ComposerStored(revision, cleared, info) => {
-                self.info = info;
-                if cleared && self.composer_revision == revision {
-                    self.composer_revision = HostClient::next_view_revision();
-                    self.shell_mode = false;
-                    self.draft_context = None;
-                    self.local_images.clear();
-                    self.attachments.clear();
-                    let input = self.composer.clone();
-                    let _ = self.window.update(cx, |_, window, cx| {
-                        input.update(cx, |state, cx| state.set_value("", window, cx))
-                    });
-                }
-            }
-            Update::Options(options) => {
-                if let (Some(host), Some(chat)) = (self.host.clone(), self.chat.clone()) {
-                    let value = base64::Engine::encode(
-                        &base64::engine::general_purpose::STANDARD,
-                        prost::Message::encode_to_vec(&options),
-                    );
-                    self.global.runtime.spawn_blocking(move || {
-                        host.save_view(format!("options:{}", chat.chat_id), value)
-                    });
-                }
-                self.options = Some(options);
-            }
             Update::Directory(value) => {
                 if value.workspace != self.workspace {
                     self.error = Some("Directory identity mismatch.".into());
@@ -768,14 +736,7 @@ impl RemoteWindow {
                 self.installing_file = false;
                 self.save_layout(cx);
                 if !dirty && let (Some(host), Some(file)) = (self.host.clone(), self.file.clone()) {
-                    let key = format!(
-                        "file:{}:{}",
-                        file.workspace
-                            .as_ref()
-                            .map(|workspace| workspace.workspace_id.as_str())
-                            .unwrap_or_default(),
-                        file.relative_path
-                    );
+                    let key = workspace::file_view_key(&file);
                     let value = serde_json::to_string(&(
                         self.file_hash.clone(),
                         self.file_text.read(cx).value().to_string(),
@@ -812,72 +773,151 @@ impl RemoteWindow {
             }
             Update::GitRefs(value) => self.git_refs = Some(value),
             Update::GitDiff(value) => self.git_diff = Some(value),
-            Update::HistoryMatches(value) => {
-                if value.chat != self.chat {
-                    self.error = Some("History search identity mismatch.".into());
-                    return;
-                }
-                if let Some(current) = self.history_matches.as_mut() {
-                    current.matches.extend(value.matches);
-                    current.next_page_token = value.next_page_token;
-                    current.incomplete = value.incomplete;
-                } else {
-                    self.history_matches = Some(value);
-                }
-            }
-            Update::HistoryJump(items, key) => {
-                self.activity_thread = None;
-                for item in items {
-                    if !self.projection.items.iter().any(|i| i.key == item.key) {
-                        self.projection.items.push(item);
-                    }
-                }
-                self.projection
-                    .items
-                    .sort_by_key(|i| i.key.map(|k| (k.history_epoch, k.item_id)));
-                self.activity_thread = self
-                    .projection
-                    .items
-                    .iter()
-                    .find(|item| item.key == Some(key))
-                    .and_then(|item| {
-                        item.parent_call_id
-                            .clone()
-                            .map(|parent| (key.history_epoch, parent))
-                    });
-                self.refresh_markdown(cx);
-                if let Some(index) = self
-                    .chat_rows
-                    .iter()
-                    .position(|i| i.0 == key.history_epoch && i.1 == key.item_id)
-                {
-                    self.chat_list.scroll_to_reveal_item(index);
-                }
-            }
-            Update::History(items, token) => {
-                for item in items.into_iter().rev() {
-                    if !self.projection.items.iter().any(|i| i.key == item.key) {
-                        self.projection.items.insert(0, item);
-                    }
-                }
-                self.history_token = token;
-                self.refresh_markdown(cx);
-            }
             Update::SshFingerprint(value) => self.ssh_fingerprint = Some(value),
-            Update::LocalAttachment(id) => {
-                self.local_images.push(id);
-                self.save_composer(cx);
-            }
         }
+    }
+    /// Our modal replaces stock OK/Cancel. Accepting starts the reviewed operation;
+    /// its progress and result appear beside the control that requested it.
+    fn open_confirmation(
+        &mut self,
+        title: String,
+        detail: String,
+        operation: PendingOperation,
+        cx: &mut Context<Self>,
+    ) {
+        if self.confirmation.is_some() || self.prompt.is_some() {
+            return;
+        }
+        let (label, destructive) = confirm_action(&title);
+        let owner = cx.entity().downgrade();
+        let generation = self.generation;
+        let scope = self.scope;
+        let operation = Arc::new(std::sync::Mutex::new(Some(operation)));
+        let focus = self.focus.clone();
+        let window = self.window;
+        cx.defer(move |cx| {
+            let _ = window.update(cx, |_, window, cx| {
+                let submit_owner = owner.clone();
+                let modal = cx.new(|cx| {
+                    let mut modal = modal::Confirmation::new(
+                        title,
+                        detail,
+                        label,
+                        focus,
+                        move |cx| {
+                            submit_owner
+                                .update(cx, |this, cx| {
+                                    if this.generation != generation {
+                                        return Err(SharedString::from(
+                                            "The selected resource changed. Review the operation again.",
+                                        ));
+                                    }
+                                    if this.busy {
+                                        return Err(SharedString::from(
+                                            "Wait for the current operation to finish.",
+                                        ));
+                                    }
+                                    let Some(operation) = operation.lock().unwrap().take() else {
+                                        return Err(SharedString::from(
+                                            "This operation already started.",
+                                        ));
+                                    };
+                                    this.start(scope, operation, cx);
+                                    this.info = "Applying the change…".into();
+                                    Ok(())
+                                })
+                                .unwrap_or_else(|_| {
+                                    Err(SharedString::from("The remote view was closed."))
+                                })
+                        },
+                        window,
+                        cx,
+                    );
+                    if destructive {
+                        modal = modal.destructive();
+                    }
+                    modal
+                });
+                let _ = owner.update(cx, |this, cx| {
+                    this.modal_events = Some(cx.subscribe(
+                        &modal,
+                        |this, _, _: &ModalDismissed, cx| {
+                            this.confirmation = None;
+                            this.modal_events = None;
+                            cx.notify();
+                        },
+                    ));
+                    this.confirmation = Some(modal);
+                    cx.notify();
+                });
+            });
+        });
+    }
+    /// One-field modal; `submit` validates and starts the operation, keeping the
+    /// modal open with an inline error when it cannot.
+    fn open_prompt(
+        &mut self,
+        title: &'static str,
+        label: String,
+        value: String,
+        confirm: &'static str,
+        submit: impl Fn(&mut Self, String, &mut Context<Self>) -> Result<(), String> + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        if self.confirmation.is_some() || self.prompt.is_some() {
+            return;
+        }
+        let owner = cx.entity().downgrade();
+        let focus = self.focus.clone();
+        let window = self.window;
+        let submit = std::rc::Rc::new(submit);
+        cx.defer(move |cx| {
+            let _ = window.update(cx, |_, window, cx| {
+                let submit_owner = owner.clone();
+                let modal = cx.new(|cx| {
+                    TextPrompt::new(
+                        title,
+                        label,
+                        value,
+                        focus,
+                        move |value, cx| {
+                            let submit = submit.clone();
+                            let value = value.trim().to_owned();
+                            submit_owner
+                                .update(cx, |this, cx| {
+                                    if this.busy {
+                                        return Err(
+                                            "Wait for the current operation to finish.".to_owned()
+                                        );
+                                    }
+                                    submit(this, value, cx)
+                                })
+                                .unwrap_or_else(|_| Err("The remote view was closed.".into()))
+                                .map_err(SharedString::from)
+                        },
+                        window,
+                        cx,
+                    )
+                    .confirm_label(confirm)
+                });
+                let _ = owner.update(cx, |this, cx| {
+                    this.modal_events =
+                        Some(cx.subscribe(&modal, |this, _, _: &ModalDismissed, cx| {
+                            this.prompt = None;
+                            this.modal_events = None;
+                            cx.notify();
+                        }));
+                    this.prompt = Some(modal);
+                    cx.notify();
+                });
+            });
+        });
     }
     fn select_host(&mut self, host: Arc<HostClient>, cx: &mut Context<Self>) {
         self.opening_setup = false;
         self.route_form = false;
         self.route_edit = None;
         self.agents = None;
-        self.agent_catalog = None;
-        self.pulls = None;
-        self.mentions = None;
         self.discovery_revision += 1;
         self.discovery_busy = false;
         self.detach();
@@ -890,7 +930,6 @@ impl RemoteWindow {
             })
             .flatten();
         self.host = Some(host.clone());
-        self.chat = None;
         self.workspace = None;
         self.terminal = None;
         self.file = None;
@@ -902,18 +941,12 @@ impl RemoteWindow {
         self.git_refs = None;
         self.git_diff = None;
         self.features = Default::default();
-        self.projection = Default::default();
-        self.markdown.clear();
-        self.options = None;
-        self.history_matches = None;
-        self.attachments.clear();
-        self.local_images.clear();
-        self.draft_context = None;
         self.terminal_frame = None;
         self.terminal_history = None;
         self.terminal_run.clear();
         self.terminal_selection = None;
         self.error = None;
+        self.scope = None;
         self.info.clear();
         let secret_fields = [
             "pair",
@@ -990,14 +1023,7 @@ impl RemoteWindow {
                             .filter(|file| file.workspace == this.workspace)
                             && let Some(host) = this.host.clone()
                         {
-                            let key = format!(
-                                "file:{}:{}",
-                                file.workspace
-                                    .as_ref()
-                                    .map(|workspace| workspace.workspace_id.as_str())
-                                    .unwrap_or_default(),
-                                file.relative_path
-                            );
+                            let key = workspace::file_view_key(&file);
                             if let Some((hash, text)) =
                                 host.snapshot().record.view(&key).and_then(|value| {
                                     serde_json::from_str::<(Vec<u8>, String)>(value).ok()
@@ -1054,50 +1080,25 @@ impl RemoteWindow {
         }
         cx.notify();
     }
+    /// Remote chats open in the normal ChatView tab of the main window.
+    fn open_chat(&mut self, chat: p::ChatRef, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(host) = self.host.clone() else {
+            return;
+        };
+        self.global
+            .connections
+            .update(cx, |_, cx| cx.emit(connections::OpenChat { host, chat }));
+        self.page = Page::Catalog;
+        if let Some(task) = self.stream.take() {
+            task.abort();
+        }
+        if !self.embedded {
+            window.remove_window();
+        }
+        cx.notify();
+    }
     fn refresh_connection(&mut self, cx: &mut Context<Self>) {
         match self.page {
-            Page::Chat => {
-                let Some(chat) = self.chat.clone() else {
-                    return;
-                };
-                if self.stream.is_none() {
-                    let owner = cx.entity().downgrade();
-                    let window = self.window;
-                    let generation = self.generation;
-                    cx.defer(move |cx| {
-                        let _ = window.update(cx, |_, window, cx| {
-                            let _ = owner.update(cx, |this, cx| {
-                                if this.generation != generation {
-                                    return;
-                                }
-                                let text = this.composer.read(cx).value().to_string();
-                                let context = this.draft_context.clone();
-                                let images = this.local_images.clone();
-                                let attachments = this.attachments.clone();
-                                this.open_chat(chat, window, cx);
-                                this.draft_context = context;
-                                this.local_images = images;
-                                this.attachments = attachments;
-                                this.composer
-                                    .update(cx, |state, cx| state.set_value(text, window, cx));
-                            });
-                        });
-                    });
-                } else if let Some(host) = self.host.clone() {
-                    self.run(
-                        async move {
-                            Ok(Update::Options(
-                                p::chat_service_client::ChatServiceClient::new(host.channel()?)
-                                    .get_agent_options(p::ChatRequest { chat: Some(chat) })
-                                    .await
-                                    .map_err(canopy_desktop::remote::client::rpc_error)?
-                                    .into_inner(),
-                            ))
-                        },
-                        cx,
-                    );
-                }
-            }
             Page::Terminal if self.stream.is_none() => self.open_terminal(cx),
             Page::Terminal => {}
             Page::Files => {
@@ -1113,6 +1114,22 @@ impl RemoteWindow {
             _ => {}
         }
     }
+    fn connect(&mut self, cx: &mut Context<Self>) {
+        let Some(host) = self.host.clone() else {
+            return;
+        };
+        let ready = prepare_connection(cx);
+        self.run_in(
+            "connection",
+            async move {
+                ready.await?;
+                host.connect().await?;
+                Ok(Update::Connected)
+            },
+            cx,
+        );
+        self.info = "Connecting…".into();
+    }
     fn save_layout(&self, cx: &mut Context<Self>) {
         let Some(host) = self.host.clone() else {
             return;
@@ -1120,7 +1137,7 @@ impl RemoteWindow {
         let value = serde_json::to_string(&DeviceLayout {
             page: self.page,
             workspace: self.workspace.as_ref().map(prost::Message::encode_to_vec),
-            chat: self.chat.as_ref().map(prost::Message::encode_to_vec),
+            chat: None,
             terminal: self.terminal.as_ref().map(prost::Message::encode_to_vec),
             file: self.file.as_ref().map(prost::Message::encode_to_vec),
             path: self.value("path", cx),
@@ -1164,15 +1181,29 @@ impl RemoteWindow {
                 .runtime
                 .spawn(async move { host.release_input(terminal, lease).await });
         }
-        self.decisions.clear();
     }
     fn navigate(&mut self, page: Page, cx: &mut Context<Self>) {
         self.detach();
         self.page = page;
         self.generation += 1;
         self.error = None;
+        self.scope = None;
+        self.info.clear();
         self.save_layout(cx);
         cx.notify();
+    }
+    /// Sidebar and tab navigation: switch, then load the page's data.
+    fn show_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        self.navigate(page, cx);
+        match page {
+            Page::Files => self.load_directory(cx),
+            Page::Notes => self.open_notes(cx),
+            Page::Git => self.load_git(cx),
+            Page::Settings => self.load_settings(cx),
+            Page::Tasks => self.load_tasks(cx),
+            Page::Catalog if self.embedded => self.discover(cx),
+            _ => {}
+        }
     }
     fn ready(&self) -> bool {
         self.host
@@ -1181,7 +1212,7 @@ impl RemoteWindow {
             && !self.busy
     }
     fn pair_host(&mut self, ssh: bool, cx: &mut Context<Self>) {
-        if self.value("pair", cx).trim().is_empty() {
+        if self.busy || self.value("pair", cx).trim().is_empty() || self.registry.is_none() {
             return;
         }
         let code = self.value("pair", cx);
@@ -1189,6 +1220,7 @@ impl RemoteWindow {
             Ok(invite) => invite,
             Err(error) => {
                 self.error = Some(error);
+                self.scope = Some("pair");
                 cx.notify();
                 return;
             }
@@ -1205,530 +1237,39 @@ impl RemoteWindow {
         let credential = self.value("ssh_secret", cx);
         let passphrase = nonempty(self.value("ssh_passphrase", cx));
         let fingerprint = self.ssh_fingerprint.clone();
+        self.run_in("pair", async move {
+            ready.await?;
+            let id = canopy_desktop::remote::client::HostId::parse(invite.host_id())?;
+            if registry.get(&id).is_some() {
+                return Err("This computer is already paired. Change its route instead of pairing it again.".into());
+            }
+            let reference = uuid::Uuid::new_v4().to_string();
+            let route = if ssh {
+                let pin = fingerprint.ok_or("Check the SSH server and verify its fingerprint first.")?;
+                canopy_desktop::remote::client::ssh::save_credentials(registry.vault().as_ref(), &reference, &credential, passphrase.as_deref())?;
+                Some(canopy_desktop::remote::client::store::SshRoute::new(address, port, username, pin, reference.clone()))
+            } else {
+                None
+            };
+            match invite.enroll_via(name, registry.vault(), cancelled, endpoint, route).await {
+                Ok(record) => Ok(Update::Paired(registry.insert(record)?)),
+                Err(error) => {
+                    if ssh {
+                        canopy_desktop::remote::client::ssh::remove_credentials(registry.vault().as_ref(), &reference)?;
+                    }
+                    Err(error)
+                }
+            }
+        }, cx);
         self.info =
-            "Requesting access. Approve this device in Connections on the other computer.".into();
-        self.run(async move{ready.await?;let id=canopy_desktop::remote::client::HostId::parse(invite.host_id())?;if registry.get(&id).is_some(){return Err("This host is already paired. Change its route instead of creating another identity.".into());}
-            let reference=uuid::Uuid::new_v4().to_string();let route=if ssh{let pin=fingerprint.ok_or("Inspect and verify the SSH host key first.")?;canopy_desktop::remote::client::ssh::save_credentials(registry.vault().as_ref(),&reference,&credential,passphrase.as_deref())?;Some(canopy_desktop::remote::client::store::SshRoute::new(address,port,username,pin,reference.clone()))}else{None};
-            match invite.enroll_via(name,registry.vault(),cancelled,endpoint,route).await{Ok(record)=>Ok(Update::Paired(registry.insert(record)?)),Err(error)=>{if ssh{canopy_desktop::remote::client::ssh::remove_credentials(registry.vault().as_ref(),&reference)?;}Err(error)}}
-        },cx);
-    }
-    fn render_hosts(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let mut body = column()
-            .gap_4()
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Connections"));
-        if self.opening_setup || self.host.is_none() {
-            body = body.child(section("ADD COMPUTER", "On the other computer, open Connections → Add device and copy its invitation here. Both computers must keep Canopy open.", vec![
-                row().gap_2()
-                    .child(selection_button("pair-direct-mode", "Local network / VPN", !self.pair_ssh).disabled(self.busy).on_click(cx.listener(|this,_,_,cx|{this.pair_ssh=false;cx.notify();})))
-                    .child(selection_button("pair-ssh-mode", "SSH tunnel", self.pair_ssh).disabled(self.busy).on_click(cx.listener(|this,_,_,cx|{this.pair_ssh=true;cx.notify();}))).into_any_element(),
-                form_field("Invitation", "Paste the invitation copied from the computer you want to access.", input(&self.fields["pair"]).disabled(self.busy)).into_any_element(),
-                form_field("This device’s name", "The other computer shows this name when asking its owner to approve access.", input(&self.fields["name"]).disabled(self.busy)).into_any_element(),
-            ]));
-            if self.pair_ssh {
-                body=body.child(column().gap_3()
-                    .child(div().text_color(t::muted()).child("SSH must already be enabled on the other computer. Verify its server fingerprint before sharing credentials."))
-                    .child(form_field("SSH server", "Computer name or IP address", input(&self.fields["ssh_address"]).disabled(self.busy)))
-                    .child(form_field("SSH username", "Your login on that computer", input(&self.fields["ssh_user"]).disabled(self.busy)))
-                    .child(form_field("SSH password or private key", "Stored securely on this device", input(&self.fields["ssh_secret"]).disabled(self.busy)))
-                    .child(button("probe-ssh", "Check SSH server").disabled(self.busy || self.value("ssh_address",cx).is_empty()).on_click(cx.listener(|this,_,_,cx|{
-                        let address=this.value("ssh_address",cx);let port=this.value("ssh_port",cx).parse().unwrap_or(22);
-                        this.info="Checking the SSH server…".into();
-                        this.run(async move{Ok(Update::SshFingerprint(tokio::task::spawn_blocking(move||canopy_desktop::remote::client::ssh::probe(&address,port)).await.map_err(|_|"SSH probe stopped.")??))},cx);
-                    }))));
-                if let Some(pin) = &self.ssh_fingerprint {
-                    body = body.child(
-                        div()
-                            .font_family(t::MONO)
-                            .text_color(t::muted())
-                            .child(format!("Verify with the computer’s owner: {pin}")),
-                    );
-                }
-            }
-            body = body.child(
-                button(
-                    "show-connection-details",
-                    if self.connection_advanced {
-                        "Hide advanced settings"
-                    } else {
-                        "Advanced settings…"
-                    },
-                )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.connection_advanced = !this.connection_advanced;
-                    cx.notify();
-                })),
-            );
-            if self.connection_advanced {
-                body = body.child(form_field(
-                    "Canopy address override",
-                    "Usually leave empty. The invitation already includes the address and port.",
-                    input(&self.fields["endpoint"]).disabled(self.busy),
-                ));
-                if self.pair_ssh {
-                    body = body
-                        .child(form_field(
-                            "SSH port",
-                            "Leave empty for port 22",
-                            input(&self.fields["ssh_port"]).disabled(self.busy),
-                        ))
-                        .child(form_field(
-                            "Private-key passphrase",
-                            "Only for an encrypted private key",
-                            input(&self.fields["ssh_passphrase"]).disabled(self.busy),
-                        ));
-                }
-            }
-            let can_request = !self.busy
-                && self.registry.is_some()
-                && !self.value("pair", cx).trim().is_empty()
-                && !self.value("name", cx).trim().is_empty()
-                && (!self.pair_ssh
-                    || self.ssh_fingerprint.is_some()
-                        && !self.value("ssh_user", cx).is_empty()
-                        && !self.value("ssh_secret", cx).is_empty());
-            body = body.child(
-                row()
-                    .gap_2()
-                    .child(
-                        button(
-                            "pair-host",
-                            if self.busy {
-                                "Requesting access…"
-                            } else if self.pair_ssh {
-                                "Trust SSH key and request access"
-                            } else {
-                                "Request access"
-                            },
-                        )
-                        .disabled(!can_request)
-                        .on_click(cx.listener(|this, _, _, cx| this.pair_host(this.pair_ssh, cx))),
-                    )
-                    .children(self.busy.then(|| {
-                        button("cancel-pair", "Cancel request").on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.cancelled.store(true, Ordering::Release);
-                                cx.notify();
-                            },
-                        ))
-                    })),
-            );
-        } else if let Some(host) = &self.host {
-            body = body
-                .child(format!(
-                    "{} · {}",
-                    host.name(),
-                    match host.phase() {
-                        Phase::Ready => "Connected",
-                        Phase::Connecting => "Connecting…",
-                        Phase::Offline => "Offline",
-                    }
-                ))
-                .child(
-                    button("add-another-computer", "Add computer…").on_click(cx.listener(
-                        |this, _, window, cx| {
-                            this.opening_setup = true;
-                            this.connection_advanced = false;
-                            this.fields["endpoint"]
-                                .update(cx, |field, cx| field.set_value("", window, cx));
-                            cx.notify();
-                        },
-                    )),
-                )
-                .child(
-                    button(
-                        "show-route-details",
-                        if self.connection_advanced {
-                            "Hide connection details"
-                        } else {
-                            "Connection details…"
-                        },
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.connection_advanced = !this.connection_advanced;
-                        cx.notify();
-                    })),
-                );
-        }
-        if self.host.is_some() && !self.opening_setup {
-            body = body.child(self.render_routes(cx));
-        }
-        if self.host.is_some() && self.connection_advanced && !self.opening_setup {
-            body = body
-                .child(self.field("host_label", "Label for this host on this device"))
-                .child(
-                    button("rename-host-label", "Save host label")
-                        .disabled(self.busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let host = this.host.clone().unwrap();
-                            let name = this.value("host_label", cx);
-                            this.run(
-                                async move {
-                                    host.set_display_name(name)?;
-                                    Ok(Update::Done("Host label saved on this device.".into()))
-                                },
-                                cx,
-                            );
-                        })),
-                );
-        }
-        body.into_any_element()
-    }
-    fn render_catalog(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        if self.embedded {
-            return self.render_agent_discovery(cx);
-        }
-        let Some(host) = self.host.clone() else {
-            return div().child("Pair or select a host.").into_any_element();
-        };
-        let catalog = host.catalog();
-        let mut body = column()
-            .gap_2()
-            .child(self.field("project_path", "Project path on host"))
-            .child(
-                button("open-project", "Open project on host")
-                    .disabled(!self.ready())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let host = this.host.clone().unwrap();
-                        let host_path = this.value("project_path", cx);
-                        this.run(
-                            async move {
-                                host.mutate(None, move |channel, command| async move {
-                                    p::catalog_service_client::CatalogServiceClient::new(channel)
-                                        .open_project(p::OpenProjectRequest {
-                                            command: Some(command),
-                                            host_path,
-                                        })
-                                        .await
-                                })
-                                .await?;
-                                Ok(Update::Done("Project opened on host.".into()))
-                            },
-                            cx,
-                        );
-                    })),
-            );
-        if let Some(catalog) = catalog {
-            for project in catalog.projects {
-                let closing = project.checkouts.iter().any(|w| w.closing.unwrap_or(false));
-                let close_target = project.checkouts.first().and_then(|w| w.workspace.clone());
-                body = body.child(row().gap_2().child(project.name.clone()).children(
-                    close_target.map(|workspace| {
-                        button(
-                            SharedString::from(format!("close-project:{}", project.project_id)),
-                            if closing {
-                                "Retry cleanup…"
-                            } else {
-                                "Close project…"
-                            },
-                        )
-                        .disabled(!self.ready())
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.close_project(workspace.clone(), cx)
-                        }))
-                    }),
-                ));
-                for workspace in project.checkouts {
-                    if let Some(reference) = workspace.workspace {
-                        body = body.child(
-                            button(
-                                SharedString::from(format!("workspace:{}", reference.workspace_id)),
-                                if workspace.closing.unwrap_or(false) {
-                                    format!("{} · Closing", workspace.name)
-                                } else {
-                                    workspace.name
-                                },
-                            )
-                            .disabled(workspace.closing.unwrap_or(false))
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    this.navigate(Page::Files, cx);
-                                    this.workspace = Some(reference.clone());
-                                    this.agents = None;
-                                    this.agent_catalog = None;
-                                    this.discovery_revision += 1;
-                                    this.discovery_busy = false;
-                                    this.file = None;
-                                    this.file_hash.clear();
-                                    this.file_dirty = false;
-                                    this.directory = None;
-                                    this.git = None;
-                                    this.git_history = None;
-                                    this.git_refs = None;
-                                    this.git_diff = None;
-                                    this.save_layout(cx);
-                                    this.load_directory(cx);
-                                },
-                            )),
-                        );
-                    }
-                }
-            }
-            for summary in catalog.chats {
-                if let Some(chat) = summary.chat {
-                    body = body.child(
-                        button(
-                            SharedString::from(format!("chat:{}", chat.chat_id)),
-                            summary.title,
-                        )
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| this.open_chat(chat.clone(), window, cx),
-                        )),
-                    );
-                }
-            }
-            for summary in catalog.terminals {
-                if let Some(terminal) = summary.terminal {
-                    body = body.child(
-                        button(
-                            SharedString::from(format!("terminal:{}", terminal.terminal_id)),
-                            summary.title,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.navigate(Page::Terminal, cx);
-                            this.terminal = Some(terminal.clone());
-                            this.terminal_frame = None;
-                            this.terminal_history = None;
-                            this.terminal_history_offset = 0;
-                            this.terminal_run.clear();
-                            this.terminal_selection = None;
-                            this.save_layout(cx);
-                            this.open_terminal(cx);
-                        })),
-                    );
-                }
-            }
-        } else {
-            body = body.child("Connect to load projects, chats and terminals.");
-        }
-        body = body.child(self.field("tool", "Terminal tool ID")).child(
-            button("new-terminal", "New terminal")
-                .disabled(!self.ready() || self.workspace.is_none())
-                .on_click(cx.listener(|this, _, _, cx| {
-                    let host = this.host.clone().unwrap();
-                    let workspace = this.workspace.clone();
-                    let tool_id = this.value("tool", cx);
-                    let profile_id = nonempty(this.value("profile", cx));
-                    this.run(
-                        async move {
-                            host.mutate(None, move |channel, command| async move {
-                                p::terminal_service_client::TerminalServiceClient::new(channel)
-                                    .open_terminal(p::OpenTerminalRequest {
-                                        command: Some(command),
-                                        workspace,
-                                        tool_id,
-                                        profile_id,
-                                    })
-                                    .await
-                            })
-                            .await?;
-                            Ok(Update::Done(
-                                "Terminal created on the selected host.".into(),
-                            ))
-                        },
-                        cx,
-                    );
-                })),
-        );
-        body.child(self.render_agent_discovery(cx))
-            .into_any_element()
+            "Waiting for approval. Approve this device in Connections on the other computer."
+                .into();
     }
 }
 impl Drop for RemoteWindow {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Release);
         self.detach();
-    }
-}
-impl Render for RemoteWindow {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let started = std::time::Instant::now();
-        self.features.apply_device_preferences(window, cx);
-        let mut sidebar = column()
-            .w_56()
-            .h_full()
-            .flex_shrink_0()
-            .bg(t::sidebar())
-            .p_3()
-            .gap_2()
-            .child(
-                button("add-host", "Hosts…")
-                    .on_click(cx.listener(|this, _, _, cx| this.navigate(Page::Hosts, cx))),
-            );
-        if let Some(registry) = &self.registry {
-            for host in registry.hosts() {
-                let label = format!("{} · {:?}", host.name(), host.phase());
-                let id = host.id().as_str().to_owned();
-                sidebar = sidebar.child(button(SharedString::from(id), label).on_click(
-                    cx.listener(move |this, _, _, cx| this.select_host(host.clone(), cx)),
-                ));
-            }
-        }
-        for (id, label, page) in [
-            ("catalog", "Projects", Page::Catalog),
-            ("files", "Files", Page::Files),
-            ("git", "Changes", Page::Git),
-            ("notes", "Notes", Page::Notes),
-            ("tasks", "Tasks", Page::Tasks),
-            ("settings", "Host settings", Page::Settings),
-        ] {
-            sidebar = sidebar.child(button(id, label).disabled(self.host.is_none()).on_click(
-                cx.listener(move |this, _, _, cx| {
-                    this.navigate(page, cx);
-                    match page {
-                        Page::Files => this.load_directory(cx),
-                        Page::Notes => this.open_notes(cx),
-                        Page::Git => this.load_git(cx),
-                        Page::Settings => this.load_settings(cx),
-                        Page::Tasks => this.load_tasks(cx),
-                        _ => {}
-                    }
-                }),
-            ));
-        }
-        let mut header = row().gap_2().p_3().border_b_1().border_color(t::border());
-        if let Some(host) = self.host.clone() {
-            let phase = host.phase();
-            header = header
-                .child(div().flex_1().child(format!(
-                    "{} · {:?}{}",
-                    self.selection_label(),
-                    phase,
-                    if phase != Phase::Ready {
-                        " · cached, read only"
-                    } else {
-                        ""
-                    }
-                )))
-                .child(
-                    button(
-                        "connect",
-                        if phase == Phase::Ready {
-                            "Reconnect"
-                        } else {
-                            "Connect"
-                        },
-                    )
-                    .disabled(self.busy || phase == Phase::Connecting)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let host = this.host.clone().unwrap();
-                        let ready = prepare_connection(cx);
-                        this.run(
-                            async move {
-                                ready.await?;
-                                host.connect().await?;
-                                Ok(Update::Connected)
-                            },
-                            cx,
-                        );
-                    })),
-                )
-                .child(button("disconnect", "Disconnect").on_click(cx.listener(
-                    |this, _, _, cx| {
-                        if let Some(host) = &this.host
-                            && let Err(error) = host.pause_connection()
-                        {
-                            this.error = Some(error);
-                        }
-                        this.detach();
-                        cx.notify();
-                    },
-                )));
-            if phase != Phase::Ready
-                && let Some(seen) = host
-                    .last_seen()
-                    .and_then(|value| chrono::DateTime::from_timestamp(value, 0))
-            {
-                header = header.child(format!("Last seen {}", seen.format("%Y-%m-%d %H:%M UTC")));
-            }
-            if let Some(error) = host.connection_error() {
-                header = header.child(div().text_color(t::red()).child(error));
-            }
-        }
-        let content = match self.page {
-            Page::Hosts => self.render_hosts(cx),
-            Page::Catalog => self.render_catalog(cx),
-            Page::Chat => self.render_chat(window, cx),
-            Page::Files => self.render_files(cx),
-            Page::Notes => self.render_notes(cx),
-            Page::Git => self.render_git(cx),
-            Page::Settings => self.render_settings(cx),
-            Page::Tasks => self.render_tasks(cx),
-            Page::Terminal => self.render_terminal(cx),
-            Page::Terminals => self.render_terminal_picker(cx),
-        };
-        if self.compact_tools {
-            return column()
-                .id("remote-tools-scroll")
-                .size_full()
-                .min_w_0()
-                .min_h_0()
-                .overflow_y_scroll()
-                .child(column().p_3().gap_2().child(content))
-                .children(
-                    self.error
-                        .clone()
-                        .map(|e| div().p_2().text_color(t::red()).child(e)),
-                )
-                .into_any_element();
-        }
-        let element = column()
-            .size_full()
-            .bg(t::bg())
-            .text_color(t::text())
-            .text_sm()
-            .when(!self.embedded, |d| {
-                d.child(window_titlebar("remote-titlebar", window).child("Canopy — Remote"))
-            })
-            .child(
-                row()
-                    .items_stretch()
-                    .flex_1()
-                    .min_h_0()
-                    .when(!self.embedded, |d| d.child(sidebar))
-                    .child(
-                        column()
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .child(header)
-                            .when(self.embedded, |d| d.child(self.embedded_navigation(cx)))
-                            .child(
-                                div()
-                                    .id("remote-content")
-                                    .flex_1()
-                                    .min_h_0()
-                                    .overflow_y_scroll()
-                                    .child(column().p_4().gap_3().child(content)),
-                            )
-                            .child(
-                                div()
-                                    .p_2()
-                                    .text_color(if self.error.is_some() {
-                                        t::red()
-                                    } else {
-                                        t::muted()
-                                    })
-                                    .child(self.error.clone().unwrap_or_else(|| self.info.clone())),
-                            ),
-                    ),
-            );
-        if let Some(host) = &self.host {
-            let resource = self
-                .chat
-                .as_ref()
-                .map(|chat| chat.chat_id.as_str())
-                .unwrap_or("remote_window");
-            canopy_desktop::remote::metrics::record(
-                host.id().as_str(),
-                &canopy_desktop::remote::metrics::resource_id(resource),
-                None,
-                self.generation,
-                canopy_desktop::remote::metrics::Stage::Render,
-                started,
-                canopy_desktop::remote::metrics::Outcome::Ok,
-            );
-        }
-        element.into_any_element()
     }
 }
 fn nonempty(value: String) -> Option<String> {

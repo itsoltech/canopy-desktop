@@ -87,9 +87,11 @@ impl RemoteWindow {
             .as_ref()
             .map(|v| v.clone().into_any_element())
             .unwrap_or_else(|| {
-                div()
-                    .child("Select a connected host to load settings.")
-                    .into_any_element()
+                chrome::empty(
+                    "Settings not loaded",
+                    "Connect to this computer to view and change its settings.",
+                )
+                .into_any_element()
             })
     }
     pub(super) fn render_tasks(&mut self, _: &mut Context<Self>) -> AnyElement {
@@ -98,9 +100,11 @@ impl RemoteWindow {
             .as_ref()
             .map(|v| v.clone().into_any_element())
             .unwrap_or_else(|| {
-                div()
-                    .child("Select a connected host to load tasks.")
-                    .into_any_element()
+                chrome::empty(
+                    "Tasks not loaded",
+                    "Connect to this computer to browse its tasks.",
+                )
+                .into_any_element()
             })
     }
 }

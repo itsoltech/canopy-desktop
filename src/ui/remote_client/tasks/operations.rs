@@ -31,12 +31,178 @@ impl TasksView {
     ) {
         self.integration = Some(integration);
         self.project = None;
+        self.projects.clear();
+        self.projects_next = None;
         self.task = None;
         self.tasks.clear();
+        self.next = None;
         self.filter = None;
+        self.filters.clear();
         self.fields.clear();
         self.mode = FormMode::Detail;
+        self.editing = false;
+        self.action = None;
+        self.choice_kind = None;
+        self.manage_filters = false;
+        self.sync_integration_picker(cx);
+        self.sync_project_picker(cx);
+        self.sync_filter_picker(cx);
         self.load_choices(Choices::Projects, false, cx);
+    }
+    pub(super) fn pick_integration(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.integration.as_ref().is_some_and(|i| i.id == id) {
+            return;
+        }
+        if let Some(integration) = self
+            .integrations
+            .iter()
+            .find(|i| i.id == id && i.configured)
+            .cloned()
+        {
+            self.choose_integration(integration, cx);
+        }
+    }
+    pub(super) fn pick_project(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.project.as_ref().is_some_and(|p| p.id == id) {
+            return;
+        }
+        if let Some(project) = self.projects.iter().find(|p| p.id == id).cloned() {
+            self.select_project(project, cx);
+        }
+    }
+    pub(super) fn select_project(&mut self, project: p::TaskChoice, cx: &mut Context<Self>) {
+        self.project = Some(project);
+        self.task = None;
+        self.tasks.clear();
+        self.next = None;
+        self.issue_type = None;
+        self.board = None;
+        self.editing = false;
+        self.action = None;
+        if self.mode == FormMode::Create {
+            self.mode = FormMode::Detail;
+            self.fields.clear();
+        }
+        self.sync_project_picker(cx);
+        self.search(false, cx);
+    }
+    pub(super) fn choose_filter(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if id.is_empty() {
+            if self.filter.is_none() {
+                return;
+            }
+            self.filter = None;
+            self.filter_expression
+                .update(cx, |v, cx| v.set_value("", window, cx));
+        } else {
+            if self.filter.as_ref().is_some_and(|f| f.id == id) {
+                return;
+            }
+            let Some(f) = self.filters.iter().find(|f| f.id == id).cloned() else {
+                return;
+            };
+            self.filter_name
+                .update(cx, |v, cx| v.set_value(f.name.clone(), window, cx));
+            self.filter_expression
+                .update(cx, |v, cx| v.set_value(f.expression.clone(), window, cx));
+            self.filter = Some(f);
+        }
+        self.search(false, cx);
+    }
+    pub(super) fn sync_integration_picker(&mut self, cx: &mut Context<Self>) {
+        let items: Vec<_> = self
+            .integrations
+            .iter()
+            .filter(|i| i.configured)
+            .map(|i| SelectOption::new(i.id.clone(), i.name.clone()))
+            .collect();
+        let selected = self.integration.as_ref().map(|i| i.id.clone());
+        let picker = self.integration_picker.clone();
+        let _ = self.window.update(cx, |_, w, cx| {
+            picker.update(cx, |s, cx| {
+                s.set_items(items, w, cx);
+                match selected {
+                    Some(id) => s.set_selected_value(&id.into(), w, cx),
+                    None => s.set_selected_index(None, w, cx),
+                }
+            })
+        });
+    }
+    pub(super) fn sync_project_picker(&mut self, cx: &mut Context<Self>) {
+        let mut items: Vec<_> = self
+            .projects
+            .iter()
+            .map(|p| SelectOption::new(p.id.clone(), p.label.clone()))
+            .collect();
+        if let Some(p) = &self.project
+            && !self.projects.iter().any(|v| v.id == p.id)
+        {
+            items.insert(0, SelectOption::new(p.id.clone(), p.label.clone()));
+        }
+        let selected = self.project.as_ref().map(|p| p.id.clone());
+        let picker = self.project_picker.clone();
+        let _ = self.window.update(cx, |_, w, cx| {
+            picker.update(cx, |s, cx| {
+                s.set_items(items, w, cx);
+                match selected {
+                    Some(id) => s.set_selected_value(&id.into(), w, cx),
+                    None => s.set_selected_index(None, w, cx),
+                }
+            })
+        });
+    }
+    pub(super) fn sync_filter_picker(&mut self, cx: &mut Context<Self>) {
+        let items: Vec<_> = std::iter::once(SelectOption::new("", "No saved filter"))
+            .chain(
+                self.filters
+                    .iter()
+                    .map(|f| SelectOption::new(f.id.clone(), f.name.clone())),
+            )
+            .collect();
+        let selected = self
+            .filter
+            .as_ref()
+            .map(|f| f.id.clone())
+            .unwrap_or_default();
+        let picker = self.filter_picker.clone();
+        let _ = self.window.update(cx, |_, w, cx| {
+            picker.update(cx, |s, cx| {
+                s.set_items(items, w, cx);
+                s.set_selected_value(&selected.into(), w, cx);
+            })
+        });
+    }
+    pub(super) fn sync_description(&mut self, cx: &mut Context<Self>) {
+        let (body, url) = self
+            .task
+            .as_ref()
+            .map(|t| (Arc::from(t.description.as_str()), t.url.clone()))
+            .unwrap_or_else(|| (Arc::from(""), String::new()));
+        self.description
+            .update(cx, |v, cx| v.set_content(body, url, true, cx));
+    }
+    pub(super) fn sync_comment_views(&mut self, cx: &mut Context<Self>) {
+        let ids: Vec<_> = self.comments.iter().map(|c| c.id.clone()).collect();
+        self.comment_views.retain(|id, _| ids.contains(id));
+        for c in &self.comments {
+            let view = self
+                .comment_views
+                .entry(c.id.clone())
+                .or_insert_with(|| cx.new(crate::ui::markdown::MarkdownView::reading))
+                .clone();
+            let (body, url) = (Arc::from(c.body.as_str()), c.url.clone());
+            view.update(cx, |v, cx| v.set_content(body, url, true, cx));
+        }
+    }
+    pub(super) fn select_tab(&mut self, tab: DetailTab, cx: &mut Context<Self>) {
+        if self.tab == tab {
+            return;
+        }
+        self.tab = tab;
+        if tab == DetailTab::Comments && !self.comments_loaded && self.task.is_some() {
+            self.load_comments(false, cx);
+        }
+        cx.notify();
     }
     pub(super) fn load_choices(&mut self, kind: Choices, more: bool, cx: &mut Context<Self>) {
         let Some(integration) = self.integration.clone() else {
@@ -45,9 +211,19 @@ impl TasksView {
         let host = self.host.clone();
         let workspace = self.workspace.clone();
         let project = self.active_project().ok();
-        let cursor = more.then(|| self.choice_next.clone()).flatten();
+        let cursor = if kind == Choices::Projects {
+            more.then(|| self.projects_next.clone()).flatten()
+        } else {
+            more.then(|| self.choice_next.clone()).flatten()
+        };
         let board = self.board.as_ref().map(|b| b.id.clone());
-        self.run(
+        let loading = if kind == Choices::Projects {
+            Loading::Projects
+        } else {
+            Loading::Other
+        };
+        self.run_as(
+            loading,
             async move {
                 let mut client = Client::new(host.channel()?);
                 let page = match &kind {
@@ -111,14 +287,7 @@ impl TasksView {
         };
         self.choice_kind = None;
         match kind {
-            Choices::Projects => {
-                self.project = Some(choice);
-                self.task = None;
-                self.tasks.clear();
-                self.issue_type = None;
-                self.board = None;
-                self.search(false, cx);
-            }
+            Choices::Projects => self.select_project(choice, cx),
             Choices::Types => {
                 self.issue_type = Some(choice);
                 self.load_schema(FormMode::Create, cx);
@@ -136,10 +305,7 @@ impl TasksView {
             Choices::Links => {
                 let other = value(&self.link_target, cx);
                 if other.trim().is_empty() {
-                    self.fail(
-                        "Enter the linked issue key before choosing a link type.",
-                        cx,
-                    );
+                    self.fail("Enter the issue key before you choose a link type.", cx);
                     return;
                 }
                 self.mutate(
@@ -202,7 +368,12 @@ impl TasksView {
             state: ["open", "closed"][self.state].into(),
         };
         let host = self.host.clone();
-        self.run(
+        self.run_as(
+            if more {
+                Loading::MoreTasks
+            } else {
+                Loading::Tasks
+            },
             async move {
                 Ok(ResultView::Tasks(
                     Client::new(host.channel()?)
@@ -218,7 +389,8 @@ impl TasksView {
     }
     pub(super) fn open_task(&mut self, reference: p::TaskRef, cx: &mut Context<Self>) {
         let host = self.host.clone();
-        self.run(
+        self.run_as(
+            Loading::Task,
             async move {
                 Ok(ResultView::Detail(
                     Client::new(host.channel()?)
@@ -275,6 +447,10 @@ impl TasksView {
     }
     pub(super) fn new_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.task = None;
+        self.editing = false;
+        self.action = None;
+        self.choice_kind = None;
+        self.sync_description(cx);
         self.fields.clear();
         self.field_events.clear();
         self.mode = FormMode::Create;
@@ -341,7 +517,8 @@ impl TasksView {
         let refresh_task = task.clone();
         let creation_project = project.clone();
         let deleting = matches!(action, Mutation::Delete(_));
-        self.run(
+        self.run_as(
+            Loading::Save,
             async move {
                 let receipt = host
                     .mutate(None, move |channel, command| async move {
@@ -444,7 +621,8 @@ impl TasksView {
             }
             let host = self.host.clone();
             let reference = task.clone();
-            self.run(
+            self.run_as(
+                Loading::Save,
                 async move {
                     let receipt = host
                         .mutate(None, move |channel, command| async move {
@@ -508,7 +686,20 @@ impl TasksView {
                         || v.as_str().is_some_and(|v| v.trim().is_empty())
                         || v.as_array().is_some_and(|v| v.is_empty()))
                 {
-                    return Err(format!("{} is required.", id));
+                    let name = self
+                        .schema
+                        .fields
+                        .iter()
+                        .chain(
+                            self.schema
+                                .transitions
+                                .iter()
+                                .flat_map(|t| t.required_fields.iter()),
+                        )
+                        .find(|field| field.id == id)
+                        .map(|field| field.name.clone())
+                        .unwrap_or(id);
+                    return Err(format!("Enter {name}."));
                 }
                 fields.insert(id, fields::proto(v));
             }
@@ -572,7 +763,8 @@ impl TasksView {
         };
         let page_token = more.then(|| self.comments_next.clone()).flatten();
         let host = self.host.clone();
-        self.run(
+        self.run_as(
+            Loading::Comments,
             async move {
                 Ok(ResultView::Comments(
                     Client::new(host.channel()?)
@@ -648,6 +840,7 @@ impl TasksView {
         &mut self,
         title: String,
         help: &'static str,
+        ok: &'static str,
         action: Mutation,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -660,7 +853,7 @@ impl TasksView {
                 .title(title.clone())
                 .button_props(
                     gpui_kit::component::dialog::DialogButtonProps::default()
-                        .ok_text("Delete")
+                        .ok_text(ok)
                         .show_cancel(true),
                 )
                 .child(help)
@@ -671,18 +864,28 @@ impl TasksView {
         });
     }
     pub(super) fn worklog(&mut self, cx: &mut Context<Self>) {
-        let seconds = match value(&self.work_seconds, cx).parse::<u64>() {
-            Ok(v) if v > 0 => v,
-            _ => {
-                self.fail("Enter a positive duration in seconds.", cx);
+        let Some(seconds) = adapter::parse_duration(&value(&self.work_duration, cx)) else {
+            self.fail("Enter the time spent, for example 1h 30m.", cx);
+            return;
+        };
+        let started = value(&self.work_started, cx);
+        let started = if started.trim().is_empty() {
+            adapter::now_local()
+        } else {
+            started.trim().to_owned()
+        };
+        let started = match canopy_desktop::integrations::jira::date_time(&started) {
+            Ok(v) => v,
+            Err(e) => {
+                self.fail(e, cx);
                 return;
             }
         };
         self.mutate(
             Mutation::Worklog(p::TaskWorklogWrite {
                 seconds,
-                started: value(&self.work_started, cx),
-                comment: self.comment.read(cx).value(cx),
+                started,
+                comment: value(&self.work_comment, cx),
             }),
             cx,
         );
@@ -698,18 +901,19 @@ impl TasksView {
         let workspace = task.workspace.clone();
         if workspace.is_none() {
             self.fail(
-                "Open this task in a workspace scope before creating a worktree.",
+                "Open this task from a project workspace to create a worktree.",
                 cx,
             );
             return;
         }
         let branch = value(&self.branch, cx);
         if branch.trim().is_empty() {
-            self.fail("Enter a worktree branch.", cx);
+            self.fail("Enter a branch name for the worktree.", cx);
             return;
         }
         let host = self.host.clone();
-        self.run(
+        self.run_as(
+            Loading::Save,
             async move {
                 let receipt = host
                     .mutate(None, move |channel, command| async move {
@@ -732,7 +936,7 @@ impl TasksView {
         let name = value(&self.filter_name, cx);
         let expression = value(&self.filter_expression, cx);
         if name.trim().is_empty() || expression.trim().is_empty() {
-            self.fail("Filter name and expression are required.", cx);
+            self.fail("Enter a filter name and condition.", cx);
             return;
         }
         let filter = p::TaskFilter {

@@ -1,5 +1,6 @@
 use super::super::theme as t;
 use super::row;
+use gpui_kit::component::Icon;
 use gpui_kit::*;
 
 /// Scrollable tab strip; callers supply tabs, trailing actions and drop behavior.
@@ -42,6 +43,27 @@ pub fn workspace_tab(
                 .bg(color)
         }))
         .child(div().flex_1().min_w_0().truncate().child(label.into()))
+}
+
+/// The computer a tab's chat runs on, after its title.
+pub fn tab_host_badge(host: String) -> Div {
+    row()
+        .flex_shrink_0()
+        .gap_0p5()
+        .px_1()
+        .rounded(rems(0.25))
+        .border_1()
+        .border_color(t::border())
+        .text_size(rems(0.65625))
+        .line_height(rems(0.9375))
+        .text_color(t::faint())
+        .child(
+            Icon::default()
+                .path("canopy/monitor.svg")
+                .size(rems(0.625))
+                .flex_shrink_0(),
+        )
+        .child(div().max_w(rems(t::TAB_BADGE_TEXT)).truncate().child(host))
 }
 
 /// Remaining strip space. Event payloads and actions belong to its caller.

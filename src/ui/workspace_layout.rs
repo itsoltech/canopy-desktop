@@ -369,7 +369,14 @@ impl Workspace {
             .border_color(t::border())
             .gap_1()
             .pr_1()
-            .child(div().flex_1().min_w_0().overflow_hidden().child(tab_bar))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .overflow_hidden()
+                    .child(tab_bar),
+            )
             .child(
                 row()
                     .flex_shrink_0()
@@ -477,60 +484,8 @@ impl Workspace {
                     cx,
                 )
             } else {
-                let reason = crate::app_state::Chats::unavailable(cx);
-                let context = self
-                    .state
-                    .projects
-                    .read(cx)
-                    .catalog
-                    .current()
-                    .map(|p| p.name.clone())
-                    .unwrap_or_else(|| "Private workspace".into());
-                empty_state(
-                    column()
-                        .id("empty-worktree-content")
-                        .items_center()
-                        .gap_4()
-                        .child(
-                            div()
-                                .text_xl()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(t::text())
-                                .child(context),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(t::secondary())
-                                .child("Start a conversation or open your worktree terminal."),
-                        )
-                        .child(
-                            row()
-                                .gap_3()
-                                .child(
-                                    primary_button("open-empty-chat", "New chat")
-                                        .disabled(reason.is_some())
-                                        .on_click(cx.listener(|s, _, _, cx| {
-                                            s.state
-                                                .chats
-                                                .update(cx, |chats, cx| chats.open_current(cx))
-                                        })),
-                                )
-                                .child(
-                                    Button::new("open-empty-terminal")
-                                        .ghost()
-                                        .small()
-                                        .label("Open terminal")
-                                        .disabled(
-                                            self.state.projects.read(cx).catalog.active.is_none(),
-                                        )
-                                        .on_click(cx.listener(|s, _, _, cx| s.new_terminal(cx))),
-                                ),
-                        ),
-                    reason.map(Into::into),
-                    None,
-                )
-                .into_any_element()
+                // No tab: an overview of the selected worktree (`worktree_overview.rs`).
+                self.worktree_overview(cx)
             };
             area = area.child(
                 column()
@@ -576,10 +531,7 @@ impl Workspace {
                     .as_ref()
                     .map(|(_, _, view)| view.clone().into_any_element())
                     .unwrap_or_else(|| {
-                        div()
-                            .p_3()
-                            .child("Connecting to workspace…")
-                            .into_any_element()
+                        panel_loading("Connecting to the workspace…").into_any_element()
                     })
             } else {
                 self.inspector.clone().into_any_element()

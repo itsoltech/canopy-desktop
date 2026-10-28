@@ -139,21 +139,24 @@ impl PreferencesContent {
                 setting("Reopen last workspace on startup","Restore the previous workspace tabs and layout when the app starts",true,
                     checkbox("reopen", state.values.reopen_last_workspace, "Reopen last workspace on startup")
                         .disabled(disabled).on_click(cx.listener(|this,value,_,cx|{this.settings.update(cx,|state,cx|state.change(Change::ReopenLastWorkspace(*value),cx));}))).into_any_element(),
-                setting("Run setup wizard","Walk through the first-launch setup again to reconfigure tools and integrations",false,
-                    button("rerun-wizard", "Re-run wizard")).into_any_element(),
+                // No setup wizard exists in this build; the button has no action.
+                unavailable("setting-rerun-wizard", setting("Run setup wizard",format!("Walk through the first-launch setup again to reconfigure tools and integrations. {NOT_AVAILABLE}."),false,
+                    button("rerun-wizard", "Re-run wizard").disabled(true))).into_any_element(),
             ]))
             .child(section("DEFAULTS","Tools used when opening new tabs and worktrees",vec![
                 setting("New tab",format!("Default tool to open when creating a new tab ({})", super::super::platform_ui::shortcut("⌘T", "Ctrl+Shift+T")),true,
                     dropdown(&self.new_tab).disabled(disabled).w(px(160.))).into_any_element(),
-                setting("New worktree","Default tool to open in new worktree tabs",false,
-                    dropdown(&self.new_worktree).disabled(disabled).w(px(160.))).into_any_element(),
+                // Stored as newWorktree.toolId, but worktree creation picks its agent in the dialog.
+                unavailable("setting-new-worktree", setting("New worktree",format!("Default tool to open in new worktree tabs. {NOT_AVAILABLE}."),false,
+                    dropdown(&self.new_worktree).disabled(true).w(px(160.)))).into_any_element(),
                 setting("Shell","Resolved from $SHELL at launch — change with chsh, then restart.",false,
                     div().font_family(t::MONO).text_size(px(12.)).text_color(t::muted()).child("auto-detected")).into_any_element(),
             ]))
             .child(section("STATUS BAR","Information shown in the bottom status bar",vec![
-                setting("Show CPU and RAM usage","Aggregates total CPU and resident memory across all Canopy processes (main, renderer, GPU, utility). Sampled once per second; the sampler stops entirely when this toggle is off.",true,
+                // Stored as perf.hud.enabled; no status bar sampler reads it yet.
+                unavailable("setting-resource-usage", setting("Show CPU and RAM usage",format!("Aggregates total CPU and resident memory across all Canopy processes (main, renderer, GPU, utility). Sampled once per second; the sampler stops entirely when this toggle is off. {NOT_AVAILABLE}."),true,
                     checkbox("performance", state.values.resource_usage, "Show CPU and RAM usage")
-                        .disabled(disabled).on_click(cx.listener(|this,value,_,cx|{this.settings.update(cx,|state,cx|state.change(Change::ResourceUsage(*value),cx));}))).into_any_element(),
+                        .disabled(true).on_click(cx.listener(|this,value,_,cx|{this.settings.update(cx,|state,cx|state.change(Change::ResourceUsage(*value),cx));})))).into_any_element(),
             ]))
     }
 }

@@ -76,6 +76,45 @@ pub(crate) fn pill(
     size: Pixels,
     height: Pixels,
 ) -> Stateful<Div> {
+    let tooltip: SharedString = match target.line {
+        Some(line) => format!("{}:{line}", target.path.display()),
+        None => target.path.display().to_string(),
+    }
+    .into();
+    let root = root.to_owned();
+    let path = target.path.clone();
+    let line = target.line;
+    look(id, target, tooltip, size, height).on_click(move |_, _, cx| {
+        cx.stop_propagation();
+        let root = root.clone();
+        let mention = mentions::Mention {
+            range: 0..0,
+            label: String::new(),
+            path: path.to_string_lossy().into_owned(),
+            line,
+        };
+        cx.spawn(async move |cx| {
+            let checked = cx
+                .background_executor()
+                .spawn(async move { mentions::resolve(&root, &mention) })
+                .await;
+            if let Some(file) = checked {
+                cx.update(|cx| FilesState::open_in(file.root, &file.relative, file.line, cx));
+            }
+        })
+        .detach();
+    })
+}
+
+/// The pill without its action: file-type icon and name (with the line), truncating
+/// in a narrow row. The caller adds `on_click`, e.g. to open a file on another computer.
+pub(crate) fn look(
+    id: impl Into<ElementId>,
+    target: &Target,
+    tooltip: SharedString,
+    size: Pixels,
+    height: Pixels,
+) -> Stateful<Div> {
     let name = target
         .path
         .file_name()
@@ -85,14 +124,6 @@ pub(crate) fn pill(
         Some(line) => format!("{name}:{line}"),
         None => name,
     };
-    let tooltip: SharedString = match target.line {
-        Some(line) => format!("{}:{line}", target.path.display()),
-        None => target.path.display().to_string(),
-    }
-    .into();
-    let root = root.to_owned();
-    let path = target.path.clone();
-    let line = target.line;
     row()
         .id(id)
         .min_w_0()
@@ -121,25 +152,5 @@ pub(crate) fn pill(
         .child(div().min_w_0().truncate().child(label))
         .tooltip(move |window, cx| {
             gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
-        })
-        .on_click(move |_, _, cx| {
-            cx.stop_propagation();
-            let root = root.clone();
-            let mention = mentions::Mention {
-                range: 0..0,
-                label: String::new(),
-                path: path.to_string_lossy().into_owned(),
-                line,
-            };
-            cx.spawn(async move |cx| {
-                let checked = cx
-                    .background_executor()
-                    .spawn(async move { mentions::resolve(&root, &mention) })
-                    .await;
-                if let Some(file) = checked {
-                    cx.update(|cx| FilesState::open_in(file.root, &file.relative, file.line, cx));
-                }
-            })
-            .detach();
         })
 }

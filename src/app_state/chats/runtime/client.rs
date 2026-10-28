@@ -10,6 +10,15 @@ use canopy_desktop::{
 };
 use prost::Message;
 
+/// What the recovery tray asked the host about a saved request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Recovering {
+    /// Check status: what became of it.
+    Checking,
+    /// Send again: replayed when the host has no record of it.
+    Sending,
+}
+
 pub(crate) struct RemoteSession {
     pub reference: RemoteChat,
     pub host: Option<Arc<HostClient>>,
@@ -22,6 +31,11 @@ pub(crate) struct RemoteSession {
     pub goal: Option<canopy_desktop::chat::goal::Goal>,
     pub busy: bool,
     pub history_loading: bool,
+    /// Why the last page of earlier messages couldn't be read; Earlier messages retries.
+    pub history_error: Option<String>,
+    /// The saved request being checked or sent again (recovery tray), until the host
+    /// answers.
+    pub recovering: Option<Recovering>,
     pub draft: Option<Draft>,
     pub draft_revision: u64,
     pub draft_context: Option<p::SendContext>,
@@ -59,6 +73,8 @@ impl RemoteSession {
             goal: None,
             busy: false,
             history_loading: false,
+            history_error: None,
+            recovering: None,
             draft: None,
             draft_revision: 0,
             draft_context: None,
@@ -1051,7 +1067,19 @@ impl ChatRuntime {
     where
         F: std::future::Future<Output = Result<(), String>> + Send + 'static,
     {
+        self.remote_task_then(future, |_| {}, cx);
+    }
+    /// `remote_task`; `done` runs once the host has answered, before views hear of it.
+    fn remote_task_then<F>(
+        &mut self,
+        future: F,
+        done: impl FnOnce(&mut Self) + 'static,
+        cx: &mut Context<Self>,
+    ) where
+        F: std::future::Future<Output = Result<(), String>> + Send + 'static,
+    {
         let Ok(executor) = crate::ui::remote_client::executor(cx) else {
+            done(self);
             return;
         };
         self.remote.as_mut().unwrap().busy = true;
@@ -1065,8 +1093,9 @@ impl ChatRuntime {
             });
             let _ = this.update(cx, |this, cx| {
                 this.remote.as_mut().unwrap().busy = false;
+                done(this);
                 if let Err(error) = result {
-                    this.notice = Some(error);
+                    this.notice = Some(ChatNotice::error(error));
                 } else {
                     this.refresh_client_options(cx);
                 }
@@ -1079,23 +1108,50 @@ impl ChatRuntime {
         })
         .detach();
     }
+    /// Asks the host what became of the saved requests (recovery tray).
     pub(crate) fn client_reconcile(&mut self, cx: &mut Context<Self>) {
         let Some(host) = self.remote_host() else {
             return;
         };
-        self.remote_task(async move { host.reconcile().await }, cx);
+        if !self.start_recovering(Recovering::Checking, cx) {
+            return;
+        }
+        self.remote_task_then(
+            async move { host.reconcile().await },
+            Self::end_recovering,
+            cx,
+        );
     }
+    /// Sends saved request `id` again when the host has no record of it.
     pub(crate) fn client_retry_saved(&mut self, id: String, cx: &mut Context<Self>) {
         let Some(host) = self.remote_host() else {
             return;
         };
-        self.remote_task(
+        if !self.start_recovering(Recovering::Sending, cx) {
+            return;
+        }
+        self.remote_task_then(
             async move {
                 host.retry_chat_mutation(&id).await?;
                 Ok(())
             },
+            Self::end_recovering,
             cx,
         );
+    }
+    /// One recovery action at a time; false while another one waits for the host.
+    fn start_recovering(&mut self, action: Recovering, cx: &mut Context<Self>) -> bool {
+        let Some(source) = self.remote.as_mut().filter(|s| s.recovering.is_none()) else {
+            return false;
+        };
+        source.recovering = Some(action);
+        cx.notify();
+        true
+    }
+    fn end_recovering(&mut self) {
+        if let Some(source) = self.remote.as_mut() {
+            source.recovering = None;
+        }
     }
 
     pub(crate) fn send_remote(&mut self, draft: Draft, steer: bool, cx: &mut Context<Self>) {
@@ -1111,6 +1167,7 @@ impl ChatRuntime {
         consume: bool,
         cx: &mut Context<Self>,
     ) {
+        self.notice = ChatNotice::after_send(self.notice.take());
         let Some(source) = self.remote.as_ref() else {
             return;
         };
@@ -1203,7 +1260,7 @@ impl ChatRuntime {
                             cx.emit(ChatRuntimeEvent::DraftConsumed(revision));
                         }
                     }
-                    Err(error) => this.notice = Some(error),
+                    Err(error) => this.notice = Some(ChatNotice::error(error)),
                 }
                 cx.emit(ChatRuntimeEvent::Changed {
                     serial: this.serial,
@@ -1403,7 +1460,7 @@ impl ChatRuntime {
                 this.remote.as_mut().unwrap().busy = false;
                 match result {
                     Ok(_) => cx.emit(ChatRuntimeEvent::DraftConsumed(revision)),
-                    Err(error) => this.notice = Some(error),
+                    Err(error) => this.notice = Some(ChatNotice::error(error)),
                 }
                 cx.notify();
             });
@@ -1442,14 +1499,17 @@ impl ChatRuntime {
             return;
         }
         let chat = source.chat();
-        let before = around
-            .is_none()
+        let earlier = around.is_none();
+        let before = earlier
             .then(|| source.projection.items.first().and_then(|i| i.key))
             .flatten();
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
             .spawn(async move { host.history_page(chat, None, around, before).await });
-        self.remote.as_mut().unwrap().history_loading = true;
+        let source = self.remote.as_mut().unwrap();
+        source.history_loading = true;
+        source.history_error = None;
+        cx.notify();
         cx.spawn(async move |this, cx| {
             let result = task.await.unwrap_or_else(|e| Err(e.to_string()));
             let _ = this.update(cx, |this, cx| {
@@ -1467,12 +1527,15 @@ impl ChatRuntime {
                         projection.has_earlier = next.is_some();
                         this.apply_remote(projection, cx);
                     }
-                    Err(error) => {
-                        this.notice = Some(error);
-                        cx.notify();
+                    // Earlier messages turns into its Retry; a page around a search
+                    // match fails like any other request.
+                    Err(error) if earlier => {
+                        this.remote.as_mut().unwrap().history_error = Some(error);
                     }
+                    Err(error) => this.notice = Some(ChatNotice::error(error)),
                 }
                 this.remote.as_mut().unwrap().history_loading = false;
+                cx.notify();
             });
         })
         .detach();

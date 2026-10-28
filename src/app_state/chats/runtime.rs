@@ -103,7 +103,7 @@ struct Shell {
 
 mod client;
 mod host_services;
-pub(crate) use client::RemoteSession;
+pub(crate) use client::{Recovering, RemoteSession};
 mod queue;
 // The remote bridge's typed chat operations; the gRPC server is their caller.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -123,6 +123,40 @@ const DORMANT_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 pub const MAX_CHAT_PROCESSES: usize = 32;
 /// ACP lines may carry whole files and replayed turns.
 const ACP_MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Whether a composer notice reports a failure or only explains what happened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChatNoticeKind {
+    /// Something failed: it stays until dismissed or replaced.
+    Error,
+    /// An explanation: it goes with the next message.
+    Info,
+}
+
+/// Said under the composer: what couldn't be done, or why something waits.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatNotice {
+    pub kind: ChatNoticeKind,
+    pub text: String,
+}
+impl ChatNotice {
+    pub fn error(text: impl Into<String>) -> Self {
+        Self {
+            kind: ChatNoticeKind::Error,
+            text: text.into(),
+        }
+    }
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            kind: ChatNoticeKind::Info,
+            text: text.into(),
+        }
+    }
+    /// What stays once a message is sent: errors, until dismissed or replaced.
+    fn after_send(notice: Option<Self>) -> Option<Self> {
+        notice.filter(|notice| notice.kind == ChatNoticeKind::Error)
+    }
+}
 
 /// A new run identity. Seeded from the clock once per process, so a run ID of an
 /// earlier Canopy process (a remote client's stale Interrupt, decision or Steer) never
@@ -243,8 +277,9 @@ pub struct ChatRuntime {
     /// A view shows this chat; without one an idle process may sleep (LIFE-09).
     presented: bool,
     sleep_timer: Option<Task<()>>,
-    /// Said under the composer until the next message: what couldn't be done.
-    notice: Option<String>,
+    /// Said under the composer: errors until dismissed or replaced, explanations
+    /// until the next message.
+    notice: Option<ChatNotice>,
     /// The status the registry (sidebar, tabs) last heard.
     reported_status: &'static str,
     /// What remote clients last heard of the chat's state besides its status (goal
@@ -2087,10 +2122,10 @@ impl ChatRuntime {
         }
         if !self.capabilities(cx).steer {
             // Queuing it instead is the user's choice, not a hidden Send (AGT-07).
-            self.notice = Some(format!(
+            self.notice = Some(ChatNotice::info(format!(
                 "{} can't take a message during its turn. Send queues it instead.",
                 self.agent_name(cx)
-            ));
+            )));
             cx.emit(ChatRuntimeEvent::DraftReturned(draft));
             cx.notify();
             return;
@@ -2104,7 +2139,7 @@ impl ChatRuntime {
             return;
         }
         if let Err((reason, _)) = self.interrupt_checked(cx) {
-            self.notice = Some(reason);
+            self.notice = Some(ChatNotice::error(reason));
             cx.notify();
         }
     }
@@ -2185,7 +2220,7 @@ impl ChatRuntime {
         };
         match session.respond(item, BackendDecision::OptionId(option)) {
             Ok(lines) => self.write(lines),
-            Err(error) => self.notice = Some(error),
+            Err(error) => self.notice = Some(ChatNotice::error(error)),
         }
         self.after_change(cx);
     }
@@ -2203,7 +2238,7 @@ impl ChatRuntime {
         let sent = set_acp_option(session, id, value);
         match sent {
             Ok(lines) => self.write(lines),
-            Err(error) => self.notice = Some(error),
+            Err(error) => self.notice = Some(ChatNotice::error(error)),
         }
         self.after_change(cx);
     }
@@ -2267,9 +2302,21 @@ impl ChatRuntime {
             self.persist(None, cx);
         }
     }
-    /// Something the chat couldn't do just now (a message refused, an option kept).
-    pub fn notice(&self) -> Option<&str> {
-        self.notice.as_deref()
+    /// Something the chat couldn't do just now (a message refused, an option kept),
+    /// or why something waits.
+    pub fn notice(&self) -> Option<&ChatNotice> {
+        self.notice.as_ref()
+    }
+    /// Says `notice` under the composer, in place of any other.
+    pub fn show_notice(&mut self, notice: ChatNotice, cx: &mut Context<Self>) {
+        self.notice = Some(notice);
+        cx.notify();
+    }
+    /// The user closed the notice.
+    pub fn dismiss_notice(&mut self, cx: &mut Context<Self>) {
+        if self.notice.take().is_some() {
+            cx.notify();
+        }
     }
     pub fn stop_background(&mut self, call: &str, cx: &mut Context<Self>) {
         if self.remote.is_some() {
@@ -2282,7 +2329,7 @@ impl ChatRuntime {
     pub fn note(&mut self, text: String, cx: &mut Context<Self>) {
         match self.native_mut() {
             Some(session) => session.note(text),
-            None => self.notice = Some(text),
+            None => self.notice = Some(ChatNotice::info(text)),
         }
         self.after_change(cx);
     }
@@ -2882,4 +2929,24 @@ fn wait(
             .clone()
             .unwrap_or_else(|| Err("Chat cleanup result was lost.".into()))
     })
+}
+
+#[cfg(test)]
+mod notice_tests {
+    use super::ChatNotice;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn a_sent_message_clears_explanations_but_not_errors() {
+        let error = ChatNotice::error("Couldn't save this chat: database is locked");
+        assert_eq!(
+            ChatNotice::after_send(Some(error.clone())),
+            Some(error),
+            "an error stays until dismissed or replaced"
+        );
+        assert_eq!(
+            ChatNotice::after_send(Some(ChatNotice::info("It waits in the queue."))),
+            None
+        );
+    }
 }

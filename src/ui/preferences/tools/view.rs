@@ -102,31 +102,24 @@ impl ToolsPreferences {
                     .child(availability),
             )
             .child(
-                row()
-                    .gap(px(8.))
-                    .child(
-                        checkbox("tool-enabled", self.draft.enabled, "Enable tool")
-                            .disabled(disabled)
-                            .on_click(cx.listener(|this, value, _, cx| {
-                                this.draft.enabled = *value;
-                                cx.notify();
-                            })),
-                    )
-                    .child("Enable tool"),
+                labeled_checkbox("tool-enabled", self.draft.enabled, "Enable tool")
+                    .disabled(disabled)
+                    .on_click(cx.listener(|this, value, _, cx| {
+                        this.draft.enabled = *value;
+                        cx.notify();
+                    })),
             )
             .when(self.draft.kind == ToolKind::Custom, |fields| {
                 fields.child(
-                    row()
-                        .gap(px(8.))
-                        .child(
-                            checkbox("tool-acp", self.draft.acp, "Agent Client Protocol")
-                                .disabled(disabled)
-                                .on_click(cx.listener(|this, value, _, cx| {
-                                    this.draft.acp = *value;
-                                    cx.notify();
-                                })),
-                        )
-                        .child("Opens as a chat (Agent Client Protocol)"),
+                    labeled_checkbox("tool-acp", self.draft.acp, "Chat agent")
+                        .disabled(disabled)
+                        .on_click(cx.listener(|this, value, _, cx| {
+                            this.draft.acp = *value;
+                            cx.notify();
+                        }))
+                        .child(checkbox_help(
+                            "Opens in a chat instead of a terminal. The program must support Agent Client Protocol (ACP).",
+                        )),
                 )
             })
     }

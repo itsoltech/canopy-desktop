@@ -117,12 +117,44 @@ struct Preview {
     #[cfg(target_os = "macos")]
     native: Option<std::rc::Rc<super::super::attachment_native::NativePreview>>,
 }
+/// Window chrome shared by the preview windows: draggable title row with actions.
+fn preview_header(
+    id: &'static str,
+    title: impl Into<SharedString>,
+    window: &mut Window,
+) -> Stateful<Div> {
+    window_titlebar(id, window)
+        .h(px(40.))
+        .flex_shrink_0()
+        .pl(px(titlebar_leading_inset()))
+        .pr(px(12. + titlebar_trailing_inset()))
+        .gap(px(8.))
+        .border_b_1()
+        .border_color(t::border())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(12.))
+                .text_color(t::secondary())
+                .child(title.into()),
+        )
+}
 impl Render for Preview {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let name = self
+            .file
+            .path()
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let mut body = column()
             .size_full()
             .bg(t::bg())
             .text_color(t::text())
+            .text_size(px(13.))
             .track_focus(&self.focus)
             .on_key_down(|event, window, cx| {
                 if event.keystroke.key == "escape" {
@@ -131,67 +163,81 @@ impl Render for Preview {
                 }
             })
             .child(
-                row()
-                    .p_3()
-                    .gap_2()
-                    .child(
-                        self.file
-                            .path()
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .into_owned(),
-                    )
-                    .child(
-                        button("save-attachment", "Save as…")
-                            .disabled(self.saving)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let directory =
-                                    match canopy_desktop::platform::directories::user_home() {
-                                        Ok(path) => path,
-                                        Err(error) => {
-                                            this.error = Some(error);
-                                            return;
-                                        }
-                                    };
-                                let file = this.file.clone();
-                                let picker = cx.prompt_for_new_path(
-                                    &directory,
-                                    file.path().file_name().and_then(|name| name.to_str()),
-                                );
-                                this.saving = true;
-                                cx.spawn(async move |this, cx| {
-                                    let result = async {
-                                        let path = picker
-                                            .await
-                                            .map_err(|_| "Save dialog closed.".to_owned())?
-                                            .map_err(|error| error.to_string())?;
-                                        if let Some(path) = path {
-                                            cx.background_executor()
-                                                .spawn(async move { file.save_to(&path) })
-                                                .await?;
-                                        }
-                                        Ok::<_, String>(())
+                preview_header("remote-preview-titlebar", name, window).child(
+                    button("save-attachment", "Save as…")
+                        .loading(self.saving)
+                        .disabled(self.saving)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let directory = match canopy_desktop::platform::directories::user_home()
+                            {
+                                Ok(path) => path,
+                                Err(error) => {
+                                    this.error = Some(error);
+                                    cx.notify();
+                                    return;
+                                }
+                            };
+                            let file = this.file.clone();
+                            let picker = cx.prompt_for_new_path(
+                                &directory,
+                                file.path().file_name().and_then(|name| name.to_str()),
+                            );
+                            this.saving = true;
+                            this.error = None;
+                            cx.spawn(async move |this, cx| {
+                                let result = async {
+                                    let path = picker
+                                        .await
+                                        .map_err(|_| "Save dialog closed.".to_owned())?
+                                        .map_err(|error| error.to_string())?;
+                                    if let Some(path) = path {
+                                        cx.background_executor()
+                                            .spawn(async move { file.save_to(&path) })
+                                            .await?;
                                     }
-                                    .await;
-                                    let _ = this.update(cx, |this, cx| {
-                                        this.saving = false;
-                                        this.error = result.err();
-                                        cx.notify();
-                                    });
-                                })
-                                .detach();
-                            })),
-                    ),
+                                    Ok::<_, String>(())
+                                }
+                                .await;
+                                let _ = this.update(cx, |this, cx| {
+                                    this.saving = false;
+                                    this.error = result.err();
+                                    cx.notify();
+                                });
+                            })
+                            .detach();
+                        })),
+                ),
             );
         if let Some(error) = &self.error {
-            body = body.child(error.clone());
+            body = body.child(
+                div()
+                    .p(px(12.))
+                    .child(integrations::integration_message(error.clone(), true)),
+            );
         }
         if self.media.starts_with("font/") {
-            return body.children(self.font_detail.clone()).children(
-                self.font_image
-                    .clone()
-                    .map(super::super::components::media::fitted_image),
+            return body.child(
+                column()
+                    .flex_1()
+                    .min_h_0()
+                    .p(px(24.))
+                    .gap(px(12.))
+                    .children(self.font_detail.clone().map(|detail| {
+                        div()
+                            .text_size(px(12.))
+                            .text_color(t::muted())
+                            .child(detail)
+                    }))
+                    .children(if self.font_image.is_none() && self.error.is_none() {
+                        Some(super::chrome::loading("Loading font…").into_any_element())
+                    } else {
+                        None
+                    })
+                    .children(
+                        self.font_image
+                            .clone()
+                            .map(super::super::components::media::fitted_image),
+                    ),
             );
         }
         #[cfg(target_os = "macos")]
@@ -212,11 +258,14 @@ impl Render for Preview {
         #[cfg(not(target_os = "macos"))]
         {
             if self.media.starts_with("image/") {
-                body = body.child(super::super::components::media::fitted_image(
-                    self.file.path().to_path_buf(),
+                body = body.child(div().flex_1().min_h_0().p(px(16.)).child(
+                    super::super::components::media::fitted_image(self.file.path().to_path_buf()),
                 ));
             } else {
-                body = body.child("Save this attachment to open it with a local application.");
+                body = body.child(super::chrome::empty(
+                    "No preview available",
+                    "Save this file to open it with an app on this computer.",
+                ));
             }
         }
         body
@@ -283,6 +332,7 @@ pub(super) fn open_text(
             ..Default::default()
         },
         move |window, cx| {
+            let title_text = title.clone();
             let view = cx.new(|cx| {
                 let rendered = markdown.then(|| cx.new(super::super::markdown::MarkdownView::chat));
                 if let Some(view) = &rendered {
@@ -292,6 +342,7 @@ pub(super) fn open_text(
                 }
                 let lines: Arc<Vec<String>> = Arc::new(text.lines().map(str::to_owned).collect());
                 TextPreview {
+                    title: title_text,
                     text,
                     markdown: rendered,
                     list: ListState::new(lines.len(), ListAlignment::Top, px(300.)),
@@ -303,49 +354,64 @@ pub(super) fn open_text(
     )
 }
 struct TextPreview {
+    title: String,
     text: String,
     markdown: Option<Entity<super::super::markdown::MarkdownView>>,
     lines: Arc<Vec<String>>,
     list: ListState,
 }
 impl Render for TextPreview {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        use gpui_kit::component::{IconName, button::ButtonVariants};
         let mut body = column()
             .size_full()
             .bg(t::bg())
             .text_color(t::text())
-            .gap_2()
+            .text_size(px(13.))
             .child(
-                button("copy-preview", "Copy").on_click(cx.listener(|this, _, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(this.text.clone()))
-                })),
+                preview_header("remote-text-preview-titlebar", self.title.clone(), window).child(
+                    button("copy-preview", "Copy")
+                        .ghost()
+                        .border_0()
+                        .icon(icon(IconName::Copy))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(this.text.clone()))
+                        })),
+                ),
             );
         if let Some(markdown) = &self.markdown {
             body = body.child(
                 div()
                     .id("preview-scroll")
+                    .flex_1()
+                    .min_h_0()
                     .overflow_y_scroll()
-                    .size_full()
-                    .child(markdown.clone()),
+                    .child(div().px(px(28.)).py(px(24.)).child(markdown.clone())),
             );
         } else {
             let lines = self.lines.clone();
             body = body.child(
                 list(self.list.clone(), move |ix, _, _| {
                     let line = lines.get(ix).cloned().unwrap_or_default();
+                    let mark = if line.starts_with('+') {
+                        '+'
+                    } else if line.starts_with('-') {
+                        '-'
+                    } else {
+                        ' '
+                    };
                     div()
+                        .px(px(12.))
+                        .min_h(px(20.))
+                        .bg(t::diff_line_background(mark))
                         .font_family(t::MONO)
-                        .text_color(if line.starts_with('+') {
-                            t::green()
-                        } else if line.starts_with('-') {
-                            t::red()
-                        } else {
-                            t::text()
-                        })
+                        .text_size(px(12.))
+                        .text_color(t::text())
                         .child(line)
                         .into_any_element()
                 })
-                .size_full(),
+                .flex_1()
+                .min_h_0(),
             );
         }
         body
@@ -384,13 +450,19 @@ struct HtmlPreview {
     error: Option<String>,
 }
 impl Render for HtmlPreview {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let page = self.page.clone();
         column()
             .size_full()
             .bg(t::bg())
             .text_color(t::text())
-            .children(self.error.clone())
+            .text_size(px(13.))
+            .child(preview_header("remote-html-titlebar", "Page", window))
+            .children(self.error.clone().map(|error| {
+                div()
+                    .p(px(12.))
+                    .child(integrations::integration_message(error, true))
+            }))
             .child(
                 canvas(
                     |_, _, _| (),
@@ -400,6 +472,7 @@ impl Render for HtmlPreview {
                         }
                     },
                 )
+                .flex_1()
                 .size_full(),
             )
     }

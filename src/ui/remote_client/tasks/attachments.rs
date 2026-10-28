@@ -3,7 +3,35 @@ use canopy_desktop::integrations::attachments::{PREVIEW_LIMIT, PreviewFile};
 use prost::Message;
 use sha2::{Digest, Sha256};
 impl TasksView {
-    pub(super) fn prepare_attachment(&mut self, cx: &mut Context<Self>) {
+    /// The native picker supplies the path; the prepared upload remains bound
+    /// to the task that was open when the file was chosen.
+    pub(super) fn pick_attachment(&mut self, cx: &mut Context<Self>) {
+        let Ok(task) = self.task_ref() else {
+            return;
+        };
+        let selection = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Attach file".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let picked = selection.await;
+            let _ = this.update(cx, |s, cx| match picked {
+                Ok(Ok(Some(paths))) => {
+                    if let Some(path) = paths.into_iter().next()
+                        && s.task_ref().is_ok_and(|t| t == task)
+                    {
+                        s.prepare_attachment(path, cx);
+                    }
+                }
+                Ok(Err(e)) => s.fail(e.to_string(), cx),
+                _ => {}
+            });
+        })
+        .detach();
+    }
+    pub(super) fn prepare_attachment(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
         let task = match self.task_ref() {
             Ok(t) => t,
             Err(e) => {
@@ -11,7 +39,6 @@ impl TasksView {
                 return;
             }
         };
-        let path = std::path::PathBuf::from(value(&self.attachment_path, cx));
         let host = self.host.clone();
         self.run(
             async move {
@@ -26,7 +53,7 @@ impl TasksView {
                             .read_to_end(&mut bytes)
                             .map_err(|e| e.to_string())?;
                         if bytes.len() > PREVIEW_LIMIT {
-                            return Err("Attachment exceeds 25 MiB.".into());
+                            return Err("Choose a file up to 25 MiB.".into());
                         }
                         let name = path
                             .file_name()
@@ -73,7 +100,8 @@ impl TasksView {
         };
         let host = self.host.clone();
         self.upload_attempted = true;
-        self.run(
+        self.run_as(
+            Loading::Save,
             async move {
                 let artifact = host.resume_upload(&id).await?;
                 host.save_view(format!("task-upload:{id}"),serde_json::json!({"task":task.encode_to_vec(),"name":name,"attempted":true}).to_string())?;
@@ -210,10 +238,29 @@ impl TasksView {
             return;
         }
         let owner = cx.entity().downgrade();
-        window.open_dialog(cx,move|dialog,_,_|{let owner=owner.clone();dialog.title("Retry attachment creation?")
-            .button_props(gpui_kit::component::dialog::DialogButtonProps::default().ok_text("Create another attempt").show_cancel(true))
-            .child("An earlier attempt may already have attached this file. Query its command result and refresh the original task first. If the outcome is still unknown, this explicit new attempt can create a duplicate. Upload bytes always remain bound to the original task.")
-            .on_ok(move|_,_,cx|{let _=owner.update(cx,|s,cx|s.upload_attachment(cx));true})});
+        let name = self
+            .pending_upload
+            .as_ref()
+            .map(|u| u.2.clone())
+            .unwrap_or_default();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let owner = owner.clone();
+            dialog
+                .title(format!("Upload “{name}” again?"))
+                .button_props(
+                    gpui_kit::component::dialog::DialogButtonProps::default()
+                        .ok_text("Upload again")
+                        .show_cancel(true),
+                )
+                .child(
+                    "An earlier upload may already have attached this file. Refresh the task \
+                     first; uploading again can create a duplicate attachment.",
+                )
+                .on_ok(move |_, _, cx| {
+                    let _ = owner.update(cx, |s, cx| s.upload_attachment(cx));
+                    true
+                })
+        });
     }
     pub(super) fn discard_upload(&mut self, cx: &mut Context<Self>) {
         let Some((id, _, _)) = self.pending_upload.clone() else {

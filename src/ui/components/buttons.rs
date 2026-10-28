@@ -77,12 +77,25 @@ pub fn icon_button(
 /// `icon_button` without its mark, for an app icon (`custom_icon`).
 pub fn icon_button_base(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
     let label = label.into();
+    icon_button_frame(id, label.clone()).tooltip(label)
+}
+
+/// `icon_button` without a tooltip, for a control a surrounding hover card already
+/// explains; `label` stays its accessible name.
+pub fn untitled_icon_button(
+    id: impl Into<ElementId>,
+    name: IconName,
+    label: impl Into<SharedString>,
+) -> Button {
+    icon_button_frame(id, label.into()).icon(icon(name))
+}
+
+fn icon_button_frame(id: impl Into<ElementId>, label: SharedString) -> Button {
     Button::new(id)
         .small()
         .ghost()
         .compact()
-        .accessibility_label(label.clone())
-        .tooltip(label)
+        .accessibility_label(label)
         .size(px(20.))
         .min_w(px(20.))
         .max_w(px(20.))

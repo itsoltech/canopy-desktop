@@ -88,6 +88,28 @@ walidację wartości, odrzucenie nieobsługiwanych schematów i zmianę wersji
 przez inny proces. Fixture zawiera schemat produkcyjny bez danych użytkownika.
 
 Wspólny stan, powiadomienia między oknami i kontrolki General są podłączone.
+
+### Pozycje jeszcze niedziałające
+
+Settings pokazuje wszystkie pozycje z Electrona, ale te bez konsumenta w aplikacji
+są wyszarzone (`t::faint()`), mają tooltip „Not available yet” i wyłączone kontrolki;
+niczego nie usuwamy. Pozycje nawigacji z listy `UNAVAILABLE`
+(`src/ui/preferences/navigation.rs`) dalej da się kliknąć — otwierają stronę z
+tytułem i podtytułem „Not available yet”. Wiersz w działającej stronie wyszarza
+`preferences::unavailable(id, row)` i dopisuje „Not available yet.” do opisu.
+
+| Pozycja | Powód |
+| --- | --- |
+| Nawigacja: Updates, Privacy, Shortcuts, Notch, Misc, Appearance, Sidebar, Skills, Git, File Watcher | brak strony; wcześniej kliknięcie nic nie robiło |
+| BACKUP (eksport/import) w stopce nawigacji | same ikony bez akcji |
+| Search settings… w nagłówku | wartość pola nie jest nigdzie czytana; ⌘K tylko ustawia focus |
+| General → Run setup wizard | przycisk bez akcji; w Rust nie ma kreatora |
+| General → New worktree (`newWorktree.toolId`) | zapisywane, ale agent worktree wybiera dialog (`ui/worktree_dialog.rs`) |
+| General → Show CPU and RAM usage (`perf.hud.enabled`) | zapisywane, ale pasek stanu nie ma próbnika CPU/RAM |
+
+Po podłączeniu funkcji usuń jej pozycję z `UNAVAILABLE` albo opakowanie
+`unavailable(...)` i z tej tabeli.
+
 Profile i sekrety przechowują w SQLite tylko konfigurację i nieprzezroczyste
 referencje; wartości sekretów należą do Keychain, Windows Credential Manager lub
 Secret Service na Linuxie (`oo7`, już rozwiązywany przez GPUI). Dostęp odbywa się

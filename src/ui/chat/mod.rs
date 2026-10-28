@@ -6,6 +6,7 @@ mod attachments;
 mod code_blocks;
 mod composer;
 mod decision;
+mod details;
 mod edit;
 mod find;
 mod fork;

@@ -23,13 +23,13 @@ pub struct RenameChat {
 impl EventEmitter<RenameChat> for Sidebar {}
 
 fn chat_text(
-    pane: PaneId,
+    key: &str,
     part: &'static str,
     text: impl Into<SharedString>,
 ) -> impl IntoElement + Styled {
     let text = text.into();
     let label = div()
-        .id(SharedString::from(format!("chat-{part}-{pane:?}")))
+        .id(SharedString::from(format!("chat-{part}-{key}")))
         .aria_label(text.clone())
         .min_w_0()
         .truncate()
@@ -40,6 +40,36 @@ fn chat_text(
         label.test_support()
     };
     label
+}
+
+/// Builds a row's actions menu; the same items open from its context menu.
+pub(super) type MenuItems = dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu;
+/// What clicking a row (or one of its buttons) does.
+pub(super) type RowAction = dyn Fn(&mut Sidebar, &mut Context<Sidebar>);
+
+/// One agent session in the tree, local or on another computer: both draw the
+/// same row and differ only in where state and actions come from.
+pub(super) struct SessionRow {
+    /// Unique among sessions; names the row's elements and animations.
+    pub key: String,
+    pub title: String,
+    pub mark: (Hsla, &'static str),
+    pub activity: Activity,
+    pub status: (&'static str, Hsla),
+    /// The model, or the computer of a remote session.
+    pub detail: Option<String>,
+    /// A CLI agent in a terminal tab.
+    pub cli: bool,
+    /// The session runs on another computer.
+    pub host: bool,
+    pub selected: bool,
+    pub enabled: bool,
+    /// Position in its list, for the staggered reveal.
+    pub index: usize,
+    pub label: String,
+    pub card: Rc<super::cards::SessionCard>,
+    pub on_click: Rc<RowAction>,
+    pub menu: Option<Rc<MenuItems>>,
 }
 
 impl Sidebar {
@@ -123,6 +153,186 @@ impl Sidebar {
             );
         }
         column().px_3().children(rows)
+    }
+    pub(super) fn session_row(&self, spec: SessionRow, cx: &Context<Self>) -> AnyElement {
+        let SessionRow {
+            key,
+            title,
+            mark,
+            activity,
+            status,
+            detail,
+            cli,
+            host,
+            selected,
+            enabled,
+            index,
+            label,
+            card,
+            on_click,
+            menu,
+        } = spec;
+        let group = SharedString::from(format!("session-{key}"));
+        let action = Button::new(SharedString::from(if cli {
+            format!("agent-terminal-{key}")
+        } else {
+            format!("chat-{key}")
+        }))
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .foreground(t::text())
+                .hover(t::chat_hover())
+                .active(t::chat_selected()),
+        )
+        .small()
+        .compact()
+        .selected(selected)
+        .h(t::chat_row_height())
+        .w_full()
+        .min_w_0()
+        .px_0()
+        .border_0()
+        .rounded(t::sidebar_row_radius())
+        .disabled(!enabled)
+        .accessibility_label(label)
+        .child(
+            // Padding lives inside the button's clipping label so
+            // the activity edge can extend past the tile.
+            row()
+                .w_full()
+                .min_w_0()
+                .pl_2()
+                .pr_1p5()
+                .gap_2p5()
+                .child(activity::agent_avatar(
+                    &key,
+                    mark,
+                    activity,
+                    &group,
+                    selected,
+                    self.reduced,
+                ))
+                .child(
+                    column()
+                        .flex_1()
+                        .min_w_0()
+                        .items_start()
+                        .gap_1()
+                        .text_left()
+                        .child(
+                            row()
+                                .w_full()
+                                .min_w_0()
+                                .gap_1p5()
+                                .when(menu.is_some(), |d| d.pr_6())
+                                .child(
+                                    chat_text(&key, "title", title.clone())
+                                        .text_sm()
+                                        .line_height(t::chat_title_line_height())
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(t::text()),
+                                )
+                                .when(cli, |d| d.child(title_glyph("canopy/square-terminal.svg")))
+                                .when(host, |d| d.child(title_glyph("canopy/monitor.svg"))),
+                        )
+                        .child(
+                            row()
+                                .w_full()
+                                .min_w_0()
+                                .gap_1()
+                                .text_xs()
+                                .line_height(t::chat_metadata_line_height())
+                                .child(
+                                    chat_text(&key, "agent", status.0)
+                                        .flex_shrink_0()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(status.1),
+                                )
+                                .children(detail.map(|detail| {
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_color(t::muted())
+                                        .child(format!("· {detail}"))
+                                })),
+                        ),
+                ),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| on_click(this, cx)));
+        let menu = menu.filter(|_| enabled);
+        let session = div()
+            .id(SharedString::from(format!("session-row-{key}")))
+            .relative()
+            .group(group.clone())
+            .h(t::chat_row_height())
+            .flex_shrink_0()
+            // Button tooltips are text-only; the card needs its own host.
+            .child(
+                div()
+                    .id(SharedString::from(format!("session-card-{key}")))
+                    .size_full()
+                    .hover_card(format!("session-{key}"), Placement::Right, move |_, cx| {
+                        card.render(cx).into_any_element()
+                    })
+                    .child(action),
+            )
+            .when(activity == Activity::Attention && !self.reduced, |row| {
+                row.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .rounded(t::sidebar_row_radius())
+                        .bg(t::attention_flash())
+                        .with_animation(
+                            SharedString::from(format!("attention-sweep-{key}")),
+                            Animation::new(canopy_desktop::motion::duration::SWEEP),
+                            |sweep, progress| {
+                                sweep.opacity(
+                                    1. - canopy_desktop::motion::Easing::SmoothOut.sample(progress),
+                                )
+                            },
+                        ),
+                )
+            })
+            .children(menu.clone().map(|items| {
+                let button = Button::new(SharedString::from(format!("chat-menu-{key}")))
+                    .custom(
+                        ButtonCustomVariant::new(cx)
+                            .foreground(t::secondary())
+                            .hover(t::hover())
+                            .active(t::selected()),
+                    )
+                    .small()
+                    .compact()
+                    .size_6()
+                    .p_0()
+                    .border_0()
+                    .rounded(t::control_radius(cx))
+                    .accessibility_label(format!("Actions for {title}"))
+                    .tooltip("Chat actions")
+                    .icon(IconName::Ellipsis)
+                    .dropdown_menu(move |menu, window, cx| items(menu, window, cx));
+                div()
+                    .id(SharedString::from(format!("session-menu-{key}")))
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right_1p5()
+                    .hides_hover_card()
+                    .flex()
+                    .items_center()
+                    .when(!selected, |d| {
+                        d.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.))
+                    })
+                    .child(button)
+            }));
+        let session = match menu {
+            Some(items) => session
+                .context_menu(move |menu, window, cx| items(menu, window, cx))
+                .into_any_element(),
+            None => session.into_any_element(),
+        };
+        reveal(&key, index, session, self.reduced)
     }
     pub(super) fn chats_content(&self, now: Instant, cx: &Context<Self>) -> Div {
         let id = self.projects.read(cx).scratch_id(cx);
@@ -213,12 +423,12 @@ impl Sidebar {
                     };
                     let activity = Activity::of(id, cx);
                     let model = model_label(id, cli, cx);
-                    let group = SharedString::from(format!("session-{id:?}"));
-                    let index = rows.len();
+                    let key = format!("{id:?}");
                     let card = Rc::new(super::cards::SessionCard {
-                        id,
+                        id: Some(id),
+                        activity,
                         title: title.clone(),
-                        provider,
+                        mark: activity::provider_mark(provider),
                         agent: agent.to_owned(),
                         model: model.clone(),
                         cli,
@@ -226,114 +436,11 @@ impl Sidebar {
                             context.folder.clone().unwrap_or_default(),
                         ),
                         context: context.clone(),
+                        host: None,
                     });
-                    let action = Button::new(SharedString::from(if cli {
-                        format!("agent-terminal-{id:?}")
-                    } else {
-                        format!("chat-{id:?}")
-                    }))
-                    .custom(
-                        ButtonCustomVariant::new(cx)
-                            .foreground(t::text())
-                            .hover(t::chat_hover())
-                            .active(t::chat_selected()),
-                    )
-                    .small()
-                    .compact()
-                    .selected(selected)
-                    .h(t::chat_row_height())
-                    .w_full()
-                    .min_w_0()
-                    .px_0()
-                    .border_0()
-                    .rounded(t::sidebar_row_radius())
-                    .disabled(!enabled)
-                    .accessibility_label(format!(
-                        "{}, {title}, {}, {agent}, {}{}{}",
-                        context.project,
-                        context.checkout,
-                        activity.label(),
-                        if cli { ", CLI terminal" } else { "" },
-                        if selected { ", selected" } else { "" }
-                    ))
-                    .child(
-                        // Padding lives inside the button's clipping label so
-                        // the activity edge can extend past the tile.
-                        row()
-                            .w_full()
-                            .min_w_0()
-                            .pl_2()
-                            .pr_1p5()
-                            .gap_2p5()
-                            .child(activity::agent_avatar(
-                                id,
-                                provider,
-                                activity,
-                                &group,
-                                selected,
-                                self.reduced,
-                            ))
-                            .child(
-                                column()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .items_start()
-                                    .gap_1()
-                                    .text_left()
-                                    .child(
-                                        row()
-                                            .w_full()
-                                            .min_w_0()
-                                            .gap_1p5()
-                                            .when(!cli, |d| d.pr_6())
-                                            .child(
-                                                chat_text(id, "title", title.clone())
-                                                    .text_sm()
-                                                    .line_height(t::chat_title_line_height())
-                                                    .font_weight(FontWeight::MEDIUM)
-                                                    .text_color(t::text()),
-                                            )
-                                            .when(cli, |d| {
-                                                d.child(
-                                                    Icon::default()
-                                                        .path("canopy/square-terminal.svg")
-                                                        .size_3()
-                                                        .flex_shrink_0()
-                                                        .text_color(t::faint()),
-                                                )
-                                            }),
-                                    )
-                                    .child(
-                                        row()
-                                            .w_full()
-                                            .min_w_0()
-                                            .gap_1()
-                                            .text_xs()
-                                            .line_height(t::chat_metadata_line_height())
-                                            .child(
-                                                chat_text(id, "agent", activity.label())
-                                                    .flex_shrink_0()
-                                                    .font_weight(FontWeight::MEDIUM)
-                                                    .text_color(activity.color()),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_color(t::muted())
-                                                    .child("· This computer"),
-                                            )
-                                            .children(model.map(|model| {
-                                                div()
-                                                    .min_w_0()
-                                                    .truncate()
-                                                    .text_color(t::muted())
-                                                    .child(format!("· {model}"))
-                                            })),
-                                    ),
-                            ),
-                    )
-                    .on_click({
+                    let on_click: Rc<RowAction> = {
                         let detached = detached.clone();
-                        cx.listener(move |this, _, _, cx| {
+                        Rc::new(move |this, cx| {
                             this.local_selection(cx);
                             match &detached {
                                 Some(chat) => {
@@ -352,9 +459,9 @@ impl Sidebar {
                                 }),
                             }
                         })
-                    });
+                    };
                     let owner = cx.entity().downgrade();
-                    let items = Rc::new(
+                    let menu: Rc<MenuItems> = Rc::new(
                         move |menu: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
                             if let Some(chat) = detached.clone() {
                                 // Named in its tab once open; deleting asks like a tab.
@@ -386,118 +493,43 @@ impl Sidebar {
                             )
                         },
                     );
-                    let menu = Button::new(SharedString::from(format!("chat-menu-{id:?}")))
-                        .custom(
-                            ButtonCustomVariant::new(cx)
-                                .foreground(t::secondary())
-                                .hover(t::hover())
-                                .active(t::selected()),
-                        )
-                        .small()
-                        .compact()
-                        .size_6()
-                        .p_0()
-                        .border_0()
-                        .rounded(t::control_radius(cx))
-                        .accessibility_label(format!("Actions for {title}"))
-                        .tooltip("Chat actions")
-                        .icon(IconName::Ellipsis)
-                        .disabled(!enabled)
-                        .dropdown_menu({
-                            let items = items.clone();
-                            move |menu, window, cx| items(menu, window, cx)
-                        });
-                    let session = div()
-                        .id(SharedString::from(format!("session-row-{id:?}")))
-                        .relative()
-                        .group(group.clone())
-                        .h(t::chat_row_height())
-                        .flex_shrink_0()
-                        // Button tooltips are text-only; the card needs its own host.
-                        .child(
-                            div()
-                                .id(SharedString::from(format!("session-card-{id:?}")))
-                                .size_full()
-                                .hover_card(
-                                    format!("session-{id:?}"),
-                                    Placement::Right,
-                                    move |_, cx| card.render(cx).into_any_element(),
-                                )
-                                .child(action),
-                        )
-                        .when(activity == Activity::Attention && !self.reduced, |row| {
-                            row.child(
-                                div()
-                                    .absolute()
-                                    .inset_0()
-                                    .rounded(t::sidebar_row_radius())
-                                    .bg(t::attention_flash())
-                                    .with_animation(
-                                        SharedString::from(format!("attention-sweep-{id:?}")),
-                                        Animation::new(canopy_desktop::motion::duration::SWEEP),
-                                        |sweep, progress| {
-                                            sweep.opacity(
-                                                1. - canopy_desktop::motion::Easing::SmoothOut
-                                                    .sample(progress),
-                                            )
-                                        },
-                                    ),
-                            )
-                        })
-                        .when(!cli, |row| {
-                            row.child(
-                                div()
-                                    .id(SharedString::from(format!("session-menu-{id:?}")))
-                                    .absolute()
-                                    .top_0()
-                                    .bottom_0()
-                                    .right_1p5()
-                                    .hides_hover_card()
-                                    .flex()
-                                    .items_center()
-                                    .when(!selected, |d| {
-                                        d.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.))
-                                    })
-                                    .child(menu),
-                            )
-                        });
-                    let session = if enabled && !cli {
-                        session
-                            .context_menu(move |menu, window, cx| items(menu, window, cx))
-                            .into_any_element()
-                    } else {
-                        session.into_any_element()
-                    };
-                    rows.push(reveal(id, index, session, self.reduced));
+                    let index = rows.len();
+                    rows.push(self.session_row(
+                        SessionRow {
+                            key,
+                            title: title.clone(),
+                            mark: activity::provider_mark(provider),
+                            activity,
+                            status: (activity.label(), activity.color()),
+                            detail: model,
+                            cli,
+                            host: false,
+                            selected,
+                            enabled,
+                            index,
+                            label: format!(
+                                "{}, {title}, {}, {agent}, {}{}{}",
+                                context.project,
+                                context.checkout,
+                                activity.label(),
+                                if cli { ", CLI terminal" } else { "" },
+                                if selected { ", selected" } else { "" }
+                            ),
+                            card,
+                            on_click,
+                            menu: (!cli).then_some(menu),
+                        },
+                        cx,
+                    ));
                 }
             }
         }
         if nested {
-            if rows.is_empty() {
-                rows.push(
-                    div()
-                        .px_2()
-                        .py_1()
-                        .text_xs()
-                        .text_color(t::faint())
-                        .child("No sessions yet")
-                        .into_any_element(),
-                );
-            }
-            return column()
-                .ml(rems(1.25))
-                .pl_1()
-                .border_l_1()
-                .border_color(t::border())
-                .gap_px()
-                .children(rows);
+            return session_rail(rows);
         }
-        if rows.is_empty()
-            && !self
-                .remote_catalogs(cx)
-                .iter()
-                .any(|(_, catalog)| catalog.chats.iter().any(|chat| chat.workspace.is_none()))
-        {
+        let remote = self.remote_private_chats(rows.len(), cx);
+        rows.extend(remote);
+        if rows.is_empty() {
             rows.push(
                 div()
                     .px_2()
@@ -566,6 +598,28 @@ pub(in crate::ui) fn navigation_status(id: PaneId, cx: &App) -> &'static str {
     }
 }
 
+/// A worktree's sessions, hung from a rail under its row.
+pub(super) fn session_rail(mut rows: Vec<AnyElement>) -> Div {
+    if rows.is_empty() {
+        rows.push(
+            div()
+                .px_2()
+                .py_1()
+                .text_xs()
+                .text_color(t::faint())
+                .child("No sessions yet")
+                .into_any_element(),
+        );
+    }
+    column()
+        .ml(rems(1.25))
+        .pl_1()
+        .border_l_1()
+        .border_color(t::border())
+        .gap_px()
+        .children(rows)
+}
+
 /// Chats and CLI agents: the panes the sidebar lists as sessions.
 pub(super) fn is_session(pane: &canopy_desktop::state::workspace::Pane) -> bool {
     pane.metadata.remote.is_none()
@@ -586,8 +640,17 @@ fn model_label(id: PaneId, cli: bool, cx: &App) -> Option<String> {
     app.agents.read(cx).sessions.get(&id)?.model.clone()
 }
 
+/// A small mark after a session's title: a CLI terminal, another computer.
+fn title_glyph(path: &'static str) -> Icon {
+    Icon::default()
+        .path(path)
+        .size_3()
+        .flex_shrink_0()
+        .text_color(t::faint())
+}
+
 /// Rows rise into place, staggered, when their group opens or a session appears.
-fn reveal(id: PaneId, index: usize, row: AnyElement, reduced: bool) -> AnyElement {
+fn reveal(key: &str, index: usize, row: AnyElement, reduced: bool) -> AnyElement {
     use canopy_desktop::motion::{Easing, distance, duration};
     if reduced {
         return row;
@@ -599,7 +662,7 @@ fn reveal(id: PaneId, index: usize, row: AnyElement, reduced: bool) -> AnyElemen
         .relative()
         .child(row)
         .with_animation(
-            SharedString::from(format!("session-reveal-{id:?}")),
+            SharedString::from(format!("session-reveal-{key}")),
             Animation::new(total),
             move |row, progress| {
                 let p = Easing::SmoothOut.sample(((progress - delay) / (1. - delay)).max(0.));

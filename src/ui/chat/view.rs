@@ -8,6 +8,7 @@ use super::{
     rows::Rows,
 };
 use crate::app_state::{ChatRuntime, ChatRuntimeEvent};
+use crate::ui::components::ButtonLoading;
 use canopy_desktop::chat::mentions::{self, FileRef};
 use canopy_desktop::{
     chat::{
@@ -65,6 +66,8 @@ pub struct ChatView {
     pub(super) copied_reset: Option<Task<()>>,
     /// A sent message being edited in the composer.
     pub(super) editing: Option<Editing>,
+    /// The remote message whose edit the host is checking, and its pencil's spinner.
+    pub(super) edit_check: Option<(canopy_desktop::chat::transcript::ItemId, ButtonLoading)>,
     pub(super) attachments: super::attachments::Attachments,
     pub(super) navigator: super::navigator::Navigator,
     /// Redraws while a retry or limit countdown is shown.
@@ -101,6 +104,10 @@ pub struct ChatView {
     pub(super) overlay_drawn: std::rc::Rc<std::cell::Cell<Pixels>>,
     /// Why the last `!` command couldn't run, under the composer.
     pub(super) shell_error: Option<String>,
+    /// The runtime's notice under the field, kept while it leaves.
+    pub(super) notice: super::composer::NoticeRow,
+    /// Spinners of the remote chat's history and recovery actions.
+    pub(super) remote_feedback: super::remote::RemoteFeedback,
     /// The composer runs shell commands: `!` typed into an empty field turned it on.
     pub(super) shell: bool,
     /// The composer sets the chat's goal: `/goal ` typed or picked turned it on.
@@ -187,7 +194,21 @@ impl ChatView {
                 cx.notify();
             }
         });
-        let observed = cx.observe(&runtime, |_, _, cx| cx.notify());
+        let observed = cx.observe(&runtime, |this, _, cx| {
+            this.follow_agent_terminals(cx);
+            this.sync_notice(motion::policy(cx), cx);
+            this.sync_remote_feedback(cx);
+            cx.notify()
+        });
+        // The empty conversation names the project and branch Git reports (`details.rs`).
+        let git = cx.observe(
+            &cx.global::<crate::app_state::AppState>().git.clone(),
+            |this, _, cx| {
+                if this.rows.rows.is_empty() {
+                    cx.notify()
+                }
+            },
+        );
         let events = cx.subscribe(&runtime, |this, _, event: &ChatRuntimeEvent, cx| {
             this.on_runtime(event, cx)
         });
@@ -219,6 +240,7 @@ impl ChatView {
             copied: None,
             copied_reset: None,
             editing: None,
+            edit_check: None,
             attachments: Default::default(),
             navigator: Default::default(),
             ticker: None,
@@ -236,6 +258,8 @@ impl ChatView {
             overlay_unfolded: Default::default(),
             overlay_drawn: Default::default(),
             shell_error: None,
+            notice: Default::default(),
+            remote_feedback: Default::default(),
             shell: false,
             goal_mode: false,
             goal_row: Default::default(),
@@ -244,11 +268,13 @@ impl ChatView {
             composer_was_empty: true,
             recall: None,
             pages: Default::default(),
-            _subscriptions: vec![subscription, models, search, observed, events],
+            _subscriptions: vec![subscription, models, search, observed, git, events],
         };
         // What the runtime already holds shows at once, without replaying motion.
         view.catch_up_archived(cx);
         view.runtime_changed(serial, &[], MotionPolicy::Reduced, cx);
+        view.sync_notice(MotionPolicy::Reduced, cx);
+        view.sync_remote_feedback(cx);
         view
     }
 

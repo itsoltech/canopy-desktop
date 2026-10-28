@@ -60,6 +60,7 @@ mod workspace_layout;
 mod workspace_panes;
 mod workspace_tabs;
 mod worktree_dialog;
+mod worktree_overview;
 pub(crate) mod youtrack;
 use workspace_panes::{Placement, SplitResize};
 pub mod theme;
@@ -295,6 +296,7 @@ impl Workspace {
             KeyBinding::new("cmd-alt-w", ClosePane, Some("Workspace")),
             KeyBinding::new("cmd-1", ShellTab, Some("Workspace")),
             KeyBinding::new("cmd-2", CodexTab, Some("Workspace")),
+            KeyBinding::new("cmd-,", ShowPreferences, Some("Workspace")),
         ]);
         #[cfg(target_os = "windows")]
         cx.bind_keys([
@@ -316,6 +318,7 @@ impl Workspace {
             KeyBinding::new("ctrl-shift-x", ClosePane, Some("Workspace")),
             KeyBinding::new("ctrl-shift-1", ShellTab, Some("Workspace")),
             KeyBinding::new("ctrl-shift-2", CodexTab, Some("Workspace")),
+            KeyBinding::new("ctrl-,", ShowPreferences, Some("Workspace")),
         ]);
         cx.bind_keys([KeyBinding::new(
             "escape",

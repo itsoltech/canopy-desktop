@@ -69,7 +69,7 @@ impl RemoteWorkspace {
     pub fn new_chat(&mut self, cx: &mut Context<Self>) {
         self.view.update(cx, |view, cx| {
             view.navigate(Page::Catalog, cx);
-            view.discover(0, cx);
+            view.discover(cx);
         });
     }
     pub fn close_project(&mut self, cx: &mut Context<Self>) {
@@ -154,30 +154,60 @@ impl RemoteWindow {
 }
 
 impl RemoteWindow {
-    pub(super) fn embedded_navigation(&self, cx: &Context<Self>) -> impl IntoElement {
-        row().gap_1().px_3().pb_2().flex_wrap().children(
-            [
-                ("new-remote-chat", "New chat", Page::Catalog),
-                ("remote-files", "Files", Page::Files),
-                ("remote-changes", "Changes", Page::Git),
-                ("remote-terminals", "Terminals", Page::Terminals),
-                ("remote-notes", "Notes", Page::Notes),
-                ("remote-tasks", "Tasks", Page::Tasks),
-            ]
-            .map(|(id, label, page)| {
-                button(id, label).on_click(cx.listener(move |view, _, _, cx| {
-                    view.navigate(page, cx);
-                    match page {
-                        Page::Files => view.load_directory(cx),
-                        Page::Git => view.load_git(cx),
-                        Page::Notes => view.open_notes(cx),
-                        Page::Tasks => view.load_tasks(cx),
-                        Page::Catalog => view.discover(0, cx),
-                        _ => {}
-                    }
-                }))
-            }),
-        )
+    /// Tab strip of the embedded workspace; selection mirrors the visible page.
+    pub(super) fn embedded_navigation(&self, inset: f32, cx: &Context<Self>) -> Div {
+        use gpui_kit::component::IconName;
+        let current = match self.page {
+            Page::Terminal => Page::Terminals,
+            Page::Chat => Page::Catalog,
+            page => page,
+        };
+        row()
+            .flex_shrink_0()
+            .gap(px(4.))
+            .px(px(inset))
+            .py(px(8.))
+            .border_b_1()
+            .border_color(t::border())
+            .flex_wrap()
+            .children(
+                [
+                    (
+                        "new-remote-chat",
+                        "New chat",
+                        icon(IconName::Plus),
+                        Page::Catalog,
+                    ),
+                    ("remote-files", "Files", icon(IconName::Folder), Page::Files),
+                    (
+                        "remote-changes",
+                        "Changes",
+                        custom_icon("git-branch"),
+                        Page::Git,
+                    ),
+                    (
+                        "remote-terminals",
+                        "Terminals",
+                        custom_icon("terminal"),
+                        Page::Terminals,
+                    ),
+                    (
+                        "remote-notes",
+                        "Notes",
+                        icon(IconName::FileText),
+                        Page::Notes,
+                    ),
+                    ("remote-tasks", "Tasks", custom_icon("issue"), Page::Tasks),
+                ]
+                .map(|(id, label, glyph, page)| {
+                    let selected = current == page;
+                    selection_button(id, label, selected)
+                        .border_0()
+                        .icon(glyph.text_color(if selected { t::accent() } else { t::muted() }))
+                        .text_color(if selected { t::text() } else { t::secondary() })
+                        .on_click(cx.listener(move |view, _, _, cx| view.show_page(page, cx)))
+                }),
+            )
     }
 }
 
@@ -213,30 +243,7 @@ impl RemoteWindow {
         let Some(host) = &self.host else {
             return "Remote computer".into();
         };
-        let title = host.shared_catalog().and_then(|catalog| {
-            if self.page == Page::Chat {
-                self.chat
-                    .as_ref()
-                    .and_then(|reference| {
-                        catalog
-                            .chats
-                            .iter()
-                            .find(|chat| chat.chat.as_ref() == Some(reference))
-                    })
-                    .map(|chat| chat.title.clone())
-            } else {
-                self.workspace
-                    .as_ref()
-                    .and_then(|reference| {
-                        catalog
-                            .projects
-                            .iter()
-                            .flat_map(|p| &p.checkouts)
-                            .find(|w| w.workspace.as_ref() == Some(reference))
-                    })
-                    .map(|w| w.branch.clone().unwrap_or_else(|| w.name.clone()))
-            }
-        });
+        let title = self.workspace_label();
         format!(
             "{} · {}",
             title.unwrap_or_else(|| "Private chats".into()),
@@ -252,16 +259,7 @@ impl RemoteWorkspace {
         });
     }
     pub(in crate::ui) fn show(&mut self, page: Page, cx: &mut Context<Self>) {
-        self.view.update(cx, |view, cx| {
-            view.navigate(page, cx);
-            match page {
-                Page::Files => view.load_directory(cx),
-                Page::Git => view.load_git(cx),
-                Page::Tasks => view.load_tasks(cx),
-                Page::Catalog => view.discover(0, cx),
-                _ => {}
-            }
-        });
+        self.view.update(cx, |view, cx| view.show_page(page, cx));
     }
     pub fn save(&mut self, cx: &mut Context<Self>) {
         self.view.update(cx, |view, cx| {
@@ -276,62 +274,88 @@ impl RemoteWorkspace {
 }
 
 impl RemoteWindow {
+    /// Starts a shell in the selected checkout. Loading shows on controls that check
+    /// `pending == Some("new-terminal")`; the result is `notice("new-terminal")`.
+    pub(super) fn new_shell_terminal(&mut self, cx: &mut Context<Self>) {
+        self.new_terminal("shell".into(), None, cx);
+    }
     pub(super) fn render_terminal_picker(&self, cx: &Context<Self>) -> AnyElement {
-        let mut body = column().gap_2();
-        if let Some(host) = &self.host
-            && let Some(catalog) = host.shared_catalog()
-        {
-            for summary in catalog
-                .terminals
-                .iter()
-                .filter(|t| t.workspace == self.workspace)
-            {
-                if let Some(terminal) = summary.terminal.clone() {
-                    body = body.child(
-                        button(
-                            SharedString::from(format!("open-terminal:{}", terminal.terminal_id)),
-                            summary.title.clone(),
-                        )
-                        .on_click(cx.listener(move |view, _, _, cx| {
-                            view.navigate(Page::Terminal, cx);
-                            view.terminal = Some(terminal.clone());
-                            view.terminal_frame = None;
-                            if view.ready() {
-                                view.open_terminal(cx);
-                            }
-                        })),
-                    );
-                }
+        use gpui_kit::component::IconName;
+        let ready = self.ready();
+        let mut list = column()
+            .gap(px(4.))
+            .child(chrome::section_title("TERMINALS"));
+        let terminals = self
+            .host
+            .as_ref()
+            .and_then(|host| host.shared_catalog())
+            .map(|catalog| {
+                catalog
+                    .terminals
+                    .iter()
+                    .filter(|t| t.workspace == self.workspace)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if terminals.is_empty() {
+            list = list.child(
+                div()
+                    .py(px(4.))
+                    .text_size(px(12.))
+                    .text_color(t::muted())
+                    .child("No terminals in this checkout yet."),
+            );
+        }
+        for summary in terminals {
+            if let Some(terminal) = summary.terminal.clone() {
+                list = list.child(
+                    chrome::list_row(
+                        SharedString::from(format!("open-terminal:{}", terminal.terminal_id)),
+                        format!("Open terminal {}", summary.title),
+                        self.terminal.as_ref() == Some(&terminal),
+                    )
+                    .child(custom_icon("terminal").flex_shrink_0())
+                    .child(chrome::row_text(
+                        summary.title.clone(),
+                        if summary.running { "Running" } else { "Exited" },
+                    ))
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.navigate(Page::Terminal, cx);
+                        view.terminal = Some(terminal.clone());
+                        view.terminal_frame = None;
+                        if view.ready() {
+                            view.open_terminal(cx);
+                        }
+                    })),
+                );
             }
         }
-        body.child(
-            button("new-workspace-terminal", "New terminal")
-                .disabled(!self.ready() || self.workspace.is_none())
-                .on_click(cx.listener(|view, _, _, cx| {
-                    let Some(host) = view.host.clone() else {
-                        return;
-                    };
-                    let workspace = view.workspace.clone();
-                    view.run(
-                        async move {
-                            host.mutate(None, move |channel, command| async move {
-                                p::terminal_service_client::TerminalServiceClient::new(channel)
-                                    .open_terminal(p::OpenTerminalRequest {
-                                        command: Some(command),
-                                        workspace,
-                                        tool_id: "shell".into(),
-                                        profile_id: None,
-                                    })
-                                    .await
-                            })
-                            .await?;
-                            Ok(Update::Done("Terminal created on this computer.".into()))
-                        },
-                        cx,
-                    );
-                })),
-        )
-        .into_any_element()
+        let list = list
+            .child(
+                row().pt(px(8.)).child(
+                    button("new-workspace-terminal", "New terminal")
+                        .icon(icon(IconName::Plus))
+                        .loading(self.pending == Some("new-terminal"))
+                        .disabled(!ready || self.workspace.is_none())
+                        .on_click(cx.listener(|view, _, _, cx| view.new_shell_terminal(cx))),
+                ),
+            )
+            .children(self.notice("new-terminal"));
+        // The shell gives this page its full area; it supplies its own inset and scroll.
+        let inset = if self.compact_tools {
+            chrome::COMPACT_X
+        } else if self.embedded {
+            20.
+        } else {
+            chrome::CONTENT_X
+        };
+        div()
+            .id("remote-terminals-scroll")
+            .size_full()
+            .overflow_y_scroll()
+            .child(list.px(px(inset)).py(px(16.)))
+            .into_any_element()
     }
 }
 

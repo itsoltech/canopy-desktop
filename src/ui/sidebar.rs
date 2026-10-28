@@ -18,7 +18,8 @@ pub struct Sidebar {
     terminals: Entity<crate::app_state::Terminals>,
     selected_workspace: Option<canopy_desktop::state::workspace::WorkspaceId>,
     /// Worktrees by path; one missing from the map is open.
-    worktree_groups: std::collections::HashMap<std::path::PathBuf, Disclosure>,
+    /// Keyed by the local path, or the host and workspace of a remote checkout.
+    worktree_groups: std::collections::HashMap<String, Disclosure>,
     project_groups: std::collections::HashMap<String, Disclosure>,
     connections: Option<Entity<super::remote_client::Connections>>,
     remote_selection: Option<canopy_desktop::remote::proto::ResourceRef>,
@@ -109,7 +110,7 @@ impl Sidebar {
                     projects.read(cx).catalog.active.is_some()
                         && Some(p.workspace) != projects.read(cx).catalog.active
                 })
-                .map(|p| (p.path.clone(), Disclosure::new(false, now)))
+                .map(|p| (p.path.display().to_string(), Disclosure::new(false, now)))
                 .collect(),
             project_groups: projects
                 .read(cx)
@@ -136,7 +137,8 @@ impl Sidebar {
                 .chain(
                     remote_keys
                         .into_iter()
-                        .map(|key| (key, Disclosure::new(true, now))),
+                        // Like a local project away from the selection.
+                        .map(|key| (key, Disclosure::new(false, now))),
                 )
                 .collect(),
             _tool_events: tool_events,
@@ -237,7 +239,36 @@ impl Sidebar {
         } else {
             "Ctrl+N"
         };
-        let tooltip = if self.remote_selection.is_some() {
+        let hosts: Vec<_> = self
+            .remote_hosts(cx)
+            .into_iter()
+            .filter(|host| host.phase() == canopy_desktop::remote::client::Phase::Ready)
+            .collect();
+        let selected_host = self.remote_selection.as_ref().and_then(|resource| {
+            use canopy_desktop::remote::proto::resource_ref::Resource;
+            let id = match resource.resource.as_ref()? {
+                Resource::Workspace(w) => &w.host_id,
+                Resource::Chat(c) => &c.host_id,
+                Resource::Terminal(t) => &t.host_id,
+                _ => return None,
+            };
+            self.remote_hosts(cx)
+                .into_iter()
+                .find(|host| host.id().as_str() == id)
+        });
+        // A chat started on a computer goes in its selected worktree, if any.
+        let selected_workspace = self
+            .remote_selection
+            .as_ref()
+            .and_then(|resource| match resource.resource.as_ref()? {
+                canopy_desktop::remote::proto::resource_ref::Resource::Workspace(w) => {
+                    Some(w.clone())
+                }
+                _ => None,
+            });
+        let tooltip = if let Some(host) = &selected_host {
+            format!("New chat on {} ({shortcut})", host.name())
+        } else if self.remote_selection.is_some() {
             format!("New chat on the selected computer ({shortcut})")
         } else {
             reason.map(str::to_owned).unwrap_or_else(|| {
@@ -321,18 +352,41 @@ impl Sidebar {
             .accessibility_label("More chat options")
             .tooltip("More chat options")
             .disabled(reason.is_some() || opening)
-            .dropdown_menu(|menu, _, _| {
-                menu.item(
-                    PopupMenuItem::new("New private chat").on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(crate::ui::NewChatNoProject), cx)
-                    }),
-                )
-                .separator()
-                .item(
-                    PopupMenuItem::new("New chat in…").on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(crate::ui::NewChatIn), cx)
-                    }),
-                )
+            .dropdown_menu(move |menu, _, _| {
+                let menu = menu
+                    .item(
+                        PopupMenuItem::new("New private chat").on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(crate::ui::NewChatNoProject), cx)
+                        }),
+                    )
+                    .separator()
+                    .item(
+                        PopupMenuItem::new("New chat in…").on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(crate::ui::NewChatIn), cx)
+                        }),
+                    );
+                if hosts.is_empty() {
+                    return menu;
+                }
+                hosts
+                    .iter()
+                    .fold(menu.separator().label("Other computers"), |menu, host| {
+                        let host = host.clone();
+                        let workspace = selected_workspace
+                            .clone()
+                            .filter(|w| w.host_id == host.id().as_str());
+                        menu.item(
+                            PopupMenuItem::new(format!("New chat on {}", host.name())).on_click(
+                                move |_, _, cx| {
+                                    crate::ui::remote_chat::new_chat_on(
+                                        host.clone(),
+                                        workspace.clone(),
+                                        cx,
+                                    )
+                                },
+                            ),
+                        )
+                    })
             });
         div().flex_shrink_0().px_3().pt_3().pb_1().child(
             row()
@@ -371,9 +425,7 @@ impl Render for Sidebar {
         );
         let projects = self.projects_content(now, cx);
         use gpui_kit::component::{Sizable, button::ButtonVariants};
-        let private = column()
-            .child(self.chats_content(now, cx))
-            .children(self.remote_private_chats(cx));
+        let private = column().child(self.chats_content(now, cx));
         let count = self
             .projects
             .read(cx)

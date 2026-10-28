@@ -251,14 +251,50 @@ fn paused_row(cx: &Context<ChatView>) -> Div {
                 .text_color(t::text())
                 .child(icon(IconName::Play).size(px(11.)).text_color(t::accent()))
                 .child("Resume")
-                .tooltip(|window, cx| {
-                    gpui_kit::component::tooltip::Tooltip::new(
-                        "Send the queue again, one message per turn; work Stop cut short is finished first",
-                    )
-                    .build(window, cx)
-                })
+                .hover_card(
+                    format!("queue-resume-{}", cx.entity_id()),
+                    gpui_kit::base::Placement::Top,
+                    |_, _| resume_card().into_any_element(),
+                )
                 .on_click(cx.listener(|this, _, _, cx| this.resume_queue(cx))),
         )
+}
+
+/// What Resume does with the paused queue.
+fn resume_card() -> Div {
+    card::body().child(card::title("Resume queue")).child(
+        card::facts()
+            .child(fact(IconName::ArrowUp, "Sends one message per turn"))
+            .child(fact(
+                IconName::Square,
+                "Work cut short by Stop finishes first",
+            )),
+    )
+}
+
+/// What each choice does with a message of uncertain delivery.
+fn unknown_choices_card() -> Div {
+    card::body()
+        .child(card::status(
+            t::yellow(),
+            "Delivery unknown",
+            "the agent stopped before confirming it",
+            t::yellow(),
+        ))
+        .child(card::separator())
+        .child(
+            card::facts()
+                .child(fact(IconName::Check, "Delivered — nothing is sent again"))
+                .child(fact(
+                    IconName::Redo,
+                    "Send again — the agent may get it twice",
+                ))
+                .child(fact(IconName::Close, "Dismiss — removed from the queue")),
+        )
+}
+
+fn fact(name: IconName, text: &'static str) -> Div {
+    card::fact(gpui_kit::component::Icon::new(name)).child(div().min_w_0().child(text))
 }
 
 fn status_dot(color: Hsla) -> Div {
@@ -324,12 +360,18 @@ fn queued_row(
         // The run ended before the agent confirmed it: only the user can say.
         LineState::Unknown => {
             let (delivered, again, dismiss) = (id.clone(), id.clone(), id.clone());
+            // One card explains the three choices; the buttons carry no tooltips.
             row()
+                .id(el("chat-queue-choices"))
                 .flex_shrink_0()
                 .gap(px(2.))
+                .hover_card(
+                    format!("queue-choices-{}-{key}", cx.entity_id()),
+                    gpui_kit::base::Placement::Top,
+                    |_, _| unknown_choices_card().into_any_element(),
+                )
                 .child(
                     action(el("chat-queue-delivered"), "Delivered")
-                        .tooltip("The agent got it; mark it delivered without sending again")
                         .disabled(!active)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.resolve_unknown(delivered.clone(), Resolution::Delivered, cx)
@@ -337,14 +379,13 @@ fn queued_row(
                 )
                 .child(
                     action(el("chat-queue-again"), "Send again")
-                        .tooltip("Send it again in its place; the agent may then get it twice")
                         .disabled(!active)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.resolve_unknown(again.clone(), Resolution::Again, cx)
                         })),
                 )
                 .child(
-                    icon_button(el("chat-queue-dismiss"), IconName::Close, "Dismiss")
+                    untitled_icon_button(el("chat-queue-dismiss"), IconName::Close, "Dismiss")
                         .disabled(!active)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.resolve_unknown(dismiss.clone(), Resolution::Dismiss, cx)

@@ -24,6 +24,44 @@ const SIDEBAR: f32 = 208.;
 const HEADER: f32 = 48.;
 const CONTENT_X: f32 = 28.;
 const SECTION_GAP: f32 = 28.;
+/// Hint on Settings entries that are shown but not wired to the app yet.
+const NOT_AVAILABLE: &str = "Not available yet";
+
+/// A row the app does not consume yet: kept visible, greyed out and inert.
+/// Its control must also be disabled by the caller.
+fn unavailable(id: &'static str, row: Div) -> Stateful<Div> {
+    row.id(id).text_color(t::faint()).tooltip(|window, cx| {
+        gpui_kit::component::tooltip::Tooltip::new(NOT_AVAILABLE).build(window, cx)
+    })
+}
+/// Page for a navigation entry without working settings.
+fn unavailable_page(page: String) -> Div {
+    column().size_full().child(
+        column()
+            .flex_shrink_0()
+            .px(px(CONTENT_X))
+            .pt(px(20.))
+            .pb(px(12.))
+            .gap(px(2.))
+            .border_b_1()
+            .border_color(t::border())
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .line_height(px(16.1))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(t::muted())
+                    .child(page),
+            )
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .line_height(px(14.85))
+                    .text_color(t::muted())
+                    .child(NOT_AVAILABLE),
+            ),
+    )
+}
 
 pub fn open(cx: &mut App) -> Result<WindowHandle<Root>> {
     open_page("General", cx)
@@ -57,7 +95,9 @@ impl Render for Preferences {
         let now = Instant::now();
         motion::request_frame(window, self.reveal.is_animating(now));
         let page = self.page.read(cx).clone();
-        let content = if page == "General" {
+        let content = if navigation::unavailable(&page) {
+            unavailable_page(page.clone()).into_any_element()
+        } else if page == "General" {
             self.content.clone().into_any_element()
         } else if page == "Task filters" {
             self.task_filters.clone().into_any_element()
@@ -106,8 +146,14 @@ impl Render for Preferences {
                             .child(div().text_color(t::secondary()).child(page)),
                     )
                     .child(
+                        // Search does not filter settings yet; the field stays visible but inert.
                         row().flex_1().justify_center().child(
                             row()
+                                .id("prefs-search")
+                                .tooltip(|window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(NOT_AVAILABLE)
+                                        .build(window, cx)
+                                })
                                 .w_full()
                                 .max_w(px(384.))
                                 .h(px(28.))
@@ -119,6 +165,7 @@ impl Render for Preferences {
                                     input(&self.search)
                                         .appearance(false)
                                         .bordered(false)
+                                        .disabled(true)
                                         .small(),
                                 )
                                 .child(

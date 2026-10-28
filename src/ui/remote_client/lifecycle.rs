@@ -6,7 +6,8 @@ impl RemoteWindow {
         let Some(host) = self.host.clone() else {
             return;
         };
-        self.run(
+        self.run_in(
+            "close-project",
             async move {
                 let resource = Some(p::ResourceRef {
                     resource: Some(p::resource_ref::Resource::Workspace(workspace)),
@@ -53,19 +54,23 @@ impl RemoteWindow {
         );
     }
 }
+fn plural(count: u32, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+/// Consequence first, then one line per affected chat or runtime.
 fn close_risks(plan: &p::ClosePlan) -> String {
-    let mut lines = vec!["Closing removes this project’s chats, stops its runtimes and detaches its viewers. Local device drafts remain available.".to_owned()];
+    let mut lines = vec!["Closing removes this project’s chats, stops its processes and disconnects its viewers. Drafts on this device stay available.".to_owned()];
     for risk in &plan.risks {
         lines.push(format!(
-            "{}: {}, {} queued messages, {} viewers",
+            "• {} — {}, {}, {}",
             risk.title,
             if risk.working { "running" } else { "idle" },
-            risk.queued,
-            risk.observers
+            plural(risk.queued, "queued message", "queued messages"),
+            plural(risk.observers, "viewer", "viewers")
         ));
         for dirty in &risk.dirty {
             lines.push(format!(
-                "Unsaved {} · device {} · {}",
+                "• Unsaved {} on device {} — {}",
                 dirty
                     .file
                     .as_ref()
@@ -73,9 +78,9 @@ fn close_risks(plan: &p::ClosePlan) -> String {
                     .unwrap_or("file"),
                 dirty.device_id,
                 if dirty.online {
-                    "online — owner must save or discard"
+                    "its owner must save or discard it first"
                 } else {
-                    "offline — draft remains at risk"
+                    "the device is offline, so its draft may be lost"
                 }
             ));
         }

@@ -183,14 +183,17 @@ impl FieldView {
             Self::Choices(v) => v.clone().into_any_element(),
             Self::Jira(v) => v.clone().into_any_element(),
             Self::Youtrack(v) => v.clone().into_any_element(),
-            Self::ReadOnly(f) => column()
-                .child(f.name.clone())
-                .child(
-                    f.read_only_reason
-                        .clone()
-                        .unwrap_or_else(|| "This field is read-only.".into()),
-                )
-                .into_any_element(),
+            Self::ReadOnly(f) => form_field(
+                f.name.clone(),
+                f.read_only_reason
+                    .clone()
+                    .unwrap_or_else(|| "Read only".into()),
+                div().text_size(px(12.)).text_color(t::secondary()).child(
+                    super::adapter::display(&json(f.current_value.as_ref()))
+                        .unwrap_or_else(|| "—".into()),
+                ),
+            )
+            .into_any_element(),
         }
     }
 }
