@@ -99,7 +99,16 @@ export class AgentHookRouter {
       return
     }
 
-    const sessionId = decodeURIComponent(match[1])
+    // A malformed escape (e.g. `%zz`) makes decodeURIComponent throw; this runs before the
+    // auth check, so any local process could otherwise reject this async handler unhandled.
+    let sessionId: string
+    try {
+      sessionId = decodeURIComponent(match[1])
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
     const endpoint = match[2]
     const session = this.sessions.get(sessionId)
 

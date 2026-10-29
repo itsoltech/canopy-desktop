@@ -338,11 +338,23 @@ async function handleCanopyUrl(url: string): Promise<void> {
     })
     const dedupePaths = [gitInfo.repoRoot ?? resolved, ...gitInfo.worktrees.map((wt) => wt.path)]
 
-    // Dedupe: focus existing window for this path (no confirmation needed)
+    // Dedupe: focus existing window for this path. Focusing needs no confirmation, but a
+    // `tool` param launches a process, so an external link must not do that unprompted.
     const existing = dedupePaths
       .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
       .find((win) => win !== null)
     if (existing) {
+      if (tool) {
+        const { response } = await dialog.showMessageBox(existing, {
+          type: 'question',
+          buttons: ['Launch', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          message: 'Launch tool?',
+          detail: `An external application wants to launch "${tool}" in:\n${resolved}`,
+        })
+        if (response !== 0 || existing.isDestroyed()) return
+      }
       ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
       existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
@@ -357,7 +369,7 @@ async function handleCanopyUrl(url: string): Promise<void> {
       defaultId: 1,
       cancelId: 1,
       message: 'Open workspace?',
-      detail: `An external application wants to open:\n${resolved}`,
+      detail: `An external application wants to open:\n${resolved}${tool ? `\nand launch "${tool}"` : ''}`,
     })
     if (response !== 0) return
 
@@ -696,6 +708,12 @@ app.whenReady().then(async () => {
   // Even if an attacker modifies webview attributes in the DOM, this handler
   // forces safe webPreferences and blocks non-http(s) sources.
   app.on('web-contents-created', (_event, contents) => {
+    // A guest page can call window.open() (the <webview> has `allowpopups`) before the renderer
+    // registers it via `browser:setup`, which installs the real handler. Deny until then.
+    if (contents.getType() === 'webview') {
+      contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    }
+
     contents.on('will-attach-webview', (event, webPreferences, params) => {
       // Strip preload scripts — browser webviews must not have preload
       delete webPreferences.preload
@@ -1181,8 +1199,11 @@ app.whenReady().then(async () => {
   app.on('activate', function () {
     if (!canCreateApplicationWindow()) return
 
-    if (BrowserWindow.getAllWindows().length === 0)
+    if (BrowserWindow.getAllWindows().length === 0) {
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
+      // onAllWindowsClosed disposed the overlay; bring it back with the new window.
+      if (preferencesStore.get('notch.enabled') === 'true') notchOverlay?.initialize()
+    }
   })
 })
 
