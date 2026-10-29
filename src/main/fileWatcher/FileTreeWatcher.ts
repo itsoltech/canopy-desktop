@@ -53,6 +53,7 @@ export class FileTreeWatcher {
   private subscription: watcher.AsyncSubscription | null = null
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private pendingEvents = new Map<string, FileChangeEvent>()
+  private stopped = false
 
   constructor(
     private readonly repoRoot: string,
@@ -86,11 +87,17 @@ export class FileTreeWatcher {
         message: errorMessage(e),
       }),
     ).map((sub) => {
+      // stop() ran while subscribe was pending: release the handle instead of keeping it.
+      if (this.stopped) {
+        void sub.unsubscribe().catch(() => {})
+        return
+      }
       this.subscription = sub
     })
   }
 
   stop(): ResultAsync<void, FileWatcherError> {
+    this.stopped = true
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer)
       this.debounceTimer = null

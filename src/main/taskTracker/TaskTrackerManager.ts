@@ -16,6 +16,7 @@ import { GitRepository } from '../git/GitRepository'
 import { parseGitHubRemote } from '../github/remoteUrl'
 import { trackerBindingKey } from '../../renderer-shared/credentialBindings'
 import { credentialErrorMessage } from '../credentials/errors'
+import { legacyConnectionTokenKey } from './legacyConnectionToken'
 import type {
   TaskTrackerConnection,
   TrackerConfig,
@@ -672,7 +673,8 @@ export class TaskTrackerManager {
   }
 
   private getToken(connection: TaskTrackerConnection): Result<string, TaskTrackerError> {
-    const token = this.preferencesStore.get(connection.authPrefKey)
+    const tokenKey = legacyConnectionTokenKey(connection)
+    const token = tokenKey ? this.preferencesStore.get(tokenKey) : null
     if (!token) return err({ _tag: 'AuthTokenMissing', connectionName: connection.name })
     return ok(token)
   }
@@ -748,10 +750,12 @@ export class TaskTrackerManager {
     if (idx < 0) return null
 
     const conn = connections[idx]
-    connections[idx] = { ...conn, ...updates }
+    // `updates` is a renderer payload: keep identity and token key out of its reach.
+    connections[idx] = { ...conn, ...updates, id: conn.id, authPrefKey: conn.authPrefKey }
 
-    if (newToken) {
-      this.preferencesStore.set(conn.authPrefKey, newToken)
+    const tokenKey = legacyConnectionTokenKey(conn)
+    if (newToken && tokenKey) {
+      this.preferencesStore.set(tokenKey, newToken)
     }
 
     this.saveConnections(connections)
@@ -761,8 +765,9 @@ export class TaskTrackerManager {
   removeConnection(connectionId: string): void {
     const connections = this.getConnections()
     const conn = connections.find((c) => c.id === connectionId)
-    if (conn) {
-      this.preferencesStore.delete(conn.authPrefKey)
+    const tokenKey = conn ? legacyConnectionTokenKey(conn) : null
+    if (tokenKey) {
+      this.preferencesStore.delete(tokenKey)
     }
     this.saveConnections(connections.filter((c) => c.id !== connectionId))
   }

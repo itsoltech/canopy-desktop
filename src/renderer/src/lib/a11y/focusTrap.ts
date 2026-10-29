@@ -12,7 +12,8 @@ export function cycleFocus(container: HTMLElement, e: KeyboardEvent): void {
   const first = focusable[0]
   const last = focusable[focusable.length - 1]
   const active = document.activeElement as HTMLElement | null
-  if (e.shiftKey && (active === first || !container.contains(active))) {
+  // A focused container precedes `first` in tab order, so Shift+Tab from it would leave the dialog.
+  if (e.shiftKey && (active === first || active === container || !container.contains(active))) {
     e.preventDefault()
     last.focus()
   } else if (!e.shiftKey && (active === last || !container.contains(active))) {

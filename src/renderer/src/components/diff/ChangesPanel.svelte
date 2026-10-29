@@ -253,6 +253,8 @@
           tabindex="0"
           onclick={() => handleClick(file)}
           onkeydown={(e) => {
+            // Enter/Space on the nested Stage/Revert buttons must activate them, not the row.
+            if (e.target !== e.currentTarget) return
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               handleClick(file)
@@ -270,7 +272,10 @@
               file.status,
             )}">{statusIcon(file.status)}</span
           >
-          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span
+            class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+            title={file.path}
+          >
             <span class="text-text-faint">{dirname(file.path)}</span><span class="text-text"
               >{basename(file.path)}</span
             >

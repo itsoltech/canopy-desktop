@@ -4,6 +4,12 @@ import type { PtyManager } from '../pty/PtyManager'
 import type { WindowManager } from '../WindowManager'
 import type { AgentCommandResult } from './types'
 
+// Task descriptions and diff lines are third-party text. A control byte inside the paste — above
+// all an embedded paste-end marker followed by \r — would end it early and turn the rest into live
+// keystrokes, submitting input the user never confirmed. Only \t and \n survive.
+// eslint-disable-next-line no-control-regex
+const PASTE_UNSAFE_CHARS = /[\x00-\x08\x0b-\x1f\x7f]/g
+
 interface AgentCommandServiceDeps {
   ptyManager: PtyManager
   agentSessionManager: AgentSessionManager
@@ -70,7 +76,8 @@ export class AgentCommandService {
     // is already sitting in the agent's input. Sent contexts stack in the input instead — the
     // user confirms explicitly in the agent panel. The newline INSIDE the paste is literal
     // (bracketed), separating this message from the next stacked one.
-    this.deps.ptyManager.write(sessionId, `\x1b[200~${text}\n\x1b[201~`)
+    const safeText = text.replace(PASTE_UNSAFE_CHARS, '')
+    this.deps.ptyManager.write(sessionId, `\x1b[200~${safeText}\n\x1b[201~`)
   }
 
   private contextText(payload: AgentContextPayload): string {
