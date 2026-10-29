@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { Readable } from 'stream'
-import { mkdtemp, readFile, stat, readdir, access, rm } from 'fs/promises'
+import { mkdtemp, readFile, realpath, stat, readdir, access, rm } from 'fs/promises'
 import { join, basename, resolve, normalize, extname, sep } from 'path'
 import { tmpdir, homedir } from 'os'
 import { ok, err, fromExternalCall } from '../errors'
@@ -17,6 +17,20 @@ interface SourceResolution {
   fileName: string
   sourceType: 'github' | 'url' | 'local'
   sourceUri: string
+}
+
+const MAX_CLONED_SKILL_FILE_BYTES = 5 * 1024 * 1024
+
+// Cloned repositories can commit symlinks (SKILL.md -> ~/.ssh/id_rsa, a subpath
+// -> $HOME, or a link to /dev/zero). Only read regular files of bounded size
+// whose real path stays inside the clone.
+async function isClonedSkillFile(filePath: string, cloneRoot: string): Promise<boolean> {
+  const realFile = await fromExternalCall(realpath(filePath), () => null)
+  const realRoot = await fromExternalCall(realpath(cloneRoot), () => null)
+  if (realFile.isErr() || realRoot.isErr()) return false
+  if (!realFile.value.startsWith(realRoot.value + sep)) return false
+  const info = await fromExternalCall(stat(realFile.value), () => null)
+  return info.isOk() && info.value.isFile() && info.value.size <= MAX_CLONED_SKILL_FILE_BYTES
 }
 
 export class SkillInstaller {
@@ -226,6 +240,9 @@ export class SkillInstaller {
           execFile(
             'git',
             ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            // A private or missing repo must fail instead of waiting on a
+            // credential prompt, and a stalled clone must not hang the install.
+            { timeout: 120_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
             (error) => {
               if (error) reject(error)
               else resolve()
@@ -254,7 +271,7 @@ export class SkillInstaller {
           reason: 'Subpath escapes repository root',
         })
       }
-      return await this.readSkillDir(resolvedDir, `github:${ref}`, 'github')
+      return await this.readSkillDir(resolvedDir, `github:${ref}`, 'github', resolvedTmp)
     } finally {
       // Temp dir cleanup is allowed in finally blocks (CLAUDE.md)
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
@@ -401,6 +418,7 @@ export class SkillInstaller {
     dir: string,
     sourceUri: string,
     sourceType: 'github' | 'local',
+    cloneRoot?: string,
   ): Promise<Result<SourceResolution, SkillError>> {
     const candidates = ['SKILL.md', 'canopy-skill.yaml', 'skill.md']
     for (const candidate of candidates) {
@@ -410,6 +428,7 @@ export class SkillInstaller {
       } catch {
         continue
       }
+      if (cloneRoot && !(await isClonedSkillFile(filePath, cloneRoot))) continue
       const readResult = await fromExternalCall(readFile(filePath, 'utf-8'), (e): SkillError => ({
         _tag: 'FetchFailed',
         source: sourceUri,
@@ -429,8 +448,16 @@ export class SkillInstaller {
     const allFiles = readdirResult.value
     const files = allFiles.filter((f) => f.endsWith('.md'))
     if (files.length > 0) {
+      const fallbackPath = join(dir, files[0])
+      if (cloneRoot && !(await isClonedSkillFile(fallbackPath, cloneRoot))) {
+        return err({
+          _tag: 'ParseFailed',
+          source: sourceUri,
+          reason: 'Skill file is not a regular file inside the repository',
+        })
+      }
       const readResult = await fromExternalCall(
-        readFile(join(dir, files[0]), 'utf-8'),
+        readFile(fallbackPath, 'utf-8'),
         (e): SkillError => ({
           _tag: 'FetchFailed',
           source: sourceUri,

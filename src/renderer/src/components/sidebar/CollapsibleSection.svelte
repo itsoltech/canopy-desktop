@@ -59,7 +59,9 @@
     class:grid-rows-open={!collapsed}
     class:grid-rows-closed={collapsed}
   >
-    <div class="overflow-hidden">
+    <!-- Collapsing only clips the content, so `inert` keeps it out of the tab order
+         and the accessibility tree. -->
+    <div class="overflow-hidden" inert={collapsed}>
       {@render children()}
     </div>
   </div>

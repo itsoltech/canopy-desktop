@@ -147,10 +147,12 @@
     }
   })
 
-  // React to preference changes for theme/font
+  // React to preference changes for theme/font. Read the prefs before the
+  // termRef guard: termRef is a plain let assigned later in initTerminal(), so
+  // an effect that returns before touching any rune is never re-run.
   $effect(() => {
-    if (!termRef) return
     const themeName = prefs.theme || 'Default'
+    if (!termRef) return
     const theme = getTheme(themeName)
     termRef.options.theme = theme
     if (containerEl) {
@@ -159,14 +161,15 @@
   })
 
   $effect(() => {
-    if (!termRef) return
     const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
+    if (!termRef) return
     termRef.options.fontSize = size
   })
 
   $effect(() => {
+    const fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
     if (!termRef) return
-    termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    termRef.options.fontFamily = fontFamily
   })
 
   function shellEscape(path: string): string {

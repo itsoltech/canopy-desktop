@@ -103,7 +103,9 @@ export const geminiAdapter: AgentAdapter = {
     // Create an isolated home dir so concurrent sessions don't collide
     const homeDir = join(dirname(settingsPath), `gemini-home-${randomUUID()}`)
     const geminiDir = join(homeDir, '.gemini')
-    mkdirSync(geminiDir, { recursive: true })
+    // The merged settings copy can carry MCP server tokens from the user's
+    // settings, so keep the per-session home owner-only.
+    mkdirSync(geminiDir, { recursive: true, mode: 0o700 })
 
     // Symlink user config files (except settings.json which we write ourselves)
     const userGeminiDir = join(os.homedir(), '.gemini')
@@ -139,7 +141,10 @@ export const geminiAdapter: AgentAdapter = {
     }
 
     const merged = deepMerge(userSettings, { ...(overrides ?? {}), hooks })
-    writeFileSync(join(geminiDir, 'settings.json'), JSON.stringify(merged, null, 2), 'utf-8')
+    writeFileSync(join(geminiDir, 'settings.json'), JSON.stringify(merged, null, 2), {
+      encoding: 'utf-8',
+      mode: 0o600,
+    })
 
     return {
       args: [],

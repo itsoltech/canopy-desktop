@@ -99,7 +99,16 @@ export class AgentHookRouter {
       return
     }
 
-    const sessionId = decodeURIComponent(match[1])
+    // Malformed percent-encoding throws URIError before the auth check; the
+    // promise is discarded by createServer, so answer here instead.
+    let sessionId: string
+    try {
+      sessionId = decodeURIComponent(match[1])
+    } catch {
+      res.writeHead(404)
+      res.end()
+      return
+    }
     const endpoint = match[2]
     const session = this.sessions.get(sessionId)
 

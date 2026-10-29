@@ -44,6 +44,8 @@
     }
 
     const offAvailable = window.api.onUpdateAvailable(() => {
+      // The update banner takes over from here; release the button.
+      checkState = 'idle'
       cleanup()
     })
     const offNotAvailable = window.api.onUpdateNotAvailable(() => {

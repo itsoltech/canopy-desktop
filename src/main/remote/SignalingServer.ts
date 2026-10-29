@@ -428,6 +428,10 @@ export class SignalingServer {
         return
       }
 
+      // A socket replaced by a newer pair attempt stays `paired` in this
+      // closure until it finishes closing; its frames must not reach the host.
+      if (this.activePeer !== ws) return
+
       // Already paired — forward to orchestrator. The orchestrator validates
       // structure (offer/answer/ice/bye) and either replies via sendToPeer or
       // forwards to the desktop renderer's RemoteHostController.
