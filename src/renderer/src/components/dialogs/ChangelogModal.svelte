@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
+  let previouslyFocused: HTMLElement | null = null
 
   interface Props {
     fromVersion: string
@@ -16,6 +17,8 @@
   let error = $state(false)
 
   onMount(async () => {
+    // activeElement is an Element; only HTMLElements (the opener) have focus().
+    previouslyFocused = document.activeElement as HTMLElement | null
     containerEl?.focus()
     const raw = await window.api.getChangelogSinceVersion(fromVersion)
     if (raw && raw.length > 0) {
@@ -25,6 +28,8 @@
     }
     loading = false
   })
+  // Return focus to the opener on close (the async onMount above cannot return a cleanup).
+  onDestroy(() => previouslyFocused?.focus?.())
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {

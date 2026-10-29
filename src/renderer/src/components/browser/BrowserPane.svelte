@@ -30,6 +30,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import AiSessionPicker from './AiSessionPicker.svelte'
   import { addToast, showUrlToast } from '../../lib/stores/toast.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
@@ -226,10 +227,18 @@
     }
   }
 
-  function handleStarRemoveAll(): void {
+  async function handleStarRemoveAll(): Promise<void> {
     const url = session?.url
-    if (url) removeFavoritesByHost(url)
     starDropdownOpen = false
+    if (!url) return
+    // Bulk removal sits right next to "Add" in a small dropdown — confirm like other deletes.
+    const ok = await confirm({
+      title: 'Remove favorites',
+      message: 'Remove all favorites for this site?',
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (ok) removeFavoritesByHost(url)
   }
 
   function handleStarAddNew(): void {
@@ -1069,6 +1078,18 @@
         e.preventDefault()
         handleCancelPick()
       }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  })
+
+  // Escape closes the favorites dropdown / context menu (keyboard users have no backdrop click)
+  $effect(() => {
+    if (!starDropdownOpen && !favCtxMenu) return
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      starDropdownOpen = false
+      favCtxMenu = null
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)

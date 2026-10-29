@@ -28,7 +28,7 @@
   >
     <div class="text-lg font-semibold text-text">Page failed to load</div>
     <div class="text-sm text-text-secondary break-all">{validatedURL}</div>
-    <div class="text-sm text-danger-text">{errorDescription}</div>
+    <div class="text-sm text-danger-text" role="alert">{errorDescription}</div>
     <button
       class="flex items-center gap-1.5 mt-2 px-4 py-1.5 border border-text-faint rounded-md bg-hover text-text text-sm font-inherit cursor-pointer hover:bg-hover-strong"
       onclick={onRetry}

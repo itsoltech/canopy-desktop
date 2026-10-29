@@ -19,7 +19,7 @@ The `BrowserManager` in the main process handles security enforcement (popup han
 1. User creates a new browser tab or opens a URL from elsewhere in the app.
 2. The renderer creates a `<webview>` element with `partition="persist:browser"` and calls `initBrowserSession(browserId)` to initialize the reactive state.
 3. The renderer calls `setupBrowserWebview(browserId, webContentsId)` via IPC.
-4. `BrowserManager.setup()` registers the webview's guest `WebContents` and attaches event listeners for popup forwarding, navigation filtering, keyboard interception, focus forwarding, favicon detection, and context menu.
+4. `BrowserManager.setup()` registers the webview's guest `WebContents` and attaches event listeners for popup forwarding, navigation filtering, keyboard interception, focus forwarding, favicon detection, and context menu. It only accepts a `<webview>` guest whose host is the requesting window; if the `browserId` already maps to a different guest, the previous entry is torn down first.
 
 ### Navigation
 
@@ -38,9 +38,9 @@ The `BrowserManager` in the main process handles security enforcement (popup han
 ### Favicon detection
 
 1. When a page's favicon changes, the `page-favicon-updated` event fires with one or more favicon URLs.
-2. The main process fetches the first favicon URL using `session.fetch()` (bypassing CORS restrictions on the page's session).
+2. The main process fetches the first favicon URL using `session.fetch()` (bypassing CORS restrictions on the page's session). The page controls this URL, so the fetch times out after 10 seconds and the body is read with a 256 KB cap; larger icons are dropped instead of being buffered in the main process.
 3. The favicon is converted to a base64 data URL (`data:{contentType};base64,...`) and sent to the renderer via `browser:faviconChanged`.
-4. If favicon fetch fails or no favicon is available, `null` is sent.
+4. If no favicon is available, `null` is sent. A failed, oversized, or timed-out fetch sends nothing.
 
 ### Keyboard shortcut interception
 
@@ -122,6 +122,8 @@ Users can bookmark pages as favorites. Favorites are stored in the `browser.favo
 - `reorderFavorites(fromIndex, toIndex)`: Moves a favorite to a new position in the list.
 - `isFavorite(url)`: Checks if any favorite shares the same host as the given URL.
 
+"Remove all favorites for this site" in the star dropdown asks for confirmation before calling `removeFavoritesByHost`. Escape closes the star dropdown and the favorites context menu, as well as the toolbar's capture and device dropdowns.
+
 ### Background throttling
 
 The renderer can control whether a browser tab's web contents are throttled when backgrounded via `setBrowserBackgroundThrottling(browserId, allowed)`. When `allowed` is `false`, the page continues running timers and animations at full speed even when the tab is not visible.
@@ -146,7 +148,7 @@ When a browser tab is closed, the renderer calls `teardownBrowserWebview(browser
 | Throttled popup        | Nothing (silently denied)                              | Multiple `window.open()` / `target="_blank"` within 500ms            |
 | Blocked permission     | Nothing (silently denied)                              | Page requested camera, microphone, geolocation, or other permissions |
 | DevTools view creation | DevTools button has no effect                          | `WebContents` for the webview guest could not be found               |
-| Favicon fetch failure  | Tab shows no favicon                                   | CORS error, network error, or invalid favicon URL                    |
+| Favicon fetch failure  | Tab shows no favicon                                   | Network error, invalid URL, icon over 256 KB, or fetch over 10 s     |
 | Beforeunload prompt    | Native `Leave site? / Stay` modal (Stay default)       | Page set a `beforeunload` handler and the user reloaded or navigated |
 
 ## Security and privacy

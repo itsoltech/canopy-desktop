@@ -45,6 +45,30 @@ const APP_SHORTCUTS = new Set([
 
 const BROWSER_PARTITION = 'persist:browser'
 
+const MAX_FAVICON_BYTES = 256 * 1024
+const FAVICON_FETCH_TIMEOUT_MS = 10_000
+
+/** Read a response body, giving up (null) once it exceeds `maxBytes`. */
+async function readBodyCapped(response: Response, maxBytes: number): Promise<Buffer | null> {
+  const declared = Number(response.headers.get('content-length'))
+  if (declared > maxBytes) return null
+  const reader = response.body?.getReader()
+  if (!reader) return null
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      void reader.cancel().catch(() => {})
+      return null
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks)
+}
+
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
   private guestContents = new Map<number, WebContents>()
@@ -113,6 +137,9 @@ export class BrowserManager {
     // only ever target a <webview> guest — never a main renderer or another
     // window's contents — so reject anything that isn't a webview guest.
     if (wc.getType() !== 'webview') return
+    // ...and only a guest embedded in the requesting window: guest ids are small sequential
+    // integers, so another window could otherwise claim (and attach to) a foreign guest.
+    if (wc.hostWebContents?.id !== sender.id) return
 
     // Idempotency guard: the listeners wired up below are anonymous closures
     // that teardown() cannot selectively remove. If this exact guest is already
@@ -122,6 +149,9 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // Replacing the guest for this browserId: release the previous entry's DevTools view
+    // instead of orphaning it when the entry is overwritten below.
+    if (existing) this.teardown(browserId)
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
@@ -251,12 +281,14 @@ export class BrowserManager {
         return
       }
       wc.session
-        .fetch(faviconUrl)
+        .fetch(faviconUrl, { signal: AbortSignal.timeout(FAVICON_FETCH_TIMEOUT_MS) })
         .then(async (response) => {
           if (!response.ok) return
-          const buffer = await response.arrayBuffer()
+          // The page controls this URL: never buffer an arbitrarily large body in main.
+          const buffer = await readBodyCapped(response, MAX_FAVICON_BYTES)
+          if (!buffer) return
           const contentType = response.headers.get('content-type') ?? 'image/x-icon'
-          const base64 = Buffer.from(buffer).toString('base64')
+          const base64 = buffer.toString('base64')
           this.sendToRenderer(browserId, 'browser:faviconChanged', {
             browserId,
             favicon: `data:${contentType};base64,${base64}`,

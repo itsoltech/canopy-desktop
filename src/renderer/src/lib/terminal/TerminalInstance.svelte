@@ -560,7 +560,9 @@
       if (active) attachWebgl(term)
 
       // Defer initial fit to after browser layout is complete
-      requestAnimationFrame(() => fitAddon.fit())
+      requestAnimationFrame(() => {
+        if (!disposed) fitAddon.fit()
+      })
       termRef = term
 
       dataDisposable = term.onData((data) => {
@@ -577,7 +579,11 @@
       // Keystroke visualizer — capture keydown on container (avoids xterm API interference)
       if (getPref('keystrokeVisualizer.enabled') === 'true') {
         keystrokeHandler = (e: KeyboardEvent): void => {
-          setTimeout(() => recordKeyEvent(sessionId, e), 0)
+          // Skip once torn down: recording after cleanupKeystrokeSession() would recreate
+          // per-session entries for a dead session that nothing removes.
+          setTimeout(() => {
+            if (!disposed) recordKeyEvent(sessionId, e)
+          }, 0)
         }
         containerEl.addEventListener('keydown', keystrokeHandler, true)
       }

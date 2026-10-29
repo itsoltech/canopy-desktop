@@ -79,7 +79,7 @@ lookup renders the error with a **Retry** action.
 2. **Create branch**: validates the ref name (rejects names starting with `-`), then runs `git branch <name> <baseBranch>`.
 3. **Checkout**: validates the ref name, then runs `git checkout <branch>`.
 4. **Delete branch**: runs `git branch -d` (or `-D` if force is true).
-5. **Delete remote branch**: runs `git push <remote> --delete <name>`.
+5. **Delete remote branch**: checks that `<remote>` is a remote configured in the repository (a URL or path is rejected as an invalid ref), then runs `git push <remote> --delete <name>`.
 6. **Check if merged**: runs `git branch --merged` and checks whether the branch appears in the output.
 
 ### Diff viewing
