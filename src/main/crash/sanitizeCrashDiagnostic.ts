@@ -11,6 +11,10 @@ const BASIC_TOKEN_PATTERN = /\bBasic\s+[A-Za-z0-9+/=_-]{6,}/gi
 const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g
 const AWS_KEY_PATTERN = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g
 const GH_TOKEN_PATTERN = /\b(?:gh[posru]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g
+// Bare provider keys this app stores: Anthropic/OpenAI (sk-…), Google (AIza…), Atlassian
+// (ATATT…), GitLab (glpat-…) and YouTrack permanent tokens (perm:…).
+const PROVIDER_TOKEN_PATTERN =
+  /\b(?:sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{35}|ATATT[A-Za-z0-9_=-]{20,}|glpat-[A-Za-z0-9_-]{16,}|perm:[A-Za-z0-9._=-]{16,})/g
 const PEM_PRIVATE_KEY_PATTERN =
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g
 const TOKEN_LIKE_PATTERN =
@@ -39,6 +43,7 @@ export function sanitizeDiagnosticText(value: string | undefined): string | unde
     .replace(JWT_PATTERN, REDACTED)
     .replace(AWS_KEY_PATTERN, REDACTED)
     .replace(GH_TOKEN_PATTERN, REDACTED)
+    .replace(PROVIDER_TOKEN_PATTERN, REDACTED)
     .replace(PEM_PRIVATE_KEY_PATTERN, REDACTED)
     .replace(TOKEN_LIKE_PATTERN, REDACTED)
     .replace(ENV_VALUE_PATTERN, (match) => {

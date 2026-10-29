@@ -25,7 +25,9 @@ function statusTypeToAggregate(t: string): AggregateAgentStatus {
 export function getWorktreeAgentStatus(worktreePath: string): AggregateAgentStatus {
   const tabs = getTabsForWorktree(worktreePath)
   const panes = tabs.flatMap((t) => allPanes(t.rootSplit))
-  const agentPanes = panes.filter((p) => agentSessions[p.sessionId] !== undefined)
+  // Exited panes stay in their tab, and an agent killed without a SessionEnd hook keeps its last
+  // status in agentSessions — only running panes may drive the worktree aggregate.
+  const agentPanes = panes.filter((p) => p.isRunning && agentSessions[p.sessionId] !== undefined)
   if (agentPanes.length === 0) return 'none'
 
   let best: AggregateAgentStatus = 'none'

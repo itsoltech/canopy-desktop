@@ -99,7 +99,16 @@ export class AgentHookRouter {
       return
     }
 
-    const sessionId = decodeURIComponent(match[1])
+    // A malformed percent-escape makes decodeURIComponent throw; reject it here instead of
+    // letting the un-awaited handler reject and leave the socket without a response.
+    let sessionId: string
+    try {
+      sessionId = decodeURIComponent(match[1])
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
     const endpoint = match[2]
     const session = this.sessions.get(sessionId)
 

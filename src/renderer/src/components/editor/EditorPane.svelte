@@ -17,6 +17,7 @@
     pendingEditorJumps,
   } from '../../lib/stores/tabs.svelte'
   import { dragState, clearDrag, setDropTarget } from '../../lib/stores/dragState.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { detectIndent, indentUnitString, type IndentInfo } from './cm/detectIndent'
   import { detectLanguageName } from './cm/language'
 
@@ -111,7 +112,13 @@
     })
   }
 
+  // Bumped per load. A slower, older read must not overwrite the buffer of the file the user has
+  // since switched to (or a newer reload) — Save would then write that text to the wrong path.
+  let loadSeq = 0
+
   async function loadFile(path: string): Promise<void> {
+    const seq = ++loadSeq
+    const isStale = (): boolean => seq !== loadSeq || path !== activeFilePath
     loading = true
     error = null
     saveError = null
@@ -123,6 +130,7 @@
     externalChangeDetected = false
     try {
       const readResult = await loadEditorFile(paneId, path, MAX_EDIT_BYTES)
+      if (isStale()) return
       if (!readResult.ok) {
         error = readResult.message
         return
@@ -151,9 +159,10 @@
       fileMtimeMs = readResult.mtimeMs
       dirty = false
     } catch (e) {
+      if (isStale()) return
       error = e instanceof Error ? e.message : 'Failed to read file'
     } finally {
-      loading = false
+      if (seq === loadSeq) loading = false
     }
   }
 
@@ -239,6 +248,23 @@
 
   async function reloadAndDiscard(): Promise<void> {
     await loadFile(activeFilePath)
+  }
+
+  // The toolbar Refresh reloads from disk, dropping unsaved edits and undo history: confirm first.
+  async function refreshFile(): Promise<void> {
+    const path = activeFilePath
+    if (
+      dirty &&
+      !(await confirm({
+        title: 'Discard unsaved changes?',
+        message: 'Reloading the file from disk discards your unsaved edits.',
+        confirmLabel: 'Discard and reload',
+        destructive: true,
+      }))
+    ) {
+      return
+    }
+    await loadFile(path)
   }
 
   function keepMyChanges(): void {
@@ -578,12 +604,7 @@
           <Save size={12} />
         </button>
       {/if}
-      <button
-        class="toolbar-btn"
-        onclick={() => loadFile(activeFilePath)}
-        title="Refresh"
-        aria-label="Refresh file"
-      >
+      <button class="toolbar-btn" onclick={refreshFile} title="Refresh" aria-label="Refresh file">
         <RotateCw size={12} />
       </button>
       <button

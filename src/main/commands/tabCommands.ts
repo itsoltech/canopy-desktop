@@ -1,5 +1,6 @@
 import { BrowserWindow, type WebContents } from 'electron'
 import { randomUUID } from 'crypto'
+import { match } from 'ts-pattern'
 import { resolveShell, type PtyManager } from '../pty/PtyManager'
 import type { TerminalStreamService } from '../pty/TerminalStreamService'
 import type { PreferencesStore } from '../db/PreferencesStore'
@@ -147,34 +148,44 @@ export class ToolSessionService {
     }
 
     let tmuxSessionName: string | undefined
-    const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
-    if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
-      tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
-      const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
-      await this.deps.tmuxManager.newSession({
-        name: tmuxSessionName,
+    let session: ReturnType<PtyManager['spawn']>
+    try {
+      const tmuxEnabled = this.deps.preferencesStore.get('tmux.enabled') === 'true'
+      if (tmuxEnabled && (await this.deps.tmuxManager.isAvailable())) {
+        tmuxSessionName = TmuxManagerStatics.sessionName(workspaceId)
+        const tmuxMouse = this.deps.preferencesStore.get('tmux.mouse') === 'true'
+        await this.deps.tmuxManager.newSession({
+          name: tmuxSessionName,
+          cwd: payload.worktreePath,
+          shell: command,
+          shellArgs: args,
+          cols: payload.cols,
+          rows: payload.rows,
+          mouse: tmuxMouse,
+          env,
+        })
+        const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
+        command = attach.command
+        args = attach.args
+      }
+
+      session = this.deps.ptyManager.spawn({
+        command,
+        args,
         cwd: payload.worktreePath,
-        shell: command,
-        shellArgs: args,
         cols: payload.cols,
         rows: payload.rows,
-        mouse: tmuxMouse,
         env,
+        tmuxSessionName,
       })
-      const attach = this.deps.tmuxManager.attachArgs(tmuxSessionName)
-      command = attach.command
-      args = attach.args
+    } catch (error) {
+      // The agent session above already registered a hook route and wrote settings files;
+      // release it (and any tmux session) when tmux or the PTY fails to start, or both leak
+      // until app quit.
+      if (agentTempId) this.deps.agentSessionManager.destroySession(agentTempId)
+      if (tmuxSessionName) void this.deps.tmuxManager.killSession(tmuxSessionName).catch(() => {})
+      throw error
     }
-
-    const session = this.deps.ptyManager.spawn({
-      command,
-      args,
-      cwd: payload.worktreePath,
-      cols: payload.cols,
-      rows: payload.rows,
-      env,
-      tmuxSessionName,
-    })
 
     if (isAgent && agentTempId) {
       this.deps.agentSessionManager.rekey(agentTempId, session.id)
@@ -992,10 +1003,12 @@ function navigatePaneSnapshot(
     if (rect.paneId === fromPaneId) return false
     const centerX = rect.x + rect.w / 2
     const centerY = rect.y + rect.h / 2
-    if (direction === 'right') return centerX > sourceCenterX + eps
-    if (direction === 'left') return centerX < sourceCenterX - eps
-    if (direction === 'down') return centerY > sourceCenterY + eps
-    return centerY < sourceCenterY - eps
+    return match(direction)
+      .with('right', () => centerX > sourceCenterX + eps)
+      .with('left', () => centerX < sourceCenterX - eps)
+      .with('down', () => centerY > sourceCenterY + eps)
+      .with('up', () => centerY < sourceCenterY - eps)
+      .exhaustive()
   })
 
   if (candidates.length === 0) return null

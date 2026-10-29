@@ -519,4 +519,10 @@
   .keystroke-overlay.inferno {
     animation: none;
   }
+
+  /* Tailwind spinner/pulse utilities used without a motion-reduce: variant. */
+  .animate-spin,
+  .animate-pulse {
+    animation: none;
+  }
 }

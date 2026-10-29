@@ -75,6 +75,9 @@ export class AgentCommandService {
 
   private contextText(payload: AgentContextPayload): string {
     if (typeof payload.text !== 'string') throw new Error('Invalid agent context payload')
-    return payload.text
+    // Task and review text is external content: drop C0 controls (keeping \n and \t) and DEL so
+    // an embedded `ESC[201~` can't end the bracketed paste early and type real keystrokes.
+    // eslint-disable-next-line no-control-regex
+    return payload.text.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
   }
 }

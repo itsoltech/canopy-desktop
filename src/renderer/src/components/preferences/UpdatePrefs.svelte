@@ -44,6 +44,9 @@
     }
 
     const offAvailable = window.api.onUpdateAvailable(() => {
+      // The update banner takes over from here; leave the button usable instead of stuck on
+      // "Checking…" until Preferences is reopened.
+      checkState = 'idle'
       cleanup()
     })
     const offNotAvailable = window.api.onUpdateNotAvailable(() => {
