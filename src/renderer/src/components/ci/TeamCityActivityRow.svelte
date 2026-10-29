@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { match } from 'ts-pattern'
   import { ExternalLink } from '@lucide/svelte'
   import { formatDuration, formatWhen } from '../../lib/ci/format'
   import { ciChip, ciStatusTextClass } from '../../lib/ci/status'
@@ -16,30 +17,36 @@
   let stamp = $derived(buildStamp(build))
 
   function buildStamp(value: CiActivityBuild): number | undefined {
-    if (value.state === 'finished') return value.startedAt ?? value.finishedAt
-    if (value.state === 'running') return value.startedAt
-    return value.queuedAt
+    return match(value.state)
+      .with('finished', () => value.startedAt ?? value.finishedAt)
+      .with('running', () => value.startedAt)
+      .with('queued', () => value.queuedAt)
+      .exhaustive()
   }
 
   function buildMeta(value: CiActivityBuild, timestamp: number): string {
-    if (value.state === 'finished') {
-      const when = value.startedAt ?? value.finishedAt
-      const parts: string[] = []
-      if (when != null) parts.push(formatWhen(when, timestamp))
-      if (value.startedAt != null && value.finishedAt != null) {
-        parts.push(formatDuration(value.finishedAt - value.startedAt))
-      }
-      return parts.join(' · ')
-    }
-    if (value.state === 'running') {
-      const parts: string[] = []
-      if (value.startedAt != null) {
-        parts.push(formatWhen(value.startedAt, timestamp))
-        parts.push(`${formatDuration(timestamp - value.startedAt)} elapsed`)
-      }
-      return parts.join(' · ')
-    }
-    return value.queuedAt != null ? `queued ${formatWhen(value.queuedAt, timestamp)}` : ''
+    return match(value.state)
+      .with('finished', () => {
+        const when = value.startedAt ?? value.finishedAt
+        const parts: string[] = []
+        if (when != null) parts.push(formatWhen(when, timestamp))
+        if (value.startedAt != null && value.finishedAt != null) {
+          parts.push(formatDuration(value.finishedAt - value.startedAt))
+        }
+        return parts.join(' · ')
+      })
+      .with('running', () => {
+        const parts: string[] = []
+        if (value.startedAt != null) {
+          parts.push(formatWhen(value.startedAt, timestamp))
+          parts.push(`${formatDuration(timestamp - value.startedAt)} elapsed`)
+        }
+        return parts.join(' · ')
+      })
+      .with('queued', () =>
+        value.queuedAt != null ? `queued ${formatWhen(value.queuedAt, timestamp)}` : '',
+      )
+      .exhaustive()
   }
 </script>
 

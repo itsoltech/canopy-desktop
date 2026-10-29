@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BROWSER_PARTITION, BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -696,6 +696,12 @@ app.whenReady().then(async () => {
   // Even if an attacker modifies webview attributes in the DOM, this handler
   // forces safe webPreferences and blocks non-http(s) sources.
   app.on('web-contents-created', (_event, contents) => {
+    // A guest has no popup policy until BrowserManager.setup() replaces this
+    // handler with its forwarding one; deny instead of Electron's default.
+    if (contents.getType() === 'webview') {
+      contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    }
+
     contents.on('will-attach-webview', (event, webPreferences, params) => {
       // Strip preload scripts — browser webviews must not have preload
       delete webPreferences.preload
@@ -704,6 +710,12 @@ app.whenReady().then(async () => {
       webPreferences.nodeIntegration = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      // A `disablewebsecurity` attribute or `webpreferences` string would turn
+      // these off, and another `partition` would leave the permission-locked
+      // browser session.
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      webPreferences.partition = BROWSER_PARTITION
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -1004,7 +1016,18 @@ app.whenReady().then(async () => {
 
     if (configsJson) {
       try {
-        windowConfigs = JSON.parse(configsJson) as WindowConfig[]
+        const parsed: unknown = JSON.parse(configsJson)
+        // The pref is renderer-writable: keep only entries with a string `paths`
+        // list so a malformed value can't throw below and block every launch.
+        if (Array.isArray(parsed)) {
+          windowConfigs = parsed.filter(
+            (c): c is WindowConfig =>
+              typeof c === 'object' &&
+              c !== null &&
+              Array.isArray(c.paths) &&
+              c.paths.every((p: unknown) => typeof p === 'string'),
+          )
+        }
       } catch {
         // Invalid JSON
       }

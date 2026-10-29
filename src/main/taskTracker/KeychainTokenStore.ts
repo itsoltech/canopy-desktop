@@ -1,6 +1,7 @@
 import type { PreferencesStore } from '../db/PreferencesStore'
 import { createHash } from 'crypto'
 import { err, ok, type Result } from 'neverthrow'
+import { match, P } from 'ts-pattern'
 import {
   CredentialRegistry,
   type CredentialAudience,
@@ -71,43 +72,36 @@ interface ProviderSpec {
 }
 
 function providerSpec(provider: string): ProviderSpec | null {
-  switch (provider) {
-    case 'jira':
-    case 'youtrack':
-      return {
-        service: provider,
-        authMethod: 'api-token',
-        intendedUse: 'tracker',
-        capabilities: ['issues.read', 'issues.write'],
-        readCapability: 'issues.read',
-      }
-    case 'github':
-      return {
-        service: 'github',
-        authMethod: 'pat',
-        intendedUse: 'tracker',
-        capabilities: ['issues.read', 'issues.write'],
-        readCapability: 'issues.read',
-      }
-    case 'github-actions':
-      return {
-        service: 'github',
-        authMethod: 'pat',
-        intendedUse: 'github-actions',
-        capabilities: ['actions.read', 'contents.read', 'actions.dispatch'],
-        readCapability: 'actions.read',
-      }
-    case 'teamcity':
-      return {
-        service: 'teamcity',
-        authMethod: 'access-token',
-        intendedUse: 'teamcity',
-        capabilities: ['builds.read', 'builds.trigger'],
-        readCapability: 'builds.read',
-      }
-    default:
-      return null
-  }
+  return match(provider)
+    .with(P.union('jira', 'youtrack'), (service): ProviderSpec => ({
+      service,
+      authMethod: 'api-token',
+      intendedUse: 'tracker',
+      capabilities: ['issues.read', 'issues.write'],
+      readCapability: 'issues.read',
+    }))
+    .with('github', (): ProviderSpec => ({
+      service: 'github',
+      authMethod: 'pat',
+      intendedUse: 'tracker',
+      capabilities: ['issues.read', 'issues.write'],
+      readCapability: 'issues.read',
+    }))
+    .with('github-actions', (): ProviderSpec => ({
+      service: 'github',
+      authMethod: 'pat',
+      intendedUse: 'github-actions',
+      capabilities: ['actions.read', 'contents.read', 'actions.dispatch'],
+      readCapability: 'actions.read',
+    }))
+    .with('teamcity', (): ProviderSpec => ({
+      service: 'teamcity',
+      authMethod: 'access-token',
+      intendedUse: 'teamcity',
+      capabilities: ['builds.read', 'builds.trigger'],
+      readCapability: 'builds.read',
+    }))
+    .otherwise(() => null)
 }
 
 function audienceFor(provider: string, baseUrl: string): CredentialAudience {

@@ -6,6 +6,7 @@
   import { workspaceState } from '../../lib/stores/workspace.svelte'
   import { confirm } from '../../lib/stores/dialogs.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { createLatestRequestGuard } from '../../lib/async/latestRequest'
   import type { DiffFile, ParsedDiff } from '../../lib/types/diff'
 
   let {
@@ -27,17 +28,24 @@
   let filterQuery = $state('')
   let statusFilter = $state<'all' | 'added' | 'modified' | 'deleted'>('all')
 
+  // Refreshes overlap (worktree switch, git and file events); only the latest may
+  // apply, or a slow diff of the previous worktree replaces the current one.
+  const diffRequest = createLatestRequestGuard()
+
   async function refresh(): Promise<void> {
+    const request = diffRequest.begin(worktreePath)
     loading = true
     loadError = false
     try {
-      diff = await window.api.changesGetDiff({ worktreePath })
+      const result = await window.api.changesGetDiff({ worktreePath })
+      if (diffRequest.isLatest(request)) diff = result
     } catch (e) {
+      if (!diffRequest.isLatest(request)) return
       diff = null
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (diffRequest.isLatest(request)) loading = false
     }
   }
 
@@ -270,7 +278,10 @@
               file.status,
             )}">{statusIcon(file.status)}</span
           >
-          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span
+            class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+            title={file.path}
+          >
             <span class="text-text-faint">{dirname(file.path)}</span><span class="text-text"
               >{basename(file.path)}</span
             >

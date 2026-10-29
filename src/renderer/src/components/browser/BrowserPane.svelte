@@ -32,6 +32,7 @@
   import { addToast, showUrlToast } from '../../lib/stores/toast.svelte'
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { dragState } from '../../lib/stores/dragState.svelte'
+  import { cycleFocus } from '../../lib/a11y/focusTrap'
   import type { WebviewElement } from '../../lib/browser/browserState.svelte'
 
   let {
@@ -1215,6 +1216,9 @@
             e.preventDefault()
             e.stopPropagation()
             favModalOpen = false
+          } else if (e.key === 'Tab') {
+            // Keep Tab inside the aria-modal dialog instead of the page behind it.
+            cycleFocus(e.currentTarget, e)
           }
         }}
       >
@@ -1322,6 +1326,9 @@
         e.preventDefault()
         e.stopPropagation()
         handleDismissSavePrompt()
+      } else if (e.key === 'Tab') {
+        // Keep Tab inside the aria-modal dialog instead of the page behind it.
+        cycleFocus(e.currentTarget, e)
       }
     }}
   >
@@ -1603,6 +1610,11 @@
     font-size: 13px;
     font-family: inherit;
     outline: none;
+  }
+
+  /* outline: none above removes the only focus indicator; mirror .fav-modal-input:focus. */
+  .save-modal-input:focus {
+    border-color: oklch(0.782 0.115 243.83 / 0.5);
   }
 
   .save-modal-actions {

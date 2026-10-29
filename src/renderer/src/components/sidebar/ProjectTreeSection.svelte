@@ -20,7 +20,7 @@
   import { confirmWorktreeRemoval } from '../../lib/worktrees/removalConsent'
   import { getTabsForWorktree, closeAllTabsForWorktree } from '../../lib/stores/tabs.svelte'
   import { allPanes } from '../../lib/stores/splitTree'
-  import { worktreeBadges } from '../../lib/agents/agentState.svelte'
+  import { worktreeBadges, type BadgeType } from '../../lib/agents/agentState.svelte'
   import { getWorktreeAgentStatus } from '../../lib/agents/worktreeStatus.svelte'
   import {
     formatPrBadge,
@@ -29,6 +29,14 @@
     prKey,
   } from '../../lib/stores/github.svelte'
   import { getResolvedConfig } from '../../lib/stores/taskTracker.svelte'
+
+  // The worktree badge dot differs from the status dot only by color and is aria-hidden,
+  // so its state is spelled out in the status tooltip and label.
+  const BADGE_NOTES: Record<BadgeType, string> = {
+    none: '',
+    unread: ', unread activity',
+    permission: ', permission requested',
+  }
 
   function worktreeLabel(wt: { branch: string; path: string }): string {
     if (wt.branch !== '(detached)') return wt.branch
@@ -588,6 +596,7 @@
             {@const wtActive = isWorktreeActive(wt.path)}
             {@const agentStatus = getWorktreeAgentStatus(wt.path)}
             {@const wtBadge = worktreeBadges[wt.path] ?? 'none'}
+            {@const wtBadgeNote = BADGE_NOTES[wtBadge]}
             {@const isRemoving = removingPaths.has(wt.path)}
             <li
               class="flex items-center mx-1 rounded-sm hover:bg-hover"
@@ -607,8 +616,10 @@
                   class:inline-flex={agentStatus !== 'none'}
                   class:items-center={agentStatus !== 'none'}
                   class:justify-center={agentStatus !== 'none'}
-                  title={agentStatus !== 'none' ? `Agent: ${agentStatus}` : undefined}
-                  aria-label={agentStatus !== 'none' ? `Agent status: ${agentStatus}` : undefined}
+                  title={agentStatus !== 'none' ? `Agent: ${agentStatus}${wtBadgeNote}` : undefined}
+                  aria-label={agentStatus !== 'none'
+                    ? `Agent status: ${agentStatus}${wtBadgeNote}`
+                    : undefined}
                 >
                   {#if agentStatus !== 'none'}
                     <span

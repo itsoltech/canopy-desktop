@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { match } from 'ts-pattern'
+  import { match, P } from 'ts-pattern'
   import { Settings, GitBranch, Folder, Bell, ArrowDownToLine, Eye, Cpu } from '@lucide/svelte'
   import { workspaceState, projects, toggleRightPanel } from '../../lib/stores/workspace.svelte'
   import { agentSessions, type AgentSessionState } from '../../lib/agents/agentState.svelte'
@@ -69,13 +69,11 @@
   type PaneKind = 'agent' | 'shell' | 'browser' | 'editor' | 'notes' | 'drawing' | 'none'
 
   let focusedPaneKind: PaneKind = $derived.by(() => {
-    if (!focusedPane) return 'none'
-    if (focusedPane.paneType === 'browser') return 'browser'
-    if (focusedPane.paneType === 'editor') return 'editor'
-    if (focusedPane.paneType === 'notes') return 'notes'
-    if (focusedPane.paneType === 'drawing') return 'drawing'
-    if (isAiToolId(focusedPane.toolId)) return 'agent'
-    return 'shell'
+    const pane = focusedPane
+    if (!pane) return 'none'
+    return match(pane.paneType)
+      .with(P.union('browser', 'editor', 'notes', 'drawing'), (kind): PaneKind => kind)
+      .otherwise((): PaneKind => (isAiToolId(pane.toolId) ? 'agent' : 'shell'))
   })
 
   // --- Derived: worktree display ---

@@ -61,7 +61,9 @@ export interface SetupContext {
 
 function shellQuote(s: string): string {
   if (process.platform === 'win32') {
-    return '"' + s.replace(/"/g, '\\"') + '"'
+    // Commands run via `powershell.exe -Command`, which expands `$var`, `$(...)`
+    // and backtick escapes inside double quotes; single quotes are literal.
+    return "'" + s.replace(/'/g, "''") + "'"
   }
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }

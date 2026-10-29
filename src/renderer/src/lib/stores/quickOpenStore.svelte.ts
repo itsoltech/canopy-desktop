@@ -8,6 +8,15 @@ const state: Record<string, LoadedState> = $state({})
 
 const STALE_AFTER_MS = 60_000
 
+// The $state proxy allocates a reactive source per writable index it reads, and
+// fuzzy search reads every path on each keystroke. Freezing the (never mutated)
+// list makes those reads go straight through for repos with 100k+ files.
+async function listFiles(worktreePath: string, force?: boolean): Promise<string[]> {
+  const files = await window.api.quickOpenListFiles(worktreePath, force)
+  Object.freeze(files)
+  return files
+}
+
 export function getFiles(worktreePath: string): string[] {
   return state[worktreePath]?.files ?? []
 }
@@ -28,7 +37,7 @@ export async function ensureLoaded(worktreePath: string): Promise<string[]> {
     state[worktreePath].loading = true
   }
   try {
-    const files = await window.api.quickOpenListFiles(worktreePath)
+    const files = await listFiles(worktreePath)
     state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
     return files
   } catch {
@@ -45,7 +54,7 @@ export async function forceReload(worktreePath: string): Promise<string[]> {
     state[worktreePath].loading = true
   }
   try {
-    const files = await window.api.quickOpenListFiles(worktreePath, true)
+    const files = await listFiles(worktreePath, true)
     state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
     return files
   } catch {
