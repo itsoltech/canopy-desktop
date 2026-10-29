@@ -251,8 +251,11 @@
           class:pl-2.5={!isVisibleFile}
           role="button"
           tabindex="0"
+          title={file.path}
           onclick={() => handleClick(file)}
           onkeydown={(e) => {
+            // Let Enter/Space on the nested Stage/Revert buttons activate them.
+            if (e.target !== e.currentTarget) return
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               handleClick(file)
@@ -303,7 +306,11 @@
     <div class="flex items-center justify-center h-full p-4">
       <span class="text-sm text-danger-text" role="alert">Failed to load changes</span>
     </div>
-  {:else if !loading}
+  {:else if loading && diff === null}
+    <div class="flex items-center justify-center h-full p-4">
+      <span class="text-sm text-text-faint">Loading…</span>
+    </div>
+  {:else}
     <div class="flex items-center justify-center h-full p-4">
       <span class="text-sm text-text-faint">
         {#if filterQuery || statusFilter !== 'all'}

@@ -109,7 +109,7 @@
       if (e.shiftKey && (active === first || !dialogEl.contains(active))) {
         e.preventDefault()
         last.focus()
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && (active === last || !dialogEl.contains(active))) {
         e.preventDefault()
         first.focus()
       }

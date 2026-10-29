@@ -1,4 +1,4 @@
-import { join, basename, sep } from 'path'
+import { join, basename, dirname } from 'path'
 import { mkdirSync, createWriteStream, rmSync } from 'fs'
 import os from 'os'
 import { randomUUID } from 'crypto'
@@ -748,7 +748,10 @@ export class TaskTrackerManager {
     if (idx < 0) return null
 
     const conn = connections[idx]
-    connections[idx] = { ...conn, ...updates }
+    // `updates` arrives over renderer IPC: its type excludes id/authPrefKey, but
+    // the runtime object can still carry them. authPrefKey names the preference
+    // the token is read from, so pin both after the spread (as addConnection does).
+    connections[idx] = { ...conn, ...updates, id: conn.id, authPrefKey: conn.authPrefKey }
 
     if (newToken) {
       this.preferencesStore.set(conn.authPrefKey, newToken)
@@ -935,9 +938,10 @@ export class TaskTrackerManager {
   cleanupAttachmentDir(filePath: string): void {
     const tmpBase = os.tmpdir()
     const dir = join(filePath, '..')
-    // Anchor the tmp containment check to a path boundary: a bare
-    // startsWith(os.tmpdir()) also matches sibling dirs like `/tmpEVIL/...`.
-    if (!dir.startsWith(tmpBase + sep) || !basename(dir).startsWith('canopy-attachments-')) return
+    // Attachment dirs are created directly under os.tmpdir() (see download
+    // above), so require exactly that parent: a prefix check would also accept
+    // a `canopy-attachments-*` dir nested anywhere under tmp, or `/tmpEVIL/...`.
+    if (dirname(dir) !== tmpBase || !basename(dir).startsWith('canopy-attachments-')) return
     try {
       rmSync(dir, { recursive: true, force: true })
     } catch {

@@ -21,6 +21,8 @@
   tabindex="0"
   onclick={onOpen}
   onkeydown={(event) => {
+    // Let Enter/Space on the nested Unlink button activate it.
+    if (event.target !== event.currentTarget) return
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
       onOpen()
