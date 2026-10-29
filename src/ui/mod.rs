@@ -19,6 +19,7 @@ mod html_native;
 pub(crate) mod image_preview;
 mod inspector;
 mod jira;
+pub(crate) mod keymap;
 mod markdown;
 mod new_chat_palette;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -276,74 +277,8 @@ impl Workspace {
         ];
         let focus = cx.focus_handle();
         focus.focus(window, cx);
-        #[cfg(not(target_os = "windows"))]
-        cx.bind_keys([
-            KeyBinding::new("cmd-o", OpenFolder, Some("Workspace")),
-            KeyBinding::new("cmd-shift-w", CloseProject, Some("Workspace")),
-            KeyBinding::new("cmd-b", ToggleInspector, Some("Workspace")),
-            KeyBinding::new("cmd-alt-b", ToggleSidebar, Some("Workspace")),
-            KeyBinding::new("cmd-shift-g", ShowChanges, Some("Workspace")),
-            KeyBinding::new("cmd-shift-s", ShowSession, Some("Workspace")),
-            KeyBinding::new("cmd-t", NewTab, Some("Workspace")),
-            KeyBinding::new("cmd-w", CloseTab, Some("Workspace")),
-            KeyBinding::new("cmd-s", SaveFile, Some("Workspace")),
-            KeyBinding::new("cmd-p", QuickOpen, Some("Workspace")),
-            KeyBinding::new("cmd-n", NewChat, Some("Workspace")),
-            KeyBinding::new("cmd-alt-n", NewChatNoProject, Some("Workspace")),
-            KeyBinding::new("cmd-shift-n", NewChatIn, Some("Workspace")),
-            KeyBinding::new("cmd-d", SplitHorizontal, Some("Workspace")),
-            KeyBinding::new("cmd-shift-d", SplitVertical, Some("Workspace")),
-            KeyBinding::new("cmd-alt-w", ClosePane, Some("Workspace")),
-            KeyBinding::new("cmd-1", ShellTab, Some("Workspace")),
-            KeyBinding::new("cmd-2", CodexTab, Some("Workspace")),
-            KeyBinding::new("cmd-,", ShowPreferences, Some("Workspace")),
-        ]);
-        #[cfg(target_os = "windows")]
-        cx.bind_keys([
-            KeyBinding::new("ctrl-shift-o", OpenFolder, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-f4", CloseProject, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-i", ToggleInspector, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-b", ToggleSidebar, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-g", ShowChanges, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-a", ShowSession, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-t", NewTab, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-w", CloseTab, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-s", SaveFile, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-p", QuickOpen, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-n", NewChat, Some("Workspace")),
-            KeyBinding::new("ctrl-alt-shift-n", NewChatNoProject, Some("Workspace")),
-            KeyBinding::new("ctrl-alt-n", NewChatIn, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-d", SplitHorizontal, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-e", SplitVertical, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-x", ClosePane, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-1", ShellTab, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-2", CodexTab, Some("Workspace")),
-            KeyBinding::new("ctrl-,", ShowPreferences, Some("Workspace")),
-        ]);
-        cx.bind_keys([KeyBinding::new(
-            "escape",
-            DismissNavigation,
-            Some("Workspace"),
-        )]);
-        let modifier = if cfg!(target_os = "macos") {
-            "cmd-alt"
-        } else {
-            "ctrl-alt"
-        };
-        cx.bind_keys([
-            KeyBinding::new(&format!("{modifier}-1"), ShowTerminals, Some("Workspace")),
-            KeyBinding::new(&format!("{modifier}-2"), ShowFiles, Some("Workspace")),
-            KeyBinding::new(&format!("{modifier}-3"), ShowChanges, Some("Workspace")),
-            KeyBinding::new(&format!("{modifier}-4"), ShowTasks, Some("Workspace")),
-            KeyBinding::new(&format!("{modifier}-5"), ShowSession, Some("Workspace")),
-        ]);
-        #[cfg(target_os = "linux")]
-        cx.bind_keys([
-            KeyBinding::new("ctrl-n", NewChat, Some("Workspace")),
-            KeyBinding::new("ctrl-shift-n", NewChatIn, Some("Workspace")),
-            KeyBinding::new("ctrl-alt-n", NewChatNoProject, Some("Workspace")),
-            KeyBinding::new("ctrl-alt-b", ToggleSidebar, Some("Workspace")),
-        ]);
+        // Commands and their (possibly custom) shortcuts: Settings → Shortcuts.
+        keymap::init(cx);
         let editor_observers = vec![
             cx.observe_in(&state.workspace, window, |this, _, window, cx| {
                 this.state

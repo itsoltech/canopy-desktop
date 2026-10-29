@@ -21,7 +21,7 @@ pub(super) fn labeled(
     field: &Entity<InputState>,
     disabled: bool,
 ) -> Div {
-    form_field(label, "", input(field).w_full().disabled(disabled))
+    form_field(label.into(), "", input(field).w_full().disabled(disabled))
 }
 /// Fixed configured marker; no secret is ever supplied by a settings snapshot.
 pub(super) struct SecretField {

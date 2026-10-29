@@ -181,7 +181,78 @@ fn project_sessions(cx: &App) -> Vec<NotchSession> {
         .collect()
 }
 
-pub fn open(main: WindowHandle<Root>, cx: &mut App) -> Result<WindowHandle<Root>> {
+/// Opens and closes the overlay as `notch.enabled` changes. A global rather
+/// than an entity: window-closed callbacks run while the host closes the
+/// overlay and must still be able to ask which window it is.
+struct NotchHost {
+    main: WindowHandle<Root>,
+    /// `CANOPY_NOTCH_PREVIEW`: the diagnostic preview always shows it.
+    preview: bool,
+    overlay: Option<WindowHandle<Root>>,
+    shown: bool,
+    _settings: Subscription,
+}
+impl Global for NotchHost {}
+
+/// Shown once the stored value is known, so a stored `false` never flashes the
+/// default. If settings failed to load, the default applies.
+fn wanted(loaded: bool, enabled: bool, preview: bool) -> bool {
+    preview || loaded && enabled
+}
+
+/// Starts following the setting; call once, after the main window opened.
+pub fn bind(main: WindowHandle<Root>, preview: bool, cx: &mut App) {
+    let settings = cx.global::<crate::app_state::AppState>().settings.clone();
+    let subscription = cx.observe(&settings, |_, cx| sync(cx));
+    cx.set_global(NotchHost {
+        main,
+        preview,
+        overlay: None,
+        shown: false,
+        _settings: subscription,
+    });
+    sync(cx);
+}
+
+/// Whether `window` is the overlay, which alone doesn't keep Canopy running.
+pub fn is_overlay(window: WindowId, cx: &App) -> bool {
+    cx.try_global::<NotchHost>()
+        .and_then(|host| host.overlay)
+        .is_some_and(|overlay| overlay.window_id() == window)
+}
+
+fn sync(cx: &mut App) {
+    let Some(host) = cx.try_global::<NotchHost>() else {
+        return;
+    };
+    let app = cx.global::<crate::app_state::AppState>();
+    let settings = app.settings.read(cx);
+    let show = wanted(
+        settings.ready || settings.error.is_some(),
+        settings.values.notch_enabled,
+        host.preview,
+    );
+    if show == host.shown {
+        return;
+    }
+    let (main, overlay, status) = (host.main, host.overlay, app.notch_status.clone());
+    cx.global_mut::<NotchHost>().shown = show;
+    if show {
+        let overlay = open(main, cx)
+            .inspect_err(|error| eprintln!("Failed to open notch: {error:#}"))
+            .ok();
+        cx.global_mut::<NotchHost>().overlay = overlay;
+    } else {
+        cx.global_mut::<NotchHost>().overlay = None;
+        // Dropping the notch removes its pointer monitor (see `Drop`).
+        if let Some(overlay) = overlay {
+            let _ = overlay.update(cx, |_, window, _| window.remove_window());
+        }
+        status.update(cx, |status, cx| status.clear(cx));
+    }
+}
+
+fn open(main: WindowHandle<Root>, cx: &mut App) -> Result<WindowHandle<Root>> {
     let display = cx
         .primary_display()
         .ok_or_else(|| std::io::Error::other("No primary display"))?;
@@ -248,7 +319,10 @@ pub fn open(main: WindowHandle<Root>, cx: &mut App) -> Result<WindowHandle<Root>
                             .notch_status
                             .clone();
                         status.update(cx, |status, cx| {
-                            status.fail("Session notch unavailable. Restart Canopy to retry.", cx)
+                            status.fail(
+                                "Session notch unavailable. Turn it off and on in Settings to retry.",
+                                cx,
+                            )
                         });
                         let _ = main.update(cx, |_, window, cx| {
                             cx.activate(true);
@@ -626,6 +700,15 @@ mod tests {
             assert!(!hover_opens_overview(false, values));
         }
         assert!(hover_opens_overview(false, Values::default()));
+    }
+    #[test]
+    fn overlay_waits_for_the_stored_setting() {
+        use super::wanted;
+        // Before settings load, the default must not flash a stored `false`.
+        assert!(!wanted(false, true, false));
+        assert!(wanted(true, true, false));
+        assert!(!wanted(true, false, false));
+        assert!(wanted(false, false, true));
     }
     #[test]
     fn geometry_matches_electron_reference() {

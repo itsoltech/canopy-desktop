@@ -3,6 +3,7 @@ mod cards;
 mod chats;
 mod projects;
 mod remote;
+mod resources;
 use super::{components::*, theme as t};
 pub use chats::RenameChat;
 pub(super) use chats::{navigation_status, status_color};
@@ -58,6 +59,7 @@ impl Sidebar {
             }),
             cx.observe(&app.chat_history, |_, _, cx| cx.notify()),
             cx.observe(&app.settings, |_, _, cx| cx.notify()),
+            cx.observe(&app.resources, |_, _, cx| cx.notify()),
         ];
         let connections = super::remote_client::connections(cx).ok();
         let connections_observer = connections
@@ -234,10 +236,10 @@ impl Sidebar {
             .chats
             .read(cx)
             .is_opening();
-        let shortcut = if cfg!(target_os = "macos") {
-            "⌘N"
-        } else {
-            "Ctrl+N"
+        let shortcut = crate::ui::keymap::shortcut(crate::ui::keymap::CommandId::NewChat, cx);
+        let with_shortcut = |text: String| match &shortcut {
+            Some(shortcut) => format!("{text} ({shortcut})"),
+            None => text,
         };
         let hosts: Vec<_> = self
             .remote_hosts(cx)
@@ -267,22 +269,22 @@ impl Sidebar {
                 _ => None,
             });
         let tooltip = if let Some(host) = &selected_host {
-            format!("New chat on {} ({shortcut})", host.name())
+            with_shortcut(format!("New chat on {}", host.name()))
         } else if self.remote_selection.is_some() {
-            format!("New chat on the selected computer ({shortcut})")
+            with_shortcut("New chat on the selected computer".to_owned())
         } else {
             reason.map(str::to_owned).unwrap_or_else(|| {
                 self.projects.read(cx).catalog.current().map_or_else(
-                    || format!("New private chat ({shortcut})"),
+                    || with_shortcut("New private chat".to_owned()),
                     |project| {
-                        format!(
-                            "New chat in {} ({shortcut})",
+                        with_shortcut(format!(
+                            "New chat in {}",
                             project
                                 .worktree_path
                                 .as_ref()
                                 .unwrap_or(&project.path)
                                 .display()
-                        )
+                        ))
                     },
                 )
             })
@@ -316,7 +318,7 @@ impl Sidebar {
                     } else {
                         "New chat"
                     })
-                    .when(!opening, |row| {
+                    .when_some(shortcut.clone().filter(|_| !opening), |row, shortcut| {
                         row.child(
                             div()
                                 .ml_auto()
@@ -568,6 +570,7 @@ impl Render for Sidebar {
                             div().text_xs().text_color(t::faint()).child("Canopy")
                         }),
                     ))
+                    .children(resources::readout(cx))
                     .child(
                         Button::new("settings")
                             .ghost()

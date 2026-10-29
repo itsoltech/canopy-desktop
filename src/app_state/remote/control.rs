@@ -67,11 +67,12 @@ impl ControlState {
         // Credential cleanup bookkeeping is not an editable configuration change.
         tools.retired_credentials.clear();
         integrations.retired_credentials.clear();
-        // Appearance and terminal font are device-local and not part of the
-        // remote settings snapshot: a local theme change must not fail remote CAS.
+        // Appearance, terminal font and shortcuts are device-local and not part of
+        // the remote settings snapshot: a local change must not fail remote CAS.
         let mut preferences = app.settings.read(cx).values.clone();
         preferences.appearance = Default::default();
         preferences.terminal = Default::default();
+        preferences.shortcuts = Default::default();
         let current = (preferences, tools, integrations);
         if self.snapshot.as_ref().is_some_and(|old| old != &current) {
             self.revision = self.revision.wrapping_add(1).max(1);

@@ -26,23 +26,10 @@ actions!(
         TerminalShiftEnter
     ]
 );
+/// Copy/paste come from the command keymap (Settings → Shortcuts); Tab,
+/// Shift+Tab and Shift+Enter always go to the terminal.
 pub(crate) fn init(cx: &mut App) {
-    #[cfg(not(target_os = "windows"))]
-    cx.bind_keys([
-        KeyBinding::new("cmd-c", CopyTerminal, Some("Terminal")),
-        KeyBinding::new("cmd-v", PasteTerminal, Some("Terminal")),
-        KeyBinding::new("tab", TerminalTab, Some("Terminal")),
-        KeyBinding::new("shift-tab", TerminalBacktab, Some("Terminal")),
-        KeyBinding::new("shift-enter", TerminalShiftEnter, Some("Terminal")),
-    ]);
-    #[cfg(target_os = "windows")]
-    cx.bind_keys([
-        KeyBinding::new("ctrl-shift-c", CopyTerminal, Some("Terminal")),
-        KeyBinding::new("ctrl-shift-v", PasteTerminal, Some("Terminal")),
-        KeyBinding::new("tab", TerminalTab, Some("Terminal")),
-        KeyBinding::new("shift-tab", TerminalBacktab, Some("Terminal")),
-        KeyBinding::new("shift-enter", TerminalShiftEnter, Some("Terminal")),
-    ]);
+    crate::ui::keymap::init(cx);
 }
 pub struct TerminalStateChanged;
 impl EventEmitter<TerminalStateChanged> for TerminalView {}

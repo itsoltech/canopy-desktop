@@ -1,3 +1,4 @@
+use super::super::search::PageSearch;
 use super::*;
 
 impl ToolsPreferences {
@@ -94,44 +95,61 @@ impl ToolsPreferences {
                 })),
             )
     }
-    fn profile_fields(&self, disabled: bool) -> Div {
-        column().gap(px(12.))
-            .child(form_field("Profile name", "Select this profile from the expanded tool in the sidebar.", input(&self.profile_name).disabled(disabled).w_full()))
-            .children(self.draft.is_agent().then(|| form_field("Model", "Empty keeps the CLI default; passed with --model.", input(&self.model).disabled(disabled).w_full())))
-            .child(form_field("Profile arguments", "Appended after the tool arguments. Configure permission mode, effort and other CLI options here.", input(&self.profile_args).disabled(disabled).w_full()))
+    fn profile_fields(&self, disabled: bool, search: &PageSearch) -> Div {
+        column()
+            .gap(px(12.))
+            .child(search.field(
+                &PROFILE_NAME,
+                input(&self.profile_name).disabled(disabled).w_full(),
+            ))
+            .children(
+                self.draft
+                    .is_agent()
+                    .then(|| search.field(&MODEL, input(&self.model).disabled(disabled).w_full())),
+            )
+            .child(search.field(
+                &PROFILE_ARGUMENTS,
+                input(&self.profile_args).disabled(disabled).w_full(),
+            ))
     }
-    pub(super) fn profiles(&self, disabled: bool, cx: &Context<Self>) -> Div {
+    pub(super) fn profiles(&self, disabled: bool, search: &PageSearch, cx: &Context<Self>) -> Div {
         column()
             .gap(px(16.))
             .child(
-                row()
-                    .gap(px(8.))
-                    .child(
-                        div()
-                            .flex_1()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Profiles"),
-                    )
-                    .child(
-                        button("add-profile", "Add profile")
-                            .disabled(disabled)
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.add_profile(window, cx)),
-                            ),
-                    ),
+                search.mark(
+                    &[PROFILES.id],
+                    row()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(search.text(PROFILES.id, PROFILES.label)),
+                        )
+                        .child(
+                            button("add-profile", "Add profile")
+                                .disabled(disabled)
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.add_profile(window, cx)),
+                                ),
+                        ),
+                ),
             )
             .child(
-                column().gap(px(4.)).children(
-                    self.draft
-                        .profiles
-                        .iter()
-                        .map(|profile| self.profile_row(profile, disabled, cx)),
+                search.mark(
+                    &[PROFILES.id],
+                    column().gap(px(4.)).children(
+                        self.draft
+                            .profiles
+                            .iter()
+                            .map(|profile| self.profile_row(profile, disabled, cx)),
+                    ),
                 ),
             )
             .children(
                 self.profile
                     .is_some()
-                    .then(|| self.profile_fields(disabled)),
+                    .then(|| self.profile_fields(disabled, search)),
             )
     }
 }

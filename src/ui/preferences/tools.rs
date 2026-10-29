@@ -2,6 +2,7 @@
 mod agent_page;
 mod profiles;
 mod view;
+use super::search::{Entry, SettingsSearch};
 use crate::{
     app_state::{AppState, ToolsState},
     ui::{components::*, theme as t},
@@ -13,8 +14,106 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
+
+const TOOL: Entry = Entry::new(
+    "tool",
+    "",
+    "Tool",
+    "The tool being edited",
+    "shell claude codex gemini opencode lazygit select",
+);
+const NAME: Entry = Entry::new("name", "", "Name", "Name shown in the sidebar.", "title");
+const EXECUTABLE: Entry = Entry::new(
+    "executable",
+    "",
+    "Executable",
+    "Program or absolute path. Empty uses your login shell for Shell.",
+    "binary command program installed",
+);
+const ARGUMENTS: Entry = Entry::new(
+    "arguments",
+    "",
+    "Arguments",
+    "Argument list with platform quoting. Backslashes are preserved; no shell interpolation.",
+    "args flags options",
+);
+const ENABLED: Entry = Entry::new(
+    "enabled",
+    "",
+    "Enable tool",
+    "Show the tool in the sidebar",
+    "disable hide",
+);
+const ACP: Entry = Entry::new(
+    "acp",
+    "",
+    "Chat agent",
+    "Opens in a chat instead of a terminal. The program must support Agent Client Protocol (ACP).",
+    "acp",
+);
+const PROFILES: Entry = Entry::new(
+    "profiles",
+    "PROFILES",
+    "Profiles",
+    "Variants of the tool with their own model and arguments",
+    "add default",
+);
+const PROFILE_NAME: Entry = Entry::new(
+    "profile-name",
+    "PROFILES",
+    "Profile name",
+    "Select this profile from the expanded tool in the sidebar.",
+    "",
+);
+const MODEL: Entry = Entry::new(
+    "model",
+    "PROFILES",
+    "Model",
+    "Empty keeps the CLI default; passed with --model.",
+    "",
+);
+const PROFILE_ARGUMENTS: Entry = Entry::new(
+    "profile-arguments",
+    "PROFILES",
+    "Profile arguments",
+    "Appended after the tool arguments. Configure permission mode, effort and other CLI options here.",
+    "permission effort",
+);
+const ADD_TOOL: Entry = Entry::new(
+    "add-tool",
+    "",
+    "Add tool",
+    "A custom tool from any program",
+    "new custom",
+);
+const REFRESH: Entry = Entry::new(
+    "refresh",
+    "",
+    "Refresh",
+    "Check which tools are installed",
+    "detect installed discover",
+);
+/// Search entries of Tools and Terminal, which share this editor, in page order.
+pub(super) const SEARCH: &[Entry] = &[
+    REFRESH,
+    ADD_TOOL,
+    TOOL,
+    NAME,
+    EXECUTABLE,
+    ARGUMENTS,
+    ENABLED,
+    ACP,
+    PROFILES,
+    PROFILE_NAME,
+    MODEL,
+    PROFILE_ARGUMENTS,
+];
+
 pub(super) struct ToolsPreferences {
     state: Entity<ToolsState>,
+    search: Entity<SettingsSearch>,
+    scroll: ScrollHandle,
+    agent_scroll: ScrollHandle,
     pub(super) agent_page: bool,
     agent_form: Entity<super::agent::AgentForm>,
     key_edits: std::collections::HashMap<String, String>,
@@ -33,9 +132,14 @@ pub(super) struct ToolsPreferences {
     refresh_loading: ButtonLoading,
     error: Option<String>,
     _observer: Subscription,
+    _search: Subscription,
 }
 impl ToolsPreferences {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        search: Entity<SettingsSearch>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let state = cx.global::<AppState>().tools.clone();
         let draft = state.read(cx).catalog.tools[0].clone();
         let observer = cx.observe_in(&state, window, |this, state, window, cx| {
@@ -71,9 +175,16 @@ impl ToolsPreferences {
                 .update(cx, |form, cx| form.set_disabled(disabled, cx));
             cx.notify();
         });
+        let agent_scroll = ScrollHandle::new();
         let mut view = Self {
             agent_page: false,
-            agent_form: cx.new(|cx| super::agent::AgentForm::new(window, cx)),
+            agent_form: cx.new(|cx| {
+                super::agent::AgentForm::new(search.clone(), agent_scroll.clone(), window, cx)
+            }),
+            _search: cx.observe(&search, |_, _, cx| cx.notify()),
+            search,
+            scroll: ScrollHandle::new(),
+            agent_scroll,
             key_edits: Default::default(),
             state,
             draft: draft.clone(),

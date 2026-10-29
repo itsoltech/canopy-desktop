@@ -59,8 +59,27 @@ Zwykłe okna aplikacji pozostają bez zmian. Region przezroczysty nie służy
 już do przechwytywania myszy ani utrzymywania aktywacji.
 
 Kliknięcie sesji przywraca workspace. Zamknięcie ostatniego zwykłego okna
-kończy proces; sam notch go nie utrzymuje. CANOPY_NOTCH_PREVIEW=1 ukrywa
-początkowo workspace na potrzeby izolowanego podglądu panelu na obu systemach.
+kończy proces; sam notch go nie utrzymuje (`app.rs` pyta `notch::is_overlay`,
+a nie o stały identyfikator okna). CANOPY_NOTCH_PREVIEW=1 ukrywa
+początkowo workspace na potrzeby izolowanego podglądu panelu na obu systemach
+i zawsze pokazuje notch, niezależnie od ustawienia.
+
+## Włączanie (Settings → Notch)
+
+`notch.enabled` jest domyślnie włączone; zapisane `false` jest decyzją użytkownika
+i zostaje (szczegóły w [settings.md](settings.md)). `notch::bind(main, preview)`
+po otwarciu głównego okna instaluje globalny `NotchHost`, który obserwuje
+`SettingsState`. Overlay otwiera się dopiero, gdy ustawienia są wczytane (lub
+ich odczyt się nie powiódł — wtedy obowiązuje domyślne `true`), więc zapisane
+`false` nie miga przy starcie. Zmiana ustawienia (strona Notch albo klient
+zdalny) od razu otwiera nowe okno albo zamyka bieżące przez
+`window.remove_window()`; usunięcie encji notcha zwalnia monitor myszy
+(`Drop` w `notch_macos.rs`/`notch_windows.rs`), a wyłączenie czyści `NotchStatus`.
+Host jest globalem, a nie encją, bo callback zamknięcia okna wykonuje się
+synchronicznie w trakcie zamykania i musi odczytać, które okno jest overlayem.
+Ponowne włączenie po błędzie monitora jest nową próbą; komunikat błędu mówi
+„Turn it off and on in Settings to retry.”. Poza macOS/Windows checkbox jest
+wyłączony z wyjaśnieniem.
 
 Windows kotwiczy overlay do górnej krawędzi primary work area, reaguje na DPI,
 zmianę monitorów i ustawień taskbara. Obcy borderless fullscreen ukrywa notch
@@ -88,7 +107,7 @@ MSVC Clippy harness, ale strategia monitorowania wymaga sprawdzenia rzeczywistą
 myszką. Nie deklarujemy pomiaru FPS ani pełnej kwalifikacji kliknięć w
 przeglądarce na podstawie testu geometrii.
 
-Przełącznik Preferences pozostaje poza tym etapem. Wiele monitorów,
+Wiele monitorów,
 Spaces/virtual desktops, fullscreen, taskbar auto-hide i resume nie były jeszcze
 natywnie kwalifikowane. Mouse monitors nie zbierają ani nie zapisują historii
 ruchu — używany jest wyłącznie aktualny stan inside/outside.

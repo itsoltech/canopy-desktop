@@ -16,6 +16,8 @@ mod agents;
 pub use agents::{AgentSession, AgentsState, IntegrationHealth};
 mod diffs;
 pub use diffs::Diffs;
+mod resources;
+pub use resources::ResourceUsage;
 mod changes;
 pub use changes::{ChangesState, UpstreamRequest};
 mod git;
@@ -70,6 +72,7 @@ pub struct AppState {
     pub editors: Entity<Editors>,
     pub toasts: Entity<crate::ui::toasts::ToastHost>,
     pub notch_status: Entity<NotchStatus>,
+    pub resources: Entity<ResourceUsage>,
     pub remote: Entity<remote::RemoteState>,
 }
 
@@ -82,7 +85,7 @@ impl NotchStatus {
         self.error = Some(error.into());
         cx.notify();
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.error = None;
         cx.notify();
@@ -112,9 +115,13 @@ impl AppState {
             diffs: cx.new(|_| Diffs::new()),
             toasts: cx.new(|_| crate::ui::toasts::ToastHost::new()),
             notch_status: cx.new(|_| NotchStatus { error: None }),
+            resources: cx.new(|_| ResourceUsage::new()),
             remote: cx.new(|_| remote::RemoteState::new()),
         };
         cx.set_global(state.clone());
+        state
+            .resources
+            .update(cx, |resources, cx| resources.bind(&state.settings, cx));
         state
     }
 
@@ -368,9 +375,13 @@ impl AppState {
             diffs: cx.new(|_| Diffs::new()),
             toasts: cx.new(|_| crate::ui::toasts::ToastHost::new()),
             notch_status: cx.new(|_| NotchStatus { error: None }),
+            resources: cx.new(|_| ResourceUsage::new()),
             remote: cx.new(|_| remote::RemoteState::new()),
         };
         cx.set_global(state.clone());
+        state
+            .resources
+            .update(cx, |resources, cx| resources.bind(&state.settings, cx));
         state.remote.update(cx, |remote, cx| remote.bind(cx));
         state.files.update(cx, |files, cx| files.bind(cx));
         state.integrations.update(cx, |state, cx| state.bind(cx));

@@ -51,7 +51,7 @@ async fn preferences_cas_waits_for_commit_and_preserves_queued_local_change(
         (app, bridge)
     });
     let first = bridge.snapshot().await.unwrap();
-    let patch = serde_json::from_value(serde_json::json!({"notch_enabled":true})).unwrap();
+    let patch = serde_json::from_value(serde_json::json!({"notch_enabled":false})).unwrap();
     let remote = cx.background_executor.spawn({
         let bridge = bridge.clone();
         async move { bridge.update_preferences(patch, Some(first.revision)).await }
@@ -63,7 +63,7 @@ async fn preferences_cas_waits_for_commit_and_preserves_queued_local_change(
     });
     remote.await.unwrap();
     // Successful reply is backed by storage, not merely the UI enqueue.
-    assert!(client.load().await.unwrap().preferences.notch_enabled);
+    assert!(!client.load().await.unwrap().preferences.notch_enabled);
     for _ in 0..100 {
         cx.run_until_parked();
         if !cx.update(|cx| app.settings.read(cx).saving) {
@@ -73,8 +73,8 @@ async fn preferences_cas_waits_for_commit_and_preserves_queued_local_change(
     }
     let saved = client.load().await.unwrap().preferences;
     assert!(saved.resource_usage);
-    assert!(saved.notch_enabled);
-    let patch = serde_json::from_value(serde_json::json!({"notch_enabled":false})).unwrap();
+    assert!(!saved.notch_enabled);
+    let patch = serde_json::from_value(serde_json::json!({"notch_enabled":true})).unwrap();
     assert_eq!(
         bridge
             .update_preferences(patch, Some(first.revision))
@@ -116,14 +116,14 @@ async fn failed_preferences_commit_keeps_live_values_and_revision(cx: &mut TestA
         )
     });
     let before = bridge.snapshot().await.unwrap();
-    let patch = serde_json::from_value(serde_json::json!({"notch_enabled":true})).unwrap();
+    let patch = serde_json::from_value(serde_json::json!({"notch_enabled":false})).unwrap();
     assert!(
         bridge
             .update_preferences(patch, Some(before.revision))
             .await
             .is_err()
     );
-    assert!(!cx.update(|cx| app.settings.read(cx).values.notch_enabled));
+    assert!(cx.update(|cx| app.settings.read(cx).values.notch_enabled));
     assert_eq!(bridge.snapshot().await.unwrap().revision, before.revision);
     client.shutdown().await.unwrap();
 }

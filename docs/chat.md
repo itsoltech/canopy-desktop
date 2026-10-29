@@ -270,7 +270,7 @@ zmianie wersji CLI nagraj nowy katalog i porównaj wyniki testów.
 - Restart w pane'ie zachowuje wiersze poprzedniej sesji nad separatorem „Session
   restarted”. Po restarcie aplikacji czat pokazuje zapisaną historię i wznawia sesję
   (`--resume <uuid>`) — etap 6.
-- Skróty (kontekst `Chat`): Enter wysyła, Shift+Enter nowa linia, ⌘. przerywa turę.
+- Skróty (kontekst `Chat`): Enter wysyła, Shift+Enter nowa linia, ⌘. przerywa turę (⌘. i pozostałe komendy czatu można zmienić w Settings → Shortcuts).
 
 ## Etap 2b: kolejka, subagenci, kod i pliki
 

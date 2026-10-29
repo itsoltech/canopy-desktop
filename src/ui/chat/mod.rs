@@ -56,20 +56,7 @@ gpui_kit::actions!(
     ]
 );
 
+/// Chat shortcuts come from the command keymap (Settings → Shortcuts).
 pub(crate) fn init(cx: &mut gpui_kit::App) {
-    cx.bind_keys([
-        gpui_kit::KeyBinding::new("cmd-.", StopChat, Some("Chat")),
-        // From the composer, cmd-enter arrives as a secondary PressEnter instead.
-        gpui_kit::KeyBinding::new("cmd-enter", AllowPending, Some("Chat")),
-        gpui_kit::KeyBinding::new("escape", DenyPending, Some("Chat")),
-        gpui_kit::KeyBinding::new("alt-cmd-up", PreviousMessage, Some("Chat")),
-        gpui_kit::KeyBinding::new("alt-cmd-down", NextMessage, Some("Chat")),
-        gpui_kit::KeyBinding::new("cmd-f", FindInChat, Some("Chat")),
-        gpui_kit::KeyBinding::new("cmd-g", FindNext, Some("Chat")),
-        gpui_kit::KeyBinding::new("cmd-shift-g", FindPrevious, Some("Chat")),
-        gpui_kit::KeyBinding::new("escape", CloseFind, Some("ChatFind")),
-        // ⌘1…⌘9 pick a model while the picker is open, not a tab.
-        gpui_kit::KeyBinding::new("cmd-1", gpui_kit::NoAction, Some("ModelPicker")),
-        gpui_kit::KeyBinding::new("cmd-2", gpui_kit::NoAction, Some("ModelPicker")),
-    ]);
+    crate::ui::keymap::init(cx);
 }

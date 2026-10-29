@@ -7,8 +7,43 @@ use gpui_kit::{
     *,
 };
 
+use super::search::{Entry, SettingsSearch};
+
+const GITHUB: Entry = Entry::new(
+    "github",
+    "GITHUB",
+    "GitHub",
+    "Issues for your projects and worktrees.",
+    "connection token classic fine-grained personal access organization owner repo",
+);
+const JIRA: Entry = Entry::new(
+    "jira",
+    "JIRA",
+    "Jira",
+    "Jira Cloud issues: site, account email and API token",
+    "atlassian cloud site email api token scopes cloud id",
+);
+const YOUTRACK: Entry = Entry::new(
+    "youtrack",
+    "YOUTRACK",
+    "YouTrack",
+    "YouTrack issues: service URL and permanent token",
+    "jetbrains service url permanent token",
+);
+const REPOSITORIES: Entry = Entry::new(
+    "repositories",
+    "",
+    "Repository matching",
+    "Repositories are matched from origin. Organization connections take priority over the default token.",
+    "git remote origin",
+);
+/// Search entries, in page order.
+pub(super) const SEARCH: &[Entry] = &[GITHUB, JIRA, YOUTRACK, REPOSITORIES];
+
 pub struct IntegrationsPreferences {
     state: Entity<IntegrationsState>,
+    search: Entity<SettingsSearch>,
+    _search: Subscription,
     jira: Entity<super::jira::JiraPreferences>,
     youtrack: Entity<super::youtrack::YoutrackPreferences>,
     scroll: ScrollHandle,
@@ -26,7 +61,11 @@ pub struct IntegrationsPreferences {
     _git_observer: Subscription,
 }
 impl IntegrationsPreferences {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        search: Entity<SettingsSearch>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let state = cx.global::<AppState>().integrations.clone();
         let token = cx.new(|cx| {
             InputState::new(window, cx)
@@ -75,6 +114,8 @@ impl IntegrationsPreferences {
         });
         Self {
             state,
+            _search: cx.observe(&search, |_, _, cx| cx.notify()),
+            search,
             jira: cx.new(|cx| super::jira::JiraPreferences::new(window, cx)),
             youtrack: cx.new(|cx| super::youtrack::YoutrackPreferences::new(window, cx)),
             scroll: ScrollHandle::new(),
@@ -301,28 +342,33 @@ impl Render for IntegrationsPreferences {
         let status = state.connection.clone();
         let error = state.error.clone();
         let cleanup = !state.config.retired_credentials.is_empty();
+        let search = self
+            .search
+            .read(cx)
+            .page("Integrations")
+            .scroll(&self.scroll);
         let content=column().flex_shrink_0().w_full().p(px(28.)).gap(px(24.))
             .child(column().gap(px(6.))
                 .child(div().text_size(px(18.)).font_weight(FontWeight::MEDIUM).child("Integrations"))
                 .child(div().text_size(px(12.)).text_color(t::secondary()).child("Bring your team's issues into Canopy.")))
-            .child(column().gap(px(16.))
+            .child(search.mark(&[GITHUB.id], column().gap(px(16.))
                 .child(row().gap(px(12.))
-                    .child(github_heading("GitHub","Issues for your projects and worktrees.").flex_1())
+                    .child(github_heading(GITHUB.label,GITHUB.help).flex_1())
                     .child(badge("Issues").flex_shrink_0()))
                 .children((!self.accounts.is_empty()).then(||self.connections(disabled,cx)))
                 .children((!self.form_open).then(||row().child(button("add-github-connection","Add connection").icon(icon(IconName::Plus)).on_click(cx.listener(|this,_,window,cx|{
                     this.reset(window,cx);this.form_open=true;this.scroll.scroll_to_bottom();cx.notify();
                 })).disabled(disabled))))
-                .children(self.form_open.then(||div().pt(px(16.)).border_t_1().border_color(t::border()).child(self.token_form(disabled,cx)))))
-            .child(div().pt(px(24.)).border_t_1().border_color(t::border()).child(self.jira.clone()))
-            .child(div().pt(px(24.)).border_t_1().border_color(t::border()).child(self.youtrack.clone()))
+                .children(self.form_open.then(||div().pt(px(16.)).border_t_1().border_color(t::border()).child(self.token_form(disabled,cx))))))
+            .child(search.mark(&[JIRA.id], div().pt(px(24.)).border_t_1().border_color(t::border()).child(self.jira.clone())))
+            .child(search.mark(&[YOUTRACK.id], div().pt(px(24.)).border_t_1().border_color(t::border()).child(self.youtrack.clone())))
             .children(error.clone().map(|error|integration_message(error,true)))
             .children((error.is_none()&&status!="Not connected").then(||div().text_size(px(11.)).text_color(t::secondary()).child(status)))
             .children(cleanup.then(||button("cleanup-integration-credentials","Retry credential cleanup").disabled(disabled)
                 .on_click(cx.listener(|this,_,_,cx|this.state.update(cx,|state,cx|state.cleanup_credentials(cx))))))
-            .child(row().items_start().gap(px(8.)).pt(px(16.)).border_t_1().border_color(t::border())
+            .child(search.mark(&[REPOSITORIES.id], row().items_start().gap(px(8.)).pt(px(16.)).border_t_1().border_color(t::border())
                 .child(custom_icon("git-branch").flex_shrink_0())
-                .child(div().flex_1().min_w_0().text_size(px(11.)).line_height(px(16.)).text_color(t::muted()).child("Repositories are matched from origin. Organization connections take priority over the default token. Choose another repository in Tasks when needed.")));
+                .child(div().flex_1().min_w_0().text_size(px(11.)).line_height(px(16.)).text_color(t::muted()).child("Repositories are matched from origin. Organization connections take priority over the default token. Choose another repository in Tasks when needed."))));
         div()
             .relative()
             .size_full()

@@ -4,6 +4,7 @@
 //! Everything applies at once. Backgrounds are previewed live through
 //! `theme::preview_background` and persisted through `theme::set_background`;
 //! bursts of edits (color picker drags, key repeat) are coalesced into one write.
+use super::search::{Entry, PageSearch, SettingsSearch};
 use super::*;
 use crate::app_state::SettingsState;
 use crate::ui::components::{
@@ -55,6 +56,70 @@ fn help(text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
+const MODE: Entry = Entry::new(
+    "mode",
+    "THEME",
+    "Mode",
+    "Light, dark, or following the system",
+    "appearance light dark auto system macos windows",
+);
+const BACKGROUND_APPEARANCE: Entry = Entry::new(
+    "background-appearance",
+    "BACKGROUND",
+    "Dark appearance and light appearance",
+    "Each appearance has its own backgrounds",
+    "variant",
+);
+const BACKGROUND_SURFACE: Entry = Entry::new(
+    "background-surface",
+    "BACKGROUND",
+    "Window and sidebar",
+    "The surface whose background is edited; use the same background for both",
+    "surface copy",
+);
+const BACKGROUND_STYLE: Entry = Entry::new(
+    "background-style",
+    "BACKGROUND",
+    "Theme, color or gradient",
+    "Your own color or gradient behind the window and the sidebar",
+    "solid color hex picker gradient angle stops preset wallpaper readability",
+);
+const FONT_FAMILY: Entry = Entry::new(
+    "font-family",
+    "TERMINAL FONT",
+    "Font family",
+    "Comma-separated list of fonts; the first available font is used",
+    "typeface monospace jetbrains mono",
+);
+const FONT_SIZE: Entry = Entry::new(
+    "font-size",
+    "TERMINAL FONT",
+    "Font size",
+    "Terminal text size in pixels (8–24)",
+    "text px",
+);
+/// Search entries, in page order: the mode, a card per theme family, then the rest.
+pub(super) fn entries() -> Vec<Entry> {
+    let mut entries = vec![MODE];
+    entries.extend(t::families().into_iter().map(|info| {
+        Entry::new(
+            info.id,
+            "THEME",
+            info.name,
+            "Color theme",
+            "colors palette scheme",
+        )
+    }));
+    entries.extend([
+        BACKGROUND_APPEARANCE,
+        BACKGROUND_SURFACE,
+        BACKGROUND_STYLE,
+        FONT_FAMILY,
+        FONT_SIZE,
+    ]);
+    entries
+}
+
 /// An edit waiting for the end of its burst.
 struct Pending {
     surface: (ThemeVariant, BackgroundTarget),
@@ -64,6 +129,8 @@ struct Pending {
 
 pub(super) struct AppearancePreferences {
     settings: Entity<SettingsState>,
+    search: Entity<SettingsSearch>,
+    scroll: ScrollHandle,
     target: BackgroundTarget,
     /// The appearance whose backgrounds are edited; `None` follows the one shown.
     editing: Option<ThemeVariant>,
@@ -79,7 +146,11 @@ pub(super) struct AppearancePreferences {
 }
 
 impl AppearancePreferences {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(super) fn new(
+        search: Entity<SettingsSearch>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let settings = cx.global::<AppState>().settings.clone();
         let variant = t::variant();
         let target = BackgroundTarget::Window;
@@ -110,6 +181,7 @@ impl AppearancePreferences {
                 .validate(|text, _| text.len() <= 2 && text.chars().all(|c| c.is_ascii_digit()))
         });
         let subscriptions = vec![
+            cx.observe(&search, |_, _, cx| cx.notify()),
             cx.observe_in(&settings, window, |this, _, window, cx| {
                 this.load(window, cx)
             }),
@@ -207,6 +279,8 @@ impl AppearancePreferences {
         cx.on_release(|this, cx| this.flush(cx)).detach();
         Self {
             settings,
+            search,
+            scroll: ScrollHandle::new(),
             target,
             editing: None,
             loaded: Some((variant, target)),
@@ -310,7 +384,12 @@ impl AppearancePreferences {
         }
     }
 
+    fn search(&self, cx: &App) -> PageSearch {
+        self.search.read(cx).page("Appearance").scroll(&self.scroll)
+    }
+
     fn theme_section(&self, window: &Window, cx: &mut Context<Self>) -> Div {
+        let search = self.search(cx);
         let current = t::current(cx);
         let content = f32::from(window.viewport_size().width) - SIDEBAR - 2. * CONTENT_X;
         let columns = ((content + CARD_GAP) / (CARD_WIDTH + CARD_GAP))
@@ -330,7 +409,11 @@ impl AppearancePreferences {
         let mode = row()
             .flex_wrap()
             .gap(px(12.))
-            .child(div().text_size(px(13.)).child("Mode"))
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .child(search.text(MODE.id, MODE.label)),
+            )
             .child(segmented_control(
                 "appearance-mode",
                 "Appearance mode",
@@ -348,7 +431,10 @@ impl AppearancePreferences {
             );
         let cards = div().grid().grid_cols(columns).gap(px(CARD_GAP)).children(
             t::families().into_iter().enumerate().map(|(index, info)| {
-                theme_card(index, &info, current.variant, info.family == current.family)
+                search.mark(
+                    &[info.id],
+                    theme_card(index, &info, current.variant, info.family == current.family),
+                )
             }),
         );
         section(
@@ -357,7 +443,7 @@ impl AppearancePreferences {
             vec![
                 column()
                     .gap(px(12.))
-                    .child(mode)
+                    .child(search.mark(&[MODE.id], mode))
                     .child(cards)
                     .into_any_element(),
             ],
@@ -365,6 +451,7 @@ impl AppearancePreferences {
     }
 
     fn background_section(&self, cx: &mut Context<Self>) -> Div {
+        let search = self.search(cx);
         let variant = self.variant();
         let shown = t::variant();
         let background = self.edited(cx);
@@ -490,10 +577,20 @@ impl AppearancePreferences {
             vec![
                 column()
                     .gap(px(12.))
-                    .child(appearance)
-                    .child(self.preview(variant, cx))
-                    .child(controls)
-                    .children(editor)
+                    .child(search.mark(&[BACKGROUND_APPEARANCE.id], appearance))
+                    .child(search.mark(
+                        &[
+                            BACKGROUND_APPEARANCE.id,
+                            BACKGROUND_SURFACE.id,
+                            BACKGROUND_STYLE.id,
+                        ],
+                        self.preview(variant, cx),
+                    ))
+                    .child(search.mark(&[BACKGROUND_SURFACE.id, BACKGROUND_STYLE.id], controls))
+                    .children(
+                        editor
+                            .map(|editor| search.mark(&[BACKGROUND_STYLE.id], div().child(editor))),
+                    )
                     .into_any_element(),
             ],
         )
@@ -621,28 +718,30 @@ impl AppearancePreferences {
             .child(outline)
     }
 
-    fn font_section(&self) -> Div {
+    fn font_section(&self, cx: &App) -> Div {
+        let search = self.search(cx);
         section(
             "TERMINAL FONT",
             "Font used in terminal panes. Changes apply immediately.",
             vec![
-                stacked_setting(
-                    "Font family",
-                    "Comma-separated list of fonts; the first available font is used",
-                    true,
-                    input(&self.font_family)
-                        .w_full()
-                        .font_family(t::MONO)
-                        .text_size(px(12.)),
-                )
-                .into_any_element(),
-                setting(
-                    "Font size",
-                    "Terminal text size in pixels (8–24)",
-                    false,
-                    NumberInput::new(&self.font_size).small().w(px(104.)),
-                )
-                .into_any_element(),
+                search
+                    .stacked_setting(
+                        &FONT_FAMILY,
+                        FONT_FAMILY.help,
+                        true,
+                        input(&self.font_family)
+                            .w_full()
+                            .font_family(t::MONO)
+                            .text_size(px(12.)),
+                    )
+                    .into_any_element(),
+                search
+                    .setting(
+                        &FONT_SIZE,
+                        false,
+                        NumberInput::new(&self.font_size).small().w(px(104.)),
+                    )
+                    .into_any_element(),
             ],
         )
     }
@@ -798,6 +897,7 @@ impl Render for AppearancePreferences {
                 column()
                     .id("prefs-appearance")
                     .flex_1()
+                    .track_scroll(&self.scroll)
                     .overflow_y_scrollbar()
                     .px(px(CONTENT_X))
                     .py(px(20.))
@@ -809,7 +909,7 @@ impl Render for AppearancePreferences {
                             .children(loading.then(|| div().child("Loading settings…")))
                             .child(self.theme_section(window, cx))
                             .child(self.background_section(cx))
-                            .child(self.font_section()),
+                            .child(self.font_section(cx)),
                     ),
             )
     }
@@ -834,7 +934,8 @@ mod tests {
             AppState::install_test(workspace, cx);
             cx.open_window(Default::default(), |window, cx| {
                 t::bind(window, cx);
-                let page = cx.new(|cx| AppearancePreferences::new(window, cx));
+                let search = SettingsSearch::detached("Appearance", cx);
+                let page = cx.new(|cx| AppearancePreferences::new(search, window, cx));
                 cx.new(|cx| Root::new(page, window, cx))
             })
             .unwrap()
@@ -865,7 +966,7 @@ mod tests {
         // Another settings change (still the old background) does not undo it.
         let settings = cx.update(|_, cx| cx.global::<AppState>().settings.clone());
         settings.update(&mut cx, |settings, cx| {
-            settings.values.notch_enabled = true;
+            settings.values.notch_enabled = false;
             cx.notify();
         });
         cx.run_until_parked();

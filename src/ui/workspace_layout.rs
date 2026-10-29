@@ -22,18 +22,15 @@ fn page_label(page: ToolPage) -> &'static str {
         .map(|(_, label)| *label)
         .unwrap_or("Tools")
 }
-fn tool_shortcut(page: ToolPage) -> String {
-    // ⌥⌘1 shows the work area's tabs; the panel's pages follow.
-    let number = TOOL_PAGES.iter().position(|(p, _)| *p == page).unwrap_or(0) + 2;
-    format!(
-        "{}{}",
-        if cfg!(target_os = "macos") {
-            "⌥⌘"
-        } else {
-            "Ctrl+Alt+"
-        },
-        number
-    )
+fn tool_command(page: ToolPage) -> super::keymap::CommandId {
+    use super::keymap::CommandId;
+    match page {
+        ToolPage::Tabs => CommandId::ShowTabs,
+        ToolPage::Files => CommandId::ShowFiles,
+        ToolPage::Changes => CommandId::ShowChanges,
+        ToolPage::Tasks => CommandId::ShowTasks,
+        ToolPage::Agent => CommandId::ShowAgent,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -306,7 +303,11 @@ impl Workspace {
                             .px_2()
                             .label(label)
                             .selected(open && selected == page)
-                            .tooltip(format!("{} ({})", page_label(page), tool_shortcut(page)))
+                            .tooltip(super::keymap::with_shortcut(
+                                page_label(page),
+                                tool_command(page),
+                                cx,
+                            ))
                             .disabled(
                                 self.state.projects.read(cx).catalog.active.is_none()
                                     && self.focused_remote(cx).is_none()
@@ -339,7 +340,11 @@ impl Workspace {
             .size_7()
             .p_0()
             .icon(IconName::ChevronDown)
-            .tooltip("All tabs")
+            .tooltip(super::keymap::with_shortcut(
+                "All tabs",
+                super::keymap::CommandId::ShowTabs,
+                cx,
+            ))
             .disabled(tabs.is_empty())
             .dropdown_menu(move |menu, _, _| {
                 tabs.iter().fold(menu, |menu, (id, title)| {

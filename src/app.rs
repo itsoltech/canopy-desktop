@@ -34,13 +34,17 @@ pub fn run() {
                 ))])
                 .expect("embedded font");
             cx.on_action(|_: &Quit, cx| crate::app_state::AppState::quit(cx));
-            #[cfg(target_os = "macos")]
-            cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-            cx.set_menus(vec![Menu {
-                name: "Canopy".into(),
-                disabled: false,
-                items: vec![MenuItem::action("Quit Canopy", Quit)],
-            }]);
+            // ⌘Q is a customizable command; the menu follows its current shortcut.
+            crate::ui::keymap::set_menus(
+                || {
+                    vec![Menu {
+                        name: "Canopy".into(),
+                        disabled: false,
+                        items: vec![MenuItem::action("Quit Canopy", Quit)],
+                    }]
+                },
+                cx,
+            );
 
             // Diagnostic preview keeps only the overlay visible for window captures.
             let notch_preview = cfg!(any(target_os = "macos", target_os = "windows"))
@@ -72,21 +76,14 @@ pub fn run() {
                     return;
                 }
             };
+            // The overlay opens and closes with the Notch setting.
             #[cfg(any(target_os = "macos", target_os = "windows"))]
-            let overlay = match crate::ui::notch::open(main, cx) {
-                Ok(handle) => Some(handle.window_id()),
-                Err(error) => {
-                    eprintln!("Failed to open notch: {error:#}");
-                    None
-                }
-            };
-            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-            let overlay: Option<WindowId> = None;
+            crate::ui::notch::bind(main, notch_preview, cx);
             cx.on_window_closed(move |cx, _| {
                 if cx
                     .windows()
                     .iter()
-                    .all(|window| Some(window.window_id()) == overlay)
+                    .all(|window| is_notch(window.window_id(), cx))
                 {
                     crate::app_state::AppState::quit(cx);
                 }
@@ -97,4 +94,15 @@ pub fn run() {
                 let _ = main.update(cx, |_, window, _| window.activate_window());
             }
         });
+}
+
+/// The notch overlay alone doesn't keep Canopy running.
+fn is_notch(window: WindowId, cx: &App) -> bool {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    return crate::ui::notch::is_overlay(window, cx);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (window, cx);
+        false
+    }
 }

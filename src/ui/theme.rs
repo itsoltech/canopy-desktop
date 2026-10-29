@@ -307,6 +307,12 @@ pub fn selected() -> Hsla {
 pub fn accent() -> Hsla {
     p().accent
 }
+/// Settings search: behind the matched words of a setting.
+pub fn search_match() -> Hsla {
+    accent().opacity(if is_light() { 0.18 } else { 0.28 })
+}
+/// Settings search: opacity of pages and settings that do not match.
+pub const SEARCH_DIMMED: f32 = 0.4;
 pub fn green() -> Hsla {
     p().green
 }

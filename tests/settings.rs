@@ -23,13 +23,13 @@ fn fresh_defaults_and_persistence_after_worker_restart() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("native.db");
         let client = SettingsClient::create(&path).await.unwrap();
-        assert_eq!(
-            client.load().await.unwrap().preferences,
-            Preferences::default()
-        );
+        let fresh = client.load().await.unwrap().preferences;
+        assert_eq!(fresh, Preferences::default());
+        // Nothing stored: the notch is shown.
+        assert!(fresh.notch_enabled);
         let saved = client
             .apply(vec![
-                Change::NotchEnabled(true),
+                Change::NotchEnabled(false),
                 Change::NewTabTool(ToolId::new("custom-tool-42").unwrap()),
             ])
             .await
@@ -58,7 +58,7 @@ fn online_backup_includes_wal_and_preserves_unknown_and_secret_values() {
         original
             .execute(
                 "INSERT INTO preferences VALUES(?1,?2)",
-                ["notch.enabled", "true"],
+                ["notch.enabled", "false"],
             )
             .unwrap();
         original
@@ -82,14 +82,15 @@ fn online_backup_includes_wal_and_preserves_unknown_and_secret_values() {
             .unwrap();
         let before = client.load().await.unwrap();
         assert_eq!(before.schema, Schema::Electron { migration: 11 });
-        assert!(before.preferences.notch_enabled);
+        // Defaults are never written: Electron's stored "off" is the user's choice.
+        assert!(!before.preferences.notch_enabled);
         assert!(
             !serde_json::to_string(&before)
                 .unwrap()
                 .contains("opaque-encrypted-value")
         );
         client
-            .apply(vec![Change::NotchEnabled(false)])
+            .apply(vec![Change::NotchEnabled(true)])
             .await
             .unwrap();
         client.shutdown().await.unwrap();
@@ -99,8 +100,8 @@ fn online_backup_includes_wal_and_preserves_unknown_and_secret_values() {
             raw(&copy, "unknown.setting"),
             raw(&original, "unknown.setting")
         );
-        assert_eq!(raw(&original, "notch.enabled"), "true");
-        assert_eq!(raw(&copy, "notch.enabled"), "false");
+        assert_eq!(raw(&original, "notch.enabled"), "false");
+        assert_eq!(raw(&copy, "notch.enabled"), "true");
         assert_eq!(
             copy.query_row("SELECT count(*) FROM _migrations", [], |r| r
                 .get::<_, i64>(0))
@@ -162,7 +163,8 @@ fn invalid_stored_values_fall_back_without_rewriting_them() {
             .unwrap();
         let snapshot = client.load().await.unwrap();
         assert_eq!(snapshot.warnings.len(), 2);
-        assert!(!snapshot.preferences.notch_enabled);
+        // Falls back to the default: shown.
+        assert!(snapshot.preferences.notch_enabled);
         assert_eq!(snapshot.preferences.new_tab_tool.as_str(), "shell");
         client
             .apply(vec![Change::ResourceUsage(true)])
@@ -211,12 +213,12 @@ fn cloned_handles_serialize_updates_and_reset_uses_defaults() {
     let b = client.clone();
     let first =
         std::thread::spawn(move || block_on(a.apply(vec![Change::ReopenLastWorkspace(false)])));
-    let second = std::thread::spawn(move || block_on(b.apply(vec![Change::NotchEnabled(true)])));
+    let second = std::thread::spawn(move || block_on(b.apply(vec![Change::NotchEnabled(false)])));
     first.join().unwrap().unwrap();
     second.join().unwrap().unwrap();
     let p = block_on(client.load()).unwrap().preferences;
     assert!(!p.reopen_last_workspace);
-    assert!(p.notch_enabled);
+    assert!(!p.notch_enabled);
     assert!(
         block_on(client.apply(vec![Change::Reset(PreferenceKey::ReopenLastWorkspace)]))
             .unwrap()
@@ -441,4 +443,72 @@ fn appearance_round_trips_and_electron_theme_is_a_read_only_fallback() {
     assert!(Change::parse(PreferenceKey::TerminalFontSize, "7").is_err());
     assert!(Change::parse(PreferenceKey::TerminalFontFamily, " ").is_err());
     assert!("theme".parse::<PreferenceKey>().is_err());
+}
+
+#[test]
+fn shortcut_overrides_are_validated_and_persisted() {
+    use canopy_desktop::settings::ShortcutOverrides;
+    let value = r#"{"chat.stop":[],"tabs.new":["cmd-shift-k","ctrl--"]}"#;
+    let overrides = ShortcutOverrides::decode(value).unwrap();
+    assert_eq!(overrides.get("chat.stop"), Some(&[][..]));
+    assert_eq!(
+        overrides.get("tabs.new").unwrap(),
+        ["cmd-shift-k", "ctrl--"]
+    );
+    assert_eq!(overrides.encode(), value);
+    for invalid in [
+        r#"["cmd-k"]"#,
+        r#"{"Tabs":["cmd-k"]}"#,
+        r#"{"a":["cmd k"]}"#,
+        r#"{"a":["hyper-k"]}"#,
+        r#"{"a":["cmd-"]}"#,
+        r#"{"a":["a","b","c","d","e"]}"#,
+        r#"{"a":"cmd-k"}"#,
+    ] {
+        assert!(
+            Change::parse(PreferenceKey::Shortcuts, invalid).is_err(),
+            "{invalid}"
+        );
+    }
+    block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.db");
+        let client = SettingsClient::create(&path).await.unwrap();
+        let saved = client
+            .apply(vec![Change::Shortcuts(overrides.clone())])
+            .await
+            .unwrap();
+        assert_eq!(saved.preferences.shortcuts, overrides);
+        let db = Connection::open(&path).unwrap();
+        assert_eq!(raw(&db, "keyboard.shortcuts"), value);
+        // No overrides is the default: the row goes away instead of storing `{}`.
+        let cleared = client
+            .apply(vec![Change::Shortcuts(ShortcutOverrides::default())])
+            .await
+            .unwrap();
+        assert!(cleared.preferences.shortcuts.is_empty());
+        let rows: i64 = db
+            .query_row(
+                "SELECT count(*) FROM preferences WHERE key='keyboard.shortcuts'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 0);
+        // A broken stored value warns and falls back to the defaults.
+        db.execute(
+            "INSERT INTO preferences(key,value) VALUES('keyboard.shortcuts','{\"a\":1}')",
+            [],
+        )
+        .unwrap();
+        let snapshot = client.load().await.unwrap();
+        assert!(snapshot.preferences.shortcuts.is_empty());
+        assert!(
+            snapshot
+                .warnings
+                .iter()
+                .any(|w| w.key == PreferenceKey::Shortcuts)
+        );
+        client.shutdown().await.unwrap();
+    });
 }

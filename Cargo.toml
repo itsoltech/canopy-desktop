@@ -63,6 +63,9 @@ ttf-parser = "=0.25.1"
 # size the model reads before they are sent.
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "tiff", "bmp"] }
 wuff = "=0.2.9"
+# Already locked (via zed-scap); per-process CPU and resident memory for the
+# opt-in resource readout. Only the process API is needed.
+sysinfo = { version = "=0.31.4", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 # Exercise real GPUI focus and key dispatch in keyboard-navigation regressions.

@@ -1,5 +1,6 @@
 //! Connection setup. RemoteState owns the listener and enrollment; this retained
 //! view owns disclosure, address choice and permission edits, never socket I/O.
+use super::search::{Entry, PageSearch, SettingsSearch};
 use super::{CONTENT_X, SECTION_GAP};
 use crate::{
     app_state::{AppState, project_commands, remote::RemoteState},
@@ -55,6 +56,107 @@ const PRESETS: [(u32, &str); 4] = [
 ];
 const QR_SIZE: f32 = 160.;
 
+const REMOTE_ACCESS: Entry = Entry::new(
+    "remote-access",
+    "THIS COMPUTER",
+    "Remote access",
+    "Allow approved devices to use this computer while Canopy is running.",
+    "enable server on off",
+);
+const REACHABLE: Entry = Entry::new(
+    "reachable",
+    "THIS COMPUTER",
+    "Reachable from",
+    "Local network / VPN, or SSH only",
+    "wi-fi wifi lan ssh tunnel network",
+);
+const STATUS: Entry = Entry::new(
+    "status",
+    "THIS COMPUTER",
+    "Status",
+    "Whether approved devices can reach this computer",
+    "running available retry",
+);
+const DEVICES: Entry = Entry::new(
+    "devices",
+    "DEVICES",
+    "Devices",
+    "Phones and computers that can use this computer. You approve each new device.",
+    "add device phone mobile pair qr code invitation approve revoke permissions access",
+);
+const COMPUTERS: Entry = Entry::new(
+    "computers",
+    "OTHER COMPUTERS",
+    "Other computers",
+    "Computers you can open from here.",
+    "add computer host open routes",
+);
+const LISTEN_ADDRESS: Entry = Entry::new(
+    "listen-address",
+    "ADVANCED SETTINGS",
+    "Listen address",
+    "Where this computer accepts connections. Default port: 44330.",
+    "port bind",
+);
+const INVITATION_ADDRESS: Entry = Entry::new(
+    "invitation-address",
+    "ADVANCED SETTINGS",
+    "Address in invitation",
+    "Usually detected automatically. Enter an IP address or VPN name without https:// or a port.",
+    "advertised hostname",
+);
+const NETWORK_ADDRESSES: Entry = Entry::new(
+    "network-addresses",
+    "ADVANCED SETTINGS",
+    "Network addresses",
+    "Addresses of this computer on your networks",
+    "ip interface refresh",
+);
+const TEST_HERE: Entry = Entry::new(
+    "test-here",
+    "ADVANCED SETTINGS",
+    "Test on this computer",
+    "Add this computer under Other computers to try a connection. It still asks for your approval.",
+    "try connection",
+);
+const DEVICE_LIST: Entry = Entry::new(
+    "device-list",
+    "ADVANCED SETTINGS",
+    "Device list",
+    "Reload the devices that can use this computer.",
+    "refresh",
+);
+const DIAGNOSTICS: Entry = Entry::new(
+    "diagnostics",
+    "ADVANCED SETTINGS",
+    "Diagnostics",
+    "Copy connection diagnostics for troubleshooting.",
+    "troubleshoot logs metrics",
+);
+/// Entries inside Advanced settings: a match there opens it.
+const ADVANCED: [Entry; 6] = [
+    LISTEN_ADDRESS,
+    INVITATION_ADDRESS,
+    NETWORK_ADDRESSES,
+    TEST_HERE,
+    DEVICE_LIST,
+    DIAGNOSTICS,
+];
+/// Search entries, in page order.
+pub(super) const SEARCH: &[Entry] = &[
+    REMOTE_ACCESS,
+    REACHABLE,
+    STATUS,
+    DEVICES,
+    COMPUTERS,
+    LISTEN_ADDRESS,
+    INVITATION_ADDRESS,
+    NETWORK_ADDRESSES,
+    TEST_HERE,
+    DEVICE_LIST,
+    DIAGNOSTICS,
+];
+
 /// The page region an error belongs to, so it renders next to what failed.
 #[derive(Clone, Copy, PartialEq)]
 enum Area {
@@ -67,6 +169,7 @@ enum Area {
 
 pub(super) struct RemotePreferences {
     state: Entity<RemoteState>,
+    search: Entity<SettingsSearch>,
     connections: Option<Entity<Connections>>,
     /// Inline Add computer form at the end of Other computers.
     add_computer: Option<Entity<ConnectionSetup>>,
@@ -107,7 +210,11 @@ pub(super) struct RemotePreferences {
     seen_pending: Option<String>,
 }
 impl RemotePreferences {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        search: Entity<SettingsSearch>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let state = cx.global::<AppState>().remote.clone();
         let address = state.read(cx).preferences().address().to_string();
         let connections = remote_client::connections(cx);
@@ -192,9 +299,17 @@ impl RemotePreferences {
         if let Some(connections) = &connections {
             observers.push(cx.observe(connections, |_, _, cx| cx.notify()));
         }
+        observers.push(cx.observe(&search, |this, search, cx| {
+            let page = search.read(cx).page("Connections");
+            if !this.advanced.open && ADVANCED.iter().any(|entry| page.hit(entry.id)) {
+                this.advanced.toggle(Instant::now(), cx);
+            }
+            cx.notify();
+        }));
         let now = Instant::now();
         let mut view = Self {
             state,
+            search,
             connections,
             add_computer: None,
             computer_routes: None,
@@ -566,33 +681,42 @@ impl RemotePreferences {
         cx.notify();
     }
 
+    fn search(&self, cx: &App) -> PageSearch {
+        self.search
+            .read(cx)
+            .page("Connections")
+            .scroll(&self.scroll)
+    }
+
     fn this_computer(&self, busy: bool, cx: &mut Context<Self>) -> Div {
+        let search = self.search(cx);
         let state = self.state.read(cx);
         let enabled = state.preferences().enabled();
         let running = state.address().is_some();
         let network = !state.preferences().address().ip().is_loopback();
         let mut rows = vec![
-            setting(
-                "Remote access",
-                "Allow approved devices to use this computer while Canopy is running.",
-                true,
-                Switch::new("remote-enabled")
-                    .checked(enabled)
-                    .disabled(busy)
-                    .on_change(cx.listener(|this, enabled, _, cx| {
-                        let address = this.state.read(cx).preferences().address().to_string();
-                        this.error = None;
-                        this.state_area = Area::Access;
-                        this.state
-                            .update(cx, |state, cx| state.configure(*enabled, &address, cx));
-                    })),
-            )
-            .into_any_element(),
+            search
+                .setting(
+                    &REMOTE_ACCESS,
+                    true,
+                    Switch::new("remote-enabled")
+                        .checked(enabled)
+                        .disabled(busy)
+                        .on_change(cx.listener(|this, enabled, _, cx| {
+                            let address = this.state.read(cx).preferences().address().to_string();
+                            this.error = None;
+                            this.state_area = Area::Access;
+                            this.state
+                                .update(cx, |state, cx| state.configure(*enabled, &address, cx));
+                        })),
+                )
+                .into_any_element(),
         ];
         if enabled {
             rows.push(
-                setting(
-                    "Reachable from",
+                search
+                    .setting_with(
+                    &REACHABLE,
                     if network {
                         "Devices on the same Wi-Fi, LAN or VPN. Every new device still needs your approval."
                     } else {
@@ -642,7 +766,11 @@ impl RemotePreferences {
                         ))),
                 )
             };
-            rows.push(setting("Status", help, false, control).into_any_element());
+            rows.push(
+                search
+                    .setting_with(&STATUS, help, false, control)
+                    .into_any_element(),
+            );
         }
         section(
             "THIS COMPUTER",
@@ -714,10 +842,10 @@ impl RemotePreferences {
                 self.error_for(Area::Devices, cx)
                     .map(|error| integration_message(error, true)),
             );
-        section(
-            "DEVICES",
-            "Phones and computers that can use this computer. You approve each new device.",
-            vec![content.into_any_element()],
+        let search = self.search(cx);
+        search.mark(
+            &[DEVICES.id],
+            section("DEVICES", DEVICES.help, vec![content.into_any_element()]),
         )
     }
 
@@ -1328,7 +1456,8 @@ impl RemotePreferences {
                 )
                 .child(setup)
         });
-        section(
+        let search = self.search(cx);
+        search.mark(&[COMPUTERS.id], section(
             "OTHER COMPUTERS",
             "Computers you can open from here. They share all projects and chats unless their owner restricts this device.",
             vec![
@@ -1350,7 +1479,7 @@ impl RemotePreferences {
                     )
                     .into_any_element(),
             ],
-        )
+        ))
     }
 
     fn computer_row(&self, host: Arc<HostClient>, first: bool, cx: &mut Context<Self>) -> Div {
@@ -1473,77 +1602,79 @@ impl RemotePreferences {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
+        let search = self.search(cx);
         let rows = column()
             .flex_shrink_0()
             .pt(px(8.))
-            .child(setting(
-                "Listen address",
-                "Where this computer accepts connections. Default port: 44330.",
-                true,
-                row()
-                    .gap(px(8.))
-                    .child(input(&self.address).w(px(180.)).disabled(busy))
-                    .child(
-                        button("apply-listener", "Apply")
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
+            .child(
+                search.setting(
+                    &LISTEN_ADDRESS,
+                    true,
+                    row()
+                        .gap(px(8.))
+                        .child(input(&self.address).w(px(180.)).disabled(busy))
+                        .child(button("apply-listener", "Apply").disabled(busy).on_click(
+                            cx.listener(|this, _, _, cx| {
                                 let address = this.address.read(cx).value().to_string();
                                 let enabled = this.state.read(cx).preferences().enabled();
                                 this.error = None;
                                 this.state_area = Area::Advanced;
                                 this.state
                                     .update(cx, |state, cx| state.configure(enabled, &address, cx));
-                            })),
-                    ),
-            ))
-            .child(setting(
-                "Address in invitation",
-                "Usually detected automatically. Enter an IP address or VPN name without https:// or a port.",
+                            }),
+                        )),
+                ),
+            )
+            .child(search.setting(
+                &INVITATION_ADDRESS,
                 false,
                 input(&self.advertised).w(px(180.)).disabled(busy),
             ))
-            .child(setting(
-                "Network addresses",
-                detected,
-                false,
-                loading_button("refresh-network", "Refresh", &self.address_loading)
-                    .disabled(self.addresses_loading)
-                    .on_click(cx.listener(|this, _, _, cx| this.refresh_addresses(cx))),
-            ))
+            .child(
+                search.setting_with(
+                    &NETWORK_ADDRESSES,
+                    detected,
+                    false,
+                    loading_button("refresh-network", "Refresh", &self.address_loading)
+                        .disabled(self.addresses_loading)
+                        .on_click(cx.listener(|this, _, _, cx| this.refresh_addresses(cx))),
+                ),
+            )
             .children(
                 self.address_error
                     .clone()
                     .map(|error| integration_message(error, true).mb(px(12.))),
             )
-            .child(setting(
-                "Test on this computer",
-                "Add this computer under Other computers to try a connection. It still asks for your approval.",
-                false,
-                button("test-here", "Test")
-                    .disabled(
-                        busy || !running
-                            || self
-                                .connections
-                                .as_ref()
-                                .is_none_or(|c| c.read(cx).loading()),
-                    )
-                    .on_click(cx.listener(|this, _, window, cx| this.test_here(window, cx))),
-            ))
-            .child(setting(
-                "Device list",
-                "Reload the devices that can use this computer.",
-                false,
-                button("refresh-devices", "Refresh")
-                    .disabled(busy)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.error = None;
-                        this.state_area = Area::Advanced;
-                        this.state.update(cx, |state, cx| state.refresh_devices(cx))
-                    })),
-            ))
-            .child(setting(
-                "Diagnostics",
-                "Copy connection diagnostics for troubleshooting.",
+            .child(
+                search.setting(
+                    &TEST_HERE,
+                    false,
+                    button("test-here", "Test")
+                        .disabled(
+                            busy || !running
+                                || self
+                                    .connections
+                                    .as_ref()
+                                    .is_none_or(|c| c.read(cx).loading()),
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| this.test_here(window, cx))),
+                ),
+            )
+            .child(
+                search.setting(
+                    &DEVICE_LIST,
+                    false,
+                    button("refresh-devices", "Refresh")
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.error = None;
+                            this.state_area = Area::Advanced;
+                            this.state.update(cx, |state, cx| state.refresh_devices(cx))
+                        })),
+                ),
+            )
+            .child(search.setting(
+                &DIAGNOSTICS,
                 false,
                 button("copy-diagnostics", "Copy diagnostics").on_click(|_, _, cx| {
                     if let Ok(json) = canopy_desktop::remote::metrics::snapshot_json() {
@@ -1555,7 +1686,9 @@ impl RemotePreferences {
                 self.error_for(Area::Advanced, cx)
                     .map(|error| integration_message(error, true)),
             );
-        column()
+        let ids = ADVANCED.map(|entry| entry.id);
+        search
+            .mark(&ids, column())
             .flex_shrink_0()
             .child(
                 self.advanced
@@ -1610,7 +1743,7 @@ impl Render for RemotePreferences {
 }
 
 /// Same header as General: title, one-line subtitle and a bottom hairline.
-fn page_header(title: &'static str, subtitle: &'static str) -> Div {
+pub(super) fn page_header(title: &'static str, subtitle: &'static str) -> Div {
     column()
         .flex_shrink_0()
         .px(px(CONTENT_X))

@@ -20,8 +20,40 @@ use gpui_kit::{
     *,
 };
 use std::time::Instant;
+
+use super::search::{Entry, PageSearch, SettingsSearch};
+
+const EVERY_TASK: &str = "Every task in the selected project";
+const CUSTOM: Entry = Entry::new(
+    "custom",
+    "CUSTOM",
+    "Custom filters",
+    "Your saved filters, also listed in Tasks",
+    "new filter jira youtrack jql query",
+);
+/// Search entries, in page order: the built-in filters, then your own.
+pub(super) fn entries() -> Vec<Entry> {
+    let builtins =
+        |section, keywords, filters: &'static [(&'static str, &'static str, &'static str)]| {
+            filters.iter().map(move |&(id, name, expression)| {
+                let help = if expression.is_empty() {
+                    EVERY_TASK
+                } else {
+                    expression
+                };
+                Entry::new(id, section, name, help, keywords)
+            })
+        };
+    builtins("BUILT-IN · JIRA", "jql", &BUILTINS)
+        .chain(builtins("BUILT-IN · YOUTRACK", "query", &YOUTRACK_BUILTINS))
+        .chain([CUSTOM])
+        .collect()
+}
+
 pub struct TaskFiltersPreferences {
     state: Entity<IntegrationsState>,
+    search: Entity<SettingsSearch>,
+    _search: Subscription,
     scroll: ScrollHandle,
     name: Entity<InputState>,
     expression: Entity<TextareaState>,
@@ -39,7 +71,11 @@ pub struct TaskFiltersPreferences {
     _settings_observer: Subscription,
 }
 impl TaskFiltersPreferences {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        search: Entity<SettingsSearch>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let state = cx.global::<AppState>().integrations.clone();
         let observer = cx.observe_in(&state, window, |s, state, window, cx| {
             let state = state.read(cx);
@@ -68,6 +104,8 @@ impl TaskFiltersPreferences {
         Self {
             items: state.read(cx).config.task_filters.clone(),
             state,
+            _search: cx.observe(&search, |_, _, cx| cx.notify()),
+            search,
             scroll: ScrollHandle::new(),
             name: cx.new(|cx| InputState::new(window, cx).placeholder("Filter name")),
             expression: cx.new(|cx| {
@@ -171,152 +209,164 @@ impl TaskFiltersPreferences {
     }
 }
 impl TaskFiltersPreferences {
-    fn builtins(&self, disabled: bool, cx: &mut Context<Self>) -> Div {
+    fn builtins(&self, disabled: bool, search: &PageSearch, cx: &mut Context<Self>) -> Div {
         column()
             .flex_shrink_0()
             .gap(px(10.))
             .child(caption("BUILT-IN · JIRA"))
             .children(BUILTINS.into_iter().map(|(id, name, expression)| {
                 let summary = if expression.is_empty() {
-                    "Every task in the selected project"
+                    EVERY_TASK
                 } else {
                     expression
                 };
-                row()
-                    .gap(px(12.))
-                    .py(px(6.))
-                    .flex_shrink_0()
-                    .child(
-                        column()
-                            .flex_1()
-                            .gap(px(3.))
-                            .child(div().child(name))
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(t::muted())
-                                    .child(summary),
-                            ),
-                    )
-                    .child(
-                        icon_button(id, IconName::Plus, "Use as a custom filter")
-                            .disabled(disabled)
-                            .on_click(cx.listener(move |s, _, w, cx| {
-                                s.edit(
-                                    None,
-                                    format!("{name} copy"),
-                                    expression.into(),
-                                    Provider::Jira,
-                                    w,
-                                    cx,
-                                )
-                            })),
-                    )
+                search.mark(
+                    &[id],
+                    row()
+                        .gap(px(12.))
+                        .py(px(6.))
+                        .flex_shrink_0()
+                        .child(
+                            column()
+                                .flex_1()
+                                .gap(px(3.))
+                                .child(div().child(search.text(id, name)))
+                                .child(
+                                    div()
+                                        .text_size(px(11.))
+                                        .text_color(t::muted())
+                                        .child(search.text(id, summary)),
+                                ),
+                        )
+                        .child(
+                            icon_button(id, IconName::Plus, "Use as a custom filter")
+                                .disabled(disabled)
+                                .on_click(cx.listener(move |s, _, w, cx| {
+                                    s.edit(
+                                        None,
+                                        format!("{name} copy"),
+                                        expression.into(),
+                                        Provider::Jira,
+                                        w,
+                                        cx,
+                                    )
+                                })),
+                        ),
+                )
             }))
             .child(caption("BUILT-IN · YOUTRACK"))
             .children(YOUTRACK_BUILTINS.into_iter().map(|(id, name, expression)| {
-                row()
-                    .gap(px(12.))
-                    .py(px(6.))
-                    .flex_shrink_0()
-                    .child(
-                        column()
-                            .flex_1()
-                            .gap(px(3.))
-                            .child(div().child(name))
-                            .child(div().text_size(px(11.)).text_color(t::muted()).child(
-                                if expression.is_empty() {
-                                    "Every task in the selected project"
-                                } else {
-                                    expression
-                                },
-                            )),
-                    )
-                    .child(
-                        icon_button(id, IconName::Plus, "Use as a custom filter")
-                            .disabled(disabled)
-                            .on_click(cx.listener(move |s, _, w, cx| {
-                                s.edit(
-                                    None,
-                                    format!("{name} copy"),
-                                    expression.into(),
-                                    Provider::Youtrack,
-                                    w,
-                                    cx,
-                                )
-                            })),
-                    )
+                search.mark(
+                    &[id],
+                    row()
+                        .gap(px(12.))
+                        .py(px(6.))
+                        .flex_shrink_0()
+                        .child(
+                            column()
+                                .flex_1()
+                                .gap(px(3.))
+                                .child(div().child(search.text(id, name)))
+                                .child(div().text_size(px(11.)).text_color(t::muted()).child(
+                                    search.text(
+                                        id,
+                                        if expression.is_empty() {
+                                            EVERY_TASK
+                                        } else {
+                                            expression
+                                        },
+                                    ),
+                                )),
+                        )
+                        .child(
+                            icon_button(id, IconName::Plus, "Use as a custom filter")
+                                .disabled(disabled)
+                                .on_click(cx.listener(move |s, _, w, cx| {
+                                    s.edit(
+                                        None,
+                                        format!("{name} copy"),
+                                        expression.into(),
+                                        Provider::Youtrack,
+                                        w,
+                                        cx,
+                                    )
+                                })),
+                        ),
+                )
             }))
     }
-    fn custom(&self, disabled: bool, cx: &mut Context<Self>) -> Div {
+    fn custom(&self, disabled: bool, search: &PageSearch, cx: &mut Context<Self>) -> Div {
         let add = button("new-task-filter", "New filter")
             .icon(icon(IconName::Plus))
             .disabled(disabled)
             .on_click(cx.listener(|s, _, w, cx| {
                 s.edit(None, String::new(), String::new(), Provider::Jira, w, cx)
             }));
-        column()
-            .flex_shrink_0()
-            .gap(px(10.))
-            .child(row().child(caption("CUSTOM · JIRA").flex_1()).child(add))
-            .children(self.items.iter().map(|filter| {
-                let name = filter.name.clone();
-                let expression = filter.expression.clone();
-                let filter = filter.clone();
-                let delete = filter.id.clone();
-                let edit = icon_button(
-                    SharedString::from(format!("edit-filter-{}", filter.id)),
-                    IconName::Settings2,
-                    "Edit filter",
-                )
-                .disabled(disabled)
-                .on_click(cx.listener(move |s, _, w, cx| {
-                    s.edit(
-                        Some(filter.id.clone()),
-                        filter.name.clone(),
-                        filter.expression.clone(),
-                        filter.provider,
-                        w,
-                        cx,
+        search.mark(
+            &[CUSTOM.id],
+            column()
+                .flex_shrink_0()
+                .gap(px(10.))
+                .child(row().child(caption("CUSTOM · JIRA").flex_1()).child(add))
+                .children(self.items.iter().map(|filter| {
+                    let name = filter.name.clone();
+                    let expression = filter.expression.clone();
+                    let filter = filter.clone();
+                    let delete = filter.id.clone();
+                    let edit = icon_button(
+                        SharedString::from(format!("edit-filter-{}", filter.id)),
+                        IconName::Settings2,
+                        "Edit filter",
                     )
-                }));
-                let remove = icon_button(
-                    SharedString::from(format!("delete-filter-{delete}")),
-                    IconName::Close,
-                    "Delete filter",
-                )
-                .disabled(disabled)
-                .on_click(cx.listener(move |s, _, _, cx| {
-                    s.confirm = Some(delete.clone());
-                    cx.notify();
-                }));
-                row()
-                    .gap(px(8.))
-                    .py(px(8.))
-                    .border_b_1()
-                    .border_color(t::border())
-                    .flex_shrink_0()
-                    .child(
-                        column()
-                            .flex_1()
-                            .gap(px(3.))
-                            .child(div().child(name))
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(t::muted())
-                                    .line_clamp(2)
-                                    .child(expression),
-                            ),
+                    .disabled(disabled)
+                    .on_click(cx.listener(move |s, _, w, cx| {
+                        s.edit(
+                            Some(filter.id.clone()),
+                            filter.name.clone(),
+                            filter.expression.clone(),
+                            filter.provider,
+                            w,
+                            cx,
+                        )
+                    }));
+                    let remove = icon_button(
+                        SharedString::from(format!("delete-filter-{delete}")),
+                        IconName::Close,
+                        "Delete filter",
                     )
-                    .child(edit)
-                    .child(remove)
-            }))
-            .children(self.items.is_empty().then(|| {
-                div()
-                    .text_color(t::muted())
-                    .child("Your saved filters will appear here and in Tasks.")
-            }))
+                    .disabled(disabled)
+                    .on_click(cx.listener(move |s, _, _, cx| {
+                        s.confirm = Some(delete.clone());
+                        cx.notify();
+                    }));
+                    row()
+                        .gap(px(8.))
+                        .py(px(8.))
+                        .border_b_1()
+                        .border_color(t::border())
+                        .flex_shrink_0()
+                        .child(
+                            column()
+                                .flex_1()
+                                .gap(px(3.))
+                                .child(div().child(name))
+                                .child(
+                                    div()
+                                        .text_size(px(11.))
+                                        .text_color(t::muted())
+                                        .line_clamp(2)
+                                        .child(expression),
+                                ),
+                        )
+                        .child(edit)
+                        .child(remove)
+                }))
+                .children(self.items.is_empty().then(|| {
+                    div()
+                        .text_color(t::muted())
+                        .child("Your saved filters will appear here and in Tasks.")
+                })),
+        )
     }
     fn editor(&self, disabled: bool, now: Instant, cx: &mut Context<Self>) -> Div {
         column().flex_shrink_0().gap(px(16.)).p(px(16.)).rounded(px(6.)).bg(t::hover()).opacity(self.reveal.progress(now))
@@ -337,6 +387,11 @@ impl Render for TaskFiltersPreferences {
         let disabled = self.state.read(cx).busy
             || !self.state.read(cx).ready
             || cx.global::<AppState>().settings.read(cx).quitting;
+        let search = self
+            .search
+            .read(cx)
+            .page("Task filters")
+            .scroll(&self.scroll);
         let heading = column()
             .flex_shrink_0()
             .gap(px(6.))
@@ -359,8 +414,8 @@ impl Render for TaskFiltersPreferences {
             .p(px(28.))
             .gap(px(24.))
             .child(heading)
-            .child(self.builtins(disabled, cx))
-            .child(self.custom(disabled, cx))
+            .child(self.builtins(disabled, &search, cx))
+            .child(self.custom(disabled, &search, cx))
             .children(self.confirm.clone().map(|id| {
                 row()
                     .gap(px(8.))

@@ -29,9 +29,10 @@ pub fn section(
         )
         .child(column().children(rows))
 }
+/// `label` and `help` are text: a string, or `StyledText` with highlighted words.
 pub fn setting(
-    label: impl Into<SharedString>,
-    help: impl Into<SharedString>,
+    label: impl IntoElement,
+    help: impl IntoElement,
     first: bool,
     control: impl IntoElement,
 ) -> Div {
@@ -47,19 +48,14 @@ pub fn setting(
             column()
                 .flex_1()
                 .gap(px(2.))
-                .child(
-                    div()
-                        .text_size(px(13.))
-                        .line_height(px(17.55))
-                        .child(label.into()),
-                )
+                .child(div().text_size(px(13.)).line_height(px(17.55)).child(label))
                 .child(
                     div()
                         .max_w(px(390.))
                         .text_size(px(11.))
                         .line_height(px(14.85))
                         .text_color(t::muted())
-                        .child(help.into()),
+                        .child(help),
                 ),
         )
         .child(div().flex_shrink_0().pt(px(2.)).child(control))
@@ -67,7 +63,7 @@ pub fn setting(
 
 /// Label, caller-provided control and optional help. External spacing remains caller-owned.
 pub fn form_field(
-    label: impl Into<SharedString>,
+    label: impl IntoElement,
     help: impl Into<SharedString>,
     control: impl IntoElement,
 ) -> Div {
@@ -83,7 +79,7 @@ pub fn form_field(
                 .line_height(px(18.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t::secondary())
-                .child(label.into()),
+                .child(label),
         )
         .child(control)
         .children((!help.is_empty()).then(|| {
@@ -118,8 +114,8 @@ pub fn field_grid(fields: impl IntoIterator<Item = impl IntoElement>) -> Div {
 
 /// Electron PrefsRow's stacked variant: help precedes the control.
 pub fn stacked_setting(
-    label: impl Into<SharedString>,
-    help: impl Into<SharedString>,
+    label: impl IntoElement,
+    help: impl IntoElement,
     first: bool,
     control: impl IntoElement,
 ) -> Div {
@@ -133,19 +129,14 @@ pub fn stacked_setting(
         .child(
             column()
                 .gap(px(2.))
-                .child(
-                    div()
-                        .text_size(px(13.))
-                        .line_height(px(17.55))
-                        .child(label.into()),
-                )
+                .child(div().text_size(px(13.)).line_height(px(17.55)).child(label))
                 .child(
                     div()
                         .max_w(px(390.))
                         .text_size(px(11.))
                         .line_height(px(14.85))
                         .text_color(t::muted())
-                        .child(help.into()),
+                        .child(help),
                 ),
         )
         .child(control)

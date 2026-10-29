@@ -402,9 +402,13 @@ fn queued_row(
                     row.child(
                         action(el("chat-queue-steer"), "Steer")
                             .tooltip(if first {
-                                "Send queued message now (⌘⏎)"
+                                crate::ui::keymap::with_shortcut(
+                                    "Send queued message now",
+                                    crate::ui::keymap::CommandId::AllowRequest,
+                                    cx,
+                                )
                             } else {
-                                "Send queued message now"
+                                "Send queued message now".to_owned()
                             })
                             .disabled(!active)
                             .on_click(
@@ -594,7 +598,11 @@ fn waiting_row(entry: &Entry, waiting: &Waiting, now: Instant, cx: &Context<Chat
             )
             .child(
                 action(ElementId::Name(format!("{key}-stop").into()), "Stop")
-                    .tooltip("Stop the agent and its subagents (⌘.)")
+                    .tooltip(crate::ui::keymap::with_shortcut(
+                        "Stop the agent and its subagents",
+                        crate::ui::keymap::CommandId::StopChat,
+                        cx,
+                    ))
                     .disabled(!active)
                     .on_click(cx.listener(|this, _, _, cx| this.interrupt(cx))),
             ),

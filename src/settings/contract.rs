@@ -1,3 +1,4 @@
+use super::ShortcutOverrides;
 use super::{Error, Result};
 use crate::appearance::{
     AppearanceMode, Background, BackgroundTarget, Backgrounds, ThemeFamily, ThemeVariant,
@@ -25,9 +26,11 @@ pub enum PreferenceKey {
     /// Stored for the terminal font settings; not consumed by the terminal yet.
     TerminalFontFamily,
     TerminalFontSize,
+    /// Device-local keyboard shortcut overrides (JSON, see `ShortcutOverrides`).
+    Shortcuts,
 }
 impl PreferenceKey {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::ReopenLastWorkspace,
         Self::NotchEnabled,
         Self::ResourceUsage,
@@ -45,6 +48,7 @@ impl PreferenceKey {
         Self::Background(ThemeVariant::Light, BackgroundTarget::Sidebar),
         Self::TerminalFontFamily,
         Self::TerminalFontSize,
+        Self::Shortcuts,
     ];
     pub fn as_str(self) -> &'static str {
         match self {
@@ -73,6 +77,7 @@ impl PreferenceKey {
             }
             Self::TerminalFontFamily => "terminal.font_family",
             Self::TerminalFontSize => "terminal.font_size",
+            Self::Shortcuts => "keyboard.shortcuts",
         }
     }
 }
@@ -118,6 +123,8 @@ pub struct Preferences {
     pub chat: ChatDefaults,
     pub appearance: AppearancePreferences,
     pub terminal: TerminalPreferences,
+    /// Device-local; not mirrored to remote clients.
+    pub shortcuts: ShortcutOverrides,
 }
 
 /// The app's look on this device. Not mirrored to remote clients.
@@ -174,13 +181,16 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             reopen_last_workspace: true,
-            notch_enabled: false,
+            // Defaults are never written, so a stored value is always the user's
+            // choice (Electron's Notch page or a remote client) and is kept.
+            notch_enabled: true,
             resource_usage: false,
             new_tab_tool: ToolId::default(),
             new_worktree_tool: ToolId::default(),
             chat: ChatDefaults::default(),
             appearance: AppearancePreferences::default(),
             terminal: TerminalPreferences::default(),
+            shortcuts: ShortcutOverrides::default(),
         }
     }
 }
@@ -216,6 +226,7 @@ pub enum Change {
     Background(ThemeVariant, BackgroundTarget, Background),
     TerminalFontFamily(String),
     TerminalFontSize(u8),
+    Shortcuts(ShortcutOverrides),
     Reset(PreferenceKey),
 }
 impl Change {
@@ -266,6 +277,9 @@ impl Change {
             PreferenceKey::TerminalFontSize => {
                 Self::TerminalFontSize(font_size(value).ok_or(Error::InvalidValue(key))?)
             }
+            PreferenceKey::Shortcuts => {
+                Self::Shortcuts(ShortcutOverrides::decode(value).ok_or(Error::InvalidValue(key))?)
+            }
         })
     }
     pub fn key(&self) -> PreferenceKey {
@@ -300,6 +314,11 @@ impl Change {
                     v.clamp(TERMINAL_FONT_SIZES.start(), TERMINAL_FONT_SIZES.end())
                         .to_string(),
                 ),
+            ),
+            // No overrides is the default: the row is removed, not stored as `{}`.
+            Self::Shortcuts(v) => (
+                PreferenceKey::Shortcuts,
+                (!v.is_empty()).then(|| v.encode()),
             ),
             Self::Reset(key) => (*key, None),
         }
@@ -364,6 +383,7 @@ pub(super) fn decode(
             }
             Ok(Change::TerminalFontFamily(v)) => preferences.terminal.font_family = v,
             Ok(Change::TerminalFontSize(v)) => preferences.terminal.font_size = v,
+            Ok(Change::Shortcuts(v)) => preferences.shortcuts = v,
             _ => warnings.push(DecodeWarning { key }),
         }
     }

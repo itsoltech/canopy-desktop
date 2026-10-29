@@ -249,7 +249,11 @@ impl ChatView {
                 )
                 .children(working.then(|| {
                     button("chat-thread-stop", "Stop")
-                        .tooltip("Stop the agent (⌘.)")
+                        .tooltip(crate::ui::keymap::with_shortcut(
+                            "Stop the agent",
+                            crate::ui::keymap::CommandId::StopChat,
+                            cx,
+                        ))
                         .on_click(cx.listener(|this, _, _, cx| this.interrupt(cx)))
                 })),
         )

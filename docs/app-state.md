@@ -15,6 +15,7 @@ encji GPUI, a nie jeden obiekt odrysowujący wszystkie widoki.
 | Workspace | taby, drzewa splitów, fokus, wybrana sesja i panel worktree |
 | LayoutState | szerokość/widoczność lewego sidebara oraz starsze pola zgodności inspektora |
 | NotchStatus | trwały błąd natywnego adaptera notcha i potwierdzone recovery |
+| ResourceUsage | zadanie próbkujące CPU/RAM (gdy włączone `perf.hud.enabled`) i ostatnia próbka |
 
 Logika workspace'u w `src/state/workspace.rs` nie zależy od GPUI ani SQLite.
 Widoki tłumaczą gesty na operacje domenowe, po udanej zmianie wywołując notify.
@@ -67,6 +68,9 @@ oznacza tworzenia nowej sesji; obecny liść nadal zawiera tylko dane mockowe.
 | ⌘⌥W | zamknięcie aktywnego pane'a |
 | ⌘1 / ⌘2 | wybór pierwszego / drugiego taba |
 
+To skróty domyślne macOS; użytkownik zmienia je w Settings → Shortcuts
+([komponenty](components.md#komendy-i-skróty-klawiszowe)).
+
 Wszystkie te interakcje działają obecnie na mockach zawartości sesji.
 Brak jeszcze przeciągania między oknami i zarządzania procesami; layout jest trwały.
 
@@ -84,13 +88,15 @@ tła przed uruchomieniem workera SQLite.
 Kontrolki General odczytują i zapisują reopenLastWorkspace, perf.hud.enabled,
 newTab.toolId oraz newWorktree.toolId. Nazwy narzędzi są mapowane na identyfikatory;
 obce ID pozostają opcjami Custom. Pozostałe widoki Preferences nadal są mockami.
-notch.enabled jest w kontrakcie stanu, lecz nie steruje jeszcze oknem notcha.
+notch.enabled (strona Settings → Notch) otwiera i zamyka overlay notcha na bieżąco
+(`ui::notch::bind`, globalny `NotchHost`).
 
 Zapis jest pojedynczą operacją w toku. Kontrolki są wyłączone podczas ładowania
 i zapisu; zatwierdzony snapshot jest publikowany dopiero po sukcesie SQL.
 Błąd zachowuje poprzednią wartość i jest widoczny w Preferences.
-Ustawienie widoczności wskaźnika zasobów odświeża główne okno; same metryki
-CPU/RAM nadal są mockiem. Ustawienie domyślnego narzędzia steruje nowymi tabami.
+perf.hud.enabled steruje encją `ResourceUsage` (`app_state/resources.rs`): właściciel
+zadania próbkującego CPU/RAM raz na sekundę na executorze tła, tylko gdy ustawienie
+jest włączone; sidebar czyta wyłącznie ostatnią próbkę. Ustawienie domyślnego narzędzia steruje nowymi tabami.
 Preferencja startup steruje odtwarzaniem projektów i pełnych drzew pane’ów.
 Worktree obsługuje natywny moduł opisany w [git-worktrees.md](git-worktrees.md).
 

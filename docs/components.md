@@ -20,7 +20,7 @@ Punkt wejścia: `crate::ui::components`. Komponenty korzystają z tokenów
 | `labeled_checkbox(id, checked, label)` + `checkbox_help(text)` | Checkbox z widoczną, klikalną etykietą (ta sama nazwa dostępności); pomoc jako dziecko pod etykietą, 11 px muted jak w `form_field` | bool w widoku |
 | `modal::Confirmation` (+ `.destructive()`), `TextPrompt` (+ `.confirm_label(…)`) | Potwierdzenie z czasownikiem wyniku i opcjonalnym stylem destrukcyjnym; prompt jednego pola z nazwaną akcją | encja modala i `ModalDismissed` u właściciela |
 | `FileTree` + `FileTreeModel` + `FileNode` | Hierarchia plików/folderów, selection, expand i zdarzenie otwarcia | osobna `Entity<FileTree>` |
-| `section`, `setting`, `caption` | Sekcje ustawień, etykiety, pomoc i separatory | prezentacja |
+| `section`, `setting`, `caption` | Sekcje ustawień, etykiety, pomoc i separatory; etykieta i pomoc `setting`/`stacked_setting` oraz etykieta `form_field` to dowolny tekst-element (np. `StyledText` z podświetleniem wyszukiwania) | prezentacja |
 | `segmented_control(id, label, options, selected, on_select)` | Mała, zawsze widoczna grupa wykluczających się wyborów (Light/Dark/Auto); jedna sylwetka, zaznaczony segment podniesiony (`elevated` + `segment_shadow`), segmenty to przyciski radio z Tab i Enter/Space | wybór i callback u wywołującego |
 | `gradient_editor::GradientEditor` | Edytor gradientu tła (zob. „Tła okna i sidebaru”) | encja edytora: szkic i interakcja; zapis u właściciela przez zdarzenia |
 | `background::{window_surface, sidebar_surface, window_fill, window_backdrop, paint_canvas, SurfacePaint}` | Malowanie własnych teł okna i sidebaru | prezentacja; tło należy do ustawień |
@@ -82,6 +82,9 @@ dawne wartości.
 
 Zasady:
 
+- Wyszukiwanie w Settings: `search_match()` (tło słów zapytania, akcent z
+  przezroczystością zależną od wariantu) i `SEARCH_DIMMED` (krycie
+  niepasujących stron i wierszy) — [settings.md](settings.md#okno-settings-i-wyszukiwanie).
 - Nowy kolor dodawaj jako token w `ui/theme.rs`, nigdy jako `rgb(0x…)`, `white()`
   czy `black()` w widoku. Jeżeli wartość zależy od jasności tła, rozgałęź ją przez
   `t::is_light()` albo dodaj pole do `Palette` i wylicz je w `derive` dla obu
@@ -409,6 +412,32 @@ bez animacji, więc karty mają własną warstwę.
 - Karty w czacie: kółko kontekstu (miernik na każdy limit), odznaki `/komend`,
   `$skilli` i PR oraz wiadomości w kolejce.
 
+## Odczyt CPU i RAM w stopce sidebara
+
+Włączany w General → Show CPU and RAM usage (`perf.hud.enabled`, domyślnie wyłączony).
+Aplikacja nie ma paska stanu, więc odczyt stoi w stopce sidebara, przed przyciskiem
+Settings: ikona `canopy/cpu.svg` i wyciszony tekst `3% · 412 MB` (`text_xs`,
+`t::muted()`, separator i ikona `t::faint()`). Liczby mają `tnum` i sloty o minimalnej
+szerokości, więc zmiana wartości nie przesuwa stopki. Przed pierwszą pełną próbką
+widać `– · –`; przy wyłączonym ustawieniu odczytu nie ma.
+
+Karta na hover (`Placement::Top`, `ui/sidebar/resources.rs`): tytuł „CPU and
+memory”, liczba procesów uruchomionych przez Canopy, wiersze Canopy (własny
+proces), Agents and terminals (całe drzewo procesów potomnych) i Total oraz
+„Updated every second. 100% CPU is one full core.” Karta czyta próbkę przy każdym
+renderze, więc otwarta nadąża za nowymi wartościami.
+
+Właściciel: `app_state::ResourceUsage` obserwuje ustawienie; gdy jest włączone,
+posiada zadanie, które co sekundę wykonuje `platform::resources::Sampler::sample`
+na executorze tła (sysinfo `=0.31.4`, tylko feature `system`, wersja z Cargo.lock
+przez zed-scap). Wyłączenie porzuca zadanie (pętla staje, próbka znika). Pierwszy
+pomiar tylko zapisuje czasy procesów, bo CPU to różnica między pomiarami.
+`aggregate` sumuje proces Canopy i wszystkich potomków po linkach rodzica (pętle
+z ponownie użytych PID liczone raz; na Linuksie wątki są pomijane). Procesy, które
+się odłączyły (reparent do launchd/init), nie są liczone. CPU jest w procentach
+jednego rdzenia (jak Activity Monitor), pamięć to RSS w jednostkach binarnych.
+Render nie wykonuje I/O; sidebar tylko obserwuje encję.
+
 ## Zwijanie, resize i stałe szerokości paneli
 
 Cmd+Option+B przełącza lewy sidebar (Windows: Ctrl+Shift+B), a Cmd+B panel
@@ -599,14 +628,53 @@ TerminalView jest nadal jednym właścicielem stanu, rozdzielonym na moduły:
 Ekstrakcja zachowuje identyfikatory pane'ów, kolejność operacji oraz reguły
 lazy-start. Sprawdzenia: fmt, Clippy, 74 testy i build release.
 
+## Komendy i skróty klawiszowe
+
+`src/ui/keymap.rs` jest jedynym źródłem skrótów komend użytkownika. Tablica
+`COMMANDS` opisuje każdą komendę: `CommandId`, stały klucz zapisu (np.
+`chat.new` — nigdy go nie zmieniaj), nazwę z Settings, grupę, zakres (`Scope` →
+kontekst GPUI: Global, Workspace, Chat, Terminal, FileEditor, Preferences), akcję
+i domyślne skróty dla macOS / Windows (opcjonalnie Linux; bez niego jak macOS,
+Cmd = Super). Pierwszy skrót jest pokazywany w tooltipach. Na Windows komendy
+Workspace/Global nie zajmują Ctrl+C/D/P/S/W/Z bez Shift (terminal).
+
+Dodanie komendy: akcja + handler `on_action` w widoku z odpowiednim
+`key_context`, wariant `CommandId` i wpis `command!(…)` w `COMMANDS`. Nie wołaj
+`cx.bind_keys` dla komend użytkownika. Tekst skrótu w UI bierz z
+`keymap::shortcut(id, cx)` / `keymap::with_shortcut(text, id, cx)` albo z
+`tooltip_with_action` (GPUI czyta aktualny keymap); nie wpisuj `⌘…` na sztywno.
+Test `defaults_are_valid_unique_and_free_of_conflicts_on_every_platform` pilnuje
+parsowania, unikalności i braku konfliktów domyślnych skrótów.
+
+`keymap::init` (idempotentne; woła je start aplikacji, `Workspace::new`,
+`chat/terminal/editor::init` i Preferences) rejestruje raz klawisze stałe i
+komendy, a po pojawieniu się `AppState` obserwuje `SettingsState`. Przebindowanie
+nie czyści cudzych bindingów: nasze mają `KeyBindingMetaIndex` `OURS`, więc
+`rebind` kopiuje pozostałe (GPUI Component: inputy, menu, listy; klawisze stałe;
+bindingi komponentów) w oryginalnej kolejności, czyści keymap i dodaje je z
+powrotem razem z nowym zestawem naszych. Potem odtwarza menu (`keymap::set_menus`),
+bo macOS kopiuje skróty menu w chwili `set_menus`.
+
+Stałe (nie do zmiany): Escape w Workspace (DismissNavigation) i ChatFind,
+Tab/Shift+Tab/Shift+Enter w terminalu, `NoAction` dla ⌘1…⌘9 w ModelPicker,
+strzałki/Enter/Escape w FileTree i Session inspectorze, klawisze wewnętrzne
+palet (⌘1…⌘9, ⌥⌘N w New chat in…), decyzji czatu (⌘⌫, cyfry), Enter/⌘Enter
+kompozytora, edycja tekstu GPUI Component i diagnostyczny `ctrl-alt-p`.
+
 ## Preferences: granice modułów
 
-- `preferences.rs`: okno, wspólny nagłówek, routing i przejście między stronami.
-- `preferences/navigation.rs`: nawigacja i obserwacja wybranej strony.
+- `preferences.rs`: okno, jednowierszowy titlebar z polem wyszukiwania (Esc, ↑/↓,
+  Enter, pusty wynik), routing i przejście między stronami.
+- `preferences/search.rs`: `SettingsSearch` (indeks, zapytanie, wyniki, wybór
+  strony) i `PageSearch` — widok wyników jednej strony, przez który strony
+  rysują i przygaszają wiersze ([settings.md](settings.md#okno-settings-i-wyszukiwanie)).
+- `preferences/navigation.rs`: `GROUPS` (strony, ikony, opisy, wpisy indeksu),
+  nawigacja ze stanem wyszukiwania i obserwacja wybranej strony.
 - `preferences/general.rs`: General i jedna ścieżka synchronizacji opcji narzędzi.
 - `preferences/tools.rs`: właściciel draftu, InputState i subskrypcji zapisu.
 - `preferences/tools/view.rs`: nagłówek, wybór narzędzia, formularz i akcje.
 - `preferences/tools/profiles.rs`: wiersze profili, ich pola i operacje na draftach.
+- `preferences/shortcuts.rs`: Settings → Shortcuts; stan nagrywania i konfliktów, wynik zapisuje `keymap`.
 
 Elementy prezentacyjne zwracają `Div`/`Button`, więc styl można nadpisać
 builderem. Podział nie tworzy nowych encji pól ani subskrypcji w renderze;

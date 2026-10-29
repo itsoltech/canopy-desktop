@@ -1,12 +1,14 @@
 //! Electron-compatible ordinary preferences. Secrets and unknown keys are never exposed or rewritten.
 mod contract;
 mod database;
+mod shortcuts;
 mod worker;
 pub use contract::*;
 pub use database::{
     Access, ChatHistoryBatch, ChatHistoryRows, ClosedChatRow, HistoryCheckpoint,
     HistoryCheckpointItem, ImportReport, RemoteHistoryPage, RemoteHistoryRequest,
 };
+pub use shortcuts::ShortcutOverrides;
 use std::fmt;
 pub use worker::SettingsClient;
 pub type Result<T> = std::result::Result<T, Error>;

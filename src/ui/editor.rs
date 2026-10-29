@@ -18,12 +18,17 @@ pub(crate) fn init(cx: &mut App) {
     init_for_platform(cx, cfg!(target_os = "windows"));
 }
 
+/// Save comes from the command keymap (Settings → Shortcuts).
 fn init_for_platform(cx: &mut App, windows: bool) {
-    cx.bind_keys([KeyBinding::new(
-        if windows { "ctrl-s" } else { "cmd-s" },
-        SaveEditor,
-        Some("FileEditor"),
-    )]);
+    use super::keymap::{Platform, init_for};
+    init_for(
+        if windows {
+            Platform::Windows
+        } else {
+            Platform::current()
+        },
+        cx,
+    );
 }
 
 pub struct EditorChanged;

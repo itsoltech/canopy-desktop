@@ -993,6 +993,7 @@ dependencies = [
  "sha2 0.10.9",
  "shell-words",
  "ssh2",
+ "sysinfo",
  "tempfile",
  "tokio",
  "tokio-stream",

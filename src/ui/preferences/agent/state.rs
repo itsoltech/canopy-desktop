@@ -1,7 +1,12 @@
 use super::*;
 
 impl AgentForm {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        search: Entity<SettingsSearch>,
+        scroll: ScrollHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let texts = [
             ("model", "Default"),
             ("base_url", "https://api.anthropic.com"),
@@ -38,6 +43,9 @@ impl AgentForm {
             .collect();
         Self {
             agent: Agent::Claude,
+            _search: cx.observe(&search, |_, _, cx| cx.notify()),
+            search,
+            scroll,
             reveal: Presence::new(true, motion::presets::CONTENT_REVEAL, Instant::now()),
             texts,
             selects,

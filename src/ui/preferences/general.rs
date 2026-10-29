@@ -1,3 +1,4 @@
+use super::search::{Entry, SettingsSearch};
 use super::*;
 use crate::app_state::SettingsState;
 use canopy_desktop::settings::{Change, ToolId};
@@ -33,14 +34,65 @@ fn tool_options(
     options
 }
 
+const REOPEN: Entry = Entry::new(
+    "reopen",
+    "STARTUP",
+    "Reopen last workspace on startup",
+    "Restore the previous workspace tabs and layout when the app starts",
+    "restore session launch",
+);
+const WIZARD: Entry = Entry::new(
+    "wizard",
+    "STARTUP",
+    "Run setup wizard",
+    "Walk through the first-launch setup again to reconfigure tools and integrations.",
+    "onboarding first launch",
+);
+const NEW_TAB: Entry = Entry::new(
+    "new-tab",
+    "DEFAULTS",
+    "New tab",
+    "Default tool to open when creating a new tab",
+    "tool default",
+);
+const NEW_WORKTREE: Entry = Entry::new(
+    "new-worktree",
+    "DEFAULTS",
+    "New worktree",
+    "Default tool to open in new worktree tabs.",
+    "tool default",
+);
+const SHELL: Entry = Entry::new(
+    "shell",
+    "DEFAULTS",
+    "Shell",
+    "Resolved from $SHELL at launch — change with chsh, then restart.",
+    "zsh bash fish login terminal",
+);
+const RESOURCES: Entry = Entry::new(
+    "resources",
+    "RESOURCE USAGE",
+    "Show CPU and RAM usage",
+    "Total CPU and memory of Canopy and the agents and terminals it started. Sampled every second while shown.",
+    "performance memory processor sidebar",
+);
+/// Search entries, in page order.
+pub(super) const SEARCH: &[Entry] = &[REOPEN, WIZARD, NEW_TAB, NEW_WORKTREE, SHELL, RESOURCES];
+
 pub(super) struct PreferencesContent {
     settings: Entity<SettingsState>,
+    search: Entity<SettingsSearch>,
+    scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
     new_tab: Entity<SelectState<Vec<SelectOption>>>,
     new_worktree: Entity<SelectState<Vec<SelectOption>>>,
 }
 impl PreferencesContent {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(super) fn new(
+        search: Entity<SettingsSearch>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let settings = cx.global::<AppState>().settings.clone();
         let values = settings.read(cx).values.clone();
         let options = tool_options(&values, &cx.global::<AppState>().tools.read(cx).catalog);
@@ -68,6 +120,7 @@ impl PreferencesContent {
         });
         let tools = cx.global::<AppState>().tools.clone();
         let subscriptions = vec![
+            cx.observe(&search, |_, _, cx| cx.notify()),
             cx.observe_in(&tools, window, |this, _, window, cx| {
                 this.sync_tool_options(window, cx)
             }),
@@ -109,6 +162,8 @@ impl PreferencesContent {
         ];
         Self {
             settings,
+            search,
+            scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
             new_tab,
             new_worktree,
@@ -131,33 +186,112 @@ impl PreferencesContent {
     fn general(&self, cx: &mut Context<Self>) -> Div {
         let state = self.settings.read(cx);
         let disabled = !state.ready || state.saving;
-        column().flex_shrink_0().gap(px(SECTION_GAP))
-            .children(state.error.clone().map(|error|div().text_color(t::red()).child(error)))
-            .children((!state.ready&&state.error.is_none()).then(||div().child("Loading settings…")))
-            .children((!state.warnings.is_empty()).then(||div().child("Some stored settings are invalid; defaults are shown.")))
-            .child(section("STARTUP","What happens when Canopy launches",vec![
-                setting("Reopen last workspace on startup","Restore the previous workspace tabs and layout when the app starts",true,
-                    checkbox("reopen", state.values.reopen_last_workspace, "Reopen last workspace on startup")
-                        .disabled(disabled).on_click(cx.listener(|this,value,_,cx|{this.settings.update(cx,|state,cx|state.change(Change::ReopenLastWorkspace(*value),cx));}))).into_any_element(),
-                // No setup wizard exists in this build; the button has no action.
-                unavailable("setting-rerun-wizard", setting("Run setup wizard",format!("Walk through the first-launch setup again to reconfigure tools and integrations. {NOT_AVAILABLE}."),false,
-                    button("rerun-wizard", "Re-run wizard").disabled(true))).into_any_element(),
-            ]))
-            .child(section("DEFAULTS","Tools used when opening new tabs and worktrees",vec![
-                setting("New tab",format!("Default tool to open when creating a new tab ({})", super::super::platform_ui::shortcut("⌘T", "Ctrl+Shift+T")),true,
-                    dropdown(&self.new_tab).disabled(disabled).w(px(160.))).into_any_element(),
-                // Stored as newWorktree.toolId, but worktree creation picks its agent in the dialog.
-                unavailable("setting-new-worktree", setting("New worktree",format!("Default tool to open in new worktree tabs. {NOT_AVAILABLE}."),false,
-                    dropdown(&self.new_worktree).disabled(true).w(px(160.)))).into_any_element(),
-                setting("Shell","Resolved from $SHELL at launch — change with chsh, then restart.",false,
-                    div().font_family(t::MONO).text_size(px(12.)).text_color(t::muted()).child("auto-detected")).into_any_element(),
-            ]))
-            .child(section("STATUS BAR","Information shown in the bottom status bar",vec![
-                // Stored as perf.hud.enabled; no status bar sampler reads it yet.
-                unavailable("setting-resource-usage", setting("Show CPU and RAM usage",format!("Aggregates total CPU and resident memory across all Canopy processes (main, renderer, GPU, utility). Sampled once per second; the sampler stops entirely when this toggle is off. {NOT_AVAILABLE}."),true,
-                    checkbox("performance", state.values.resource_usage, "Show CPU and RAM usage")
-                        .disabled(true).on_click(cx.listener(|this,value,_,cx|{this.settings.update(cx,|state,cx|state.change(Change::ResourceUsage(*value),cx));})))).into_any_element(),
-            ]))
+        let search = self.search.read(cx).page("General").scroll(&self.scroll);
+        column()
+            .flex_shrink_0()
+            .gap(px(SECTION_GAP))
+            .children(
+                state
+                    .error
+                    .clone()
+                    .map(|error| div().text_color(t::red()).child(error)),
+            )
+            .children(
+                (!state.ready && state.error.is_none()).then(|| div().child("Loading settings…")),
+            )
+            .children(
+                (!state.warnings.is_empty())
+                    .then(|| div().child("Some stored settings are invalid; defaults are shown.")),
+            )
+            .child(section(
+                "STARTUP",
+                "What happens when Canopy launches",
+                vec![
+                    search
+                        .setting(
+                            &REOPEN,
+                            true,
+                            checkbox("reopen", state.values.reopen_last_workspace, REOPEN.label)
+                                .disabled(disabled)
+                                .on_click(cx.listener(|this, value, _, cx| {
+                                    this.settings.update(cx, |state, cx| {
+                                        state.change(Change::ReopenLastWorkspace(*value), cx)
+                                    });
+                                })),
+                        )
+                        .into_any_element(),
+                    // No setup wizard exists in this build; the button has no action.
+                    unavailable(
+                        "setting-rerun-wizard",
+                        search.setting_with(
+                            &WIZARD,
+                            format!("{} {NOT_AVAILABLE}.", WIZARD.help),
+                            false,
+                            button("rerun-wizard", "Re-run wizard").disabled(true),
+                        ),
+                    )
+                    .into_any_element(),
+                ],
+            ))
+            .child(section(
+                "DEFAULTS",
+                "Tools used when opening new tabs and worktrees",
+                vec![
+                    search
+                        .setting_with(
+                            &NEW_TAB,
+                            super::super::keymap::with_shortcut(
+                                NEW_TAB.help,
+                                super::super::keymap::CommandId::NewTab,
+                                cx,
+                            ),
+                            true,
+                            dropdown(&self.new_tab).disabled(disabled).w(px(160.)),
+                        )
+                        .into_any_element(),
+                    // Stored as newWorktree.toolId, but worktree creation picks its agent in the dialog.
+                    unavailable(
+                        "setting-new-worktree",
+                        search.setting_with(
+                            &NEW_WORKTREE,
+                            format!("{} {NOT_AVAILABLE}.", NEW_WORKTREE.help),
+                            false,
+                            dropdown(&self.new_worktree).disabled(true).w(px(160.)),
+                        ),
+                    )
+                    .into_any_element(),
+                    search
+                        .setting(
+                            &SHELL,
+                            false,
+                            div()
+                                .font_family(t::MONO)
+                                .text_size(px(12.))
+                                .text_color(t::muted())
+                                .child("auto-detected"),
+                        )
+                        .into_any_element(),
+                ],
+            ))
+            .child(section(
+                "RESOURCE USAGE",
+                "Shown at the bottom of the sidebar",
+                vec![
+                    search
+                        .setting(
+                            &RESOURCES,
+                            true,
+                            checkbox("performance", state.values.resource_usage, RESOURCES.label)
+                                .disabled(disabled)
+                                .on_click(cx.listener(|this, value, _, cx| {
+                                    this.settings.update(cx, |state, cx| {
+                                        state.change(Change::ResourceUsage(*value), cx)
+                                    });
+                                })),
+                        )
+                        .into_any_element(),
+                ],
+            ))
     }
 }
 impl Render for PreferencesContent {
@@ -184,13 +318,14 @@ impl Render for PreferencesContent {
                             .text_size(px(11.))
                             .line_height(px(14.85))
                             .text_color(t::muted())
-                            .child("Startup behavior, default tools, and status bar"),
+                            .child("Startup behavior, default tools, and resource usage"),
                     ),
             )
             .child(
                 column()
                     .id("prefs-content")
                     .flex_1()
+                    .track_scroll(&self.scroll)
                     .overflow_y_scrollbar()
                     .px(px(CONTENT_X))
                     .py(px(20.))

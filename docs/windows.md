@@ -287,6 +287,9 @@ Ctrl+Alt/AltGr event follows the native text/IME path only when the Windows
 backend sets `prefer_character_input` and reports nonempty `key_char`. Ctrl+Alt
 without text and ordinary Alt+B/Alt+F remain available to the PTY. Preferences
 Search uses Ctrl+K and visible shortcut copy is platform-specific.
+These are the defaults of `src/ui/keymap.rs`; users can change them in Settings →
+Shortcuts, and tooltips show the current binding. Chat commands keep their
+historical `cmd-*` (Win key) defaults on Windows, so they need a custom shortcut.
 File Editor adds a narrower `FileEditor` Ctrl+S binding which calls the existing
 atomic save path for the focused pane. It does not restore a workspace-level
 unshifted binding, so terminal Ctrl+S still reaches the PTY.

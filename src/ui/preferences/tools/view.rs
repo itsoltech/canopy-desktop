@@ -1,6 +1,7 @@
+use super::super::search::PageSearch;
 use super::*;
 impl ToolsPreferences {
-    fn header(&self, disabled: bool, cx: &Context<Self>) -> Div {
+    fn header(&self, disabled: bool, search: &PageSearch, cx: &Context<Self>) -> Div {
         row()
             .h(px(60.))
             .flex_shrink_0()
@@ -16,11 +17,16 @@ impl ToolsPreferences {
                     .child("Tools & profiles"),
             )
             .child(
-                loading_button("refresh-tools", "Refresh", &self.refresh_loading)
-                    .disabled(disabled)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.state.update(cx, |state, cx| state.refresh(cx))
-                    })),
+                search.mark(
+                    &[REFRESH.id],
+                    div().child(
+                        loading_button("refresh-tools", REFRESH.label, &self.refresh_loading)
+                            .disabled(disabled)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.state.update(cx, |state, cx| state.refresh(cx))
+                            })),
+                    ),
+                ),
             )
             .child(
                 primary_loading_button("save-tool-header", "Save changes", &self.save_loading)
@@ -28,32 +34,37 @@ impl ToolsPreferences {
                     .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
             )
             .child(
-                button("add-tool", "Add tool")
-                    .disabled(disabled)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.load(
-                            ToolDefinition {
-                                id: new_id(),
-                                name: "New tool".into(),
-                                kind: ToolKind::Custom,
-                                executable: String::new(),
-                                arguments: vec![],
-                                enabled: true,
-                                profiles: vec![],
-                                default_profile: None,
-                                acp: false,
-                                env_refs: Default::default(),
-                            },
-                            window,
-                            cx,
-                        );
-                    })),
+                search.mark(
+                    &[ADD_TOOL.id],
+                    div().child(
+                        button("add-tool", ADD_TOOL.label)
+                            .disabled(disabled)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.load(
+                                    ToolDefinition {
+                                        id: new_id(),
+                                        name: "New tool".into(),
+                                        kind: ToolKind::Custom,
+                                        executable: String::new(),
+                                        arguments: vec![],
+                                        enabled: true,
+                                        profiles: vec![],
+                                        default_profile: None,
+                                        acp: false,
+                                        env_refs: Default::default(),
+                                    },
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    ),
+                ),
             )
     }
-    fn tool_selector(&self, disabled: bool, cx: &Context<Self>) -> Div {
+    fn tool_selector(&self, disabled: bool, search: &PageSearch, cx: &Context<Self>) -> Div {
         let selected = self.draft.id.clone();
         let catalog_tools = self.state.read(cx).catalog.tools.clone();
-        row()
+        let selector = row()
             .flex_wrap()
             .gap(px(4.))
             .children(catalog_tools.into_iter().map(|tool| {
@@ -65,9 +76,10 @@ impl ToolsPreferences {
                 )
                 .disabled(disabled)
                 .on_click(cx.listener(move |this, _, window, cx| this.select_tool(&id, window, cx)))
-            }))
+            }));
+        search.mark(&[TOOL.id], selector)
     }
-    fn tool_fields(&self, disabled: bool, cx: &Context<Self>) -> Div {
+    fn tool_fields(&self, disabled: bool, search: &PageSearch, cx: &Context<Self>) -> Div {
         let availability = self
             .state
             .read(cx)
@@ -80,46 +92,51 @@ impl ToolsPreferences {
             .unwrap_or_else(|| "Save changes to check the executable.".into());
         column()
             .gap(px(16.))
-            .child(form_field(
-                "Name",
-                "Name shown in the sidebar.",
-                input(&self.name).disabled(disabled).w_full(),
-            ))
-            .child(form_field(
-                "Executable",
-                "Program or absolute path. Empty uses your login shell for Shell.",
+            .child(search.field(&NAME, input(&self.name).disabled(disabled).w_full()))
+            .child(search.field(
+                &EXECUTABLE,
                 input(&self.executable).disabled(disabled).w_full(),
             ))
-            .child(form_field(
-                "Arguments",
-                "Argument list with platform quoting. Backslashes are preserved; no shell interpolation.",
+            .child(search.field(
+                &ARGUMENTS,
                 input(&self.arguments).disabled(disabled).w_full(),
             ))
             .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(t::muted())
-                    .child(availability),
+                search.mark(
+                    &[EXECUTABLE.id],
+                    div()
+                        .text_size(px(11.))
+                        .text_color(t::muted())
+                        .child(availability),
+                ),
             )
             .child(
-                labeled_checkbox("tool-enabled", self.draft.enabled, "Enable tool")
-                    .disabled(disabled)
-                    .on_click(cx.listener(|this, value, _, cx| {
-                        this.draft.enabled = *value;
-                        cx.notify();
-                    })),
+                search.mark(
+                    &[ENABLED.id],
+                    div().child(
+                        labeled_checkbox("tool-enabled", self.draft.enabled, ENABLED.label)
+                            .disabled(disabled)
+                            .on_click(cx.listener(|this, value, _, cx| {
+                                this.draft.enabled = *value;
+                                cx.notify();
+                            })),
+                    ),
+                ),
             )
             .when(self.draft.kind == ToolKind::Custom, |fields| {
                 fields.child(
-                    labeled_checkbox("tool-acp", self.draft.acp, "Chat agent")
-                        .disabled(disabled)
-                        .on_click(cx.listener(|this, value, _, cx| {
-                            this.draft.acp = *value;
-                            cx.notify();
-                        }))
-                        .child(checkbox_help(
-                            "Opens in a chat instead of a terminal. The program must support Agent Client Protocol (ACP).",
-                        )),
+                    search.mark(
+                        &[ACP.id],
+                        div().child(
+                            labeled_checkbox("tool-acp", self.draft.acp, ACP.label)
+                                .disabled(disabled)
+                                .on_click(cx.listener(|this, value, _, cx| {
+                                    this.draft.acp = *value;
+                                    cx.notify();
+                                }))
+                                .child(checkbox_help(ACP.help)),
+                        ),
+                    ),
                 )
             })
     }
@@ -179,23 +196,28 @@ impl Render for ToolsPreferences {
         }
         let state = self.state.read(cx);
         let disabled = !state.ready || state.saving;
-        column().size_full().child(self.header(disabled, cx)).child(
-            column()
-                .id("tools-preferences-scroll")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scrollbar()
-                .px(px(28.))
-                .py(px(20.))
-                .child(
-                    column()
-                        .flex_shrink_0()
-                        .gap(px(16.))
-                        .child(self.tool_selector(disabled, cx))
-                        .child(self.tool_fields(disabled, cx))
-                        .child(self.profiles(disabled, cx))
-                        .child(self.footer(disabled, cx)),
-                ),
-        )
+        let search = self.search.read(cx).current(cx).scroll(&self.scroll);
+        column()
+            .size_full()
+            .child(self.header(disabled, &search, cx))
+            .child(
+                column()
+                    .id("tools-preferences-scroll")
+                    .flex_1()
+                    .track_scroll(&self.scroll)
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .px(px(28.))
+                    .py(px(20.))
+                    .child(
+                        column()
+                            .flex_shrink_0()
+                            .gap(px(16.))
+                            .child(self.tool_selector(disabled, &search, cx))
+                            .child(self.tool_fields(disabled, &search, cx))
+                            .child(self.profiles(disabled, &search, cx))
+                            .child(self.footer(disabled, cx)),
+                    ),
+            )
     }
 }

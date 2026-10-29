@@ -3,6 +3,8 @@ impl ToolsPreferences {
     pub(super) fn agent_profiles(&self, cx: &Context<Self>) -> Div {
         let state = self.state.read(cx);
         let disabled = !state.ready || state.saving;
+        let search = self.search.read(cx).current(cx);
+        let [profiles_entry, name_entry] = super::super::agent::PROFILE_ENTRIES;
         let profiles = self
             .draft
             .profiles
@@ -53,41 +55,46 @@ impl ToolsPreferences {
             .min_w_0()
             .h_full()
             .children(self.profile.is_some().then(|| {
-                row()
-                    .items_end()
-                    .gap(px(12.))
-                    .pb(px(16.))
-                    .mb(px(28.))
-                    .border_b_1()
-                    .border_color(t::border())
-                    .flex_shrink_0()
-                    .child(
-                        column()
-                            .flex_1()
-                            .gap(px(4.))
-                            .child(caption("PROFILE NAME"))
-                            .child(input(&self.profile_name).disabled(disabled).w_full()),
-                    )
-                    .child(
-                        button(
-                            "agent-default",
-                            if self.draft.default_profile == profile_id {
-                                "Default"
-                            } else {
-                                "Make default"
-                            },
+                search.mark(
+                    &[name_entry.id],
+                    row()
+                        .items_end()
+                        .gap(px(12.))
+                        .pb(px(16.))
+                        .mb(px(28.))
+                        .border_b_1()
+                        .border_color(t::border())
+                        .flex_shrink_0()
+                        .child(
+                            column()
+                                .flex_1()
+                                .gap(px(4.))
+                                .child(caption(name_entry.label.to_uppercase()))
+                                .child(input(&self.profile_name).disabled(disabled).w_full()),
                         )
-                        .disabled(disabled)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.draft.default_profile = profile_id.clone();
-                            cx.notify();
-                        })),
-                    )
-                    .child(
-                        primary_loading_button("save-agent", "Save", &self.save_loading)
-                            .disabled(disabled && !self.save_loading.active())
-                            .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
-                    )
+                        .child(
+                            button(
+                                "agent-default",
+                                if self.draft.default_profile == profile_id {
+                                    "Default"
+                                } else {
+                                    "Make default"
+                                },
+                            )
+                            .disabled(disabled)
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.draft.default_profile = profile_id.clone();
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                        .child(
+                            primary_loading_button("save-agent", "Save", &self.save_loading)
+                                .disabled(disabled && !self.save_loading.active())
+                                .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
+                        ),
+                )
             }))
             .children(
                 self.error
@@ -99,6 +106,7 @@ impl ToolsPreferences {
                 column()
                     .id("agent-form-scroll")
                     .flex_1()
+                    .track_scroll(&self.agent_scroll)
                     .overflow_y_scrollbar()
                     .pr(px(4.))
                     .py(px(8.))
@@ -115,35 +123,38 @@ impl ToolsPreferences {
             .p(px(28.))
             .gap(px(20.))
             .child(
-                column()
-                    .w(px(180.))
-                    .flex_shrink_0()
-                    .h_full()
-                    .pr(px(12.))
-                    .border_r_1()
-                    .border_color(t::border())
-                    .gap(px(8.))
-                    .child(
-                        row()
-                            .justify_between()
-                            .pl(px(4.))
-                            .child(caption("PROFILES"))
-                            .child(
-                                icon_button("new-agent-profile", IconName::Plus, "New profile")
-                                    .disabled(disabled)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.add_profile(window, cx)
-                                    })),
-                            ),
-                    )
-                    .child(
-                        column()
-                            .id("agent-profiles-scroll")
-                            .flex_1()
-                            .overflow_y_scrollbar()
-                            .gap(px(4.))
-                            .children(profiles),
-                    ),
+                search.mark(
+                    &[profiles_entry.id],
+                    column()
+                        .w(px(180.))
+                        .flex_shrink_0()
+                        .h_full()
+                        .pr(px(12.))
+                        .border_r_1()
+                        .border_color(t::border())
+                        .gap(px(8.))
+                        .child(
+                            row()
+                                .justify_between()
+                                .pl(px(4.))
+                                .child(caption(profiles_entry.label.to_uppercase()))
+                                .child(
+                                    icon_button("new-agent-profile", IconName::Plus, "New profile")
+                                        .disabled(disabled)
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.add_profile(window, cx)
+                                        })),
+                                ),
+                        )
+                        .child(
+                            column()
+                                .id("agent-profiles-scroll")
+                                .flex_1()
+                                .overflow_y_scrollbar()
+                                .gap(px(4.))
+                                .children(profiles),
+                        ),
+                ),
             )
             .child(content)
     }

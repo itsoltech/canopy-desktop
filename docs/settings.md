@@ -12,7 +12,7 @@ Publiczne API zapisuje wyłącznie poniższe klucze:
 | Klucz | Typ w Rust / zapis | Wartość domyślna |
 | --- | --- | --- |
 | reopenLastWorkspace | bool / true, false | true |
-| notch.enabled | bool / true, false | false |
+| notch.enabled | bool / true, false | true (do 2026-10 false; patrz niżej) |
 | perf.hud.enabled | bool / true, false | false |
 | newTab.toolId | niepusty identyfikator narzędzia | shell |
 | newWorktree.toolId | niepusty identyfikator narzędzia | shell |
@@ -22,8 +22,15 @@ Publiczne API zapisuje wyłącznie poniższe klucze:
 | appearance.background.{dark,light}.{window,sidebar} | `Background` / JSON (niżej) | tryb theme |
 | terminal.font_family | niepusta lista fontów, ≤ 256 znaków, bez znaków sterujących | JetBrains Mono |
 | terminal.font_size | liczba 8–24 (px) | 13 |
+| keyboard.shortcuts | `ShortcutOverrides` / JSON (niżej) | brak (skróty domyślne) |
 
 Brak wartości oznacza fallback w pamięci, bez dopisywania do bazy.
+
+**notch.enabled — domyślnie włączony.** Wartości domyślne nigdy nie są zapisywane,
+więc zapisane `false` (strona Notch w Electronie, klient zdalny) zawsze jest
+decyzją użytkownika i zostaje zachowane; brak klucza oznacza `true`. Migracja nie
+jest potrzebna. Overlay otwiera się dopiero po wczytaniu ustawień (albo po błędzie
+ich odczytu — wtedy obowiązuje domyślne `true`), żeby zapisane `false` nie mignęło.
 Niepoprawna wartość daje ostrzeżenie zawierające tylko klucz i fallback;
 odczyt nie naprawia danych automatycznie. Nieznane identyfikatory narzędzi
 zachowujemy — sprawdzanie dostępności narzędzi będzie osobną operacją.
@@ -56,6 +63,45 @@ zdalnym patchu ustawień, a jego zmiana nie zmienia rewizji CAS zdalnych ustawie
 schematu ani funkcji `published-runtime-schema` — to zwykłe wiersze `preferences`.
 Zmiany z UI idą przez `ui::theme::set_*` → `SettingsState::remember`; render nie
 zapisuje ustawień. Opis systemu motywów: [components.md](components.md).
+
+### Skróty klawiszowe (`keyboard.shortcuts`)
+
+Obiekt JSON: identyfikator komendy → lista skrótów w składni GPUI, np.
+`{"chat.new":["cmd-shift-k"],"chat.stop":[]}`. Pusta lista = komenda bez skrótu;
+brak identyfikatora = skróty domyślne. Limit 16 KiB, ≤ 256 komend, ≤ 4 skróty na
+komendę; identyfikator `[a-z0-9._-]{1,64}`, skrót to jeden akord
+`[modyfikator-]*klawisz` (ctrl/alt/shift/fn/cmd/super/win/secondary). Jeden błędny
+wpis odrzuca całą wartość (ostrzeżenie + skróty domyślne, bez naprawy w bazie).
+Nieznane identyfikatory są zachowywane i ignorowane, a skrót, którego GPUI tej
+wersji nie parsuje, zastępuje skrót domyślny tej komendy. Zapis pustego zestawu
+usuwa wiersz zamiast zapisywać `{}`. Tabela komend i skróty domyślne:
+`src/ui/keymap.rs` ([components.md](components.md#komendy-i-skróty-klawiszowe)).
+
+Skróty są lokalne dla urządzenia tak jak wygląd: nie ma ich w `HostPreferences`
+ani w zdalnym patchu, a `ControlState::revision` pomija `shortcuts`. Zmiana z UI
+idzie przez `keymap::set_overrides`: wiąże od razu (stan „pending”), potem
+`SettingsState::remember`. Pending zostaje do commitu tej samej wartości; znika,
+gdy zapis się nie udał (`!saving` i `error`).
+
+### Strona Settings → Shortcuts
+
+`src/ui/preferences/shortcuts.rs` (`ShortcutsPreferences`). Pole filtra (nazwa
+komendy albo skrót: `⌘K`, `cmd-k`, `Ctrl+K`) i „Reset all…” (potwierdzenie
+`Confirmation`, aktywne tylko przy zmianach). Sekcje APP, CHAT, TABS & PANES, VIEW,
+FILES, TERMINAL; wiersz: nazwa, badge „Modified”, przycisk „Reset to default”
+(tooltip z domyślnym skrótem) i skrót jako keycapy (⌃⌥⇧⌘ na macOS, Ctrl/Alt/Shift/Win
+gdzie indziej) albo „Not assigned”.
+
+Kliknięcie skrótu (lub Enter/Space na nim) przełącza wiersz w „Press keys…”.
+Nagrywanie przechwytuje klawisze przez `intercept_keystrokes` tylko w tym oknie,
+przed jakimkolwiek bindingiem (także ⌘Q i ⌘,). Esc anuluje, Backspace/Delete
+usuwa skrót, Tab kończy nagrywanie i przenosi focus, klik poza przyciskiem
+anuluje. Sam modyfikator jest ignorowany; klawisz bez Ctrl/Alt/⌘ (poza F1–F24)
+nie jest przyjmowany i wiersz pokazuje podpowiedź. Skrót użyty przez komendę w
+tym samym zakresie (albo globalną) daje „{skrót} is used by “X”.” z Reassign /
+Cancel; w zakresie zagnieżdżonym (np. Workspace i czat) dodatkowo Keep both —
+wewnętrzna komenda wygrywa, gdy ma focus. Wiersze, których skrót koliduje w tym
+samym zakresie (np. po resecie jednej komendy), pokazują ostrzeżenie.
 
 ### Strona Settings → Appearance
 
@@ -167,15 +213,89 @@ tytułem i podtytułem „Not available yet”. Wiersz w działającej stronie w
 
 | Pozycja | Powód |
 | --- | --- |
-| Nawigacja: Updates, Privacy, Shortcuts, Notch, Misc, Sidebar, Skills, Git, File Watcher | brak strony; wcześniej kliknięcie nic nie robiło |
+| Nawigacja: Updates, Privacy, Misc, Sidebar, Skills, Git, File Watcher | brak strony; wcześniej kliknięcie nic nie robiło |
 | BACKUP (eksport/import) w stopce nawigacji | same ikony bez akcji |
-| Search settings… w nagłówku | wartość pola nie jest nigdzie czytana; ⌘K tylko ustawia focus |
 | General → Run setup wizard | przycisk bez akcji; w Rust nie ma kreatora |
 | General → New worktree (`newWorktree.toolId`) | zapisywane, ale agent worktree wybiera dialog (`ui/worktree_dialog.rs`) |
-| General → Show CPU and RAM usage (`perf.hud.enabled`) | zapisywane, ale pasek stanu nie ma próbnika CPU/RAM |
 
 Po podłączeniu funkcji usuń jej pozycję z `UNAVAILABLE` albo opakowanie
 `unavailable(...)` i z tej tabeli.
+
+### Okno Settings i wyszukiwanie
+
+Okno ma jeden górny wiersz (titlebar): sterowanie oknem i wyśrodkowane pole
+„Search settings…” (384 px, wskazówka skrótu ⌘K / Ctrl+K, przy treści zamiast
+niej ×). Pole leży między dwoma obszarami przeciągania okna (podwójne kliknięcie
+na macOS powiększa okno), które go nie zasłaniają; lewy omija światła
+sygnalizacyjne, na Windows stały obszar równoważy pas przycisków okna. Tytuł
+okna dla menu Window i Mission Control pozostaje „Canopy — Preferences”, a stronę
+nazywa nagłówek treści (bez okruszków i przycisku zamknięcia).
+
+Zapytanie dzieli się na słowa; ustawienie pasuje, gdy wszystkie słowa (bez
+rozróżniania wielkości liter) występują w nazwie strony, sekcji, etykiecie,
+opisie albo słowach kluczowych wpisu. Strona pasuje także własną nazwą, grupą
+nawigacji, opisem lub słowami kluczowymi. Stan należy do
+`preferences::search::SettingsSearch` (jedna encja na okno, obok `page`).
+
+- **Nawigacja:** strony bez dopasowania są przygaszone (`t::SEARCH_DIMMED`),
+  dopasowane pokazują liczbę pasujących ustawień; strona otwarta zachowuje pełny
+  kontrast. Wyszarzone strony („Not available yet”) są przeszukiwane, ale
+  zachowują swój wygląd.
+- **Zmiana strony:** gdy otwarta strona nie pasuje, okno przechodzi na najlepszą:
+  najpierw dostępne strony, potem najwięcej pasujących ustawień (dopasowanie
+  samej strony liczy się jak trzy), potem kolejność nawigacji. Enter lub ↓ w
+  polu przechodzi do następnej pasującej strony, ↑ do poprzedniej (z zawinięciem).
+  Po przejściu wywołanym wyszukiwaniem pierwsze dopasowanie przewija się do
+  widoku, jeśli nie jest całe widoczne.
+- **Wewnątrz strony:** gdy coś na stronie pasuje, pozostałe wiersze są
+  przygaszone, a słowa zapytania w etykiecie i opisie pasujących wierszy mają tło
+  `t::search_match()`; nic nie znika i układ się nie przesuwa. Pasujące wiersze w
+  zwiniętym „Advanced settings” (Connections) otwierają tę sekcję.
+- **Brak wyników:** zamiast strony „No settings match “…”” z przyciskiem
+  „Clear search” (czyści i oddaje focus polu).
+- **Klawisze:** ⌘K / Ctrl+K (komenda „Search settings”, zmienialna w Shortcuts)
+  ustawia focus i zaznacza zapytanie. Esc czyści zapytanie (strona zostaje), drugi
+  Esc zabiera focus z pola. Okno po otwarciu ma focus w swoim korzeniu, więc
+  skrót działa od razu.
+
+Indeks buduje `SettingsSearch::new` z `navigation::GROUPS` — tej samej tabeli, z
+której rysowana jest nawigacja (nazwa, ikona, opis, słowa kluczowe i funkcja
+`entries`). Każda strona deklaruje swoje wpisy `search::Entry` (id, sekcja,
+etykieta, opis, słowa kluczowe) obok renderu (`SEARCH` albo `entries()`) i
+rysuje wiersze z tych samych wpisów: `PageSearch::setting`, `setting_with` (opis
+zależny od stanu), `stacked_setting`, `field` albo `mark(&[id], element)` dla
+własnych bloków i `text(id, tekst)` dla etykiet. Wpisy dynamiczne pochodzą z
+danych: Shortcuts z `keymap::COMMANDS`, karty motywów z `t::families()`, filtry
+wbudowane z `BUILTINS`/`YOUTRACK_BUILTINS`. Strony wyszarzone mają wpisy z
+odpowiednich stron Electrona w `navigation.rs`.
+
+Nowe ustawienie: dodaj stałą `Entry` w module strony, dopisz ją do `SEARCH`
+w kolejności wyświetlania i narysuj wiersz przez `PageSearch` (z
+`.scroll(&scroll_handle)` obszaru przewijania strony). Nowa strona: wpis w
+`navigation::GROUPS` z funkcją `entries`. Test
+`every_page_is_indexed_with_unique_entries` wymaga wpisów dla każdej strony,
+unikalnych id i wszystkich komend klawiatury.
+
+Ograniczenia: dane użytkownika (nazwy narzędzi, kont, profili, urządzeń, własnych
+filtrów) nie są indeksowane; licznik obejmuje też wiersze chwilowo ukryte
+(np. „Chat agent” tylko dla własnych narzędzi, „Reachable from” przy wyłączonym
+dostępie zdalnym). Przygaszone wiersze pozostają aktywne.
+
+### Strona Settings → Notch
+
+`src/ui/preferences/notch.rs`: sekcja NOTCH OVERLAY z checkboxem „Show session
+status near the notch” (`Change::NotchEnabled`, wyłączony podczas ładowania i
+zapisu), opis jak w Electronie. Overlay otwiera/zamyka się od razu
+(`ui::notch::bind`, [notch.md](notch.md)). Błąd natywnego adaptera
+(`NotchStatus`) jest pokazany pod ustawieniem. Na platformach bez adaptera
+(poza macOS/Windows) checkbox jest wyłączony z opisem „The notch overlay is
+available on macOS and Windows.”
+
+### General → Show CPU and RAM usage
+
+`perf.hud.enabled` (domyślnie wyłączone) włącza odczyt CPU/RAM w stopce sidebara;
+sekcja nazywa się RESOURCE USAGE („Shown at the bottom of the sidebar”). Próbnik i
+widok opisuje [components.md](components.md#odczyt-cpu-i-ram-w-stopce-sidebara).
 
 Profile i sekrety przechowują w SQLite tylko konfigurację i nieprzezroczyste
 referencje; wartości sekretów należą do Keychain, Windows Credential Manager lub

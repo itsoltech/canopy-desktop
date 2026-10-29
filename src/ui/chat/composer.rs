@@ -679,9 +679,9 @@ impl ChatView {
             .rounded(px(14.))
             .accessibility_label(label)
             .tooltip(if working {
-                "Stop (⌘.)"
+                crate::ui::keymap::with_shortcut("Stop", crate::ui::keymap::CommandId::StopChat, cx)
             } else {
-                "Send (Enter)"
+                "Send (Enter)".to_owned()
             })
             .disabled(!working && disabled)
             .child(
