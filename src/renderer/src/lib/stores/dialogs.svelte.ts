@@ -175,6 +175,9 @@ export const confirmState: {
 } = $state({ current: null })
 
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
+  // One confirmation shows at a time. Settle a pending one as cancelled instead
+  // of replacing it silently, which would leave its caller awaiting forever.
+  confirmState.current?.onCancel()
   return new Promise((resolve) => {
     confirmState.current = {
       ...opts,

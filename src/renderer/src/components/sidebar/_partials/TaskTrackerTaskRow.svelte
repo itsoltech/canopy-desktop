@@ -21,6 +21,8 @@
   tabindex="0"
   onclick={onOpen}
   onkeydown={(event) => {
+    // Keys pressed on the nested Unlink button bubble here; let them activate it.
+    if (event.target !== event.currentTarget) return
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
       onOpen()

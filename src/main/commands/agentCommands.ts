@@ -70,7 +70,15 @@ export class AgentCommandService {
     // is already sitting in the agent's input. Sent contexts stack in the input instead — the
     // user confirms explicitly in the agent panel. The newline INSIDE the paste is literal
     // (bracketed), separating this message from the next stacked one.
-    this.deps.ptyManager.write(sessionId, `\x1b[200~${text}\n\x1b[201~`)
+    // Context text carries third-party content (tracker issues, repo files). An embedded
+    // `\x1b[201~` would end the paste early and turn the rest into typed input, so CSI
+    // sequences and C0 controls other than \t and \n are dropped first.
+    const safe = text
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+    this.deps.ptyManager.write(sessionId, `\x1b[200~${safe}\n\x1b[201~`)
   }
 
   private contextText(payload: AgentContextPayload): string {

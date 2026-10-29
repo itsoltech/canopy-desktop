@@ -794,7 +794,7 @@ export function registerIpcHandlers(
       // peer's screen.
       for (const w of BrowserWindow.getAllWindows()) {
         if (!w.isDestroyed()) {
-          w.webContents.send('pty:resized', payload)
+          w.webContents.send('pty:resized', { sessionId: payload.sessionId, cols, rows })
         }
       }
     },
@@ -2139,7 +2139,12 @@ export function registerIpcHandlers(
     'git:statusPorcelain',
     async (event, payload: { repoRoot: string; worktreePath?: string }) => {
       const resolvedRepo = await validateWorktreeScopedPathAccess(event.sender.id, payload.repoRoot)
-      return GitRepository.getStatusPorcelain(resolvedRepo, payload.worktreePath).unwrapOr('')
+      // worktreePath becomes the cwd for `git status`, so it needs the same
+      // ownership check as repoRoot.
+      const resolvedWorktree = payload.worktreePath
+        ? await validateWorktreeScopedPathAccess(event.sender.id, payload.worktreePath)
+        : undefined
+      return GitRepository.getStatusPorcelain(resolvedRepo, resolvedWorktree).unwrapOr('')
     },
   )
 
@@ -5391,8 +5396,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('skills:deleteFile', async (event, payload: { filePath: string }) => {
     const filePath = path.normalize(path.resolve(payload.filePath))
+    const skillFileExts = ['.md', '.mdc', '.yaml', '.yml']
     const ext = path.extname(filePath).toLowerCase()
-    if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
+    if (!skillFileExts.includes(ext)) {
       unwrapOrThrow(
         err({
           _tag: 'InvalidSource',
@@ -5461,6 +5467,22 @@ export function registerIpcHandlers(
           _tag: 'InvalidSource',
           source: payload.filePath,
           reason: 'Skill files must live under the user home directory or a workspace path',
+        } as SkillError),
+        skillErrorMessage,
+      )
+    }
+    // The extension and skill-directory checks above ran on the requested path.
+    // A symlink there can resolve to any file under home, so the file that is
+    // actually unlinked has to pass them too.
+    if (
+      !skillFileExts.includes(path.extname(resolvedTarget).toLowerCase()) ||
+      !skillDirPatterns.some((p) => p.test(resolvedTarget))
+    ) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Skill file resolves outside agent skill directories',
         } as SkillError),
         skillErrorMessage,
       )

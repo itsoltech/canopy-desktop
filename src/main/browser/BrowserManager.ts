@@ -45,6 +45,32 @@ const APP_SHORTCUTS = new Set([
 
 const BROWSER_PARTITION = 'persist:browser'
 
+const MAX_FAVICON_BYTES = 256 * 1024
+const FAVICON_FETCH_TIMEOUT_MS = 5_000
+
+/** Read a favicon body, giving up once it exceeds MAX_FAVICON_BYTES. */
+async function readFaviconBody(response: Response): Promise<Uint8Array | null> {
+  if (!response.body) return null
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      length += value.byteLength
+      if (length > MAX_FAVICON_BYTES) {
+        await reader.cancel().catch(() => undefined)
+        return null
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return Buffer.concat(chunks)
+}
+
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
   private guestContents = new Map<number, WebContents>()
@@ -250,16 +276,22 @@ export class BrowserManager {
         })
         return
       }
+      // The page picks this URL and the main process fetches it, so allow only
+      // web/data schemes and bound the time, the size, and the content type.
+      if (!/^(https?|data):/i.test(faviconUrl)) return
       wc.session
-        .fetch(faviconUrl)
+        .fetch(faviconUrl, { signal: AbortSignal.timeout(FAVICON_FETCH_TIMEOUT_MS) })
         .then(async (response) => {
           if (!response.ok) return
-          const buffer = await response.arrayBuffer()
           const contentType = response.headers.get('content-type') ?? 'image/x-icon'
-          const base64 = Buffer.from(buffer).toString('base64')
+          const mimeType = contentType.split(';')[0].trim().toLowerCase()
+          if (!/^image\/[a-z0-9.+-]+$/.test(mimeType)) return
+          const body = await readFaviconBody(response)
+          if (!body) return
+          const base64 = Buffer.from(body).toString('base64')
           this.sendToRenderer(browserId, 'browser:faviconChanged', {
             browserId,
-            favicon: `data:${contentType};base64,${base64}`,
+            favicon: `data:${mimeType};base64,${base64}`,
           })
         })
         .catch(() => {

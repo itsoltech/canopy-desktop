@@ -120,6 +120,16 @@
   }
 
   async function handleNew(): Promise<void> {
+    // Selecting the new profile resets the drafts, same as switching profiles.
+    if (dirty) {
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message: 'You have unsaved changes in the current profile. Create a new one anyway?',
+        confirmLabel: 'Discard',
+        destructive: true,
+      })
+      if (!ok) return
+    }
     saving = true
     try {
       const created = await saveProfile({

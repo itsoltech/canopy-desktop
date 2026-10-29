@@ -27,7 +27,10 @@
   onMount(() => {
     // Restore focus to the element that opened the dialog when it closes.
     const previouslyFocused = document.activeElement as HTMLElement | null
-    cancelBtn?.focus()
+    // Destructive prompts start on Cancel. Others start on the primary action, so
+    // Enter still confirms by default while acting on whichever button has focus.
+    const initialFocus = destructive ? cancelBtn : confirmBtn
+    initialFocus?.focus()
     return () => previouslyFocused?.focus?.()
   })
 
@@ -46,11 +49,13 @@
     if (e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
-      // When destructive, only confirm if the confirm button is explicitly focused
-      if (destructive && document.activeElement !== confirmBtn) {
-        if (document.activeElement === cancelBtn) onCancel()
+      // Enter on a focused Cancel must cancel, whatever the dialog kind.
+      if (document.activeElement === cancelBtn) {
+        onCancel()
         return
       }
+      // When destructive, only confirm if the confirm button is explicitly focused
+      if (destructive && document.activeElement !== confirmBtn) return
       onConfirm()
     }
   }

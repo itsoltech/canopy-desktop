@@ -1,5 +1,5 @@
 import { err, ok, type Result } from 'neverthrow'
-import { parseDocument, visit } from 'yaml'
+import { parseDocument, visit, type Document } from 'yaml'
 
 const MAX_WORKFLOW_BYTES = 128 * 1024
 const MAX_WORKFLOW_DEPTH = 40
@@ -101,6 +101,23 @@ function parseInput(
   })
 }
 
+// The depth cap in parseWorkflowDispatch runs after parsing. Deeply nested repo
+// content can make the composer itself throw (stack overflow) before that, so
+// the throw is caught here at the untrusted-input boundary.
+function parseWorkflowDocument(source: string): Document.Parsed | null {
+  try {
+    return parseDocument(source, {
+      version: '1.2',
+      strict: true,
+      uniqueKeys: true,
+      prettyErrors: false,
+      customTags: [],
+    })
+  } catch {
+    return null
+  }
+}
+
 /** Parse only the bounded subset of workflow YAML needed by workflow_dispatch. */
 export function parseWorkflowDispatch(
   source: string,
@@ -109,13 +126,8 @@ export function parseWorkflowDispatch(
     return invalid('workflow file exceeds the size limit')
   }
 
-  const document = parseDocument(source, {
-    version: '1.2',
-    strict: true,
-    uniqueKeys: true,
-    prettyErrors: false,
-    customTags: [],
-  })
+  const document = parseWorkflowDocument(source)
+  if (!document) return invalid('workflow YAML could not be parsed safely')
   if (document.errors.length > 0) return invalid('workflow YAML is malformed')
 
   let unsafeReason: string | undefined

@@ -864,12 +864,13 @@ app.whenReady().then(async () => {
   }
 
   // Status-bar perf HUD (always available, gated by user preference in renderer)
+  // WindowManager keys windows by webContents id, not BrowserWindow id.
   ipcMain.handle('perf:hud:start', (event) => {
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     perfHudService.subscribe(event.sender)
   })
   ipcMain.handle('perf:hud:stop', (event) => {
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
+    if (!windowManager.getWindowById(event.sender.id)) return
     perfHudService.unsubscribe(event.sender)
   })
 
@@ -1150,10 +1151,13 @@ app.whenReady().then(async () => {
     notchOverlay?.dispose()
   })
 
-  ipcMain.on('notch:setEnabled', (event, { enabled }: { enabled: boolean }) => {
+  ipcMain.on('notch:setEnabled', (event, payload: { enabled?: unknown } | undefined) => {
     if (!notchOverlay) return
-    if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
-    if (enabled) {
+    if (!windowManager.getWindowById(event.sender.id)) return
+    // A missing or non-boolean payload would otherwise throw in this `on`
+    // listener (destructuring) or enable the overlay for any truthy value.
+    if (typeof payload?.enabled !== 'boolean') return
+    if (payload.enabled) {
       notchOverlay.initialize()
     } else {
       notchOverlay.dispose()

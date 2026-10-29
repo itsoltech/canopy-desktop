@@ -594,7 +594,8 @@ export class TaskTrackerManager {
     dlErr: (reason: string) => TaskTrackerError,
   ): ResultAsync<string, TaskTrackerError> {
     const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
-    mkdirSync(dir, { recursive: true })
+    // Private tracker attachments in a shared tmpdir: owner-only access.
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
 
     const safeName = basename(filename.replace(/[/\\]/g, '_'))
     const filePath = join(dir, safeName)

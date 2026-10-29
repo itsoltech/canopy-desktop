@@ -95,6 +95,15 @@
       controller = new PeerController()
       controller.onPhaseChange = (p) => {
         phase = p
+        // The commands channel is gone in these phases. Stop pinging the
+        // disposed API and drop overlays that would keep covering the
+        // disconnected screen with a frozen terminal.
+        if (p.kind === 'disconnected' || p.kind === 'error' || p.kind === 'rejected') {
+          stopPingLoop()
+          remoteApi = null
+          fullscreenSessionId = null
+          toolPickerOpen = false
+        }
       }
       controller.onApiReady = (api) => {
         remoteApi = api

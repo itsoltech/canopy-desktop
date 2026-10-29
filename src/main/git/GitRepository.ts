@@ -1,6 +1,6 @@
 import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
-import { readFileSync, statSync } from 'fs'
+import { lstatSync, readFileSync } from 'fs'
 import { join } from 'path'
 import type { GitError } from './errors'
 import type { ParsedDiff, DiffFile } from './types'
@@ -35,6 +35,15 @@ function gitCall<T>(
 // it. Above this, return an empty hunk list rather than block on a huge read.
 const UNTRACKED_MAX_BYTES = 5 * 1024 * 1024
 
+// The per-file cap does not bound the count: an unignored build or vendor tree
+// can list thousands of untracked files, all read synchronously on every
+// refresh. Past this many, the rest are listed without content.
+const UNTRACKED_CONTENT_FILE_LIMIT = 200
+
+function untrackedWithoutContent(filePath: string): DiffFile {
+  return { path: filePath, status: 'added' as const, hunks: [], additions: 0, deletions: 0 }
+}
+
 // Sync read instead of fs.promises.readFile: this function is called in a
 // hot loop (ChangesPanel/DiffPane refresh on every files:changed event,
 // debounced 200 ms), once per untracked file in parallel. The async
@@ -45,15 +54,11 @@ function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<Diff
   const absPath = join(repoRoot, filePath)
   let content: string
   try {
-    const sz = statSync(absPath).size
-    if (sz > UNTRACKED_MAX_BYTES) {
-      return ok({
-        path: filePath,
-        status: 'added' as const,
-        hunks: [],
-        additions: 0,
-        deletions: 0,
-      })
+    // lstat, not stat: following an untracked symlink or special file would hang
+    // on /dev/zero or a FIFO, or show a file from outside the repo in the diff.
+    const entry = lstatSync(absPath)
+    if (!entry.isFile() || entry.size > UNTRACKED_MAX_BYTES) {
+      return ok(untrackedWithoutContent(filePath))
     }
     content = readFileSync(absPath, 'utf-8')
   } catch (e) {
@@ -598,7 +603,11 @@ export class GitRepository {
         if (files.length === 0) return okAsync<ParsedDiff, GitError>(parsed)
 
         const untrackedDiffFiles = files
-          .map((file) => buildUntrackedDiffFile(repoRoot, file).unwrapOr(null))
+          .map((file, index) =>
+            index < UNTRACKED_CONTENT_FILE_LIMIT
+              ? buildUntrackedDiffFile(repoRoot, file).unwrapOr(null)
+              : untrackedWithoutContent(file),
+          )
           .filter((f): f is DiffFile => f !== null)
 
         return okAsync<ParsedDiff, GitError>({
