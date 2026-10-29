@@ -2,6 +2,7 @@
 use super::*;
 use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
+use gpui_kit::prelude::FluentBuilder;
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.needs_focus {
@@ -80,10 +81,17 @@ impl Render for TerminalView {
                 }
             }))
             .on_key_down(cx.listener(|this, event, _, cx| this.key(event, cx)))
+            .when(self.link.is_some(), |surface| surface.cursor_pointer())
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if !hovered {
+                    this.hover_link(None, false, cx);
+                }
+            }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
                     this.activate(window, cx);
+                    this.press_link(event.position, event.modifiers.shift);
                     this.mouse(event.position, 0, true, event.modifiers.shift, cx);
                     cx.stop_propagation();
                 }),
@@ -91,12 +99,15 @@ impl Render for TerminalView {
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
                 if event.pressed_button == Some(MouseButton::Left) {
                     this.mouse(event.position, 32, false, event.modifiers.shift, cx);
+                } else {
+                    this.hover_link(Some(event.position), event.modifiers.shift, cx);
                 }
             }))
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseUpEvent, _, cx| {
-                    this.mouse(event.position, 3, false, event.modifiers.shift, cx)
+                    this.mouse(event.position, 3, false, event.modifiers.shift, cx);
+                    this.release_link(event.position, cx);
                 }),
             )
             .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {

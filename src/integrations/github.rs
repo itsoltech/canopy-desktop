@@ -6,7 +6,7 @@ mod writes;
 use super::*;
 use futures_lite::io::AsyncReadExt;
 use gpui_kit::http_client::{AsyncBody, HttpClient, HttpRequestExt, RedirectPolicy, Request};
-pub use pulls::PullRef;
+pub use pulls::{NewPull, PullRef};
 use serde::Deserialize;
 use std::{sync::Arc, time::Duration};
 pub struct Github {

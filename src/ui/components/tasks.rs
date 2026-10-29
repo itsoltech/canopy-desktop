@@ -1,8 +1,8 @@
-use super::{super::theme as t, badge, column, icon, row, skeleton_bar};
+use super::{super::theme as t, column, icon, row, skeleton_bar, status_badge};
 use canopy_desktop::integrations::{TaskItem, TaskState};
 use gpui_kit::{component::IconName, *};
 
-pub const TASK_ROW_HEIGHT: f32 = 56.;
+pub const TASK_ROW_HEIGHT: f32 = 50.;
 
 pub fn task_state_mark(state: TaskState) -> Div {
     row()
@@ -10,11 +10,13 @@ pub fn task_state_mark(state: TaskState) -> Div {
         .flex_shrink_0()
         .justify_center()
         .child(match state {
-            TaskState::Open => div()
-                .size(px(10.))
+            TaskState::Open => row()
+                .size(px(13.))
+                .justify_center()
                 .rounded_full()
-                .border_1()
+                .border(px(1.5))
                 .border_color(t::green())
+                .child(div().size(px(5.)).rounded_full().bg(t::green()))
                 .into_any_element(),
             TaskState::Closed => icon(IconName::CircleCheck)
                 .text_color(t::muted())
@@ -31,8 +33,8 @@ pub fn task_row(task: &TaskItem, selected: bool) -> Stateful<Div> {
         .h(px(TASK_ROW_HEIGHT))
         .w_full()
         .px(px(8.))
-        .gap(px(8.))
-        .rounded(px(4.))
+        .gap(px(9.))
+        .rounded(px(7.))
         .cursor_pointer()
         .bg(if selected {
             t::selected()
@@ -43,7 +45,7 @@ pub fn task_row(task: &TaskItem, selected: bool) -> Stateful<Div> {
         .child(
             column()
                 .h_full()
-                .pt(px(11.))
+                .pt(px(9.))
                 .child(task_state_mark(task.state)),
         )
         .child(
@@ -54,30 +56,31 @@ pub fn task_row(task: &TaskItem, selected: bool) -> Stateful<Div> {
                     div()
                         .truncate()
                         .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
                         .text_color(t::text())
                         .child(task.reference.title.clone()),
                 )
                 .child(
                     row()
                         .gap(px(6.))
-                        .text_size(px(10.))
-                        .text_color(t::muted())
+                        .text_size(px(11.))
+                        .text_color(t::faint())
                         .child(
                             div()
                                 .font_family(t::MONO)
                                 .flex_shrink_0()
                                 .child(task.reference.label()),
                         )
-                        .children(
-                            task.jira
-                                .as_ref()
-                                .map(|j| badge(j.status.clone()).max_w(px(90.)).truncate()),
-                        )
-                        .children(
-                            task.labels
-                                .first()
-                                .map(|label| badge(label.clone()).max_w(px(110.)).truncate()),
-                        )
+                        .children(task.jira.as_ref().map(|j| {
+                            status_badge(j.status.clone(), t::accent())
+                                .max_w(px(90.))
+                                .truncate()
+                        }))
+                        .children(task.labels.first().map(|label| {
+                            status_badge(label.clone(), t::skill())
+                                .max_w(px(110.))
+                                .truncate()
+                        }))
                         .children((task.labels.len() > 1).then(|| {
                             div()
                                 .flex_shrink_0()
@@ -99,8 +102,8 @@ pub fn task_details(task: &TaskItem, description: impl IntoElement) -> Div {
         .gap(px(12.))
         .child(
             div()
-                .text_size(px(14.))
-                .font_weight(FontWeight::MEDIUM)
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
                 .child(task.reference.title.clone()),
         )
         .child(task_metadata(task))
@@ -114,25 +117,25 @@ pub fn task_metadata(task: &TaskItem) -> Div {
             row()
                 .gap(px(6.))
                 .flex_wrap()
-                .child(
-                    badge(if let Some(jira) = &task.jira {
-                        jira.status.as_str()
+                .child(status_badge(
+                    if let Some(jira) = &task.jira {
+                        jira.status.clone()
                     } else if task.state == TaskState::Open {
-                        "Open"
+                        "Open".to_owned()
                     } else {
-                        "Closed"
-                    })
-                    .text_color(if task.state == TaskState::Open {
+                        "Closed".to_owned()
+                    },
+                    if task.state == TaskState::Open {
                         t::green()
                     } else {
                         t::secondary()
-                    }),
-                )
-                .children(
-                    task.labels
-                        .iter()
-                        .map(|label| badge(label.clone()).max_w(px(180.)).truncate()),
-                ),
+                    },
+                ))
+                .children(task.labels.iter().map(|label| {
+                    status_badge(label.clone(), t::skill())
+                        .max_w(px(180.))
+                        .truncate()
+                })),
         )
         .children((!task.assignees.is_empty()).then(|| {
             row()

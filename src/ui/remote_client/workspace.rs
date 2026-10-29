@@ -832,7 +832,11 @@ impl RemoteWindow {
             let stage_path = file.path.clone();
             let discard_path = file.path.clone();
             group = group.child(
-                git::change_file_row(SharedString::from(format!("git-row:{key}")), kind)
+                git::change_file_row(
+                    SharedString::from(format!("git-row:{key}")),
+                    kind,
+                    self.hovered.as_ref() == Some(&key),
+                )
                     .on_hover(cx.listener(move |this, over, _, cx| {
                         if *over {
                             this.hovered = Some(hover.clone());

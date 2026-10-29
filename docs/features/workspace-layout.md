@@ -44,16 +44,18 @@ composerem, bez odsyłacza sugerującego kontynuację u innego agenta.
 
 ## Nagłówek i geometria
 
-Jedna belka zawiera projekt/worktree, tytuł wybranej pracy oraz kategorie
-Files, Changes, Tasks, Agent. Kategorie pokazują stronę narzędzi
-idempotentnie; Hide jest osobnym poleceniem. Wąski nagłówek zachowuje nazwę
+Belka okna zawiera projekt/worktree, tytuł wybranej pracy i przełącznik panelu
+narzędzi. Kategorie Files, Changes, Tasks, Agent są na górze samego panelu
+(na wysokości paska tabów), więc schowany panel nie pokazuje ich wcale; otwiera
+go przycisk w belce albo skrót kategorii. Kategorie pokazują stronę narzędzi
+idempotentnie; Hide jest osobnym poleceniem. Wąski panel zachowuje nazwę
 aktywnej kategorii i menu Tools z zaznaczoną stroną. Tytuł pracy ma pierwszeństwo
 przed gałęzią i projektem. Pasek tabów w centrum przewija się,
 odsłania aktywną kartę wraz z przyciskiem zamknięcia, ma cienie krawędzi i menu
 wszystkich kart. Szerokości są mierzone z etykiet (7–18rem i limit viewportu). Akcje pozostają
 nieruchome. Jedna granica wizualna należy do jednego regionu.
 
-Obszar drag/double-click obejmuje kontekst, nie kategorie ani menu. Settings
+Obszar drag/double-click obejmuje kontekst belki, nie jej przyciski. Settings
 jest w stopce sidebara i w Tools; globalny pusty status bar został usunięty.
 Files/Changes wymagają projektu; Agent i Tasks są dostępne także prywatnie.
 Skróty: Option+Cmd+1 wraca do tabów, Option+Cmd+2…5 to kategorie panelu

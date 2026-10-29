@@ -27,9 +27,9 @@ pub fn reference_badge(reference: &ReferenceLabel) -> Div {
 
 pub fn tracking_summary(snapshot: Option<&HistorySnapshot>) -> Div {
     column()
-        .h(px(44.))
+        .h(px(36.))
         .flex_shrink_0()
-        .gap(px(4.))
+        .gap(px(3.))
         .children(snapshot.map(|snapshot| {
             row()
                 .gap(px(8.))
@@ -39,7 +39,8 @@ pub fn tracking_summary(snapshot: Option<&HistorySnapshot>) -> Div {
                         .flex_1()
                         .min_w_0()
                         .text_ellipsis()
-                        .text_color(t::secondary())
+                        .font_family(t::MONO)
+                        .text_color(t::faint())
                         .child(
                             snapshot
                                 .upstream
@@ -66,8 +67,9 @@ pub fn tracking_summary(snapshot: Option<&HistorySnapshot>) -> Div {
 pub fn ahead_behind(ahead: usize, behind: usize) -> Div {
     row()
         .gap(px(8.))
-        .child(div().text_color(t::yellow()).child(format!("↑ {ahead}")))
-        .child(div().text_color(t::accent()).child(format!("↓ {behind}")))
+        .font_family(t::MONO)
+        .child(div().text_color(t::accent()).child(format!("↑{ahead}")))
+        .child(div().text_color(t::faint()).child(format!("↓{behind}")))
 }
 
 /// Explicitly distinguish unknown membership from a shared upstream commit.

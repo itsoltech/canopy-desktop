@@ -35,6 +35,7 @@ mod notch_windows;
 mod pane_layout;
 mod platform_ui;
 mod preferences;
+mod pull_request;
 mod quick_open;
 mod remote_chat;
 pub mod remote_client;
@@ -55,6 +56,7 @@ mod video_native;
 pub(crate) mod video_preview;
 #[cfg(test)]
 mod visual_tests;
+pub(crate) mod window_geometry;
 #[cfg(target_os = "windows")]
 mod windows_settings;
 mod workspace_layout;
@@ -73,7 +75,6 @@ use components::file_tree::{FileTree, FileTreeEvent, FileTreeModel, FileTreeRequ
 use components::*;
 use gpui_kit::base::{Disableable, FocusTrapElement};
 use gpui_kit::component::{IconName, Root};
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use pane_layout::PanelSide;
 use std::time::Instant;
@@ -164,6 +165,10 @@ pub struct Workspace {
     _upstream_events: Subscription,
     upstream_modal: Option<Entity<upstream_dialog::UpstreamDialog>>,
     upstream_modal_events: Option<Subscription>,
+    _pull_request_requests: Subscription,
+    /// The create or details dialog of a pull request.
+    pull_request_modal: Option<AnyView>,
+    pull_request_modal_events: Option<Subscription>,
     recovery_modal: Option<Entity<chat_recovery::ChatRecoveryDialog>>,
     recovery_modal_events: Option<Subscription>,
     modal: Option<Entity<TextPrompt>>,
@@ -217,6 +222,8 @@ impl Workspace {
                 }
             }),
             cx.observe(&state.diffs, |_, _, cx| cx.notify()),
+            // The Changes tab counts the worktree's changed files.
+            cx.observe(&state.changes, |_, _, cx| cx.notify()),
             cx.observe(&state.git, |_, _, cx| cx.notify()),
             cx.observe_in(&state.tools, window, |_, _, window, cx| {
                 window.refresh();
@@ -382,7 +389,10 @@ impl Workspace {
                 &state.chats,
                 window,
                 |this, _, request: &crate::app_state::ChatRecoveryRequested, window, cx| {
-                    if this.recovery_modal.is_some() || this.upstream_modal.is_some() {
+                    if this.recovery_modal.is_some()
+                        || this.upstream_modal.is_some()
+                        || this.pull_request_modal.is_some()
+                    {
                         return;
                     }
                     let chat = request.0.clone();
@@ -498,6 +508,7 @@ impl Workspace {
                     || this.task_editor_modal.is_some()
                     || this.worktree_modal.is_some()
                     || this.upstream_modal.is_some()
+                    || this.pull_request_modal.is_some()
                     || this.recovery_modal.is_some()
                 {
                     return;
@@ -553,6 +564,52 @@ impl Workspace {
             });
             this.confirmation_events=Some(cx.subscribe(&modal,|this,_,_:&ModalDismissed,cx|{this.confirmation=None;this.confirmation_events=None;cx.notify();}));this.confirmation=Some(modal);cx.notify();
         });
+        let pull_request_requests = cx.subscribe_in(
+            &state.pull_requests,
+            window,
+            |this, _, request: &crate::app_state::PullRequestDialog, window, cx| {
+                if this.modal.is_some()
+                    || this.task_detail_modal.is_some()
+                    || this.task_editor_modal.is_some()
+                    || this.confirmation.is_some()
+                    || this.worktree_modal.is_some()
+                    || this.upstream_modal.is_some()
+                    || this.pull_request_modal.is_some()
+                    || this.recovery_modal.is_some()
+                {
+                    return;
+                }
+                let focus = window.focused(cx).unwrap_or_else(|| this.focus.clone());
+                fn dismissed(this: &mut Workspace, cx: &mut Context<Workspace>) {
+                    this.pull_request_modal = None;
+                    this.pull_request_modal_events = None;
+                    cx.notify();
+                }
+                let (view, events): (AnyView, _) = match request {
+                    crate::app_state::PullRequestDialog::Create(branch) => {
+                        let dialog = cx.new(|cx| {
+                            pull_request::CreatePullRequest::new(branch.clone(), focus, window, cx)
+                        });
+                        let events = cx.subscribe(&dialog, |this, _, _: &ModalDismissed, cx| {
+                            dismissed(this, cx)
+                        });
+                        (dialog.into(), events)
+                    }
+                    crate::app_state::PullRequestDialog::Details(pull) => {
+                        let dialog = cx.new(|cx| {
+                            pull_request::PullRequestDetails::new(pull.clone(), focus, window, cx)
+                        });
+                        let events = cx.subscribe(&dialog, |this, _, _: &ModalDismissed, cx| {
+                            dismissed(this, cx)
+                        });
+                        (dialog.into(), events)
+                    }
+                };
+                this.pull_request_modal = Some(view);
+                this.pull_request_modal_events = Some(events);
+                cx.notify();
+            },
+        );
         let upstream_events = cx.subscribe_in(
             &state.changes,
             window,
@@ -563,6 +620,7 @@ impl Workspace {
                     || this.confirmation.is_some()
                     || this.worktree_modal.is_some()
                     || this.upstream_modal.is_some()
+                    || this.pull_request_modal.is_some()
                     || this.recovery_modal.is_some()
                 {
                     return;
@@ -620,6 +678,9 @@ impl Workspace {
             _upstream_events: upstream_events,
             upstream_modal: None,
             upstream_modal_events: None,
+            _pull_request_requests: pull_request_requests,
+            pull_request_modal: None,
+            pull_request_modal_events: None,
             recovery_modal: None,
             recovery_modal_events: None,
             _file_events: file_events,
@@ -659,6 +720,7 @@ impl Workspace {
             || self.worktree_modal.is_some()
             || self.confirmation.is_some()
             || self.upstream_modal.is_some()
+            || self.pull_request_modal.is_some()
             || self.recovery_modal.is_some()
             || self.state.settings.read(cx).quitting
         {
@@ -711,6 +773,7 @@ impl Workspace {
             || self.worktree_modal.is_some()
             || self.confirmation.is_some()
             || self.upstream_modal.is_some()
+            || self.pull_request_modal.is_some()
             || self.recovery_modal.is_some()
             || self.state.settings.read(cx).quitting
         {
@@ -768,6 +831,7 @@ impl Workspace {
             || self.worktree_modal.is_some()
             || self.confirmation.is_some()
             || self.upstream_modal.is_some()
+            || self.pull_request_modal.is_some()
             || self.recovery_modal.is_some()
         {
             return;
@@ -905,6 +969,7 @@ impl Render for Workspace {
             || self.resume.is_some()
             || self.worktree_modal.is_some()
             || self.upstream_modal.is_some()
+            || self.pull_request_modal.is_some()
             || self.recovery_modal.is_some();
         self.state
             .editors
@@ -975,6 +1040,8 @@ impl Render for Workspace {
                     || self.task_detail_modal.is_some()
                     || self.task_editor_modal.is_some()
                     || self.upstream_modal.is_some()
+
+                    || self.pull_request_modal.is_some()
             || self.recovery_modal.is_some()
                     || self.worktree_modal.is_some()
                     || self.confirmation.is_some()
@@ -1413,9 +1480,6 @@ impl Render for Workspace {
                                     .child(div().truncate().text_color(t::text()).child(title))
                             }))
                     })
-                    .when(self.remote.is_none(), |d| {
-                        d.child(self.tool_navigation(viewport_width - 150., window, cx))
-                    })
                     .children(dev_tools_button(window, cx))
                     .child({
                         row()
@@ -1544,6 +1608,7 @@ impl Render for Workspace {
             .child(self.state.toasts.clone())
             .children(self.confirmation.clone())
             .children(self.upstream_modal.clone())
+            .children(self.pull_request_modal.clone())
             .children(self.recovery_modal.clone())
             .children(self.modal.clone())
             .children(self.quick_open.clone())

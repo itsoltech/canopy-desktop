@@ -236,7 +236,7 @@ korzystają z tych samych komponentów co Preferences i lokalne Files/Changes
   nowy plik/folder przez `TextPrompt`, który od razu odświeża folder), wyszukiwanie,
   edytor z Preview…/Discard edits…/Save. Szeroki układ: lista obok edytora; panel
   narzędzi: lista nad edytorem. „Mark as edited” jest w sekcji ADVANCED.
-- Changes: zakładki Files/History, litery statusu i wiersze plików jak lokalny panel
+- Changes: litery statusu i wiersze plików jak lokalny panel
   Changes (Stage/Unstage/Discard jako ikony), skrócone hashe drugoplanowo, panel diffu,
   commit z podpisem, Pull/Push, a remote/upstream i worktree w sekcjach
   „REMOTE AND UPSTREAM” i „WORKTREES” z opisami zrozumiałymi bez żargonu.

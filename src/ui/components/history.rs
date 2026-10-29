@@ -17,10 +17,10 @@ pub fn commit_row(
     row()
         .id(SharedString::from(commit.id.clone()))
         .w_full()
-        .h(px(32.))
-        .pr(px(4.))
-        .gap(px(8.))
-        .rounded(px(4.))
+        .h(px(LIST_ROW))
+        .pr(px(6.))
+        .gap(px(7.))
+        .rounded(px(6.))
         .bg(if selected {
             t::selected()
         } else {
@@ -43,8 +43,8 @@ pub fn commit_row(
                 .text_ellipsis()
                 .child(commit.subject.clone()),
         )
-        .children((commit.local_only == Some(true)).then(|| badge("Local").text_color(t::yellow())))
-        .children((commit.parents.len() > 1).then(|| badge("Merge")))
+        .children((commit.local_only == Some(true)).then(|| status_badge("Local", t::yellow())))
+        .children((commit.parents.len() > 1).then(|| status_badge("Merge", t::secondary())))
         .child(
             div()
                 .flex_shrink_0()
@@ -73,6 +73,7 @@ pub fn commit_details(commit: &CommitEntry, progress: f32, close_action: impl In
                 .overflow_y_scroll()
                 .border_t_1()
                 .border_color(t::border())
+                .px(px(PANEL_INSET))
                 .py(px(12.))
                 .gap(px(8.))
                 .child(

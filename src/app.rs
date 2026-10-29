@@ -49,14 +49,13 @@ pub fn run() {
             // Diagnostic preview keeps only the overlay visible for window captures.
             let notch_preview = cfg!(any(target_os = "macos", target_os = "windows"))
                 && std::env::var_os("CANOPY_NOTCH_PREVIEW").is_some();
+            let (display_id, window_bounds) = crate::ui::window_geometry::placement(cx);
+            let (min_width, min_height) = crate::ui::window_geometry::MIN_SIZE;
             let options = WindowOptions {
                 show: !notch_preview,
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(1423.), px(892.)),
-                    cx,
-                ))),
-                window_min_size: Some(size(px(800.), px(500.))),
+                window_bounds: Some(window_bounds),
+                display_id,
+                window_min_size: Some(size(px(min_width), px(min_height))),
                 titlebar: Some(crate::ui::components::titlebar_options("Canopy")),
                 ..Default::default()
             };
@@ -66,6 +65,7 @@ pub fn run() {
                     false
                 });
                 crate::ui::theme::bind(window, cx);
+                crate::ui::window_geometry::track(window, cx);
                 let view = cx.new(|cx| crate::ui::Workspace::new(window, cx));
                 cx.new(|cx| Root::new(view, window, cx))
             }) {

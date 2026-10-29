@@ -4,6 +4,7 @@ use canopy_desktop::terminal::{
     control::Refused,
     file_drop::{FileDropError, prepare_file_drop},
     input,
+    links::{self, Link},
     session::{InputRefused, Mode, Status},
 };
 use gpui_kit::*;
@@ -79,6 +80,48 @@ impl TerminalView {
             self.refresh(cx);
         }
     }
+    /// The link under the pointer. A program reading the mouse gets the click
+    /// instead, unless Shift is held (as for selection).
+    fn link_at(&self, point: Point<Pixels>, shift: bool) -> Option<Link> {
+        let frame = self.frame.as_ref()?;
+        if frame.mode.intersects(Mode::MOUSE_MODE) && !shift {
+            return None;
+        }
+        let (row, column) = self.cell_at(point);
+        self.session
+            .as_ref()
+            .and_then(|session| session.hyperlink_at(row, column))
+            .filter(|link| links::openable(&link.url).is_some())
+            .or_else(|| links::url_at(frame, row, column))
+    }
+    pub(super) fn hover_link(
+        &mut self,
+        point: Option<Point<Pixels>>,
+        shift: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let link = point.and_then(|point| self.link_at(point, shift));
+        if link != self.link {
+            self.link = link;
+            cx.notify();
+        }
+    }
+    pub(super) fn press_link(&mut self, point: Point<Pixels>, shift: bool) {
+        self.pressed_link = self
+            .link_at(point, shift)
+            .map(|link| (link, self.cell_at(point)));
+    }
+    /// Opens the pressed link when released on the same cell, so a drag selects.
+    pub(super) fn release_link(&mut self, point: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some((link, cell)) = self.pressed_link.take() else {
+            return;
+        };
+        if cell == self.cell_at(point)
+            && let Some(url) = links::openable(&link.url)
+        {
+            cx.open_url(&url);
+        }
+    }
     fn report_mouse(&mut self, col: usize, row: usize, button: u8, cx: &mut Context<Self>) {
         let mode = self.frame.as_ref().map(|f| f.mode).unwrap_or_default();
         if mode.contains(Mode::SGR_MOUSE) {
@@ -102,6 +145,8 @@ impl TerminalView {
         shift: bool,
         cx: &mut Context<Self>,
     ) {
+        // The text moves under the pointer; the next move finds the link again.
+        self.link = None;
         let mode = self.frame.as_ref().map(|f| f.mode).unwrap_or_default();
         if mode.intersects(Mode::MOUSE_MODE) && !shift {
             let (row, col) = self.cell_at(point);

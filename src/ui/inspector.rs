@@ -210,14 +210,33 @@ impl Inspector {
         } else {
             "Select a project to browse files."
         };
+        let folder = files
+            .root
+            .as_ref()
+            .and_then(|root| root.file_name())
+            .map(|name| name.to_string_lossy().into_owned());
+        let branch = app
+            .pull_requests
+            .read(cx)
+            .current
+            .as_ref()
+            .filter(|branch| files.root.as_ref() == Some(&branch.path))
+            .map(|branch| branch.name.clone());
         column()
             .size_full()
             .child(
-                row()
-                    .px_3()
-                    .py_2()
-                    .gap_2()
-                    .child(div().flex_1().text_sm().child("Files"))
+                panel_header()
+                    .child(panel_caption(folder.as_deref().unwrap_or("Files")))
+                    .children(branch.map(|branch| {
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_family(t::MONO)
+                            .text_size(px(11.))
+                            .text_color(t::faint())
+                            .child(format!("· {branch}"))
+                    }))
+                    .child(div().flex_1())
                     .child(
                         Button::new("files-new")
                             .ghost()
@@ -257,13 +276,20 @@ impl Inspector {
                     .error
                     .clone()
                     .or(files.index.warning.clone())
-                    .map(|e| div().px_3().text_color(t::red()).child(e)),
+                    .map(|e| {
+                        div()
+                            .px(px(PANEL_INSET))
+                            .pb(px(6.))
+                            .text_size(px(11.5))
+                            .text_color(t::red())
+                            .child(e)
+                    }),
             )
             .children(
                 files
                     .root
                     .is_none()
-                    .then(|| div().px_3().text_color(t::secondary()).child(unavailable)),
+                    .then(|| panel_empty("No files to show", unavailable)),
             )
             .child(
                 div()
@@ -274,6 +300,7 @@ impl Inspector {
                         column()
                             .id("inspector-files-scroll")
                             .size_full()
+                            .px(px(LIST_INSET))
                             .overflow_y_scroll()
                             .track_scroll(&self.files_scroll)
                             .child(self.files.clone()),

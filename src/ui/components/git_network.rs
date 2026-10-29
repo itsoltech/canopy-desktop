@@ -6,19 +6,18 @@ use gpui_kit::{
     *,
 };
 
-pub fn transfer_button(operation: Operation, feedback: &ButtonLoading) -> Button {
-    match operation {
-        Operation::Pull => loading_button("pull-branch", "↓ Pull", feedback),
-        Operation::Push => loading_button("push-branch", "↑ Push", feedback),
-    }
-}
-
-pub fn transfer_controls(mut action: impl FnMut(Operation) -> Button) -> Div {
-    row().gap(px(8.)).children(
-        [Operation::Pull, Operation::Push]
-            .into_iter()
-            .map(|operation| action(operation).flex_1()),
-    )
+/// Pull or Push; `pending` is how many commits it would bring, shown when any.
+pub fn transfer_button(operation: Operation, feedback: &ButtonLoading, pending: usize) -> Button {
+    let (id, label) = match operation {
+        Operation::Pull => ("pull-branch", "↓ Pull"),
+        Operation::Push => ("push-branch", "↑ Push"),
+    };
+    let label = if pending > 0 {
+        format!("{label} {pending}")
+    } else {
+        label.to_owned()
+    };
+    loading_button(id, label, feedback).px(px(9.))
 }
 
 /// Existing dropdown/input builders, with their state owned by UpstreamDialog.

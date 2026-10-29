@@ -17,15 +17,7 @@ fn nav_icon(name: &str, fallback: IconName) -> gpui_kit::component::Icon {
 /// Entries without working settings yet. They stay in the list, greyed out,
 /// and open a page that says so (see docs/settings.md for the evidence).
 /// Their settings (from Electron) stay searchable.
-const UNAVAILABLE: [&str; 7] = [
-    "Updates",
-    "Privacy",
-    "Misc",
-    "Sidebar",
-    "Skills",
-    "Git",
-    "File Watcher",
-];
+const UNAVAILABLE: [&str; 4] = ["Updates", "Privacy", "Skills", "Git"];
 pub(super) fn unavailable(page: &str) -> bool {
     UNAVAILABLE.contains(&page)
 }
@@ -95,41 +87,23 @@ pub(super) const GROUPS: &[(&str, &[NavPage])] = &[
     ),
     (
         "FEATURES",
-        &[
-            page(
-                "Notch",
-                IconName::Bell,
-                "Session status at the top of the screen",
-                "notch overlay status indicator session",
-                || super::notch::SEARCH.to_vec(),
-            ),
-            page(
-                "Misc",
-                IconName::Ellipsis,
-                "Other toggles and tweaks",
-                "misc miscellaneous other",
-                || MISC.to_vec(),
-            ),
-        ],
+        &[page(
+            "Notch",
+            IconName::Bell,
+            "Session status at the top of the screen",
+            "notch overlay status indicator session",
+            || super::notch::SEARCH.to_vec(),
+        )],
     ),
     (
         "APPEARANCE",
-        &[
-            page(
-                "Appearance",
-                IconName::Palette,
-                "Color theme, window and sidebar background, and terminal font",
-                "theme colors dark light mode background wallpaper gradient font",
-                super::appearance::entries,
-            ),
-            page(
-                "Sidebar",
-                IconName::PanelLeft,
-                "Sidebar layout and visibility",
-                "sidebar layout visibility panel",
-                || SIDEBAR_PAGE.to_vec(),
-            ),
-        ],
+        &[page(
+            "Appearance",
+            IconName::Palette,
+            "Color theme, window and sidebar background, and terminal font",
+            "theme colors dark light mode background wallpaper gradient font",
+            super::appearance::entries,
+        )],
     ),
     (
         "AI AGENTS",
@@ -209,13 +183,6 @@ pub(super) const GROUPS: &[(&str, &[NavPage])] = &[
                 "task filters queries tasks issues",
                 super::task_filters::entries,
             ),
-            page(
-                "File Watcher",
-                IconName::Folder,
-                "Ignore patterns for the workspace file watcher",
-                "file watcher files",
-                || FILE_WATCHER.to_vec(),
-            ),
         ],
     ),
     // Electron keeps remote access under Security; Globe is unique in this list.
@@ -269,36 +236,6 @@ const PRIVACY: &[Entry] = &[Entry::new(
     "One daily ping helps count active users. It contains only screen resolution, locale, app version, OS, and architecture.",
     "diagnostics ping analytics privacy",
 )];
-const MISC: &[Entry] = &[
-    Entry::new(
-        "run-toolbar",
-        "TITLE BAR",
-        "Show Run Configurations toolbar",
-        "A toolbar in the title bar for quick-launching run configurations",
-        "run configuration toolbar titlebar launch",
-    ),
-    Entry::new(
-        "wpm",
-        "TERMINAL OVERLAYS",
-        "Typing speed (WPM)",
-        "Current and peak typing speed over terminal panes",
-        "wpm typing speed words per minute keystrokes",
-    ),
-    Entry::new(
-        "keystrokes",
-        "TERMINAL OVERLAYS",
-        "Keystroke overlay",
-        "Pressed keys and shortcuts shown as a floating overlay in the bottom-left corner",
-        "keystroke visualizer overlay screencast presentation",
-    ),
-];
-const SIDEBAR_PAGE: &[Entry] = &[Entry::new(
-    "sections",
-    "SECTIONS",
-    "Sections",
-    "Pick which sections appear in the sidebar and reorder them",
-    "order hide show",
-)];
 const SKILLS: &[Entry] = &[
     Entry::new(
         "installed",
@@ -344,22 +281,6 @@ const GIT: &[Entry] = &[
         "Worktree setup",
         "Bootstrap commands and file copies that run after git worktree add",
         "worktree setup actions copy command bootstrap",
-    ),
-];
-const FILE_WATCHER: &[Entry] = &[
-    Entry::new(
-        "patterns",
-        "IGNORED PATTERNS",
-        "Patterns",
-        "Entries excluded from the sidebar file list",
-        "ignore patterns gitignore exclude node_modules",
-    ),
-    Entry::new(
-        "reset",
-        "IGNORED PATTERNS",
-        "Reset to defaults",
-        "Restore the built-in pattern list",
-        "reset defaults restore",
     ),
 ];
 

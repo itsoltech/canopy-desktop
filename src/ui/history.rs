@@ -8,7 +8,7 @@ use canopy_desktop::git::{
     history_graph::{GraphRow, HistoryGraph},
 };
 use canopy_desktop::motion::{self, BatchReveal, Presence, presets};
-use gpui_kit::{base::Disableable, component::IconName, *};
+use gpui_kit::{component::IconName, *};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -58,6 +58,12 @@ impl HistoryView {
             self.path = path;
             self.refresh(cx);
         }
+    }
+    pub fn loading(&self) -> bool {
+        self.loading
+    }
+    pub fn refresh_loading(&self) -> &ButtonLoading {
+        &self.refresh_loading
     }
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         self.generation += 1;
@@ -139,34 +145,25 @@ impl Render for HistoryView {
         column()
             .size_full()
             .pb(px(t::SPACING_UNIT * 2.))
-            .gap(px(8.))
-            .child(git::inspector_toolbar(
-                "Current branch",
-                loading_icon_button(
-                    "refresh-history",
-                    IconName::RotateCw,
-                    "Refresh history",
-                    Some(&self.refresh_loading),
-                )
-                .disabled(self.loading && !self.refresh_loading.active())
-                .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
-            ))
-            .child(git_tracking::tracking_summary(self.snapshot.as_deref()))
-            .children(
-                self.error
-                    .clone()
-                    .map(|error| div().text_size(px(11.)).text_color(t::red()).child(error)),
-            )
+            .gap(px(6.))
+            .child(git_tracking::tracking_summary(self.snapshot.as_deref()).px(px(PANEL_INSET)))
+            .children(self.error.clone().map(|error| {
+                div()
+                    .px(px(PANEL_INSET))
+                    .text_size(px(11.))
+                    .text_color(t::red())
+                    .child(error)
+            }))
             .children(
                 (self.entries.is_empty() && self.error.is_none() && !self.loading).then(|| {
-                    div()
-                        .py(px(16.))
-                        .text_color(t::muted())
-                        .child(if self.path.is_none() {
-                            "No Git repository selected."
-                        } else {
-                            "No commits to show."
-                        })
+                    if self.path.is_none() {
+                        panel_empty(
+                            "No Git repository selected",
+                            "Open a project that is a Git repository to see its history.",
+                        )
+                    } else {
+                        panel_empty("No commits to show", "Commits on this branch appear here.")
+                    }
                 }),
             )
             .child(
@@ -203,7 +200,7 @@ impl Render for HistoryView {
                                         .unwrap_or(1.);
                                     return row()
                                         .w_full()
-                                        .h(px(32.))
+                                        .h(px(LIST_ROW + 6.))
                                         .py(px(2.))
                                         .opacity(opacity)
                                         .child(
@@ -243,7 +240,8 @@ impl Render for HistoryView {
                 )
                 .w_full()
                 .flex_1()
-                .min_h_0(),
+                .min_h_0()
+                .px(px(LIST_INSET)),
             )
             .children(
                 self.selected

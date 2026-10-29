@@ -6,6 +6,7 @@ use crate::terminal::environment::ShellEnvironment;
 use git2::{Delta, DiffFindOptions, DiffFormat, DiffOptions, Oid, Repository, StatusOptions};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -20,9 +21,22 @@ pub struct FileChange {
 pub struct ChangesSnapshot {
     pub revision: u64,
     pub files: Vec<FileChange>,
+    /// Added and deleted lines of each file, in the order of `files`; `None` for a
+    /// binary or oversized file, and for every file of a large change set.
+    pub lines: Vec<Option<(usize, usize)>>,
     pub signing: SigningInfo,
     pub head: Option<String>,
+    pub upstream: Option<Tracking>,
 }
+/// The checked-out branch's upstream and how far the branch is from it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tracking {
+    pub name: String,
+    pub ahead: usize,
+    pub behind: usize,
+}
+/// Line counts are skipped above this many changed files.
+const LINE_STATS_LIMIT: usize = 400;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiffLine {
     pub old: Option<u32>,
@@ -132,15 +146,88 @@ pub fn status(path: &Path) -> Result<ChangesSnapshot> {
         }
     }
     files.sort_by(|a, b| b.staged.cmp(&a.staged).then(a.path.cmp(&b.path)));
+    let stats = if files.len() <= LINE_STATS_LIMIT {
+        line_stats(&repo)
+    } else {
+        HashMap::new()
+    };
+    let lines = files
+        .iter()
+        .map(|file| stats.get(&(file.staged, file.path.clone())).copied())
+        .collect();
     Ok(ChangesSnapshot {
         revision: 0,
         files,
+        lines,
         signing: signing::info(&repo.config().map_err(err)?)?,
         head: repo
             .head()
             .ok()
             .and_then(|h| h.target())
             .map(|id| id.to_string()),
+        upstream: tracking(&repo),
+    })
+}
+/// Added and deleted lines per (staged, path); binary and oversized files count none.
+fn line_stats(repo: &Repository) -> HashMap<(bool, PathBuf), (usize, usize)> {
+    let mut stats = HashMap::new();
+    let head = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+    let Ok(index) = repo.index() else {
+        return stats;
+    };
+    for staged in [true, false] {
+        let mut options = DiffOptions::new();
+        options
+            .include_typechange(true)
+            .max_size(512 * 1024)
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .show_untracked_content(true);
+        let diff = if staged {
+            repo.diff_tree_to_index(head.as_ref(), Some(&index), Some(&mut options))
+        } else {
+            repo.diff_index_to_workdir(Some(&index), Some(&mut options))
+        };
+        let Ok(mut diff) = diff else {
+            continue;
+        };
+        let mut similar = DiffFindOptions::new();
+        similar.renames(true).for_untracked(true);
+        let _ = diff.find_similar(Some(&mut similar));
+        for position in 0..diff.deltas().len() {
+            let Ok(Some(patch)) = git2::Patch::from_diff(&diff, position) else {
+                continue;
+            };
+            let delta = patch.delta();
+            if delta.old_file().is_binary() || delta.new_file().is_binary() {
+                continue;
+            }
+            let Some(path) = delta.new_file().path().or_else(|| delta.old_file().path()) else {
+                continue;
+            };
+            let path = path.to_path_buf();
+            if let Ok((_, added, deleted)) = patch.line_stats() {
+                stats.insert((staged, path), (added, deleted));
+            }
+        }
+    }
+    stats
+}
+fn tracking(repo: &Repository) -> Option<Tracking> {
+    let head = repo.head().ok()?;
+    if !head.is_branch() {
+        return None;
+    }
+    let branch = git2::Branch::wrap(head);
+    let upstream = branch.upstream().ok()?;
+    let name = upstream.name().ok()??.to_owned();
+    let local = branch.get().target()?;
+    let remote = upstream.get().target()?;
+    let (ahead, behind) = repo.graph_ahead_behind(local, remote).ok()?;
+    Some(Tracking {
+        name,
+        ahead,
+        behind,
     })
 }
 pub fn diff(path: &Path, file: &FileChange) -> Result<FileDiff> {

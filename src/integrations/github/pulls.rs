@@ -1,6 +1,7 @@
 //! Pull requests of a repository for `#` in the chat composer (DEC-074): the open ones
 //! by recent activity, or a search by title and number.
 use super::Github;
+use crate::integrations::edit::WriteError;
 use serde_json::{Value, json};
 
 /// Characters of the description kept for the agent.
@@ -87,6 +88,134 @@ impl Github {
             })?;
         parse(&value)
     }
+}
+
+/// A pull request to open from a branch of the same repository.
+#[derive(Clone, Debug)]
+pub struct NewPull {
+    pub head: String,
+    pub base: String,
+    pub title: String,
+    pub body: String,
+    pub draft: bool,
+}
+
+impl Github {
+    /// The pull request of `branch`: an open one first, else the latest.
+    pub async fn branch_pull(
+        &self,
+        owner: &str,
+        name: &str,
+        branch: &str,
+    ) -> Result<Option<PullRef>, String> {
+        if !valid_repository(owner, name) || !valid_branch(branch) {
+            return Err("Invalid repository or branch.".into());
+        }
+        let text = format!(
+            "query($owner: String!, $name: String!, $branch: String!) {{ repository(owner: $owner, name: $name) {{
+               pullRequests(headRefName: $branch, first: 10, orderBy: {{field: CREATED_AT, direction: DESC}}) {{
+                 nodes {{ {FIELDS} }} }} }} }}"
+        );
+        let value = self
+            .request(
+                "/graphql",
+                Some(json!({"query": text, "variables": {"owner": owner, "name": name, "branch": branch}})),
+            )
+            .await
+            .map_err(|error| {
+                if error.starts_with("GitHub access denied") {
+                    PERMISSION.to_owned()
+                } else {
+                    error
+                }
+            })?;
+        let pulls = parse(&value)?;
+        Ok(pulls
+            .iter()
+            .find(|pull| matches!(pull.state.as_str(), "open" | "draft"))
+            .or(pulls.first())
+            .cloned())
+    }
+
+    /// Opens a pull request. Rejections name what to fix; an uncertain result
+    /// says the pull request may exist.
+    pub async fn create_pull(
+        &self,
+        owner: &str,
+        name: &str,
+        pull: &NewPull,
+    ) -> Result<PullRef, WriteError> {
+        let title = pull.title.trim();
+        if !valid_repository(owner, name) || !valid_branch(&pull.head) || !valid_branch(&pull.base)
+        {
+            return Err("Invalid repository or branch.".into());
+        }
+        if title.is_empty() || title.chars().count() > 256 || pull.body.len() > 65_536 {
+            return Err("Enter a title of up to 256 characters and a shorter description.".into());
+        }
+        if pull.head == pull.base {
+            return Err("Choose a target branch other than the source branch.".into());
+        }
+        let value = self
+            .send(
+                "POST",
+                &format!("/repos/{owner}/{name}/pulls"),
+                Some(json!({
+                    "title": title,
+                    "head": pull.head,
+                    "base": pull.base,
+                    "body": pull.body,
+                    "draft": pull.draft,
+                })),
+                true,
+            )
+            .await
+            .map_err(|error| match error {
+                WriteError::Rejected(message) if message.starts_with("GitHub denied") => {
+                    WriteError::Rejected(WRITE_PERMISSION.into())
+                }
+                WriteError::Rejected(message) if message.starts_with("GitHub rejected the fields") => {
+                    WriteError::Rejected(format!(
+                        "GitHub rejected the pull request. A pull request for {} may already exist, or it has no commits that aren't in {}.",
+                        pull.head, pull.base
+                    ))
+                }
+                error => error,
+            })?;
+        rest_pull(&value).ok_or_else(|| {
+            WriteError::Uncertain(
+                "GitHub returned an unexpected response. Check GitHub before retrying; the pull request may exist.".into(),
+            )
+        })
+    }
+}
+
+fn valid_repository(owner: &str, name: &str) -> bool {
+    [owner, name]
+        .iter()
+        .all(|part| !part.is_empty() && part.len() <= 100 && !part.contains(['/', ' ', '"']))
+}
+
+fn valid_branch(branch: &str) -> bool {
+    !branch.is_empty() && branch.len() <= 255 && !branch.chars().any(char::is_control)
+}
+
+const WRITE_PERMISSION: &str = "GitHub denied creating the pull request. The token needs Pull requests: read and write for this repository (and organization SSO approval).";
+
+/// A pull request from the REST API (`POST /pulls`).
+fn rest_pull(value: &Value) -> Option<PullRef> {
+    let merged = !value["merged_at"].is_null();
+    pull(&json!({
+        "number": value["number"],
+        "title": value["title"],
+        "url": value["html_url"],
+        "headRefName": value["head"]["ref"],
+        "baseRefName": value["base"]["ref"],
+        "state": if merged { "MERGED" } else if value["state"] == "closed" { "CLOSED" } else { "OPEN" },
+        "isDraft": value["draft"],
+        "author": {"login": value["user"]["login"]},
+        "body": value["body"],
+    }))
 }
 
 const PERMISSION: &str = "GitHub denied access to pull requests. The token needs Pull requests: read for this repository (and organization SSO approval).";
@@ -197,6 +326,27 @@ mod tests {
         let open =
             json!({"data": {"repository": {"pullRequests": {"nodes": [node(9, "OPEN", false)]}}}});
         assert_eq!(parse(&open).unwrap()[0].state, "open");
+    }
+
+    #[test]
+    fn a_created_pull_request_reads_like_a_listed_one() {
+        let created = json!({"number": 12, "title": "Add strip", "html_url": "https://github.com/o/r/pull/12",
+            "head": {"ref": "feat/strip"}, "base": {"ref": "main"}, "state": "open", "draft": true,
+            "merged_at": null, "user": {"login": "kuba"}, "body": null});
+        let pull = rest_pull(&created).unwrap();
+        assert_eq!(
+            (
+                pull.number,
+                pull.state.as_str(),
+                pull.head.as_str(),
+                pull.base.as_str()
+            ),
+            (12, "draft", "feat/strip", "main")
+        );
+        assert_eq!(
+            rest_pull(&json!({"number": 3, "html_url": "http://x"})),
+            None
+        );
     }
 
     #[test]

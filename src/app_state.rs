@@ -1,6 +1,6 @@
 mod integrations;
 mod task_drafts;
-pub use integrations::{IntegrationsState, WriteFinished};
+pub use integrations::{GithubUnavailable, IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
 mod editors;
 pub(crate) use chats::Recovering;
@@ -19,7 +19,9 @@ pub use diffs::Diffs;
 mod resources;
 pub use resources::ResourceUsage;
 mod changes;
+mod pull_requests;
 pub use changes::{ChangesState, UpstreamRequest};
+pub use pull_requests::{Branch, Draft, Lookup, Phase, PullRequestDialog, PullRequests};
 mod git;
 pub use git::{GitState, RemovalConfirmation};
 mod projects;
@@ -64,6 +66,7 @@ pub struct AppState {
     pub tools: Entity<ToolsState>,
     pub git: Entity<GitState>,
     pub changes: Entity<ChangesState>,
+    pub pull_requests: Entity<PullRequests>,
     pub diffs: Entity<Diffs>,
     pub agents: Entity<AgentsState>,
     pub integrations: Entity<IntegrationsState>,
@@ -107,6 +110,7 @@ impl AppState {
             tools: cx.new(|_| ToolsState::new()),
             git: cx.new(|_| GitState::new()),
             changes: cx.new(|_| ChangesState::new()),
+            pull_requests: cx.new(|_| PullRequests::new()),
             agents: cx.new(|_| AgentsState::new()),
             integrations: cx.new(|_| IntegrationsState::new()),
             task_drafts: cx.new(|_| DraftsState::new()),
@@ -367,6 +371,7 @@ impl AppState {
             tools: cx.new(|_| ToolsState::new()),
             git: cx.new(|_| GitState::new()),
             changes: cx.new(|_| ChangesState::new()),
+            pull_requests: cx.new(|_| PullRequests::new()),
             agents: cx.new(|_| AgentsState::new()),
             integrations: cx.new(|_| IntegrationsState::new()),
             task_drafts: cx.new(|_| DraftsState::new()),
@@ -391,6 +396,9 @@ impl AppState {
         state
             .changes
             .update(cx, |changes, cx| changes.bind(&state, cx));
+        state
+            .pull_requests
+            .update(cx, |pulls, cx| pulls.bind(&state, cx));
         state.git.update(cx, |git, cx| git.bind(&state, cx));
         state
             .terminals

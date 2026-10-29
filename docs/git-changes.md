@@ -20,6 +20,23 @@ wywołań shella do statusu, stage, unstage, discard czy tworzenia obiektów/ref
   i oddzielnie w pamięci dla worktree. Sukces czyści wiadomość danego worktree.
 - Opóźnione akcje z nieaktualnego worktree nie stage'ują danych w nowym kontekście.
 
+## Układ panelu
+
+Nagłówek pokazuje gałąź worktree, przełącznik Changes/History i odświeżenie
+bieżącego widoku. Pod nim jest podsumowanie „N files” z sumą dodanych
+i usuniętych linii oraz paskiem ich proporcji, a niżej filtr ścieżki i chipy
+A/M/D/R (ponowne kliknięcie wybranego chipu zdejmuje filtr). Grupy Staged
+i Changes pojawiają się tylko wtedy, gdy mają pliki. W stopce jest pole commita
+z informacją o podpisie i przyciskiem „Commit N files”, upstream z Pull/Push
+oraz pasek pull requestu.
+
+Snapshot zmian zawiera liczbę linii każdego pliku (`ChangesSnapshot::lines`,
+w kolejności `files`) oraz upstream z ahead/behind (`ChangesSnapshot::upstream`).
+Liczby linii liczy libgit2 z dwóch diffów (HEAD↔index, index↔working tree)
+w workerze Git. Pliki binarne i większe niż 512 KiB nie mają liczby, a przy
+ponad 400 zmienionych plikach liczby są pomijane w całości, żeby odświeżenie
+pozostało tanie.
+
 ## Wydajność i aktualizacja
 
 Jeden worker Git serializuje operacje. Changes ma osobny watcher tylko dla
@@ -68,6 +85,45 @@ branch i reflog. Blokad indeksu/refów nie trzymamy podczas oczekiwania na hasł
 
 Dokumentacja providerów: [GnuPG options](https://www.gnupg.org/documentation/manuals/gnupg/GPG-Configuration-Options.html),
 [ssh-keygen signing](https://man.openbsd.org/ssh-keygen).
+
+## Pull requesty
+
+`app_state/pull_requests.rs` (stan), `ui/pull_request.rs` (widok) i
+`integrations/github/pulls.rs` (GitHub). Odpowiedniki Electronowych
+`PullRequestActions`, `CreateTaskPRModal` i `PRDetailsModal`, w mniejszym zakresie.
+
+Pod Pull/Push w Changes jest pasek PR gałęzi wybranego worktree. Gałąź pochodzi
+z worktree w snapshotcie Git; detached HEAD i folder spoza Gita nie mają paska.
+Repozytorium i konto GitHub ustala się tak jak dla Tasks (`IntegrationsState::github`):
+override projektu, inaczej origin, oraz konto przypisane do właściciela.
+Zapytanie GraphQL (`pullRequests(headRefName:)`) wybiera otwarty PR lub szkic,
+a bez nich najnowszy. Wynik jest pamiętany per worktree i gałąź. Ponowne
+zapytanie następuje po 60 s przy ponownym pokazaniu gałęzi, po Pull/Push, po
+zmianie kont GitHub oraz po Retry.
+
+Stany paska: sprawdzanie; brak PR → „Create pull request”; otwarty lub szkic →
+karta (numer, tytuł, stan, gałęzie), kliknięcie otwiera szczegóły; scalony lub
+zamknięty → karta i „Create pull request”; brak konta → odnośnik do
+Preferences → Integrations; origin spoza GitHuba → informacja; błąd → komunikat
+i Retry.
+
+Tworzenie: okno z tytułem (domyślnie z nazwy gałęzi), opisem w Markdown,
+gałęzią docelową (lokalne gałęzie repozytorium, najpierw baza utworzenia
+worktree, potem main/master/develop) i opcją szkicu. Najpierw sprawdzany jest
+dostęp do GitHuba, potem gałąź jest wypychana przez transport Git: z istniejącym
+upstreamem na niego (PR wskazuje gałąź upstreamu), bez upstreamu jest publikowana
+na `origin` (albo pierwszy remote) pod tą samą nazwą. Tylko push blokuje inne
+operacje Git. Następnie `POST /repos/{owner}/{repo}/pulls`. Sukces zamyka okno,
+pokazuje toast i ustawia PR w pasku. Błąd zostaje w oknie razem z wpisaną treścią.
+Odrzucenia nazywają przyczynę (uprawnienia tokena „Pull requests: read and
+write”, istniejący PR lub brak commitów), a niepewny wynik mówi, że PR mógł
+powstać. Rozpoczętego tworzenia nie da się anulować; okno nie zamyka się w trakcie.
+
+Szczegóły: numer, tytuł, stan, gałęzie, autor i opis w Markdown (GitHub zwraca
+do 1500 znaków; dłuższy opis ma dopisek) oraz „Open on GitHub”.
+
+Poza zakresem tego etapu (są w Electronie): reviewerzy i assignee, review i checki,
+liczba zmian, merge/close, szablon PR z taska, znacznik PR przy worktree w sidebarze.
 
 ## Granice etapu
 

@@ -3,8 +3,10 @@ use super::{super::theme as t, *};
 use canopy_desktop::git::changes::{DiffLine, FileChange};
 use gpui_kit::{
     component::{IconName, button::Button},
+    prelude::FluentBuilder,
     *,
 };
+use std::path::Path;
 
 /// File identity and comparison statistics; append toolbar actions at the call site.
 pub fn diff_header(target: Option<&FileChange>, additions: usize, deletions: usize) -> Div {
@@ -130,18 +132,26 @@ pub fn change_action(
 pub fn change_group(staged: bool, count: usize) -> Div {
     row()
         .w_full()
-        .h(px(28.))
-        .gap(px(8.))
-        .child(
-            div()
-                .text_size(px(11.))
-                .text_color(t::secondary())
-                .child(format!(
-                    "{} {count}",
-                    if staged { "Staged changes" } else { "Changes" }
-                )),
-        )
+        .h(px(LIST_ROW))
+        .px(px(6.))
+        .gap(px(6.))
+        .child(panel_caption(if staged { "Staged" } else { "Changes" }))
+        .child(count_badge(count, false))
         .child(div().flex_1())
+}
+
+/// Quiet text action of a group header ("Stage all").
+pub fn group_action(id: impl Into<ElementId>, label: &'static str) -> Button {
+    use gpui_kit::component::{Sizable, button::ButtonVariants};
+    Button::new(id)
+        .ghost()
+        .xsmall()
+        .compact()
+        .h(px(20.))
+        .px(px(6.))
+        .text_size(px(11.))
+        .text_color(t::accent())
+        .label(label)
 }
 
 /// Commit form surface; inputs and their owning entities remain with the panel.
@@ -154,30 +164,66 @@ pub fn commit_form() -> Div {
         .border_color(t::border())
 }
 
-/// File status and icon; the parent row owns hover, while its children own actions.
-pub fn change_file_row(id: impl Into<ElementId>, kind: &str) -> Stateful<Div> {
-    let color = match kind {
+pub fn change_kind_color(kind: &str) -> Hsla {
+    match kind {
         "A" => t::green(),
-        "D" => t::red(),
+        "D" | "U" => t::red(),
         "R" => t::accent(),
         _ => t::yellow(),
-    };
+    }
+}
+
+/// File row: status letter, then the caller's label, counts and hover actions.
+pub fn change_file_row(id: impl Into<ElementId>, kind: &str, hovered: bool) -> Stateful<Div> {
     row()
         .w_full()
         .id(id)
-        .h(px(28.))
-        .px(px(4.))
-        .rounded(px(4.))
-        .gap(px(8.))
+        .h(px(LIST_ROW))
+        .px(px(6.))
+        .rounded(px(6.))
+        .gap(px(7.))
+        .when(hovered, |row| row.bg(t::hover()))
         .child(
             div()
                 .w(px(12.))
                 .flex_shrink_0()
-                .text_color(color)
-                .text_size(px(11.))
+                .text_center()
+                .font_family(t::MONO)
+                .font_weight(FontWeight::BOLD)
+                .text_color(change_kind_color(kind))
+                .text_size(px(10.5))
                 .child(kind.to_owned()),
         )
-        .child(icon(IconName::File).flex_shrink_0())
+}
+
+/// The clickable file name with its folder after it, both truncated together.
+pub fn change_file_label(id: impl Into<ElementId>, path: &Path, hovered: bool) -> Stateful<Div> {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string());
+    let folder = path
+        .parent()
+        .map(|parent| parent.display().to_string())
+        .filter(|parent| !parent.is_empty());
+    row()
+        .id(id)
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .cursor_pointer()
+        .keyboard(path.display().to_string())
+        .text_size(px(12.))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(if hovered { t::text() } else { t::secondary() })
+                .child(name)
+                .children(
+                    folder.map(|folder| div().text_color(t::faint()).child(format!(" {folder}"))),
+                ),
+        )
 }
 
 /// Fixed inspector toolbar geometry shared by Files and History.

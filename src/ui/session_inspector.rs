@@ -10,7 +10,8 @@ use canopy_desktop::{
 };
 use gpui_kit::{
     base::Disableable,
-    component::{scroll::ScrollableElement, tooltip::Tooltip},
+    component::{IconName, scroll::ScrollableElement, tooltip::Tooltip},
+    prelude::FluentBuilder,
     *,
 };
 use std::sync::Arc;
@@ -30,6 +31,7 @@ struct SessionContent {
     pane: Option<PaneId>,
     run: Option<String>,
     title: String,
+    provider: String,
     status: Option<Status>,
     status_label: &'static str,
     empty: String,
@@ -51,6 +53,7 @@ impl SessionContent {
             pane: pane.map(|p| p.id),
             run: session.map(|s| s.run.clone()),
             title: String::new(),
+            provider: String::new(),
             status: None,
             status_label: "",
             empty: String::new(),
@@ -88,17 +91,18 @@ impl SessionContent {
         let provider = tool
             .map(|t| t.name.clone())
             .unwrap_or_else(|| tool_label(&session.pane.tool));
-        out.title = format!(
-            "{provider} · {}",
-            workspace
-                .pane_title(session.pane.id)
-                .unwrap_or_else(|| session
+        out.title = workspace
+            .pane_title(session.pane.id)
+            .unwrap_or_else(|| {
+                session
                     .pane
                     .metadata
                     .title
                     .as_deref()
-                    .unwrap_or(&session.pane.tool))
-        );
+                    .unwrap_or(&session.pane.tool)
+            })
+            .to_owned();
+        out.provider = provider;
         out.status = Some(session.status);
         out.status_label = session.status_label();
         out.health = Some(health(session));
@@ -214,7 +218,21 @@ pub struct SessionInspector {
 struct SessionChoice {
     pane: canopy_desktop::state::workspace::PaneId,
     label: SharedString,
+    title: SharedString,
+    provider: String,
+    status: Status,
+    status_label: &'static str,
     selected: bool,
+}
+
+fn status_color(status: Status) -> Hsla {
+    match status {
+        Status::Working => t::accent(),
+        Status::Waiting => t::yellow(),
+        Status::Failed => t::red(),
+        Status::Starting | Status::Exited => t::muted(),
+        Status::Idle => t::green(),
+    }
 }
 
 fn session_choices(cx: &App) -> Vec<SessionChoice> {
@@ -226,20 +244,29 @@ fn session_choices(cx: &App) -> Vec<SessionChoice> {
         .sessions
         .values()
         .filter(|session| session.active || session.unseen)
-        .map(|session| SessionChoice {
-            pane: session.pane.id,
-            label: format!(
-                "{} — {}",
-                session
-                    .pane
-                    .metadata
-                    .title
-                    .as_deref()
-                    .unwrap_or(&session.pane.tool),
-                session.status_label()
-            )
-            .into(),
-            selected: selected == Some(session.pane.id),
+        .map(|session| {
+            let title = session
+                .pane
+                .metadata
+                .title
+                .as_deref()
+                .unwrap_or(&session.pane.tool)
+                .to_owned();
+            SessionChoice {
+                pane: session.pane.id,
+                label: format!("{title} — {}", session.status_label()).into(),
+                title: title.into(),
+                provider: app
+                    .tools
+                    .read(cx)
+                    .catalog
+                    .get(&session.pane.tool)
+                    .map(|tool| tool.name.clone())
+                    .unwrap_or_else(|| tool_label(&session.pane.tool)),
+                status: session.status,
+                status_label: session.status_label(),
+                selected: selected == Some(session.pane.id),
+            }
         })
         .collect();
     sessions.sort_by_key(|session| (session.label.to_string(), format!("{:?}", session.pane)));
@@ -356,125 +383,228 @@ impl SessionInspector {
         }
     }
 }
-impl Render for SessionInspector {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let s = &self.content;
-        let keyboard_active = self.focus.is_focused(window);
-        let mut body = column()
-            .w_full()
+impl SessionInspector {
+    fn session_list(&self, keyboard_active: bool) -> Div {
+        column()
             .flex_shrink_0()
-            .gap(px(16.))
-            .pt(px(12.))
-            .pb(px(20.))
-            .px_3();
-        if self.sessions.is_empty() {
-            body = body.child(
-                session_section("AGENT SESSIONS").child(
-                    div()
-                        .text_color(t::muted())
-                        .child("No active or unread agent sessions."),
-                ),
-            );
-        } else {
-            body = body.child(session_section("AGENT SESSIONS").gap(px(4.)).children(
-                self.sessions.iter().map(|session| {
-                    let pane = session.pane;
-                    let button = list_button(
-                        SharedString::from(format!("agent-session-{pane:?}")),
-                        session.label.clone(),
-                        false,
-                        cx,
-                    )
-                    .w_full();
-                    let button = if (keyboard_active
-                        && self.keyboard_selection == Some(session.pane))
-                        || (!keyboard_active && session.selected)
-                    {
-                        button.bg(t::selected())
+            .px(px(LIST_INSET))
+            .pb(px(6.))
+            .children(self.sessions.iter().map(|session| {
+                let pane = session.pane;
+                let highlighted = (keyboard_active && self.keyboard_selection == Some(pane))
+                    || (!keyboard_active && session.selected);
+                row()
+                    .id(SharedString::from(format!("agent-session-{pane:?}")))
+                    .w_full()
+                    .h(px(LIST_ROW))
+                    .px(px(6.))
+                    .gap(px(7.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .keyboard(session.label.clone())
+                    .bg(if highlighted {
+                        t::selected()
                     } else {
-                        button
-                    };
-                    button.on_click(move |_, _, cx| {
+                        rgba(0).into()
+                    })
+                    .when(!highlighted, |row| row.hover(|style| style.bg(t::hover())))
+                    .text_size(px(12.))
+                    .text_color(if highlighted {
+                        t::text()
+                    } else {
+                        t::secondary()
+                    })
+                    .child(tool_icon(&session.provider, IconName::SquareTerminal))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(session.title.clone()),
+                    )
+                    .child(status_badge(
+                        session.status_label,
+                        status_color(session.status),
+                    ))
+                    .on_click(move |_, _, cx| {
                         cx.global::<AppState>()
                             .agents
                             .clone()
                             .update(cx, |agents, cx| agents.focus(pane, cx))
                     })
-                }),
-            ));
-        }
-        if !s.title.is_empty() {
-            body = body.child(caption(s.title.clone()).flex_shrink_0());
-        }
-        if let Some(status) = s.status {
-            let color = match status {
-                Status::Working => t::accent(),
-                Status::Waiting => t::yellow(),
-                Status::Failed => t::red(),
-                Status::Starting | Status::Exited => t::muted(),
-                Status::Idle => t::green(),
-            };
-            body = body.child(session_status(s.status_label, color));
-        } else {
-            body = body.child(
-                div()
+            }))
+    }
+
+    /// The selected pane's session: who runs it and in which state.
+    fn session_card(&self) -> Div {
+        let s = &self.content;
+        row()
+            .flex_shrink_0()
+            .gap(px(8.))
+            .child(
+                row()
+                    .size(px(26.))
                     .flex_shrink_0()
-                    .text_color(t::muted())
-                    .child(s.empty.clone()),
+                    .justify_center()
+                    .rounded(px(7.))
+                    .bg(t::elevated())
+                    .child(tool_icon(&s.provider, IconName::SquareTerminal)),
+            )
+            .child(
+                column()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(1.))
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t::text())
+                            .child(s.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(11.))
+                            .text_color(t::faint())
+                            .child(s.provider.clone()),
+                    ),
+            )
+            .children(s.status.map(|status| {
+                row()
+                    .flex_shrink_0()
+                    .gap(px(5.))
+                    .h(px(20.))
+                    .px(px(7.))
+                    .rounded(px(5.))
+                    .bg(status_color(status).opacity(0.12))
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(status_color(status))
+                    .child(dot().size(px(6.)).bg(status_color(status)))
+                    .child(s.status_label)
+            }))
+    }
+}
+impl Render for SessionInspector {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let keyboard_active = self.focus.is_focused(window);
+        let s = self.content.clone();
+        let focus_button = |pane: PaneId, active: bool| {
+            button("focus-agent-terminal", "Focus terminal")
+                .h(px(24.))
+                .disabled(!active)
+                .on_click(move |_, _, cx| {
+                    cx.global::<AppState>()
+                        .agents
+                        .clone()
+                        .update(cx, |s, cx| s.focus(pane, cx))
+                })
+        };
+        let mut body = column()
+            .w_full()
+            .flex_shrink_0()
+            .gap(px(12.))
+            .pt(px(12.))
+            .pb(px(20.))
+            .px(px(PANEL_INSET));
+        if s.status.is_some() {
+            body = body.child(self.session_card());
+        } else if self.sessions.is_empty() || !s.empty.is_empty() {
+            body = body.child(
+                column()
+                    .flex_shrink_0()
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t::text())
+                            .child(if s.title.is_empty() {
+                                "No pane selected".to_owned()
+                            } else {
+                                s.title.clone()
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.5))
+                            .text_color(t::faint())
+                            .child(s.empty.clone()),
+                    ),
             );
         }
-        if let Some((label, color, detail)) = &s.health {
-            body = body.child(integration_health(label.clone(), *color, detail.clone()));
-        }
-        body = body
-            .children((!s.info.is_empty()).then(|| {
+        // What the agent asks is the first thing to act on.
+        if s.question.is_some() {
+            body = body.child(
                 column()
-                    .w_full()
                     .flex_shrink_0()
-                    .gap(px(8.))
+                    .gap(px(6.))
+                    .p(px(10.))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(t::yellow().opacity(0.25))
+                    .bg(t::yellow().opacity(0.07))
+                    .child(panel_caption("Waiting for you").text_color(t::yellow()))
+                    .child(self.question.clone())
+                    .children(
+                        s.pane
+                            .map(|pane| row().pt(px(2.)).child(focus_button(pane, self.active))),
+                    ),
+            );
+        }
+        if !s.info.is_empty() || s.health.is_some() {
+            body = body.child(
+                column()
+                    .flex_shrink_0()
+                    .gap(px(5.))
+                    .p(px(10.))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(t::border())
+                    .bg(t::panel())
                     .children(s.info.iter().map(|row| {
                         session_info_detail(row.label, row.value.clone(), row.detail.clone())
                     }))
-            }))
-            .children(s.question.as_ref().map(|_| {
-                session_section("WAITING FOR YOU")
-                    .gap(px(8.))
-                    .child(self.question.clone())
-            }))
+                    .children(s.health.as_ref().map(|(label, color, detail)| {
+                        integration_health(label.clone(), *color, detail.clone())
+                    })),
+            );
+        }
+        if s.question.is_none()
+            && let Some(pane) = s.pane.filter(|_| s.focus_terminal)
+        {
+            body = body.child(row().child(focus_button(pane, self.active)));
+        }
+        body = body
             .children(s.response.as_ref().map(|_| {
-                session_section("LAST RESPONSE")
-                    .gap(px(8.))
+                session_section("Last response")
+                    .gap(px(6.))
                     .child(self.response.clone())
             }))
             .children((!s.recent.is_empty()).then(|| {
-                session_section("RECENT ACTIVITY")
-                    .gap(px(6.))
+                session_section("Recent activity")
+                    .gap(px(2.))
                     .children(s.recent.iter().map(|(id, label, raw)| {
                         let raw = raw.clone();
-                        div()
+                        row()
                             .id(SharedString::from(format!(
                                 "session-activity-{}-{id}",
                                 s.run.as_deref().unwrap_or("")
                             )))
                             .flex_shrink_0()
-                            .text_size(px(11.))
-                            .line_height(px(17.))
+                            .gap(px(8.))
+                            .min_h(px(20.))
+                            .text_size(px(11.5))
                             .text_color(t::secondary())
-                            .child(label.clone())
+                            .child(dot().size(px(4.)).bg(t::faint()))
+                            .child(div().flex_1().min_w_0().child(label.clone()))
                             .tooltip(move |w, cx| Tooltip::new(raw.clone()).build(w, cx))
                     }))
-            }))
-            .children(s.pane.filter(|_| s.focus_terminal).map(|pane| {
-                button("focus-agent-terminal", "Focus terminal")
-                    .disabled(!self.active)
-                    .flex_shrink_0()
-                    .on_click(move |_, _, cx| {
-                        cx.global::<AppState>()
-                            .agents
-                            .clone()
-                            .update(cx, |s, cx| s.focus(pane, cx))
-                    })
             }));
+        let sessions = self.sessions.len();
+        let list = (sessions > 0).then(|| self.session_list(keyboard_active));
         div()
             .id("session-inspector")
             .relative()
@@ -489,13 +619,47 @@ impl Render for SessionInspector {
             }))
             .child(
                 column()
-                    .id("agent-inspector-scroll")
                     .size_full()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
-                    .child(body),
+                    .child(
+                        panel_header()
+                            .h(px(32.))
+                            .child(panel_caption("Sessions"))
+                            .child(div().flex_1())
+                            .children((sessions > 0).then(|| {
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(t::faint())
+                                    .child(sessions.to_string())
+                            })),
+                    )
+                    .children(list)
+                    .children((sessions == 0).then(|| {
+                        div()
+                            .flex_shrink_0()
+                            .px(px(PANEL_INSET))
+                            .pb(px(10.))
+                            .text_size(px(11.5))
+                            .text_color(t::faint())
+                            .child("No active or unread agent sessions.")
+                    }))
+                    .child(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_h_0()
+                            .border_t_1()
+                            .border_color(t::border())
+                            .child(
+                                column()
+                                    .id("agent-inspector-scroll")
+                                    .size_full()
+                                    .overflow_y_scroll()
+                                    .track_scroll(&self.scroll)
+                                    .child(body),
+                            )
+                            .vertical_scrollbar(&self.scroll),
+                    ),
             )
-            .vertical_scrollbar(&self.scroll)
     }
 }
 

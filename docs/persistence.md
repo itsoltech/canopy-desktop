@@ -33,8 +33,9 @@ Snapshot zawiera:
 Identyfikatory przeżywają restart. Deserializacja rezerwuje odczytane wartości
 w generatorach, aby nowe taby/pane'y nie kolidowały z odtworzonymi.
 Nie zapisujemy PID-ów, uchwytów PTY ani flag „running”. Nie ma jeszcze
-serializacji dokumentów edytora, bufora terminala, uchwytów okien czy geometrii
-okna macOS — nie są częścią bieżącego modelu workspace.
+serializacji dokumentów edytora, bufora terminala ani uchwytów okien — nie są
+częścią bieżącego modelu workspace. Geometria głównego okna ma osobny zapis
+(niżej).
 
 Walidacja odrzuca m.in. duplikaty tożsamości tabów/pane'ów, brak celu fokusu,
 niewłaściwy aktywny tab/projekt, niepoprawne proporcje i ścieżki cwd oraz
@@ -89,6 +90,25 @@ Taby, splity i PaneId nie są migrowane. Szczegóły: [układ](features/workspac
 Rejestr terminali realizuje już lazy-start PTY po odtworzeniu modeli:
 [terminal.md](terminal.md). Procesy są uruchamiane na nowo; snapshot nie
 przywraca żywych procesów ani bufora terminala z poprzedniego uruchomienia.
+
+## Geometria głównego okna
+
+`state/window_geometry.rs` i `ui/window_geometry.rs` (odpowiednik Electronowego
+`windowBounds.ts`). Plik `window.json` w katalogu danych, poza sesją SQLite, więc
+działa także przy reopenLastWorkspace=false. Zawiera UUID ekranu, ramkę względem
+jego lewego górnego rogu (dla zmaksymalizowanego i pełnoekranowego okna — ramkę
+przywracania) oraz stan normal/maximized/fullscreen.
+
+Zapis: obserwacja zmian granic okna, scalanie 500 ms, zapis atomowy na workerze;
+identyczna geometria nie jest zapisywana ponownie. Ostatnia zmiana jest zapisywana
+przy wyjściu z aplikacji. Błąd zapisu trafia tylko do logu.
+
+Odczyt przed otwarciem okna: znany ekran i ramka mieszcząca się na nim — okno
+wraca tam w zapisanym stanie. Rozmiar jest przycinany do ekranu i minimum
+800×500, pasek tytułu nie wychodzi nad ekran. Gdy ekranu nie ma lub z okna
+byłoby widać mniej niż 100 px w poziomie albo pionie, zapisany rozmiar jest
+wyśrodkowany na ekranie głównym. Brak lub uszkodzony plik daje domyślne
+1423×892 na środku.
 
 ## Weryfikacja
 

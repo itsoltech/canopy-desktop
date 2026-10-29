@@ -93,8 +93,10 @@ produkcyjnego remote. Narzędzie przechwytywania GUI czasem pokazywało starszą
 klatkę; końcowy stan potwierdzono po natywnym resize okna oraz odczytem referencji.
 
 Pull/Push oraz błędy operacji są w stałej stopce na dole inspektora,
-w obu widokach Files/History. Stopkę oddziela górna linia i padding 12 px;
-nie jest częścią przewijanej listy ani sąsiadem przełącznika Files/History.
+w obu widokach Changes/History. Stopkę oddziela górna linia i padding 12 px;
+nie jest częścią przewijanej listy. Obok przycisków stoi nazwa upstreamu,
+a Pull i Push pokazują, ile commitów pobiorą lub wypchną (ahead/behind ze
+snapshotu zmian). Przełącznik Changes/History jest w nagłówku panelu, obok gałęzi.
 
 ### Regresja: pusty agent przy działającym git pull w terminalu
 

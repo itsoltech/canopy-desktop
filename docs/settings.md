@@ -205,15 +205,18 @@ Wspólny stan, powiadomienia między oknami i kontrolki General są podłączone
 ### Pozycje jeszcze niedziałające
 
 Settings pokazuje wszystkie pozycje z Electrona, ale te bez konsumenta w aplikacji
-są wyszarzone (`t::faint()`), mają tooltip „Not available yet” i wyłączone kontrolki;
-niczego nie usuwamy. Pozycje nawigacji z listy `UNAVAILABLE`
+są wyszarzone (`t::faint()`), mają tooltip „Not available yet” i wyłączone kontrolki.
+Wyjątek: strony Misc, Sidebar i File Watcher usunęliśmy z nawigacji (decyzja
+użytkownika) — ich funkcje z Electrona (Run toolbar, overlaye WPM/klawiszy, sekcje
+sidebaru, wzorce ignorowania watchera) nie mają odpowiednika w Rust; drzewo plików
+czyta katalogi leniwie i bierze ignorowanie z `.gitignore`. Pozycje nawigacji z listy `UNAVAILABLE`
 (`src/ui/preferences/navigation.rs`) dalej da się kliknąć — otwierają stronę z
 tytułem i podtytułem „Not available yet”. Wiersz w działającej stronie wyszarza
 `preferences::unavailable(id, row)` i dopisuje „Not available yet.” do opisu.
 
 | Pozycja | Powód |
 | --- | --- |
-| Nawigacja: Updates, Privacy, Misc, Sidebar, Skills, Git, File Watcher | brak strony; wcześniej kliknięcie nic nie robiło |
+| Nawigacja: Updates, Privacy, Skills, Git | brak strony; wcześniej kliknięcie nic nie robiło |
 | BACKUP (eksport/import) w stopce nawigacji | same ikony bez akcji |
 | General → Run setup wizard | przycisk bez akcji; w Rust nie ma kreatora |
 | General → New worktree (`newWorktree.toolId`) | zapisywane, ale agent worktree wybiera dialog (`ui/worktree_dialog.rs`) |

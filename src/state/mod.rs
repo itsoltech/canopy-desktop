@@ -6,3 +6,4 @@ pub mod session;
 
 pub mod agent_settings;
 pub mod tools;
+pub mod window_geometry;

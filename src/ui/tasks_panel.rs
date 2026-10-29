@@ -213,10 +213,8 @@ impl TasksPanel {
         } else {
             "Connect your project to its issues."
         };
-        row()
-            .gap(px(8.))
-            .py(px(12.))
-            .flex_shrink_0()
+        panel_header()
+            .h(px(48.))
             .child(
                 provider_heading(
                     state
@@ -232,7 +230,7 @@ impl TasksPanel {
             .child(
                 row()
                     .flex_shrink_0()
-                    .gap(px(6.))
+                    .gap(px(2.))
                     .child(
                         icon_button("create-task", IconName::Plus, "New issue")
                             .disabled(
@@ -278,9 +276,14 @@ impl TasksPanel {
     }
     fn repository_form(&self, _disabled: bool, _cx: &mut Context<Self>) -> Div {
         column()
+            .flex_shrink_0()
+            .mx(px(PANEL_INSET))
+            .mb(px(8.))
             .p(px(10.))
-            .rounded(px(6.))
-            .bg(t::hover())
+            .rounded(px(8.))
+            .border_1()
+            .border_color(t::border())
+            .bg(t::panel())
             .child(self.source_picker.clone())
     }
     fn filters(&self, disabled: bool, cx: &mut Context<Self>) -> Div {
@@ -290,53 +293,49 @@ impl TasksPanel {
             .as_ref()
             .is_some_and(|t| matches!(t.provider, Provider::Jira | Provider::Youtrack));
         let filter = state.filter;
+        let this = cx.entity().downgrade();
         column()
-            .gap(px(8.))
             .flex_shrink_0()
+            .gap(px(6.))
+            .px(px(PANEL_INSET))
+            .pb(px(4.))
             .child(
                 row()
                     .gap(px(6.))
-                    .child(input(&self.search).flex_1())
+                    .child(input(&self.search).h(px(26.)).text_size(px(12.)).flex_1())
                     .children(tracker.then(|| {
-                        loading_button("task-search", "Search tasks", &self.refresh_loading)
+                        loading_button("task-search", "Search", &self.refresh_loading)
+                            .h(px(26.))
                             .disabled((disabled || state.loading) && !self.refresh_loading.active())
                             .on_click(cx.listener(|s, _, _, cx| {
                                 let query = s.search.read(cx).value().to_string();
                                 s.state.update(cx, |state, cx| state.set_query(query, cx));
                             }))
+                    }))
+                    .children((!tracker).then(|| {
+                        segmented_control(
+                            "task-state",
+                            "Task state",
+                            &[(TaskState::Open, "Open"), (TaskState::Closed, "Closed")],
+                            filter,
+                            move |value, _, cx| {
+                                let _ = this.update(cx, |s, cx| {
+                                    if !s.state.read(cx).busy && s.state.read(cx).ready {
+                                        s.state.update(cx, |state, cx| state.set_filter(value, cx))
+                                    }
+                                });
+                            },
+                        )
                     })),
             )
             .child(
-                row()
-                    .gap(px(8.))
-                    .children((!tracker).then(|| {
-                        row()
-                            .gap(px(2.))
-                            .p(px(2.))
-                            .rounded(px(6.))
-                            .bg(t::hover())
-                            .children(
-                                [(TaskState::Open, "Open"), (TaskState::Closed, "Closed")]
-                                    .into_iter()
-                                    .map(|(value, label)| {
-                                        selection_button(label, label, filter == value)
-                                            .border_0()
-                                            .disabled(disabled)
-                                            .on_click(cx.listener(move |s, _, _, cx| {
-                                                s.state.update(cx, |state, cx| {
-                                                    state.set_filter(value, cx)
-                                                })
-                                            }))
-                                    }),
-                            )
-                    }))
-                    .child(div().flex_1())
-                    .child(div().text_size(px(10.)).text_color(t::muted()).child(
-                        match state.total_count {
-                            Some(total) => format!("{} of {total}", state.items.len()),
-                            None => format!("{} loaded", state.items.len()),
-                        },
-                    )),
+                div()
+                    .text_size(px(11.))
+                    .text_color(t::faint())
+                    .child(match state.total_count {
+                        Some(total) => format!("{} of {total}", state.items.len()),
+                        None => format!("{} loaded", state.items.len()),
+                    }),
             )
     }
     fn issue_list(&self, cx: &mut Context<Self>) -> Div {
@@ -391,6 +390,7 @@ impl TasksPanel {
             }),
         )
         .size_full()
+        .px(px(LIST_INSET))
         .track_scroll(&self.list_scroll);
         div()
             .relative()
@@ -425,12 +425,15 @@ impl TasksPanel {
             .overflow_hidden()
             .border_t_1()
             .border_color(t::border())
+            .bg(t::panel())
             .child(
                 column()
                     .h(px(height))
                     .w_full()
+                    .px(px(PANEL_INSET))
+                    .pt(px(6.))
                     .opacity(progress)
-                    .gap(px(10.))
+                    .gap(px(8.))
                     .child(
                         row()
                             .flex_shrink_0()
@@ -438,12 +441,14 @@ impl TasksPanel {
                             .gap(px(6.))
                             .child(
                                 div()
-                                    .flex_1()
+                                    .flex_shrink_0()
+                                    .font_family(t::MONO)
                                     .text_size(px(11.))
-                                    .text_color(t::secondary())
+                                    .text_color(t::faint())
                                     .child(task.reference.label()),
                             )
-                            .children(linked.then(|| badge("Linked").text_color(t::accent())))
+                            .children(linked.then(|| status_badge("Linked", t::accent())))
+                            .child(div().flex_1())
                             .child(
                                 icon_button(
                                     "expand-task-details",
@@ -500,9 +505,8 @@ impl TasksPanel {
                         row()
                             .flex_shrink_0()
                             .gap(px(8.))
-                            .py(px(10.))
-                            .border_t_1()
-                            .border_color(t::border())
+                            .pt(px(4.))
+                            .pb(px(12.))
                             .child(
                                 button("link-worktree", if linked { "Unlink" } else { "Link" })
                                     .tooltip(if linked {
@@ -591,61 +595,68 @@ impl Render for TasksPanel {
         motion::request_frame(window, self.details.is_animating(now));
         column()
             .size_full()
-            .gap(px(10.))
             .child(self.header(cx))
-            .child(self.controls.clone())
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .px(px(PANEL_INSET))
+                    .child(self.controls.clone()),
+            )
             .children(self.configure.then(|| self.repository_form(disabled, cx)))
-            .children(error.clone().map(|error| integration_message(error, true)))
+            .children(error.clone().map(|error| {
+                div()
+                    .flex_shrink_0()
+                    .px(px(PANEL_INSET))
+                    .pb(px(8.))
+                    .child(integration_message(error, true))
+            }))
             .children((ready && !connected).then(|| {
-                column()
-                    .flex_1()
-                    .justify_center()
-                    .gap(px(4.))
-                    .child(task_empty_state(
-                        if target {
-                            "Connect task provider"
-                        } else {
-                            "Choose a task source"
-                        },
-                        if target {
-                            "Read issues, link tasks and start a worktree from here."
-                        } else {
-                            "Choose a GitHub repository or a Jira project for this workspace."
-                        },
-                    ))
-                    .child(
-                        row().justify_center().child(
-                            button(
-                                "tasks-open-preferences",
+                panel_empty(
+                    if target {
+                        "Connect task provider"
+                    } else {
+                        "Choose a task source"
+                    },
+                    if target {
+                        "Read issues, link tasks and start a worktree from here."
+                    } else {
+                        "Choose a GitHub repository or a Jira project for this workspace."
+                    },
+                )
+                .child(
+                    row().pt(px(4.)).justify_center().child(
+                        button(
+                            "tasks-open-preferences",
+                            if target {
+                                "Configure integration"
+                            } else {
+                                "Choose repository"
+                            },
+                        )
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
                                 if target {
-                                    "Configure integration"
+                                    let _ = super::preferences::open_integrations(cx);
                                 } else {
-                                    "Choose repository"
-                                },
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    if target {
-                                        let _ = super::preferences::open_integrations(cx);
-                                    } else {
-                                        this.toggle_repository(window, cx);
-                                    }
-                                },
-                            )),
-                        ),
-                    )
+                                    this.toggle_repository(window, cx);
+                                }
+                            },
+                        )),
+                    ),
+                )
             }))
             .children(connected.then(|| self.filters(disabled, cx)))
             .children(
-                (!ready || (connected && loading && !show_list)).then(|| task_skeleton().flex_1()),
+                (!ready || (connected && loading && !show_list))
+                    .then(|| task_skeleton().flex_1().px(px(LIST_INSET))),
             )
             .children((connected && show_list).then(|| self.issue_list(cx)))
             .children(
                 (connected && !show_list && !loading && error.is_none()).then(|| {
-                    column().flex_1().justify_center().child(task_empty_state(
+                    panel_empty(
                         empty_title,
                         "Filter applies to loaded issues. Refresh to check for updates.",
-                    ))
+                    )
                 }),
             )
             .children(

@@ -685,10 +685,36 @@ profile nadal korzystają ze stanów utrzymywanych przez ToolsPreferences.
 - Projekt i worktree mają jawne menu akcji. Kontrolki zachowują natywne
   focus/hover/disabled; etykiety branchy mają pierwszeństwo przed skrótami ikonowymi.
 
+## Panel narzędzi: wspólny układ
+
+Strony Files, Changes, Tasks i Agent składają się z tych samych builderów
+`ui::components::tool_panel`. Każda strona ma u góry `panel_header()` o wysokości
+38 px: kontekst (gałąź, worktree albo źródło zadań) po lewej, akcje 20 px po prawej.
+Pola, nagłówki i stopki mają margines `PANEL_INSET` (12 px). Listy mają margines
+`LIST_INSET` (6 px), a ich wiersze własny padding 6 px, zaokrąglenie 6 px i wysokość
+`LIST_ROW` (26 px). Akcje główne siedzą w `panel_footer()`, oddzielone górną linią.
+Stany puste i niedostępne pokazuje `panel_empty(title, description)`: wyśrodkowany
+tytuł, jedno zdanie o tym, co dalej, i opcjonalnie jeden przycisk dodany przez caller.
+
+Pozostałe buildery to `panel_caption` (tytuł sekcji wersalikami), `branch_label`,
+`count_badge`, `status_badge` (etykieta w kolorze stanu na jego bladym tle),
+`filter_chip` (przełącznik filtra z rolą przycisku i stanem toggled),
+`line_counts` i `line_bar` (liczba dodanych i usuniętych linii). Nie mają stanu ani
+subskrypcji.
+
+Zakładki na górze panelu (`workspace_layout::tool_navigation`) są tekstowe,
+z akcentowym podkreśleniem aktywnej. Changes pokazuje liczbę zmienionych plików,
+a Agent kropkę najpilniejszego stanu wśród aktywnych lub nieprzeczytanych sesji
+(czeka → błąd → pracuje). Menu „Tools and layout” otwiera ikona ⋯.
+
 ## Git Changes i diff
 
 `ui::components::git` zawiera prezentacyjne buildery `diff_header`, `diff_line`,
-`change_group`, `change_file_row`, `change_action` i `commit_form`.
+`change_group`, `group_action`, `change_file_row`, `change_file_label`,
+`change_action` i `commit_form`. Wiersz pliku pokazuje literę statusu,
+nazwę pliku, za nią wyszarzony folder i liczbę linii. Po najechaniu liczba linii
+ustępuje akcjom Discard i Stage/Unstage. Klikalna jest tylko etykieta, a akcje są
+jej rodzeństwem, więc kliknięcie akcji nie otwiera diffu.
 Zwracają `Div`, `Stateful<Div>` lub `Button`, więc caller może nakładać Styled
 oraz dopinać dzieci i callbacki. Wykorzystują istniejące przyciski i tokeny Canopy.
 
@@ -724,8 +750,9 @@ kiedy pokazać podsumowanie; jego stała wysokość zachowuje wyrównanie layout
 
 ## Kontrolki transportu Git
 
-`ui::components::git_network` zawiera `transfer_button`, `transfer_controls`
-i `upstream_form`. Zwracają natywne buildery i korzystają z istniejących input,
+`ui::components::git_network` zawiera `transfer_button` i `upstream_form`.
+Pull pokazuje liczbę commitów do pobrania, a Push do wypchnięcia, gdy jest
+większa od zera. Zwracają natywne buildery i korzystają z istniejących input,
 dropdown, button oraz modal_field. Nie posiadają encji, zadań ani subskrypcji;
 callbacki i formularz pozostają w ChangesPanel/UpstreamDialog. Zewnętrzne odstępy
 należą do widoków, a wnętrze formularza zachowuje rytm modalu.
@@ -767,11 +794,17 @@ to agent/workspace changes. `ui/inspector.rs` renders the selected Agent/Changes
 `ui/inspector/transition.rs` keeps its underline separate from page visibility.
 Hook events notify the session view directly.
 
+The Agent page lists active or unread sessions with the tool's icon and a status
+badge, then the selected pane's session: a card with its title, provider and
+status, "Waiting for you" as a highlighted box with "Focus terminal", the metadata
+with the hooks health in one bordered block, the last response and the recent
+activity.
+
 `components/session.rs` contains stateless builders:
 
-- `session_status(label, color)` — status row and indicator.
 - `session_info(label, value)` — aligned, truncated metadata row.
-- `session_section(title)` — captioned container for questions, responses and activity.
+- `integration_health(label, color, detail)` — the "Hooks" row and what it means.
+- `session_section(title)` — captioned container for responses and activity.
 
 All return `Div`, supporting native `Styled` overrides and additional children.
 Outer spacing belongs to the caller. Data lookup, subscriptions and navigation
@@ -900,7 +933,8 @@ are still gpui-kit's (`render_inspector_states`). Scrolling while picking still 
 ## Wspólny nagłówek i responsywny workspace
 
 Kategorie narzędzi należą do `workspace_layout::tool_navigation`, montowanego
-w nagłówku okna. Tylko kontekst jest obszarem drag; przyciski nie dziedziczą
+na górze panelu narzędzi i chowanego razem z nim. W nagłówku okna tylko kontekst
+jest obszarem drag; przyciski nie dziedziczą
 hitboxa przeciągania. Lokalny pasek zawiera wyłącznie karty i ich akcje.
 Sidebar ma osobne scrolle projektów i Private chats, z przypiętymi nagłówkami.
 Wymuszone ograniczenia rozmiaru są prezentacją, nie mutacją preferencji.

@@ -1,6 +1,9 @@
 use super::{components::*, theme as t};
 use crate::app_state::{AppState, ChangesState};
-use canopy_desktop::git::changes::{Edit, FileChange};
+use canopy_desktop::git::{
+    changes::{Edit, FileChange},
+    network::Operation,
+};
 use canopy_desktop::motion::{self, Transition, presets};
 use gpui_kit::{
     base::Disableable,
@@ -8,6 +11,7 @@ use gpui_kit::{
         IconName,
         input::{InputEvent, InputState, TextareaState},
     },
+    prelude::FluentBuilder,
     *,
 };
 use std::time::Instant;
@@ -49,7 +53,10 @@ impl ChangesPanel {
         let state = cx.global::<AppState>().changes.clone();
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter files…"));
         let message = cx.new(|cx| TextareaState::new(window, cx).placeholder("Commit message"));
+        let pulls = cx.global::<AppState>().pull_requests.clone();
         let events = vec![
+            cx.observe(&pulls, |_, _, cx| cx.notify()),
+            cx.observe(&history, |_, _, cx| cx.notify()),
             cx.observe_in(&state, window, |this, state, window, cx| {
                 let next = state.read(cx).path.clone();
                 let current = state.read(cx);
@@ -145,10 +152,11 @@ impl ChangesPanel {
         let query = self.filter.read(cx).value().to_lowercase();
         if let Some(data) = &self.state.read(cx).data {
             for staged in [true, false] {
-                self.rows.push(ChangeRow::Header(
-                    staged,
-                    data.files.iter().filter(|f| f.staged == staged).count(),
-                ));
+                let count = data.files.iter().filter(|f| f.staged == staged).count();
+                if count == 0 {
+                    continue;
+                }
+                self.rows.push(ChangeRow::Header(staged, count));
                 self.rows.extend(
                     data.files
                         .iter()
@@ -173,14 +181,10 @@ impl ChangesPanel {
                 let origin = self.state.read(cx).path.clone();
                 git::change_group(staged, *count)
                     .child(
-                        button(
+                        git::group_action(
                             if staged { "unstage-all" } else { "stage-all" },
                             if staged { "Unstage all" } else { "Stage all" },
                         )
-                        .px(px(4.))
-                        .border_0()
-                        .bg(rgba(0))
-                        .text_size(px(11.))
                         .disabled(disabled || *count == 0)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.edit(
@@ -196,14 +200,13 @@ impl ChangesPanel {
                     )
                     .into_any_element()
             }
-            Some(ChangeRow::File(i)) => self
-                .state
-                .read(cx)
-                .data
-                .as_ref()
-                .and_then(|d| d.files.get(*i))
-                .map(|f| self.file_row(f, disabled, cx).into_any_element())
-                .unwrap_or_else(|| div().into_any_element()),
+            Some(ChangeRow::File(i)) => {
+                let data = self.state.read(cx).data.clone();
+                data.as_ref()
+                    .and_then(|d| Some((d.files.get(*i)?, d.lines.get(*i).copied().flatten())))
+                    .map(|(f, lines)| self.file_row(f, lines, disabled, cx).into_any_element())
+                    .unwrap_or_else(|| div().into_any_element())
+            }
             None => div().into_any_element(),
         }
     }
@@ -220,17 +223,28 @@ impl ChangesPanel {
             cx.notify();
         }
     }
-    fn file_row(&self, file: &FileChange, disabled: bool, cx: &Context<Self>) -> Stateful<Div> {
+    fn file_row(
+        &self,
+        file: &FileChange,
+        lines: Option<(usize, usize)>,
+        disabled: bool,
+        cx: &Context<Self>,
+    ) -> Stateful<Div> {
         let key = format!("{}:{}", file.staged, file.path.display());
         let hover = key.clone();
+        let hovered = self.hovered.as_ref() == Some(&key);
         let diff = file.clone();
         let edit = file.clone();
         let discard = file.clone();
         let path = self.state.read(cx).path.clone();
         let edit_path = path.clone();
         let diff_path = path.clone();
-        let label = file.path.display().to_string();
-        git::change_file_row(SharedString::from(key.clone()), &file.kind)
+        let tooltip = file
+            .old_path
+            .as_ref()
+            .map(|old| format!("{} → {}", old.display(), file.path.display()))
+            .unwrap_or_else(|| file.path.display().to_string());
+        git::change_file_row(SharedString::from(key.clone()), &file.kind, hovered)
             .on_hover(cx.listener(move |this, over, _, cx| {
                 if *over {
                     this.hovered = Some(hover.clone());
@@ -240,29 +254,44 @@ impl ChangesPanel {
                 cx.notify();
             }))
             .child(
-                list_button(
+                git::change_file_label(
                     SharedString::from(format!("diff-{key}")),
-                    label,
-                    self.hovered.as_ref() == Some(&key),
-                    cx,
+                    &file.path,
+                    hovered,
                 )
-                .px_0()
-                .disabled(self.inactive(cx))
-                .flex_1()
-                .min_w_0()
-                .tooltip(
-                    file.old_path
-                        .as_ref()
-                        .map(|old| format!("{} → {}", old.display(), file.path.display()))
-                        .unwrap_or_else(|| file.path.display().to_string()),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if this.state.read(cx).path == diff_path {
-                        this.state.update(cx, |s, cx| s.open_diff(diff.clone(), cx));
-                    }
-                })),
+                .tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+                })
+                .when(!self.inactive(cx), |label| {
+                    label.on_click(cx.listener(move |this, _, _, cx| {
+                        if this.state.read(cx).path == diff_path {
+                            this.state.update(cx, |s, cx| s.open_diff(diff.clone(), cx));
+                        }
+                    }))
+                }),
             )
-            .child(
+            .children(
+                lines
+                    .filter(|_| !hovered)
+                    .map(|(added, deleted)| line_counts(added, deleted)),
+            )
+            .children((hovered && !file.staged).then(|| {
+                git::change_action(
+                    SharedString::from(format!("discard-{key}")),
+                    IconName::Undo2,
+                    "Discard working tree changes",
+                )
+                .disabled(disabled)
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some(path) = &path {
+                        cx.emit(DiscardRequest {
+                            path: path.clone(),
+                            file: discard.clone(),
+                        });
+                    }
+                }))
+            }))
+            .children(hovered.then(|| {
                 git::change_action(
                     SharedString::from(format!("stage-{key}")),
                     if file.staged {
@@ -287,24 +316,66 @@ impl ChangesPanel {
                         },
                         cx,
                     )
-                })),
-            )
-            .children((!file.staged).then(|| {
-                git::change_action(
-                    SharedString::from(format!("discard-{key}")),
-                    IconName::Close,
-                    "Discard working tree changes",
-                )
-                .disabled(disabled)
-                .on_click(cx.listener(move |_, _, _, cx| {
-                    if let Some(path) = &path {
-                        cx.emit(DiscardRequest {
-                            path: path.clone(),
-                            file: discard.clone(),
-                        });
-                    }
                 }))
             }))
+    }
+    fn select_view(&mut self, history: bool, cx: &mut Context<Self>) {
+        if self.show_history == history {
+            return;
+        }
+        self.show_history = history;
+        let now = Instant::now();
+        self.content = Transition::new(0., now);
+        self.content
+            .retarget(1., presets::STATE_CHANGE, now, motion::policy(cx));
+        if history {
+            let path = self.state.read(cx).path.clone();
+            self.history.update(cx, |view, cx| view.open(path, cx));
+        }
+        cx.notify();
+    }
+    /// Branch, the Changes/History switch and the refresh of the shown view.
+    fn header(&self, disabled: bool, cx: &mut Context<Self>) -> Div {
+        let branch = cx
+            .global::<AppState>()
+            .pull_requests
+            .read(cx)
+            .current
+            .as_ref()
+            .map(|branch| branch.name.clone());
+        let this = cx.entity().downgrade();
+        let refresh = if self.show_history {
+            let history = self.history.read(cx);
+            loading_icon_button(
+                "refresh-history",
+                IconName::RotateCw,
+                "Refresh history",
+                Some(history.refresh_loading()),
+            )
+            .disabled(history.loading() && !history.refresh_loading().active())
+            .on_click(
+                cx.listener(|this, _, _, cx| this.history.update(cx, |view, cx| view.refresh(cx))),
+            )
+        } else {
+            icon_button("refresh-changes", IconName::RotateCw, "Refresh changes")
+                .disabled(disabled)
+                .on_click(
+                    cx.listener(|this, _, _, cx| this.state.update(cx, |s, cx| s.refresh(cx))),
+                )
+        };
+        panel_header()
+            .children(branch.map(branch_label))
+            .child(div().flex_1())
+            .child(segmented_control(
+                "changes-view",
+                "Changes view",
+                &[(false, "Changes"), (true, "History")],
+                self.show_history,
+                move |history, _, cx| {
+                    let _ = this.update(cx, |this, cx| this.select_view(history, cx));
+                },
+            ))
+            .child(refresh)
     }
 }
 impl Render for ChangesPanel {
@@ -321,60 +392,130 @@ impl Render for ChangesPanel {
             .unwrap_or_default();
         let commit_path = state.path.clone();
         let staged = files.iter().filter(|f| f.staged).count();
+        let tracking = data.as_ref().and_then(|d| d.upstream.clone());
         let signing = data
             .as_ref()
             .map(|d| {
                 if d.signing.enabled {
-                    format!("Signed commit · {}", d.signing.format)
+                    format!("Signed · {}", d.signing.format)
                 } else {
-                    "Unsigned commit".into()
+                    "Unsigned".into()
                 }
             })
             .unwrap_or_default();
+        let header = self.header(disabled, cx);
+        let state = self.state.read(cx);
 
-        let tabs =
-            row()
-                .gap(px(4.))
-                .children([("Files", false), ("History", true)].into_iter().map(
-                    |(label, history)| {
-                        selection_button(label, label, self.show_history == history)
-                            .border_0()
-                            .flex_1()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if this.show_history == history {
-                                    return;
-                                }
-                                this.show_history = history;
-                                let now = Instant::now();
-                                this.content = Transition::new(0., now);
-                                this.content.retarget(
-                                    1.,
-                                    presets::STATE_CHANGE,
-                                    now,
-                                    motion::policy(cx),
-                                );
-                                if history {
-                                    let path = this.state.read(cx).path.clone();
-                                    this.history.update(cx, |view, cx| {
-                                        view.open(path, cx);
-                                    });
-                                }
-                                cx.notify();
-                            }))
-                    },
-                ));
-        let transfer_footer = column()
-            .flex_shrink_0()
-            .py(px(t::SPACING_UNIT * 3.))
-            .gap(px(t::SPACING_UNIT * 2.))
-            .border_t_1()
-            .border_color(t::border())
-            .child(git_network::transfer_controls(|operation| {
+        let composer = (!self.show_history).then(|| {
+            column()
+                .w_full()
+                .gap(px(6.))
+                .p(px(8.))
+                .pb(px(6.))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(t::border())
+                .bg(t::input_bg())
+                .child(
+                    textarea(&self.message)
+                        .appearance(false)
+                        .h(px(44.))
+                        .w_full()
+                        .p_0()
+                        .disabled(disabled),
+                )
+                .child(
+                    row()
+                        .gap(px(6.))
+                        .child(
+                            row()
+                                .flex_1()
+                                .min_w_0()
+                                .gap(px(4.))
+                                .text_size(px(11.))
+                                .text_color(t::faint())
+                                .children((!state.committing).then(|| {
+                                    custom_icon("shield")
+                                        .size(px(12.))
+                                        .text_color(t::faint())
+                                        .flex_shrink_0()
+                                }))
+                                .child(div().min_w_0().truncate().child(if state.committing {
+                                    state
+                                        .commit_phase
+                                        .clone()
+                                        .unwrap_or_else(|| "Committing…".into())
+                                } else {
+                                    signing
+                                })),
+                        )
+                        .children(state.committing.then(|| {
+                            button("cancel-commit", "Cancel").h(px(24.)).on_click(
+                                cx.listener(|this, _, _, cx| this.state.read(cx).cancel()),
+                            )
+                        }))
+                        .child(
+                            primary_loading_button(
+                                "commit-staged",
+                                match staged {
+                                    0 => "Commit".to_owned(),
+                                    1 => "Commit 1 file".to_owned(),
+                                    n => format!("Commit {n} files"),
+                                },
+                                &self.commit_loading,
+                            )
+                            .h(px(24.))
+                            .disabled(
+                                (disabled
+                                    || staged == 0
+                                    || self.message.read(cx).value().trim().is_empty())
+                                    && !self.commit_loading.active(),
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    if this.state.read(cx).path != commit_path {
+                                        return;
+                                    }
+                                    let message = this.message.read(cx).value().to_string();
+                                    this.error = this
+                                        .state
+                                        .update(cx, |s, cx| s.commit(message, cx))
+                                        .err()
+                                        .map(|e| e.to_string());
+                                    cx.notify();
+                                },
+                            )),
+                        ),
+                )
+        });
+        let sync = row()
+            .gap(px(6.))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .font_family(t::MONO)
+                    .text_size(px(11.))
+                    .text_color(t::faint())
+                    .child(
+                        tracking
+                            .as_ref()
+                            .map(|tracking| tracking.name.clone())
+                            .unwrap_or_else(|| "No upstream".into()),
+                    ),
+            )
+            .children([Operation::Pull, Operation::Push].map(|operation| {
                 let feedback = match operation {
-                    canopy_desktop::git::network::Operation::Pull => &self.pull_loading,
-                    canopy_desktop::git::network::Operation::Push => &self.push_loading,
+                    Operation::Pull => &self.pull_loading,
+                    Operation::Push => &self.push_loading,
                 };
-                git_network::transfer_button(operation, feedback)
+                let pending = tracking.as_ref().map_or(0, |tracking| match operation {
+                    Operation::Pull => tracking.behind,
+                    Operation::Push => tracking.ahead,
+                });
+                git_network::transfer_button(operation, feedback, pending)
+                    .h(px(24.))
                     .disabled((disabled || state.path.is_none()) && !feedback.active())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.error = this
@@ -384,7 +525,11 @@ impl Render for ChangesPanel {
                             .map(|e| e.to_string());
                         cx.notify();
                     }))
-            }))
+            }));
+        let footer = panel_footer()
+            .children(composer)
+            .child(sync)
+            .children(super::pull_request::strip(cx))
             .children(self.error.clone().or_else(|| state.error.clone()).map(|e| {
                 div()
                     .id("changes-operation-error")
@@ -447,9 +592,7 @@ impl Render for ChangesPanel {
         if self.show_history {
             return column()
                 .size_full()
-                .pt(px(12.))
-                .gap(px(8.))
-                .child(tabs)
+                .child(header)
                 .child(
                     div()
                         .flex_1()
@@ -457,125 +600,120 @@ impl Render for ChangesPanel {
                         .opacity(opacity)
                         .child(self.history.clone()),
                 )
-                .child(transfer_footer)
+                .child(footer)
                 .into_any_element();
         }
-        let files_content = column()
-            .flex_1()
-            .min_h_0()
-            .gap(px(8.))
-            .child(git::inspector_toolbar(
-                format!(
-                    "{} change{}",
-                    files.len(),
-                    if files.len() == 1 { "" } else { "s" }
-                ),
-                icon_button("refresh-changes", IconName::RotateCw, "Refresh changes")
-                    .disabled(disabled)
-                    .on_click(
-                        cx.listener(|this, _, _, cx| this.state.update(cx, |s, cx| s.refresh(cx))),
-                    ),
-            ))
-            .child(input(&self.filter).w_full().disabled(self.inactive(cx)))
-            .child(
-                row()
-                    .gap(px(4.))
-                    .children(["All", "A", "M", "D", "R"].into_iter().map(|kind| {
-                        selection_button(
-                            kind,
-                            kind,
-                            self.kind.as_deref() == Some(kind)
-                                || (kind == "All" && self.kind.is_none()),
-                        )
-                        .px(px(8.))
-                        .border_0()
-                        .h(px(24.))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.kind = (kind != "All").then(|| kind.into());
-                            this.rebuild(cx);
-                            cx.notify();
-                        }))
-                    })),
+        let (added, deleted) = data
+            .as_ref()
+            .map(|d| {
+                d.lines
+                    .iter()
+                    .flatten()
+                    .fold((0, 0), |(a, d), (added, deleted)| (a + added, d + deleted))
+            })
+            .unwrap_or_default();
+        let repository = state
+            .path
+            .as_ref()
+            .is_some_and(|p| cx.global::<AppState>().git.read(cx).repository(p).is_some());
+        let body: AnyElement = if data.is_none() {
+            panel_empty(
+                if repository {
+                    "Loading changes…"
+                } else {
+                    "No Git repository selected"
+                },
+                if repository {
+                    "Reading the working tree."
+                } else {
+                    "Open a project that is a Git repository to see its changes."
+                },
             )
-            .children(data.is_none().then(|| {
-                div().text_size(px(11.)).text_color(t::muted()).child(
-                    if state.path.as_ref().is_some_and(|p| {
-                        cx.global::<AppState>().git.read(cx).repository(p).is_some()
-                    }) {
-                        "Loading changes…"
-                    } else {
-                        "No Git repository selected."
-                    },
-                )
-            }))
-            .child(
-                uniform_list(
-                    "changed-files-scroll",
-                    self.rows.len(),
-                    cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                        range.map(|i| this.list_row(i, cx)).collect::<Vec<_>>()
-                    }),
-                )
-                .w_full()
+            .into_any_element()
+        } else if files.is_empty() {
+            panel_empty(
+                "No uncommitted changes",
+                "Edits in this worktree will show up here.",
+            )
+            .into_any_element()
+        } else {
+            column()
                 .flex_1()
-                .min_h_0(),
-            )
-            .child(
-                git::commit_form()
-                    .child(
-                        textarea(&self.message)
-                            .h(px(72.))
-                            .w_full()
-                            .disabled(disabled),
-                    )
-                    .child(div().text_size(px(11.)).text_color(t::muted()).child(
-                        if state.committing {
-                            state
-                                .commit_phase
-                                .clone()
-                                .unwrap_or_else(|| "Committing…".into())
-                        } else {
-                            signing
-                        },
-                    ))
-                    .child(
-                        primary_loading_button(
-                            "commit-staged",
-                            "Commit staged",
-                            &self.commit_loading,
+                .min_h_0()
+                .child(
+                    row()
+                        .flex_shrink_0()
+                        .gap(px(8.))
+                        .px(px(PANEL_INSET))
+                        .pb(px(8.))
+                        .child(
+                            row()
+                                .flex_shrink_0()
+                                .gap(px(4.))
+                                .text_size(px(11.))
+                                .text_color(t::faint())
+                                .child(format!(
+                                    "{} file{}",
+                                    files.len(),
+                                    if files.len() == 1 { "" } else { "s" }
+                                ))
+                                .children(
+                                    (added + deleted > 0).then(|| line_counts(added, deleted)),
+                                ),
                         )
-                        .w_full()
-                        .disabled(
-                            (disabled
-                                || staged == 0
-                                || self.message.read(cx).value().trim().is_empty())
-                                && !self.commit_loading.active(),
+                        .children((added + deleted > 0).then(|| line_bar(added, deleted))),
+                )
+                .child(
+                    row()
+                        .flex_shrink_0()
+                        .gap(px(6.))
+                        .px(px(PANEL_INSET))
+                        .pb(px(6.))
+                        .child(
+                            input(&self.filter)
+                                .h(px(26.))
+                                .text_size(px(12.))
+                                .flex_1()
+                                .disabled(self.inactive(cx)),
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if this.state.read(cx).path != commit_path {
-                                return;
-                            }
-                            let message = this.message.read(cx).value().to_string();
-                            this.error = this
-                                .state
-                                .update(cx, |s, cx| s.commit(message, cx))
-                                .err()
-                                .map(|e| e.to_string());
-                            cx.notify();
-                        })),
+                        .child(row().flex_shrink_0().gap(px(3.)).children(
+                            ["A", "M", "D", "R"].into_iter().map(|kind| {
+                                let selected = self.kind.as_deref() == Some(kind);
+                                filter_chip(
+                                    SharedString::from(format!("changes-kind-{kind}")),
+                                    kind,
+                                    selected,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.kind = (!selected).then(|| kind.into());
+                                        this.rebuild(cx);
+                                        cx.notify();
+                                    },
+                                ))
+                            }),
+                        )),
+                )
+                .child(
+                    uniform_list(
+                        "changed-files-scroll",
+                        self.rows.len(),
+                        cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
+                            range.map(|i| this.list_row(i, cx)).collect::<Vec<_>>()
+                        }),
                     )
-                    .children(state.committing.then(|| {
-                        button("cancel-commit", "Cancel commit")
-                            .on_click(cx.listener(|this, _, _, cx| this.state.read(cx).cancel()))
-                    })),
-            );
+                    .w_full()
+                    .flex_1()
+                    .min_h_0()
+                    .px(px(LIST_INSET)),
+                )
+                .into_any_element()
+        };
         column()
             .size_full()
-            .pt(px(12.))
-            .gap(px(8.))
-            .child(tabs)
-            .child(files_content.opacity(opacity))
-            .child(transfer_footer)
+            .child(header)
+            .child(column().flex_1().min_h_0().opacity(opacity).child(body))
+            .child(footer)
             .into_any_element()
     }
 }

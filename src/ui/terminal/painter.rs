@@ -133,6 +133,23 @@ pub fn paint(
             }
             i = next;
         }
+        // The hovered link is underlined in its own color, as xterm does.
+        for &(row, first, last) in view.link.iter().flat_map(|link| &link.spans) {
+            let Some(cell) = frame.cells.get(row * frame.size.columns + first) else {
+                continue;
+            };
+            window.paint_quad(fill(
+                Bounds::new(
+                    origin
+                        + point(
+                            px(first as f32 * cell_width),
+                            px((row + 1) as f32 * cell_height - 1.),
+                        ),
+                    size(px((last - first + 1) as f32 * cell_width), px(1.)),
+                ),
+                color(cell.fg),
+            ));
+        }
         let painted_cursor = view.cursor.published();
         if painted_cursor.is_some_and(|cursor| {
             cursor.visible

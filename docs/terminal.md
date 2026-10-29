@@ -104,6 +104,16 @@ do tej grupy. Maksymalnie 64 PTY mogą działać jednocześnie.
   dostają danych ani kolejki do przyszłego restartu.
 - Obsługa trybu myszy aplikacji SGR/X10; Shift pozwala korzystać z zaznaczania
   lub scrollbacku zamiast raportowania myszy do aplikacji.
+- Linki (`terminal/links.rs`, jak `addon-web-links` i `linkHandler` w Electronie):
+  adresy http(s) w tekście, także przełamane przez zawinięcie linii, oraz
+  hiperłącza OSC 8 wypisywane przez programy (Claude, Codex). Kropka, przecinek
+  itp. na końcu i niesparowane nawiasy zamykające nie należą do adresu. Link pod
+  kursorem jest podkreślony w swoim kolorze, a kursor zmienia się w dłoń. Kliknięcie
+  bez przeciągnięcia (puszczenie na tej samej komórce) otwiera go w przeglądarce
+  systemowej; przeciągnięcie zaznacza tekst. Otwierane są tylko adresy
+  http/https, inne schematy OSC 8 (np. `file://`) są ignorowane. W trybie myszy
+  aplikacji kliknięcie dostaje program, link działa z Shiftem. Brak wbudowanej
+  przeglądarki i preferencji `urlOpenMode` z Electrona: zawsze przeglądarka systemowa.
 - Resize terminala i ioctl PTY na podstawie rzeczywistego rozmiaru pane'a.
 - Bezpośrednio uruchamiane TUI otrzymują sygnały zmiany rozmiaru (SIGWINCH).
   Na Unix `terminal/spawn.rs` odblokowuje maskę sygnałów wyłącznie na czas

@@ -596,6 +596,37 @@ impl Session {
             }
         }
     }
+    /// The OSC 8 hyperlink at a visible cell and the visible cells it covers.
+    pub fn hyperlink_at(&self, row: usize, column: usize) -> Option<super::links::Link> {
+        let term = self.term.try_lock_unfair()?;
+        let grid = term.grid();
+        let (rows, columns) = (grid.screen_lines(), grid.columns());
+        if row >= rows || column >= columns {
+            return None;
+        }
+        let offset = grid.display_offset() as i32;
+        let at = |index: usize| {
+            grid[Point::new(
+                Line((index / columns) as i32 - offset),
+                Column(index % columns),
+            )]
+            .hyperlink()
+        };
+        let index = row * columns + column;
+        let link = at(index)?;
+        let same = |index: usize| at(index).as_ref() == Some(&link);
+        let (mut first, mut last) = (index, index);
+        while first > 0 && same(first - 1) {
+            first -= 1;
+        }
+        while last + 1 < rows * columns && same(last + 1) {
+            last += 1;
+        }
+        Some(super::links::Link {
+            url: link.uri().to_owned(),
+            spans: super::links::spans((first..=last).map(|i| (i / columns, i % columns))),
+        })
+    }
     pub fn copy_selection(&self) -> Option<String> {
         self.term.try_lock_unfair()?.selection_to_string()
     }

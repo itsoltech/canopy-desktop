@@ -76,6 +76,10 @@ pub struct TerminalView {
     settle_task: Option<Task<()>>,
     preedit: String,
     wheel: f32,
+    /// Link under the pointer, underlined; a click on it opens it.
+    link: Option<canopy_desktop::terminal::links::Link>,
+    /// Link the left button went down on, and the cell; opens if released there.
+    pressed_link: Option<(canopy_desktop::terminal::links::Link, (usize, usize))>,
     task: Option<Task<()>>,
     pump: Option<Task<()>>,
 }
@@ -249,6 +253,8 @@ impl TerminalView {
             settle_task: None,
             preedit: String::new(),
             wheel: 0.,
+            link: None,
+            pressed_link: None,
             task: None,
             pump: None,
         }

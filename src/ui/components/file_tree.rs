@@ -2,7 +2,7 @@
 //! Loading files belongs to the caller; this component never touches the filesystem.
 use super::super::theme as t;
 use super::files::{TREE_INDENT, TREE_INSET, tree_indent_guides};
-use super::{column, icon, icon_button, row};
+use super::{column, dot, icon, icon_button, row};
 use gpui_kit::*;
 use gpui_kit::{base::Disableable, component::IconName};
 use std::collections::HashSet;
@@ -412,12 +412,12 @@ impl Render for FileTree {
                                                         .relative()
                                                         .w_full()
                                                         .h(px(t::ROW))
-                                                        .gap(px(8.))
+                                                        .gap(px(6.))
                                                         .pl(px(TREE_INSET
                                                             + entry.depth as f32 * TREE_INDENT))
                                                         .pr(px(8.))
                                                         .cursor_pointer()
-                                                        .rounded(px(3.))
+                                                        .rounded(px(6.))
                                                         .bg(
                                                             if self.model.selected.as_ref()
                                                                 == Some(&entry.id)
@@ -459,16 +459,11 @@ impl Render for FileTree {
                                                         )
                                                         .children(entry.folder.then(|| {
                                                             icon(IconName::Folder).text_color(
-                                                                entry
-                                                                    .git_status
-                                                                    .map(git_color)
-                                                                    .unwrap_or_else(|| {
-                                                                        if entry.ignored {
-                                                                            t::faint()
-                                                                        } else {
-                                                                            t::muted()
-                                                                        }
-                                                                    }),
+                                                                if entry.ignored {
+                                                                    t::faint()
+                                                                } else {
+                                                                    t::muted()
+                                                                },
                                                             )
                                                         }))
                                                         .child(
@@ -477,19 +472,24 @@ impl Render for FileTree {
                                                                 .truncate()
                                                                 .child(entry.label.clone()),
                                                         )
-                                                        .children(
-                                                            entry
-                                                                .git_status
-                                                                .filter(|_| !entry.folder)
-                                                                .map(|status| {
-                                                                    div()
-                                                                        .text_color(git_color(
-                                                                            status,
-                                                                        ))
-                                                                        .text_size(px(10.))
-                                                                        .child(status.to_string())
-                                                                }),
-                                                        )
+                                                        .children(entry.git_status.map(|status| {
+                                                            if entry.folder {
+                                                                // Something inside changed.
+                                                                dot()
+                                                                    .size(px(6.))
+                                                                    .bg(git_color(status))
+                                                            } else {
+                                                                div()
+                                                                    .w(px(12.))
+                                                                    .flex_shrink_0()
+                                                                    .text_center()
+                                                                    .font_family(t::MONO)
+                                                                    .font_weight(FontWeight::BOLD)
+                                                                    .text_color(git_color(status))
+                                                                    .text_size(px(10.5))
+                                                                    .child(status.to_string())
+                                                            }
+                                                        }))
                                                         .children(entry.loading.then(|| {
                                                             div()
                                                                 .text_size(px(10.))

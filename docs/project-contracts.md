@@ -100,8 +100,8 @@ oddzielnych encji. Nie rób jednego globalnego obiektu odrysowującego całe UI.
 - Lewy sidebar ma drzewo projekt → worktree → rozmowy oraz osobne Private chats.
   Centrum ma pasek tabów (rozmowy, terminale, CLI, pliki) i drzewo pane'ów aktywnego
   taba ze splitami. Panel narzędzi, domyślnie po prawej, ma tylko Files, Changes, Tasks
-  i Agent; może być na dole, zmaksymalizowany lub schowany. Kategorie są w jednym
-  nagłówku okna; wąskie okno ma nazwę aktywnej strony i menu Tools. Pasek tabów
+  i Agent; może być na dole, zmaksymalizowany lub schowany. Kategorie są na górze
+  panelu i znikają razem z nim; wąski panel ma nazwę aktywnej strony i menu Tools. Pasek tabów
   zachowuje przewijanie i stałe akcje.
   Titlebar pokazuje projekt, branch i wybraną pracę, zastępując osobne nagłówki.
   Szczegóły: [układ workspace'u](features/workspace-layout.md).

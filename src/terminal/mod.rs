@@ -2,6 +2,7 @@ pub mod control;
 pub mod environment;
 pub mod file_drop;
 pub mod input;
+pub mod links;
 mod metered;
 pub mod session;
 mod spawn;

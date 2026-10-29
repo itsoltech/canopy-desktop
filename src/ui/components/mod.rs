@@ -25,6 +25,8 @@ pub mod session;
 mod settings;
 pub mod task_detail;
 pub mod tasks;
+mod tool_panel;
+pub use tool_panel::*;
 pub use buttons::*;
 pub use controls::*;
 pub use segmented::segmented_control;

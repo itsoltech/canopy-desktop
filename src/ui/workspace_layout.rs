@@ -2,7 +2,7 @@
 use super::*;
 use canopy_desktop::state::workspace::{ToolPage, ToolPosition};
 use gpui_kit::component::{
-    Selectable, Sizable,
+    Sizable,
     button::{Button, ButtonVariants},
     menu::{DropdownMenu, PopupMenuItem},
 };
@@ -152,10 +152,9 @@ impl Workspace {
             .ghost()
             .small()
             .compact()
-            .h_7()
-            .px_2()
-            .label("Tools")
-            .dropdown_caret(true)
+            .size(px(24.))
+            .icon(IconName::Ellipsis)
+            .accessibility_label("Tools and layout")
             .tooltip("Tools and layout")
             .dropdown_menu(move |menu, _, cx| {
                 let mut menu = menu;
@@ -275,6 +274,41 @@ impl Workspace {
             })
     }
 
+    /// The count a tab shows: changed files of the worktree in Changes.
+    fn tool_count(&self, page: ToolPage, cx: &Context<Self>) -> Option<usize> {
+        match page {
+            ToolPage::Changes => self
+                .state
+                .changes
+                .read(cx)
+                .data
+                .as_ref()
+                .map(|data| data.files.len())
+                .filter(|count| *count > 0),
+            _ => None,
+        }
+    }
+
+    /// The most urgent state among the agents that are running or unread.
+    fn agent_signal(&self, cx: &Context<Self>) -> Option<Hsla> {
+        use canopy_desktop::agents::Status;
+        let agents = self.state.agents.read(cx);
+        let statuses: Vec<_> = agents
+            .sessions
+            .values()
+            .filter(|session| session.active || session.unseen)
+            .map(|session| session.status)
+            .collect();
+        [
+            (Status::Waiting, t::yellow()),
+            (Status::Failed, t::red()),
+            (Status::Working, t::accent()),
+        ]
+        .into_iter()
+        .find(|(status, _)| statuses.contains(status))
+        .map(|(_, color)| color)
+    }
+
     pub(super) fn tool_navigation(
         &self,
         width: f32,
@@ -284,38 +318,87 @@ impl Workspace {
         let model = self.state.workspace.read(cx);
         let selected = model.tool_panel().page();
         let open = model.tools_open();
-        let compact = width < f32::from(window.rem_size()) * 36.;
+        // A narrow panel keeps only the selected page; the menu still switches pages.
+        let compact = width < f32::from(window.rem_size()) * 20.;
+        let no_project = self.state.projects.read(cx).catalog.active.is_none()
+            && self.focused_remote(cx).is_none();
+        let agent = self.agent_signal(cx);
         row()
             .id("tool-navigation")
-            .h_full()
-            .gap_1()
+            .h(t::tabs_height())
             .flex_shrink_0()
+            .px(px(4.))
+            .gap(px(2.))
+            .border_b_1()
+            .border_color(t::border())
             .children(
                 TOOL_PAGES
                     .into_iter()
                     .filter(|(page, _)| !compact || (open && *page == selected))
                     .map(|(page, label)| {
-                        Button::new(SharedString::from(format!("tool-page-{page:?}")))
-                            .ghost()
-                            .small()
-                            .compact()
-                            .h_7()
-                            .px_2()
-                            .label(label)
-                            .selected(open && selected == page)
-                            .tooltip(super::keymap::with_shortcut(
-                                page_label(page),
-                                tool_command(page),
-                                cx,
-                            ))
-                            .disabled(
-                                self.state.projects.read(cx).catalog.active.is_none()
-                                    && self.focused_remote(cx).is_none()
-                                    && matches!(page, ToolPage::Files | ToolPage::Changes),
-                            )
-                            .on_click(cx.listener(move |s, _, _, cx| s.select_tool_page(page, cx)))
+                        let active = open && selected == page;
+                        let disabled =
+                            no_project && matches!(page, ToolPage::Files | ToolPage::Changes);
+                        let tooltip =
+                            super::keymap::with_shortcut(page_label(page), tool_command(page), cx);
+                        let tab =
+                            row()
+                                .id(SharedString::from(format!("tool-page-{page:?}")))
+                                .relative()
+                                .h_full()
+                                .px(px(8.))
+                                .gap(px(5.))
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(if active { t::text() } else { t::faint() })
+                                .role(Role::Tab)
+                                .aria_label(label)
+                                .aria_selected(active)
+                                .when(disabled, |tab| tab.opacity(0.5))
+                                .when(!disabled, |tab| {
+                                    tab.cursor_pointer()
+                                        .tab_index(0)
+                                        .when(!active, |tab| {
+                                            tab.hover(|style| style.text_color(t::secondary()))
+                                        })
+                                        .focus_visible(|style| style.bg(t::hover()))
+                                        .on_click(cx.listener(move |s, _, _, cx| {
+                                            s.select_tool_page(page, cx)
+                                        }))
+                                })
+                                .tooltip(move |window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(tooltip.clone())
+                                        .build(window, cx)
+                                })
+                                .child(label)
+                                .children(
+                                    self.tool_count(page, cx)
+                                        .map(|count| count_badge(count, active)),
+                                )
+                                .children(
+                                    agent
+                                        .filter(|_| page == ToolPage::Agent)
+                                        .map(|color| dot().size(px(6.)).bg(color)),
+                                )
+                                .children(active.then(|| {
+                                    div()
+                                        .absolute()
+                                        .left(px(8.))
+                                        .right(px(8.))
+                                        .bottom_0()
+                                        .h(px(2.))
+                                        .rounded(px(1.))
+                                        .bg(t::accent())
+                                }));
+                        #[cfg(test)]
+                        let tab = {
+                            use gpui_kit::TestSupportExt;
+                            tab.test_support()
+                        };
+                        tab.into_any_element()
                     }),
             )
+            .child(div().flex_1())
             .child(self.tool_menu(cx))
     }
 
@@ -547,6 +630,8 @@ impl Workspace {
                 height,
                 bottom,
             };
+            // The page tabs belong to the panel, so hiding it hides them too.
+            let navigation = self.tool_navigation(tool_width, window, cx);
             let mut tools = column()
                 .relative()
                 .w(px(tool_width))
@@ -584,6 +669,7 @@ impl Workspace {
                                 })),
                         )
                 }))
+                .child(navigation)
                 .child(div().flex_1().min_h_0().child(content));
             if !maximized {
                 tools = tools.child(
@@ -679,6 +765,8 @@ mod tests {
                 cx.notify();
             });
             window.render_frame(cx);
+            window.click("toggle-inspector", cx);
+            window.render_frame(cx);
             window.click("tool-page-Agent", cx);
             assert_eq!(app.workspace.read(cx).tool_panel().page(), ToolPage::Agent);
             assert!(app.workspace.read(cx).tools_open());
@@ -694,7 +782,10 @@ mod tests {
         cx.run_until_parked();
         cx.update_window(window.into(), |_, window, cx| {
             window.render_frame(cx);
-            window.click("tool-page-Agent", cx);
+            // Hidden tools take their page tabs with them.
+            assert!(window.try_find("tool-page-Agent").is_none());
+            window.click("toggle-inspector", cx);
+            assert!(app.workspace.read(cx).tools_open());
             window.render_frame(cx);
             window.click("tool-panel-menu", cx);
             choose_menu("Maximize tools", window, cx);
@@ -756,12 +847,19 @@ mod tests {
             });
             cx.update_window(window.into(), |_, window, cx| {
                 window.render_frame(cx);
+                // The tools menu lives in the panel, which a narrow window hides.
+                let tools = window
+                    .try_find("tool-panel-menu")
+                    .map(|_| "tool-panel-menu");
                 for id in [
                     "new-terminal",
                     "split-terminal",
                     "all-tabs",
-                    "tool-panel-menu",
-                ] {
+                    "toggle-inspector",
+                ]
+                .into_iter()
+                .chain(tools)
+                {
                     let bounds = window.find(id).bounds();
                     assert!(
                         bounds.left() >= px(0.) && bounds.right() <= px(width),

@@ -49,6 +49,24 @@ pub struct IntegrationsState {
     pulls: Arc<std::sync::Mutex<HashMap<String, FoundPulls>>>,
 }
 impl EventEmitter<TaskItem> for IntegrationsState {}
+/// Why a folder has no GitHub pull requests to show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GithubUnavailable {
+    NotRepository,
+    NotGithub,
+    NoAccount,
+    Failed(String),
+}
+impl std::fmt::Display for GithubUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NotRepository => "This folder isn't a Git repository.",
+            Self::NotGithub => "The repository's origin isn't on GitHub.",
+            Self::NoAccount => "Connect GitHub in Preferences → Integrations.",
+            Self::Failed(error) => error,
+        })
+    }
+}
 impl IntegrationsState {
     pub fn new() -> Self {
         Self {
@@ -424,6 +442,62 @@ impl IntegrationsState {
             });
         }));
     }
+    /// The GitHub repository at `path` and the connection Tasks use for its owner.
+    fn github_target(
+        &self,
+        path: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(Account, ProjectTarget), GithubUnavailable>> {
+        let app = cx.global::<AppState>().clone();
+        let Some(git) = app.git.read(cx).client() else {
+            return Task::ready(Err(GithubUnavailable::Failed(
+                "Git is still starting.".into(),
+            )));
+        };
+        let config = self.config.clone();
+        cx.background_executor().spawn(async move {
+            let repository = git
+                .task_repository(path)
+                .await
+                .map_err(GithubUnavailable::Failed)?
+                .ok_or(GithubUnavailable::NotRepository)?;
+            let github = |target: &ProjectTarget| target.provider == Provider::Github;
+            let target = config
+                .task_project(&repository)
+                .filter(github)
+                .or(repository.inferred.clone().filter(github))
+                .ok_or(GithubUnavailable::NotGithub)?;
+            let account = config
+                .account_for(&target)
+                .cloned()
+                .ok_or(GithubUnavailable::NoAccount)?;
+            Ok((account, target))
+        })
+    }
+    /// A GitHub client with the account's token and `owner`, `name` of the
+    /// repository at `path`.
+    pub fn github(
+        &self,
+        path: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(github::Github, String, String), GithubUnavailable>> {
+        let target = self.github_target(path, cx);
+        let http = cx.http_client();
+        cx.background_executor().spawn(async move {
+            let (account, target) = target.await?;
+            let token =
+                credentials::load(&account.credential).map_err(GithubUnavailable::Failed)?;
+            let (owner, name) = target
+                .key
+                .split_once('/')
+                .ok_or(GithubUnavailable::NotGithub)?;
+            Ok((
+                github::Github::new(http, token),
+                owner.to_owned(),
+                name.to_owned(),
+            ))
+        })
+    }
     /// Pull requests of the GitHub repository at `path` for `#` in chat (DEC-074),
     /// through the connection Tasks use for its owner. Answers repeat for a minute; no
     /// refresh happens without a search.
@@ -434,29 +508,20 @@ impl IntegrationsState {
         cx: &mut Context<Self>,
     ) -> Task<Result<Vec<github::PullRef>, String>> {
         const FRESH: std::time::Duration = std::time::Duration::from_secs(60);
-        let app = cx.global::<AppState>().clone();
-        let Some(git) = app.git.read(cx).client() else {
-            return Task::ready(Err("Git is still starting.".into()));
-        };
-        let config = self.config.clone();
+        let target = self.github_target(path, cx);
         let http = cx.http_client();
         let cache = self.pulls.clone();
         cx.spawn(async move |_, cx| {
-            let repository = git
-                .task_repository(path)
-                .await
-                .map_err(|error| error.to_string())?
-                .ok_or("This chat's folder isn't a Git repository.")?;
-            let github = |target: &ProjectTarget| target.provider == Provider::Github;
-            let target = config
-                .task_project(&repository)
-                .filter(github)
-                .or(repository.inferred.clone().filter(github))
-                .ok_or("The repository's origin isn't on GitHub.")?;
-            let account = config
-                .account_for(&target)
-                .cloned()
-                .ok_or("Connect GitHub in Preferences → Integrations to mention pull requests.")?;
+            let (account, target) = target.await.map_err(|unavailable| match unavailable {
+                GithubUnavailable::NotRepository => {
+                    "This chat's folder isn't a Git repository.".to_owned()
+                }
+                GithubUnavailable::NoAccount => {
+                    "Connect GitHub in Preferences → Integrations to mention pull requests."
+                        .to_owned()
+                }
+                unavailable => unavailable.to_string(),
+            })?;
             let key = format!("{}\n{}\n{}", account.id, target.key, query.trim());
             if let Some((at, pulls)) = cache.lock().ok().and_then(|c| c.get(&key).cloned())
                 && at.elapsed() < FRESH

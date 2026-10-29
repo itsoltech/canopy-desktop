@@ -821,3 +821,51 @@ fn rejecting_pre_commit_hook_aborts_publication() {
     assert!(error.contains("hook"));
     assert!(repo.head().is_err());
 }
+#[test]
+fn snapshot_counts_lines_per_side_and_tracks_the_upstream() {
+    let (dir, repo) = fixture();
+    let path = dir.path();
+    std::fs::write(path.join("file.txt"), "one\ntwo\nthree\n").unwrap();
+    changes::edit(path, Edit::Stage(None)).unwrap();
+    let first = commit(path, "Initial");
+    // A local "remote" branch at the first commit becomes the upstream.
+    repo.remote("origin", "https://example.invalid/repo.git")
+        .unwrap();
+    repo.reference("refs/remotes/origin/main", first, true, "test")
+        .unwrap();
+    let branch = repo.head().unwrap().shorthand().unwrap().to_owned();
+    let mut config = repo.config().unwrap();
+    config
+        .set_str(&format!("branch.{branch}.remote"), "origin")
+        .unwrap();
+    config
+        .set_str(&format!("branch.{branch}.merge"), "refs/heads/main")
+        .unwrap();
+    std::fs::write(path.join("file.txt"), "one\n2\nthree\nfour\n").unwrap();
+    changes::edit(path, Edit::Stage(None)).unwrap();
+    commit(path, "Second");
+    std::fs::write(path.join("file.txt"), "one\n2\nthree\n").unwrap();
+    std::fs::write(path.join("new.txt"), "a\nb\n").unwrap();
+    let new_file = changes::status(path)
+        .unwrap()
+        .files
+        .into_iter()
+        .rfind(|file| file.path.ends_with("new.txt"))
+        .unwrap();
+    changes::edit(path, Edit::Stage(Some(new_file))).unwrap();
+
+    let snapshot = changes::status(path).unwrap();
+    let lines = |name: &str, staged: bool| {
+        let position = snapshot
+            .files
+            .iter()
+            .position(|file| file.path.ends_with(name) && file.staged == staged)
+            .unwrap();
+        snapshot.lines[position]
+    };
+    assert_eq!(lines("new.txt", true), Some((2, 0)));
+    assert_eq!(lines("file.txt", false), Some((0, 1)));
+    let upstream = snapshot.upstream.unwrap();
+    assert_eq!(upstream.name, "origin/main");
+    assert_eq!((upstream.ahead, upstream.behind), (1, 0));
+}
