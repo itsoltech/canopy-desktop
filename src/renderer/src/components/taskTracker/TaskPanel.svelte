@@ -238,9 +238,19 @@
   )
 
   let loadedForKey = $state('')
+  // Task the comment / agent-prompt drafts were typed for. Tracked separately from
+  // loadedForKey, which is also cleared for the same task while credentials are checked.
+  let draftsForKey = ''
 
   $effect(() => {
     const key = panel?.taskKey ?? ''
+    if (key !== draftsForKey) {
+      // A half-typed comment / agent prompt belongs to the previous task: never let it be
+      // submitted against the next one (the panel stays mounted across task switches).
+      draftsForKey = key
+      newComment = ''
+      closeCompose()
+    }
     if (key && (credentialsBroken || checkingCreds || panelResolving)) {
       // Don't fire doomed (or premature) requests; clearing the guard makes the load re-run once
       // credentials are fixed/verified or resolution lands (the flag flips and this effect
@@ -606,6 +616,7 @@
     <!-- svelte-ignore a11y_autofocus -->
     <textarea
       class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring resize-y min-h-12 placeholder:text-text-faint"
+      aria-label="Instructions for agent"
       bind:value={composeText}
       onpaste={handleComposePaste}
       onkeydown={(e) => {
@@ -668,7 +679,7 @@
           : 'Send to the agent (Ctrl+Enter)'}
       >
         {#if sendingToAgent}
-          <LoaderCircle size={12} class="animate-spin" />
+          <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
         {:else}
           <Send size={12} />
         {/if}
@@ -680,7 +691,7 @@
 
 {#if panelResolving}
   <div class="flex items-center justify-center gap-2 h-full p-4 text-text-faint">
-    <LoaderCircle size={14} class="animate-spin" />
+    <LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />
     <span class="text-sm">Resolving task…</span>
   </div>
 {:else if !panel}
@@ -746,7 +757,7 @@
         {:else if loading}
           <LoaderCircle
             size={12}
-            class="animate-spin text-text-faint"
+            class="animate-spin motion-reduce:animate-none text-text-faint"
             aria-label="Loading status"
           />
         {/if}
@@ -758,7 +769,7 @@
           aria-label="Refresh task"
           title="Refresh from tracker"
         >
-          <RefreshCw size={13} class={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={13} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} />
         </button>
       </div>
       {#if composeTarget?.kind === 'task'}
@@ -777,7 +788,7 @@
         {/if}
         {#if !task && loading}
           <span class="flex items-center gap-1.5 text-text-faint">
-            <LoaderCircle size={11} class="animate-spin" />
+            <LoaderCircle size={11} class="animate-spin motion-reduce:animate-none" />
             Loading…
           </span>
         {:else}
@@ -811,7 +822,7 @@
         {/key}
       {:else if !task && loading}
         <div class="flex items-center gap-1.5 mt-1 text-xs text-text-faint">
-          <LoaderCircle size={11} class="animate-spin" />
+          <LoaderCircle size={11} class="animate-spin motion-reduce:animate-none" />
           <span>Loading description…</span>
         </div>
       {/if}
@@ -880,7 +891,7 @@
         </div>
       {:else if checkingCreds}
         <div class="flex items-center gap-2 text-xs text-text-faint">
-          <LoaderCircle size={12} class="animate-spin" />
+          <LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />
           <span>Checking credentials…</span>
         </div>
       {:else if notFound}
@@ -923,7 +934,7 @@
         {#if transitions.length === 0}
           {#if loading}
             <div class="flex items-center gap-1.5 text-xs text-text-faint">
-              <LoaderCircle size={11} class="animate-spin" />
+              <LoaderCircle size={11} class="animate-spin motion-reduce:animate-none" />
               <span>Loading transitions…</span>
             </div>
           {:else}
@@ -984,6 +995,7 @@
               </span>
               <textarea
                 class="px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring resize-y min-h-12 placeholder:text-text-faint"
+                aria-label="Comment"
                 bind:value={transitionComment}
                 rows="2"
                 placeholder={commentRequired
@@ -1018,7 +1030,7 @@
         </span>
         {#if loading && comments.length === 0}
           <div class="flex items-center gap-1.5 text-xs text-text-faint">
-            <LoaderCircle size={11} class="animate-spin" />
+            <LoaderCircle size={11} class="animate-spin motion-reduce:animate-none" />
             <span>Loading comments…</span>
           </div>
         {:else if comments.length === 0}
@@ -1056,6 +1068,7 @@
         <div class="flex items-end gap-1.5">
           <textarea
             class="flex-1 px-2.5 py-1.5 border border-border rounded-md bg-bg-input text-text text-sm font-inherit outline-none focus:border-focus-ring resize-y min-h-9 placeholder:text-text-faint"
+            aria-label="New comment"
             bind:value={newComment}
             rows="1"
             placeholder="Add a comment…"

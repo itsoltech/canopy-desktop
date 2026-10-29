@@ -44,11 +44,13 @@
     selectedBoardId,
     task,
     onBack,
+    busy = $bindable(false),
   }: {
     connectionId: string
     selectedBoardId: string
     task: Task
     onBack: () => void
+    busy?: boolean
   } = $props()
 
   let branchTypeOptions: string[] = $state([])
@@ -57,6 +59,10 @@
   // Set once the user hand-edits the branch name; template re-renders then stop overwriting it.
   let branchEdited = $state(false)
   let creatingWorktree = $state(false)
+  // Lets the parent block Escape/backdrop dismissal while the async flow is running.
+  $effect(() => {
+    busy = creatingWorktree
+  })
   let templateHasBranchType = $state(false)
   let initialized = $state(false)
   let fullTask = $state<Task>(task)
@@ -399,11 +405,16 @@
 
 {#if initialized}
   <div class="flex items-center gap-2 px-4 pt-3.5 pb-2.5 border-b border-border-subtle">
-    <button class={iconBtnCls} onclick={onBack} aria-label="Back">
+    <button class={iconBtnCls} onclick={onBack} disabled={creatingWorktree} aria-label="Back">
       <ArrowLeft size={16} />
     </button>
     <h3 class="m-0 text-lg font-semibold text-text flex-1">Create Branch</h3>
-    <button class={iconBtnCls} onclick={() => closeDialog()} aria-label="Close">
+    <button
+      class={iconBtnCls}
+      onclick={() => closeDialog()}
+      disabled={creatingWorktree}
+      aria-label="Close"
+    >
       <X size={16} />
     </button>
   </div>
@@ -528,7 +539,8 @@
     <div class="flex justify-end gap-2 pt-1 border-t border-border-subtle">
       <button
         class="px-3.5 py-1.5 border-0 rounded-lg bg-active text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover-strong"
-        onclick={onBack}>Back</button
+        onclick={onBack}
+        disabled={creatingWorktree}>Back</button
       >
       <button
         class="px-3.5 py-1.5 border-0 rounded-lg bg-accent-bg text-accent-text text-sm font-inherit cursor-pointer enabled:hover:bg-accent-bg-hover disabled:opacity-50 disabled:cursor-default"

@@ -19,6 +19,8 @@ import type {
 export const mirrorState: {
   /** True after the initial snapshot has been applied. */
   hydrated: boolean
+  /** Message from a failed initial snapshot fetch; null when none. */
+  hydrateError: string | null
   hostInfo: HostInfoSnapshot | null
   projects: ProjectSnapshot[]
   tabsByWorktree: Record<string, TabSnapshot[]>
@@ -27,6 +29,7 @@ export const mirrorState: {
   tools: ToolSnapshot[]
 } = $state({
   hydrated: false,
+  hydrateError: null,
   hostInfo: null,
   projects: [],
   tabsByWorktree: {},
@@ -47,11 +50,13 @@ export function applyStateSnapshot(snapshot: StateSnapshot): void {
   mirrorState.activeWorktreePath = snapshot.activeWorktreePath
   mirrorState.tools = snapshot.tools
   mirrorState.hydrated = true
+  mirrorState.hydrateError = null
 }
 
 /** Reset the mirror when the session disconnects. */
 export function resetMirrorState(): void {
   mirrorState.hydrated = false
+  mirrorState.hydrateError = null
   mirrorState.hostInfo = null
   mirrorState.projects = []
   mirrorState.tabsByWorktree = {}

@@ -21,6 +21,7 @@
   import TrackerProviderIcon from '../shared/TrackerProviderIcon.svelte'
   import NewTaskForm from '../taskTracker/NewTaskForm.svelte'
   import { addToast } from '../../lib/stores/toast.svelte'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
   import type { TrackerProviderKind } from '../../lib/taskTracker/types'
   import { getTheme } from '../../lib/terminal/themes'
   import { safeDirName } from '../../lib/sanitize'
@@ -132,8 +133,14 @@
     return branches.remote.find((r) => r.slice(r.indexOf('/') + 1) === name) ?? ''
   }
 
+  // Restore focus to the element that opened the modal when it closes —
+  // unless the tool opened for the new worktree already took focus.
+  const restoreFocus = captureFocusReturn()
+  let focusRoot: HTMLElement | undefined
+
   onMount(async () => {
     containerEl?.focus()
+    focusRoot = containerEl
     window.api.getHomedir().then((h) => (homedir = h))
     try {
       const list = await window.api.worktreeListBranches({ repoRoot })
@@ -166,7 +173,13 @@
     refreshing = false
   }
 
+  // Set on unmount so in-flight creation can't call onClose() on an unrelated dialog
+  let destroyed = false
+
   onDestroy(() => {
+    destroyed = true
+    const active = document.activeElement
+    if (!active || active === document.body || focusRoot?.contains(active)) restoreFocus()
     if (finishTimer) clearTimeout(finishTimer)
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
@@ -532,20 +545,23 @@
   }
 
   function finishCreation(): void {
-    if (step === 'done') return
+    if (destroyed || step === 'done') return
     step = 'done'
     if (finishTimer) clearTimeout(finishTimer)
     finishTimer = setTimeout(
       async () => {
         finishTimer = null
+        if (destroyed) return
         const targetPath = createdPath || worktreeDirDisplay
         try {
           await selectWorktree(targetPath)
           await openTool(getPref('newWorktree.toolId', 'shell'), targetPath).catch((err) => {
             console.error('Failed to launch tool after worktree creation:', err)
           })
+          if (destroyed) return
           onClose()
         } catch (err) {
+          if (destroyed) return
           errorMessage = err instanceof Error ? err.message : String(err)
           step = 'error'
         }
@@ -591,6 +607,8 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
+      // Dismissing mid-creation would leave the create running against a closed dialog
+      if (step === 'creating') return
       if (step === 'setup') {
         skipSetup()
       } else {
@@ -611,7 +629,11 @@
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
+  onmousedown={() => {
+    if (step === 'creating') return
+    if (step === 'setup') skipSetup()
+    else onClose()
+  }}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div

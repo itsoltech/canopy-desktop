@@ -704,6 +704,9 @@ app.whenReady().then(async () => {
       webPreferences.nodeIntegration = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      // The `webpreferences` attribute can also switch these off; pin them too.
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -1181,8 +1184,12 @@ app.whenReady().then(async () => {
   app.on('activate', function () {
     if (!canCreateApplicationWindow()) return
 
-    if (BrowserWindow.getAllWindows().length === 0)
+    if (BrowserWindow.getAllWindows().length === 0) {
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
+      // The overlay is disposed when the last window closes (see above); bring it
+      // back with the new window while still enabled. initialize() is idempotent.
+      if (preferencesStore.get('notch.enabled') === 'true') notchOverlay?.initialize()
+    }
   })
 })
 

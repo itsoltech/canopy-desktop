@@ -332,11 +332,21 @@ export class WindowManager {
   }
 
   setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {
+    // Callers register after an async start(). If the window closed meanwhile,
+    // disposeWindow has already run and nothing would ever stop this watcher.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     let watchers = this.gitWatchers.get(wcId)
     if (!watchers) {
       watchers = new Map()
       this.gitWatchers.set(wcId, watchers)
     }
+    // A concurrent watch for the same root may have registered first; stop the
+    // replaced watcher instead of leaking its native subscription.
+    const previous = watchers.get(repoRoot)
+    if (previous && previous !== watcher) void previous.stop()
     watchers.set(repoRoot, watcher)
   }
 
@@ -397,6 +407,14 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    // Same races as setGitWatcher: the window may be gone, or an overlapping
+    // `files:watch` may already have registered its own watcher.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
+    const previous = this.fileWatchers.get(wcId)
+    if (previous && previous !== watcher) void previous.stop()
     this.fileWatchers.set(wcId, watcher)
   }
 

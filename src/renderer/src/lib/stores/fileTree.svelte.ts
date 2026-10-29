@@ -71,10 +71,13 @@ function createFileTreeStore() {
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
   async function expandDir(dirPath: string): Promise<void> {
+    const root = rootPath
     try {
       const entries = await window.api.fileTreeReadDir(dirPath)
+      if (rootPath !== root) return
       expandedDirs[dirPath] = entries
     } catch (e) {
+      if (rootPath !== root) return
       // Show empty rather than leaving in collapsed state
       expandedDirs[dirPath] = []
       console.warn('fileTreeReadDir failed:', dirPath, e)
@@ -104,9 +107,11 @@ function createFileTreeStore() {
 
   async function refreshGitStatus(repoRoot: string): Promise<void> {
     if (!rootPath) return
+    const root = rootPath
     try {
       const previousPaths = [...gitFileStatus.keys()]
-      const nextStatus = await window.api.fileTreeGetGitStatus(repoRoot, rootPath)
+      const nextStatus = await window.api.fileTreeGetGitStatus(repoRoot, root)
+      if (rootPath !== root) return
       // eslint-disable-next-line svelte/prefer-svelte-reactivity
       const affectedPaths = new Set<string>(nextStatus.affectedPaths)
 
@@ -128,7 +133,7 @@ function createFileTreeStore() {
       // eslint-disable-next-line svelte/prefer-svelte-reactivity
       const dirsToRefresh = new Set<string>()
       for (const relPath of affectedPaths) {
-        let currentDir = rootPath
+        let currentDir = root
         if (expandedDirs[currentDir]) dirsToRefresh.add(currentDir)
 
         const segments = relPath.split('/').slice(0, -1)
@@ -183,12 +188,14 @@ function createFileTreeStore() {
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = setTimeout(async () => {
       refreshTimer = null
+      const root = rootPath
       // Re-read all expanded directories (branch/worktree switches can
       // add or remove files that don't show up in git status porcelain)
       const dirs = Object.keys(expandedDirs)
       if (dirs.length > 0) {
         await Promise.all(dirs.map((dirPath) => expandDir(dirPath)))
       }
+      if (rootPath !== root) return
       await refreshGitStatus(repoRoot)
     }, 300)
   }

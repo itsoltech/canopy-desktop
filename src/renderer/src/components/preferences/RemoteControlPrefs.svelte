@@ -3,6 +3,7 @@
   import { Pencil, ShieldAlert, Trash2 } from '@lucide/svelte'
   import { prefs, setPref } from '../../lib/stores/preferences.svelte'
   import { confirm, prompt } from '../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../lib/stores/toast.svelte'
   import CustomCheckbox from '../shared/CustomCheckbox.svelte'
   import CustomRadio from '../shared/CustomRadio.svelte'
   import CustomSelect from '../shared/CustomSelect.svelte'
@@ -35,6 +36,7 @@
 
   let trustedDevices = $state<TrustedDevice[]>([])
   let loading = $state(false)
+  let devicesError = $state('')
   let interfaces = $state<NetworkInterface[]>([])
 
   const listenerGroups = $derived(buildRemoteListenerGroups(interfaces, listenerInterface))
@@ -50,20 +52,34 @@
   function setListeningOn(value: string): void {
     void applyRemoteListenerPref(value, setPref).catch((e) => {
       console.warn('[remote] setListeningOn failed:', e)
+      addToast(errorText(e, 'Failed to change listener'), 'danger')
     })
+  }
+
+  function errorText(e: unknown, fallback: string): string {
+    return e instanceof Error && e.message ? e.message : fallback
   }
 
   async function loadTrustedDevices(): Promise<void> {
     loading = true
     try {
       trustedDevices = await window.api.remote.listTrustedDevices()
+      devicesError = ''
+    } catch (e) {
+      console.warn('[remote] listTrustedDevices failed:', e)
+      devicesError = errorText(e, 'Failed to load trusted devices.')
     } finally {
       loading = false
     }
   }
 
   async function loadInterfaces(): Promise<void> {
-    interfaces = await window.api.remote.listNetworkInterfaces()
+    try {
+      interfaces = await window.api.remote.listNetworkInterfaces()
+    } catch (e) {
+      console.warn('[remote] listNetworkInterfaces failed:', e)
+      addToast(errorText(e, 'Failed to load network interfaces'), 'danger')
+    }
   }
 
   async function removeDevice(deviceId: string, name: string): Promise<void> {
@@ -79,6 +95,7 @@
       await loadTrustedDevices()
     } catch (e) {
       console.warn('[remote] removeTrustedDevice failed:', e)
+      addToast(errorText(e, 'Failed to remove device'), 'danger')
     }
   }
 
@@ -98,6 +115,7 @@
       await loadTrustedDevices()
     } catch (e) {
       console.warn('[remote] renameTrustedDevice failed:', e)
+      addToast(errorText(e, 'Failed to rename device'), 'danger')
     }
   }
 
@@ -215,6 +233,12 @@
         class="text-sm text-text-muted px-3 py-3 bg-bg-input rounded-md border border-border-subtle"
       >
         Loading…
+      </p>
+    {:else if devicesError}
+      <p
+        class="text-sm text-danger-text px-3 py-3 bg-bg-input rounded-md border border-border-subtle"
+      >
+        {devicesError}
       </p>
     {:else if trustedDevices.length === 0}
       <p

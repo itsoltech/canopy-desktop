@@ -87,12 +87,17 @@
 
   let checkedTools = $derived([...onboardingState.selectedTools, 'git'])
 
+  let checkError = $state('')
+
   async function runCheck(): Promise<void> {
     checking = true
+    checkError = ''
     try {
       const data = await window.api.checkDependencies([...onboardingState.selectedTools])
       results = data.results
       platform = data.platform
+    } catch (e) {
+      checkError = e instanceof Error ? e.message : String(e)
     } finally {
       // Always clear the loading flag so a rejected IPC call doesn't leave the
       // step stuck on its spinner with no way to proceed.
@@ -210,6 +215,18 @@
         Re-check
       </button>
     {/if}
+  {:else if checkError}
+    <div class="flex flex-col items-center gap-3 p-6" role="alert">
+      <p class="m-0 text-sm text-danger-text">Could not check installed tools: {checkError}</p>
+      <button
+        class="flex items-center gap-1.5 px-4 py-1.5 border border-border rounded-lg bg-transparent text-text-secondary text-sm font-inherit cursor-pointer transition-colors duration-fast enabled:hover:bg-hover enabled:hover:text-text disabled:opacity-50 disabled:cursor-default"
+        onclick={runCheck}
+        disabled={checking}
+      >
+        <RefreshCw size={14} class={checking ? 'animate-spin motion-reduce:animate-none' : ''} />
+        Retry
+      </button>
+    </div>
   {:else}
     <div class="p-6 flex justify-center">
       <RefreshCw

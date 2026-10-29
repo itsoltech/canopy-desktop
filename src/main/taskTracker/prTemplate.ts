@@ -16,14 +16,16 @@ export function renderPRBody(template: string, task: TrackerTask): string {
 
 function replacePlaceholders(template: string, task: TrackerTask): string {
   // Tasks can arrive partially hydrated over IPC — never inject "undefined" into a PR.
+  // Replacer functions keep tracker text literal: with a string replacement, `$&`,
+  // `$'` or `$$` inside a title/description would be expanded as patterns.
   return template
-    .replace(/\{taskKey\}/g, task.key ?? '')
-    .replace(/\{taskTitle\}/g, task.summary ?? '')
-    .replace(/\{taskType\}/g, task.type ?? '')
-    .replace(/\{parentKey\}/g, task.parentKey ?? '')
-    .replace(/\{boardKey\}/g, task.key?.split('-')[0] ?? '')
-    .replace(/\{taskUrl\}/g, task.url ?? '')
-    .replace(/\{taskDescription\}/g, task.description ?? '')
+    .replace(/\{taskKey\}/g, () => task.key ?? '')
+    .replace(/\{taskTitle\}/g, () => task.summary ?? '')
+    .replace(/\{taskType\}/g, () => task.type ?? '')
+    .replace(/\{parentKey\}/g, () => task.parentKey ?? '')
+    .replace(/\{boardKey\}/g, () => task.key?.split('-')[0] ?? '')
+    .replace(/\{taskUrl\}/g, () => task.url ?? '')
+    .replace(/\{taskDescription\}/g, () => task.description ?? '')
 }
 
 export function resolveTargetBranch(

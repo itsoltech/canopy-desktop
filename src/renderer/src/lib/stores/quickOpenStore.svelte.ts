@@ -16,8 +16,23 @@ export function isLoading(worktreePath: string): boolean {
   return state[worktreePath]?.loading ?? false
 }
 
-export async function ensureLoaded(worktreePath: string): Promise<string[]> {
-  if (!worktreePath) return []
+// In-flight loads per worktree so concurrent callers (e.g. link hover) share one IPC call.
+// Plain Map on purpose: bookkeeping only, nothing renders from it.
+// eslint-disable-next-line svelte/prefer-svelte-reactivity
+const inflight = new Map<string, Promise<string[]>>()
+
+export function ensureLoaded(worktreePath: string): Promise<string[]> {
+  if (!worktreePath) return Promise.resolve([])
+  const running = inflight.get(worktreePath)
+  if (running) return running
+  const promise = loadFiles(worktreePath).finally(() => {
+    if (inflight.get(worktreePath) === promise) inflight.delete(worktreePath)
+  })
+  inflight.set(worktreePath, promise)
+  return promise
+}
+
+async function loadFiles(worktreePath: string): Promise<string[]> {
   const cached = state[worktreePath]
   if (cached && !cached.loading && Date.now() - cached.fetchedAt < STALE_AFTER_MS) {
     return cached.files

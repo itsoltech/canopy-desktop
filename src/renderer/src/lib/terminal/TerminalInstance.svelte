@@ -39,6 +39,8 @@
 
   let containerEl: HTMLDivElement
   let termRef: Terminal | null = null
+  // Reactive companion to `termRef` (plain let) so pref effects re-run once the terminal exists
+  let termReady = $state(false)
   let fitAddonRef: FitAddon | null = null
   let cleanupPtyDataSubscription: (() => void) | null = null
   let webglAddonRef: WebglAddon | null = null
@@ -149,7 +151,7 @@
 
   // React to preference changes for theme/font
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const themeName = prefs.theme || 'Default'
     const theme = getTheme(themeName)
     termRef.options.theme = theme
@@ -159,14 +161,17 @@
   })
 
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
     termRef.options.fontSize = size
+    // Cell size changed: refit so cols/rows (and the PTY, via onResize) follow.
+    fitAddonRef?.fit()
   })
 
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    fitAddonRef?.fit()
   })
 
   function shellEscape(path: string): string {
@@ -562,6 +567,7 @@
       // Defer initial fit to after browser layout is complete
       requestAnimationFrame(() => fitAddon.fit())
       termRef = term
+      termReady = true
 
       dataDisposable = term.onData((data) => {
         writeInput(data)

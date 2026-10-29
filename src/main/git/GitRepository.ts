@@ -371,9 +371,14 @@ export class GitRepository {
     remote: string,
     name: string,
   ): ResultAsync<void, GitError> {
-    return validateRef(remote)
-      .andThen(() => validateRef(name))
-      .asyncAndThen(() => {
+    // `remote` comes from the renderer: only accept a configured remote name,
+    // never a URL or path that would push a delete to an arbitrary repository.
+    return validateRef(name)
+      .asyncAndThen(() => GitRepository.hasRemote(repoRoot, remote))
+      .andThen((known): Result<void, GitError> =>
+        known ? ok(undefined) : err({ _tag: 'InvalidRef', ref: remote }),
+      )
+      .andThen(() => {
         const git = simpleGit(repoRoot)
         return gitCall('push --delete', () => git.push(remote, name, { '--delete': null }))
       })

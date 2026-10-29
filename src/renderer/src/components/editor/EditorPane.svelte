@@ -17,6 +17,7 @@
     pendingEditorJumps,
   } from '../../lib/stores/tabs.svelte'
   import { dragState, clearDrag, setDropTarget } from '../../lib/stores/dragState.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { detectIndent, indentUnitString, type IndentInfo } from './cm/detectIndent'
   import { detectLanguageName } from './cm/language'
 
@@ -155,6 +156,20 @@
     } finally {
       loading = false
     }
+  }
+
+  // Toolbar Refresh re-reads from disk; don't silently drop unsaved edits.
+  async function handleRefresh(): Promise<void> {
+    if (dirty) {
+      const confirmed = await confirm({
+        title: 'Reload file?',
+        message: 'Unsaved changes will be lost.',
+        confirmLabel: 'Reload',
+        destructive: true,
+      })
+      if (!confirmed) return
+    }
+    void loadFile(activeFilePath)
   }
 
   function restoreFromState(state: {
@@ -560,7 +575,7 @@
     <div class="file-info">
       {#if dirty}<span class="dirty-dot" aria-label="Unsaved changes">●</span>{/if}
       <span class="file-name">{fileName}</span>
-      <span class="file-path">{displayPath}</span>
+      <span class="file-path" title={activeFilePath}>{displayPath}</span>
       {#if fileSize > 0}
         <span class="file-size">{formatSize(fileSize)}</span>
       {/if}
@@ -578,12 +593,7 @@
           <Save size={12} />
         </button>
       {/if}
-      <button
-        class="toolbar-btn"
-        onclick={() => loadFile(activeFilePath)}
-        title="Refresh"
-        aria-label="Refresh file"
-      >
+      <button class="toolbar-btn" onclick={handleRefresh} title="Refresh" aria-label="Refresh file">
         <RotateCw size={12} />
       </button>
       <button

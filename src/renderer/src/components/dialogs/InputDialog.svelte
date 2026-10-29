@@ -32,6 +32,7 @@
   let checked = $state(untrack(() => checkbox?.checked ?? false))
   let error = $derived(validate ? validate(value) : null)
   let generating = $state(false)
+  let generateError: string | null = $state(null)
   let inputEl: HTMLInputElement | undefined = $state()
   let textareaEl: HTMLTextAreaElement | undefined = $state()
   let containerEl: HTMLDivElement | undefined = $state()
@@ -57,11 +58,18 @@
   async function handleGenerate(): Promise<void> {
     if (!onGenerate || generating) return
     generating = true
+    generateError = null
+    const startValue = value
     try {
       const msg = await onGenerate()
-      if (msg) value = msg
+      if (!msg) {
+        generateError = 'Could not generate a suggestion. Type one manually.'
+      } else if (value === startValue) {
+        // Don't clobber text the user typed while generating
+        value = msg
+      }
     } catch {
-      // Silently ignore — user can type manually
+      generateError = 'Generation failed. Type one manually.'
     } finally {
       generating = false
     }
@@ -134,6 +142,7 @@
           {placeholder}
           rows="4"
           spellcheck="false"
+          aria-labelledby="input-dialog-title"
           aria-invalid={!!error}
           aria-describedby={error ? 'input-dialog-error' : undefined}></textarea>
       {:else}
@@ -145,6 +154,7 @@
           {placeholder}
           spellcheck="false"
           autocomplete="off"
+          aria-labelledby="input-dialog-title"
           aria-invalid={!!error}
           aria-describedby={error ? 'input-dialog-error' : undefined}
         />
@@ -152,6 +162,8 @@
 
       {#if error}
         <p id="input-dialog-error" role="alert" class="m-0 text-sm text-danger-text">{error}</p>
+      {:else if generateError}
+        <p role="alert" class="m-0 text-sm text-danger-text">{generateError}</p>
       {/if}
 
       {#if checkbox}

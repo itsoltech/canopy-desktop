@@ -27,17 +27,24 @@
   let filterQuery = $state('')
   let statusFilter = $state<'all' | 'added' | 'modified' | 'deleted'>('all')
 
+  // Generation counter so an older, slower refresh can't overwrite a newer one
+  let refreshGen = 0
+
   async function refresh(): Promise<void> {
+    const my = ++refreshGen
     loading = true
     loadError = false
     try {
-      diff = await window.api.changesGetDiff({ worktreePath })
+      const result = await window.api.changesGetDiff({ worktreePath })
+      if (my !== refreshGen) return
+      diff = result
     } catch (e) {
+      if (my !== refreshGen) return
       diff = null
       loadError = true
       console.error('changesGetDiff failed', e)
     } finally {
-      loading = false
+      if (my === refreshGen) loading = false
     }
   }
 
@@ -270,7 +277,10 @@
               file.status,
             )}">{statusIcon(file.status)}</span
           >
-          <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span
+            class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+            title={file.path}
+          >
             <span class="text-text-faint">{dirname(file.path)}</span><span class="text-text"
               >{basename(file.path)}</span
             >

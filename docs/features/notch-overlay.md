@@ -85,6 +85,8 @@ The manager listens for `display-metrics-changed` events. If the display no long
 
 The toggle is available in Settings (under Notch) and in the first-launch wizard (Features step). Changing the preference calls `window.api.setNotchEnabled(boolean)` which sends `notch:setEnabled` to the main process, triggering `initialize()` or `dispose()` on the overlay manager.
 
+The overlay is disposed when the last app window closes. On macOS, where the app keeps running without windows, re-opening a window from the Dock (`activate`) initializes it again while `notch.enabled` is `"true"`.
+
 ## Session status types
 
 | Status              | Label in overlay                   | Meaning                                                      |

@@ -546,7 +546,7 @@
                     class="h-16 max-w-44 object-contain rounded-md border border-border-subtle bg-bg-input"
                   />
                   <button
-                    class="absolute -top-1.5 -right-1.5 flex items-center justify-center size-4 border border-border rounded-full bg-bg-overlay text-text-faint cursor-pointer p-0 leading-none opacity-0 transition-opacity duration-fast group-hover/img:opacity-100 hover:text-danger-text hover:border-danger-text"
+                    class="absolute -top-1.5 -right-1.5 flex items-center justify-center size-4 border border-border rounded-full bg-bg-overlay text-text-faint cursor-pointer p-0 leading-none opacity-0 transition-opacity duration-fast group-hover/img:opacity-100 group-focus-within/img:opacity-100 focus-visible:opacity-100 hover:text-danger-text hover:border-danger-text"
                     onclick={() => pendingImages.splice(i, 1)}
                     aria-label={`Remove ${img.filename}`}>×</button
                   >
