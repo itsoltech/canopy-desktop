@@ -175,6 +175,9 @@ export const confirmState: {
 } = $state({ current: null })
 
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
+  // Single slot: a newer confirm replaces the visible one, so settle the
+  // previous promise as cancelled instead of leaving its caller awaiting forever.
+  confirmState.current?.onCancel()
   return new Promise((resolve) => {
     confirmState.current = {
       ...opts,

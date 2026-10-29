@@ -32,8 +32,11 @@ export async function ensureLoaded(worktreePath: string): Promise<string[]> {
     state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
     return files
   } catch {
-    state[worktreePath].loading = false
-    return state[worktreePath].files
+    // The entry may have been removed by clearQuickOpenCache during the await.
+    const entry = state[worktreePath]
+    if (!entry) return []
+    entry.loading = false
+    return entry.files
   }
 }
 
@@ -49,8 +52,11 @@ export async function forceReload(worktreePath: string): Promise<string[]> {
     state[worktreePath] = { files, fetchedAt: Date.now(), loading: false }
     return files
   } catch {
-    state[worktreePath].loading = false
-    return state[worktreePath].files
+    // The entry may have been removed by clearQuickOpenCache during the await.
+    const entry = state[worktreePath]
+    if (!entry) return []
+    entry.loading = false
+    return entry.files
   }
 }
 

@@ -20,6 +20,14 @@ export const BLOCKED_ENV_VARS = new Set([
   'DYLD_INSERT_LIBRARIES',
   'DYLD_LIBRARY_PATH',
   'DYLD_FRAMEWORK_PATH',
+  'DYLD_FALLBACK_LIBRARY_PATH',
+  'DYLD_FALLBACK_FRAMEWORK_PATH',
+
+  // Shell startup hooks — sourced by every (even non-interactive) bash/zsh an
+  // agent spawns, so a value here runs code on each tool invocation.
+  'BASH_ENV',
+  'ZDOTDIR',
+  'PROMPT_COMMAND',
 
   // Node / Electron
   'NODE_OPTIONS',
@@ -34,10 +42,17 @@ export const BLOCKED_ENV_VARS = new Set([
   'CLASSPATH',
   'JAVA_TOOL_OPTIONS',
   '_JAVA_OPTIONS',
+  'PYTHONSTARTUP',
+  'RUBYOPT',
+  'PERL5OPT',
 
   // Git / SSH
   'GIT_SSH_COMMAND',
+  'GIT_SSH',
+  'GIT_PROXY_COMMAND',
+  'GIT_EXEC_PATH',
   'GIT_ASKPASS',
+  'SSH_ASKPASS',
   'SSH_AUTH_SOCK',
 
   // Editors (can execute arbitrary commands)

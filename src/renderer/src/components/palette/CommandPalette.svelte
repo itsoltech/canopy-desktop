@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { captureFocusReturn } from '../../lib/a11y/focusTrap'
   import { SvelteMap } from 'svelte/reactivity'
   import {
     Search,
@@ -58,11 +59,15 @@
   let tmuxAvailable = $state(false)
 
   onMount(() => {
+    // Return focus to the opener (e.g. the terminal) when the palette closes;
+    // otherwise it drops to <body> and typing goes nowhere.
+    const restoreFocus = captureFocusReturn()
     inputEl?.focus()
     window.api
       .tmuxIsAvailable()
       .then((v) => (tmuxAvailable = v))
       .catch(() => {})
+    return restoreFocus
   })
 
   const isMac = navigator.userAgent.includes('Mac')
@@ -559,7 +564,8 @@
   })
 
   let groupedItems = $derived.by((): { category: string; items: PaletteItem[] }[] => {
-    const categoryOrder = ['Tools', 'Git', 'Worktrees', 'Tabs', 'App']
+    // Every category used above must be listed, or its items are silently dropped.
+    const categoryOrder = ['Tools', 'Git', 'Worktrees', 'Tabs', 'Terminal', 'App']
     const groups = new SvelteMap<string, PaletteItem[]>()
 
     for (const item of filteredItems) {

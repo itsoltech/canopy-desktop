@@ -156,7 +156,10 @@
 .diff-line.delete .line-content {
   color: var(--color-diff-delete-fg);
 }
-.diff-line:hover .comment-trigger {
+.diff-line:hover .comment-trigger,
+.diff-line:focus-within .comment-trigger,
+.comment-trigger:focus-visible {
+  /* Keyboard focus must reveal the trigger too, not only pointer hover. */
   opacity: 1;
 }
 .search-highlight {
@@ -517,6 +520,12 @@
 
   .keystroke-overlay.blazing,
   .keystroke-overlay.inferno {
+    animation: none;
+  }
+
+  /* Tailwind spinner utility (e.g. LoaderCircle class="animate-spin"); the
+     accompanying "Loading…" text still conveys progress. */
+  .animate-spin {
     animation: none;
   }
 }

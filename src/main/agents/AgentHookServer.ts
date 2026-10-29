@@ -54,7 +54,14 @@ export class AgentHookRouter {
   private async ensureServer(): Promise<number> {
     if (this.serverReady) return this.serverReady
 
-    const server = http.createServer((req, res) => this.handleRequest(req, res))
+    // Any local process can reach this port; a rejected handler must not become
+    // an unhandled rejection (recorded as a crash) or leave the socket open.
+    const server = http.createServer((req, res) => {
+      this.handleRequest(req, res).catch(() => {
+        if (!res.headersSent) res.writeHead(500)
+        res.end()
+      })
+    })
     this.server = server
 
     this.serverReady = new Promise<number>((resolve, reject) => {
@@ -99,7 +106,15 @@ export class AgentHookRouter {
       return
     }
 
-    const sessionId = decodeURIComponent(match[1])
+    // Unauthenticated request path: malformed escapes (e.g. `%zz`) throw URIError.
+    let sessionId: string
+    try {
+      sessionId = decodeURIComponent(match[1])
+    } catch {
+      res.writeHead(404)
+      res.end()
+      return
+    }
     const endpoint = match[2]
     const session = this.sessions.get(sessionId)
 

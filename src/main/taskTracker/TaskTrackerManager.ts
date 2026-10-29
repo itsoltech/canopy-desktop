@@ -1,4 +1,4 @@
-import { join, basename, sep } from 'path'
+import { join, basename, dirname } from 'path'
 import { mkdirSync, createWriteStream, rmSync } from 'fs'
 import os from 'os'
 import { randomUUID } from 'crypto'
@@ -594,7 +594,9 @@ export class TaskTrackerManager {
     dlErr: (reason: string) => TaskTrackerError,
   ): ResultAsync<string, TaskTrackerError> {
     const dir = join(os.tmpdir(), `canopy-attachments-${randomUUID()}`)
-    mkdirSync(dir, { recursive: true })
+    // Owner-only: attachments are fetched with the user's tracker credentials
+    // and /tmp is shared with other local users on Linux.
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
 
     const safeName = basename(filename.replace(/[/\\]/g, '_'))
     const filePath = join(dir, safeName)
@@ -935,9 +937,10 @@ export class TaskTrackerManager {
   cleanupAttachmentDir(filePath: string): void {
     const tmpBase = os.tmpdir()
     const dir = join(filePath, '..')
-    // Anchor the tmp containment check to a path boundary: a bare
-    // startsWith(os.tmpdir()) also matches sibling dirs like `/tmpEVIL/...`.
-    if (!dir.startsWith(tmpBase + sep) || !basename(dir).startsWith('canopy-attachments-')) return
+    // Only the per-download dirs `downloadToTempDir` creates directly under
+    // os.tmpdir(): a renderer-supplied path like `/tmp/x/canopy-attachments-y/f`
+    // must not get a nested directory removed recursively.
+    if (dirname(dir) !== tmpBase || !basename(dir).startsWith('canopy-attachments-')) return
     try {
       rmSync(dir, { recursive: true, force: true })
     } catch {

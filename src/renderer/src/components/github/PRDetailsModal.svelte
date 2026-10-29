@@ -418,12 +418,22 @@
                 { value: 'squash', label: 'Squash' },
                 { value: 'rebase', label: 'Rebase' },
               ]}
-              onchange={(v) => (mergeStrategy = v as 'merge' | 'squash' | 'rebase')}
+              onchange={(v) => {
+                // CustomSelect only emits the option values listed above.
+                mergeStrategy = v as 'merge' | 'squash' | 'rebase'
+                // An armed merge must be re-confirmed with the options it will use.
+                armed = null
+              }}
             />
             <label
               class="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none"
             >
-              <input type="checkbox" bind:checked={deleteBranchAfter} class="cursor-pointer" />
+              <input
+                type="checkbox"
+                bind:checked={deleteBranchAfter}
+                onchange={() => (armed = null)}
+                class="cursor-pointer"
+              />
               Delete source branch
             </label>
             <span class="flex-1"></span>
