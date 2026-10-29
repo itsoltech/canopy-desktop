@@ -113,7 +113,9 @@
     if (event.key === 'Escape') closeDialog()
     if (event.key === 'Tab' && modalEl) {
       const focusable = modalEl.querySelectorAll<HTMLElement>(
-        'button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        // Disabled controls can't take focus: counting one as `last` (e.g. Save while the
+        // form is invalid) lets Tab escape the modal.
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
       )
       if (focusable.length === 0) return
       const first = focusable[0]

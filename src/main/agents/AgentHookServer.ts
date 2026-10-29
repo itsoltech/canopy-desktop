@@ -99,7 +99,17 @@ export class AgentHookRouter {
       return
     }
 
-    const sessionId = decodeURIComponent(match[1])
+    // HTTP request parsing boundary: a malformed escape (e.g. `%E0%A4%A`) makes
+    // decodeURIComponent throw before the auth check. Answer 400 instead of
+    // leaving an unhandled rejection and a socket that never gets a response.
+    let sessionId: string
+    try {
+      sessionId = decodeURIComponent(match[1])
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
     const endpoint = match[2]
     const session = this.sessions.get(sessionId)
 

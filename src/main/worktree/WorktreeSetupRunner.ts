@@ -61,16 +61,20 @@ export interface SetupContext {
 
 function shellQuote(s: string): string {
   if (process.platform === 'win32') {
-    return '"' + s.replace(/"/g, '\\"') + '"'
+    // Commands run via `powershell -Command`: double-quoted strings expand `$var` and
+    // `$(...)`, so use a literal single-quoted string (a quote is escaped by doubling it).
+    return "'" + s.replace(/'/g, "''") + "'"
   }
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }
 
 function substituteVars(command: string, ctx: SetupContext): string {
+  // Function replacers: a string replacement would interpret `$&`, `$'` etc. inside the
+  // paths and splice unquoted command text into the result.
   return command
-    .replace(/\$MAIN_WORKTREE/g, shellQuote(ctx.mainWorktreePath))
-    .replace(/\$NEW_WORKTREE/g, shellQuote(ctx.newWorktreePath))
-    .replace(/\$REPO_ROOT/g, shellQuote(ctx.repoRoot))
+    .replace(/\$MAIN_WORKTREE/g, () => shellQuote(ctx.mainWorktreePath))
+    .replace(/\$NEW_WORKTREE/g, () => shellQuote(ctx.newWorktreePath))
+    .replace(/\$REPO_ROOT/g, () => shellQuote(ctx.repoRoot))
 }
 
 function getLabel(action: WorktreeSetupAction): string {

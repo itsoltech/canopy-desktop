@@ -75,6 +75,10 @@ export class AgentCommandService {
 
   private contextText(payload: AgentContextPayload): string {
     if (typeof payload.text !== 'string') throw new Error('Invalid agent context payload')
-    return payload.text
+    // Task descriptions and diff content are untrusted: an embedded `\x1b[201~` would end the
+    // bracketed paste early and the rest (including CR) would reach the agent as typed input.
+    // Drop C0 controls except tab/newline, plus DEL and C1 controls, before wrapping.
+    // eslint-disable-next-line no-control-regex
+    return payload.text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '')
   }
 }

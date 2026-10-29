@@ -38,6 +38,8 @@ export class HostRpcServer {
    *  `registerAllHandlers()` and invoked in `dispose()` so we don't leak
    *  IPC listeners when a peer disconnects. */
   private unsubPtyResized: (() => void) | null = null
+  /** Throttle for `reportActivity` (epoch ms of the last report to main). */
+  private lastActivityReportAt = 0
 
   constructor(private rpc: DataChannelRpc) {}
 
@@ -309,6 +311,18 @@ export class HostRpcServer {
   }
 
   /**
+   * Data-channel RPCs never reach the main process, whose session idle timer
+   * would otherwise close a remote session that is in active use. Reported at
+   * most once a minute — the timeout is 15 minutes.
+   */
+  private reportActivity(): void {
+    const now = Date.now()
+    if (now - this.lastActivityReportAt < 60_000) return
+    this.lastActivityReportAt = now
+    window.api.remote.reportActivity().catch(() => {})
+  }
+
+  /**
    * Typed wrapper around `rpc.registerMethod` so handler signatures stay in
    * sync with `RpcMethods`. Every call is passed through the action guard
    * first — if it rejects, the RPC response is an error and the handler
@@ -321,6 +335,7 @@ export class HostRpcServer {
     ) => RpcMethods[M]['result'] | Promise<RpcMethods[M]['result']>,
   ): void {
     this.rpc.registerMethod(method, async (params) => {
+      this.reportActivity()
       const allowed = await checkAction(method, params)
       if (!allowed) {
         throw new Error(`Action "${method}" was rejected on desktop`)

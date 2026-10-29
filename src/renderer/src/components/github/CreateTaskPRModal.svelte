@@ -128,10 +128,17 @@
     }
   })
 
+  function requestClose(): void {
+    // Closing mid-request would orphan the PR creation, and its success path calls
+    // closeDialog() — which would then close whatever dialog is open by that time.
+    if (creating) return
+    closeDialog()
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
-      closeDialog()
+      requestClose()
       return
     }
     if (e.key === 'Tab' && containerEl) {
@@ -160,7 +167,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
-  onmousedown={closeDialog}
+  onmousedown={requestClose}
   onkeydown={handleKeydown}
 >
   <div
@@ -201,7 +208,7 @@
       </div>
       <button
         class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
-        onclick={closeDialog}
+        onclick={requestClose}
         aria-label="Close"
         title="Close"
       >
@@ -218,6 +225,7 @@
       {:else if loadError}
         <div
           class="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-xs text-danger-text leading-snug"
+          role="alert"
         >
           {loadError}
         </div>
@@ -305,8 +313,9 @@
       class="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-border-subtle shrink-0"
     >
       <button
-        class="px-3 py-1 rounded-md border border-border bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
-        onclick={closeDialog}
+        class="px-3 py-1 rounded-md border border-border bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text disabled:opacity-50 disabled:cursor-default"
+        onclick={requestClose}
+        disabled={creating}
       >
         Cancel
       </button>

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { Eye, EyeOff, Trash2 } from '@lucide/svelte'
   import { confirm } from '../../../lib/stores/dialogs.svelte'
+  import { addToast } from '../../../lib/stores/toast.svelte'
   import PrefsSection from './PrefsSection.svelte'
   import { prefsSearch, matches } from './prefsSearch.svelte'
 
@@ -31,8 +32,13 @@
       destructive: true,
     })
     if (!ok) return
-    await window.api.deleteCredential(id)
-    await loadCredentials()
+    // Keychain failures must be visible: otherwise the entry just stays with no explanation.
+    try {
+      await window.api.deleteCredential(id)
+      await loadCredentials()
+    } catch {
+      addToast(`Could not delete the saved password for ${username} on ${domain}`)
+    }
   }
 
   async function revealPassword(id: string, domain: string): Promise<void> {
@@ -42,7 +48,13 @@
       if (revealTimer) clearTimeout(revealTimer)
       return
     }
-    const cred = await window.api.getCredentialDecrypted(id, domain, 'reveal')
+    let cred: Awaited<ReturnType<typeof window.api.getCredentialDecrypted>>
+    try {
+      cred = await window.api.getCredentialDecrypted(id, domain, 'reveal')
+    } catch {
+      addToast('Could not reveal the saved password')
+      return
+    }
     if (cred) {
       revealedId = id
       revealedPassword = cred.password

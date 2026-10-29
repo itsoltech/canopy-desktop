@@ -1,6 +1,6 @@
 import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
-import { readFileSync, statSync } from 'fs'
+import { lstatSync, readFileSync, readlinkSync } from 'fs'
 import { join } from 'path'
 import type { GitError } from './errors'
 import type { ParsedDiff, DiffFile } from './types'
@@ -8,6 +8,7 @@ import { parseDiff } from './diffParser'
 import { fromExternalCall, errorMessage } from '../errors'
 import { hasRemoteName } from './remoteNames'
 import { runGitProcess } from './GitProcessQueue'
+import { redactGitHubFailureReason } from '../github/redactFailureReason'
 
 function validateRef(name: string): Result<string, GitError> {
   if (name.startsWith('-')) return err({ _tag: 'InvalidRef', ref: name })
@@ -15,7 +16,9 @@ function validateRef(name: string): Result<string, GitError> {
 }
 
 function gitErr(command: string, e: unknown): GitError {
-  return { _tag: 'GitCommandFailed', command, message: errorMessage(e) }
+  // push/fetch/pull failures can echo the remote URL, including an embedded token
+  // (`https://x-access-token:<token>@…`), and these messages reach the renderer and logs.
+  return { _tag: 'GitCommandFailed', command, message: redactGitHubFailureReason(errorMessage(e)) }
 }
 
 function readKey(repoRoot: string, operation: string, ...args: string[]): string {
@@ -45,8 +48,16 @@ function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<Diff
   const absPath = join(repoRoot, filePath)
   let content: string
   try {
-    const sz = statSync(absPath).size
-    if (sz > UNTRACKED_MAX_BYTES) {
+    // lstat, not stat: an untracked symlink must not be followed. Git diffs the link itself
+    // (its target path), and following it could surface a file outside the repo (e.g. a key
+    // under ~/.ssh) or block the main process reading a FIFO.
+    const st = lstatSync(absPath)
+    if (st.isSymbolicLink()) {
+      content = readlinkSync(absPath)
+    } else if (st.isDirectory()) {
+      // e.g. a nested repository listed as `dir/` — nothing to diff (skipped, as before)
+      return err(gitErr('readFile', new Error(`${filePath} is a directory`)))
+    } else if (!st.isFile() || st.size > UNTRACKED_MAX_BYTES) {
       return ok({
         path: filePath,
         status: 'added' as const,
@@ -54,8 +65,9 @@ function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<Diff
         additions: 0,
         deletions: 0,
       })
+    } else {
+      content = readFileSync(absPath, 'utf-8')
     }
-    content = readFileSync(absPath, 'utf-8')
   } catch (e) {
     return err(gitErr('readFile', e))
   }
@@ -371,13 +383,18 @@ export class GitRepository {
     remote: string,
     name: string,
   ): ResultAsync<void, GitError> {
+    // `remote` comes from the renderer: only push to a configured remote, never to an
+    // arbitrary URL that would receive the user's git credentials.
     return validateRef(remote)
       .andThen(() => validateRef(name))
-      .asyncAndThen(() => {
+      .asyncAndThen(() => GitRepository.hasRemote(repoRoot, remote))
+      .andThen((known) => {
+        if (!known) return errAsync<undefined, GitError>({ _tag: 'InvalidRef', ref: remote })
         const git = simpleGit(repoRoot)
-        return gitCall('push --delete', () => git.push(remote, name, { '--delete': null }))
+        return gitCall('push --delete', () => git.push(remote, name, { '--delete': null })).map(
+          () => undefined,
+        )
       })
-      .map(() => undefined)
   }
 
   static getPushInfo(repoRoot: string): ResultAsync<GitPushInfo | null, GitError> {

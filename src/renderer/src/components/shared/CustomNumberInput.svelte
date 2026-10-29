@@ -28,10 +28,13 @@
     onchange?.(String(clamp(n)))
   }
 
+  // Keep editValue in sync: the next blur/Enter commits editValue, and a stale
+  // focus-time value would revert the step just applied.
   function increment(): void {
     const n = clamp(parseInt(String(value), 10) || 0)
     const next = clamp(n + step)
     editing = false
+    editValue = String(next)
     onchange?.(String(next))
   }
 
@@ -39,6 +42,7 @@
     const n = clamp(parseInt(String(value), 10) || 0)
     const next = clamp(n - step)
     editing = false
+    editValue = String(next)
     onchange?.(String(next))
   }
 

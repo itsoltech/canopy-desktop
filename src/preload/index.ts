@@ -1808,6 +1808,7 @@ const api = {
       ipcRenderer.invoke('remote:acceptDevice', { remember }) as Promise<void>,
     rejectDevice: () => ipcRenderer.invoke('remote:rejectDevice') as Promise<void>,
     sendSignal: (msg: unknown) => ipcRenderer.invoke('remote:sendSignal', msg) as Promise<void>,
+    reportActivity: () => ipcRenderer.invoke('remote:reportActivity') as Promise<void>,
     listTrustedDevices: () =>
       ipcRenderer.invoke('remote:listTrustedDevices') as Promise<
         Array<{
