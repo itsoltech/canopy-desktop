@@ -792,9 +792,12 @@ export function registerIpcHandlers(
       // at the PTY's original cols/rows and any cursor positioning escape
       // sequence the shell/CLI emits lands in the wrong column on the
       // peer's screen.
+      // Rebuild the message from validated fields — forwarding `payload` itself would relay
+      // whatever extra properties the sending renderer attached to every other window.
+      const resized = { sessionId: payload.sessionId, cols, rows }
       for (const w of BrowserWindow.getAllWindows()) {
         if (!w.isDestroyed()) {
-          w.webContents.send('pty:resized', payload)
+          w.webContents.send('pty:resized', resized)
         }
       }
     },
@@ -1171,6 +1174,9 @@ export function registerIpcHandlers(
     const applyResult = await settingsExportService.applyImport(parsed)
     const counts = unwrapOrThrow(applyResult, settingsExportErrorMessage)
     credentialSessionCache.clear()
+    // The import rewrites `taskTracker.globalConfig` directly; a stale cached copy would be
+    // served until restart and written back over the import on the next save.
+    globalConfigManager.invalidate()
 
     await broadcastProfilesChanged()
     broadcastToolsChanged()

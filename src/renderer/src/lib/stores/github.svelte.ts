@@ -178,7 +178,13 @@ export async function loadBranchPRs(repoRoot: string, force = false): Promise<vo
     const scoped = Object.fromEntries(
       Object.entries(result).map(([branch, pr]) => [prKey(repoRoot, branch), pr]),
     )
-    branchPRs = { ...branchPRs, ...scoped }
+    // The result lists only open PRs, so replace this repo's entries instead of merging into
+    // them: a PR merged or closed since the last load must not keep its "open" badge.
+    const repoPrefix = prKey(repoRoot, '')
+    const otherRepos = Object.fromEntries(
+      Object.entries(branchPRs).filter(([key]) => !key.startsWith(repoPrefix)),
+    )
+    branchPRs = { ...otherRepos, ...scoped }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (msg.includes('rate limit') || msg.includes('401') || msg.includes('403')) {

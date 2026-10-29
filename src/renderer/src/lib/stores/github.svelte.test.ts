@@ -12,11 +12,28 @@ import {
   PR_FALLBACK_TTL_MS,
   getPRFallbackCacheSizes,
   getPRFallbackGeneration,
+  getPRForBranch,
   invalidatePRFallback,
   loadBranchPRs,
   loadPRFallbackSummary,
   resetGitHubState,
 } from './github.svelte'
+
+type PRInfo = NonNullable<ReturnType<typeof getPRForBranch>>
+
+function openPR(number: number, headRefName: string): PRInfo {
+  return {
+    number,
+    title: `PR ${number}`,
+    state: 'OPEN',
+    url: `https://github.com/itsoltech/canopy-desktop/pull/${number}`,
+    headRefName,
+    baseRefName: 'main',
+    isDraft: false,
+    reviewDecision: null,
+    checksState: null,
+  }
+}
 
 describe('GitHub PR fallback refresh', () => {
   beforeEach(() => {
@@ -199,5 +216,29 @@ describe('GitHub PR fallback refresh', () => {
     await loadPRFallbackSummary('C:/repo', 'feature/a')
 
     expect(api.taskTrackerPRSummary).toHaveBeenLastCalledWith('C:/repo', 'feature/a', 1, true)
+  })
+})
+
+describe('GitHub branch PR badges', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetGitHubState()
+  })
+
+  it('drops a PR that is no longer open and keeps other repositories', async () => {
+    api.githubFetchBranchPRs
+      .mockResolvedValueOnce({ 'feature/a': openPR(1, 'feature/a') })
+      .mockResolvedValueOnce({ main: openPR(2, 'main') })
+      .mockResolvedValueOnce({})
+
+    await loadBranchPRs('C:/repo', true)
+    await loadBranchPRs('C:/other', true)
+    expect(getPRForBranch('C:/repo', 'feature/a')?.number).toBe(1)
+
+    // The PR was merged: the next load lists no open PR for the branch.
+    await loadBranchPRs('C:/repo', true)
+
+    expect(getPRForBranch('C:/repo', 'feature/a')).toBeUndefined()
+    expect(getPRForBranch('C:/other', 'main')?.number).toBe(2)
   })
 })

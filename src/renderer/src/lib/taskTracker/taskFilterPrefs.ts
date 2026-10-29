@@ -64,11 +64,15 @@ export function loadSavedTaskFilters(
   const raw = getPref(prefKey(connectionId, boardId))
   if (!raw) return null
   try {
-    const parsed = JSON.parse(raw) as SavedTaskFilters
-    parsed.excludedSprints = parsed.excludedSprints?.map((s) =>
-      s === LEGACY_NO_SPRINT ? NO_SPRINT : s,
-    )
-    return parsed
+    // The pref may come from an older build or a settings import, so the cast is only a
+    // starting point: callers iterate `excludedStatuses`, and any other shape counts as unsaved.
+    const parsed = JSON.parse(raw) as Partial<SavedTaskFilters> | null
+    if (!parsed || !Array.isArray(parsed.excludedStatuses)) return null
+    return {
+      excludedStatuses: parsed.excludedStatuses,
+      excludedSprints: parsed.excludedSprints?.map((s) => (s === LEGACY_NO_SPRINT ? NO_SPRINT : s)),
+      assignedToMe: parsed.assignedToMe === true,
+    }
   } catch {
     return null
   }

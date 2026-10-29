@@ -123,6 +123,9 @@
     externalChangeDetected = false
     try {
       const readResult = await loadEditorFile(paneId, path, MAX_EDIT_BYTES)
+      // The user may have switched sub-tabs while the read was in flight. Applying it now
+      // would put this file's text in the other file's editor, and a save would write it there.
+      if (path !== activeFilePath) return
       if (!readResult.ok) {
         error = readResult.message
         return
@@ -151,9 +154,10 @@
       fileMtimeMs = readResult.mtimeMs
       dirty = false
     } catch (e) {
+      if (path !== activeFilePath) return
       error = e instanceof Error ? e.message : 'Failed to read file'
     } finally {
-      loading = false
+      if (path === activeFilePath) loading = false
     }
   }
 
