@@ -151,9 +151,9 @@ When a browser tab is closed, the renderer calls `teardownBrowserWebview(browser
 
 ## Security and privacy
 
-- The browser runs in a dedicated Electron session partition (`persist:browser`), isolated from the app's main session. Cookies, storage, and cache are separate.
+- The browser runs in a dedicated Electron session partition (`persist:browser`), isolated from the app's main session. Cookies, storage, and cache are separate. The main process's `will-attach-webview` handler pins every guest to this partition with web security on, whatever the `<webview>` attributes say.
 - All permission requests (camera, microphone, geolocation, notifications, etc.) are denied via `setPermissionRequestHandler`.
-- Popups (`window.open()`, `target="_blank"`) are denied at the Electron level via `setWindowOpenHandler`. Valid HTTP(S) URLs are instead forwarded to the renderer, which opens them as a new browser pane tab in the same worktree. The `<webview>` has `allowpopups` set so the handler is actually invoked. Forwarding is throttled to one popup per 500ms per webview to prevent flooding from malicious pages.
+- Popups (`window.open()`, `target="_blank"`) are denied at the Electron level via `setWindowOpenHandler`. Valid HTTP(S) URLs are instead forwarded to the renderer, which opens them as a new browser pane tab in the same worktree. The `<webview>` has `allowpopups` set so the handler is actually invoked. Forwarding is throttled to one popup per 500ms per webview to prevent flooding from malicious pages. Until `BrowserManager.setup()` registers a guest, an app-wide default handler denies all of its popups.
 - Navigation is restricted to `http:` and `https:` protocols.
 - Credential autofill runs in isolated JavaScript world 999 to prevent page scripts from observing the injected values.
 - The Chrome Debugger Protocol is attached only when device emulation is active and detached when emulation is cleared.

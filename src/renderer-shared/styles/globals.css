@@ -156,7 +156,8 @@
 .diff-line.delete .line-content {
   color: var(--color-diff-delete-fg);
 }
-.diff-line:hover .comment-trigger {
+.diff-line:hover .comment-trigger,
+.comment-trigger:focus-visible {
   opacity: 1;
 }
 .search-highlight {
@@ -517,6 +518,17 @@
 
   .keystroke-overlay.blazing,
   .keystroke-overlay.inferno {
+    animation: none;
+  }
+
+  /* Looping Tailwind animation utilities, for elements that don't add
+   * `motion-reduce:animate-none` themselves (e.g. loading spinners). */
+  .animate-spin,
+  .animate-spin-slow,
+  .animate-pulse,
+  .animate-badge-pulse,
+  .animate-badge-pulse-fast,
+  .animate-progress-indeterminate {
     animation: none;
   }
 }

@@ -284,6 +284,7 @@
                 onclick={() => fileTree.toggleDir(absPath)}
                 oncontextmenu={(e) => handleContextMenu(e, absPath)}
                 title={entry.name}
+                aria-expanded={isExpanded}
               >
                 <span
                   class="inline-flex items-center justify-center size-3 flex-shrink-0 text-text-faint transition-transform duration-fast ease-std"

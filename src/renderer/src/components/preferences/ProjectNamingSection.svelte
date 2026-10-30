@@ -128,6 +128,15 @@
   async function removeOverride(type: Group, scope: string): Promise<void> {
     const cfg = getRepoConfig()
     if (!cfg || scope === 'default') return
+    const part = type === 'branch' ? 'branch' : 'PR'
+    const ok = await confirm({
+      title: 'Remove project override',
+      message: `Remove the ${part} template override for ${scope}?`,
+      details: `Deletes it from .canopy/config.json — the base ${part} template will apply.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
     const updated = $state.snapshot(cfg) as typeof cfg
     const entry = updated!.projectOverrides[scope]
     if (entry) {

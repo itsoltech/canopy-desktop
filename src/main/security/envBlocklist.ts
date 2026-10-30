@@ -1,7 +1,8 @@
 /**
  * Environment variables that must never be overridden by user-supplied customEnv.
  * All entries UPPERCASE — callers must normalize keys with .toUpperCase() before checking.
- * Covers: system paths, dynamic linkers, language runtimes, proxies, SSH/Git, editors, Node/Electron.
+ * Covers: system paths, dynamic linkers, shell startup hooks, language runtimes, proxies, SSH/Git,
+ * editors, Node/Electron.
  */
 export const BLOCKED_ENV_VARS = new Set([
   // System
@@ -20,6 +21,13 @@ export const BLOCKED_ENV_VARS = new Set([
   'DYLD_INSERT_LIBRARIES',
   'DYLD_LIBRARY_PATH',
   'DYLD_FRAMEWORK_PATH',
+  'DYLD_FALLBACK_LIBRARY_PATH',
+  'DYLD_FALLBACK_FRAMEWORK_PATH',
+
+  // Shell startup hooks (sourced or run by the spawned shell)
+  'BASH_ENV',
+  'ENV',
+  'PROMPT_COMMAND',
 
   // Node / Electron
   'NODE_OPTIONS',
@@ -29,15 +37,26 @@ export const BLOCKED_ENV_VARS = new Set([
   // Language runtimes
   'PYTHONPATH',
   'PYTHONHOME',
+  'PYTHONSTARTUP',
   'RUBYLIB',
+  'RUBYOPT',
   'PERL5LIB',
+  'PERL5OPT',
   'CLASSPATH',
   'JAVA_TOOL_OPTIONS',
   '_JAVA_OPTIONS',
 
   // Git / SSH
   'GIT_SSH_COMMAND',
+  'GIT_SSH',
   'GIT_ASKPASS',
+  'GIT_PROXY_COMMAND',
+  'GIT_EXEC_PATH',
+  // Env-injected git config (e.g. core.sshCommand, core.fsmonitor). Git reads
+  // the GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> pairs only when COUNT is set.
+  'GIT_CONFIG_COUNT',
+  'GIT_CONFIG_GLOBAL',
+  'GIT_CONFIG_SYSTEM',
   'SSH_AUTH_SOCK',
 
   // Editors (can execute arbitrary commands)

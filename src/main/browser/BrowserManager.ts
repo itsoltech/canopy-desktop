@@ -43,7 +43,7 @@ const APP_SHORTCUTS = new Set([
   '9',
 ])
 
-const BROWSER_PARTITION = 'persist:browser'
+export const BROWSER_PARTITION = 'persist:browser'
 
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()

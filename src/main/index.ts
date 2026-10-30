@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BROWSER_PARTITION, BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -338,28 +338,37 @@ async function handleCanopyUrl(url: string): Promise<void> {
     })
     const dedupePaths = [gitInfo.repoRoot ?? resolved, ...gitInfo.worktrees.map((wt) => wt.path)]
 
-    // Dedupe: focus existing window for this path (no confirmation needed)
+    // Dedupe: focus existing window for this path
     const existing = dedupePaths
       .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
       .find((win) => win !== null)
+
+    // Confirm before opening a new workspace from external deep link. Focusing
+    // an already-open workspace needs no confirmation, but a `tool` parameter
+    // launches a command and any web page can trigger canopy:// URLs, so that
+    // always asks first.
+    if (!existing || tool) {
+      const { response } = await dialog.showMessageBox({
+        type: 'question',
+        buttons: ['Open', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: tool ? 'Open workspace and launch tool?' : 'Open workspace?',
+        detail: tool
+          ? `An external application wants to open:\n${resolved}\n\nand launch the tool "${tool}".`
+          : `An external application wants to open:\n${resolved}`,
+      })
+      if (response !== 0) return
+    }
+
     if (existing) {
+      if (existing.isDestroyed()) return
       ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
       existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
       existing.focus()
       return
     }
-
-    // Confirm before opening a new workspace from external deep link
-    const { response } = await dialog.showMessageBox({
-      type: 'question',
-      buttons: ['Open', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-      message: 'Open workspace?',
-      detail: `An external application wants to open:\n${resolved}`,
-    })
-    if (response !== 0) return
 
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
@@ -696,6 +705,13 @@ app.whenReady().then(async () => {
   // Even if an attacker modifies webview attributes in the DOM, this handler
   // forces safe webPreferences and blocks non-http(s) sources.
   app.on('web-contents-created', (_event, contents) => {
+    if (contents.getType() === 'webview') {
+      // BrowserManager.setup() installs the real popup handler once the
+      // renderer registers the pane. Until then deny popups, so a page script
+      // that runs before that call cannot open an unmanaged BrowserWindow.
+      contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    }
+
     contents.on('will-attach-webview', (event, webPreferences, params) => {
       // Strip preload scripts — browser webviews must not have preload
       delete webPreferences.preload
@@ -704,6 +720,13 @@ app.whenReady().then(async () => {
       webPreferences.nodeIntegration = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+
+      // The partition and web-security settings come from renderer-controlled
+      // <webview> attributes. Pin them so a guest can never attach to the app's
+      // default session or run with web security disabled.
+      webPreferences.partition = BROWSER_PARTITION
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
 
       // Only allow http(s) or about:blank as source
       const src = params.src

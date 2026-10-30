@@ -21,6 +21,8 @@
   tabindex="0"
   onclick={onOpen}
   onkeydown={(event) => {
+    // Enter/Space on the nested Unlink button must reach that button, not open the task.
+    if (event.target !== event.currentTarget) return
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
       onOpen()

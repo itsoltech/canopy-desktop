@@ -99,7 +99,16 @@ export class AgentHookRouter {
       return
     }
 
-    const sessionId = decodeURIComponent(match[1])
+    let sessionId: string
+    try {
+      sessionId = decodeURIComponent(match[1])
+    } catch {
+      // Malformed percent-encoding (URIError) can never name a session —
+      // answer it instead of rejecting and leaving the socket hanging.
+      res.writeHead(404)
+      res.end()
+      return
+    }
     const endpoint = match[2]
     const session = this.sessions.get(sessionId)
 

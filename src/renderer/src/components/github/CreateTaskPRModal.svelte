@@ -128,10 +128,17 @@
     }
   })
 
+  // While the PR request is in flight the modal stays: its completion calls
+  // closeDialog(), which would otherwise close whatever dialog opened next.
+  function dismiss(): void {
+    if (creating) return
+    closeDialog()
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault()
-      closeDialog()
+      dismiss()
       return
     }
     if (e.key === 'Tab' && containerEl) {
@@ -160,7 +167,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
-  onmousedown={closeDialog}
+  onmousedown={dismiss}
   onkeydown={handleKeydown}
 >
   <div
@@ -201,7 +208,7 @@
       </div>
       <button
         class="flex items-center justify-center size-7 rounded-md bg-transparent border-0 text-text-muted cursor-pointer hover:bg-hover hover:text-text shrink-0"
-        onclick={closeDialog}
+        onclick={dismiss}
         aria-label="Close"
         title="Close"
       >
@@ -305,8 +312,9 @@
       class="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-border-subtle shrink-0"
     >
       <button
-        class="px-3 py-1 rounded-md border border-border bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text"
-        onclick={closeDialog}
+        class="px-3 py-1 rounded-md border border-border bg-transparent text-text-secondary text-sm font-inherit cursor-pointer hover:bg-hover hover:text-text disabled:opacity-50 disabled:cursor-default"
+        onclick={dismiss}
+        disabled={creating}
       >
         Cancel
       </button>

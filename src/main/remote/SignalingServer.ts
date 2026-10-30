@@ -174,6 +174,15 @@ export class SignalingServer {
       })(),
       (e): RemoteServerError => ({ _tag: 'PortBindFailed', message: errorMessage(e) }),
     ).map(({ server, wss, port }) => {
+      if (this.server) {
+        // An overlapping start() bound first (e.g. two windows mounting at once
+        // both call ensureListening). Keep that listener and release this one:
+        // overwriting the reference would orphan a socket still listening on
+        // the LAN that stop() can no longer close.
+        wss.close()
+        server.close()
+        return { port: this.port }
+      }
       this.server = server
       this.wss = wss
       this.port = port

@@ -591,11 +591,19 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      if (step === 'setup') {
-        skipSetup()
-      } else {
-        onClose()
-      }
+      dismiss()
+    }
+  }
+
+  // The git worktree operation cannot be cancelled once started. Closing during
+  // `creating` would let its continuation still run setup and open a tool in
+  // the worktree after the modal is gone, so dismissal waits for it.
+  function dismiss(): void {
+    if (step === 'creating') return
+    if (step === 'setup') {
+      skipSetup()
+    } else {
+      onClose()
     }
   }
 
@@ -611,7 +619,7 @@
 <div
   class="fixed inset-0 z-[1001] flex justify-center items-start pt-20 bg-scrim"
   onkeydown={handleKeydown}
-  onmousedown={() => (step === 'setup' ? skipSetup() : onClose())}
+  onmousedown={dismiss}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div

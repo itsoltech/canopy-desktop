@@ -384,7 +384,8 @@
 
   async function applyTransition(): Promise<void> {
     const key = panel?.taskKey
-    if (!key || !selectedTransition) return
+    const transition = selectedTransition
+    if (!key || !transition) return
     applying = true
     applyError = ''
     try {
@@ -392,14 +393,18 @@
         repoRoot: worktreePath,
         trackerId: panelTrackerId,
         taskKey: key,
-        transitionId: selectedTransition.id,
+        transitionId: transition.id,
         fields: Object.keys(fieldValues).length ? { ...fieldValues } : undefined,
         comment: transitionComment.trim() || undefined,
       })
-      addToast(`${key} → ${selectedTransition.toStatus || selectedTransition.name}`)
+      addToast(`${key} → ${transition.toStatus || transition.name}`)
+      // Switching tasks mid-flight already started a refresh for the new task;
+      // refreshing the old key now would overwrite that panel with this task.
+      if (panel?.taskKey !== key) return
       await refresh(key)
     } catch (e) {
-      applyError = ipcErrorMessage(e)
+      if (panel?.taskKey === key) applyError = ipcErrorMessage(e)
+      else addToast(`${key}: ${ipcErrorMessage(e)}`, 'danger')
     } finally {
       applying = false
     }

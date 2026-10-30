@@ -103,7 +103,11 @@ export function removeFavoritesByHost(url: string): void {
 }
 
 export function updateFavorite(oldUrl: string, updated: BrowserFavorite): void {
-  const list = getFavorites().map((f) => (f.url === oldUrl ? updated : f))
+  // Favorites are keyed by URL (the favorites bar renders them by it), so an
+  // edit onto another favorite's URL replaces that entry instead of duplicating it.
+  const list = getFavorites()
+    .filter((f) => f.url === oldUrl || f.url !== updated.url)
+    .map((f) => (f.url === oldUrl ? updated : f))
   setPref('browser.favorites', JSON.stringify(list))
 }
 
