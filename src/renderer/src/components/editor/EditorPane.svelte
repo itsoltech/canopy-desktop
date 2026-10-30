@@ -17,6 +17,7 @@
     pendingEditorJumps,
   } from '../../lib/stores/tabs.svelte'
   import { dragState, clearDrag, setDropTarget } from '../../lib/stores/dragState.svelte'
+  import { confirm } from '../../lib/stores/dialogs.svelte'
   import { detectIndent, indentUnitString, type IndentInfo } from './cm/detectIndent'
   import { detectLanguageName } from './cm/language'
 
@@ -239,6 +240,22 @@
 
   async function reloadAndDiscard(): Promise<void> {
     await loadFile(activeFilePath)
+  }
+
+  // Toolbar refresh: reloading replaces the buffer, so unsaved edits need an
+  // explicit discard (the conflict banner's "Reload" is already that choice).
+  async function handleRefresh(): Promise<void> {
+    const path = activeFilePath
+    if (dirty) {
+      const discard = await confirm({
+        title: 'Discard unsaved changes?',
+        message: `Reloading ${fileName} from disk discards your unsaved edits.`,
+        confirmLabel: 'Reload',
+        destructive: true,
+      })
+      if (!discard || path !== activeFilePath) return
+    }
+    await loadFile(path)
   }
 
   function keepMyChanges(): void {
@@ -578,12 +595,7 @@
           <Save size={12} />
         </button>
       {/if}
-      <button
-        class="toolbar-btn"
-        onclick={() => loadFile(activeFilePath)}
-        title="Refresh"
-        aria-label="Refresh file"
-      >
+      <button class="toolbar-btn" onclick={handleRefresh} title="Refresh" aria-label="Refresh file">
         <RotateCw size={12} />
       </button>
       <button

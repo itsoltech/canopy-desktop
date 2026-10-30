@@ -226,6 +226,9 @@ export class SkillInstaller {
           execFile(
             'git',
             ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, tmpDir],
+            // A stalled network or a credential prompt (private or missing repo)
+            // would otherwise leave the install spinning and the clone running.
+            { timeout: 120_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
             (error) => {
               if (error) reject(error)
               else resolve()

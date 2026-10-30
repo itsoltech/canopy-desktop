@@ -325,6 +325,11 @@ export class HostRpcServer {
       if (!allowed) {
         throw new Error(`Action "${method}" was rejected on desktop`)
       }
+      // The confirm dialog can outlive the peer: an "Allow" clicked after the
+      // requester disconnected must not run its action.
+      if (this.disposed) {
+        throw new Error(`Action "${method}" was cancelled: remote device disconnected`)
+      }
       return handler(params as RpcMethods[M]['params'])
     })
   }

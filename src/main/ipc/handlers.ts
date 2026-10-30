@@ -5391,8 +5391,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('skills:deleteFile', async (event, payload: { filePath: string }) => {
     const filePath = path.normalize(path.resolve(payload.filePath))
+    const skillFileExtensions = ['.md', '.mdc', '.yaml', '.yml']
     const ext = path.extname(filePath).toLowerCase()
-    if (!['.md', '.mdc', '.yaml', '.yml'].includes(ext)) {
+    if (!skillFileExtensions.includes(ext)) {
       unwrapOrThrow(
         err({
           _tag: 'InvalidSource',
@@ -5462,6 +5463,19 @@ export function registerIpcHandlers(
           source: payload.filePath,
           reason: 'Skill files must live under the user home directory or a workspace path',
         } as SkillError),
+        skillErrorMessage,
+      )
+    }
+    // The extension check above ran on the requested path. A symlinked skill
+    // file resolves elsewhere, and the unlink below deletes that target, so the
+    // target must itself be a skill file (not e.g. ~/.ssh/config).
+    if (!skillFileExtensions.includes(path.extname(resolvedTarget).toLowerCase())) {
+      unwrapOrThrow(
+        err<never, SkillError>({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Skill file links to a file that is not a skill file',
+        }),
         skillErrorMessage,
       )
     }

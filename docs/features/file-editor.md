@@ -83,6 +83,9 @@ properties derived from the xterm ANSI palette.
 3. If the buffer is **dirty**, a conflict banner appears with
    **[Reload (discard changes)]** and **[Keep mine]**. Until the user
    chooses, the editor keeps the in-memory buffer.
+4. The toolbar **Refresh** button reloads the file from disk. If the buffer
+   is dirty, it first asks for confirmation before discarding the unsaved
+   edits.
 
 ### Sub-tab operations
 

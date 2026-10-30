@@ -279,7 +279,9 @@
   function scrollToFocusedFile(): void {
     if (focusedFileIndex >= 0 && focusedFileIndex < files.length) {
       const file = files[focusedFileIndex]
-      const el = document.getElementById(`diff-file-${CSS.escape(file.path)}`)
+      // getElementById takes the raw id, not a CSS selector — escaping would
+      // turn every `/` and `.` in the path into a lookup miss.
+      const el = document.getElementById(`diff-file-${file.path}`)
       if (el && bodyEl) {
         suppressObserver = true
         workspaceState.diffVisibleFile = file.path

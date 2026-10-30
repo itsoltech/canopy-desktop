@@ -116,6 +116,23 @@
   let visibleTabs = $derived(
     visibleCount > 0 && tabs.length > visibleCount ? tabs.slice(0, visibleCount) : tabs,
   )
+
+  // Roving tabindex: only the active tab is in the Tab order, so the arrow
+  // keys (and Home/End) move between tabs, as in the ARIA tabs pattern.
+  async function handleTabArrowKey(e: KeyboardEvent, tabId: string): Promise<void> {
+    const idx = visibleTabs.findIndex((t) => t.id === tabId)
+    if (idx === -1) return
+    let target: TabInfo | undefined
+    if (e.key === 'ArrowRight') target = visibleTabs[(idx + 1) % visibleTabs.length]
+    else if (e.key === 'ArrowLeft')
+      target = visibleTabs[(idx - 1 + visibleTabs.length) % visibleTabs.length]
+    else if (e.key === 'Home') target = visibleTabs[0]
+    else if (e.key === 'End') target = visibleTabs[visibleTabs.length - 1]
+    if (!target) return
+    e.preventDefault()
+    await switchTab(target.id)
+    containerEl?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(target.id)}"]`)?.focus()
+  }
   let overflowTabs = $derived(
     visibleCount > 0 && tabs.length > visibleCount ? tabs.slice(visibleCount) : [],
   )
@@ -338,10 +355,14 @@
             if (!suppressClick) await switchTab(tab.id)
           }}
           onkeydown={async (e) => {
+            // Keys pressed on the nested close button belong to that button.
+            if (e.target !== e.currentTarget) return
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               await switchTab(tab.id)
+              return
             }
+            await handleTabArrowKey(e, tab.id)
           }}
           onauxclick={(e) => handleMiddleClick(e, tab.id)}
           onpointerdown={(e) => handleTabPointerDown(e, tab.id)}
@@ -381,7 +402,7 @@
             ></span>
           {/if}
           <button
-            class="hidden group-hover/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
+            class="hidden group-hover/tab:flex group-focus-within/tab:flex items-center justify-center w-4 h-4 border-0 bg-transparent text-text-muted text-lg cursor-pointer rounded-sm p-0 leading-none flex-shrink-0 hover:bg-hover-strong hover:text-text"
             onclick={(e: MouseEvent) => {
               e.stopPropagation()
               closeTab(tab.id)
