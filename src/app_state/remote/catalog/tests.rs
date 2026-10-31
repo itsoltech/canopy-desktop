@@ -34,6 +34,7 @@ fn record(workspace: Option<&str>, root: &str) -> ChatRecord {
 fn summary(record: &ChatRecord, working: bool) -> ChatSummary {
     ChatSummary {
         chat: record.id().into(),
+        thread_id: record.thread_id(),
         workspace: record.workspace().map(str::to_owned),
         tool: "claude".into(),
         title: Some("Plan".into()),

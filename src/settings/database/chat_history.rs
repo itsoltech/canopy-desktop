@@ -123,7 +123,7 @@ impl Database {
                     .max()
             {
                 let epoch = i64::try_from(epoch).map_err(|_| Error::InvalidChatHistory)?;
-                tx.execute("UPDATE _canopy_runtime_chats SET history_epoch=max(history_epoch,?2) WHERE chat_id=?1", params![batch.chat,epoch])?;
+                tx.execute("UPDATE _canopy_runtime_chats SET revision=revision+(history_epoch<?2),history_epoch=max(history_epoch,?2) WHERE chat_id=?1", params![batch.chat,epoch])?;
             }
             // An oversized row is left out alone; the rest of the chat still saves.
             let epochs = batch.epochs.iter().filter(|(_, m)| m.len() <= MAX_PAYLOAD);
@@ -321,7 +321,7 @@ impl Database {
             params![row.chat, VERSION, row.closed_at, row.payload],
         )?;
         if has_table(&tx, "_canopy_runtime_chats")? {
-            tx.execute("UPDATE _canopy_runtime_chats SET closed_at=?2,queue_paused=1,queue_revision=queue_revision+1 WHERE chat_id=?1",params![row.chat,row.closed_at])?;
+            tx.execute("UPDATE _canopy_runtime_chats SET revision=revision+(closed_at IS NOT ?2),closed_at=?2,queue_paused=1,queue_revision=queue_revision+1 WHERE chat_id=?1",params![row.chat,row.closed_at])?;
         }
         tx.commit()?;
         Ok(())
@@ -364,7 +364,7 @@ impl Database {
         )?;
         if has_table(&tx, "_canopy_runtime_chats")? {
             tx.execute(
-                "UPDATE _canopy_runtime_chats SET closed_at=NULL WHERE chat_id=?1",
+                "UPDATE _canopy_runtime_chats SET revision=revision+(closed_at IS NOT NULL),closed_at=NULL WHERE chat_id=?1",
                 [chat],
             )?;
         }
@@ -437,6 +437,7 @@ impl Database {
 fn delete(tx: &Transaction, chat: &str) -> Result<()> {
     if has_table(tx, "_canopy_runtime_chats")? {
         // SQLite foreign_keys is not enabled on legacy connections: clean both explicitly.
+        // Its thread alias stays, so the old chat ID keeps naming the same thread.
         tx.execute("DELETE FROM _canopy_chat_queue WHERE chat_id=?1", [chat])?;
         tx.execute("DELETE FROM _canopy_runtime_chats WHERE chat_id=?1", [chat])?;
     }

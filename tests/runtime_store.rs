@@ -1,12 +1,13 @@
 //! Crash boundaries and replay against the real SQLite worker, on isolated data.
 use canopy_desktop::{
-    chat::{config::ChatSettings, session::Draft},
+    chat::{closed::ClosedChat, config::ChatSettings, session::Draft},
     host::{
         ChatRecord, CommandInput, CommandKey, CommandState, DeviceRegistration, QueueDraft,
         QueueState, SendContext,
     },
-    settings::{Access, Error, SettingsClient},
+    settings::{Access, ChatHistoryBatch, ClosedChatRow, Error, SettingsClient},
     state::workspace::{PaneKind, PaneMetadata},
+    thread::{HostId, ThreadId},
 };
 use futures_lite::future::block_on;
 use rusqlite::Connection;
@@ -30,6 +31,20 @@ fn chat() -> ChatRecord {
         },
     )
     .unwrap()
+}
+fn closed(record: &ChatRecord, closed_at: i64) -> ClosedChatRow {
+    ClosedChatRow {
+        chat: record.id().into(),
+        closed_at,
+        payload: ClosedChat {
+            title: "Saved conversation".into(),
+            tool: record.agent().into(),
+            metadata: record.metadata().clone(),
+            project: None,
+        }
+        .to_json()
+        .unwrap(),
+    }
 }
 fn send(key: CommandKey, chat: &str, text: &str) -> (CommandInput, QueueDraft) {
     let draft = QueueDraft::from(Draft::text(text));
@@ -84,13 +99,106 @@ fn migration_preserves_history_and_unknown_data_and_host_identity() {
         let client = SettingsClient::create(&path).await.unwrap();
         let db = Connection::open(&path).unwrap();
         db.execute_batch("CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES('keep'); INSERT INTO preferences VALUES('unknown.token','opaque');").unwrap();
+        let open = chat();
+        let archived = chat();
+        let histories = [open.id(), archived.id()];
+        client
+            .save_chat_history(
+                histories
+                    .iter()
+                    .map(|id| ChatHistoryBatch {
+                        chat: (*id).into(),
+                        epochs: vec![(0, "{}".into())],
+                        items: vec![(0, 1, "retained item".into())],
+                    })
+                    .collect(),
+            )
+            .await
+            .unwrap();
+        client
+            .save_closed_chat(closed(&archived, 100))
+            .await
+            .unwrap();
+        let old_closed = client.load_closed_chats().await.unwrap();
+        let old_history = client.load_chat_history(open.id().into()).await.unwrap();
+        let archived_history = client
+            .load_chat_history(archived.id().into())
+            .await
+            .unwrap();
         let first = client.initialize_runtime().await.unwrap();
+        let host = HostId::new(first.id().into()).unwrap();
+        let records = client.load_runtime_chats().await.unwrap();
+        assert_eq!(records.len(), 1);
+        let thread = records[0].thread_id().unwrap();
+        assert_eq!(ThreadId::parse(&thread.to_string()), Some(thread));
+        assert_eq!(records[0].id(), open.id());
+        let mut aliases = Vec::new();
+        for id in histories {
+            let alias = client
+                .runtime_thread_alias(host.clone(), id.into())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(ThreadId::parse(&alias.to_string()), Some(alias));
+            aliases.push(alias);
+        }
+        assert_eq!(aliases[0], thread);
+        assert_ne!(aliases[0], aliases[1]);
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM _canopy_thread_alias", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(db.query_row("SELECT count(*) FROM _canopy_runtime_chats c JOIN _canopy_thread_alias a ON c.host_id=a.legacy_host_id AND c.chat_id=a.legacy_chat_id AND c.thread_id=a.thread_id", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+        assert_eq!(
+            client.load_chat_history(open.id().into()).await.unwrap(),
+            old_history
+        );
+        assert_eq!(
+            client
+                .load_chat_history(archived.id().into())
+                .await
+                .unwrap(),
+            archived_history
+        );
+        assert_eq!(client.load_closed_chats().await.unwrap(), old_closed);
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM _canopy_rust_chat_items", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM _canopy_rust_chat_epochs", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            2
+        );
         assert_eq!(first, client.initialize_runtime().await.unwrap());
         client.shutdown().await.unwrap();
         let client = SettingsClient::open(&path, Access::ReadWrite)
             .await
             .unwrap();
         assert_eq!(client.initialize_runtime().await.unwrap(), first);
+        assert_eq!(client.load_runtime_chats().await.unwrap(), records);
+        for (id, alias) in histories.into_iter().zip(aliases) {
+            assert_eq!(
+                client
+                    .runtime_thread_alias(host.clone(), id.into())
+                    .await
+                    .unwrap(),
+                Some(alias)
+            );
+        }
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM _canopy_thread_alias", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
         assert_eq!(
             db.query_row("SELECT value FROM unrelated", [], |r| r.get::<_, String>(0))
                 .unwrap(),
@@ -110,6 +218,230 @@ fn migration_preserves_history_and_unknown_data_and_host_identity() {
                 .get::<_, i64>(0))
                 .unwrap(),
             1
+        );
+        client.shutdown().await.unwrap();
+    });
+}
+
+#[test]
+fn a_later_orphan_failure_rolls_back_thread_aliases_and_catalog() {
+    block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db");
+        let client = SettingsClient::create(&path).await.unwrap();
+        let chat = chat();
+        client
+            .save_chat_history(vec![ChatHistoryBatch {
+                chat: chat.id().into(),
+                epochs: vec![(0, "{}".into())],
+                items: vec![(0, 1, "keep".into())],
+            }])
+            .await
+            .unwrap();
+        let db = Connection::open(&path).unwrap();
+        // Sorts after the valid chat, whose alias is inserted first.
+        db.execute(
+            "INSERT INTO _canopy_rust_chat_items VALUES('zz-invalid',0,1,1,'keep invalid')",
+            [],
+        )
+        .unwrap();
+        assert!(matches!(
+            client.initialize_runtime().await,
+            Err(Error::InvalidRuntimeState)
+        ));
+        assert_eq!(db.query_row("SELECT count(*) FROM sqlite_master WHERE name IN ('_canopy_runtime_meta','_canopy_thread_alias','_canopy_runtime_chats','_canopy_runtime_host')", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        let rows = db
+            .prepare("SELECT chat,payload FROM _canopy_rust_chat_items ORDER BY chat")
+            .unwrap()
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (chat.id().into(), "keep".into()),
+                ("zz-invalid".into(), "keep invalid".into())
+            ]
+        );
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM _canopy_rust_chat_epochs", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            1
+        );
+        client.shutdown().await.unwrap();
+    });
+}
+
+#[test]
+fn thread_alias_survives_close_delete_and_restart_and_prevents_id_reuse() {
+    block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db");
+        let client = SettingsClient::create(&path).await.unwrap();
+        let host = HostId::new(client.initialize_runtime().await.unwrap().id().into()).unwrap();
+        let local = chat();
+        let saved = client.save_runtime_chat(local.clone()).await.unwrap();
+        let thread = saved.thread_id().unwrap();
+        assert_eq!(saved.thread().unwrap().thread().host_id, host);
+        assert_eq!(
+            client.load_runtime_thread(thread).await.unwrap(),
+            Some(saved.clone())
+        );
+        assert_eq!(
+            client
+                .runtime_thread_alias(host.clone(), local.id().into())
+                .await
+                .unwrap(),
+            Some(thread)
+        );
+        client.save_closed_chat(closed(&saved, 100)).await.unwrap();
+        assert!(client.load_runtime_thread(thread).await.unwrap().is_none());
+        client.delete_chat_history(local.id().into()).await.unwrap();
+        assert_eq!(
+            client
+                .runtime_thread_alias(host.clone(), local.id().into())
+                .await
+                .unwrap(),
+            Some(thread)
+        );
+        assert!(matches!(
+            client.save_runtime_chat(local.clone()).await,
+            Err(Error::ResourceConflict)
+        ));
+        assert!(matches!(
+            client.save_runtime_chat(saved).await,
+            Err(Error::InvalidRuntimeState)
+        ));
+        client.shutdown().await.unwrap();
+        let client = SettingsClient::open(&path, Access::ReadWrite)
+            .await
+            .unwrap();
+        client.initialize_runtime().await.unwrap();
+        assert_eq!(
+            client
+                .runtime_thread_alias(host, local.id().into())
+                .await
+                .unwrap(),
+            Some(thread)
+        );
+        assert!(client.load_runtime_thread(thread).await.unwrap().is_none());
+        assert!(matches!(
+            client.save_runtime_chat(local).await,
+            Err(Error::ResourceConflict)
+        ));
+        client.shutdown().await.unwrap();
+    });
+}
+
+#[test]
+fn thread_revision_tracks_metadata_history_and_close_without_changing_identity() {
+    block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db");
+        let client = SettingsClient::create(&path).await.unwrap();
+        client.initialize_runtime().await.unwrap();
+        let saved = client.save_runtime_chat(chat()).await.unwrap();
+        let thread = saved.thread_id().unwrap();
+        assert_eq!(saved.thread().unwrap().revision(), 1);
+        assert_eq!(
+            client.save_runtime_chat(saved.clone()).await.unwrap(),
+            saved
+        );
+        let mut metadata = saved.metadata().clone();
+        metadata.title = Some("Renamed".into());
+        let renamed =
+            ChatRecord::new(saved.id().into(), None, saved.agent().into(), metadata).unwrap();
+        let renamed = client.save_runtime_chat(renamed).await.unwrap();
+        assert_eq!(renamed.thread().unwrap().revision(), 2);
+        assert_eq!(
+            client.save_runtime_chat(renamed.clone()).await.unwrap(),
+            renamed
+        );
+        let history = ChatHistoryBatch {
+            chat: saved.id().into(),
+            epochs: vec![(1, "{}".into())],
+            items: vec![],
+        };
+        client
+            .save_chat_history(vec![history.clone()])
+            .await
+            .unwrap();
+        client.save_chat_history(vec![history]).await.unwrap();
+        let current = client.load_runtime_thread(thread).await.unwrap().unwrap();
+        assert_eq!(current.thread().unwrap().revision(), 3);
+        assert_eq!(client.save_runtime_chat(renamed).await.unwrap(), current);
+        client
+            .save_closed_chat(closed(&current, 100))
+            .await
+            .unwrap();
+        client
+            .save_closed_chat(closed(&current, 100))
+            .await
+            .unwrap();
+        client.remove_closed_chat(saved.id().into()).await.unwrap();
+        client.remove_closed_chat(saved.id().into()).await.unwrap();
+        let reopened = client.load_runtime_thread(thread).await.unwrap().unwrap();
+        assert_eq!(reopened.thread().unwrap().revision(), 5);
+        assert_eq!(reopened.thread().unwrap().executor_epoch(), 0);
+        assert_eq!(reopened.thread_id(), Some(thread));
+        client.shutdown().await.unwrap();
+    });
+}
+
+#[test]
+fn stored_thread_identity_cannot_be_rebound_or_silently_replaced() {
+    block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db");
+        let client = SettingsClient::create(&path).await.unwrap();
+        client.initialize_runtime().await.unwrap();
+        let saved = client.save_runtime_chat(chat()).await.unwrap();
+        let mut rebound = serde_json::to_value(&saved).unwrap();
+        rebound["thread"]["thread"]["thread_id"] = ThreadId::new().to_string().into();
+        let rebound = serde_json::from_value(rebound).unwrap();
+        assert!(matches!(
+            client.save_runtime_chat(rebound).await,
+            Err(Error::InvalidRuntimeState)
+        ));
+        assert_eq!(
+            client.load_runtime_chat(saved.id().into()).await.unwrap(),
+            Some(saved.clone())
+        );
+        let mut malformed = serde_json::to_value(&saved).unwrap();
+        malformed["thread"]["thread"]["thread_id"] = id().into();
+        assert!(serde_json::from_value::<ChatRecord>(malformed).is_err());
+        let mut malformed = serde_json::to_value(&saved).unwrap();
+        malformed["thread"]["thread"]["host_id"] = "invalid".into();
+        assert!(serde_json::from_value::<ChatRecord>(malformed).is_err());
+        let mut newer = serde_json::to_value(&saved).unwrap();
+        newer["thread"]["newer_format"] = true.into();
+        assert!(serde_json::from_value::<ChatRecord>(newer).is_err());
+        let db = Connection::open(&path).unwrap();
+        let invalid = id();
+        db.execute("UPDATE _canopy_runtime_chats SET thread_id=?1", [&invalid])
+            .unwrap();
+        assert!(matches!(
+            client.load_runtime_chat(saved.id().into()).await,
+            Err(Error::InvalidRuntimeState)
+        ));
+        assert!(matches!(
+            client.load_runtime_chats().await,
+            Err(Error::InvalidRuntimeState)
+        ));
+        assert!(matches!(
+            client.save_runtime_chat(saved.clone()).await,
+            Err(Error::InvalidRuntimeState)
+        ));
+        assert_eq!(
+            db.query_row("SELECT thread_id FROM _canopy_runtime_chats", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .unwrap(),
+            invalid
         );
         client.shutdown().await.unwrap();
     });

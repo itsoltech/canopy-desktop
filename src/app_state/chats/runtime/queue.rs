@@ -306,15 +306,15 @@ impl ChatRuntime {
                 return;
             };
             let saved = client.save_runtime_chat(record.clone()).await;
-            let queue = match saved {
-                Ok(()) => Some(client.load_runtime_queue(chat).await),
+            let queue = match &saved {
+                Ok(_) => Some(client.load_runtime_queue(chat).await),
                 Err(_) => None,
             };
             let _ = this.update(cx, |this, cx| {
                 this.queue.saving_record = false;
                 match (saved, queue) {
-                    (Ok(()), Some(queue)) => {
-                        settings.update(cx, |settings, _| settings.record_saved(record.clone()));
+                    (Ok(saved), Some(queue)) => {
+                        settings.update(cx, |settings, _| settings.record_saved(saved));
                         this.queue.record = Some(record);
                         match queue {
                             Ok(queue) => this.queue.state = Some(queue),

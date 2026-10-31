@@ -4,10 +4,11 @@ use crate::remote::metrics::{self, Outcome, Stage};
 use crate::{
     host::{
         self, ChatQueue, ChatRecord, CommandInput, CommandKey, CommandReceipt, CommandState,
-        DeviceRegistration, QueueDraft, QueueEntry, QueueMutation, QueueState, RuntimeHost,
-        UnknownResolution,
+        DeviceRegistration, PersistedThread, QueueDraft, QueueEntry, QueueMutation, QueueState,
+        RuntimeHost, UnknownResolution,
     },
     settings::{Access, Error, Result},
+    thread::{HostId, ThreadId, ThreadRef},
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -40,7 +41,7 @@ fn unsigned(value: i64) -> Result<u64> {
 
 pub(super) fn validate_schema(db: &Connection) -> Result<()> {
     if !has_table(db, "_canopy_runtime_meta")? {
-        let partial: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name IN ('_canopy_runtime_host','_canopy_runtime_chats','_canopy_command_inbox'))",[],|r|r.get(0))?;
+        let partial: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name IN ('_canopy_runtime_host','_canopy_runtime_chats','_canopy_thread_alias','_canopy_command_inbox'))",[],|r|r.get(0))?;
         return if partial {
             Err(Error::UnsupportedSchema)
         } else {
@@ -317,45 +318,28 @@ impl Database {
         }
         Ok(RuntimeHost { id, identity_ref })
     }
-    pub fn save_runtime_chat(&mut self, chat: ChatRecord) -> Result<()> {
+    /// Stores `chat` and returns it as committed, with its thread identity.
+    pub fn save_runtime_chat(&mut self, chat: ChatRecord) -> Result<ChatRecord> {
         require_host(self)?;
-        save_chat(&self.db, chat)
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let id = chat.id.clone();
+        save_chat(&tx, chat)?;
+        let saved = load_chat(&tx, "chat_id=?1", &id)?.ok_or(Error::InvalidRuntimeState)?;
+        tx.commit()?;
+        Ok(saved)
     }
     pub fn load_runtime_chats(&self) -> Result<Vec<ChatRecord>> {
         require_host(self)?;
-        let rows=self.db.prepare("SELECT chat_id,workspace,agent_id,metadata,recovery_reason,history_epoch,authority_root FROM _canopy_runtime_chats WHERE closed_at IS NULL ORDER BY chat_id")?
-            .query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<String>>(4)?,r.get::<_,i64>(5)?,r.get::<_,String>(6)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows.into_iter()
-            .map(
-                |(
-                    id,
-                    workspace,
-                    agent,
-                    payload,
-                    recovery_reason,
-                    history_epoch,
-                    authority_root,
-                )| {
-                    let mut record = ChatRecord::new(
-                        id,
-                        workspace,
-                        agent,
-                        serde_json::from_str(&payload).map_err(|_| Error::InvalidRuntimeState)?,
-                    )
-                    .ok_or(Error::InvalidRuntimeState)?;
-                    if !(host::valid_authority_root(&authority_root)
-                        || authority_root.is_empty() && recovery_reason.is_some())
-                        || record.workspace.is_some() && authority_root == "private"
-                    {
-                        return Err(Error::InvalidRuntimeState);
-                    }
-                    record.authority_root = authority_root;
-                    record.recovery_reason = recovery_reason;
-                    record.history_epoch = unsigned(history_epoch)?;
-                    Ok(record)
-                },
-            )
+        self.db
+            .prepare(&format!(
+                "SELECT {CHAT_COLUMNS} FROM _canopy_runtime_chats WHERE closed_at IS NULL ORDER BY chat_id"
+            ))?
+            .query_map([], chat_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .map(chat_record)
             .collect()
     }
     /// A resource request must not materialize the whole host chat catalog.
@@ -364,26 +348,31 @@ impl Database {
         if !host::valid_id(&id) {
             return Err(Error::InvalidRuntimeState);
         }
-        let row = self.db.query_row("SELECT workspace,agent_id,metadata,recovery_reason,history_epoch,authority_root FROM _canopy_runtime_chats WHERE chat_id=?1 AND closed_at IS NULL", [&id], |r| Ok((r.get::<_,Option<String>>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?,r.get::<_,i64>(4)?,r.get::<_,String>(5)?))).optional()?;
-        let Some((workspace, agent, payload, recovery, epoch, root)) = row else {
-            return Ok(None);
-        };
-        let mut record = ChatRecord::new(
-            id,
-            workspace,
-            agent,
-            serde_json::from_str(&payload).map_err(|_| Error::InvalidRuntimeState)?,
+        load_chat(&self.db, "chat_id=?1 AND closed_at IS NULL", &id)
+    }
+    /// The open thread `thread`, if this host has it.
+    pub fn load_runtime_thread(&self, thread: ThreadId) -> Result<Option<ChatRecord>> {
+        require_host(self)?;
+        load_chat(
+            &self.db,
+            "thread_id=?1 AND closed_at IS NULL",
+            &thread.to_string(),
         )
-        .ok_or(Error::InvalidRuntimeState)?;
-        if !(host::valid_authority_root(&root) || root.is_empty() && recovery.is_some())
-            || record.workspace.is_some() && root == "private"
-        {
-            return Err(Error::InvalidRuntimeState);
-        }
-        record.authority_root = root;
-        record.recovery_reason = recovery;
-        record.history_epoch = unsigned(epoch)?;
-        Ok(Some(record))
+    }
+    /// The thread a legacy `(host_id, chat_id)` was given, also after it was deleted.
+    pub fn runtime_thread_alias(&self, host: HostId, chat: String) -> Result<Option<ThreadId>> {
+        require_host(self)?;
+        let thread: Option<String> = self
+            .db
+            .query_row(
+                "SELECT thread_id FROM _canopy_thread_alias WHERE legacy_host_id=?1 AND legacy_chat_id=?2",
+                params![host.as_str(), chat],
+                |r| r.get(0),
+            )
+            .optional()?;
+        thread
+            .map(|thread| ThreadId::parse(&thread).ok_or(Error::InvalidRuntimeState))
+            .transpose()
     }
     pub fn register_runtime_device(&mut self, device: DeviceRegistration) -> Result<()> {
         require_host(self)?;
@@ -830,7 +819,8 @@ fn adopt(tx: &Transaction) -> Result<()> {
                     }
                     continue;
                 }
-                tx.execute("INSERT INTO _canopy_runtime_chats(chat_id,workspace,agent_id,profile_id,metadata,authority_root,recovery_reason) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![id,root,pane.tool,pane.metadata.profile_id,metadata,authority,recovery])?;
+                let thread = insert_thread(tx, &id)?.to_string();
+                tx.execute("INSERT INTO _canopy_runtime_chats(chat_id,thread_id,host_id,workspace,agent_id,profile_id,metadata,authority_root,recovery_reason) VALUES(?1,?8,(SELECT host_id FROM _canopy_runtime_host WHERE id=1),?2,?3,?4,?5,?6,?7)",params![id,root,pane.tool,pane.metadata.profile_id,metadata,authority,recovery,thread])?;
             }
         }
     }
@@ -867,7 +857,8 @@ fn adopt(tx: &Transaction) -> Result<()> {
                 let recovery = authority
                     .is_none()
                     .then_some("Restore the canonical checkout directory before running");
-                tx.execute("INSERT INTO _canopy_runtime_chats(chat_id,agent_id,profile_id,metadata,closed_at,authority_root,recovery_reason) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![id,chat.tool,chat.metadata.profile_id,serde_json::to_string(&chat.metadata).map_err(|_|Error::InvalidRuntimeState)?,at,authority.unwrap_or_default(),recovery])?;
+                let thread = insert_thread(tx, &id)?.to_string();
+                tx.execute("INSERT INTO _canopy_runtime_chats(chat_id,thread_id,host_id,agent_id,profile_id,metadata,closed_at,authority_root,recovery_reason) VALUES(?1,?8,(SELECT host_id FROM _canopy_runtime_host WHERE id=1),?2,?3,?4,?5,?6,?7)",params![id,chat.tool,chat.metadata.profile_id,serde_json::to_string(&chat.metadata).map_err(|_|Error::InvalidRuntimeState)?,at,authority.unwrap_or_default(),recovery,thread])?;
             } else {
                 return Err(Error::InvalidRuntimeState);
             }
@@ -1078,7 +1069,8 @@ fn adopt_orphans(tx: &Transaction) -> Result<()> {
         settings.id = Some(id.clone());
         metadata.chat = Some(Box::new(settings));
         let payload = serde_json::to_string(&metadata).map_err(|_| Error::InvalidRuntimeState)?;
-        tx.execute("INSERT INTO _canopy_runtime_chats(chat_id,agent_id,profile_id,metadata,authority_root,recovery_reason) VALUES(?1,'unresolved',?2,?3,'','History retained without pane metadata; restore account and context before running')",params![id,metadata.profile_id,payload])?;
+        let thread = insert_thread(tx, &id)?.to_string();
+        tx.execute("INSERT INTO _canopy_runtime_chats(chat_id,thread_id,host_id,agent_id,profile_id,metadata,authority_root,recovery_reason) VALUES(?1,?4,(SELECT host_id FROM _canopy_runtime_host WHERE id=1),'unresolved',?2,?3,'','History retained without pane metadata; restore account and context before running')",params![id,metadata.profile_id,payload,thread])?;
     }
     Ok(())
 }
@@ -1103,12 +1095,132 @@ fn save_chat(db: &Connection, chat: ChatRecord) -> Result<()> {
     if payload.len() > host::CONTROL_BYTES {
         return Err(Error::ResourceLimit);
     }
-    let changed=db.execute("INSERT INTO _canopy_runtime_chats(chat_id,workspace,agent_id,profile_id,metadata,history_epoch,authority_root) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(chat_id) DO UPDATE SET workspace=excluded.workspace,authority_root=excluded.authority_root,agent_id=excluded.agent_id,profile_id=excluded.profile_id,metadata=excluded.metadata,history_epoch=max(history_epoch,excluded.history_epoch),closed_at=NULL WHERE _canopy_runtime_chats.recovery_reason IS NULL",
-            params![chat.id,chat.workspace,chat.agent,chat.metadata.profile_id,payload,integer(chat.history_epoch)?,chat.authority_root])?;
+    let stored: Option<(String, String)> = db
+        .query_row(
+            "SELECT host_id,thread_id FROM _canopy_runtime_chats WHERE chat_id=?1",
+            [&chat.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    // A record read from storage names its thread; it never moves to another one,
+    // and a deleted thread is not recreated under the same identity.
+    if let Some(expected) = &chat.thread
+        && stored.as_ref()
+            != Some(&(
+                expected.thread.host_id.to_string(),
+                expected.thread.thread_id.to_string(),
+            ))
+    {
+        return Err(Error::InvalidRuntimeState);
+    }
+    let changed = if stored.is_some() {
+        db.execute("UPDATE _canopy_runtime_chats SET revision=revision+(workspace IS NOT ?2 OR authority_root IS NOT ?7 OR agent_id IS NOT ?3 OR profile_id IS NOT ?4 OR metadata IS NOT ?5 OR history_epoch<?6 OR closed_at IS NOT NULL),workspace=?2,authority_root=?7,agent_id=?3,profile_id=?4,metadata=?5,history_epoch=max(history_epoch,?6),closed_at=NULL WHERE chat_id=?1 AND recovery_reason IS NULL",
+            params![chat.id,chat.workspace,chat.agent,chat.metadata.profile_id,payload,integer(chat.history_epoch)?,chat.authority_root])?
+    } else {
+        let thread = insert_thread(db, &chat.id)?;
+        db.execute("INSERT INTO _canopy_runtime_chats(chat_id,thread_id,host_id,workspace,agent_id,profile_id,metadata,history_epoch,authority_root) VALUES(?1,?8,(SELECT host_id FROM _canopy_runtime_host WHERE id=1),?2,?3,?4,?5,?6,?7)",
+            params![chat.id,chat.workspace,chat.agent,chat.metadata.profile_id,payload,integer(chat.history_epoch)?,chat.authority_root,thread.to_string()])?
+    };
     if changed == 0 {
         return Err(Error::InvalidRuntimeState);
     }
     Ok(())
+}
+
+/// A new conversation's global thread and its one alias, in the caller's
+/// transaction. Aliases outlive their thread, so a deleted chat ID is never
+/// given a thread again (OWN-08).
+fn insert_thread(db: &Connection, chat: &str) -> Result<ThreadId> {
+    let thread = ThreadId::new();
+    let added = db.execute(
+        "INSERT INTO _canopy_thread_alias(legacy_host_id,legacy_chat_id,thread_id) SELECT host_id,?1,?2 FROM _canopy_runtime_host WHERE id=1 ON CONFLICT DO NOTHING",
+        params![chat, thread.to_string()],
+    )?;
+    if added == 0 {
+        return Err(Error::ResourceConflict);
+    }
+    Ok(thread)
+}
+
+const CHAT_COLUMNS: &str = "chat_id,workspace,agent_id,metadata,recovery_reason,history_epoch,authority_root,host_id,thread_id,revision,executor_epoch";
+type ChatRow = (
+    String,
+    Option<String>,
+    String,
+    String,
+    Option<String>,
+    i64,
+    String,
+    String,
+    String,
+    i64,
+    i64,
+);
+fn chat_row(r: &rusqlite::Row) -> rusqlite::Result<ChatRow> {
+    Ok((
+        r.get(0)?,
+        r.get(1)?,
+        r.get(2)?,
+        r.get(3)?,
+        r.get(4)?,
+        r.get(5)?,
+        r.get(6)?,
+        r.get(7)?,
+        r.get(8)?,
+        r.get(9)?,
+        r.get(10)?,
+    ))
+}
+fn load_chat(db: &Connection, filter: &str, key: &str) -> Result<Option<ChatRecord>> {
+    db.query_row(
+        &format!("SELECT {CHAT_COLUMNS} FROM _canopy_runtime_chats WHERE {filter}"),
+        [key],
+        chat_row,
+    )
+    .optional()?
+    .map(chat_record)
+    .transpose()
+}
+fn chat_record(
+    (
+        id,
+        workspace,
+        agent,
+        payload,
+        recovery_reason,
+        history_epoch,
+        authority_root,
+        host_id,
+        thread_id,
+        revision,
+        executor_epoch,
+    ): ChatRow,
+) -> Result<ChatRecord> {
+    let mut record = ChatRecord::new(
+        id,
+        workspace,
+        agent,
+        serde_json::from_str(&payload).map_err(|_| Error::InvalidRuntimeState)?,
+    )
+    .ok_or(Error::InvalidRuntimeState)?;
+    if !(host::valid_authority_root(&authority_root)
+        || authority_root.is_empty() && recovery_reason.is_some())
+        || record.workspace.is_some() && authority_root == "private"
+    {
+        return Err(Error::InvalidRuntimeState);
+    }
+    record.authority_root = authority_root;
+    record.recovery_reason = recovery_reason;
+    record.history_epoch = unsigned(history_epoch)?;
+    record.thread = Some(PersistedThread {
+        thread: ThreadRef {
+            host_id: HostId::new(host_id).ok_or(Error::InvalidRuntimeState)?,
+            thread_id: ThreadId::parse(&thread_id).ok_or(Error::InvalidRuntimeState)?,
+        },
+        revision: unsigned(revision)?,
+        executor_epoch: unsigned(executor_epoch)?,
+    });
+    Ok(record)
 }
 
 fn accept_message(

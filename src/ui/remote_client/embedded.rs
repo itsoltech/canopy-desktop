@@ -398,6 +398,10 @@ mod tests {
         cx.update(|cx| {
             gpui_kit::init(cx);
             crate::ui::theme::init(cx);
+            crate::app_state::AppState::install_test(
+                canopy_desktop::state::workspace::Workspace::new(),
+                cx,
+            );
             ensure_global(cx).unwrap();
             cx.global::<ClientGlobal>()
                 .registry

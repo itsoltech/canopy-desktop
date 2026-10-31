@@ -3,6 +3,7 @@
 use crate::{
     chat::{session::Draft, transcript::Attachment},
     state::workspace::PaneMetadata,
+    thread::{ThreadId, ThreadRef},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -50,6 +51,7 @@ impl RuntimeHost {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChatRecord {
     pub(crate) id: String,
     pub(crate) workspace: Option<String>,
@@ -61,7 +63,34 @@ pub struct ChatRecord {
     pub(crate) recovery_reason: Option<String>,
     #[serde(default)]
     pub(crate) history_epoch: u64,
+    /// Assigned by the host when the record is first stored; `None` before that.
+    /// `chat.id` stays the legacy local key and resolves through `thread_alias`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) thread: Option<PersistedThread>,
 }
+
+/// The stored thread identity of a chat record and its metadata revision.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PersistedThread {
+    pub(crate) thread: ThreadRef,
+    /// Bumped on every persisted metadata change of the record.
+    pub(crate) revision: u64,
+    /// Fences commands across executor handoff; unchanged in this stage (D5).
+    pub(crate) executor_epoch: u64,
+}
+impl PersistedThread {
+    pub fn thread(&self) -> &ThreadRef {
+        &self.thread
+    }
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+    pub fn executor_epoch(&self) -> u64 {
+        self.executor_epoch
+    }
+}
+
 impl ChatRecord {
     /// Explicit recovery retains this chat ID and binds the observed history epoch.
     pub fn recovery_command(&self, key: CommandKey, expected_reason: &str) -> Option<CommandInput> {
@@ -105,10 +134,17 @@ impl ChatRecord {
             metadata,
             recovery_reason: None,
             history_epoch: 0,
+            thread: None,
         })
     }
     pub fn id(&self) -> &str {
         &self.id
+    }
+    pub fn thread(&self) -> Option<&PersistedThread> {
+        self.thread.as_ref()
+    }
+    pub fn thread_id(&self) -> Option<ThreadId> {
+        self.thread.as_ref().map(|t| t.thread.thread_id)
     }
     /// Host-resolved resource authority, independent of catalog workspace ID.
     /// Empty only for retained records that require explicit recovery.
@@ -618,5 +654,26 @@ impl QueueMutation {
             arguments,
             fingerprint,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_recovery_arguments_keep_their_bytes_and_reject_unknown_formats() {
+        let legacy = r#"[{"id":"11111111-1111-4111-8111-111111111111","workspace":null,"authority_root":"private","agent":"claude","metadata":{"cwd":null,"profile_id":null,"title":null,"resource":null,"kind":"Chat","arguments":[],"resume_id":null},"recovery_reason":null,"history_epoch":0},"restore context"]"#;
+        let (record, reason): (ChatRecord, String) = serde_json::from_str(legacy).unwrap();
+        let key = CommandKey::local(uuid::Uuid::new_v4().to_string()).unwrap();
+        let command = record.recovery_command(key, &reason).unwrap();
+        assert_eq!(command.arguments, legacy.as_bytes());
+        assert_eq!(
+            command.fingerprint,
+            Sha256::digest(legacy.as_bytes()).to_vec()
+        );
+        let mut newer = serde_json::to_value(&record).unwrap();
+        newer["newer_format"] = true.into();
+        assert!(serde_json::from_value::<ChatRecord>(newer).is_err());
     }
 }

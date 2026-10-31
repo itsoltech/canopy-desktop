@@ -333,6 +333,15 @@ zachowane, ale wykonanie wymaga odzyskania kontekstu. GC chroni aktywny katalog
 niezależnie od listy otwartych pane'ów. Zamknięcie, ponowne otwarcie i usunięcie
 historii aktualizują także katalog; jawnie zamknięte rozmowy zachowują retencję.
 
+Każda adoptowana lub nowa rozmowa dostaje globalny `ThreadId` (UUIDv7) i niezmienny
+`HostId`. `_canopy_thread_alias(legacy_host_id,legacy_chat_id)` zachowuje mapowanie
+starego `chat.id` także po Delete; ponowne użycie tego ID jest odrzucane. Historia
+pozostaje w dotychczasowych tabelach. `save_runtime_chat` zwraca zatwierdzony rekord
+z tożsamością; `load_runtime_thread` odczytuje otwarty wątek po `ThreadId`.
+`revision` rośnie przy zmianie metadanych, epoki historii, close/reopen i odzyskaniu
+kontekstu, a identyczny zapis jej nie zmienia. `executor_epoch` pozostaje 0.
+Katalog w pamięci udostępnia `ChatSummary.thread_id`; obecny protokół pozostaje bez zmian.
+
 `accept_runtime_message` zapisuje receipt i pozycję kolejki razem. Edycja,
 przesunięcie, usunięcie, pause/resume oraz trzy rozstrzygnięcia unknown korzystają
 z `QueueMutation::command` i `mutate_runtime_queue`. Wymagają rewizji; retry

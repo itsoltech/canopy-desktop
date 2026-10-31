@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChatSummary {
     pub chat: String,
+    pub thread_id: Option<canopy_desktop::thread::ThreadId>,
     /// The catalog workspace (`None`: Private chats).
     pub workspace: Option<String>,
     pub tool: String,
@@ -192,6 +193,17 @@ fn chats_data() -> Result<std::path::PathBuf, String> {
     canopy_desktop::platform::directories::data_dir()
 }
 
+/// `record` as stored, with the thread identity the host gave it.
+async fn committed(
+    client: &canopy_desktop::settings::SettingsClient,
+    record: ChatRecord,
+) -> ChatRecord {
+    match client.load_runtime_chat(record.id().to_owned()).await {
+        Ok(Some(stored)) => stored,
+        _ => record,
+    }
+}
+
 fn reason(text: &str) -> Option<Vec<u8>> {
     serde_json::to_vec(&serde_json::json!({ "reason": text })).ok()
 }
@@ -206,6 +218,7 @@ impl Chats {
                 let runtime = self.runtimes.get(record.id()).map(|r| r.read(cx));
                 ChatSummary {
                     chat: record.id().to_owned(),
+                    thread_id: record.thread_id(),
                     workspace: record.workspace().map(str::to_owned),
                     tool: record.agent().to_owned(),
                     title: runtime
@@ -317,9 +330,8 @@ impl Chats {
             });
             let saved = match record {
                 Ok(record) => client
-                    .save_runtime_chat(record.clone())
+                    .save_runtime_chat(record)
                     .await
-                    .map(|()| record)
                     .map_err(|e| e.to_string()),
                 Err(error) => Err(error),
             };
@@ -551,6 +563,7 @@ impl Chats {
             };
             match completed {
                 Ok((record, receipt)) => {
+                    let record = committed(&client, record).await;
                     let _ = this.update(cx, |this, cx| {
                         app.settings.update(cx, |settings, cx| {
                             settings.record_saved(record.clone());
@@ -906,6 +919,7 @@ impl Chats {
             };
             match (result, recovered) {
                 (Ok(()), Some(record)) => {
+                    let record = committed(&client, record).await;
                     let _ = client.acknowledge_runtime_command(key).await;
                     cx.update(|cx| {
                         app.settings.update(cx, |settings, cx| {
