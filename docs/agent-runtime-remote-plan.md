@@ -87,7 +87,7 @@ protokołu, a nie z niedokończenia jednego klienta.
 | F-13 Terminal | Uruchomienie, wejście, paste, resize, zaznaczenie, kopiowanie, scrollback, restart, Stop i cleanup. |
 | F-14 Tasks | Istniejące operacje GitHub, Jira i YouTrack, filtry, załączniki, edycja zadań, powiązanie i task do worktree. |
 | F-15 Ustawienia | Preferencje hosta, katalog agentów i profili, integracje, zapis sekretu bez odczytu zwrotnego; preferencje klienta osobno. |
-| F-16 Widoki | Niezależna nawigacja, wiele okien, obrazy/fonty/wideo/diffy/notes i strony na obsługiwanych platformach. |
+| F-16 Widoki | Obrazy, fonty, wideo, diffy, notes i strony na obsługiwanych platformach. Desktop ma jedno okno główne (OWN-10). |
 | F-17 Zakończenie | Stop zasobu/worktree, usunięcie, retry cleanupu, Quit hosta, utrata klienta i restart hosta. |
 
 Zakres oznacza udostępnienie istniejących operacji Canopy. Nie dodaje nowych funkcji
@@ -102,7 +102,7 @@ obrazu okna desktopu i nie wymaga używania zdalnej myszy.
 | Host | Instancja danych Canopy na komputerze. Ma trwały `HostId`. Adres sieciowy nie jest tożsamością. |
 | Połączenie | Konfiguracja klienta: oczekiwany HostId, zaufana tożsamość TLS, trasy i odwołanie do własnego credentialu. |
 | Środowisko | Host wykonujący wątki. Tożsamością środowiska jest tylko `HostId`. |
-| Projekt i checkout | Istniejący projekt/workspace na konkretnym hoście. Dla wątku jest metadaną, a nie częścią tożsamości. Ten sam origin na dwóch hostach nie scala zasobów. |
+| Projekt i checkout | Istniejący projekt/workspace na konkretnym hoście. Ma `project_id`; checkout projektu z Git ma `worktree_id`. Dla wątku jest metadaną, a nie częścią tożsamości. Ten sam origin na dwóch hostach nie scala zasobów. |
 | AgentDefinition | Stabilne ID, nazwa, profil i rodzina protokołu. Wiele definicji może używać tego samego backendu ACP. |
 | Backend | Implementacja protokołu: Claude stream-json, Codex app-server albo ACP. Nie jest dostawcą modelu. |
 | Wątek (Thread) | Pełna jednostka pracy: środowisko, agent, gałąź lub worktree, rozmowa i metadane. Ma globalny `ThreadId` (UUIDv7), `revision` i `executor_epoch`. Istnieje niezależnie od liczby oglądających klientów. Stare `chat.id` wskazuje `thread_alias`. |
@@ -111,8 +111,8 @@ obrazu okna desktopu i nie wymaga używania zdalnej myszy.
 | Run | Jedno uruchomienie procesu rozmowy. Ma nowy, niepowtarzalny identyfikator generacji. |
 | Provider session | Nieprzezroczysty identyfikator Claude/Codex/ACP. Backend interpretuje go przy resume. |
 | History epoch | Istniejąca część historii oddzielona np. restartem lub edycją. Nie jest generacją procesu ani kursorem sieciowym. |
-| ResourceRef | Para `HostId` i typowany identyfikator zasobu. Wątek używa `ThreadRef{host_id, thread_id}`. Pozostałe zasoby zachowują dotychczasowe ID. |
-| View | Prezentacja zasobu na danym urządzeniu. Okno renderuje stan globalny aplikacji. Fokus, tab, scroll i lokalne PaneId nie sterują procesem. |
+| ResourceRef | Para `HostId` i typowany identyfikator zasobu. Wątek i zasoby w jego ramach używają `ThreadRef{host_id, thread_id}`. Pliki, terminal, Git i Tasks poza wątkiem używają `ProjectRef{host_id, project_id, worktree_id?}`. Pozostałe zasoby zachowują dotychczasowe ID. |
+| View | Prezentacja zasobu na danym urządzeniu. Na desktopie jedyne okno główne renderuje stan globalny instancji. Na telefonie widok aplikacji ma własną nawigację, która jest stanem urządzenia. Fokus, tab, scroll i lokalne PaneId nie sterują procesem. |
 
 | ID | Wymaganie |
 | --- | --- |
@@ -125,8 +125,8 @@ obrazu okna desktopu i nie wymaga używania zdalnej myszy.
 | OWN-07 | Utworzenie czatu zdalnie MUSI dodać go do katalogu hosta bez aktywowania jego taba lub okna. Użytkownik hosta widzi go w odpowiednim projekcie lub Private chats. |
 | OWN-08 | HostId i identyfikatory zasobów MUSZĄ pozostać stabilne po restarcie i wdrożeniu. Identyfikatora usuniętego zasobu nie wolno użyć ponownie na tym hoście. |
 | OWN-09 | Agent wątku MUSI działać w środowisku ustalonym przy utworzeniu wątku. Przeniesienie wykonania na inny host NIE jest częścią tego wydania; jawny handoff z fencingiem `executor_epoch` to późniejszy etap. |
-| OWN-10 | Aplikacja MUSI mieć jeden stan globalny: projekty, wątki i układ. Okna tylko go renderują. Akcja widoku zmienia stan globalny, a nie prywatny stan okna. |
-| OWN-11 | Użytkownik MUSI mieć jedną instancję aplikacji. Druga instancja NIE MOŻE pokazywać innego stanu; przekazuje aktywację działającej instancji albo kończy się z jawnym komunikatem. |
+| OWN-10 | Instancja MUSI mieć jeden stan globalny (projekty, wątki i układ) oraz jedno okno główne, które go renderuje. Canopy NIE wspiera wielu okien z różnymi projektami. Akcja widoku zmienia stan globalny. Nawigacja klienta mobile i zdalnego desktopu jest stanem jego urządzenia; NIE MOŻE zmieniać stanu globalnego hosta. |
+| OWN-11 | Użytkownik OS MUSI mieć jedną instancję aplikacji z jednym kontem użytkownika. Blokada działa per użytkownik OS dla jego katalogu danych. Druga instancja NIE MOŻE pokazywać innego stanu; przekazuje aktywację działającej instancji albo kończy się z jawnym komunikatem. Jawny `CANOPY_DATA_DIR` wskazuje izolowany katalog danych i osobną instancję testową. |
 
 Runtime MOŻE być encją GPUI należącą do aplikacji. Czyste modele i backendy pozostają
 bez GPUI. Sieciowy executor przekazuje typowane polecenia do właściciela stanu.
@@ -414,7 +414,7 @@ wiadomości ani pozycji kolejki. Nie jest potrzebny licznik każdej komendy ani
 lista dziur sekwencji. Ten jeden licznik epoki chroni przed opóźnionym replay po GC.
 Not_found nie jest wynikiem wykonania. Przed Close klient ponawia ten sam command_id
 w otwartej epoce do uzyskania stanu końcowego albo zachowanego delivery_unknown.
-Epoka i outbox mają jednego właściciela na urządzeniu, wspólnego dla jego okien.
+Epoka i outbox mają jednego właściciela na urządzeniu, wspólnego dla całej instancji klienta.
 Podczas Close klient wstrzymuje tworzenie i wysyłanie nowych kopert, zachowując
 nowe intencje jako niewysłane szkice. Wznawia wysyłanie po trwałym uzgodnieniu epoki.
 Host rozstrzyga wyścig Close z przyjęciem komendy w tej samej transakcyjnej granicy:
@@ -459,10 +459,16 @@ utrwalone przy wydaniu. Nie wymagamy jednej długiej sesji bidi dla wszystkich f
 | Catalog | Lista środowisk, projektów, checkoutów, wątków, zasobów i WatchSummaries | Utworzenie/otwarcie projektu, wątku, terminala; rename; preflight i potwierdzenie zamknięcia/usunięcia. |
 | Thread | ReadHistoryPage, SearchHistory, SubscribeThread, modele i opcje | Send, kolejka, Steer, Interrupt, decyzje, konfiguracja, restart, fork/edit, goal i operacje tła. |
 | Operations | GetCommand, WatchOperation | Jawne CancelOperation tylko dla operacji wspierającej anulowanie. |
-| Files i Git | ListDirectory, SearchFiles, ReadFile, WatchResource, diff, historia, refs, plany operacji | CreateFile, SaveFile, zmiany indeksu, commit, Pull/Push, worktree i aktualnie dostępne operacje refs. |
-| Terminal | Snapshot i historia ekranu; TerminalSession bidi | AcquireInput, ReleaseInput oraz input/resize z fencing tokenem. |
+| Files i Git (`ProjectRef` lub `ThreadRef`) | ListDirectory, SearchFiles, ReadFile, WatchResource, diff, historia, refs, plany operacji | CreateFile, SaveFile, zmiany indeksu, commit, Pull/Push, worktree i aktualnie dostępne operacje refs. |
+| Terminal (`ProjectRef` lub `ThreadRef`) | Snapshot i historia ekranu; TerminalSession bidi | AcquireInput, ReleaseInput oraz input/resize z fencing tokenem. |
 | Artifacts | DownloadChunks i stan uploadu | BeginUpload, PutChunk, FinishUpload, CancelUpload; obiekty obrazów i stron. |
-| Settings i Integrations | Zatwierdzone preferencje bez sekretów, profile i dane Tasks | Typowane zmiany ustawień, kont, filtrów, zadań i powiązań zgodne z aktualnymi modułami. |
+| Settings i Integrations | Zatwierdzone preferencje bez sekretów, profile i dane Tasks (`ProjectRef` dla Tasks projektu) | Typowane zmiany ustawień, kont, filtrów, zadań i powiązań zgodne z aktualnymi modułami. |
+
+Klucze API to `EnvironmentRef{host_id}`, `ThreadRef{host_id, thread_id}` oraz
+`ProjectRef{host_id, project_id, worktree_id?}`. Zasoby w ramach wątku adresuje
+`ThreadRef`; wykonawca rozwiązuje projekt i worktree z metadanych wątku. Zasoby
+projektu poza wątkiem adresuje `ProjectRef`. `worktree_id` występuje tylko dla
+projektu z Git.
 
 `HostInfo` zawiera HostId, wersję aplikacji, wersję kontraktu, limity oraz capabilities.
 Klient sprawdza zgodność przed mutacjami. Nowe pola są addytywne; usunięte numery pól
@@ -479,10 +485,11 @@ Typy Protobuf należą do granicy transportowej; wspólny model nie musi ich uż
 | RPC-06 | Klient MUSI obsługiwać zmianę trasy do tego samego HostId. Inna tożsamość endpointu wymaga jawnego ponownego ustanowienia zaufania. |
 | RPC-07 | Stos Rust i natywny moduł mobile MUSZĄ obsłużyć unary, server stream, bidi, TLS z pinningiem, mTLS, anulowanie i reconnect na odbieranych platformach. Generowanie typów nie jest dowodem działania transportu. |
 | RPC-08 | Kontrakt MUSI być pakietem `canopy.api.v1`. Pakiet `canopy.remote.v1` NIE MOŻE pozostać w repozytorium ani działać równolegle po refaktorze. |
-| RPC-09 | Wątek MUSI być adresowany przez `ThreadRef{host_id, thread_id}`, a środowisko przez `EnvironmentRef{host_id}`. `ChatRef` i `WorkspaceRef` NIE MOGĄ występować w API. |
+| RPC-09 | Wątek MUSI być adresowany przez `ThreadRef{host_id, thread_id}`, środowisko przez `EnvironmentRef{host_id}`, a pliki, terminal, Git i Tasks poza wątkiem przez `ProjectRef{host_id, project_id, worktree_id?}`. `ChatRef` i `WorkspaceRef` NIE MOGĄ występować w API. |
 | RPC-10 | Jedna komenda MUSI mieć jedno RPC zwracające `CommandReceipt`. Generyczne `Execute` jest zabronione. |
 | RPC-11 | Proto jest pisane ręcznie. Każde RPC komendy MUSI mieć opcję `(canopy.api.v1.command) = {name, risk, scope}`. Test kontraktowy MUSI porównać deskryptor, rejestr komend i listę narzędzi MCP. |
 | RPC-12 | CI MUSI uruchamiać `buf lint`. `buf breaking` MUSI blokować zmiany od wydania v1. Zmiana łamiąca wymaga pakietu `canopy.api.v2`. |
+| RPC-13 | `ProjectRef` MUSI zawierać `worktree_id` dla projektu z Git i NIE MOŻE go zawierać dla projektu bez Git; niezgodność daje odmowę przed I/O. Komenda zasobu w ramach wątku MUSI używać `ThreadRef`; klient NIE MOŻE przekazywać równolegle projektu ani worktree tego wątku. |
 
 ### 9.2 Obiekty i transfer
 
@@ -559,7 +566,7 @@ globalnego między hostami.
 
 | ID | Wymaganie |
 | --- | --- |
-| APP-01 | Odczyt drzewa, wyszukiwanie, tworzenie i zapis MUSZĄ działać na wybranym hoście. Zapytanie zawsze wskazuje root zasobu; klient nie przekazuje dowolnej ścieżki do wykonania poza swoim zakresem. |
+| APP-01 | Odczyt drzewa, wyszukiwanie, tworzenie i zapis MUSZĄ działać na wybranym hoście. Zapytanie zawsze wskazuje root zasobu przez `ProjectRef` lub `ThreadRef`; klient nie przekazuje dowolnej ścieżki do wykonania poza swoim zakresem. |
 | APP-02 | Edytor MUSI zachować BOM, CRLF i uprawnienia oraz obecne limity. Zapis wymaga zgodności bazowej treści i tożsamości celu z dyskiem hosta. Konflikt zachowuje dirty buffer. Nie wolno dodać cichego force overwrite. |
 | APP-03 | Dwa urządzenia MOGĄ edytować plik niezależnie. Pierwszy poprawny zapis zmienia wersję bazową. Zapis drugiego dostaje conflict i zachowuje jego treść. Współedycja znak po znaku nie jest częścią wydania. |
 | APP-04 | Klient MUSI zgłaszać presence dirty buffer bez przesyłania tekstu. Preflight zamknięcia/usunięcia MUSI uwzględnić online dirty clients i ostatni znany stan offline clients. Nie wolno zdalnie odrzucić cudzego aktywnego bufora. |
@@ -567,7 +574,7 @@ globalnego między hostami.
 | APP-06 | Mutacje Git MUSZĄ używać libgit2 i obecnych usług. Warunki obejmują właściwe dla operacji HEAD, indeks, stan worktree i zakres preflight. Niezależne repozytoria nie mogą blokować się globalnym lockiem. |
 | APP-07 | Worktree, Pull/Push, commit, podpis i hooki MUSZĄ zachować aktualne reguły analizy, zgód, częściowego sukcesu i cleanupu. Retry wyniku niepewnego nie może tworzyć drugiego commita lub worktree. |
 | APP-08 | Tasks MUSZĄ wykonywać istniejące operacje przez konta hosta. Klient nie otrzymuje tokenu konta. Filtry, paginacja, załączniki i kontekst task do worktree zachowują aktualny zakres i walidację. |
-| APP-09 | Ustawienia MUSZĄ należeć do jednej z trzech klas. Ustawienia hosta (narzędzia, profile, integracje) zostają na hoście. Ustawienia urządzenia są lokalne; zmiana na jednym urządzeniu nie przestawia drugiego. Preferencje użytkownika synchronizują się między hostami przez HLC z LWW (REPL-06). |
+| APP-09 | Ustawienia MUSZĄ należeć do jednej z trzech klas. Ustawienia hosta (narzędzia, profile, integracje) zostają na hoście. Ustawienia urządzenia są lokalne; zmiana na jednym urządzeniu nie przestawia drugiego. Nawigacja, układ i szkice klienta mobile lub zdalnego desktopu są stanem urządzenia. Preferencje użytkownika synchronizują się między hostami przez HLC z LWW (REPL-06). |
 | APP-10 | Zdalny zapis lub usunięcie sekretu MUSI być write-only i wymagać admin. Błąd zapisu konfiguracji zachowuje poprzedni credential i ponawialny cleanup zgodnie z obecnym magazynem. |
 | APP-11 | Operacja wymagająca promptu OS na hoście MUSI zwrócić needs_host_interaction z dalszą akcją. Nie wolno zawiesić RPC w oczekiwaniu na niewidoczny picker, pinentry, Keychain prompt lub OAuth. |
 | APP-12 | Otwarcie linku, schowek, wybór lokalnego pliku i focus MUSZĄ działać na urządzeniu inicjującym. Wybór pliku hosta jest zapytaniem o jego katalog, a nie natywnym pickerem otwieranym na hoście. |
@@ -757,8 +764,9 @@ Ograniczenia stałe tego wydania:
 - Funkcja backendu niewspierana przez jego protokół podlega AGT-07.
 - Brak współedycji znakowej i automatycznej migracji wykonania między hostami.
   Jawny handoff wątku jest późniejszym etapem (OWN-09).
-- Telefon ma jeden widok aplikacji z własną nawigacją. Wiele okien desktopu ma na
-  telefonie N/A-platform; niezależność jego nawigacji i szkiców nadal jest wymagana.
+- Desktop ma jedno okno główne. Wiele okien z różnymi projektami nie jest wspierane (OWN-10).
+- Telefon ma jeden widok aplikacji z własną nawigacją. Ta nawigacja i szkice są stanem
+  urządzenia; ich niezależność od stanu globalnego hosta nadal jest wymagana.
 
 Przeglądarka osadzona jako renderer strony lub terminala nie jest klientem web.
 Implementacja musi zachować separację między treścią takiego renderera a credentials RPC.

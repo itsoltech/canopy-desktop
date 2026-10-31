@@ -1,6 +1,7 @@
 # ADR 0001: Architektura wątków, szyny komend i replikacji
 
-Status: Przyjęta, 2026-10-31.
+Status: Przyjęta, 2026-10-31. Uzupełniona 2026-10-31: jedno okno główne (D13)
+i klucz zasobów projektu `ProjectRef` (D16).
 
 Dokument zapisuje decyzje architektury dla [planu domenowego](../agent-runtime-remote-plan.md)
 i [macierzy odbioru](../agent-runtime-remote-acceptance.md). Plan i macierz zostały
@@ -209,18 +210,33 @@ Odrzucone opcje: synchronizacja wszystkich ustawień; brak synchronizacji prefer
 Konsekwencje: Każde ustawienie ma przypisaną klasę. Przypisanie wymaga listy
 (otwarta kwestia).
 
-### D13 Stan globalny i jedna instancja
+### D13 Stan globalny, jedno okno i jedna instancja
 
-Decyzja: Canopy ma jeden stan globalny aplikacji: projekty, wątki i układ. Okna tylko
-go renderują. Jeden użytkownik ma jedną instancję aplikacji. Druga instancja nie może
-pokazywać innego stanu. MCP nie adresuje okien. Akcje widoku zmieniają stan globalny.
+Decyzja: Canopy ma jedną instancję, jedno konto użytkownika i jeden stan globalny
+aplikacji: projekty, wątki i układ. Jedno okno główne renderuje ten stan. Canopy nie
+wspiera wielu okien z różnymi projektami. Druga instancja nie może pokazywać innego
+stanu. MCP nie adresuje okien. Akcje widoku zmieniają stan globalny.
 
-Uzasadnienie: Dwa stany w dwóch instancjach dają dwóch zapisujących dla tych samych danych.
+Blokada pojedynczej instancji działa per użytkownik OS. Obejmuje katalog danych
+tego użytkownika. Jawny `CANOPY_DATA_DIR` wskazuje inny, izolowany katalog danych
+i daje osobną instancję. Służy tylko do testów i buildów deweloperskich.
 
-Odrzucone opcje: niezależne instancje na tym samym katalogu danych; adresowanie okien w MCP.
+Mobile jest osobnym klientem z własną instancją. Nawigacja telefonu jest stanem
+urządzenia, a nie stanem globalnym hosta. To samo dotyczy zdalnego desktopu:
+renderuje stan globalny własnej instancji i nie zmienia nawigacji hosta.
 
-Konsekwencje: Stan okna jest częścią stanu globalnego. Zasięg blokady jednej instancji
-przy `CANOPY_DATA_DIR` jest otwartą kwestią.
+Uzasadnienie: Dwa stany w dwóch instancjach dają dwóch zapisujących dla tych samych
+danych. Wiele okien z niezależną nawigacją wymaga adresowania okien w komendach widoku
+i w MCP. Jedno okno usuwa ten problem.
+
+Odrzucone opcje: niezależne instancje na tym samym katalogu danych; wiele okien
+z niezależną nawigacją; adresowanie okien w MCP; blokada wyłącznie per katalog danych
+bez związku z użytkownikiem OS.
+
+Konsekwencje: F-16 nie obejmuje wielu okien ani niezależnej nawigacji okien.
+Akcja widoku z MCP zmienia stan renderowany przez jedyne okno główne. Hosty A i B
+na jednym komputerze w testach używają osobnych `CANOPY_DATA_DIR`. Okna pomocnicze
+systemu, np. notch, nie renderują osobnego stanu projektów.
 
 ### D14 Kontrakt gRPC `canopy.api.v1`
 
@@ -228,8 +244,9 @@ Decyzja:
 
 - Nowy typowany pakiet `canopy.api.v1` jest zbudowany wokół wątku i komend.
 - Obecny `canopy.remote.v1` usuwamy w tym samym refaktorze. Kontrakt jest niewydany.
-- Klucze: `EnvironmentRef{host_id}` i `ThreadRef{host_id, thread_id}`. `ChatRef`
-  i `WorkspaceRef` znikają z API.
+- Klucze: `EnvironmentRef{host_id}`, `ThreadRef{host_id, thread_id}` oraz
+  `ProjectRef{host_id, project_id, worktree_id?}` (D16). `ChatRef` i `WorkspaceRef`
+  znikają z API.
 - Jedna komenda to jedno RPC zwracające `CommandReceipt`. Adapter tylko dekoduje
   i woła szynę. Nie ma generycznego `Execute`.
 - Rejestr komend w Rust jest źródłem prawdy. Proto jest pisane ręcznie.
@@ -262,6 +279,24 @@ Odrzucone opcje: wydanie Remote na obecnym kontrakcie i późniejsza migracja.
 Konsekwencje: DATA-01 obejmuje także `ThreadId`, `thread_alias`, rewizje wątku
 i stan replikacji.
 
+### D16 Klucz zasobów projektu bez wątku
+
+Decyzja: Pliki, terminal, Git i Tasks poza wątkiem mają klucz
+`ProjectRef{host_id, project_id, worktree_id?}`. `worktree_id` jest obecny, gdy projekt
+używa Git. Projekt bez Git ma klucz złożony z hosta i projektu. W ramach wątku zasoby
+nadal adresuje `ThreadRef`. Wątek zna swój projekt i worktree.
+
+Uzasadnienie: Zasoby projektu istnieją bez wątku, np. drzewo plików lub terminal.
+`EnvironmentRef` nie wskazuje projektu. Jawny `worktree_id` odróżnia checkouty tego
+samego repozytorium na jednym hoście.
+
+Odrzucone opcje: zachowanie `WorkspaceRef`; `EnvironmentRef` z dowolną ścieżką;
+adresowanie zasobów projektu przez sztuczny wątek.
+
+Konsekwencje: Host odrzuca `ProjectRef` z `worktree_id` dla projektu bez Git oraz
+`ProjectRef` bez `worktree_id` dla projektu z Git. Komenda z `ThreadRef` rozwiązuje
+projekt i worktree po stronie wykonawcy. Klient nie przekazuje ich równolegle.
+
 ## Wpływ na istniejące wymagania
 
 | ID | Zmiana |
@@ -287,23 +322,26 @@ i stan replikacji.
 | MCP-01..05 | Nowe: MCP na poziomie wątków. |
 | AC-02, 04, 07, 09, 11, 14, 24, 32 | Kroki i PASS dostosowane do powyższych zmian. |
 | AC-36..40 | Nowe przypadki odbioru; macierz F-02, F-15 i F-16 odwołuje się do AC-37, AC-39 i AC-40. |
+| F-16 | Usunięte „Niezależna nawigacja, wiele okien”. Zostają obrazy, fonty, wideo, diffy, notes i strony (D13). |
+| OWN-10, OWN-11 | Jedno okno główne; nawigacja klienta jest stanem urządzenia; blokada per użytkownik OS i izolowany `CANOPY_DATA_DIR` (D13). |
+| APP-01, APP-09 | Zasoby projektu przez `ProjectRef` lub `ThreadRef`; nawigacja i układ klienta jako stan urządzenia. |
+| §4, §9.1, RPC-09, RPC-13 | `ProjectRef` w pojęciach, katalogu usług i wymaganiach RPC (D16). |
+| §8.1 (epoka), §14 | Właściciel epoki i outboxu wspólny dla instancji, nie okien; bez N/A dla wielu okien na telefonie. |
+| AC §1, AC-13, AC-24, AC-36, AC-40, stanowisko | Usunięte multiwindow i drugie okno; osobne `CANOPY_DATA_DIR` dla A i B na jednym komputerze; testy `ProjectRef`. |
 
 ## Otwarte kwestie
 
-1. Adresowanie zasobów bez wątku. Pliki, terminal, Git i Tasks projektu mogą istnieć
-   bez wątku. `WorkspaceRef` znika z API. Trzeba ustalić klucz tych zasobów, np.
-   `EnvironmentRef` z identyfikatorem projektu lub worktree.
+1. Zamknięta 2026-10-31. Zasoby bez wątku adresuje
+   `ProjectRef{host_id, project_id, worktree_id?}`, a zasoby wątku `ThreadRef` (D16).
 2. Retencja i limity repliki. Pełny transkrypt i artefakty na każdym hoście wymagają
    limitu dysku, zasady wygaszania i zachowania przy przekroczeniu.
 3. Lista klas ustawień. Każde obecne ustawienie (motyw, zoom, skróty, layout, nawigacja,
    narzędzia, profile, integracje) wymaga przypisania do klasy host, urządzenie
    albo preferencja użytkownika.
-4. Nawigacja okien w stanie globalnym. F-16 i AC-24 wymagają niezależnej nawigacji
-   okien. Trzeba ustalić, które okno zmienia akcja widoku z MCP, skoro MCP nie
-   adresuje okien.
-5. Zasięg jednej instancji. Trzeba ustalić, czy blokada działa per użytkownik systemu
-   czy per katalog danych. Dotyczy to `CANOPY_DATA_DIR` i stanowiska z hostami A i B
-   na jednym komputerze.
+4. Zamknięta 2026-10-31. Canopy ma jedno okno główne. Wymagania niezależnej nawigacji
+   wielu okien usunięto. Akcja widoku z MCP zmienia stan renderowany przez to okno (D13).
+5. Zamknięta 2026-10-31. Blokada działa per użytkownik OS. Hosty A i B na jednym
+   komputerze w testach używają osobnych `CANOPY_DATA_DIR` (D13).
 6. Quit przez MCP. LIFE-06 zabrania zdalnego Quit. Pełny parytet MCP z UI obejmuje
    Quit lokalnego hosta. Trzeba wskazać, czy Quit jest wyjątkiem od parytetu.
 7. Zmiana `executor_epoch` w pierwszym etapie. Trzeba wymienić operacje hosta,
