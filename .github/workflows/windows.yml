@@ -22,12 +22,15 @@ jobs:
         run: |
           rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --profile minimal --component rustfmt,clippy
           rustup default 1.95.0-x86_64-pc-windows-msvc
+      - name: Install protoc
+        shell: pwsh
+        run: choco install protoc --no-progress -y
       - name: Show native toolchain
         shell: pwsh
         run: |
           rustc --version --verbose
           cargo --version
-          Get-Command cl, cmake, perl, nasm -ErrorAction SilentlyContinue
+          Get-Command cl, cmake, perl, nasm, protoc -ErrorAction SilentlyContinue
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Check all targets and features

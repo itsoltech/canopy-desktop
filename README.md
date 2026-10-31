@@ -16,6 +16,7 @@ kodu: [docs/rust-rewrite.md](docs/rust-rewrite.md).
 - Pełny graf zależności przypięty w `Cargo.lock`; zachowujemy go w Git.
 - Początkowa platforma weryfikacji: macOS / Apple Silicon.
 - Xcode z narzędziami deweloperskimi i SDK macOS (`xcode-select -p`).
+- `protoc` (np. `brew install protobuf`) — `build.rs` kompiluje kontrakt gRPC z `proto/`.
 
 Po instalacji Rust przez rustup Cargo pobierze wskazany toolchain i zależności.
 Pierwsza kompilacja GPUI jest znacznie dłuższa niż kolejne kompilacje aplikacji.
