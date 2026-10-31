@@ -36,6 +36,7 @@ nie wczytuj całego dokumentu do każdej poprawki. Opisy modułów i procedur:
 - Czat agentów (Claude Code, Codex): [czat](docs/chat.md).
 - Docelowa abstrakcja agentów i remote gRPC: [plan domenowy](docs/agent-runtime-remote-plan.md),
   [wymagania odbiorowe](docs/agent-runtime-remote-acceptance.md) — projekt do wdrożenia, nie opis obecnego kodu.
+  Sterowanie aplikacją przez MCP: [plan MCP](docs/mcp-control-plan.md) — również projekt.
 - Sesje agentów i resume: [agenci](docs/agents.md), [notch](docs/notch.md), [toasty](docs/toasts.md).
 - Git: [worktree](docs/git-worktrees.md), [Pull/Push](docs/git-network.md),
   [Changes i commit](docs/git-changes.md), [hooki](docs/git-hooks.md).
