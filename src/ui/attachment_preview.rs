@@ -54,6 +54,7 @@ struct AttachmentPreview {
     file: Option<Arc<PreviewFile>>,
     #[cfg(target_os = "macos")]
     native: Option<std::rc::Rc<NativePreview>>,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     close_sender: async_channel::Sender<()>,
     loading: bool,
     saving: bool,
@@ -197,7 +198,7 @@ impl AttachmentPreview {
             let _=this.update_in(cx,|s,window,cx|{s.loading=false;match result{Ok(file)=>{
                 #[cfg(target_os="macos")] match NativePreview::new(file.clone(),s.close_sender.clone(),window){Ok(preview)=>s.native=Some(std::rc::Rc::new(preview)),Err(e)=>s.error=Some(e)}
                 s.file=Some(file);s.reveal.set_open(true,Instant::now(),motion::policy(cx));
-                #[cfg(not(target_os="macos"))] {s.error=Some("System attachment preview is available on macOS. You can still save this file.".into());}
+                #[cfg(not(target_os="macos"))] {let _=window;s.error=Some("System attachment preview is available on macOS. You can still save this file.".into());}
             },Err(e)=>s.error=Some(e)}cx.notify();});
         }));
         cx.notify();
@@ -358,6 +359,8 @@ impl Render for AttachmentPreview {
                                 if let Some(native) = &native {
                                     native.frame(bounds, progress);
                                 }
+                                #[cfg(not(target_os = "macos"))]
+                                let _ = (bounds, progress);
                             },
                         )
                         .absolute()

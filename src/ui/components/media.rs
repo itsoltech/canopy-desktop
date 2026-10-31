@@ -10,6 +10,8 @@ pub fn fitted_image(source: impl Into<ImageSource>) -> Img {
     img(source).size_full().object_fit(ObjectFit::Contain)
 }
 
+// Video playback is macOS-only (ui::video_preview).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn media_seek_bar(id: impl Into<ElementId>, ratio: f32) -> Stateful<Div> {
     div()
         .id(id)
@@ -28,6 +30,7 @@ pub fn media_seek_bar(id: impl Into<ElementId>, ratio: f32) -> Stateful<Div> {
         )
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn playback_controls(
     back: impl IntoElement,
     play: impl IntoElement,
@@ -49,6 +52,7 @@ pub fn playback_controls(
         )
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn time_label(time: f64) -> String {
     let seconds = time.max(0.) as u64;
     format!("{}:{:02}", seconds / 60, seconds % 60)

@@ -4,6 +4,7 @@ use gpui_kit::*;
 
 /// What a page reports while it is open.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub enum PageEvent {
     /// Height of its content, in points.
     Height(f32),
@@ -281,6 +282,10 @@ mod platform {
         pub fn set_active(&self, _: bool) {}
     }
     pub struct Capture;
+    // Mirrors the macOS Capture, whose Drop tears the page down; callers drop it explicitly.
+    impl Drop for Capture {
+        fn drop(&mut self) {}
+    }
     pub fn capture(
         _: &str,
         _: &str,
