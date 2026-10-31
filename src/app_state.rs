@@ -84,6 +84,7 @@ pub struct NotchStatus {
 }
 
 impl NotchStatus {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn fail(&mut self, error: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.error = Some(error.into());
         cx.notify();

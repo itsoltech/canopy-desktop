@@ -15,6 +15,10 @@ CREATE TABLE _canopy_runtime_host (
 );
 CREATE TABLE _canopy_runtime_chats (
     chat_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL UNIQUE,
+    host_id TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>0),
+    executor_epoch INTEGER NOT NULL DEFAULT 0 CHECK(executor_epoch>=0),
     workspace TEXT,
     authority_root TEXT NOT NULL,
     agent_id TEXT NOT NULL,
@@ -26,6 +30,14 @@ CREATE TABLE _canopy_runtime_chats (
     queue_revision INTEGER NOT NULL DEFAULT 0 CHECK(queue_revision>=0),
     queue_paused INTEGER NOT NULL DEFAULT 1 CHECK(queue_paused IN (0,1)),
     closed_at INTEGER
+);
+-- Durable legacy chat key -> global ThreadId. Never deleted with its thread, so an
+-- old chat.id keeps resolving and is never given to another thread.
+CREATE TABLE _canopy_thread_alias (
+    legacy_host_id TEXT NOT NULL,
+    legacy_chat_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL UNIQUE,
+    PRIMARY KEY(legacy_host_id,legacy_chat_id)
 );
 CREATE TABLE _canopy_remote_devices (
     device_id TEXT PRIMARY KEY,

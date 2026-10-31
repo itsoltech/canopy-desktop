@@ -58,7 +58,7 @@ impl Database {
         if payload.len() > host::CONTROL_BYTES {
             return Err(Error::ResourceLimit);
         }
-        let changed = tx.execute("UPDATE _canopy_runtime_chats SET workspace=?2,agent_id=?3,profile_id=?4,metadata=?5,authority_root=?8,recovery_reason=NULL WHERE chat_id=?1 AND recovery_reason=?6 AND history_epoch=?7 AND closed_at IS NULL", params![chat.id,chat.workspace,chat.agent,profile,payload,expected_reason,integer(chat.history_epoch)?,chat.authority_root])?;
+        let changed = tx.execute("UPDATE _canopy_runtime_chats SET revision=revision+1,workspace=?2,agent_id=?3,profile_id=?4,metadata=?5,authority_root=?8,recovery_reason=NULL WHERE chat_id=?1 AND recovery_reason=?6 AND history_epoch=?7 AND closed_at IS NULL", params![chat.id,chat.workspace,chat.agent,profile,payload,expected_reason,integer(chat.history_epoch)?,chat.authority_root])?;
         if changed == 0 {
             return Err(Error::ResourceConflict);
         }

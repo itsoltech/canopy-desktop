@@ -891,7 +891,7 @@ mod tests {
             },
         )
         .unwrap();
-        client.save_runtime_chat(record.clone()).await.unwrap();
+        let record = client.save_runtime_chat(record).await.unwrap();
         let (app, bridge) = cx.update(|cx| {
             let app = AppState::install_test(Workspace::new(), cx);
             app.projects.update(cx, |projects, _| projects.ready = true);

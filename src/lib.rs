@@ -5,6 +5,7 @@ pub mod motion;
 pub mod platform;
 pub mod remote;
 pub mod settings;
+pub mod thread;
 
 pub mod state;
 

@@ -78,7 +78,7 @@ async fn a_close_whose_cleanup_failed_stays_listed_and_closing_again_retries_it(
     )
     .and_then(|r| r.with_authority_root(checkout.to_str().unwrap().into()))
     .unwrap();
-    client.save_runtime_chat(record.clone()).await.unwrap();
+    let record = client.save_runtime_chat(record).await.unwrap();
     cx.update(|cx| {
         app.settings
             .update(cx, |settings, _| settings.record_saved(record));

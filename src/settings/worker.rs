@@ -119,9 +119,18 @@ enum Command {
     ResolveRuntimeOperation(crate::host::CommandKey, Reply<crate::host::CommandReceipt>),
     AcknowledgeRuntimeOperation(crate::host::CommandKey, Reply<()>),
     InitializeRuntime(Reply<crate::host::RuntimeHost>),
-    SaveRuntimeChat(crate::host::ChatRecord, Reply<()>),
+    SaveRuntimeChat(crate::host::ChatRecord, Reply<crate::host::ChatRecord>),
     LoadRuntimeChats(Reply<Vec<crate::host::ChatRecord>>),
     LoadRuntimeChat(String, Reply<Option<crate::host::ChatRecord>>),
+    LoadRuntimeThread(
+        crate::thread::ThreadId,
+        Reply<Option<crate::host::ChatRecord>>,
+    ),
+    RuntimeThreadAlias(
+        crate::thread::HostId,
+        String,
+        Reply<Option<crate::thread::ThreadId>>,
+    ),
     RegisterRuntimeDevice(crate::host::DeviceRegistration, Reply<()>),
     RevokeRuntimeDevice(String, Reply<()>),
     AcceptRuntimeOperation(
@@ -464,7 +473,10 @@ impl SettingsClient {
         self.enqueue(Command::InitializeRuntime(tx))?;
         rx.await.map_err(|_| Error::WorkerStopped)?
     }
-    pub async fn save_runtime_chat(&self, chat: crate::host::ChatRecord) -> Result<()> {
+    pub async fn save_runtime_chat(
+        &self,
+        chat: crate::host::ChatRecord,
+    ) -> Result<crate::host::ChatRecord> {
         let (tx, rx) = oneshot::channel();
         self.enqueue(Command::SaveRuntimeChat(chat, tx))?;
         rx.await.map_err(|_| Error::WorkerStopped)?
@@ -477,6 +489,24 @@ impl SettingsClient {
     pub async fn load_runtime_chat(&self, id: String) -> Result<Option<crate::host::ChatRecord>> {
         let (tx, rx) = oneshot::channel();
         self.enqueue(Command::LoadRuntimeChat(id, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    pub async fn load_runtime_thread(
+        &self,
+        thread: crate::thread::ThreadId,
+    ) -> Result<Option<crate::host::ChatRecord>> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::LoadRuntimeThread(thread, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    /// The thread a legacy chat ID of `host` resolves to, kept after delete.
+    pub async fn runtime_thread_alias(
+        &self,
+        host: crate::thread::HostId,
+        chat: String,
+    ) -> Result<Option<crate::thread::ThreadId>> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::RuntimeThreadAlias(host, chat, tx))?;
         rx.await.map_err(|_| Error::WorkerStopped)?
     }
     pub async fn register_runtime_device(
@@ -748,6 +778,12 @@ impl SettingsClient {
                         }
                         Command::LoadRuntimeChat(id, reply) => {
                             let _ = reply.send(db.load_runtime_chat(id));
+                        }
+                        Command::LoadRuntimeThread(thread, reply) => {
+                            let _ = reply.send(db.load_runtime_thread(thread));
+                        }
+                        Command::RuntimeThreadAlias(host, chat, reply) => {
+                            let _ = reply.send(db.runtime_thread_alias(host, chat));
                         }
                         Command::RuntimeDeviceCertificate(id, reply) => {
                             let _ = reply.send(db.runtime_device_certificate(id));

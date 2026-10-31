@@ -132,7 +132,7 @@ async fn host(cx: &mut TestAppContext) -> Host {
         },
     )
     .unwrap();
-    client.save_runtime_chat(record.clone()).await.unwrap();
+    let record = client.save_runtime_chat(record).await.unwrap();
     // A finished turn of an earlier session, with the point its agent can branch at.
     let meta = serde_json::json!({"agent": {"tool": "claude", "session": "session-1"}});
     client
@@ -308,7 +308,21 @@ async fn a_fork_and_its_edited_message_are_published_together_or_not_at_all(
             .unwrap()
             .is_some()
     );
-    cx.update(|cx| assert!(host.app.settings.read(cx).chat_record(&forked).is_some()));
+    cx.update(|cx| {
+        let settings = host.app.settings.read(cx);
+        let record = settings.chat_record(&forked).unwrap();
+        assert!(saved.thread_id().is_some());
+        assert_eq!(record.thread(), saved.thread());
+        let summaries = host.app.chats.read(cx).chat_summaries(cx);
+        assert_eq!(
+            summaries
+                .iter()
+                .find(|s| s.chat == forked)
+                .unwrap()
+                .thread_id,
+            saved.thread_id()
+        );
+    });
     client.shutdown().await.unwrap();
 }
 

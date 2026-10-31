@@ -329,6 +329,12 @@ fn orphan_recovery_requires_explicit_account_and_current_epoch_and_has_one_winne
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].id(), chat_id);
         assert!(loaded[0].recovery_reason().is_none());
+        assert_eq!(loaded[0].thread_id(), orphan.thread_id());
+        assert_eq!(
+            loaded[0].thread().unwrap().revision(),
+            orphan.thread().unwrap().revision() + 2
+        );
+        assert_eq!(loaded[0].thread().unwrap().executor_epoch(), 0);
         assert_eq!(
             c.load_chat_history(chat_id.clone()).await.unwrap().items,
             vec![(7, 42, "retained history".into())]

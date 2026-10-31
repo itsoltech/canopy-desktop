@@ -35,7 +35,7 @@ alacritty_terminal = "=0.26.0"
 polling = "=3.11.0"
 async-channel = "=2.5.0"
 libc = "=0.2.189"
-uuid = { version = "=1.26.0", features = ["v4"] }
+uuid = { version = "=1.26.0", features = ["v4", "v7"] }
 shell-words = "=1.1.1"
 # Reuse already-locked primitives for command fingerprints and secret inputs.
 sha2 = "=0.10.9"

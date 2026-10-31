@@ -161,8 +161,13 @@ fn invalid_executable_and_directory_are_launch_errors() {
 }
 #[test]
 fn environment_probe_reads_the_login_shell_without_printing_values() {
+    let shell = if cfg!(target_os = "macos") {
+        "/bin/zsh"
+    } else {
+        "/bin/sh"
+    };
     let vars = canopy_desktop::terminal::environment::probe(
-        std::path::Path::new("/bin/zsh"),
+        std::path::Path::new(shell),
         Duration::from_secs(5),
     )
     .unwrap();
