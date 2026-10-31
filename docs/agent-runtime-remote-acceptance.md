@@ -2,6 +2,7 @@
 
 Ten dokument jest częścią [planu domenowego](agent-runtime-remote-plan.md).
 Opisuje testy docelowe. Nie stanowi raportu wykonania testów.
+Zmieniony 2026-10-31 zgodnie z [ADR 0001](adr/0001-thread-architecture.md).
 
 ## 1 Reguły odbioru i dowody
 
@@ -23,7 +24,7 @@ L ma osobny wynik macOS i Windows; regresję Linux obejmuje AC-33.
 | Zakres | L | RM | RW | I | A | Backend |
 | --- | --- | --- | --- | --- | --- | --- |
 | F-01 | AC-04,27,28 | AC-04,27,28,31 | AC-04,27,28,31 | AC-04,27,28,31 | AC-04,27,28,31 | — |
-| F-02 | AC-03,04,24 | AC-03,04,24,31 | AC-03,04,24,31 | AC-03,04,24,31 | AC-03,04,24,31 | — |
+| F-02 | AC-03,04,24,37 | AC-03,04,24,31,37 | AC-03,04,24,31,37 | AC-03,04,24,31,37 | AC-03,04,24,31,37 | — |
 | F-03 | AC-07,11,12,18 | AC-07,11,12,18 | AC-07,11,12,18 | AC-07,11,12,14,18 | AC-07,11,12,14,18 | C/X/P |
 | F-04 | AC-05,06 | AC-05,06 | AC-05,06 | AC-05,06,31 | AC-05,06,31 | C/X/P |
 | F-05 | AC-08 | AC-08 | AC-08 | AC-08,31 | AC-08,31 | C/X/P |
@@ -36,14 +37,14 @@ L ma osobny wynik macOS i Windows; regresję Linux obejmuje AC-33.
 | F-12 | AC-22 | AC-22 | AC-22 | AC-22,31 | AC-22,31 | — |
 | F-13 | AC-25,26 | AC-25,26 | AC-25,26 | AC-25,26,31 | AC-25,26,31 | — |
 | F-14 | AC-23 | AC-23 | AC-23 | AC-23,31 | AC-23,31 | — |
-| F-15 | AC-23,24,34 | AC-23,24,34 | AC-23,24,34 | AC-23,24,31,34 | AC-23,24,31,34 | — |
-| F-16 | AC-24 | AC-24 | AC-24 | AC-24,31 | AC-24,31 | — |
+| F-15 | AC-23,24,34,39 | AC-23,24,34,39 | AC-23,24,34,39 | AC-23,24,31,34,39 | AC-23,24,31,34,39 | — |
+| F-16 | AC-24,40 | AC-24 | AC-24 | AC-24,31 | AC-24,31 | — |
 | F-17 | AC-03,18,25 | AC-03,18,25 | AC-03,18,25 | AC-03,18,25 | AC-03,18,25 | — |
 
 Raport rozwija każdy wiersz na podfunkcje wymienione w sekcji 3 planu i zapisuje wynik
 każdej podfunkcji, a nie tylko wspólny PASS wiersza. Nieobsługiwana opcja backendu
-ma własne N/A-capability, wersję i dowód braku wsparcia. Multiwindow w F-16-I/A
-ma N/A-platform; pozostałe zachowania F-16 nadal przechodzą AC-24. Local Quit
+ma własne N/A-capability, wersję i dowód braku wsparcia. F-16 nie obejmuje wielu okien;
+wszystkie zachowania F-16 przechodzą AC-24 na każdym kliencie. Local Quit
 jest testowany na hoście; dla remote PASS oznacza brak możliwości zdalnego Quit.
 
 | Poziom | Co może potwierdzić |
@@ -62,8 +63,10 @@ W zwykłych testach nie używamy modeli, prawdziwych kont ani magazynu sekretów
 
 ## 2 Stanowisko testowe
 
-- Dwa hosty A i B z odrębnymi katalogami danych, identyfikatorami i tymczasowymi repo.
+- Dwa sparowane hosty A i B z odrębnymi katalogami danych, identyfikatorami i tymczasowymi repo.
+  Na jednym komputerze A i B używają osobnych `CANOPY_DATA_DIR` (OWN-11).
 - Trzeci klient C, który obserwuje oba hosty; dodatkowy klient D do wyścigów.
+- Klient MCP M z osobnym grantem OAuth na A i B.
 - CLI Claude i Codex w wersjach zapisanych w raporcie. Nagrania w repo są bazą regresji.
 - OpenCode przez ACP jako rzeczywisty agent odniesienia. Druga definicja ACP oraz
   kontrolowany agent protokołu sprawdzają niezależność od nazwy i nietypowe opcje.
@@ -79,24 +82,24 @@ W zwykłych testach nie używamy modeli, prawdziwych kont ani magazynu sekretów
 | Test | Wymagania planu | Kroki i warunek PASS |
 | --- | --- | --- |
 | AC-01 R | SCOPE-01..06, SIMPLE-01..07 | Porównaj każdy wiersz zakresu z działającymi operacjami i macierzą urządzeń. Dla nowej warstwy wskaż wymaganie, prostszą alternatywę i rzeczywistą korzyść. PASS: brak funkcji zastąpionej makietą, brak nieuzasadnionej warstwy i brak publikacji pośredniego MVP. |
-| AC-02 P/T | DATA-01..09, OWN-08 | Utwórz bazę Rust v1 i import kopii Electrona bez znacznika Rust. Policz ID i treść, zastosuj jedną końcową migrację, odtwórz rozmowy i layout. Powtórz start. Uruchom build niewydanego schematu bez CANOPY_DATA_DIR i z niezgodnym prywatnym fingerprintem. Otwórz kopię prywatnej bazy w buildzie wydanym. PASS: jeden krok, zachowane ID/sekrety/obce tabele, rollback DDL/adopcji/znacznika; wszystkie odmowy zachowują pliki. Wydany build odrzuca prerelease jako UnsupportedSchema. Nie obiecujemy zmiany już wydanego starego binarium. |
+| AC-02 P/T | DATA-01..09, OWN-08 | Utwórz bazę Rust v1 i import kopii Electrona bez znacznika Rust. Policz ID i treść, zastosuj jedną końcową migrację, odtwórz rozmowy i layout. Powtórz start. Uruchom build niewydanego schematu bez CANOPY_DATA_DIR i z niezgodnym prywatnym fingerprintem. Otwórz kopię prywatnej bazy w buildzie wydanym. PASS: jeden krok; każda rozmowa ma nowy ThreadId (UUIDv7) i wpis thread_alias, a stare chat.id rozwiązuje się do tego samego wątku; brak drugiej historii; zachowane ID pozostałych zasobów, sekrety i obce tabele; rollback DDL/adopcji/znacznika; wszystkie odmowy zachowują pliki. Wydany build odrzuca prerelease jako UnsupportedSchema. Nie obiecujemy zmiany już wydanego starego binarium. |
 | AC-03 C/T | OWN-01..03, OWN-06..07, LIFE-09 | Uruchom czat bez Window/ChatView. Wyślij lokalnie i przez gRPC, dołącz/odłącz widoki i przesuń kontrolowany zegar o 60 s. Powtórz ze wstrzymaną kolejką dwóch pozycji oraz unknown. Odwiedź 33 lokalne taby. PASS: jeden proces/runtime, brak aktywacji taba hosta; bez widoków dormant zachowuje kolejkę i resume sesji. Tura, decyzja, trwający dispatch, aktywna kolejka i brak resume blokują usypianie. Ukryty lokalny tab nie usypia procesu; 33. pokazuje historię/szkic i jawny limit startu z możliwością zwolnienia sesji oraz retry. Stary start jest zamknięty. |
-| AC-04 T/E | OWN-04..05, OWN-08, LIFE-08, RPC-06 | Połącz C z A i B. Utwórz operację dla B, przełącz na A, zmień trasę B z LAN na VPN. Wyłącz B. PASS: cel operacji nie zmienia się, A działa dalej, HostId B pozostaje ten sam, cache B ma stale i last_seen. Inny certyfikat daje odmowę. |
+| AC-04 T/E | OWN-04..05, OWN-08..09, LIFE-08, RPC-06 | Połącz C z A i B. Utwórz operację dla wątku na B, przełącz nawigację na wątek na A, zmień trasę B z LAN na VPN. Wyłącz B. PASS: cel operacji pozostaje `(ThreadId, executor_epoch)` z chwili utworzenia, wątek nie zmienia środowiska, A działa dalej, HostId B pozostaje ten sam, cache B ma stale i last_seen. Inny certyfikat daje odmowę. |
 | AC-05 P/T/E | AGT-01..07, CHAT-07..09 | Odtwórz istniejące nagrania Claude i Codex: tekst/thinking, command/patch, tło/subagent, goal, zgody, modele, resume i fork. PASS: dotychczasowe wyniki i cleanup zachowane; karty wynikają z rodzaju semantycznego, nie z udawania nazwy narzędzia innego agenta. |
 | AC-06 P/T/N/E | AGT-04..12, CHAT-06..07 | Podłącz OpenCode ACP i drugą definicję bez edycji UI/rdzenia. Fake ACP zwraca obce ID, odmawia opcji i wysyła nieznane zdarzenie; wywołuje fs i terminal. PASS: odmowa cofa wybór, Generic zachowuje sesję; read widzi lokalny bufor hosta, nie bufor C; write przy dirty na C jest odrzucony bez zmiany pliku; root i zakres są sprawdzone. Terminal agenta jest tylko do obserwacji, implementuje output/wait/kill/release i cleanup końca runu. Auth interaktywny daje needs_host_interaction. |
-| AC-07 P/T/E | CHAT-01..04, CMD-01..02 | Wyślij równocześnie z C i D, przestaw kolejkę z nieaktualną rewizją, wykonaj Steer, Stop i Resume. PASS: jedna deterministyczna kolejność przyjęć, konflikt zachowuje edycję, Stop wstrzymuje kolejkę, Resume zachowuje reguły obu native backendów; brak ukrytej zamiany Steer w Send. |
+| AC-07 P/T/E | CHAT-01..04, CMD-01..02 | Wyślij równocześnie z C i D, przestaw kolejkę z nieaktualną rewizją, wykonaj Steer, Stop i Resume. Wyślij Send z hosta B do wątku na A przez outbox B, zgub potwierdzenie i po restarcie B ponów ten sam command_id. PASS: jedna deterministyczna kolejność przyjęć, jeden element dla klucza `(ThreadId, executor_epoch, DeviceId/principal, command_id)`, konflikt zachowuje edycję, Stop wstrzymuje kolejkę, Resume zachowuje reguły obu native backendów; brak ukrytej zamiany Steer w Send. |
 | AC-08 P/T/E | CHAT-05..06, CHAT-09, LIFE-02, SEC-04..05 | C i D odpowiadają przeciwnie na tę samą zgodę. Rozłącz C, zakończ inne narzędzie, zrestartuj run i wyślij starą odpowiedź. PASS: jeden efekt, drugi wynik already_resolved, odłączenie nie rozstrzyga prośby, stary run odrzucony. Zgoda chat ma dotychczasowy czas życia, bez nowego zakresu run i zapisu plików konfiguracji użytkownika. |
-| AC-09 P/T/E | CHAT-07..09, LIFE-07, DATA-04 | Wznów konkretne ID nie-UUID przez ACP z 20 zapisanymi elementami i replay load. Powtórz bez lokalnej historii i z przerwanym load. Wykonaj edit/fork i restart podczas startu forka. PASS: nadal 20 elementów bez nowego epoch; import tylko po pełnym load przy braku historii; źródło/obrazy/punkt/konto zachowane; brak silent new session i niewspieranego rewind. |
+| AC-09 P/T/E | CHAT-07..09, LIFE-07, DATA-04 | Wznów konkretne ID nie-UUID przez ACP z 20 zapisanymi elementami i replay load. Otwórz rozmowę przez stare chat.id po migracji. Powtórz bez lokalnej historii i z przerwanym load. Wykonaj edit/fork i restart podczas startu forka. PASS: nadal 20 elementów bez nowego epoch; stare chat.id wskazuje ten sam ThreadId przez thread_alias; import tylko po pełnym load przy braku historii; źródło/obrazy/punkt/konto zachowane; brak silent new session i niewspieranego rewind. |
 | AC-10 P/T/E | CHAT-10..12, APP-12..14, TERM-09 | Wyślij obrazy, cytat, kod, skill, wzmiankę hostowego pliku i PR, uruchom !cmd i stronę HTML. Szukaj słowa w historii poza pierwszą stroną. PASS: agent dostaje właściwy kontekst hosta, obraz istnieje przed dispatch, link i schowek działają na C, znaleziony element się doładowuje, renderer nie uzyskuje RPC. |
 
 ## 4 Błędy komend trwałość i synchronizacja
 
 | Test | Wymagania planu | Kroki i warunek PASS |
 | --- | --- | --- |
-| AC-11 T | CMD-01..04, CMD-08, RPC-02 | Zgub accepted i ponów to samo ID przez nowe połączenie, potem po restarcie. Wyślij inne body z tym ID. PASS: jeden element/efekt, zachowany stan i idempotency_conflict dla zmiany treści; brak dispatch po błędzie zapisu. |
+| AC-11 T | CMD-01..04, CMD-08, RPC-02, BUS-02 | Zgub accepted i ponów to samo ID przez nowe połączenie, z outboxu hosta B, potem po restarcie wykonawcy. Wyślij inne body z tym ID. Wyślij komendę ze starym executor_epoch. PASS: jeden element/efekt u wykonawcy wątku, zachowany stan i idempotency_conflict dla zmiany treści; brak dispatch po błędzie zapisu; stara epoka wykonawcy odrzucona przed dispatch. |
 | AC-12 T | CHAT-02, CMD-04..07, CMD-12, SYNC-08 | Zabij host przed commit, po accepted, po attempting i po efekcie przed wynikiem. Osobno zakończ Send sukcesem do kolejki dwóch pozycji, zabij host przed dispatch, a potem po wysłaniu pozycji przed dowodem przyjęcia. PASS: brak skutku przed commit; kolejka wraca wstrzymana, a niepewna pozycja ma delivery_unknown mimo succeeded Send. Resume nie wysyła następnej pozycji przed rozstrzygnięciem. Sprawdź osobno uznanie dostarczenia, nową próbę i odrzucenie: zachowana treść, właściwa kolejność i co najwyżej jeden nowy efekt po jawnym wyborze. Stara rewizja daje konflikt. Quit nie odrzuca kolejki. |
-| AC-13 P/T | CMD-03, CMD-09..11, SEC-04 | Wykonaj 150 000 komend z okresowym CloseCommandEpoch. Kompaktuj payload i ponów ID przed zamknięciem; opóźnij mutację tak, aby dotarła po zamknięciu; zgub wynik Close, ponów go i zrestartuj host. Sprawdź accepted/attempting, unknown, offline tekst oraz Send z drugiego okna podczas Close. Wypełnij limity X i lokalne. PASS: brak blokady zwykłego użycia i drugiego efektu, stara epoka zawsze command_retired, Close nie zwiększa licznika dwa razy; pending blokuje Close, unknown pozostaje. Outbox i drugie okno nie tracą tekstu. X nie blokuje Y ani lokalnego Send; revoke/cleanup działa przy limicie. Zakończone lokalne komendy nie tworzą wiecznych tombstones; revoked nie liczy się do 32 ważnych tożsamości. |
-| AC-14 T/E | OFF-01..06, OWN-04, CHAT-11 | Napisz tekst z obrazem offline, zamknij klienta, uruchom ponownie i połącz. Zmień konto lub usuń czat na hoście. PASS: szkic/outbox wraca, wysyłka czeka na jawne działanie, zmiana kontekstu jest ujawniona, nic nie trafia do innego celu. Approve/PTY/Git/Delete nie są odtwarzane. |
+| AC-13 P/T | CMD-03, CMD-09..11, SEC-04 | Wykonaj 150 000 komend z okresowym CloseCommandEpoch. Kompaktuj payload i ponów ID przed zamknięciem; opóźnij mutację tak, aby dotarła po zamknięciu; zgub wynik Close, ponów go i zrestartuj host. Sprawdź accepted/attempting, unknown, offline tekst oraz nowy Send z tego samego urządzenia podczas Close. Wypełnij limity X i lokalne. PASS: brak blokady zwykłego użycia i drugiego efektu, stara epoka zawsze command_retired, Close nie zwiększa licznika dwa razy; pending blokuje Close, unknown pozostaje. Outbox i composer nie tracą tekstu. X nie blokuje Y ani lokalnego Send; revoke/cleanup działa przy limicie. Zakończone lokalne komendy nie tworzą wiecznych tombstones; revoked nie liczy się do 32 ważnych tożsamości. |
+| AC-14 T/E | OFF-01..07, OWN-04, CHAT-11 | Offline czytaj wątek z repliki. Napisz tekst z obrazem, zmień nazwę wątku, zleć Git, Delete i Stop. Zamknij klienta, uruchom ponownie i połącz. Osobno zmień nazwę na hoście przed reconnect. Zmień konto lub usuń wątek na hoście. PASS: odczyt działa offline; szkic/outbox wraca; zmiana nazwy odtwarza się automatycznie, a niezgodna rewizja daje jawny konflikt bez nadpisania; Send czeka na jawne działanie; zmiana kontekstu jest ujawniona; nic nie trafia do innego celu. Approve/PTY nie są odtwarzane automatycznie; Git/Delete/Stop nie są odtwarzane wcale. |
 | AC-15 P/T | SYNC-01..05, OWN-06 | Wstrzyknij zdarzenia przed/po granicy snapshotu i w trakcie transferu; zduplikuj i zgub deltę; podziel wielobajtowy UTF-8; opróżnij ring; zrestartuj host. PASS: brak cichej luki/duplikatu; stara epoka i błędny offset odrzucone. Resync jest przejściowy: po ustaniu faultu i nadmiarowego ruchu zgodny snapshot i następna poprawna delta są zastosowane w ≤10 s przy limitach AC-30, także dla dużego snapshotu. |
 | AC-16 P/T | SYNC-05..09, CHAT-12, DATA-06 | Odczytuj strony podczas napływu tekstu i Delete. Wczytaj trimmed checkpoint, rekord za duży także po skróceniu oraz nowszą wersję. PASS: stabilna granica lub jawne unieważnienie; brak pełnego live append do skróconej treści; ograniczony placeholder zachowuje ID i ujawnia stratę. Dalszy poprawny TurnEnd zapisuje się i Quit kończy; saved nie udaje zachowania brakującej treści. |
 | AC-17 T/E | CMD-04, SYNC-06..08, LIFE-05, RPC-05 | Zasymuluj read-only, disk-full i błąd finalizacji. Odczytuj stream i wykonaj Quit. PASS: live działa do jawnego błędu zasobu, brak fałszywego accepted/saved, poprzedni checkpoint pozostaje czytelny, Quit nie zataja błędu i pozwala naprawić zapis. |
@@ -117,7 +120,7 @@ użytkownika, nie powtarza efektu i pozwala zwolnić wpis przy kolejnym Close.
 | AC-21 T/E | APP-04..05, LIFE-03, DATA-08 | C ma dirty buffer. D usuwa worktree, C jest online, potem offline. Zrestartuj host przed preflight D. Osobno wykonaj save/discard, revoke i Dismiss. PASS: online wymaga decyzji właściciela; offline ryzyko przetrwa restart; wpis znika tylko zgodnie z kontraktem; po Delete C zachowuje draft i wskazuje nowy cel. Dismiss i nawigacja D nie odrzucają tekstu C. |
 | AC-22 T/N/E | APP-06..07, LIFE-03..05 | Na tymczasowych repo wykonaj stage/unstage/discard, commit/hook/sign, Pull/Push oraz create/merge/remove worktree. Zmień HEAD/indeks po preflight i wstrzyknij błąd cleanupu. PASS: istniejące guardy, poprawne częściowe wyniki i konflikt; brak powtórnego commita/usunięcia po niepewnym RPC; inne repo działa. |
 | AC-23 T/N/E | APP-08, APP-10..11, SEC-06..07 | Wykonaj istniejące operacje GitHub/Jira/YouTrack: listy, filtry, edit, załącznik i task do worktree. Zmień i usuń credential z błędem zapisu. PASS: konto i kontekst hosta poprawne, brak tokenu na kliencie poza polem write-only, błąd zachowuje stare konto i ponawialny cleanup. Prompt OS daje needs_host_interaction. |
-| AC-24 C/T/E | APP-09, APP-12, APP-15, OWN-03..05 | Otwórz dwa okna i mobile na różnych zasobach. Zmień zoom, layout, szkic i aktywny projekt. Otwórz notes, diff i obsługiwane media. PASS: wybory są niezależne, hostowe konfiguracje wspólne, dostępne funkcje mają rzeczywiste wyniki, lokalny UI zachowuje tokeny/klawiaturę/Reduce Motion. |
+| AC-24 C/T/E | APP-09, APP-12, APP-15, OWN-03..05, OWN-10 | Otwórz okno główne hosta, zdalny desktop C i mobile na różnych zasobach. Zmień zoom, layout, szkic i aktywny projekt na każdym kliencie. Otwórz notes, diff i obsługiwane media. PASS: nawigacja, layout i szkic C oraz mobile są stanem ich urządzeń i nie zmieniają stanu globalnego hosta; ustawienia urządzenia są niezależne; hostowe konfiguracje wspólne, dostępne funkcje mają rzeczywiste wyniki, lokalny UI zachowuje tokeny/klawiaturę/Reduce Motion. |
 | AC-25 T/N/E | TERM-01..05, TERM-08 | C ma input; D ogląda i próbuje pisać/resize. Przejmij jawnie, zgub połączenie, przekrocz lease i ponów stare bajty/token. PASS: jeden właściciel, stary token odrzucony, brak automatycznego replay input, proces trwa do Stop, cleanup potwierdzony także na Windows. |
 | AC-26 T/N/E | TERM-06..09, APP-12 | Uruchom TUI z alternate screen, szerokie/łączone znaki, kolory, tryby paste i IME. Zmieniaj scroll i zaznaczenie na C i D; wymuś resync. PASS: właściwa projekcja i tryby, niezależny viewport, jawny utracony scrollback, brak zepsutych sekwencji ANSI; !cmd zachowuje limit i cleanup. |
 | AC-27 T/N | SEC-01..03, SEC-09, RPC-06 | Czysty klient bez certyfikatu wykonuje enrollment. Podmień klucz po lokalnej zgodzie, równocześnie zużyj token, sprawdź wygaśnięcie i odczyt przed zgodą. Zmień fingerprint TLS oraz klucz SSH. PASS: tylko prawidłowe enrollment może nie mieć starego credentialu; związanie token/klucz/zakres i mTLS działa. Zwykłe RPC przez SSH/VPN bez auth jest odrzucone, także przy poprawnym tunelu. |
@@ -185,7 +188,7 @@ w tle wbrew zasadom iOS/Android.
 AC-32 jest końcowym przeglądem wydania. Sprawdza DATA-01 do DATA-09 oraz SIMPLE-01
 do SIMPLE-07 po zakończeniu wszystkich etapów. PASS: końcowa migracja uruchamia się raz
 na starej bazie; historia repo nie zawiera przejściowych migracji tej funkcji; nie ma
-aktywnego starego remote WebRTC ani nieudokumentowanego obejścia wspólnych handlerów.
+aktywnego starego remote WebRTC, pakietu `canopy.remote.v1` ani nieudokumentowanego obejścia szyny komend.
 Dokumentacja modułów opisuje rzeczywiste zachowanie. Każde N/A ma uzasadnienie.
 
 AC-33 sprawdza brak regresji Linux według sekcji 14 planu. Wykonaj istniejące
@@ -203,13 +206,23 @@ kopii, zmienione daje konflikt; potrzebna wersja nie jest usuwana, a osierocona
 jest rozpoznana do cleanupu. Błąd zachowuje stare konto. Brak plaintextu i zwykłego
 hasza słabego sekretu w bazie/diagnostyce; utrata klucza nie pozwala powtórzyć efektu.
 
-## 8 Wymagane artefakty odbioru
+## 8 Wątki szyna komend replikacja i MCP
+
+| Test | Wymagania planu | Kroki i warunek PASS |
+| --- | --- | --- |
+| AC-36 P/T/R | BUS-01..05, RPC-08..13 | Uruchom test kontraktowy deskryptor proto, rejestr komend i lista narzędzi MCP. Usuń kolejno RPC, narzędzie i wpis rejestru dla jednej komendy. Uruchom `buf lint` i `buf breaking`. Wykonaj tę samą komendę przez UI, gRPC i MCP z brakującym uprawnieniem. Odczytaj plik projektu z Git i bez Git przez `ProjectRef`, z `worktree_id` i bez niego, oraz plik wątku przez `ThreadRef`. PASS: test wykrywa każdy brak; brak `Execute`, `ChatRef`, `WorkspaceRef` i `canopy.remote.v1`; niezgodny `worktree_id` odrzucony przed I/O, a `ThreadRef` rozwiązuje projekt i worktree wątku; ta sama odmowa i ten sam fingerprint dla trzech wejść; zmiana ustawienia zwraca nową rewizję. |
+| AC-37 T/N | REPL-01..07, OWN-09, DATA-05 | Utwórz wątki na A i B. Zmień metadane wątku A z B. Wyłącz A, czytaj i przeszukuj jego transkrypt na B, potem usuń wątek na A i włącz A. Przerwij strumień katalogu w trakcie snapshotu. PASS: B ma pełną replikę tylko do odczytu w tych samych tabelach historii; zmiana z B przechodzi przez inbox A z kontrolą rewizji; usunięcie znika z B po snapshocie; brak relay i brak lokalnego zapisu repliki; wątek nie zmienia środowiska. |
+| AC-38 T/E | MCP-01..05, BUS-02 | Połącz M z A i B z grantem Ask dla files_git, Deny dla terminal i admin bez potwierdzeń. Wylistuj wątki, zmień konfigurację wykonującą kod, wykonaj komendę Ask i Deny. Odwołaj principal M na A. PASS: M widzi wątki obu hostów z HostId i metadanymi; Ask czeka na potwierdzenie, Deny jest odrzucone, admin działa bez potwierdzenia; każda komenda UI ma narzędzie; revoke na A nie zmienia M na B ani innych principali. |
+| AC-39 T | APP-09, REPL-06 | Zmień preferencję użytkownika na A i B offline, połącz hosty. Zmień ustawienie hosta i urządzenia. PASS: preferencja użytkownika zbiega się według HLC/LWW na obu hostach; ustawienie hosta zostaje na hoście; ustawienie urządzenia nie przestawia innego urządzenia. |
+| AC-40 C/E | OWN-10..11 | Uruchom drugą instancję aplikacji tego samego użytkownika OS na tym samym katalogu danych. Wykonaj akcję widoku z MCP. Osobno uruchom instancję z innym `CANOPY_DATA_DIR`. PASS: druga instancja nie pokazuje osobnego stanu; istnieje jedno okno główne; akcja MCP zmienia stan globalny renderowany przez to okno bez adresowania okna; instancja z izolowanym katalogiem startuje niezależnie. |
+
+## 9 Wymagane artefakty odbioru
 
 Raport końcowy musi zawierać:
 
 - Rewizję kodu i sumę kontrolną jedynej migracji wydaniowej.
 - Wersję .proto, CLI/backendów, bibliotek transportu i platform.
-- Wyniki AC-01 do AC-34 wraz z poziomem dowodu i identyfikatorami komórek macierzy funkcji i platform.
+- Wyniki AC-01 do AC-40 wraz z poziomem dowodu i identyfikatorami komórek macierzy funkcji i platform.
 - Wyniki istniejących adekwatnych testów oraz nowych regresji z uzasadnieniem.
 - Pomiary AC-30 i logi failpointów bez danych użytkownika i sekretów.
 - Wynik przeglądu złożoności i listę świadomych ograniczeń platform/protokołów.
