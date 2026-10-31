@@ -109,9 +109,12 @@ fn probe(tool: &str) {
                 break Some(status);
             }
             if Instant::now() > deadline {
+                #[cfg(unix)]
                 unsafe {
                     libc::kill(-(child.id() as i32), libc::SIGKILL);
                 }
+                #[cfg(not(unix))]
+                let _ = child.kill();
                 let _ = child.wait();
                 break None;
             }

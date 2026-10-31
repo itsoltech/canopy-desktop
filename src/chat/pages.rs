@@ -2,6 +2,8 @@
 //! render a page off screen and gets back its image, content height and console. A
 //! private Unix socket with a token per chat session; each request waits for its
 //! answer. Rendering itself happens in the app (WKWebView on the main thread).
+// The socket wire protocol below is only served on Unix.
+#![cfg_attr(not(unix), allow(dead_code))]
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,

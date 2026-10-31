@@ -28,7 +28,8 @@ not count as native Windows qualification.
 
 The repository pins Rust 1.95.0 and `x86_64-pc-windows-msvc`. Development and
 CI require Visual Studio 2022 Build Tools with Desktop development with C++, a
-Windows 11 SDK, CMake, Perl and NASM. Those tools cover the current `cc`,
+Windows 11 SDK, CMake, Perl, NASM and `protoc` (for the gRPC contract compiled by
+`build.rs`). Those tools cover the current `cc`,
 tree-sitter, bundled SQLite, vendored OpenSSL/libgit2/libssh2 and GPUI Windows
 dependency graph. Keep `Cargo.lock`; dependency failures must be fixed in the
 resolved graph instead of deleting it.

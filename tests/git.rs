@@ -52,6 +52,7 @@ fn commit_file(repo: &Repository, name: &str, contents: &str, message: &str) -> 
     )
     .unwrap()
 }
+#[cfg(unix)]
 fn shell_environment() -> canopy_desktop::terminal::environment::ShellEnvironment {
     canopy_desktop::terminal::environment::ShellEnvironment {
         shell: "/bin/sh".into(),

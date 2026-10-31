@@ -837,65 +837,65 @@ impl RemoteWindow {
                     kind,
                     self.hovered.as_ref() == Some(&key),
                 )
-                    .on_hover(cx.listener(move |this, over, _, cx| {
-                        if *over {
-                            this.hovered = Some(hover.clone());
-                        } else if this.hovered.as_ref() == Some(&hover) {
-                            this.hovered = None;
-                        }
-                        cx.notify();
-                    }))
-                    .child(
-                        list_button(
-                            SharedString::from(format!("diff:{staged}:{}", file.path)),
-                            file.path.clone(),
-                            self.hovered.as_ref() == Some(&key),
-                            cx,
-                        )
-                        .px_0()
-                        .flex_1()
-                        .min_w_0()
-                        .disabled(!ready)
-                        .tooltip(
-                            file.previous_path
-                                .as_ref()
-                                .map(|old| format!("{old} → {}", file.path))
-                                .unwrap_or_else(|| file.path.clone()),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.read_git_diff(diff_path.clone(), staged, None, cx)
-                        })),
+                .on_hover(cx.listener(move |this, over, _, cx| {
+                    if *over {
+                        this.hovered = Some(hover.clone());
+                    } else if this.hovered.as_ref() == Some(&hover) {
+                        this.hovered = None;
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    list_button(
+                        SharedString::from(format!("diff:{staged}:{}", file.path)),
+                        file.path.clone(),
+                        self.hovered.as_ref() == Some(&key),
+                        cx,
                     )
-                    .child(
-                        git::change_action(
-                            SharedString::from(format!(
-                                "git:{}:{}",
-                                if staged { 2 } else { 1 },
-                                file.path
-                            )),
-                            if staged {
-                                IconName::Minus
-                            } else {
-                                IconName::Plus
-                            },
-                            if staged { "Unstage file" } else { "Stage file" },
-                        )
-                        .disabled(!ready)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.change_paths(if staged { 2 } else { 1 }, stage_path.clone(), cx)
-                        })),
+                    .px_0()
+                    .flex_1()
+                    .min_w_0()
+                    .disabled(!ready)
+                    .tooltip(
+                        file.previous_path
+                            .as_ref()
+                            .map(|old| format!("{old} → {}", file.path))
+                            .unwrap_or_else(|| file.path.clone()),
                     )
-                    .children((!staged).then(|| {
-                        git::change_action(
-                            SharedString::from(format!("git:3:{}", file.path)),
-                            IconName::Close,
-                            "Discard changes…",
-                        )
-                        .disabled(!ready)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.change_paths(3, discard_path.clone(), cx)
-                        }))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.read_git_diff(diff_path.clone(), staged, None, cx)
                     })),
+                )
+                .child(
+                    git::change_action(
+                        SharedString::from(format!(
+                            "git:{}:{}",
+                            if staged { 2 } else { 1 },
+                            file.path
+                        )),
+                        if staged {
+                            IconName::Minus
+                        } else {
+                            IconName::Plus
+                        },
+                        if staged { "Unstage file" } else { "Stage file" },
+                    )
+                    .disabled(!ready)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.change_paths(if staged { 2 } else { 1 }, stage_path.clone(), cx)
+                    })),
+                )
+                .children((!staged).then(|| {
+                    git::change_action(
+                        SharedString::from(format!("git:3:{}", file.path)),
+                        IconName::Close,
+                        "Discard changes…",
+                    )
+                    .disabled(!ready)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.change_paths(3, discard_path.clone(), cx)
+                    }))
+                })),
             );
         }
         group

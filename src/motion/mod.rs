@@ -21,7 +21,7 @@ pub fn init_system_policy() {
 
 pub fn refresh_system_policy() -> bool {
     #[cfg(target_os = "windows")]
-    let reduced = windows::reduced_motion().unwrap_or_else(|| system_reduced());
+    let reduced = windows::reduced_motion().unwrap_or_else(system_reduced);
     #[cfg(not(target_os = "windows"))]
     let reduced = false;
     SYSTEM_REDUCED.swap(reduced, std::sync::atomic::Ordering::AcqRel) != reduced

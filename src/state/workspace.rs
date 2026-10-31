@@ -214,6 +214,8 @@ impl Pane {
     }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+// Leaves are the common case; Windows paths push Pane just past the lint threshold.
+#[allow(clippy::large_enum_variant)]
 pub enum SplitTree {
     Leaf(Pane),
     Split {

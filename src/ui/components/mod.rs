@@ -26,11 +26,11 @@ mod settings;
 pub mod task_detail;
 pub mod tasks;
 mod tool_panel;
-pub use tool_panel::*;
 pub use buttons::*;
 pub use controls::*;
 pub use segmented::segmented_control;
 pub use settings::*;
+pub use tool_panel::*;
 
 use super::theme as t;
 use gpui_kit::component::{Icon, IconName};

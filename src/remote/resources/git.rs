@@ -1288,7 +1288,7 @@ mod tests {
     #[tokio::test]
     async fn approved_stage_executes_once_and_stale_plan_preserves_index() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("repo");
+        let root = dir.path().canonicalize().unwrap().join("repo");
         std::fs::create_dir(&root).unwrap();
         let repo = git2::Repository::init(&root).unwrap();
         std::fs::write(root.join("file.txt"), "one").unwrap();

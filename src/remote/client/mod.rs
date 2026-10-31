@@ -1,9 +1,9 @@
 //! Device-owned native remote client. Host identity never follows the selected tab or route.
 pub mod catalog;
-pub mod presentation;
 mod chat_commands;
 mod commands;
 mod peers;
+pub mod presentation;
 pub use chat_commands::ChatMutation;
 pub mod pairing;
 mod projection;

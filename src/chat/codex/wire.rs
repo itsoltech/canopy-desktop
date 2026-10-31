@@ -480,7 +480,7 @@ mod tests {
             turn["params"]["input"],
             json!([
                 {"type":"text","text":"hi","text_elements":[]},
-                {"type":"localImage","path":"/data/chat/a.png"},
+                {"type":"localImage","path":Path::new("/data/chat").join("a.png")},
                 {"type":"mention","name":"notes.txt","path":"/repo/notes.txt"}
             ])
         );
