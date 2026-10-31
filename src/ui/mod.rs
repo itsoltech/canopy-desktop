@@ -190,7 +190,7 @@ impl Workspace {
                 let async_cx = async_cx.clone();
                 executor
                     .spawn(async move {
-                        let _ = async_cx.update(|cx| {
+                        async_cx.update(|cx| {
                             if canopy_desktop::motion::refresh_system_policy() {
                                 cx.refresh_windows();
                             }
