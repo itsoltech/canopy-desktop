@@ -1,10 +1,12 @@
 # Abstrakcja agentów i zdalne sterowanie Canopy
 
 Status: plan docelowy do implementacji i odbioru. Data: 2026-10-25.
+Zmieniony 2026-10-31 zgodnie z [ADR 0001](adr/0001-thread-architecture.md).
 Plan uwzględnia wspólne opracowanie i recenzje Opus 5.5 oraz Astra 6.
 
-Canopy ma udostępniać te same operacje lokalnemu desktopowi, zdalnemu desktopowi
-i aplikacji mobilnej. Jeden runtime hosta wykonuje operacje i rozstrzyga konflikty.
+Canopy ma udostępniać te same operacje lokalnemu desktopowi, zdalnemu desktopowi,
+aplikacji mobilnej i MCP. Jeden runtime hosta wykonuje operacje i rozstrzyga konflikty.
+Model zna tylko wątek. Lokalny lub zdalny jest wyłącznie transport klienta.
 Adaptery agentów oddzielają protokoły Claude, Codex i ACP od modelu rozmowy.
 Transport między urządzeniami to gRPC z Protobuf.
 
@@ -44,13 +46,23 @@ Zmiana istniejącej reguły wymaga jawnej poprawki tego planu i odpowiedniego ko
 | SIMPLE-02 | Autor MUSI porównać nową konstrukcję z najprostszym rozwiązaniem opartym na istniejącym kodzie. Uzasadnienie MUSI wskazać usuwany duplikat, wspólny lifecycle, kontrolę konkretnej awarii albo obsługę wymaganych implementacji. |
 | SIMPLE-03 | Samo powołanie się na czysty kod, SOLID, przyszłą elastyczność lub dobre praktyki NIE spełnia SIMPLE-02. |
 | SIMPLE-04 | Implementacja NIE MOŻE dodawać event sourcingu całej aplikacji, CRDT całego stanu, systemu pluginów binarnych, automatycznego failoveru hostów ani własnej kryptografii. |
-| SIMPLE-05 | Lokalny desktop MUSI wywoływać te same handlery domenowe co gRPC. Nie musi kodować Protobuf ani łączyć się z własnym serwerem. |
+| SIMPLE-05 | Lokalny desktop MUSI wywoływać tę samą szynę komend co gRPC i MCP, przez transport `Local`. Nie musi kodować Protobuf ani łączyć się z własnym serwerem. |
 | SIMPLE-06 | Refactor MUSI korzystać z istniejących workerów SQLite, libgit2, plików i lifecycle procesów. Nowy worker jest dopuszczalny, jeśli istniejący nie zapewnia wymaganego cyklu życia lub izolacji opóźnień. |
 | SIMPLE-07 | Podział na crate'y i wybór enum albo trait pozostają decyzją implementacji. Nie są samodzielnymi kryteriami jakości. |
 
-Minimalne potrzebne granice to: model rozmowy, backend protokołu, właściciel runtime'u,
-handlery istniejących funkcji oraz adapter gRPC. Nie jest wymagany ogólny command bus,
-repository pattern nad SQLite ani uniwersalny framework synchronizacji.
+Minimalne potrzebne granice to: model wątku, backend protokołu, właściciel runtime'u,
+szyna komend, handlery istniejących funkcji, `ThreadTransport` oraz adaptery gRPC i MCP.
+Jedna szyna komend jest wymagana. Jest wspólna dla UI, gRPC i MCP (BUS-01..05,
+[ADR 0001](adr/0001-thread-architecture.md) D3). Nie jest wymagany repository pattern
+nad SQLite ani uniwersalny framework synchronizacji.
+
+| ID | Wymaganie |
+| --- | --- |
+| BUS-01 | UI, adapter gRPC i adapter MCP MUSZĄ wykonywać mutacje przez jedną szynę komend. Adapter tylko dekoduje wejście i woła szynę. |
+| BUS-02 | Szyna MUSI wykonywać autoryzację, dedupe, fingerprint i klasyfikację ryzyka. Adapter NIE MOŻE powtarzać ani pomijać tych kontroli. |
+| BUS-03 | Rejestr komend w Rust MUSI być źródłem prawdy dla nazwy, klasy ryzyka i zakresu uprawnień każdej komendy. |
+| BUS-04 | Zmiana ustawień MUSI być komendą szyny. Wynik zawiera zatwierdzoną wartość i nową rewizję. |
+| BUS-05 | Każda komenda dostępna w UI MUSI mieć RPC w `canopy.api.v1` i narzędzie MCP. Brak jednego z nich jest błędem kontraktu. |
 
 ## 3 Pełny zakres funkcjonalny
 
@@ -89,26 +101,32 @@ obrazu okna desktopu i nie wymaga używania zdalnej myszy.
 | --- | --- |
 | Host | Instancja danych Canopy na komputerze. Ma trwały `HostId`. Adres sieciowy nie jest tożsamością. |
 | Połączenie | Konfiguracja klienta: oczekiwany HostId, zaufana tożsamość TLS, trasy i odwołanie do własnego credentialu. |
-| Projekt i checkout | Istniejący projekt/workspace na konkretnym hoście. Ten sam origin na dwóch hostach nie scala zasobów. |
+| Środowisko | Host wykonujący wątki. Tożsamością środowiska jest tylko `HostId`. |
+| Projekt i checkout | Istniejący projekt/workspace na konkretnym hoście. Dla wątku jest metadaną, a nie częścią tożsamości. Ten sam origin na dwóch hostach nie scala zasobów. |
 | AgentDefinition | Stabilne ID, nazwa, profil i rodzina protokołu. Wiele definicji może używać tego samego backendu ACP. |
 | Backend | Implementacja protokołu: Claude stream-json, Codex app-server albo ACP. Nie jest dostawcą modelu. |
-| Chat | Rozmowa o istniejącym UUID `chat.id`. Istnieje niezależnie od liczby oglądających klientów. |
+| Wątek (Thread) | Pełna jednostka pracy: środowisko, agent, gałąź lub worktree, rozmowa i metadane. Ma globalny `ThreadId` (UUIDv7), `revision` i `executor_epoch`. Istnieje niezależnie od liczby oglądających klientów. Stare `chat.id` wskazuje `thread_alias`. |
+| ThreadTransport | Sposób dostępu klienta do wątku: `Local` w procesie albo `Grpc`. Nie jest częścią modelu wątku. |
+| executor_epoch | Epoka wykonawcy wątku. Służy do fencingu komend. Jest odrębna od command_epoch urządzenia, runtime_epoch strumienia i runu. |
 | Run | Jedno uruchomienie procesu rozmowy. Ma nowy, niepowtarzalny identyfikator generacji. |
 | Provider session | Nieprzezroczysty identyfikator Claude/Codex/ACP. Backend interpretuje go przy resume. |
 | History epoch | Istniejąca część historii oddzielona np. restartem lub edycją. Nie jest generacją procesu ani kursorem sieciowym. |
-| ResourceRef | Para `HostId` i typowany identyfikator zasobu. Zachowuje dotychczasowe ID zasobów. |
-| View | Prezentacja zasobu na danym urządzeniu. Fokus, tab, scroll i lokalne PaneId nie sterują procesem. |
+| ResourceRef | Para `HostId` i typowany identyfikator zasobu. Wątek używa `ThreadRef{host_id, thread_id}`. Pozostałe zasoby zachowują dotychczasowe ID. |
+| View | Prezentacja zasobu na danym urządzeniu. Okno renderuje stan globalny aplikacji. Fokus, tab, scroll i lokalne PaneId nie sterują procesem. |
 
 | ID | Wymaganie |
 | --- | --- |
 | OWN-01 | Host MUSI mieć jednego właściciela każdego runtime'u czatu i terminala. Liczba klientów nie zwiększa liczby procesów. |
 | OWN-02 | Runtime MUSI posiadać proces, pompę zdarzeń, kolejkę, decyzje, generację, zapis historii oraz operacje cleanupu. |
 | OWN-03 | Widok MUSI posiadać fokus, kontrolki, ruch, scroll, zaznaczenie i szkic. Nie może być warunkiem przetwarzania wiadomości lub zgody. |
-| OWN-04 | Każda komenda i odpowiedź MUSI zachować HostId oraz cel z chwili utworzenia. Zmiana aktualnej nawigacji nie przekierowuje operacji. |
+| OWN-04 | Celem każdej komendy i odpowiedzi MUSI być `(ThreadId, executor_epoch)` ustalony w chwili utworzenia komendy. Zmiana aktualnej nawigacji nie przekierowuje operacji. |
 | OWN-05 | Klient MUSI móc obserwować zasoby kilku hostów. Niedostępny host nie blokuje odczytów i mutacji pozostałych hostów. |
 | OWN-06 | Runtime MUSI odrzucić spóźniony wynik poprzedniego runu. Restart i powtórne podłączenie klienta nie mogą go zastosować do nowego runu. |
 | OWN-07 | Utworzenie czatu zdalnie MUSI dodać go do katalogu hosta bez aktywowania jego taba lub okna. Użytkownik hosta widzi go w odpowiednim projekcie lub Private chats. |
 | OWN-08 | HostId i identyfikatory zasobów MUSZĄ pozostać stabilne po restarcie i wdrożeniu. Identyfikatora usuniętego zasobu nie wolno użyć ponownie na tym hoście. |
+| OWN-09 | Agent wątku MUSI działać w środowisku ustalonym przy utworzeniu wątku. Przeniesienie wykonania na inny host NIE jest częścią tego wydania; jawny handoff z fencingiem `executor_epoch` to późniejszy etap. |
+| OWN-10 | Aplikacja MUSI mieć jeden stan globalny: projekty, wątki i układ. Okna tylko go renderują. Akcja widoku zmienia stan globalny, a nie prywatny stan okna. |
+| OWN-11 | Użytkownik MUSI mieć jedną instancję aplikacji. Druga instancja NIE MOŻE pokazywać innego stanu; przekazuje aktywację działającej instancji albo kończy się z jawnym komunikatem. |
 
 Runtime MOŻE być encją GPUI należącą do aplikacji. Czyste modele i backendy pozostają
 bez GPUI. Sieciowy executor przekazuje typowane polecenia do właściciela stanu.
@@ -219,7 +237,7 @@ może przejść dalej; wstrzymana nadal wymaga Resume.
 | Interrupt | Zatrzymuje turę według CHAT-04. Nie usuwa rozmowy. |
 | Restart | Zamyka poprzedni proces i tworzy nowy run. Zachowuje rozmowę i konkretne resume zgodnie z backendem. |
 | Close remote view | Usuwa tylko odwołanie w layoucie klienta. Nie jest Delete zasobu. |
-| Close host tab lub Delete chat | Obejmuje rozmowy wskazanych pane'ów albo wskazany ChatId. Zachowuje guard usuwania; inni klienci dostają resource_deleted. |
+| Close host tab lub Delete chat | Obejmuje rozmowy wskazanych pane'ów albo wskazany ThreadId. Zachowuje guard usuwania; inni klienci dostają resource_deleted. |
 | Close host project | Obejmuje wszystkie rozmowy projektu z katalogu, także bez pane'a na hoście. Nie usuwa rozmów innego projektu. |
 | Stop worktree | Łączy zasoby danego hosta i worktree; czeka na wspólny wynik cleanupu. |
 | Quit host | Zamyka runtime'y i zapis. Nie usuwa rozmów ani danych projektów. |
@@ -262,8 +280,8 @@ między etapy lub agentów.
 | DATA-01 | Całe przedsięwzięcie MUSI mieć jedną migrację wydaniową. Etapy deweloperskie MUSZĄ poprawiać tę samą niewydaną migrację zamiast tworzyć ciąg schematów przejściowych. |
 | DATA-02 | Po publikacji migracja MUSI pozostać niezmienna. Późniejsza zmiana opublikowanych danych wymaga zwykłej nowej migracji. |
 | DATA-03 | Próby migracji MUSZĄ używać baz tymczasowych lub jawnych kopii. Nie wolno resetować realnej bazy użytkownika, usuwać jej danych ani zmieniać globalnej konfiguracji CLI. |
-| DATA-04 | Jedna migracja MUSI zachować chat.id, historię, profile, poświadczenia, layout i obce tabele. Adopcja istniejących czatów nie może tworzyć drugiej historii tej samej rozmowy. |
-| DATA-05 | Model MUSI korzystać z istniejących tabel historii, profili i integracji. Nie wolno tworzyć równoległego magazynu transkryptów ani tabel dla niewdrożonych przyszłych funkcji. |
+| DATA-04 | Jedna migracja MUSI zachować historię, profile, poświadczenia, layout i obce tabele. Każda rozmowa dostaje nowy `ThreadId` (UUIDv7) i trwały wpis `thread_alias(legacy_host_id, legacy_chat_id) -> thread_id`. Adopcja NIE MOŻE tworzyć drugiej historii tej samej rozmowy. |
+| DATA-05 | Model MUSI korzystać z istniejących tabel historii, profili i integracji. Replika wątków innych hostów używa tych samych tabel historii. Nie wolno tworzyć równoległego magazynu transkryptów ani tabel dla niewdrożonych przyszłych funkcji. |
 | DATA-06 | Zapis MUSI pozostać wersjonowany. Nowszy lub uszkodzony format jest odrzucany bez zastąpienia go pustymi danymi. |
 | DATA-07 | Trwały stan MUSI przechowywać tożsamość i konfigurację, a nie PID, uchwyt procesu lub deklarację, że dawny proces nadal działa. |
 | DATA-08 | Wszystkie trwałe zmiany tego samego przejścia domenowego MUSZĄ zatwierdzać się atomowo w SQLite, jeżeli należą do tej bazy. Skutki w filesystemie i u agenta wymagają osobnego stanu wykonania. |
@@ -274,12 +292,14 @@ zmiana nazwy przed wydaniem nie zmienia kontraktu danych.
 
 | Dane | Magazyn i istotne pola |
 | --- | --- |
-| Historia i części rozmowy | Obecne `_canopy_rust_chat_items` i `_canopy_rust_chat_epochs`; klucz `(chat, history_epoch, item)`. |
+| Historia i części rozmowy | Obecne `_canopy_rust_chat_items` i `_canopy_rust_chat_epochs`; klucz `(ThreadId, history_epoch, item)`. Te same tabele przechowują replikę obcych wątków. |
 | Lokalny layout, narzędzia i konta | Obecne tabele sesji, katalogu narzędzi, preferencji i integracji. |
 | Tożsamość hosta | Nowy singleton: HostId, wersja formatu, trwałe górne granice przydzielonych lokalnych ID. Klucz TLS jest w magazynie systemowym. |
-| Katalog czatów i kolejka | Nowe metadane: ChatId, właściciel checkout/private, AgentDefinitionId, ProfileId, konfiguracja opcji, provider session, history_epoch i checkpoint. Trwałe pozycje kolejki zawierają kolejność, treść/referencje i stan dostarczenia. Pane odwołuje się do ChatId. |
-| Zaufane urządzenia | DeviceId, publiczna tożsamość credentialu, uprawnienia i zakresy, wersja uprawnień, stan revoked oraz bieżący command_epoch. Bez prywatnego klucza klienta. |
-| Inbox operacji | HostId, DeviceId, command_id, metoda, cel, typowane argumenty lub referencje, fingerprint, warunki, stan, wynik i czasy. |
+| Mapowanie ID | `thread_alias(legacy_host_id, legacy_chat_id) -> thread_id`. Trwałe; bez usuwania przy Delete wątku. |
+| Replikacja | Kursor strumienia katalogu i transkryptu per środowisko źródłowe; HLC i wartości preferencji użytkownika. |
+| Katalog wątków i kolejka | Nowe metadane: ThreadId, HostId środowiska, revision, executor_epoch, właściciel checkout/private, AgentDefinitionId, ProfileId, konfiguracja opcji, provider session, history_epoch i checkpoint. Trwałe pozycje kolejki zawierają kolejność, treść/referencje i stan dostarczenia. Pane odwołuje się do ThreadId. |
+| Zaufane urządzenia | DeviceId lub principal MCP, publiczna tożsamość credentialu, uprawnienia i zakresy, wersja uprawnień, stan revoked oraz bieżący command_epoch. Bez prywatnego klucza klienta. |
+| Inbox operacji | HostId, ThreadId, executor_epoch, DeviceId lub principal, command_id, metoda, cel, typowane argumenty lub referencje, fingerprint, warunki, stan, wynik i czasy. |
 | Checkpoint | Wersja i granica zapisanego stanu rozmowy, atomowa z odpowiednimi elementami historii. Nie jest pełnym dziennikiem zdarzeń. |
 | Dirty presence | DeviceId, ResourceRef pliku, bazowy hash, dirty, last_seen. Bez tekstu bufora; wpisy obejmują również odłączone urządzenia. |
 | Klient | Zaufane hosty i trasy, preferencje urządzenia, cache z last_seen, własne szkice oraz outbox tekstu. Prywatne credentials są w magazynie systemowym klienta. |
@@ -313,7 +333,8 @@ klientem. Downgrade wymaga zachowanej kopii sprzed migracji, bez nadpisywania no
 ### 8.1 Koperta i stan
 
 Mutacja zawiera `command_id` UUID, ResourceRef, typowane argumenty oraz warunki potrzebne
-danej operacji. Tożsamość DeviceId pochodzi z uwierzytelnienia. Dla lokalnego desktopu
+danej operacji. Komenda wątku zawiera ThreadRef i `executor_epoch`. Kopertę obsługuje
+szyna komend (BUS-02). Tożsamość DeviceId pochodzi z uwierzytelnienia. Dla lokalnego desktopu
 istnieje stały principal właściciela hosta. Czyste operacje widoku i odczyty nie trafiają
 do inboxu. Lokalny principal nie jest credentialem dostępnym przez gRPC. Wejście PTY
 oraz porcje uploadu mają osobne kontrakty, bez kopii bajtów w inboxie.
@@ -350,7 +371,7 @@ transakcja SQLite i systemowego vault, bo nie zapewniają jej używane magazyny.
 
 | ID | Wymaganie |
 | --- | --- |
-| CMD-01 | Deduplikacja remote MUSI używać `(HostId, DeviceId, command_id)` także po utracie połączenia i restarcie hosta. Lokalne operacje używają tych samych handlerów; ich retencję określa wyjątek poniżej. |
+| CMD-01 | Wykonawca wątku MUSI deduplikować komendy po `(ThreadId, executor_epoch, DeviceId/principal, command_id)`, także po utracie połączenia, restarcie hosta i dostarczeniu z outboxu innego hosta. Przy przyszłym handoffie rekordy inboxu przechodzą razem z wątkiem. Lokalne operacje używają tej samej szyny; ich retencję określa wyjątek poniżej. |
 | CMD-02 | Powtórzenie tej samej komendy w otwartej command_epoch MUSI zwrócić jej dotychczasowy stan. Ten sam command_id z innymi argumentami daje idempotency_conflict. Zamknięta epoka podlega CMD-10. |
 | CMD-03 | Host MUSI sprawdzić aktualne uprawnienia przed zwrotem wyniku dedupe i przed dispatch. Identyfikator komendy nie jest uprawnieniem do odczytu. |
 | CMD-04 | Host MUSI zatwierdzić accepted i odtwarzalny zamiar przed dispatch. Błąd zapisu zabrania wykonania skutku. |
@@ -414,26 +435,29 @@ zapewniają jego wąską idempotencję. FinishUpload i operacje publikacji mają
 
 | ID | Wymaganie |
 | --- | --- |
-| OFF-01 | Klient MUSI zachować szkic i tekst oczekujący offline w swoim trwałym outboxie. Wpis ma HostId, ChatId, konto, punkt kontekstu i command_id. |
+| OFF-01 | Klient MUSI zachować szkic i intencję oczekującą offline w swoim trwałym outboxie. Offline czyta z repliki. Wpis ma ThreadRef, executor_epoch, konto, punkt kontekstu i command_id. |
 | OFF-02 | Wpis utworzony offline MUSI czekać na jawne wysłanie po reconnect. Klient pokazuje liczbę wpisów i ich cel. Nie wolno wysłać ich do innego hosta lub rozmowy. |
-| OFF-03 | Host MUSI odrzucić outbox dla usuniętego czatu lub niezgodnego konta. Zmiana gałęzi rozmowy wymaga ponownego potwierdzenia kontekstu przez użytkownika. |
+| OFF-03 | Host MUSI odrzucić outbox dla usuniętego wątku, nieaktualnego executor_epoch lub niezgodnego konta. Zmiana gałęzi rozmowy wymaga ponownego potwierdzenia kontekstu przez użytkownika. |
 | OFF-04 | Retry komendy wysłanej wcześniej, której potwierdzenie zaginęło, MUSI użyć starego ID i odpytać stan. Nie jest nowym Send. |
-| OFF-05 | Zgody, Steer do dawnego runu, PTY, zapis pliku, Git, Delete i Stop NIE MOGĄ wykonać się automatycznie po powrocie sieci. |
+| OFF-05 | Zgody, Steer do dawnego runu, PTY i zapis pliku NIE MOGĄ wykonać się automatycznie po powrocie sieci. Git, Delete i Stop NIE MOGĄ być odtwarzane z outboxu, także jawnie; wymagają nowej komendy po sprawdzeniu stanu. |
 | OFF-06 | Załączniki offline MUSZĄ pozostać lokalne do ukończenia uploadu. Anulowanie lub usunięcie rozmowy nie może pozostawić nieograniczonego magazynu fragmentów. |
+| OFF-07 | Intencje metadanych wątku MUSZĄ być odtwarzane automatycznie po reconnect z oczekiwaną `revision`. Niezgodna rewizja daje jawny konflikt bez nadpisania zmian właściciela. Send jest odtwarzany tylko jawnie (OFF-02). |
 
 ## 9 Kontrakt gRPC i synchronizacji
 
 ### 9.1 Usługi
 
-To katalog odpowiedzialności. Implementacja definiuje osobne typowane metody operacji,
-a nie `Execute(method, json)`. Nazwy i numery pól `.proto` zostają utrwalone przy wydaniu.
-Nie wymagamy jednej długiej sesji bidi dla wszystkich funkcji.
+To katalog odpowiedzialności pakietu `canopy.api.v1`. Pakiet jest zbudowany wokół wątku
+i komend. Zastępuje niewydany `canopy.remote.v1`, który usuwamy w tym samym refaktorze
+([ADR 0001](adr/0001-thread-architecture.md) D14). Implementacja definiuje osobne typowane
+metody operacji, a nie `Execute(method, json)`. Nazwy i numery pól `.proto` zostają
+utrwalone przy wydaniu. Nie wymagamy jednej długiej sesji bidi dla wszystkich funkcji.
 
 | Usługa | Odczyty i strumienie | Mutacje |
 | --- | --- | --- |
 | Host | GetHostInfo, GetCapabilities, WatchHost, standardowy Health Check/Watch | Parowanie i zarządzanie Devices przez jawne metody. |
-| Catalog i Workspace | Lista projektów, checkoutów, zasobów i WatchSummaries | Utworzenie/otwarcie projektu, czatu, terminala; rename; preflight i potwierdzenie zamknięcia/usunięcia. |
-| Chat | ReadHistoryPage, SearchHistory, SubscribeChat, modele i opcje | Send, kolejka, Steer, Interrupt, decyzje, konfiguracja, restart, fork/edit, goal i operacje tła. |
+| Catalog | Lista środowisk, projektów, checkoutów, wątków, zasobów i WatchSummaries | Utworzenie/otwarcie projektu, wątku, terminala; rename; preflight i potwierdzenie zamknięcia/usunięcia. |
+| Thread | ReadHistoryPage, SearchHistory, SubscribeThread, modele i opcje | Send, kolejka, Steer, Interrupt, decyzje, konfiguracja, restart, fork/edit, goal i operacje tła. |
 | Operations | GetCommand, WatchOperation | Jawne CancelOperation tylko dla operacji wspierającej anulowanie. |
 | Files i Git | ListDirectory, SearchFiles, ReadFile, WatchResource, diff, historia, refs, plany operacji | CreateFile, SaveFile, zmiany indeksu, commit, Pull/Push, worktree i aktualnie dostępne operacje refs. |
 | Terminal | Snapshot i historia ekranu; TerminalSession bidi | AcquireInput, ReleaseInput oraz input/resize z fencing tokenem. |
@@ -447,13 +471,18 @@ Typy Protobuf należą do granicy transportowej; wspólny model nie musi ich uż
 
 | ID | Wymaganie |
 | --- | --- |
-| RPC-01 | Wszystkie kanały zdalne MUSZĄ używać natywnego gRPC/Protobuf. Lokalny adapter i adapter gRPC wywołują wspólne handlery. |
+| RPC-01 | Wszystkie kanały zdalne MUSZĄ używać natywnego gRPC/Protobuf. Transport `Local`, adapter gRPC i adapter MCP wywołują wspólną szynę komend. |
 | RPC-02 | Host MUSI rozdzielić błąd transportu od wyniku domenowego. Przyjęta operacja ma odpytywalny stan niezależnie od życia RPC. |
 | RPC-03 | Cancel RPC MUSI zwalniać zasoby odczytu i subskrypcji. Przyjęta mutacja pozostaje własnością runtime'u do końca lub jawnego CancelOperation. |
 | RPC-04 | Odczyty MUSZĄ mieć deadline i ograniczony retry. Mutacje używają CMD-12. Nie wolno ustawić krótkiego deadline'u na życie całej tury agenta. |
 | RPC-05 | Health MUSI zgłaszać gotowość usług, keepalive stan połączenia, a WatchHost stan domenowy starting, ready, draining lub storage_fault. Brak pojedynczego agenta nie może oznaczać awarii wszystkich usług. |
 | RPC-06 | Klient MUSI obsługiwać zmianę trasy do tego samego HostId. Inna tożsamość endpointu wymaga jawnego ponownego ustanowienia zaufania. |
 | RPC-07 | Stos Rust i natywny moduł mobile MUSZĄ obsłużyć unary, server stream, bidi, TLS z pinningiem, mTLS, anulowanie i reconnect na odbieranych platformach. Generowanie typów nie jest dowodem działania transportu. |
+| RPC-08 | Kontrakt MUSI być pakietem `canopy.api.v1`. Pakiet `canopy.remote.v1` NIE MOŻE pozostać w repozytorium ani działać równolegle po refaktorze. |
+| RPC-09 | Wątek MUSI być adresowany przez `ThreadRef{host_id, thread_id}`, a środowisko przez `EnvironmentRef{host_id}`. `ChatRef` i `WorkspaceRef` NIE MOGĄ występować w API. |
+| RPC-10 | Jedna komenda MUSI mieć jedno RPC zwracające `CommandReceipt`. Generyczne `Execute` jest zabronione. |
+| RPC-11 | Proto jest pisane ręcznie. Każde RPC komendy MUSI mieć opcję `(canopy.api.v1.command) = {name, risk, scope}`. Test kontraktowy MUSI porównać deskryptor, rejestr komend i listę narzędzi MCP. |
+| RPC-12 | CI MUSI uruchamiać `buf lint`. `buf breaking` MUSI blokować zmiany od wydania v1. Zmiana łamiąca wymaga pakietu `canopy.api.v2`. |
 
 ### 9.2 Obiekty i transfer
 
@@ -491,7 +520,7 @@ Te pojęcia nie są zamienne. Send nie wymaga rewizji napływającego transkrypt
 | --- | --- |
 | SYNC-01 | Subskrypcja MUSI ustanowić spójną granicę S i zachować tail przed publikacją snapshotu. Klient stosuje kompletny snapshot, potem wyłącznie zmiany większe od S. |
 | SYNC-02 | Reconnect MUSI odtworzyć brakujące zmiany z ringa albo wymusić nowy snapshot. Przepełnienie podczas snapshotu unieważnia transfer; częściowego snapshotu nie wolno zastosować. |
-| SYNC-03 | Delta MUSI adresować `(ChatId, history_epoch, ItemId)`. Append zawiera rewizję i offset bajtów UTF-8. Niezgodność wymaga ReplaceItem albo resync, bez podwójnego dopisania. |
+| SYNC-03 | Delta MUSI adresować `(ThreadId, history_epoch, ItemId)`. Append zawiera rewizję i offset bajtów UTF-8. Niezgodność wymaga ReplaceItem albo resync, bez podwójnego dopisania. |
 | SYNC-04 | Runtime MUSI raz odebrać lokalne take_changes i rozdzielić zdarzenia do niezależnych subskrypcji. Jeden klient nie może opróżnić zmian przeznaczonych dla drugiego. |
 | SYNC-05 | Lista podsumowań MUSI działać bez transkryptów. Paginacja historii ma stałą granicę odczytu i stabilne klucze. Usunięcie lub zmiana gałęzi jawnie unieważnia stary page token. |
 | SYNC-06 | Live stream NIE MOŻE czekać na checkpoint. Checkpoint MUSI atomowo zapisywać granicę trwałości i odpowiednie elementy. Klient odróżnia live od saved. |
@@ -510,6 +539,22 @@ Resync jest stanem przejściowym. Po ustaniu błędu lub nadmiarowego ruchu klie
 zakończyć snapshot i zastosować następną poprawną deltę w ciągu 10 s na stanowisku
 AC-30. Duże snapshoty są strumieniowane porcjami i nie omijają limitów pamięci.
 
+### 9.4 Replikacja między hostami
+
+Model replikacji „A+” opisuje [ADR 0001](adr/0001-thread-architecture.md) D4–D6.
+Każde środowisko jest jedynym zapisującym dla swoich wątków. Nie ma porządku
+globalnego między hostami.
+
+| ID | Wymaganie |
+| --- | --- |
+| REPL-01 | Środowisko wątku MUSI być jedynym zapisującym dla wątku i jego metadanych. Inny host NIE MOŻE zmienić repliki lokalnie; wysyła intencję przez outbox i inbox. |
+| REPL-02 | Rekord wątku MUSI mieć `revision`. Intencja zmiany metadanych zawiera oczekiwaną rewizję; niezgodność daje jawny konflikt. |
+| REPL-03 | Katalog MUSI być strumieniem per środowisko z kursorem i snapshotem. Brak wątku w snapshocie oznacza jego usunięcie u odbiorcy. |
+| REPL-04 | Sparowane hosty MUSZĄ łączyć się bezpośrednio. Relay przez inny host NIE jest dozwolony. Transkrypt synchronizuje się od hosta wykonawczego. |
+| REPL-05 | Każdy sparowany host MUSI mieć replikę wszystkich wątków, pełnego transkryptu i artefaktów. Replika poza właścicielem jest tylko do odczytu. |
+| REPL-06 | HLC z LWW MOŻE rozstrzygać wyłącznie preferencje użytkownika bez właściciela. NIE MOŻE rozstrzygać metadanych wątku. |
+| REPL-07 | Niedostępny host źródłowy NIE MOŻE blokować odczytu jego repliki ani pracy z innymi hostami. Replika ma last_seen i oznaczenie nieaktualności (LIFE-08). |
+
 ## 10 Pliki Git integracje i ustawienia
 
 | ID | Wymaganie |
@@ -522,7 +567,7 @@ AC-30. Duże snapshoty są strumieniowane porcjami i nie omijają limitów pami�
 | APP-06 | Mutacje Git MUSZĄ używać libgit2 i obecnych usług. Warunki obejmują właściwe dla operacji HEAD, indeks, stan worktree i zakres preflight. Niezależne repozytoria nie mogą blokować się globalnym lockiem. |
 | APP-07 | Worktree, Pull/Push, commit, podpis i hooki MUSZĄ zachować aktualne reguły analizy, zgód, częściowego sukcesu i cleanupu. Retry wyniku niepewnego nie może tworzyć drugiego commita lub worktree. |
 | APP-08 | Tasks MUSZĄ wykonywać istniejące operacje przez konta hosta. Klient nie otrzymuje tokenu konta. Filtry, paginacja, załączniki i kontekst task do worktree zachowują aktualny zakres i walidację. |
-| APP-09 | Preferencje hosta MUSZĄ obejmować narzędzia, profile i integracje. Motyw, zoom, skróty, lokalny layout i nawigacja MUSZĄ należeć do klienta. Zmiana jednego klienta nie przestawia drugiego. |
+| APP-09 | Ustawienia MUSZĄ należeć do jednej z trzech klas. Ustawienia hosta (narzędzia, profile, integracje) zostają na hoście. Ustawienia urządzenia są lokalne; zmiana na jednym urządzeniu nie przestawia drugiego. Preferencje użytkownika synchronizują się między hostami przez HLC z LWW (REPL-06). |
 | APP-10 | Zdalny zapis lub usunięcie sekretu MUSI być write-only i wymagać admin. Błąd zapisu konfiguracji zachowuje poprzedni credential i ponawialny cleanup zgodnie z obecnym magazynem. |
 | APP-11 | Operacja wymagająca promptu OS na hoście MUSI zwrócić needs_host_interaction z dalszą akcją. Nie wolno zawiesić RPC w oczekiwaniu na niewidoczny picker, pinentry, Keychain prompt lub OAuth. |
 | APP-12 | Otwarcie linku, schowek, wybór lokalnego pliku i focus MUSZĄ działać na urządzeniu inicjującym. Wybór pliku hosta jest zapytaniem o jego katalog, a nie natywnym pickerem otwieranym na hoście. |
@@ -545,6 +590,9 @@ Blokady Canopy chronią równoległe operacje Canopy. Nie blokują agenta, edyto
 ani innego procesu systemu. Obecne sprawdzenie treści przed atomowym replace ma końcowe
 okno wyścigu. Wydanie zachowuje tę granicę i wykrywa dostępne rozbieżności; nie deklaruje
 uniwersalnego CAS filesystemu. Wykryty konflikt zachowuje treść i nie uruchamia zapisu ponownie.
+
+Przypisanie każdego ustawienia do klasy APP-09 jest otwartą kwestią
+[ADR 0001](adr/0001-thread-architecture.md).
 
 Logowanie wymagające hosta można wykonać na hoście i ponowić operację z klienta.
 Nie przenosimy systemowych promptów na telefon. To ograniczenie interakcji OS,
@@ -641,6 +689,19 @@ snapshotu klienta. Uprawniony odczyt pliku, transkryptu lub terminala może zawi
 sekret wpisany przez użytkownika. Nie obiecujemy filtrowania dowolnej treści.
 Diagnostyka domyślnie nie zapisuje promptów, plików ani bajtów terminala.
 
+### 12.1 MCP
+
+MCP jest adapterem szyny komend. Model decyzji opisuje
+[ADR 0001](adr/0001-thread-architecture.md) D2, D10 i D11.
+
+| ID | Wymaganie |
+| --- | --- |
+| MCP-01 | MCP MUSI działać na poziomie wątków, niezależnie od miejsca ich wykonania. Odpowiedź ujawnia środowisko i wszystkie metadane wątku. |
+| MCP-02 | MCP MUSI udostępniać każdą operację dostępną użytkownikowi w UI, także konfigurację aplikacji (BUS-05). |
+| MCP-03 | Każdy principal MCP MUSI mieć osobną tożsamość urządzenia na każdym hoście. Revoke jednego principala nie zmienia innych. |
+| MCP-04 | Uprawnienia MUSZĄ pochodzić z grantu OAuth połączenia: Allow, Ask albo Deny dla każdego zakresu. Pełny admin działa bez potwierdzeń. Ask wymaga potwierdzenia, także dla konfiguracji wykonującej kod. |
+| MCP-05 | MCP MUSI widzieć wątki wszystkich sparowanych hostów w zakresie grantu. MCP NIE MOŻE adresować okien; akcja widoku zmienia stan globalny (OWN-10). |
+
 Mobile korzysta z natywnego modułu gRPC, a nie z grpc-web. Dobór biblioteki i standardowej
 implementacji poświadczeń musi przejść test RPC-07 przed związaniem reszty implementacji
 z daną biblioteką. Nie jest wymagana obsługa SSH w czystym JavaScript.
@@ -695,6 +756,7 @@ Ograniczenia stałe tego wydania:
 - Interakcje OS hosta podlegają APP-11. Nie transmitujemy promptów systemowych.
 - Funkcja backendu niewspierana przez jego protokół podlega AGT-07.
 - Brak współedycji znakowej i automatycznej migracji wykonania między hostami.
+  Jawny handoff wątku jest późniejszym etapem (OWN-09).
 - Telefon ma jeden widok aplikacji z własną nawigacją. Wiele okien desktopu ma na
   telefonie N/A-platform; niezależność jego nawigacji i szkiców nadal jest wymagana.
 
@@ -710,10 +772,10 @@ na mniejsze zadania, ale nie mogą usuwać funkcji z zakresu SCOPE-01.
 
 | Etap | Wynik pracy | Bramka wyjścia |
 | --- | --- | --- |
-| E0 Kontrakt i wykonalność | Inwentaryzacja funkcji; szkic końcowej migracji i .proto; spike natywnego gRPC Rust oraz mobile z TLS, streamami, anulowaniem i własnym tunelem SSH. | Istnieje działający dowód RPC-07 i tras na obu mobile OS; brak otwartych decyzji zmieniających model tożsamości, uprawnień lub trwałości. Spike nie jest integracją produktu. |
-| E1 Własność i dane | Katalog czatów i zasobów; runtime poza widokiem; wspólne handlery; inbox i jedna aktualizowana migracja. | Zachowane obecne testy funkcji i cleanupu; operacja działa bez ChatView i Window; migracja zachowuje starą bazę. |
+| E0 Kontrakt i wykonalność | Inwentaryzacja funkcji; rejestr komend; szkic końcowej migracji i `canopy.api.v1`; spike natywnego gRPC Rust oraz mobile z TLS, streamami, anulowaniem i własnym tunelem SSH. | Istnieje działający dowód RPC-07 i tras na obu mobile OS; brak otwartych decyzji zmieniających model tożsamości, uprawnień lub trwałości. Spike nie jest integracją produktu. |
+| E1 Własność i dane | Model wątku z `ThreadId` i `thread_alias`; katalog wątków i zasobów; runtime poza widokiem; szyna komend; inbox i jedna aktualizowana migracja. Refaktor wątku i komend kończy się przed pierwszym wydaniem Remote. | Zachowane obecne testy funkcji i cleanupu; operacja działa bez ChatView i Window; migracja zachowuje starą bazę. |
 | E2 Backend agentów | Wspólny model, native Claude/Codex, generic ACP, dynamiczne opcje, neutralne narzędzia i wszystkie dotychczasowe rozszerzenia. | Nagrania obu native i kontrakt ACP przechodzą; drugi AgentDefinition ACP nie wymaga zmian w UI ani rdzeniu. |
-| E3 Remote i klient desktop | gRPC, pairing, auth, health, dwa hosty, katalog, komendy, strumienie, replay, artifacts i cały czat. | Zaliczone scenariusze awarii, reconnect i multi-host dla desktopu; frontend nie wymaga lokalnego aktywowania zasobu. |
+| E3 Remote i klient desktop | gRPC, pairing, auth, health, dwa hosty, replikacja między hostami, MCP, katalog, komendy, strumienie, replay, artifacts i cały czat. | Zaliczone scenariusze awarii, reconnect i multi-host dla desktopu; frontend nie wymaga lokalnego aktywowania zasobu. |
 | E4 Pozostałe funkcje | Files/editor, pełny Git/worktree, terminal, Tasks, settings, profile, sekrety i media. | Każdy wiersz sekcji 3 ma kompletną obsługę domenową, błędy i cleanup; brak makiet zamiast operacji. |
 | E5 Mobile | Natywny transport i wszystkie wiersze zakresu w interfejsie mobilnym, outbox, suspend i reconnect. | Odbiór iOS/Android, dotyk, klawiatura, terminal, konflikt pliku i pełne Tasks/settings. Stara ścieżka WebRTC nie jest aktywna. |
 | E6 Odbiór wydania | Końcowa migracja, dokumentacja, testy nasycenia, natywne kombinacje urządzeń i przegląd złożoności. | Wszystkie wymagane przypadki mają PASS i dowód; brak nieuzasadnionych warstw; dokładnie jedna migracja tej funkcjonalności. |
