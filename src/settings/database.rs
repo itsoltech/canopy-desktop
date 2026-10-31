@@ -371,19 +371,27 @@ impl Database {
         let transaction = self
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let current_schema = schema(&transaction)?;
-        for change in changes {
-            let (key, value) = change.encoded();
-            if let Some(value) = value {
-                transaction.execute("INSERT INTO preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[key.as_str(),value.as_str()])?;
-            } else {
-                transaction.execute("DELETE FROM preferences WHERE key=?1", [key.as_str()])?;
-            }
-        }
-        let snapshot = read_snapshot(&transaction, current_schema)?;
+        let snapshot = apply_preferences(&transaction, changes)?;
         transaction.commit()?;
         Ok(snapshot)
     }
+}
+
+fn apply_preferences(
+    transaction: &rusqlite::Transaction,
+    changes: Vec<Change>,
+) -> Result<Snapshot> {
+    let current_schema = schema(transaction)?;
+    for change in changes {
+        let (key, value) = change.encoded();
+        if let Some(value) = value {
+            transaction.execute("INSERT INTO preferences(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[key.as_str(),value.as_str()])?;
+        } else {
+            transaction.execute("DELETE FROM preferences WHERE key=?1", [key.as_str()])?;
+        }
+    }
+    let snapshot = read_snapshot(transaction, current_schema)?;
+    Ok(snapshot)
 }
 
 fn read_snapshot(db: &Connection, schema: Schema) -> Result<Snapshot> {

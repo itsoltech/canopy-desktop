@@ -59,7 +59,7 @@ ani usuwane; niepoprawny klucz natywny daje ostrzeżenie i wraca do tej wartośc
 
 Wygląd jest lokalny dla urządzenia: nie należy do `HostPreferences`, nie ma go w
 zdalnym patchu ustawień, a jego zmiana nie zmienia rewizji CAS zdalnych ustawień
-(`ControlState::revision` pomija `appearance` i `terminal`). Nie wymaga to zmian
+(`SettingsState` pomija w rewizji `appearance` i `terminal`). Nie wymaga to zmian
 schematu ani funkcji `published-runtime-schema` — to zwykłe wiersze `preferences`.
 Zmiany z UI idą przez `ui::theme::set_*` → `SettingsState::remember`; render nie
 zapisuje ustawień. Opis systemu motywów: [components.md](components.md).
@@ -78,7 +78,7 @@ usuwa wiersz zamiast zapisywać `{}`. Tabela komend i skróty domyślne:
 `src/ui/keymap.rs` ([components.md](components.md#komendy-i-skróty-klawiszowe)).
 
 Skróty są lokalne dla urządzenia tak jak wygląd: nie ma ich w `HostPreferences`
-ani w zdalnym patchu, a `ControlState::revision` pomija `shortcuts`. Zmiana z UI
+ani w zdalnym patchu, a wspólna rewizja `SettingsState` pomija `shortcuts`. Zmiana z UI
 idzie przez `keymap::set_overrides`: wiąże od razu (stan „pending”), potem
 `SettingsState::remember`. Pending zostaje do commitu tej samej wartości; znika,
 gdy zapis się nie udał (`!saving` i `error`).
@@ -342,16 +342,21 @@ z tożsamością; `load_runtime_thread` odczytuje otwarty wątek po `ThreadId`.
 kontekstu, a identyczny zapis jej nie zmienia. `executor_epoch` pozostaje 0.
 Katalog w pamięci udostępnia `ChatSummary.thread_id`; obecny protokół pozostaje bez zmian.
 
-`accept_runtime_message` zapisuje receipt i pozycję kolejki razem. Edycja,
-przesunięcie, usunięcie, pause/resume oraz trzy rozstrzygnięcia unknown korzystają
-z `QueueMutation::command` i `mutate_runtime_queue`. Wymagają rewizji; retry
+Wspólna [magistrala komend](command-bus.md) przyjmuje Send, rename, edycję,
+przesunięcie, usunięcie, pause/resume oraz trzy rozstrzygnięcia unknown.
+Używa istniejących transakcji kolejki, retencji obrazów i workera SQLite.
+Zmiany kolejki wymagają rewizji; retry
 sprawdza znormalizowane argumenty, a receipt przechowuje wynikową rewizję.
 Resend unknown archiwizuje starą pozycję i tworzy nową pod nowym ID w transakcji
 jawnej komendy rozstrzygnięcia. Stare completion nie potwierdza nowej próby.
 Restart zmienia attempting na delivery_unknown, wstrzymuje kolejki i zwiększa
 rewizje. Sam odczyt albo otwarcie widoku nie wznawia dispatch.
 
-Inbox utrwala wymagany scope i canonical root wyznaczony przez handler.
+Inbox utrwala wymagany scope i canonical root wyznaczony przez magistralę
+(dla niewdrożonych komend przez dotychczasowy handler). Pełny klucz obejmuje
+resource/ThreadId, epokę executora, principal i command ID. Legacy GetCommand
+i ResolveCommand odrzucają niejednoznaczne ID; retry oryginalnego typowanego RPC
+z tym samym ID odczytuje właściwy receipt. Brak zmian Protobuf.
 Dedupe, GetCommand i dispatch ponownie sprawdzają zapisany zakres. Root czatu
 pochodzi z katalogu (workspace albo `private`); pozostałe handlery ustawiają
 `CommandInput::with_root`. Urządzenie bez granted roots nie ma dostępu; `*`
@@ -586,6 +591,14 @@ single startup-random revision covers committed preferences, tools and integrati
 configuration; discovery/busy notifications do not change it. The app turn checks
 CAS and reserves the owner before starting asynchronous persistence. An in-flight
 write in any of these owners rejects a competing settings mutation as busy.
+
+The revision owner is shared in `SettingsState`, including local `change`/`remember`.
+UpdatePreferences enters the same typed bus as those local writes. Its DB-only
+effect and receipt commit atomically; the receipt retains the committed values
+and resulting revision. Retry returns that original result after later writes or
+reopen, without replacing it with a fresh snapshot. Local state publishes only
+after commit. Appearance, terminal and shortcuts retain their revision exclusion.
+See [command-bus.md](command-bus.md) for identity, failure rules and remaining scope.
 
 Remote environment, system-prompt and settings-JSON writes store immutable UUID
 chunk references in the existing tool catalog, with values in the host credential

@@ -29,6 +29,7 @@ pub enum Error {
     RuntimeInUse,
     NotAuthorized,
     CommandConflict,
+    AmbiguousCommand,
     CommandRetired,
     OperationPending,
     ResourceConflict,
@@ -73,6 +74,10 @@ impl fmt::Display for Error {
             Self::CommandConflict => write!(
                 f,
                 "The command identifier was already used with different arguments"
+            ),
+            Self::AmbiguousCommand => write!(
+                f,
+                "Command ID matches multiple resources; retry the original typed operation with the same command ID"
             ),
             Self::CommandRetired => write!(f, "The command belongs to a closed command epoch"),
             Self::OperationPending => write!(

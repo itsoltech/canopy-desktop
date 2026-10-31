@@ -1,4 +1,5 @@
 mod integrations;
+mod preference_commands;
 mod task_drafts;
 pub use integrations::{GithubUnavailable, IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
@@ -124,6 +125,9 @@ impl AppState {
             remote: cx.new(|_| remote::RemoteState::new()),
         };
         cx.set_global(state.clone());
+        state
+            .settings
+            .update(cx, |settings, cx| settings.bind_preference_owners(cx));
         state
             .resources
             .update(cx, |resources, cx| resources.bind(&state.settings, cx));
@@ -288,13 +292,24 @@ impl AppState {
             if let Some(task)=changes_task{task.await;}
             if let Some(task)=git_task{task.await;}
             let project_task=projects.update(cx,|state,_|state.shutdown_task());
+            let command_tasks=projects.update(cx,|state,_|std::mem::take(&mut state.command_tasks));
             for task in tool_tasks {task.await;}
             if let Some(task) = project_task {
                 task.await;
             }
+            for (_, task) in command_tasks { task.await; }
             if let Some(task) = task {
                 task.await;
             }
+            // Other configuration owners have drained. Preserve local choices
+            // queued behind their reservation before closing the SQLite worker.
+            let remembered=settings.update(cx,|state,cx| {
+                let changes=std::mem::take(&mut state.remembered);
+                if changes.is_empty() { return None; }
+                state.start_local_preferences(changes,cx);
+                state._task.take()
+            });
+            if let Some(task)=remembered {task.await;}
             let writer=projects.update(cx,|state,_|state.writer.take());
             if let Some(writer)=writer {writer.await;}
             agents.update(cx, |state,cx|state.flush(cx));
@@ -386,6 +401,9 @@ impl AppState {
         };
         cx.set_global(state.clone());
         state
+            .settings
+            .update(cx, |settings, cx| settings.bind_preference_owners(cx));
+        state
             .resources
             .update(cx, |resources, cx| resources.bind(&state.settings, cx));
         state.remote.update(cx, |remote, cx| remote.bind(cx));
@@ -443,6 +461,8 @@ pub struct SettingsState {
     pub error: Option<String>,
     pub warnings: Vec<canopy_desktop::settings::DecodeWarning>,
     remembered: Vec<Change>,
+    settings_revision: canopy_desktop::command_bus::SettingsRevision,
+    preference_owners: Vec<Subscription>,
     client: Option<SettingsClient>,
     /// This data directory's host identity, held for as long as Canopy runs.
     runtime: Option<canopy_desktop::host::RuntimeHost>,
@@ -467,6 +487,8 @@ impl SettingsState {
             error: None,
             warnings: vec![],
             remembered: vec![],
+            settings_revision: Default::default(),
+            preference_owners: Vec::new(),
             client: None,
             runtime: None,
             chat_records: Default::default(),
@@ -584,6 +606,8 @@ impl SettingsState {
             error: None,
             warnings: vec![],
             remembered: vec![],
+            settings_revision: Default::default(),
+            preference_owners: Vec::new(),
             client: None,
             runtime: None,
             chat_records: Default::default(),
@@ -636,6 +660,16 @@ impl SettingsState {
     }
     /// A chat saved its record: later reads see what was committed.
     pub fn record_saved(&mut self, record: canopy_desktop::host::ChatRecord) {
+        if self
+            .chat_records
+            .get(record.id())
+            .and_then(|current| current.thread().zip(record.thread()))
+            .is_some_and(|(current, incoming)| {
+                current.thread() == incoming.thread() && current.revision() > incoming.revision()
+            })
+        {
+            return;
+        }
         self.chat_records.insert(record.id().to_owned(), record);
     }
     /// Background choices (e.g. last chat picks): queued while a write is in flight,
@@ -652,31 +686,15 @@ impl SettingsState {
         if !self.ready || self.saving || self.quitting || self.remembered.is_empty() {
             return;
         }
-        let Some(client) = self.client.clone() else {
+        if self.preferences_owner_busy(cx) {
             return;
-        };
+        }
         let changes = std::mem::take(&mut self.remembered);
-        self.saving = true;
-        cx.notify();
-        self._task = Some(cx.spawn(async move |this, cx| {
-            let result = client.apply(changes).await;
-            let _ = this.update(cx, |this, cx| {
-                this.saving = false;
-                match result {
-                    Ok(snapshot) => {
-                        this.values = snapshot.preferences;
-                        this.warnings = snapshot.warnings;
-                    }
-                    Err(error) => this.error = Some(error.to_string()),
-                }
-                this.flush_remembered(cx);
-                cx.notify();
-            });
-        }));
+        self.start_local_preferences(changes, cx);
     }
     /// Commit before publishing. One in-flight write prevents stale snapshots across windows.
     pub fn change(&mut self, change: Change, cx: &mut Context<Self>) {
-        if self.ready && self.saving && !self.quitting {
+        if self.ready && (self.saving || self.preferences_owner_busy(cx)) && !self.quitting {
             // A background write is in flight: apply after it instead of dropping.
             self.remember(vec![change], cx);
             return;
@@ -684,26 +702,6 @@ impl SettingsState {
         if !self.ready || self.saving || self.quitting {
             return;
         }
-        let Some(client) = self.client.clone() else {
-            return;
-        };
-        self.saving = true;
-        self.error = None;
-        cx.notify();
-        self._task = Some(cx.spawn(async move |this, cx| {
-            let result = client.apply(vec![change]).await;
-            let _ = this.update(cx, |this, cx| {
-                this.saving = false;
-                match result {
-                    Ok(snapshot) => {
-                        this.values = snapshot.preferences;
-                        this.warnings = snapshot.warnings;
-                    }
-                    Err(error) => this.error = Some(error.to_string()),
-                }
-                this.flush_remembered(cx);
-                cx.notify();
-            });
-        }));
+        self.start_local_preferences(vec![change], cx);
     }
 }

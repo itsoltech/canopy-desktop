@@ -163,7 +163,6 @@ pub enum ChatCommand {
     Restart {
         run: u64,
     },
-    ResumeQueue,
     /// Steer an accepted, queued message (its ID) into the running turn.
     Steer {
         message: String,
@@ -191,9 +190,6 @@ pub enum ChatCommand {
     StopBackground {
         run: u64,
         call: String,
-    },
-    Rename {
-        title: String,
     },
     /// Edits sent user message `item` of history part `history_epoch` in run `run`
     /// (CHAT-08): files restored first when asked, then the same chat continues from
@@ -223,7 +219,6 @@ impl ChatCommand {
             Self::Start => "chat.start",
             Self::Interrupt { .. } => "chat.interrupt",
             Self::Restart { .. } => "chat.restart",
-            Self::ResumeQueue => "chat.resume_queue",
             Self::Steer { .. } => "chat.steer",
             Self::Respond { .. } => "chat.respond",
             Self::SetOption { .. } => "chat.set_option",
@@ -232,7 +227,6 @@ impl ChatCommand {
             Self::ResumeGoal => "chat.resume_goal",
             Self::ClearGoal => "chat.clear_goal",
             Self::StopBackground { .. } => "chat.stop_background",
-            Self::Rename { .. } => "chat.rename",
             Self::Edit { .. } => "chat.edit",
             Self::RunShell { .. } => "chat.shell",
             Self::StopShell { .. } => "chat.stop_shell",
@@ -780,21 +774,6 @@ impl ChatRuntime {
         })
     }
 
-    pub fn remote_resume_queue(
-        &mut self,
-        key: RemoteKey,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<CommandReceipt, String>> {
-        self.durable(key, ChatCommand::ResumeQueue, cx, |this, cx| {
-            if !this.queue_paused() {
-                return Outcome::Succeeded;
-            }
-            // The queue's own revision-checked write; its failure is reported there.
-            this.resume_queue(cx);
-            Outcome::Succeeded
-        })
-    }
-
     /// Steers accepted message `message`: it keeps its ID and receipts (CHAT-03).
     pub fn remote_steer(
         &mut self,
@@ -1007,47 +986,6 @@ impl ChatRuntime {
                 return Outcome::Failed("That background work is no longer running.".into());
             }
             this.stop_background(&call, cx);
-            Outcome::Succeeded
-        })
-    }
-
-    /// Names the chat (its tab when one shows it, and its catalog record).
-    pub fn remote_rename(
-        &mut self,
-        key: RemoteKey,
-        title: String,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<CommandReceipt, String>> {
-        let command = ChatCommand::Rename {
-            title: title.clone(),
-        };
-        self.durable(key, command, cx, move |this, cx| {
-            let title = title.trim().to_owned();
-            if title.is_empty() || title.len() > 256 || title.chars().any(char::is_control) {
-                return Outcome::Failed("Enter a name for the chat.".into());
-            }
-            let pane = this.pane.id;
-            let app = cx.global::<AppState>().clone();
-            let workspace = app
-                .projects
-                .read(cx)
-                .runtime_workspaces(cx)
-                .into_iter()
-                .find(|w| w.all_panes().iter().any(|p| p.id == pane))
-                .map(|w| w.id);
-            if let Some(workspace) = workspace
-                && let Err(error) = app.projects.update(cx, |projects, cx| {
-                    projects.rename_chat(workspace, pane, &title, cx)
-                })
-            {
-                return Outcome::Failed(error.to_string());
-            }
-            this.set_title(
-                &title,
-                Some(canopy_desktop::state::workspace::ChatTitleState::Named),
-                cx,
-            );
-            this.save_record(cx);
             Outcome::Succeeded
         })
     }

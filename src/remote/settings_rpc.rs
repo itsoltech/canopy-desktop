@@ -26,9 +26,9 @@ pub trait SettingsHost: Send + Sync + 'static {
     async fn snapshot(&self) -> Result<proto::HostSettings, Status>;
     async fn update_preferences(
         &self,
-        patch: PreferencesPatch,
-        expected_revision: Option<u64>,
-    ) -> Result<(), Status>;
+        envelope: crate::command_bus::CommandEnvelope,
+        principal: crate::command_bus::Principal,
+    ) -> Result<crate::host::CommandReceipt, Status>;
     async fn save_agent(
         &self,
         edit: AgentEdit,
@@ -153,10 +153,37 @@ impl proto::settings_service_server::SettingsService for SettingsRpc {
         &self,
         r: Request<proto::UpdatePreferencesRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
-        let g = self.authorize(&r).await?;
-        self.write(g, writes::Write::Preferences(r.into_inner()))
-            .await
-            .map(Response::new)
+        let grant = self.auth.authenticate(&r).await?;
+        let mut request = r.into_inner();
+        let meta = request
+            .command
+            .take()
+            .ok_or_else(|| Status::invalid_argument("Command metadata is required."))?;
+        let key = self.auth.key(&meta, &grant)?;
+        let envelope = crate::command_bus::CommandEnvelope {
+            command_id: uuid::Uuid::parse_str(key.id())
+                .map_err(|_| Status::invalid_argument("Invalid command identity."))?,
+            resource: crate::command_bus::ResourceRef::Environment(crate::thread::EnvironmentRef {
+                host_id: crate::thread::HostId::new(meta.host_id)
+                    .ok_or_else(|| Status::invalid_argument("Invalid host identity."))?,
+            }),
+            command: PreferencesPatch::from_request(request).into_command(),
+            conditions: crate::command_bus::Conditions {
+                expected_revision: meta.expected_revision,
+                ..Default::default()
+            },
+        };
+        let principal = crate::command_bus::Principal::authenticated(&grant, meta.command_epoch)
+            .map_err(storage_status)?;
+        let host = self.host.clone();
+        let operation = self.locks.begin()?;
+        let receipt = tokio::spawn(async move {
+            let _operation = operation;
+            host.update_preferences(envelope, principal).await
+        })
+        .await
+        .map_err(|_| Status::unknown("Preferences outcome is uncertain; retry the same ID."))??;
+        Ok(Response::new(self.auth.receipt(&receipt)))
     }
     async fn save_agent_definition(
         &self,

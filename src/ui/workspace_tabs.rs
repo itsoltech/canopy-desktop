@@ -82,6 +82,33 @@ impl Workspace {
                 value,
                 return_focus,
                 move |title, cx| {
+                    let chat =
+                        {
+                            let state = target.read(cx);
+                            if state.id != workspace {
+                                return Err("The project has changed.".into());
+                            }
+                            state.tabs().iter().find(|t| t.id == tab).and_then(|tab| {
+                                match &tab.root {
+                                    canopy_desktop::state::workspace::SplitTree::Leaf(pane)
+                                        if pane.metadata.kind
+                                            == canopy_desktop::state::workspace::PaneKind::Chat =>
+                                    {
+                                        Some(pane.id)
+                                    }
+                                    _ => None,
+                                }
+                            })
+                        };
+                    if let Some(pane) = chat {
+                        return cx
+                            .global::<crate::app_state::AppState>()
+                            .projects
+                            .clone()
+                            .update(cx, |projects, cx| {
+                                projects.rename_chat(workspace, pane, title, cx)
+                            });
+                    }
                     target.update(cx, |state, cx| {
                         if state.id != workspace {
                             return Err("The project has changed.".into());

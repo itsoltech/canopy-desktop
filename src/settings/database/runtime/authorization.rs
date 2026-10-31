@@ -147,15 +147,17 @@ impl Database {
         if changed == 0 {
             return Err(Error::ResourceConflict);
         }
-        let pending = tx.prepare("SELECT command_id,command_epoch FROM _canopy_command_inbox WHERE device_id=?1 AND state='accepted'")?.query_map([&device], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-        for (id, epoch) in pending {
+        let pending = tx.prepare("SELECT command_id,command_epoch,resource,executor_epoch FROM _canopy_command_inbox WHERE device_id=?1 AND state='accepted'")?.query_map([&device], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        for (id, epoch, resource, executor_epoch) in pending {
             let key = CommandKey {
                 device: device.clone(),
                 id,
                 epoch: unsigned(epoch)?,
+                resource,
+                executor_epoch: unsigned(executor_epoch)?,
             };
             if matches!(authorize_saved(&tx, &key, true), Err(Error::NotAuthorized)) {
-                tx.execute("UPDATE _canopy_command_inbox SET state='rejected',updated_at=?3 WHERE device_id=?1 AND command_id=?2", params![device,key.id,now()])?;
+                tx.execute("UPDATE _canopy_command_inbox SET state='rejected',updated_at=?3 WHERE device_id=?1 AND command_id=?2 AND resource=?4 AND executor_epoch=?5 AND command_epoch=?6", params![device,key.id,now(),key.resource,integer(key.executor_epoch)?,integer(key.epoch)?])?;
             }
         }
         let current = grant(&tx, &device)?;

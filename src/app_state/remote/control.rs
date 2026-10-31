@@ -5,11 +5,8 @@ mod projection;
 mod tasks;
 #[cfg(test)]
 mod tests;
-use crate::app_state::{AppState, SettingsState};
-use canopy_desktop::{
-    remote::{proto, resources::ResourceLocks, settings_rpc::*},
-    settings::{Change, PreferenceKey},
-};
+use crate::app_state::AppState;
+use canopy_desktop::remote::{proto, resources::ResourceLocks, settings_rpc::*};
 use futures_channel::oneshot;
 use gpui_kit::*;
 use std::sync::Arc;
@@ -21,12 +18,17 @@ type Committed = oneshot::Receiver<Result<(), String>>;
 pub struct ControlBridge {
     sender: async_channel::Sender<Op>,
     secrets: Arc<dyn SettingsSecrets>,
+    client: Option<canopy_desktop::settings::SettingsClient>,
 }
 #[expect(
     clippy::large_enum_variant,
     reason = "The control queue is bounded to 64 operations and carries owned settings edits without an extra allocation."
 )]
 enum Op {
+    Preferences(
+        canopy_desktop::command_bus::PreparedCommand,
+        Reply<canopy_desktop::host::CommandReceipt>,
+    ),
     Snapshot(Reply<proto::HostSettings>),
     Edit(edits::Edit, Option<u64>, Reply<()>),
     Filter(
@@ -44,43 +46,18 @@ enum Op {
 }
 struct ControlState {
     observers: Vec<Subscription>,
-    revision: u64,
-    snapshot: Option<(
-        canopy_desktop::settings::Preferences,
-        canopy_desktop::state::tools::ToolCatalog,
-        canopy_desktop::integrations::Config,
-    )>,
 }
 impl ControlState {
     fn new() -> Self {
         Self {
             observers: Vec::new(),
-            revision: u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap())
-                .max(1),
-            snapshot: None,
         }
     }
-    fn revision(&mut self, cx: &App) -> u64 {
-        let app = cx.global::<AppState>();
-        let mut tools = app.tools.read(cx).catalog.clone();
-        let mut integrations = app.integrations.read(cx).config.clone();
-        // Credential cleanup bookkeeping is not an editable configuration change.
-        tools.retired_credentials.clear();
-        integrations.retired_credentials.clear();
-        // Appearance, terminal font and shortcuts are device-local and not part of
-        // the remote settings snapshot: a local change must not fail remote CAS.
-        let mut preferences = app.settings.read(cx).values.clone();
-        preferences.appearance = Default::default();
-        preferences.terminal = Default::default();
-        preferences.shortcuts = Default::default();
-        let current = (preferences, tools, integrations);
-        if self.snapshot.as_ref().is_some_and(|old| old != &current) {
-            self.revision = self.revision.wrapping_add(1).max(1);
-        }
-        self.snapshot = Some(current);
-        self.revision
+    fn revision(&mut self, cx: &mut App) -> u64 {
+        let settings = cx.global::<AppState>().settings.clone();
+        settings.update(cx, |settings, cx| settings.settings_revision(cx))
     }
-    fn check(&mut self, expected: Option<u64>, cx: &App) -> Result<(), Status> {
+    fn check(&mut self, expected: Option<u64>, cx: &mut App) -> Result<(), Status> {
         let revision = self.revision(cx);
         if expected.is_some_and(|expected| expected != revision) {
             return Err(Status::aborted("Settings changed; reload before saving."));
@@ -107,6 +84,7 @@ impl ControlState {
 }
 impl ControlBridge {
     pub fn install(secrets: Arc<dyn SettingsSecrets>, locks: ResourceLocks, cx: &mut App) -> Self {
+        let client = cx.global::<AppState>().settings.read(cx).client();
         let (sender, receiver) = async_channel::bounded(64);
         let state = cx.new(|cx: &mut Context<ControlState>| {
             let app = cx.global::<AppState>().clone();
@@ -128,6 +106,23 @@ impl ControlBridge {
         cx.spawn(async move |cx| {
             while let Ok(op) = receiver.recv().await {
                 cx.update(|cx| match op {
+                    Op::Preferences(prepared, reply) => {
+                        // Reserve the live owners here. The bus checks CAS after
+                        // dedupe in its transaction: a concurrent identical retry
+                        // may have committed since this request was prepared.
+                        let result = state.update(cx, |state, cx| state.check(None, cx));
+                        match result {
+                            Err(error) => {
+                                let _ = reply.send(Err(error));
+                            }
+                            Ok(()) => {
+                                let settings = cx.global::<AppState>().settings.clone();
+                                settings.update(cx, |settings, cx| {
+                                    settings.start_prepared_preferences(prepared, reply, cx)
+                                });
+                            }
+                        }
+                    }
                     Op::Snapshot(reply) => {
                         let revision = state.update(cx, |state, cx| state.revision(cx));
                         let _ = reply.send(projection::snapshot(revision, cx));
@@ -148,7 +143,11 @@ impl ControlBridge {
             }
         })
         .detach();
-        Self { sender, secrets }
+        Self {
+            sender,
+            secrets,
+            client,
+        }
     }
     async fn request<T>(&self, op: impl FnOnce(Reply<T>) -> Op) -> Result<T, Status> {
         let (tx, rx) = oneshot::channel();
@@ -187,69 +186,4 @@ fn invalid(error: impl ToString) -> Status {
 }
 fn busy(error: impl ToString) -> Status {
     Status::resource_exhausted(error.to_string())
-}
-
-impl SettingsState {
-    fn remote_preferences(
-        &mut self,
-        patch: PreferencesPatch,
-        cx: &mut Context<Self>,
-    ) -> Result<Committed, Status> {
-        if !self.ready || self.saving || self.quitting {
-            return Err(busy("Preferences are busy."));
-        }
-        let client = self
-            .client
-            .clone()
-            .ok_or_else(|| busy("Storage is unavailable."))?;
-        let mut changes = Vec::new();
-        if let Some(v) = patch.reopen_last_workspace() {
-            changes.push(Change::ReopenLastWorkspace(v));
-        }
-        if let Some(v) = patch.notch_enabled() {
-            changes.push(Change::NotchEnabled(v));
-        }
-        for (key, value) in [
-            (PreferenceKey::NewTabTool, patch.new_tab_tool()),
-            (PreferenceKey::NewWorktreeTool, patch.new_worktree_tool()),
-            (PreferenceKey::ChatProfile, patch.chat_profile()),
-            (PreferenceKey::ChatModel, patch.chat_model()),
-            (PreferenceKey::ChatEffort, patch.chat_effort()),
-            (PreferenceKey::ChatMode, patch.chat_mode()),
-        ] {
-            if let Some(value) = value {
-                changes.push(if value.is_empty() {
-                    Change::Reset(key)
-                } else {
-                    Change::parse(key, value).map_err(invalid)?
-                });
-            }
-        }
-        let (tx, rx) = oneshot::channel();
-        self.saving = true;
-        self.error = None;
-        cx.notify();
-        self._task = Some(cx.spawn(async move |this, cx| {
-            let result = client.apply(changes).await;
-            let outcome = result.as_ref().map(|_| ()).map_err(ToString::to_string);
-            let published = this.update(cx, |this, cx| {
-                this.saving = false;
-                match result {
-                    Ok(snapshot) => {
-                        this.values = snapshot.preferences;
-                        this.warnings = snapshot.warnings;
-                    }
-                    Err(error) => this.error = Some(error.to_string()),
-                }
-                this.flush_remembered(cx);
-                cx.notify();
-            });
-            let _ = tx.send(
-                published
-                    .map_err(|_| "Preferences owner stopped.".to_owned())
-                    .and(outcome),
-            );
-        }));
-        Ok(rx)
-    }
 }

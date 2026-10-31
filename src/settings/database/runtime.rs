@@ -13,6 +13,7 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 mod authorization;
+mod bus;
 mod chat_commands;
 mod files;
 mod presence;
@@ -134,7 +135,7 @@ fn authorize_root(
     Ok(())
 }
 fn authorize_saved(db: &Connection, key: &CommandKey, check_epoch: bool) -> Result<()> {
-    let (scope,root):(u32,String)=db.query_row("SELECT required_scope,required_root FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3",params![key.device,key.id,integer(key.epoch)?],|r|Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or(Error::NotFound)?;
+    let (scope,root):(u32,String)=db.query_row("SELECT required_scope,required_root FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3 AND resource=?4 AND executor_epoch=?5",params![key.device,key.id,integer(key.epoch)?,key.resource,integer(key.executor_epoch)?],|r|Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or(Error::NotFound)?;
     authorize_root(db, key, scope, &root, check_epoch)
 }
 fn command_root(input: &CommandInput) -> Result<&str> {
@@ -156,14 +157,14 @@ fn chat_root(db: &Connection, chat: &str, key: &CommandKey) -> Result<String> {
         return Ok(root);
     }
     // A retained receipt remains readable after the conversation was deleted.
-    db.query_row("SELECT required_root FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3",params![key.device,key.id,integer(key.epoch)?],|r|r.get(0)).optional()?.ok_or(Error::NotFound)
+    db.query_row("SELECT required_root FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3 AND resource=?4 AND executor_epoch=?5",params![key.device,key.id,integer(key.epoch)?,key.resource,integer(key.executor_epoch)?],|r|r.get(0)).optional()?.ok_or(Error::NotFound)
 }
 
 fn receipt(db: &Connection, key: &CommandKey) -> Result<Option<CommandReceipt>> {
     type ReceiptRow = (String, Option<Vec<u8>>, i64, bool, String, String);
     let row:Option<ReceiptRow>=db.query_row(
-        "SELECT state,result,command_epoch,resolved_by_user,method,target FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2",
-        params![key.device,key.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
+        "SELECT state,result,command_epoch,resolved_by_user,method,target FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
+        params![key.device,key.id,key.resource,integer(key.executor_epoch)?],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
     row.map(|(state, result, epoch, resolved, method, target)| {
         if epoch != integer(key.epoch)? {
             return Err(Error::CommandConflict);
@@ -180,11 +181,42 @@ fn receipt(db: &Connection, key: &CommandKey) -> Result<Option<CommandReceipt>> 
     .transpose()
 }
 
+/// Legacy RPCs do not carry CMD-01's resource/executor key. Never select an
+/// arbitrary match. Authorize every retained row before disclosing ambiguity.
+fn legacy_command_key(db: &Connection, key: CommandKey, scope: u32) -> Result<CommandKey> {
+    authorize(db, &key, scope, false)?;
+    if !key.resource.is_empty() {
+        return Ok(key);
+    }
+    let rows = db.prepare("SELECT resource,executor_epoch,command_epoch FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2")?
+        .query_map(params![key.device,key.id], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut matches = Vec::new();
+    for (resource, executor_epoch, epoch) in rows {
+        let mut saved = key.clone();
+        saved.resource = resource;
+        saved.executor_epoch = unsigned(executor_epoch)?;
+        saved.epoch = unsigned(epoch)?;
+        authorize_saved(db, &saved, false)?;
+        matches.push(saved);
+    }
+    if matches.len() > 1 {
+        return Err(Error::AmbiguousCommand);
+    }
+    if let Some(saved) = matches.pop() {
+        if saved.epoch != key.epoch {
+            return Err(Error::CommandConflict);
+        }
+        return Ok(saved);
+    }
+    Ok(key)
+}
+
 fn existing(db: &Connection, input: &CommandInput) -> Result<Option<CommandReceipt>> {
     type StoredIntent = (String, String, Vec<u8>, i64, Option<Vec<u8>>, String);
     let prior:Option<StoredIntent>=db.query_row(
-        "SELECT method,target,fingerprint,command_epoch,arguments,required_root FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2",
-        params![input.key.device,input.key.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
+        "SELECT method,target,fingerprint,command_epoch,arguments,required_root FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
+        params![input.key.device,input.key.id,input.key.resource,integer(input.key.executor_epoch)?],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
     if let Some((method, target, fingerprint, epoch, arguments, root)) = prior {
         authorize_saved(db, &input.key, true)?;
         if root != command_root(input)?
@@ -209,8 +241,9 @@ fn insert_command(
     scope: u32,
 ) -> Result<CommandReceipt> {
     let (count,bytes):(i64,i64)=tx.query_row(
-        "SELECT count(*),coalesce(sum(length(CAST(method AS BLOB))+length(CAST(target AS BLOB))+length(CAST(required_root AS BLOB))+length(fingerprint)+coalesce(length(arguments),0)+coalesce(length(result),0)+512),0) FROM _canopy_command_inbox WHERE device_id=?1",[&input.key.device],|r|Ok((r.get(0)?,r.get(1)?)))?;
-    let added = (input.method.len()
+        "SELECT count(*),coalesce(sum(length(CAST(resource AS BLOB))+length(CAST(method AS BLOB))+length(CAST(target AS BLOB))+length(CAST(required_root AS BLOB))+length(fingerprint)+coalesce(length(arguments),0)+coalesce(length(result),0)+512),0) FROM _canopy_command_inbox WHERE device_id=?1",[&input.key.device],|r|Ok((r.get(0)?,r.get(1)?)))?;
+    let added = (input.key.resource.len()
+        + input.method.len()
         + input.target.len()
         + command_root(input)?.len()
         + input.fingerprint.len()
@@ -229,13 +262,13 @@ fn insert_command(
         return Err(Error::ResourceLimit);
     }
     let at = now();
-    tx.execute("INSERT INTO _canopy_command_inbox(device_id,command_id,command_epoch,method,target,fingerprint,arguments,state,result,created_at,updated_at,required_scope,required_root) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12)",
-        params![input.key.device,input.key.id,integer(input.key.epoch)?,input.method,input.target,input.fingerprint,input.arguments,state.key(),result,at,scope,command_root(input)?])?;
+    tx.execute("INSERT INTO _canopy_command_inbox(device_id,command_id,command_epoch,method,target,fingerprint,arguments,state,result,created_at,updated_at,required_scope,required_root,resource,executor_epoch) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12,?13,?14)",
+        params![input.key.device,input.key.id,integer(input.key.epoch)?,input.method,input.target,input.fingerprint,input.arguments,state.key(),result,at,scope,command_root(input)?,input.key.resource,integer(input.key.executor_epoch)?])?;
     receipt(tx, &input.key)?.ok_or(Error::InvalidRuntimeState)
 }
 
 fn check_result_budget(db: &Connection, key: &CommandKey, result: Option<&[u8]>) -> Result<()> {
-    let bytes:i64=db.query_row("SELECT coalesce(sum(length(CAST(method AS BLOB))+length(CAST(target AS BLOB))+length(CAST(required_root AS BLOB))+length(fingerprint)+coalesce(length(arguments),0)+CASE WHEN command_id=?2 THEN 0 ELSE coalesce(length(result),0) END+512),0) FROM _canopy_command_inbox WHERE device_id=?1",params![key.device,key.id],|r|r.get(0))?;
+    let bytes:i64=db.query_row("SELECT coalesce(sum(length(CAST(resource AS BLOB))+length(CAST(method AS BLOB))+length(CAST(target AS BLOB))+length(CAST(required_root AS BLOB))+length(fingerprint)+coalesce(length(arguments),0)+CASE WHEN command_id=?2 AND resource=?3 AND executor_epoch=?4 THEN 0 ELSE coalesce(length(result),0) END+512),0) FROM _canopy_command_inbox WHERE device_id=?1",params![key.device,key.id,key.resource,integer(key.executor_epoch)?],|r|r.get(0))?;
     let limit = if key.device == host::LOCAL_PRINCIPAL {
         host::LOCAL_INBOX_BYTES
     } else {
@@ -489,7 +522,7 @@ impl Database {
         scope: u32,
     ) -> Result<Option<CommandReceipt>> {
         require_host(self)?;
-        authorize(&self.db, &key, scope, false)?;
+        let key = legacy_command_key(&self.db, key, scope)?;
         if let Some(result) = receipt(&self.db, &key)? {
             authorize_saved(&self.db, &key, false)?;
             return Ok(Some(result));
@@ -541,7 +574,7 @@ impl Database {
                 authorize_saved(&tx, &key, true)?;
             }
             check_result_budget(&tx, &key, result.as_deref())?;
-            let changed=tx.execute("UPDATE _canopy_command_inbox SET state=?3,result=?4,updated_at=?5 WHERE device_id=?1 AND command_id=?2 AND command_epoch=?6 AND state=?7",params![key.device,key.id,state.key(),result,now(),integer(key.epoch)?,expected.key()])?;
+            let changed=tx.execute("UPDATE _canopy_command_inbox SET state=?3,result=?4,updated_at=?5 WHERE device_id=?1 AND command_id=?2 AND command_epoch=?6 AND state=?7 AND resource=?8 AND executor_epoch=?9",params![key.device,key.id,state.key(),result,now(),integer(key.epoch)?,expected.key(),key.resource,integer(key.executor_epoch)?])?;
             if changed == 0 {
                 return Err(Error::ResourceConflict);
             }
@@ -627,7 +660,7 @@ impl Database {
                 .db
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             retried = receipt(&tx, &input.key)?.is_some();
-            let result = accept_message(&tx, input, chat, message, draft)?;
+            let result = accept_message(&tx, input, chat, message, draft, None, host::CHAT)?;
             let commit_started = Instant::now();
             let committed = tx.commit();
             if let (Some(host), Some(resource)) = (&diagnostic_host, &diagnostic_resource) {
@@ -702,14 +735,33 @@ impl Database {
         revision: u64,
         paused: bool,
     ) -> Result<ChatQueue> {
-        let mutation = QueueMutation::Pause { paused };
-        let key = CommandKey::local(uuid::Uuid::new_v4().to_string())
-            .ok_or(Error::InvalidRuntimeState)?;
-        let input = mutation
-            .command(key.clone(), &chat, revision)
-            .ok_or(Error::InvalidRuntimeState)?;
-        self.mutate_runtime_queue(input, chat.clone(), revision, mutation)?;
-        self.acknowledge_runtime_command(key)?;
+        let host_id = HostId::new(self.runtime_host()?.id).ok_or(Error::InvalidRuntimeState)?;
+        let thread_id = self
+            .runtime_thread_alias(host_id.clone(), chat.clone())?
+            .ok_or(Error::NotFound)?;
+        let prepared = self.prepare_bus_command(
+            crate::command_bus::CommandEnvelope {
+                command_id: uuid::Uuid::new_v4(),
+                resource: crate::command_bus::ResourceRef::Thread {
+                    thread: ThreadRef { host_id, thread_id },
+                    executor_epoch: 0,
+                },
+                command: crate::command_bus::Command::Queue {
+                    revision,
+                    change: crate::command_bus::QueueChange::Pause { paused },
+                },
+                conditions: Default::default(),
+            },
+            crate::command_bus::Principal::local_owner(),
+        )?;
+        let receipt = self.dispatch_bus_command(
+            prepared,
+            crate::command_bus::Dispatch::Queue {
+                revision,
+                mutation: QueueMutation::Pause { paused },
+            },
+        )?;
+        self.acknowledge_runtime_command(receipt.key)?;
         self.load_runtime_queue(chat)
     }
 
@@ -875,7 +927,8 @@ impl Database {
         if key.device != host::LOCAL_PRINCIPAL {
             return Err(Error::NotAuthorized);
         }
-        let changed=self.db.execute("DELETE FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3 AND (state IN ('succeeded','failed','rejected') OR (state='delivery_unknown' AND resolved_by_user=1))",params![key.device,key.id,integer(key.epoch)?])?;
+        let key = legacy_command_key(&self.db, key, 0)?;
+        let changed=self.db.execute("DELETE FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3 AND resource=?4 AND executor_epoch=?5 AND (state IN ('succeeded','failed','rejected') OR (state='delivery_unknown' AND resolved_by_user=1))",params![key.device,key.id,integer(key.epoch)?,key.resource,integer(key.executor_epoch)?])?;
         if changed == 0 && receipt(&self.db, &key)?.is_some() {
             return Err(Error::OperationPending);
         }
@@ -884,11 +937,12 @@ impl Database {
     /// Archives uncertainty without claiming evidence of the external effect.
     pub fn resolve_runtime_command(&mut self, key: CommandKey) -> Result<CommandReceipt> {
         require_host(self)?;
+        let key = legacy_command_key(&self.db, key, 0)?;
         let tx = self
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         authorize_saved(&tx, &key, false)?;
-        let changed=tx.execute("UPDATE _canopy_command_inbox SET resolved_by_user=1,updated_at=?4 WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3 AND state='delivery_unknown'",params![key.device,key.id,integer(key.epoch)?,now()])?;
+        let changed=tx.execute("UPDATE _canopy_command_inbox SET resolved_by_user=1,updated_at=?4 WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3 AND resource=?5 AND executor_epoch=?6 AND state='delivery_unknown'",params![key.device,key.id,integer(key.epoch)?,now(),key.resource,integer(key.executor_epoch)?])?;
         if changed == 0 {
             return Err(Error::ResourceConflict);
         }
@@ -898,7 +952,7 @@ impl Database {
     }
     pub fn mutate_runtime_queue(
         &mut self,
-        mut input: CommandInput,
+        input: CommandInput,
         chat: String,
         revision: u64,
         mutation: QueueMutation,
@@ -917,112 +971,126 @@ impl Database {
         let tx = self
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        input.root = Some(chat_root(&tx, &chat, &input.key)?);
-        authorize_root(&tx, &input.key, 2, command_root(&input)?, true)?;
-        if let Some(result) = existing(&tx, &input)? {
-            return Ok(result);
+        let result = mutate_queue(&tx, input, chat, revision, mutation, host::CHAT)?;
+        tx.commit()?;
+        Ok(result)
+    }
+}
+
+fn mutate_queue(
+    tx: &Transaction,
+    mut input: CommandInput,
+    chat: String,
+    revision: u64,
+    mutation: QueueMutation,
+    scope: u32,
+) -> Result<CommandReceipt> {
+    input.root = Some(chat_root(tx, &chat, &input.key)?);
+    authorize_root(tx, &input.key, scope, command_root(&input)?, true)?;
+    if let Some(result) = existing(tx, &input)? {
+        return Ok(result);
+    }
+    let changed=tx.execute("UPDATE _canopy_runtime_chats SET queue_revision=queue_revision+1 WHERE chat_id=?1 AND queue_revision=?2 AND closed_at IS NULL",params![chat,integer(revision)?])?;
+    if changed == 0 {
+        return Err(Error::ResourceConflict);
+    }
+    match mutation {
+        QueueMutation::Pause { paused } => {
+            tx.execute(
+                "UPDATE _canopy_runtime_chats SET queue_paused=?2 WHERE chat_id=?1",
+                params![chat, paused],
+            )?;
         }
-        let changed=tx.execute("UPDATE _canopy_runtime_chats SET queue_revision=queue_revision+1 WHERE chat_id=?1 AND queue_revision=?2 AND closed_at IS NULL",params![chat,integer(revision)?])?;
-        if changed == 0 {
-            return Err(Error::ResourceConflict);
+        QueueMutation::Edit { message, draft } => {
+            if !draft.valid() {
+                return Err(Error::InvalidRuntimeState);
+            }
+            let previous:String=tx.query_row("SELECT payload FROM _canopy_chat_queue WHERE chat_id=?1 AND message_id=?2 AND state='queued'",params![chat,message],|r|r.get(0)).optional()?.ok_or(Error::ResourceConflict)?;
+            let previous: host::QueueDraft =
+                serde_json::from_str(&previous).map_err(|_| Error::InvalidRuntimeState)?;
+            super::artifacts::retain_for_queue_edit(
+                tx,
+                &input.key.device,
+                &chat,
+                previous.artifact_ids(),
+                draft.artifact_ids(),
+            )?;
+            let payload = serde_json::to_string(&draft).map_err(|_| Error::InvalidRuntimeState)?;
+            if payload.len() > host::CONTROL_BYTES {
+                return Err(Error::ResourceLimit);
+            }
+            let changed=tx.execute("UPDATE _canopy_chat_queue SET payload=?3 WHERE chat_id=?1 AND message_id=?2 AND state='queued'",params![chat,message,payload])?;
+            if changed == 0 {
+                return Err(Error::ResourceConflict);
+            }
         }
-        match mutation {
-            QueueMutation::Pause { paused } => {
+        QueueMutation::Remove { message } => {
+            let changed=tx.execute("UPDATE _canopy_chat_queue SET state='dismissed',resolved_by_user=1,resolution='removed' WHERE chat_id=?1 AND message_id=?2 AND state='queued'",params![chat,message])?;
+            if changed == 0 {
+                return Err(Error::ResourceConflict);
+            }
+        }
+        QueueMutation::Move { message, before } => {
+            let rows=tx.prepare("SELECT message_id,state FROM _canopy_chat_queue WHERE chat_id=?1 ORDER BY position,message_id")?.query_map([&chat],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            if !rows
+                .iter()
+                .any(|(id, state)| id == &message && state == "queued")
+                || before.as_ref().is_some_and(|before| {
+                    !rows
+                        .iter()
+                        .any(|(id, state)| id == before && state == "queued")
+                })
+            {
+                return Err(Error::ResourceConflict);
+            }
+            let mut ids = rows.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+            let from = ids
+                .iter()
+                .position(|id| id == &message)
+                .ok_or(Error::ResourceConflict)?;
+            ids.remove(from);
+            let to = match before {
+                Some(id) => ids
+                    .iter()
+                    .position(|item| item == &id)
+                    .ok_or(Error::ResourceConflict)?,
+                None => ids.len(),
+            };
+            ids.insert(to, message);
+            for (position, id) in ids.iter().enumerate() {
                 tx.execute(
-                    "UPDATE _canopy_runtime_chats SET queue_paused=?2 WHERE chat_id=?1",
-                    params![chat, paused],
+                    "UPDATE _canopy_chat_queue SET position=?3 WHERE chat_id=?1 AND message_id=?2",
+                    params![chat, id, position as i64],
                 )?;
             }
-            QueueMutation::Edit { message, draft } => {
-                if !draft.valid() {
+        }
+        QueueMutation::ResolveUnknown {
+            message,
+            resolution,
+        } => {
+            let (payload,position):(String,i64)=tx.query_row("SELECT payload,position FROM _canopy_chat_queue WHERE chat_id=?1 AND message_id=?2 AND state='delivery_unknown'",params![chat,message],|r|Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or(Error::ResourceConflict)?;
+            let (state, reason) = match &resolution {
+                UnknownResolution::Delivered => ("delivered", "user_confirmed"),
+                UnknownResolution::Dismissed => ("dismissed", "user_dismissed"),
+                UnknownResolution::Resend { .. } => ("dismissed", "user_resent"),
+            };
+            tx.execute("UPDATE _canopy_chat_queue SET state=?3,resolved_by_user=1,resolution=?4 WHERE chat_id=?1 AND message_id=?2",params![chat,message,state,reason])?;
+            if let UnknownResolution::Resend {
+                message: new_message,
+            } = resolution
+            {
+                if !host::valid_id(&new_message) || new_message == message {
                     return Err(Error::InvalidRuntimeState);
                 }
-                let previous:String=tx.query_row("SELECT payload FROM _canopy_chat_queue WHERE chat_id=?1 AND message_id=?2 AND state='queued'",params![chat,message],|r|r.get(0)).optional()?.ok_or(Error::ResourceConflict)?;
-                let previous: host::QueueDraft =
-                    serde_json::from_str(&previous).map_err(|_| Error::InvalidRuntimeState)?;
-                super::artifacts::retain_for_queue_edit(
-                    &tx,
-                    &input.key.device,
-                    &chat,
-                    previous.artifact_ids(),
-                    draft.artifact_ids(),
-                )?;
-                let payload =
-                    serde_json::to_string(&draft).map_err(|_| Error::InvalidRuntimeState)?;
-                if payload.len() > host::CONTROL_BYTES {
-                    return Err(Error::ResourceLimit);
-                }
-                let changed=tx.execute("UPDATE _canopy_chat_queue SET payload=?3 WHERE chat_id=?1 AND message_id=?2 AND state='queued'",params![chat,message,payload])?;
-                if changed == 0 {
-                    return Err(Error::ResourceConflict);
-                }
-            }
-            QueueMutation::Remove { message } => {
-                let changed=tx.execute("UPDATE _canopy_chat_queue SET state='dismissed',resolved_by_user=1,resolution='removed' WHERE chat_id=?1 AND message_id=?2 AND state='queued'",params![chat,message])?;
-                if changed == 0 {
-                    return Err(Error::ResourceConflict);
-                }
-            }
-            QueueMutation::Move { message, before } => {
-                let rows=tx.prepare("SELECT message_id,state FROM _canopy_chat_queue WHERE chat_id=?1 ORDER BY position,message_id")?.query_map([&chat],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                if !rows
-                    .iter()
-                    .any(|(id, state)| id == &message && state == "queued")
-                    || before.as_ref().is_some_and(|before| {
-                        !rows
-                            .iter()
-                            .any(|(id, state)| id == before && state == "queued")
-                    })
-                {
-                    return Err(Error::ResourceConflict);
-                }
-                let mut ids = rows.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
-                let from = ids
-                    .iter()
-                    .position(|id| id == &message)
-                    .ok_or(Error::ResourceConflict)?;
-                ids.remove(from);
-                let to = match before {
-                    Some(id) => ids
-                        .iter()
-                        .position(|item| item == &id)
-                        .ok_or(Error::ResourceConflict)?,
-                    None => ids.len(),
-                };
-                ids.insert(to, message);
-                for (position, id) in ids.iter().enumerate() {
-                    tx.execute("UPDATE _canopy_chat_queue SET position=?3 WHERE chat_id=?1 AND message_id=?2",params![chat,id,position as i64])?;
-                }
-            }
-            QueueMutation::ResolveUnknown {
-                message,
-                resolution,
-            } => {
-                let (payload,position):(String,i64)=tx.query_row("SELECT payload,position FROM _canopy_chat_queue WHERE chat_id=?1 AND message_id=?2 AND state='delivery_unknown'",params![chat,message],|r|Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or(Error::ResourceConflict)?;
-                let (state, reason) = match &resolution {
-                    UnknownResolution::Delivered => ("delivered", "user_confirmed"),
-                    UnknownResolution::Dismissed => ("dismissed", "user_dismissed"),
-                    UnknownResolution::Resend { .. } => ("dismissed", "user_resent"),
-                };
-                tx.execute("UPDATE _canopy_chat_queue SET state=?3,resolved_by_user=1,resolution=?4 WHERE chat_id=?1 AND message_id=?2",params![chat,message,state,reason])?;
-                if let UnknownResolution::Resend {
-                    message: new_message,
-                } = resolution
-                {
-                    if !host::valid_id(&new_message) || new_message == message {
-                        return Err(Error::InvalidRuntimeState);
-                    }
-                    // This resolution command is the explicit new send intent; no second inbox.
-                    tx.execute("INSERT INTO _canopy_chat_queue(chat_id,message_id,position,payload,state,source_device) VALUES(?1,?2,?3,?4,'queued',?5)",params![chat,new_message,position,payload,input.key.device])?;
-                }
+                // This resolution command is the explicit new send intent; no second inbox.
+                tx.execute("INSERT INTO _canopy_chat_queue(chat_id,message_id,position,payload,state,source_device) VALUES(?1,?2,?3,?4,'queued',?5)",params![chat,new_message,position,payload,input.key.device])?;
             }
         }
-        let result = serde_json::to_vec(&revision.checked_add(1).ok_or(Error::ResourceLimit)?)
-            .map_err(|_| Error::InvalidRuntimeState)?;
-        let receipt = insert_command(&tx, &input, CommandState::Succeeded, Some(&result), 2)?;
-        tx.commit()?;
-        Ok(receipt)
     }
+    let result = serde_json::to_vec(&revision.checked_add(1).ok_or(Error::ResourceLimit)?)
+        .map_err(|_| Error::InvalidRuntimeState)?;
+    let receipt = insert_command(tx, &input, CommandState::Succeeded, Some(&result), scope)?;
+    Ok(receipt)
 }
 
 // History may outlive every pane. Keep its identity and account references, but
@@ -1075,7 +1143,24 @@ fn adopt_orphans(tx: &Transaction) -> Result<()> {
     Ok(())
 }
 
-fn save_chat(db: &Connection, chat: ChatRecord) -> Result<()> {
+fn save_chat(db: &Connection, mut chat: ChatRecord) -> Result<()> {
+    // Explicit names have one writer: the bus. A delayed runtime/catalog save
+    // must not restore a name captured before a committed rename.
+    let metadata: Option<String> = db
+        .query_row(
+            "SELECT metadata FROM _canopy_runtime_chats WHERE chat_id=?1",
+            [&chat.id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(metadata) = metadata {
+        let stored: crate::state::workspace::PaneMetadata =
+            serde_json::from_str(&metadata).map_err(|_| Error::InvalidRuntimeState)?;
+        if stored.chat_title_state == Some(crate::state::workspace::ChatTitleState::Named) {
+            chat.metadata.title = stored.title;
+            chat.metadata.chat_title_state = stored.chat_title_state;
+        }
+    }
     if ChatRecord::new(
         chat.id.clone(),
         chat.workspace.clone(),
@@ -1229,6 +1314,8 @@ fn accept_message(
     chat: String,
     message: String,
     draft: QueueDraft,
+    resolved_intent: Option<host::MessageIntent>,
+    scope: u32,
 ) -> Result<CommandReceipt> {
     if !host::valid_id(&chat) || !host::valid_id(&message) || !draft.valid() {
         return Err(Error::InvalidRuntimeState);
@@ -1241,25 +1328,30 @@ fn accept_message(
         return Err(Error::ResourceLimit);
     }
     input.root = Some(chat_root(tx, &chat, &input.key)?);
-    authorize_root(tx, &input.key, 2, command_root(&input)?, true)?;
-    let intent = match serde_json::from_slice::<host::MessageIntent>(&input.arguments) {
-        Ok(intent) => {
-            if intent.message_id != message || intent.draft != draft {
-                return Err(Error::CommandConflict);
+    authorize_root(tx, &input.key, scope, command_root(&input)?, true)?;
+    let intent = if let Some(intent) = resolved_intent {
+        Some(intent)
+    } else {
+        match serde_json::from_slice::<host::MessageIntent>(&input.arguments) {
+            Ok(intent) => {
+                if intent.message_id != message || intent.draft != draft {
+                    return Err(Error::CommandConflict);
+                }
+                let normalized =
+                    serde_json::to_vec(&intent).map_err(|_| Error::InvalidRuntimeState)?;
+                if normalized != input.arguments {
+                    return Err(Error::CommandConflict);
+                }
+                Some(intent)
             }
-            let normalized = serde_json::to_vec(&intent).map_err(|_| Error::InvalidRuntimeState)?;
-            if normalized != input.arguments {
-                return Err(Error::CommandConflict);
+            Err(_)
+                if input.key.device == host::LOCAL_PRINCIPAL
+                    && input.arguments == payload.as_bytes() =>
+            {
+                None
             }
-            Some(intent)
+            Err(_) => return Err(Error::CommandConflict),
         }
-        Err(_)
-            if input.key.device == host::LOCAL_PRINCIPAL
-                && input.arguments == payload.as_bytes() =>
-        {
-            None
-        }
-        Err(_) => return Err(Error::CommandConflict),
     };
     if let Some(result) = existing(tx, &input)? {
         return Ok(result);
@@ -1300,7 +1392,7 @@ fn accept_message(
         &input,
         CommandState::Succeeded,
         Some(message.as_bytes()),
-        2,
+        scope,
     )?;
     let position: i64 = tx.query_row(
         "SELECT coalesce(max(position)+1,0) FROM _canopy_chat_queue WHERE chat_id=?1",
@@ -1310,7 +1402,12 @@ fn accept_message(
     tx.execute("INSERT INTO _canopy_chat_queue(chat_id,message_id,position,payload,state,source_device,steer_run) VALUES(?1,?2,?3,?4,'queued',?5,?6)",params![chat,message,position,payload,input.key.device,steer_run])?;
     tx.execute(
         "UPDATE _canopy_runtime_chats SET queue_revision=queue_revision+1 WHERE chat_id=?1",
-        [chat],
+        [&chat],
     )?;
+    // A new explicit Send resumes an otherwise empty held queue. This belongs to
+    // first acceptance, never to retry publication after a later user Pause.
+    if !input.key.resource.is_empty() {
+        tx.execute("UPDATE _canopy_runtime_chats SET queue_paused=0,queue_revision=queue_revision+1 WHERE chat_id=?1 AND queue_paused=1 AND NOT EXISTS(SELECT 1 FROM _canopy_chat_queue WHERE chat_id=?1 AND message_id!=?2 AND state IN ('queued','attempting','delivery_unknown'))", params![chat,message])?;
+    }
     Ok(result)
 }

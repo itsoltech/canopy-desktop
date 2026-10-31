@@ -13,6 +13,21 @@ use crate::state::{projects::ProjectSnapshot, session::SessionSnapshot};
 
 type Reply<T> = oneshot::Sender<Result<T>>;
 enum Command {
+    PrepareBus(
+        crate::command_bus::CommandEnvelope,
+        crate::command_bus::Principal,
+        Reply<crate::command_bus::PreparedCommand>,
+    ),
+    DispatchBus(
+        Box<crate::command_bus::PreparedCommand>,
+        crate::command_bus::Dispatch,
+        Reply<crate::host::CommandReceipt>,
+    ),
+    CommitBusPreferences(
+        Box<crate::command_bus::PreparedCommand>,
+        u64,
+        Reply<(crate::host::CommandReceipt, Option<Snapshot>)>,
+    ),
     RuntimeDeviceCertificate(String, Reply<Option<Vec<u8>>>),
     GetRuntimeCommandMatching(
         crate::host::CommandKey,
@@ -31,7 +46,7 @@ enum Command {
     ),
     CompleteRuntimeFork(
         crate::host::CommandKey,
-        crate::host::ChatRecord,
+        Box<crate::host::ChatRecord>,
         String,
         Option<(crate::host::CommandInput, String, crate::host::QueueDraft)>,
         Reply<crate::host::CommandReceipt>,
@@ -206,6 +221,37 @@ pub struct SettingsClient {
     sender: SyncSender<Command>,
 }
 impl SettingsClient {
+    pub(crate) async fn prepare_bus_command(
+        &self,
+        envelope: crate::command_bus::CommandEnvelope,
+        principal: crate::command_bus::Principal,
+    ) -> Result<crate::command_bus::PreparedCommand> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::PrepareBus(envelope, principal, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    pub(crate) async fn dispatch_bus_command(
+        &self,
+        prepared: crate::command_bus::PreparedCommand,
+        dispatch: crate::command_bus::Dispatch,
+    ) -> Result<crate::host::CommandReceipt> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::DispatchBus(Box::new(prepared), dispatch, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
+    pub(crate) async fn commit_bus_preferences(
+        &self,
+        prepared: crate::command_bus::PreparedCommand,
+        revision: u64,
+    ) -> Result<(crate::host::CommandReceipt, Option<Snapshot>)> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::CommitBusPreferences(
+            Box::new(prepared),
+            revision,
+            tx,
+        ))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
     pub async fn runtime_device_certificate(&self, id: String) -> Result<Option<Vec<u8>>> {
         let (tx, rx) = oneshot::channel();
         self.enqueue(Command::RuntimeDeviceCertificate(id, tx))?;
@@ -564,7 +610,7 @@ impl SettingsClient {
         let (tx, rx) = oneshot::channel();
         self.enqueue(Command::CompleteRuntimeFork(
             key,
-            record,
+            Box::new(record),
             source_chat,
             replacement,
             tx,
@@ -718,6 +764,15 @@ impl SettingsClient {
                 }
                 for command in receiver {
                     match command {
+                        Command::PrepareBus(envelope, principal, reply) => {
+                            let _ = reply.send(db.prepare_bus_command(envelope, principal));
+                        }
+                        Command::DispatchBus(prepared, dispatch, reply) => {
+                            let _ = reply.send(db.dispatch_bus_command(*prepared, dispatch));
+                        }
+                        Command::CommitBusPreferences(prepared, revision, reply) => {
+                            let _ = reply.send(db.commit_bus_preferences(*prepared, revision));
+                        }
                         Command::ReserveRemoteSecret(key, id, fingerprint, reply) => {
                             let _ = reply.send(db.reserve_remote_secret(key, id, fingerprint));
                         }
@@ -875,7 +930,7 @@ impl SettingsClient {
                         ) => {
                             let _ = reply.send(db.complete_runtime_fork(
                                 key,
-                                record,
+                                *record,
                                 source_chat,
                                 replacement,
                             ));

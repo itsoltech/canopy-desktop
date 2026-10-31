@@ -63,6 +63,36 @@ pub struct PreferencesPatch {
     chat_mode: Option<String>,
 }
 impl PreferencesPatch {
+    pub fn into_command(self) -> crate::command_bus::Command {
+        let mut changes = Vec::new();
+        for (key, value) in [
+            ("reopenLastWorkspace", self.reopen_last_workspace),
+            ("notch.enabled", self.notch_enabled),
+        ] {
+            if let Some(value) = value {
+                changes.push(crate::command_bus::PreferenceWrite {
+                    key: key.into(),
+                    value: Some(value.to_string()),
+                });
+            }
+        }
+        for (key, value) in [
+            ("newTab.toolId", self.new_tab_tool),
+            ("newWorktree.toolId", self.new_worktree_tool),
+            ("chat.profileId", self.chat_profile),
+            ("chat.model", self.chat_model),
+            ("chat.effort", self.chat_effort),
+            ("chat.mode", self.chat_mode),
+        ] {
+            if let Some(value) = value {
+                changes.push(crate::command_bus::PreferenceWrite {
+                    key: key.into(),
+                    value: (!value.is_empty()).then_some(value),
+                });
+            }
+        }
+        crate::command_bus::Command::Preferences { changes }
+    }
     pub fn chat_profile(&self) -> Option<&str> {
         self.chat_profile.as_deref()
     }
@@ -259,7 +289,6 @@ impl IntegrationEdit {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) enum Edit {
-    Preferences(PreferencesPatch),
     Agent(AgentEdit),
     RemoveAgent(String),
     Profile(Box<ProfileEdit>),

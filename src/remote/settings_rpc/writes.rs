@@ -4,7 +4,6 @@ use prost::Message;
 use std::collections::BTreeMap;
 
 pub(super) enum Write {
-    Preferences(proto::UpdatePreferencesRequest),
     Agent(proto::SaveAgentDefinitionRequest),
     RemoveAgent(proto::RemoveAgentDefinitionRequest),
     Profile(Box<proto::SaveProfileRequest>),
@@ -113,21 +112,6 @@ impl Write {
             }};
         }
         match self {
-            Self::Preferences(r) => {
-                for s in [&r.new_tab_tool, &r.new_worktree_tool]
-                    .into_iter()
-                    .flatten()
-                {
-                    identity(s)?;
-                }
-                for value in [&r.chat_profile, &r.chat_model, &r.chat_effort, &r.chat_mode]
-                    .into_iter()
-                    .flatten()
-                {
-                    text(value, 256, true)?;
-                }
-                finish!(r, "settings.preferences", "private".into())
-            }
             Self::Agent(r) => {
                 let a = r.agent.as_mut().ok_or_else(invalid)?;
                 identity(&a.id)?;
@@ -239,7 +223,6 @@ impl Write {
     ) -> Result<(Edit, Vec<(SecretVersion, String)>), Status> {
         let mut staged = Vec::new();
         let edit = match self {
-            Self::Preferences(r) => Edit::Preferences(PreferencesPatch::from_request(r)),
             Self::RemoveAgent(r) => Edit::RemoveAgent(r.agent_id),
             Self::RemoveProfile(r) => Edit::RemoveProfile(r.profile_id),
             Self::RemoveIntegration(r) => Edit::RemoveIntegration(r.integration_id),
@@ -437,9 +420,6 @@ impl SettingsRpc {
             let host = this.host.clone();
             let outcome = tokio::spawn(async move {
                 match edit {
-                    Edit::Preferences(e) => {
-                        host.update_preferences(e, meta.expected_revision).await
-                    }
                     Edit::Agent(e) => host.save_agent(e, meta.expected_revision).await,
                     Edit::RemoveAgent(id) => host.remove_agent(id, meta.expected_revision).await,
                     Edit::Profile(e) => host.save_profile(*e, meta.expected_revision).await,

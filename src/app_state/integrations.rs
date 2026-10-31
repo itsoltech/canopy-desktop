@@ -226,7 +226,11 @@ impl IntegrationsState {
         if cx.global::<AppState>().git.read(cx).busy {
             return;
         }
-        if self.busy || !self.ready || self.quitting {
+        if self.busy
+            || !self.ready
+            || self.quitting
+            || cx.global::<AppState>().settings.read(cx).saving
+        {
             return;
         }
         let Some(client) = self.client.clone() else {
@@ -372,7 +376,7 @@ impl IntegrationsState {
         if cx.global::<AppState>().git.read(cx).busy {
             return;
         }
-        if self.busy || self.quitting {
+        if self.busy || self.quitting || cx.global::<AppState>().settings.read(cx).saving {
             return;
         }
         let Some(account) = self.config.accounts.iter().find(|a| a.id == id).cloned() else {
@@ -795,7 +799,11 @@ impl IntegrationsState {
         completion: Option<futures_channel::oneshot::Sender<Result<(), String>>>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        if self.busy || !self.ready || self.quitting {
+        if self.busy
+            || !self.ready
+            || self.quitting
+            || cx.global::<AppState>().settings.read(cx).saving
+        {
             return Err("Integration configuration is busy.".into());
         }
         let client = self.client.clone().ok_or("Settings unavailable")?;

@@ -9,6 +9,25 @@ use canopy_desktop::{
 };
 use gpui_kit::TestAppContext;
 use std::sync::Arc;
+fn preferences(
+    host: &str,
+    patch: canopy_desktop::remote::settings_rpc::PreferencesPatch,
+    revision: u64,
+) -> canopy_desktop::command_bus::CommandEnvelope {
+    canopy_desktop::command_bus::CommandEnvelope {
+        command_id: uuid::Uuid::new_v4(),
+        resource: canopy_desktop::command_bus::ResourceRef::Environment(
+            canopy_desktop::thread::EnvironmentRef {
+                host_id: canopy_desktop::thread::HostId::new(host.into()).unwrap(),
+            },
+        ),
+        command: patch.into_command(),
+        conditions: canopy_desktop::command_bus::Conditions {
+            expected_revision: Some(revision),
+            ..Default::default()
+        },
+    }
+}
 struct FakeSecrets;
 #[tonic::async_trait]
 impl SettingsSecrets for FakeSecrets {
@@ -51,17 +70,51 @@ async fn preferences_cas_waits_for_commit_and_preserves_queued_local_change(
         (app, bridge)
     });
     let first = bridge.snapshot().await.unwrap();
+    let first_revision = first.revision;
     let patch = serde_json::from_value(serde_json::json!({"notch_enabled":false})).unwrap();
+    let request = preferences(&first.host_id, patch, first.revision);
+    let retry = request.clone();
+    // A second request can finish admission before the first one commits, then
+    // reach the owner after its CAS revision has advanced.
+    let admitted_retry = canopy_desktop::command_bus::CommandBus::new(client.clone())
+        .prepare(
+            request.clone(),
+            canopy_desktop::command_bus::Principal::local_owner(),
+        )
+        .await
+        .unwrap();
+    // Keep commit pending while admission can still read, so the local choice
+    // deterministically arrives behind the reserved remote owner.
+    let lock = rusqlite::Connection::open(dir.path().join("test.db")).unwrap();
+    lock.execute_batch("BEGIN IMMEDIATE").unwrap();
     let remote = cx.background_executor.spawn({
         let bridge = bridge.clone();
-        async move { bridge.update_preferences(patch, Some(first.revision)).await }
+        async move {
+            bridge
+                .update_preferences(
+                    request,
+                    canopy_desktop::command_bus::Principal::local_owner(),
+                )
+                .await
+        }
     });
-    cx.run_until_parked();
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if cx.update(|cx| app.settings.read(cx).saving) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert!(cx.update(|cx| app.settings.read(cx).saving));
     cx.update(|cx| {
         app.settings
             .update(cx, |s, cx| s.change(Change::ResourceUsage(true), cx))
     });
-    remote.await.unwrap();
+    lock.execute_batch("COMMIT").unwrap();
+    let receipt = remote.await.unwrap();
+    let result: serde_json::Value = serde_json::from_slice(receipt.result().unwrap()).unwrap();
+    assert_eq!(result["values"]["notch_enabled"], false);
+    assert_eq!(result["revision"], first_revision.wrapping_add(1).max(1));
     // Successful reply is backed by storage, not merely the UI enqueue.
     assert!(!client.load().await.unwrap().preferences.notch_enabled);
     for _ in 0..100 {
@@ -74,10 +127,31 @@ async fn preferences_cas_waits_for_commit_and_preserves_queued_local_change(
     let saved = client.load().await.unwrap().preferences;
     assert!(saved.resource_usage);
     assert!(!saved.notch_enabled);
+    assert_eq!(
+        bridge
+            .request(|reply| super::Op::Preferences(admitted_retry, reply))
+            .await
+            .unwrap(),
+        receipt
+    );
+    assert_eq!(
+        bridge
+            .update_preferences(retry, canopy_desktop::command_bus::Principal::local_owner())
+            .await
+            .unwrap(),
+        receipt
+    );
     let patch = serde_json::from_value(serde_json::json!({"notch_enabled":true})).unwrap();
     assert_eq!(
         bridge
-            .update_preferences(patch, Some(first.revision))
+            .update_preferences(
+                preferences(
+                    &bridge.snapshot().await.unwrap().host_id,
+                    patch,
+                    first_revision
+                ),
+                canopy_desktop::command_bus::Principal::local_owner()
+            )
             .await
             .unwrap_err()
             .code(),
@@ -119,7 +193,10 @@ async fn failed_preferences_commit_keeps_live_values_and_revision(cx: &mut TestA
     let patch = serde_json::from_value(serde_json::json!({"notch_enabled":false})).unwrap();
     assert!(
         bridge
-            .update_preferences(patch, Some(before.revision))
+            .update_preferences(
+                preferences(&before.host_id, patch, before.revision),
+                canopy_desktop::command_bus::Principal::local_owner()
+            )
             .await
             .is_err()
     );

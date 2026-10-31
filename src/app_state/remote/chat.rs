@@ -11,9 +11,8 @@ use crate::app_state::{
 use canopy_desktop::{
     artifacts::ArtifactStore,
     chat::{session::Draft, transcript::Attachment},
-    host::{
-        self, ChatRecord, DeviceGrant, QueueDraft, QueueMutation, SendContext, UnknownResolution,
-    },
+    command_bus::{self, CommandBus, Conditions, Principal},
+    host::{self, ChatRecord, DeviceGrant, QueueDraft, SendContext, UnknownResolution},
     remote::{
         auth::{RpcAuth, WorkspaceRoots, storage_status},
         composer::PullContexts,
@@ -97,6 +96,60 @@ pub(super) fn idempotency_conflict() -> Status {
 }
 
 impl ChatsRpc {
+    pub(super) async fn bus_command(
+        &self,
+        grant: DeviceGrant,
+        meta: proto::CommandMeta,
+        chat: proto::ChatRef,
+        command: command_bus::Command,
+        workspace_host: Option<canopy_desktop::thread::HostId>,
+    ) -> Result<Response<proto::CommandReceipt>, Status> {
+        self.state.accepting()?;
+        let key = self.auth.key(&meta, &grant)?;
+        let host = canopy_desktop::thread::HostId::new(chat.host_id)
+            .ok_or_else(|| Status::invalid_argument("Invalid host identity."))?;
+        let bus = CommandBus::new(self.auth.client().clone());
+        let envelope = bus
+            .legacy_envelope(
+                &key,
+                host,
+                chat.chat_id,
+                command,
+                Conditions {
+                    expected_revision: meta.expected_revision,
+                    workspace_host,
+                },
+            )
+            .await
+            .map_err(storage_status)?;
+        let principal =
+            Principal::authenticated(&grant, meta.command_epoch).map_err(storage_status)?;
+        let owned = self.operations.begin()?;
+        let bridge = self.bridge.clone();
+        let resources = command_bus::DraftResources {
+            roots: self.roots.clone(),
+            pulls: self.pulls.clone(),
+        };
+        let client = self.auth.client().clone();
+        let receipt = tokio::spawn(async move {
+            let _owned = owned;
+            let receipt = bus
+                .execute(envelope, principal, Some(&resources))
+                .await
+                .map_err(storage_status)?;
+            if let Ok(Some(record)) = client.load_runtime_chat(receipt.target().into()).await
+                && let Ok(queue) = client.load_runtime_queue(receipt.target().into()).await
+            {
+                // Acceptance is already committed. Publication never re-executes
+                // the command; an unavailable runtime leaves the durable queue.
+                let _ = bridge.bus_committed(record, queue).await;
+            }
+            Ok::<_, Status>(receipt)
+        })
+        .await
+        .map_err(|_| Status::unknown("Command outcome is uncertain; retry the same ID."))??;
+        Ok(Response::new(self.receipt(&receipt)))
+    }
     #[allow(
         clippy::too_many_arguments,
         reason = "the app wires each concrete owner"
@@ -388,6 +441,71 @@ impl ChatsRpc {
 pub(super) fn required<T>(value: Option<T>) -> Result<T, Status> {
     value.ok_or_else(|| Status::invalid_argument("A required field is missing."))
 }
+/// Transport decoding only. The bus normalizes and authorizes these stable refs
+/// before resolving files, signed contexts or removed catalog entries.
+fn decode_draft(draft: proto::MessageDraft) -> Result<command_bus::DraftIntent, Status> {
+    use canopy_desktop::thread::HostId;
+    use command_bus::{AttachmentIntent as A, PullIntent};
+    let host = |value: String| {
+        HostId::new(value).ok_or_else(|| Status::invalid_argument("Invalid host identity."))
+    };
+    let mut attachments = Vec::new();
+    for attachment in draft.attachments {
+        let label = (!attachment.label.is_empty()).then_some(attachment.label);
+        attachments.push(match required(attachment.content)? {
+            proto::attachment::Content::Image(image) => A::Image {
+                host: host(image.host_id)?,
+                artifact: image.artifact_id,
+                sha256: image.sha256,
+            },
+            proto::attachment::Content::Path(file) => A::Path {
+                workspace: file
+                    .workspace
+                    .map(|w| Ok::<_, Status>((host(w.host_id)?, w.workspace_id)))
+                    .transpose()?,
+                relative: file.relative_path,
+                label,
+            },
+            proto::attachment::Content::Quote(q) => A::Value(Attachment::Quote {
+                text: q.text,
+                label,
+            }),
+            proto::attachment::Content::Command(c) => A::Value(Attachment::Command {
+                name: c.name,
+                skill: c.skill,
+                path: c.path.map(PathBuf::from),
+                description: c.description,
+                label,
+            }),
+            proto::attachment::Content::Pull(p) => A::Pull {
+                value: PullIntent {
+                    number: p.number,
+                    title: p.title,
+                    url: p.url,
+                    head: p.head,
+                    base: p.base,
+                    state: p.state,
+                    body: p.body,
+                    context_id: p.context_id,
+                },
+                label,
+            },
+            proto::attachment::Content::Shell(s) => A::Value(Attachment::Shell {
+                command: s.command,
+                exit: s.exit_code,
+                stopped: s.stopped,
+                output: s.output,
+                label,
+            }),
+        });
+    }
+    Ok(command_bus::DraftIntent::Incoming {
+        text: draft.text,
+        context: draft.context,
+        goal: draft.goal,
+        attachments,
+    })
+}
 /// A non-empty relative path of plain components (no `..`, root or prefix).
 fn normal_relative(value: &str) -> Result<PathBuf, Status> {
     let relative = PathBuf::from(value);
@@ -560,19 +678,16 @@ impl proto::chat_service_server::ChatService for ChatsRpc {
         self.state.accepting()?;
         let mut r = r.into_inner();
         let meta = required(r.command.take())?;
-        let fingerprint = wire_fingerprint(&meta, &r);
         let chat = required(r.chat)?;
-        if let Some(receipt) = self
-            .answered(&grant, &meta, &chat, host::CHAT, "chat.send", &fingerprint)
-            .await?
-        {
-            return Ok(Response::new(receipt));
-        }
-        let record = self.record(&grant, &chat, host::CHAT).await?;
         let expected = required(r.expected_context)?;
-        if let Some(w) = &expected.workspace {
-            self.auth.check_host(&w.host_id)?;
-        }
+        let workspace_host = expected
+            .workspace
+            .as_ref()
+            .map(|w| {
+                canopy_desktop::thread::HostId::new(w.host_id.clone())
+                    .ok_or_else(|| Status::invalid_argument("Invalid host identity."))
+            })
+            .transpose()?;
         let context = SendContext::new(
             expected.agent_id,
             expected.profile_id,
@@ -580,24 +695,20 @@ impl proto::chat_service_server::ChatService for ChatsRpc {
             expected.history_epoch,
         )
         .ok_or_else(|| Status::invalid_argument("Invalid message context."))?;
-        let key = self.auth.key(&meta, &grant)?;
-        let draft = self.draft(&grant, &record, required(r.draft)?).await?;
-        let (input, draft) = draft
-            .command_for_message(key, &chat.chat_id, r.message_id.clone(), context)
-            .and_then(|(input, draft)| Some((input.with_fingerprint(fingerprint)?, draft)))
-            .ok_or_else(|| Status::invalid_argument("Invalid message identity or content."))?;
-        let this = self.clone();
-        let owned = self.operations.begin()?;
-        let receipt = tokio::spawn(async move {
-            let _owned = owned;
-            this.bridge
-                .send(chat.chat_id, input, r.message_id, draft)
-                .await
-                .map_err(bridge_status)
-        })
+        let draft = decode_draft(required(r.draft)?)?;
+        self.bus_command(
+            grant,
+            meta,
+            chat,
+            command_bus::Command::Send {
+                message: r.message_id,
+                draft,
+                context,
+                steer_run: None,
+            },
+            workspace_host,
+        )
         .await
-        .map_err(|_| Status::unknown("Message acceptance is uncertain; reconcile its ID."))??;
-        Ok(Response::new(self.receipt(&receipt)))
     }
     async fn change_queue(
         &self,
@@ -607,63 +718,53 @@ impl proto::chat_service_server::ChatService for ChatsRpc {
         self.state.accepting()?;
         let mut r = r.into_inner();
         let meta = required(r.command.take())?;
-        let fingerprint = wire_fingerprint(&meta, &r);
         let chat = required(r.chat.clone())?;
-        if let Some(receipt) = self
-            .answered(&grant, &meta, &chat, host::CHAT, "chat.queue", &fingerprint)
-            .await?
-        {
-            return Ok(Response::new(receipt));
-        }
-        let record = self.record(&grant, &chat, host::CHAT).await?;
         let mutation = match required(r.change)? {
-            proto::change_queue_request::Change::Edit(e) => QueueMutation::Edit {
+            proto::change_queue_request::Change::Edit(e) => command_bus::QueueChange::Edit {
                 message: e.message_id,
-                draft: self.draft(&grant, &record, required(e.draft)?).await?,
+                draft: decode_draft(required(e.draft)?)?,
             },
-            proto::change_queue_request::Change::Move(e) => QueueMutation::Move {
+            proto::change_queue_request::Change::Move(e) => command_bus::QueueChange::Move {
                 message: e.message_id,
                 before: e.before_message_id,
             },
-            proto::change_queue_request::Change::Remove(e) => QueueMutation::Remove {
+            proto::change_queue_request::Change::Remove(e) => command_bus::QueueChange::Remove {
                 message: e.message_id,
             },
             proto::change_queue_request::Change::Pause(e) => {
-                QueueMutation::Pause { paused: e.paused }
+                command_bus::QueueChange::Pause { paused: e.paused }
             }
-            proto::change_queue_request::Change::Resolve(e) => QueueMutation::ResolveUnknown {
-                message: e.message_id,
-                resolution: match proto::UnknownResolution::try_from(e.resolution) {
-                    Ok(proto::UnknownResolution::AcceptAsDelivered) => UnknownResolution::Delivered,
-                    Ok(proto::UnknownResolution::SendAgain) => UnknownResolution::Resend {
-                        message: required(e.new_message_id)?,
+            proto::change_queue_request::Change::Resolve(e) => {
+                command_bus::QueueChange::ResolveUnknown {
+                    message: e.message_id,
+                    resolution: match proto::UnknownResolution::try_from(e.resolution) {
+                        Ok(proto::UnknownResolution::AcceptAsDelivered) => {
+                            UnknownResolution::Delivered
+                        }
+                        Ok(proto::UnknownResolution::SendAgain) => UnknownResolution::Resend {
+                            message: required(e.new_message_id)?,
+                        },
+                        Ok(proto::UnknownResolution::Dismiss) => UnknownResolution::Dismissed,
+                        _ => {
+                            return Err(Status::invalid_argument(
+                                "Choose how to resolve the uncertain message.",
+                            ));
+                        }
                     },
-                    Ok(proto::UnknownResolution::Dismiss) => UnknownResolution::Dismissed,
-                    _ => {
-                        return Err(Status::invalid_argument(
-                            "Choose how to resolve the uncertain message.",
-                        ));
-                    }
-                },
-            },
+                }
+            }
         };
-        let key = self.auth.key(&meta, &grant)?;
-        let input = mutation
-            .command(key, &chat.chat_id, r.queue_revision)
-            .and_then(|input| input.with_fingerprint(fingerprint))
-            .ok_or_else(|| Status::invalid_argument("Invalid queue edit."))?;
-        let this = self.clone();
-        let owned = self.operations.begin()?;
-        let receipt = tokio::spawn(async move {
-            let _owned = owned;
-            this.bridge
-                .change_queue(chat.chat_id, input, r.queue_revision, mutation)
-                .await
-                .map_err(bridge_status)
-        })
+        self.bus_command(
+            grant,
+            meta,
+            chat,
+            command_bus::Command::Queue {
+                revision: r.queue_revision,
+                change: mutation,
+            },
+            None,
+        )
         .await
-        .map_err(|_| Status::unknown("Queue outcome is uncertain; reconcile its ID."))??;
-        Ok(Response::new(self.receipt(&receipt)))
     }
     async fn steer(
         &self,

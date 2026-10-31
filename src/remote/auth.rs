@@ -193,6 +193,7 @@ impl RpcAuth {
                     || receipt.method().starts_with("terminal.")
                     || receipt.method().starts_with("projects.")
                     || receipt.method() == "chat.shell"
+                    || receipt.method() == "chat.rename"
                     || receipt.method().starts_with("artifacts.")))
             .then(|| {
                 receipt
@@ -200,7 +201,7 @@ impl RpcAuth {
                     .and_then(|bytes| String::from_utf8(bytes.to_vec()).ok())
             })
             .flatten(),
-            queue_revision: (succeeded && receipt.method() == "chat.queue")
+            queue_revision: (succeeded && receipt.method().starts_with("chat.queue"))
                 .then(|| {
                     receipt
                         .result()
@@ -216,6 +217,15 @@ pub struct WorkspaceRoots {
     roots: Arc<RwLock<HashMap<String, PathBuf>>>,
 }
 impl WorkspaceRoots {
+    /// Bus lookup after admission verified the host and current resource grant.
+    pub fn resolve_host_workspace(&self, workspace: &str) -> crate::settings::Result<PathBuf> {
+        self.roots
+            .read()
+            .map_err(|_| Error::InvalidRuntimeState)?
+            .get(workspace)
+            .cloned()
+            .ok_or(Error::NotFound)
+    }
     /// The owner supplies already canonical paths, prepared outside render.
     pub fn replace(&self, roots: HashMap<String, PathBuf>) -> Result<(), Status> {
         if roots
@@ -255,7 +265,11 @@ pub fn storage_status(error: Error) -> Status {
             Status::permission_denied("The device is not authorized for this operation.")
         }
         Error::NotFound => Status::not_found("The resource was not found."),
-        Error::ResourceConflict | Error::CommandConflict => Status::aborted(error.to_string()),
+        Error::ResourceConflict => Status::aborted(error.to_string()),
+        Error::CommandConflict => {
+            Status::aborted("idempotency_conflict: this command ID was used for another operation.")
+        }
+        Error::AmbiguousCommand => Status::failed_precondition(error.to_string()),
         Error::ResourceLimit => Status::resource_exhausted(error.to_string()),
         Error::CommandRetired => Status::failed_precondition(error.to_string()),
         Error::OperationPending => Status::failed_precondition(error.to_string()),

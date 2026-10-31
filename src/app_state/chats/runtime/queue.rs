@@ -73,6 +73,57 @@ fn error(error: canopy_desktop::settings::Error) -> String {
 }
 
 impl ChatRuntime {
+    /// Publish only records already committed by the shared bus. Refreshing on a
+    /// retry never accepts or resends a message a second time.
+    pub fn bus_committed(&mut self, record: ChatRecord, queue: ChatQueue, cx: &mut Context<Self>) {
+        let record = self
+            .queue
+            .record
+            .as_ref()
+            .filter(|current| {
+                current
+                    .thread()
+                    .zip(record.thread())
+                    .is_some_and(|(current, incoming)| {
+                        current.thread() == incoming.thread()
+                            && current.revision() > incoming.revision()
+                    })
+            })
+            .cloned()
+            .unwrap_or(record);
+        let queue = self
+            .queue
+            .state
+            .as_ref()
+            .filter(|current| current.revision() > queue.revision())
+            .cloned()
+            .unwrap_or(queue);
+        if let Some(title) = &record.metadata().title {
+            self.set_title(title, record.metadata().chat_title_state, cx);
+            let app = cx.global::<AppState>().clone();
+            let pane = self.pane.id;
+            let workspace = app
+                .projects
+                .read(cx)
+                .runtime_workspaces(cx)
+                .into_iter()
+                .find(|w| w.all_panes().iter().any(|p| p.id == pane))
+                .map(|w| w.id);
+            if let Some(workspace) = workspace
+                && record.metadata().chat_title_state
+                    == Some(canopy_desktop::state::workspace::ChatTitleState::Named)
+            {
+                let _ = app.projects.update(cx, |projects, cx| {
+                    projects.publish_chat_rename(workspace, pane, title, cx)
+                });
+            }
+        }
+        self.queue.record = Some(record);
+        self.queue.state = Some(queue);
+        self.dispatch(cx);
+        cx.emit(ChatStateChanged);
+        cx.notify();
+    }
     pub(super) fn client(&self, cx: &App) -> Option<SettingsClient> {
         cx.global::<AppState>().settings.read(cx).client()
     }
@@ -280,7 +331,18 @@ impl ChatRuntime {
             },
         };
         if let Ok(record) = &record
-            && self.queue.record.as_ref() == Some(record)
+            && self.queue.record.as_ref().is_some_and(|saved| {
+                // Storage assigns the thread identity and revision. Those fields
+                // differ from a newly captured runtime record even when none of
+                // the runtime-owned content needs another write.
+                saved.id() == record.id()
+                    && saved.workspace() == record.workspace()
+                    && saved.authority_root() == record.authority_root()
+                    && saved.agent() == record.agent()
+                    && saved.metadata() == record.metadata()
+                    && saved.history_epoch() == record.history_epoch()
+                    && saved.recovery_reason() == record.recovery_reason()
+            })
         {
             return;
         }
@@ -310,36 +372,54 @@ impl ChatRuntime {
                 Ok(_) => Some(client.load_runtime_queue(chat).await),
                 Err(_) => None,
             };
-            let _ = this.update(cx, |this, cx| {
-                this.queue.saving_record = false;
-                match (saved, queue) {
-                    (Ok(saved), Some(queue)) => {
-                        settings.update(cx, |settings, _| settings.record_saved(saved));
-                        this.queue.record = Some(record);
-                        match queue {
-                            Ok(queue) => this.queue.state = Some(queue),
-                            Err(e) => this.notice = Some(ChatNotice::error(error(e))),
-                        }
-                        // Saved meanwhile under a newer account or history part.
-                        this.save_record(cx);
-                        if !this.queue.saving_record {
-                            for (draft, steer) in std::mem::take(&mut this.queue.held) {
-                                this.send_draft_as(draft, steer, cx);
+            let _ =
+                this.update(cx, |this, cx| {
+                    this.queue.saving_record = false;
+                    match (saved, queue) {
+                        (Ok(saved), Some(queue)) => {
+                            settings.update(cx, |settings, _| settings.record_saved(saved.clone()));
+                            let saved = settings
+                                .read(cx)
+                                .chat_record(saved.id())
+                                .cloned()
+                                .unwrap_or(saved);
+                            if saved.metadata().chat_title_state
+                                == Some(canopy_desktop::state::workspace::ChatTitleState::Named)
+                                && let Some(title) = &saved.metadata().title
+                            {
+                                this.set_title(title, saved.metadata().chat_title_state, cx);
                             }
+                            this.queue.record = Some(saved);
+                            match queue {
+                                Ok(queue) => {
+                                    if this.queue.state.as_ref().is_none_or(|current| {
+                                        current.revision() <= queue.revision()
+                                    }) {
+                                        this.queue.state = Some(queue);
+                                    }
+                                }
+                                Err(e) => this.notice = Some(ChatNotice::error(error(e))),
+                            }
+                            // Saved meanwhile under a newer account or history part.
+                            this.save_record(cx);
+                            if !this.queue.saving_record {
+                                for (draft, steer) in std::mem::take(&mut this.queue.held) {
+                                    this.send_draft_as(draft, steer, cx);
+                                }
+                            }
+                            this.dispatch(cx);
                         }
-                        this.dispatch(cx);
+                        (Err(e), _) => {
+                            this.notice = Some(ChatNotice::error(format!(
+                                "Couldn't save this chat: {}",
+                                error(e)
+                            )));
+                        }
+                        _ => {}
                     }
-                    (Err(e), _) => {
-                        this.notice = Some(ChatNotice::error(format!(
-                            "Couldn't save this chat: {}",
-                            error(e)
-                        )));
-                    }
-                    _ => {}
-                }
-                cx.emit(ChatStateChanged);
-                cx.notify();
-            });
+                    cx.emit(ChatStateChanged);
+                    cx.notify();
+                });
         })
         .detach();
     }
@@ -362,15 +442,48 @@ impl ChatRuntime {
             return Task::ready(Err("This chat is closed.".into()));
         }
         self.queue.busy += 1;
+        let local = input.key().device() == canopy_desktop::host::LOCAL_PRINCIPAL;
+        let host = cx
+            .global::<AppState>()
+            .settings
+            .read(cx)
+            .host_id()
+            .and_then(|host| canopy_desktop::thread::HostId::new(host.into()));
+        let context = input
+            .send_context()
+            .or_else(|| self.queue.record.as_ref().map(|r| (r.send_context(), None)));
         cx.spawn(async move |this, cx| {
-            let accepted = client
-                .accept_runtime_message(input, chat.clone(), message.clone(), draft)
-                .await
-                .map_err(error);
+            let accepted = if local {
+                match (host, context) {
+                    (Some(host), Some((context, steer_run))) => {
+                        canopy_desktop::command_bus::CommandBus::new(client.clone())
+                            .execute_local(
+                                input.key().clone(),
+                                host,
+                                chat.clone(),
+                                canopy_desktop::command_bus::Command::Send {
+                                    message: message.clone(),
+                                    draft: canopy_desktop::command_bus::DraftIntent::Ready(draft),
+                                    context,
+                                    steer_run,
+                                },
+                            )
+                            .await
+                            .map_err(error)
+                    }
+                    _ => Err("Chat storage is unavailable.".into()),
+                }
+            } else {
+                client
+                    .accept_runtime_message(input, chat.clone(), message.clone(), draft)
+                    .await
+                    .map_err(error)
+            };
             let queue = client.load_runtime_queue(chat.clone()).await;
             // A held queue with nothing else waiting goes on with this message: it is
             // the user's explicit next send (a restart or Stop held only older ones).
-            let resume = accepted.is_ok()
+            let resume = !local
+                && accepted.is_ok()
                 && queue.as_ref().is_ok_and(|queue| {
                     queue.paused()
                         && queue.entries().iter().all(|entry| {
@@ -414,7 +527,7 @@ impl ChatRuntime {
     /// Applies a revision-checked queue change: edit, move, remove, pause or resolve.
     pub fn change_queue(
         &mut self,
-        input: CommandInput,
+        key: CommandKey,
         revision: u64,
         mutation: QueueMutation,
         cx: &mut Context<Self>,
@@ -424,10 +537,16 @@ impl ChatRuntime {
         };
         self.queue.busy += 1;
         cx.spawn(async move |this, cx| {
-            let changed = client
-                .mutate_runtime_queue(input, chat.clone(), revision, mutation)
-                .await
-                .map_err(error);
+            let changed = async {
+                let host = client.initialize_runtime().await.map_err(error)?;
+                let host = canopy_desktop::thread::HostId::new(host.id().into())
+                    .ok_or("Chat storage is unavailable.")?;
+                canopy_desktop::command_bus::CommandBus::new(client.clone())
+                    .queue_local(key, host, chat.clone(), revision, mutation)
+                    .await
+                    .map_err(error)
+            }
+            .await;
             let queue = client.load_runtime_queue(chat).await;
             let _ = this.update(cx, |this, cx| {
                 this.queue.busy -= 1;
@@ -448,18 +567,15 @@ impl ChatRuntime {
         mutation: QueueMutation,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
-        let (Some(chat), Some(revision)) = (
+        let (Some(_), Some(revision)) = (
             self.settings.id.clone(),
             self.queue.state.as_ref().map(ChatQueue::revision),
         ) else {
             return Task::ready(Err("The queue is still loading.".into()));
         };
         let key = CommandKey::local(uuid::Uuid::new_v4().to_string()).expect("UUID");
-        let Some(input) = mutation.command(key.clone(), &chat, revision) else {
-            return Task::ready(Err("This queue change is not valid.".into()));
-        };
         let client = self.client(cx);
-        let changed = self.change_queue(input, revision, mutation, cx);
+        let changed = self.change_queue(key.clone(), revision, mutation, cx);
         cx.spawn(async move |this, cx| {
             let result = changed.await.map(|_| ());
             if result.is_ok()
@@ -1263,14 +1379,16 @@ async fn mutate(
     mutation: QueueMutation,
 ) -> Result<ChatQueue, String> {
     let key = CommandKey::local(uuid::Uuid::new_v4().to_string()).expect("UUID");
-    let input = mutation
-        .command(key.clone(), chat, revision)
-        .ok_or("This queue change is not valid.")?;
-    client
-        .mutate_runtime_queue(input, chat.to_owned(), revision, mutation)
+    let host = client.initialize_runtime().await.map_err(error)?;
+    let host = canopy_desktop::thread::HostId::new(host.id().into())
+        .ok_or("Chat storage is unavailable.")?;
+    let receipt = canopy_desktop::command_bus::CommandBus::new(client.clone())
+        .queue_local(key, host, chat.to_owned(), revision, mutation)
         .await
         .map_err(error)?;
-    let _ = client.acknowledge_runtime_command(key).await;
+    let _ = client
+        .acknowledge_runtime_command(receipt.key().clone())
+        .await;
     client
         .load_runtime_queue(chat.to_owned())
         .await
@@ -1333,5 +1451,85 @@ fn with_data(chat: Option<&str>, draft: Draft) -> Result<Draft, (Draft, String)>
             ..draft
         }),
         Err(error) => Err((draft, error)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use canopy_desktop::{
+        chat::config::ChatSettings,
+        state::workspace::{PaneKind, PaneMetadata, Workspace},
+    };
+    use core::prelude::v1::test;
+
+    fn settle_record(cx: &mut TestAppContext, runtime: &Entity<ChatRuntime>) {
+        for _ in 0..200 {
+            cx.run_until_parked();
+            if cx.update(|cx| {
+                let runtime = runtime.read(cx);
+                runtime.queue.record.is_some() && !runtime.queue.saving_record
+            }) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("catalog persistence did not settle; waiting sends cannot proceed");
+    }
+
+    #[gpui_kit::test]
+    async fn persisted_thread_metadata_does_not_keep_runtime_saving(cx: &mut TestAppContext) {
+        cx.background_executor.allow_parking();
+        let folder = tempfile::tempdir().unwrap();
+        let client = SettingsClient::create(&folder.path().join("queue.db"))
+            .await
+            .unwrap();
+        let host = client.initialize_runtime().await.unwrap();
+        let chat = ChatSettings::new_id();
+        let record = client
+            .save_runtime_chat(
+                ChatRecord::new(
+                    chat.clone(),
+                    None,
+                    "test".into(),
+                    PaneMetadata {
+                        kind: PaneKind::Chat,
+                        chat: Some(Box::new(ChatSettings {
+                            id: Some(chat.clone()),
+                            ..Default::default()
+                        })),
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let runtime = cx.update(|cx| {
+            let app = AppState::install_test(Workspace::new(), cx);
+            app.settings.update(cx, |settings, _| {
+                settings.install_test_client(client.clone(), host);
+                settings.record_saved(record);
+            });
+            app.projects.update(cx, |projects, _| projects.ready = true);
+            app.chat_history
+                .update(cx, |history, cx| history.initialize(client.clone(), cx));
+            app.chats
+                .update(cx, |chats, cx| chats.ensure_runtime_for_chat(&chat, cx))
+                .unwrap()
+        });
+        settle_record(cx, &runtime);
+        cx.update(|cx| {
+            runtime.update(cx, |runtime, cx| {
+                assert!(runtime.queue.record.as_ref().unwrap().thread().is_some());
+                runtime.pane.metadata.resume_id = Some("saved-session".into());
+                runtime.save_record(cx);
+                assert!(runtime.queue.saving_record);
+            });
+        });
+        settle_record(cx, &runtime);
+        let saved = client.load_runtime_chat(chat).await.unwrap().unwrap();
+        assert_eq!(saved.metadata().resume_id.as_deref(), Some("saved-session"));
+        client.shutdown().await.unwrap();
     }
 }
