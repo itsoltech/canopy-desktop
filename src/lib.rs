@@ -1,5 +1,6 @@
 //! Shared application policies, reusable by views without owning their state.
 pub mod appearance;
+pub mod command_bus;
 pub mod host;
 pub mod motion;
 pub mod platform;

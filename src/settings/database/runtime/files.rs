@@ -22,7 +22,7 @@ impl Database {
             return Err(Error::ResourceConflict);
         }
         check_result_budget(&tx, &key, Some(&result_hash))?;
-        let changed=tx.execute("UPDATE _canopy_command_inbox SET state='succeeded',result=?4,updated_at=?5 WHERE device_id=?1 AND command_epoch=?2 AND command_id=?3 AND state='attempting'",params![key.device(),integer(key.epoch())?,key.id(),result_hash.as_slice(),now()])?;
+        let changed=tx.execute("UPDATE _canopy_command_inbox SET state='succeeded',result=?4,updated_at=?5 WHERE device_id=?1 AND command_epoch=?2 AND command_id=?3 AND resource=?6 AND executor_epoch=?7 AND state='attempting'",params![key.device(),integer(key.epoch())?,key.id(),result_hash.as_slice(),now(),key.resource,integer(key.executor_epoch)?])?;
         if changed != 1 {
             return Err(Error::ResourceConflict);
         }

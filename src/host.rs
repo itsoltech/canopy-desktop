@@ -435,6 +435,9 @@ pub struct CommandKey {
     pub(crate) device: String,
     pub(crate) epoch: u64,
     pub(crate) id: String,
+    /// CMD-01 storage namespace. Empty only for commands not yet on the bus.
+    pub(crate) resource: String,
+    pub(crate) executor_epoch: u64,
 }
 impl CommandKey {
     pub fn local(id: String) -> Option<Self> {
@@ -442,11 +445,20 @@ impl CommandKey {
             device: LOCAL_PRINCIPAL.into(),
             epoch: 0,
             id,
+            resource: String::new(),
+            executor_epoch: 0,
         })
     }
     pub fn remote(device: String, epoch: u64, id: String) -> Option<Self> {
-        (valid_id(&device) && valid_id(&id) && epoch > 0 && epoch < i64::MAX as u64)
-            .then_some(Self { device, epoch, id })
+        (valid_id(&device) && valid_id(&id) && epoch > 0 && epoch < i64::MAX as u64).then_some(
+            Self {
+                device,
+                epoch,
+                id,
+                resource: String::new(),
+                executor_epoch: 0,
+            },
+        )
     }
     pub fn device(&self) -> &str {
         &self.device
@@ -456,6 +468,12 @@ impl CommandKey {
     }
     pub fn id(&self) -> &str {
         &self.id
+    }
+    pub fn resource(&self) -> &str {
+        &self.resource
+    }
+    pub fn executor_epoch(&self) -> u64 {
+        self.executor_epoch
     }
 }
 
@@ -510,6 +528,10 @@ impl CommandInput {
     }
     pub fn key(&self) -> &CommandKey {
         &self.key
+    }
+    pub fn send_context(&self) -> Option<(SendContext, Option<u64>)> {
+        let intent: MessageIntent = serde_json::from_slice(&self.arguments).ok()?;
+        (self.method == "chat.send").then_some((intent.context, intent.steer_run))
     }
 }
 

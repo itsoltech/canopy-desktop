@@ -72,8 +72,14 @@ impl SettingsHost for Host {
     async fn snapshot(&self) -> Result<proto::HostSettings, Status> {
         Ok(proto::HostSettings::default())
     }
-    async fn update_preferences(&self, _: PreferencesPatch, _: Option<u64>) -> Result<(), Status> {
-        Ok(())
+    async fn update_preferences(
+        &self,
+        _: crate::command_bus::CommandEnvelope,
+        _: crate::command_bus::Principal,
+    ) -> Result<crate::host::CommandReceipt, Status> {
+        Err(Status::unimplemented(
+            "This fixture only implements credential settings.",
+        ))
     }
     async fn save_agent(&self, _: AgentEdit, _: Option<u64>) -> Result<(), Status> {
         Ok(())

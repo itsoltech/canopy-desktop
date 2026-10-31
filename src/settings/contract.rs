@@ -285,7 +285,7 @@ impl Change {
     pub fn key(&self) -> PreferenceKey {
         self.encoded().0
     }
-    pub(super) fn encoded(&self) -> (PreferenceKey, Option<String>) {
+    pub(crate) fn encoded(&self) -> (PreferenceKey, Option<String>) {
         match self {
             Self::ReopenLastWorkspace(v) => {
                 (PreferenceKey::ReopenLastWorkspace, Some(v.to_string()))

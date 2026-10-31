@@ -24,6 +24,8 @@ pub struct ProjectsState {
     /// global workspace entity.
     scratch: Workspace,
     task: Option<Task<()>>,
+    /// Local metadata commands survive view closure and drain before storage quits.
+    pub(super) command_tasks: HashMap<PaneId, Task<()>>,
     picking: bool,
     pub(super) quitting: bool,
     enabled: bool,
@@ -172,6 +174,7 @@ impl ProjectsState {
             sessions: HashMap::new(),
             scratch: Workspace::new(),
             task: None,
+            command_tasks: HashMap::new(),
             picking: false,
             quitting: false,
             enabled: false,

@@ -36,8 +36,8 @@ impl Database {
         require_host(self)?;
         authorize(&self.db, &key, scope, false)?;
         let saved: Option<(u32, String, String, String, Vec<u8>, i64)> = self.db.query_row(
-            "SELECT required_scope,required_root,method,target,fingerprint,command_epoch FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2",
-            params![key.device,key.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
+            "SELECT required_scope,required_root,method,target,fingerprint,command_epoch FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
+            params![key.device,key.id,key.resource,integer(key.executor_epoch)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
         let Some((saved_scope, root, saved_method, saved_target, saved_fingerprint, epoch)) = saved
         else {
             authorize(&self.db, &key, scope, true)?;
@@ -123,8 +123,8 @@ impl Database {
             return Err(Error::CommandConflict);
         }
         let (root, arguments): (String, Vec<u8>) = tx.query_row(
-            "SELECT required_root,arguments FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2",
-            params![key.device,key.id], |r| Ok((r.get(0)?,r.get(1)?)))?;
+            "SELECT required_root,arguments FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
+            params![key.device,key.id,key.resource,integer(key.executor_epoch)?], |r| Ok((r.get(0)?,r.get(1)?)))?;
         let intent: serde_json::Value =
             serde_json::from_slice(&arguments).map_err(|_| Error::InvalidRuntimeState)?;
         if intent.get("source").and_then(|v| v.as_str()) != Some(&source_chat)
@@ -202,10 +202,10 @@ impl Database {
             {
                 return Err(Error::CommandConflict);
             }
-            accept_message(&tx, input, chat.clone(), message, draft)?;
+            accept_message(&tx, input, chat.clone(), message, draft, None, host::CHAT)?;
         }
         check_result_budget(&tx, &key, Some(chat.as_bytes()))?;
-        tx.execute("UPDATE _canopy_command_inbox SET state='succeeded',result=?3,updated_at=?4 WHERE device_id=?1 AND command_id=?2", params![key.device,key.id,chat.as_bytes(),now()])?;
+        tx.execute("UPDATE _canopy_command_inbox SET state='succeeded',result=?3,updated_at=?4 WHERE device_id=?1 AND command_id=?2 AND resource=?5 AND executor_epoch=?6 AND command_epoch=?7", params![key.device,key.id,chat.as_bytes(),now(),key.resource,integer(key.executor_epoch)?,integer(key.epoch)?])?;
         let result = receipt(&tx, &key)?.ok_or(Error::InvalidRuntimeState)?;
         let started = Instant::now();
         tx.commit()?;
@@ -226,7 +226,7 @@ impl Database {
     }
 }
 
-fn live_chat(db: &Connection, chat: &str) -> Result<()> {
+pub(super) fn live_chat(db: &Connection, chat: &str) -> Result<()> {
     let recovery: Option<bool> = db.query_row("SELECT recovery_reason IS NOT NULL OR authority_root='' FROM _canopy_runtime_chats WHERE chat_id=?1 AND closed_at IS NULL", [chat], |r| r.get(0)).optional()?;
     match recovery {
         Some(false) => Ok(()),

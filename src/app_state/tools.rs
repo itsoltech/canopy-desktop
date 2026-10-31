@@ -317,7 +317,11 @@ impl ToolsState {
         completion: Option<futures_channel::oneshot::Sender<Result<(), String>>>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        if !self.ready || self.saving || self.quitting {
+        if !self.ready
+            || self.saving
+            || self.quitting
+            || cx.global::<AppState>().settings.read(cx).saving
+        {
             return Err("Tools are busy. Try again shortly.".into());
         }
         catalog.validate()?;

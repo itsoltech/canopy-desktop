@@ -51,6 +51,8 @@ CREATE TABLE _canopy_remote_devices (
 );
 CREATE UNIQUE INDEX _canopy_device_credential ON _canopy_remote_devices(public_credential);
 CREATE TABLE _canopy_command_inbox (
+    resource TEXT NOT NULL DEFAULT '',
+    executor_epoch INTEGER NOT NULL DEFAULT 0 CHECK(executor_epoch>=0),
     device_id TEXT NOT NULL,
     command_id TEXT NOT NULL,
     command_epoch INTEGER NOT NULL,
@@ -65,7 +67,7 @@ CREATE TABLE _canopy_command_inbox (
     resolved_by_user INTEGER NOT NULL DEFAULT 0 CHECK(resolved_by_user IN (0,1)),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    PRIMARY KEY(device_id,command_id)
+    PRIMARY KEY(resource,executor_epoch,device_id,command_id)
 );
 CREATE INDEX _canopy_command_device_state ON _canopy_command_inbox(device_id,state);
 CREATE TABLE _canopy_chat_queue (
@@ -146,7 +148,7 @@ CREATE TRIGGER _canopy_artifact_device_revoke AFTER UPDATE OF revoked_at ON _can
 END;
 
 CREATE TRIGGER _canopy_artifact_command_delete AFTER DELETE ON _canopy_command_inbox BEGIN
-    DELETE FROM _canopy_artifact_refs WHERE owner_kind='command' AND owner_id=json_array(OLD.device_id,OLD.command_id);
+    DELETE FROM _canopy_artifact_refs WHERE owner_kind='command' AND owner_id=json_array(OLD.resource,OLD.executor_epoch,OLD.device_id,OLD.command_id);
 END;
 CREATE TABLE IF NOT EXISTS _canopy_settings_secrets (
     version_id TEXT PRIMARY KEY,

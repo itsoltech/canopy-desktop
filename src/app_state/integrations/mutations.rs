@@ -14,7 +14,11 @@ impl IntegrationsState {
         draft: Option<String>,
         cx: &mut Context<Self>,
     ) -> Result<u64, String> {
-        if self.busy || !self.ready || self.quitting {
+        if self.busy
+            || !self.ready
+            || self.quitting
+            || cx.global::<AppState>().settings.read(cx).saving
+        {
             return Err("Another integration operation is still running.".into());
         }
         let account = self

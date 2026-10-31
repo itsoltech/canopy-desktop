@@ -14,7 +14,6 @@ use std::collections::{BTreeMap, HashMap};
     reason = "Profile edits carry their complete settings DTO through the 64-slot control queue; boxing would add an allocation per edit."
 )]
 pub(super) enum Edit {
-    Preferences(PreferencesPatch),
     Agent(AgentEdit, BTreeMap<String, Value>),
     Profile(ProfileEdit, BTreeMap<String, Value>, Value, Value, Value),
     RemoveAgent(String),
@@ -53,10 +52,21 @@ impl SettingsHost for ControlBridge {
     }
     async fn update_preferences(
         &self,
-        patch: PreferencesPatch,
-        expected: Option<u64>,
-    ) -> Result<(), Status> {
-        self.edit(Edit::Preferences(patch), expected).await
+        envelope: canopy_desktop::command_bus::CommandEnvelope,
+        principal: canopy_desktop::command_bus::Principal,
+    ) -> Result<canopy_desktop::host::CommandReceipt, Status> {
+        let client = self
+            .client
+            .clone()
+            .ok_or_else(|| busy("Storage is unavailable."))?;
+        let prepared = canopy_desktop::command_bus::CommandBus::new(client)
+            .prepare(envelope, principal)
+            .await
+            .map_err(canopy_desktop::remote::auth::storage_status)?;
+        if let Some(prior) = prepared.prior() {
+            return Ok(prior.clone());
+        }
+        self.request(|reply| Op::Preferences(prepared, reply)).await
     }
     async fn save_agent(&self, edit: AgentEdit, expected: Option<u64>) -> Result<(), Status> {
         let env = self.environment(edit.environment()).await?;
@@ -177,17 +187,11 @@ fn options(settings: &mut AgentSettings, options: &ProfileOptions) {
 }
 pub(super) fn apply(edit: Edit, cx: &mut App) -> Result<Committed, Status> {
     let app = cx.global::<AppState>().clone();
-    if let Edit::Preferences(patch) = edit {
-        return app
-            .settings
-            .update(cx, |state, cx| state.remote_preferences(patch, cx));
-    }
     let (tx, rx) = oneshot::channel();
     let mut catalog = app.tools.read(cx).catalog.clone();
     let mut pending = Vec::new();
     let mut keys = HashMap::new();
     match edit {
-        Edit::Preferences(_) => unreachable!(),
         Edit::Agent(edit, env) => {
             let kind = match edit.backend() {
                 BackendKind::Claude => ToolKind::Claude,

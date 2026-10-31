@@ -1,5 +1,6 @@
 > Terminale i rzeczywisty cykl życia procesów: [terminal.md](terminal.md).
 > Aktualny kontrakt pełnego zapisu i odtwarzania: [persistence.md](persistence.md).
+> Wspólne mutacje desktop/gRPC i ich trwałe wyniki: [command-bus.md](command-bus.md).
 
 # Wspólny stan aplikacji
 
@@ -94,6 +95,11 @@ notch.enabled (strona Settings → Notch) otwiera i zamyka overlay notcha na bie
 Zapis jest pojedynczą operacją w toku. Kontrolki są wyłączone podczas ładowania
 i zapisu; zatwierdzony snapshot jest publikowany dopiero po sukcesie SQL.
 Błąd zachowuje poprzednią wartość i jest widoczny w Preferences.
+`SettingsState::change` i `remember` przekazują preferencje do wspólnej magistrali;
+ten sam właściciel przechowuje rewizję konfiguracji dla lokalnych zapisów i CAS
+zdalnego UpdatePreferences. Receipt obejmuje wartości oraz rewizję konkretnego
+commitu. Rename i mutacje kolejki także używają magistrali; nazwa trafia do
+projektu/runtime dopiero po zatwierdzeniu metadanych katalogu.
 perf.hud.enabled steruje encją `ResourceUsage` (`app_state/resources.rs`): właściciel
 zadania próbkującego CPU/RAM raz na sekundę na executorze tła, tylko gdy ustawienie
 jest włączone; sidebar czyta wyłącznie ostatnią próbkę. Ustawienie domyślnego narzędzia steruje nowymi tabami.

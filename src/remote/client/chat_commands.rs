@@ -151,8 +151,8 @@ impl HostClient {
         let receipt = response?;
         self.save_chat_receipt(&meta, receipt)
     }
-    /// Explicit recovery only: NOT_FOUND reuses the original envelope in its open epoch.
-    /// A known/unknown execution result is never dispatched again.
+    /// Explicit recovery only: Send retries its original typed RPC in the open
+    /// epoch; legacy mutations use NOT_FOUND. Host dedupe fences every retry.
     pub async fn retry_chat_mutation(&self, id: &str) -> Result<p::CommandReceipt, String> {
         let _gate = self.mutation.lock().await;
         let record = self.snapshot().record;
@@ -180,6 +180,15 @@ impl HostClient {
             return Err("Saved command identity mismatch.".into());
         }
         let channel = self.channel()?;
+        // Migrated Send has a per-thread inbox key. Legacy GetCommand cannot
+        // disambiguate a UUID shared by threads; the original typed RPC can.
+        if matches!(intent, ChatMutation::Send(_)) {
+            if record.epoch != Some(meta.command_epoch) {
+                return Err("Command epoch retired; intent retained without replay.".into());
+            }
+            let receipt = intent.dispatch(channel).await?;
+            return self.save_chat_receipt(&meta, receipt);
+        }
         let result = p::host_service_client::HostServiceClient::new(channel.clone())
             .get_command(p::GetCommandRequest {
                 host_id: meta.host_id.clone(),

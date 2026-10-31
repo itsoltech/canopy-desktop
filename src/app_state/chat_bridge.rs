@@ -64,6 +64,11 @@ pub struct CatalogEvent {
 }
 
 enum Op {
+    BusCommitted(
+        canopy_desktop::host::ChatRecord,
+        canopy_desktop::host::ChatQueue,
+        Reply<()>,
+    ),
     Summaries(Reply<Vec<ChatSummary>>),
     Workspaces(Reply<Vec<WorkspaceSummary>>),
     WatchCatalog(CatalogSlot, Reply<()>),
@@ -387,6 +392,23 @@ fn serve(op: Op, hub: Entity<Hub>, cx: &mut App) {
         Op::Snapshot(chat, reply) => {
             let _ = reply.send(runtime(&chat, cx).map(|r| r.read(cx).snapshot(cx)));
         }
+        Op::BusCommitted(record, queue, reply) => {
+            let app = cx.global::<AppState>().clone();
+            app.settings.update(cx, |state, cx| {
+                state.record_saved(record.clone());
+                cx.notify();
+            });
+            let record = app
+                .settings
+                .read(cx)
+                .chat_record(record.id())
+                .cloned()
+                .unwrap_or(record);
+            let result = runtime(record.id(), cx).map(|runtime| {
+                runtime.update(cx, |runtime, cx| runtime.bus_committed(record, queue, cx))
+            });
+            let _ = reply.send(result);
+        }
         Op::EditPreview(chat, run, history_epoch, item, reply) => match runtime(&chat, cx) {
             Ok(runtime) => {
                 let task = runtime.update(cx, |r, cx| {
@@ -417,8 +439,9 @@ fn serve(op: Op, hub: Entity<Hub>, cx: &mut App) {
         },
         Op::ChangeQueue(chat, input, revision, mutation, reply) => match runtime(&chat, cx) {
             Ok(runtime) => {
-                let task =
-                    runtime.update(cx, |r, cx| r.change_queue(input, revision, mutation, cx));
+                let task = runtime.update(cx, |r, cx| {
+                    r.change_queue(input.key().clone(), revision, mutation, cx)
+                });
                 forward(task, reply, cx);
             }
             Err(error) => {
@@ -441,7 +464,6 @@ fn serve(op: Op, hub: Entity<Hub>, cx: &mut App) {
                     ChatCommand::Start => r.remote_start(key, cx),
                     ChatCommand::Interrupt { run } => r.remote_interrupt(key, run, cx),
                     ChatCommand::Restart { run } => r.remote_restart(key, run, cx),
-                    ChatCommand::ResumeQueue => r.remote_resume_queue(key, cx),
                     ChatCommand::Steer { message, run } => r.remote_steer(key, message, run, cx),
                     ChatCommand::Respond { run, item, answer } => {
                         r.remote_respond(key, run, item, answer, cx)
@@ -458,7 +480,6 @@ fn serve(op: Op, hub: Entity<Hub>, cx: &mut App) {
                     ChatCommand::StopBackground { run, call } => {
                         r.remote_stop_background(key, run, call, cx)
                     }
-                    ChatCommand::Rename { title } => r.remote_rename(key, title, cx),
                     edit @ ChatCommand::Edit { .. } => r.remote_edit(key, edit, cx),
                     ChatCommand::RunShell { run, command } => {
                         r.remote_run_shell(key, run, command, cx)
@@ -598,6 +619,14 @@ fn subscribe(
 }
 
 impl ChatBridge {
+    pub async fn bus_committed(
+        &self,
+        record: canopy_desktop::host::ChatRecord,
+        queue: canopy_desktop::host::ChatQueue,
+    ) -> Result<(), String> {
+        self.ask(|reply| Op::BusCommitted(record, queue, reply))
+            .await
+    }
     async fn ask<T>(&self, op: impl FnOnce(Reply<T>) -> Op) -> Result<T, String> {
         let (reply, answer) = oneshot::channel();
         self.0

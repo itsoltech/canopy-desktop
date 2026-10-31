@@ -18,7 +18,7 @@ use super::chat::{
 };
 use crate::app_state::{
     chat_bridge::{CatalogEvent, ChatBridge},
-    chats::{ChatCommand, NewChat, RemoteKey},
+    chats::{NewChat, RemoteKey},
     project_commands::WorkspaceSummary,
     terminal_bridge::{TerminalBridge, workspace_ref},
 };
@@ -508,7 +508,6 @@ impl proto::catalog_service_server::CatalogService for CatalogRpc {
         let grant = self.grant(&r, &host).await?;
         let mut r = r.into_inner();
         let meta = required(r.command.take())?;
-        let fingerprint = wire_fingerprint(&meta, &r);
         let resource = required(r.resource.and_then(|r| r.resource))?;
         let proto::resource_ref::Resource::Chat(chat) = resource else {
             // Canopy has no rename for projects, checkouts, terminals, files or tasks;
@@ -517,34 +516,13 @@ impl proto::catalog_service_server::CatalogService for CatalogRpc {
                 "unsupported: only chats can be renamed on the host.",
             ));
         };
-        self.auth.scope(&grant, host::CHAT)?;
-        self.state.accepting()?;
-        let title = r.title.trim().to_owned();
-        if title.is_empty() || title.len() > 512 {
-            return Err(Status::invalid_argument(
-                "Enter a title of at most 512 bytes.",
-            ));
-        }
-        let key = self.auth.key(&meta, &grant)?;
-        if let Some(receipt) = self
-            .prior(
-                &key,
-                host::CHAT,
-                "chat.rename",
-                Some(&chat.chat_id),
-                &fingerprint,
-            )
-            .await?
-        {
-            return Ok(Response::new(receipt));
-        }
         self.chats
-            .command(
+            .bus_command(
                 grant,
                 meta,
-                Some(chat),
-                ChatCommand::Rename { title },
-                fingerprint,
+                chat,
+                canopy_desktop::command_bus::Command::Rename { title: r.title },
+                None,
             )
             .await
     }

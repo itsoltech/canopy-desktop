@@ -2,8 +2,7 @@
 //! data and generated credentials. No app window, platform vault or provider.
 use super::*;
 use crate::remote::settings_rpc::{
-    self, AgentEdit, IntegrationEdit, PreferencesPatch, ProfileEdit, SecretVersion, SettingsHost,
-    SettingsSecrets,
+    self, AgentEdit, IntegrationEdit, ProfileEdit, SecretVersion, SettingsHost, SettingsSecrets,
 };
 use tonic::{Status, transport::Identity};
 
@@ -53,7 +52,11 @@ impl SettingsHost for Host {
     async fn snapshot(&self) -> Result<proto::HostSettings, Status> {
         Ok(Default::default())
     }
-    async fn update_preferences(&self, _: PreferencesPatch, _: Option<u64>) -> Result<(), Status> {
+    async fn update_preferences(
+        &self,
+        _: crate::command_bus::CommandEnvelope,
+        _: crate::command_bus::Principal,
+    ) -> Result<crate::host::CommandReceipt, Status> {
         Err(Status::unimplemented("test"))
     }
     async fn save_agent(&self, _: AgentEdit, _: Option<u64>) -> Result<(), Status> {

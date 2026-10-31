@@ -435,21 +435,8 @@ impl HostClient {
                 .command
                 .as_ref()
                 .ok_or("Missing saved command identity.")?;
-            let receipt = p::host_service_client::HostServiceClient::new(channel.clone())
-                .get_command(p::GetCommandRequest {
-                    host_id: self.id.0.clone(),
-                    command_id: meta.command_id.clone(),
-                    command_epoch: meta.command_epoch,
-                })
-                .await
-                .map_err(rpc_error)?
-                .into_inner();
-            self.validate_receipt(meta, &receipt)?;
-            if receipt.state != 8 {
-                self.save_outbox_receipt(id, &receipt)?;
-                return check_receipt(receipt);
-            }
-            // NOT_FOUND is not proof of nonexecution: only the identical command may retry.
+            // Explicit retry uses the original typed Send with the same UUID,
+            // context and artifact references. A legacy lookup lacks its thread key.
             if self.snapshot().record.epoch != Some(meta.command_epoch) {
                 return Err(
                     "The saved command epoch was retired. Reconcile before creating a new message."
