@@ -153,7 +153,10 @@ mod mention_tests {
         std::fs::write(root.join("chat.rs"), "").unwrap();
         let cancel = AtomicBool::new(false);
         let found = mentions(root, "chat", 10, &cancel).unwrap();
-        let paths: Vec<_> = found.iter().map(|m| m.path.to_str().unwrap()).collect();
+        let paths: Vec<_> = found
+            .iter()
+            .map(|m| m.path.to_str().unwrap().replace('\\', "/"))
+            .collect();
         assert_eq!(
             paths,
             ["chat.rs", "docs/chat.md", "src/chat", "src/chat/view.rs"]

@@ -1010,6 +1010,18 @@ mod platform {
 mod windows_tests {
     use super::*;
 
+    fn describe(output: &Output) -> String {
+        format!(
+            "code {:?}, status {}, failure {:?}, input written {}, stdout {:?}, stderr {:?}",
+            output.code,
+            output.status,
+            output.failure,
+            output.input_written,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        )
+    }
+
     fn command_spec(arguments: Vec<OsString>, timeout: Duration) -> (tempfile::TempDir, Spec) {
         let source = PathBuf::from(std::env::var_os("ComSpec").expect("ComSpec"));
         let directory = tempfile::tempdir().unwrap();
@@ -1044,7 +1056,7 @@ mod windows_tests {
             Duration::from_secs(5),
         );
         let output = run(spec, &AtomicBool::new(false)).unwrap();
-        assert!(output.success());
+        assert!(output.success(), "{}", describe(&output));
         assert!(String::from_utf8_lossy(&output.stdout).contains("literal value"));
     }
 
@@ -1059,7 +1071,12 @@ mod windows_tests {
         );
         let started = Instant::now();
         let output = run(spec, &AtomicBool::new(false)).unwrap();
-        assert_eq!(output.failure.as_deref(), Some("Timed out."));
+        assert_eq!(
+            output.failure.as_deref(),
+            Some("Timed out."),
+            "{}",
+            describe(&output)
+        );
         assert!(started.elapsed() < Duration::from_secs(5));
     }
 
@@ -1079,7 +1096,7 @@ mod windows_tests {
         );
         let started = Instant::now();
         let output = run(spec, &AtomicBool::new(false)).unwrap();
-        assert!(output.success());
+        assert!(output.success(), "{}", describe(&output));
         assert!(String::from_utf8_lossy(&output.stdout).contains("parent-exited"));
         assert!(started.elapsed() < Duration::from_secs(5));
     }
@@ -1104,7 +1121,7 @@ mod windows_tests {
         let release = std::thread::spawn(platform::release_reader_after_stop);
         let started = Instant::now();
         let output = run(spec, &AtomicBool::new(false)).unwrap();
-        assert!(release.join().unwrap());
+        assert!(release.join().unwrap(), "{}", describe(&output));
         assert_eq!(
             output.failure.as_deref(),
             Some("Could not stop subprocess descendants.")
@@ -1130,7 +1147,7 @@ mod windows_tests {
         platform::arm_reader_pause(2);
         let release = std::thread::spawn(platform::release_reader_after_stop);
         let output = run(spec, &AtomicBool::new(false)).unwrap();
-        assert!(release.join().unwrap());
+        assert!(release.join().unwrap(), "{}", describe(&output));
         assert_eq!(output.code, Some(0));
         assert_eq!(
             output.failure.as_deref(),

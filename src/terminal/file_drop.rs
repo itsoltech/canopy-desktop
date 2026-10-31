@@ -68,7 +68,7 @@ pub fn prepare_file_drop(
         if if windows {
             !windows_absolute(path)
         } else {
-            !PathBuf::from(path).is_absolute()
+            !path.starts_with('/')
         } {
             return Err(FileDropError::RelativePath);
         }
@@ -225,11 +225,14 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn cmd_interprets_a_metacharacter_path_as_one_quoted_value() {
+        use std::os::windows::process::CommandExt;
         let path = r"C:\tmp\a&echo CANOPY_INJECTED.txt";
         let payload = prepare_file_drop(&[PathBuf::from(path)], ShellKind::Cmd, true).unwrap();
         let command = format!("for %A in ({}) do @echo(%~A", payload.trim());
+        // raw_arg: std's argument quoting would escape the inner quotes as \" for cmd.exe.
         let output = std::process::Command::new("cmd.exe")
-            .args(["/d", "/v:off", "/c", &command])
+            .args(["/d", "/v:off", "/c"])
+            .raw_arg(&command)
             .output()
             .unwrap();
         assert!(output.status.success());
