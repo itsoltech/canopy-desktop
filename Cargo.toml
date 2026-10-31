@@ -31,6 +31,8 @@ reqwest-client = { package = "gpui-pre-reqwest-client", version = "=0.3.8" }
 # Use the renderer's already-locked parser to prepare remote Markdown off the UI thread.
 markdown-parser = { package = "markdown", version = "=1.0.0" }
 alacritty_terminal = "=0.26.0"
+# Same version Alacritty uses on every platform; terminal::metered wraps its PTY poller.
+polling = "=3.11.0"
 async-channel = "=2.5.0"
 libc = "=0.2.189"
 uuid = { version = "=1.26.0", features = ["v4"] }
@@ -109,9 +111,6 @@ windows-sys = { version = "=0.59.0", features = ["Win32_Foundation", "Win32_Grap
 # file parser is compiled out. Feature-unify the existing locked dependency with
 # OpenSSL so agent auth remains available and default OpenSSH keys also work.
 libssh2-sys = { version = "=0.3.1", features = ["openssl-on-win32", "vendored-openssl"] }
-
-[target."cfg(unix)".dependencies]
-polling = "=3.11.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Reuse GPUI's already-locked Secret Service implementation and feature set.
