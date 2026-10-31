@@ -20,6 +20,7 @@ pub struct InputRegion {
 }
 
 impl InputRegion {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn contains(self, position: Point<Pixels>) -> bool {
         self.contains_xy(f32::from(position.x), f32::from(position.y))
     }

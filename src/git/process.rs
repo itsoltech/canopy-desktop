@@ -19,6 +19,8 @@ pub(super) struct Invocation {
 
 pub(super) struct Spec {
     pub invocation: Invocation,
+    /// Retried after ENOEXEC (Unix only).
+    #[cfg_attr(windows, allow(dead_code))]
     pub fallback: Option<Invocation>,
     pub cwd: PathBuf,
     pub environment: HashMap<String, String>,

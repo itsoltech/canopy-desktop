@@ -8,7 +8,9 @@ use crate::ui::theme as t;
 use gpui_kit::base::InteractiveElementExt;
 #[cfg(any(target_os = "windows", test))]
 use gpui_kit::component::IconName;
-use gpui_kit::{prelude::FluentBuilder, *};
+#[cfg(not(target_os = "windows"))]
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
 
 pub fn titlebar_options(title: impl Into<SharedString>) -> TitlebarOptions {
     TitlebarOptions {

@@ -202,7 +202,7 @@ fn resize_reaches_conpty() {
     while !session.resize(Size::bounded(100, 50)) {
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(session.input(b"\r\n".to_vec()));
+    assert!(session.queue_input(b"\r\n".to_vec()).is_ok());
     wait_closed(&session);
     assert!(text(&session).contains("AFTER=100x50"));
 }

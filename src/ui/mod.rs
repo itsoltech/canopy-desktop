@@ -187,7 +187,7 @@ impl Workspace {
             let executor = cx.foreground_executor().clone();
             let async_cx = cx.to_async();
             match windows_settings::SettingsMonitor::install(window, move || {
-                let mut async_cx = async_cx.clone();
+                let async_cx = async_cx.clone();
                 executor
                     .spawn(async move {
                         let _ = async_cx.update(|cx| {

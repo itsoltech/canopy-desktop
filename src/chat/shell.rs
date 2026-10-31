@@ -35,6 +35,8 @@ pub struct Running {
 }
 
 struct Shared {
+    /// Process group signalled on Unix; Windows uses the Job Object.
+    #[cfg_attr(windows, allow(dead_code))]
     pid: u32,
     /// Set once the child is reaped; signals are sent only before, under this lock.
     exited: Mutex<bool>,
