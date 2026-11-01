@@ -1,7 +1,7 @@
 //! "New chat in…" palette: choose an open project or "No project", like Cmd+P.
 use super::components::files::{SEARCH_ROW_HEIGHT, SEARCH_VIEWPORT_HEIGHT, file_message};
 use super::{components::modal::*, components::*, theme as t};
-use crate::app_state::{AppState, ChatTarget, ForkRequest};
+use crate::app_state::{ChatForkRequested, ChatRuntime, ThreadDestination};
 use canopy_desktop::motion::{self, Presence, presets};
 use gpui_kit::{
     component::{
@@ -14,18 +14,25 @@ use std::time::Instant;
 
 /// One destination; `shortcut` is fixed by the unfiltered order.
 struct Choice {
-    target: ChatTarget,
+    destination: ThreadDestination,
     name: String,
     path: Option<String>,
     shortcut: Option<&'static str>,
-    remote: Option<canopy_desktop::remote::proto::WorkspaceRef>,
 }
 
 /// What the chosen project gets: a new chat, or a fork of a conversation.
 pub enum Purpose {
     NewChat,
-    Fork(Box<ForkRequest>),
-    RemoteFork(super::chat::ClientForkRequested),
+    Fork(ChatForkRequested),
+}
+
+impl Purpose {
+    pub(super) fn unavailable(&self, cx: &App) -> bool {
+        match self {
+            Self::NewChat => crate::app_state::Chats::unavailable(cx).is_some(),
+            Self::Fork(request) => request.runtime.read(cx).fork_unavailable(cx).is_some(),
+        }
+    }
 }
 
 pub struct NewChatPalette {
@@ -64,61 +71,28 @@ impl NewChatPalette {
         window.on_next_frame(move |window, cx| focus.read(cx).focus_handle(cx).focus(window, cx));
         let mut presence = Presence::new(false, presets::POPOVER, Instant::now());
         presence.set_open(true, Instant::now(), motion::policy(cx));
-        let projects = &cx.global::<AppState>().projects.read(cx).catalog;
-        let active = projects.active;
-        let mut choices = vec![Choice {
-            target: ChatTarget::NoProject,
-            name: "Without a project".into(),
-            path: None,
-            shortcut: Some("⌥⌘N"),
-            remote: None,
-        }];
-        choices.extend(projects.items.iter().enumerate().map(|(index, project)| {
-            Choice {
-                target: ChatTarget::Project(project.workspace),
-                name: project.name.clone(),
-                path: Some(
-                    project
-                        .worktree_path
-                        .as_ref()
-                        .unwrap_or(&project.path)
-                        .display()
-                        .to_string(),
-                ),
-                shortcut: PROJECT_SHORTCUTS.get(index).copied(),
-                remote: None,
-            }
-        }));
-        if let Purpose::RemoteFork(request) = &purpose {
-            choices.truncate(1);
-            choices[0].name = "Without a project".into();
-            if let Some(host) = request.runtime.read(cx).remote_host()
-                && let Some(catalog) = host.shared_catalog()
-            {
-                for project in &catalog.projects {
-                    for checkout in &project.checkouts {
-                        if checkout.closing == Some(true) {
-                            continue;
-                        }
-                        choices.push(Choice {
-                            target: ChatTarget::NoProject,
-                            name: format!("{} · {}", project.name, checkout.name),
-                            path: Some(checkout.path.clone()),
-                            shortcut: PROJECT_SHORTCUTS.get(choices.len() - 1).copied(),
-                            remote: checkout.workspace.clone(),
-                        });
-                    }
-                }
-            }
-        }
-        // Start on the space the user is in: the likeliest destination.
-        let selected = match active {
-            Some(id) => choices
-                .iter()
-                .position(|choice| choice.target == ChatTarget::Project(id))
-                .unwrap_or(0),
-            None => 0,
+        let destinations = match &purpose {
+            Purpose::NewChat => ChatRuntime::local_destinations(cx),
+            Purpose::Fork(request) => request.runtime.read(cx).fork_destinations(cx),
         };
+        let selected = destinations
+            .iter()
+            .position(|destination| destination.selected)
+            .unwrap_or(0);
+        let choices: Vec<_> = destinations
+            .into_iter()
+            .enumerate()
+            .map(|(index, destination)| Choice {
+                name: destination.name.clone(),
+                path: destination.path.clone(),
+                shortcut: if index == 0 {
+                    Some("⌥⌘N")
+                } else {
+                    PROJECT_SHORTCUTS.get(index - 1).copied()
+                },
+                destination,
+            })
+            .collect();
         Self {
             purpose,
             input,
@@ -178,19 +152,13 @@ impl NewChatPalette {
         let Some(choice) = self.choices.get(index) else {
             return;
         };
-        let target = choice.target;
-        let remote = choice.remote.clone();
+        let destination = choice.destination.clone();
         self.close(cx);
-        let chats = cx.global::<AppState>().chats.clone();
         match &self.purpose {
-            Purpose::NewChat => chats.update(cx, |chats, cx| chats.open_new(target, cx)),
-            Purpose::Fork(request) => {
-                let request = (**request).clone();
-                chats.update(cx, |chats, cx| chats.fork(target, request, cx))
-            }
-            Purpose::RemoteFork(request) => request
+            Purpose::NewChat => ChatRuntime::create_in(destination, cx),
+            Purpose::Fork(request) => request
                 .runtime
-                .update(cx, |r, cx| r.client_fork(request.item, remote, cx)),
+                .update(cx, |r, cx| r.fork_into(request.position, destination, cx)),
         }
     }
 
@@ -278,7 +246,7 @@ impl Render for NewChatPalette {
                             .text_color(t::muted())
                             .child(match self.purpose {
                                 Purpose::NewChat => "New chat in",
-                                Purpose::Fork(_) | Purpose::RemoteFork(_) => "Fork into",
+                                Purpose::Fork(_) => "Fork into",
                             }),
                     )
                     .child(
@@ -326,9 +294,10 @@ fn choice_row(choice: &Choice, selected: bool, index: usize) -> Stateful<Div> {
             hsla(0., 0., 0., 0.)
         })
         .cursor_pointer()
-        .child(icon(match choice.target {
-            ChatTarget::NoProject => IconName::Bot,
-            ChatTarget::Project(_) => IconName::Folder,
+        .child(icon(if choice.destination.folder_icon {
+            IconName::Folder
+        } else {
+            IconName::Bot
         }))
         .child(
             column()

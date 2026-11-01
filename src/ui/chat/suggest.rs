@@ -3,17 +3,12 @@
 //! chat's folder, `#` pull requests of its GitHub repository. The chosen one replaces
 //! the typed word with its badge.
 use super::{mentions, view::ChatView};
-use crate::app_state::AppState;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{closed, config::CommandInfo, goal, transcript::Attachment};
 use canopy_desktop::motion::{self, Presence, PresenceSpec, presets};
 use gpui_kit::component::IconName;
 use gpui_kit::{prelude::FluentBuilder, *};
-use std::{
-    ops::Range,
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::{ops::Range, time::Instant};
 
 const ROW: f32 = 32.;
 /// The tray slides out and back like the decision panel.
@@ -130,7 +125,6 @@ pub(super) struct Suggest {
     presence: Presence,
     scroll: ScrollHandle,
     _task: Option<Task<()>>,
-    _cancel: Option<canopy_desktop::files::CancelGuard>,
 }
 
 /// A command after `/`, or a skill after `$` (`skill`), and the badge it becomes.
@@ -165,56 +159,26 @@ fn command_choice(command: &CommandInfo, skill: bool) -> Choice {
     }
 }
 
-fn file_choice(root: &Path, found: canopy_desktop::files::search::Mention) -> Choice {
-    let relative = found.path.to_string_lossy().into_owned();
-    let name = found
-        .path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| relative.clone());
-    let slash = if found.folder { "/" } else { "" };
-    Choice {
-        glyph: Glyph::Named(if found.folder {
-            IconName::Folder
-        } else {
-            IconName::File
-        }),
-        title: format!("{name}{slash}"),
-        detail: found
-            .path
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
-            .unwrap_or_default(),
-        name: format!("{name}{slash}"),
-        attachment: Attachment::Path {
-            path: root.join(&found.path),
-            label: Some(format!("@{relative}{slash}")),
-        },
-    }
-}
-
-fn pull_choice(pull: canopy_desktop::integrations::github::PullRef) -> Choice {
-    let detail = format!(
-        "{} · {} → {} · {}",
-        pull.author, pull.head, pull.base, pull.state
-    );
-    let attachment = Attachment::Pull {
-        number: pull.number,
-        title: pull.title.clone(),
-        url: pull.url,
-        head: pull.head,
-        base: pull.base,
-        state: pull.state.clone(),
-        body: pull.body,
-        label: None,
+fn attachment_choice(suggestion: crate::app_state::AttachmentSuggestion) -> Choice {
+    let mut attachment = suggestion.attachment;
+    let glyph = match &attachment {
+        Attachment::Pull { state, .. } => Glyph::Custom(mentions::pull_icon(state)),
+        _ if suggestion.folder => Glyph::Named(IconName::Folder),
+        _ => Glyph::Named(IconName::File),
     };
-    let label = mentions::mention_of(&attachment);
+    if attachment.label().is_none() {
+        let label = match &attachment {
+            Attachment::Path { path, .. } => format!("@{}", path.display()),
+            _ => mentions::mention_of(&attachment),
+        };
+        attachment = attachment.with_label(label);
+    }
     Choice {
-        glyph: Glyph::Custom(mentions::pull_icon(&pull.state)),
-        title: format!("#{} {}", pull.number, pull.title),
-        detail,
-        name: format!("#{} {}", pull.number, pull.title),
-        attachment: attachment.with_label(label),
+        glyph,
+        title: suggestion.title,
+        detail: suggestion.detail,
+        name: suggestion.name,
+        attachment,
     }
 }
 
@@ -264,14 +228,13 @@ impl ChatView {
             presence,
             scroll: ScrollHandle::new(),
             _task: None,
-            _cancel: None,
         };
         match trigger.kind {
             Kind::Command => {
                 let commands = self.rt(cx).commands();
                 // `/goal` is Canopy's too (goal mode): offered even where the agent
                 // doesn't list it (Codex), never to an agent without goals.
-                let mut listed = commands.to_vec();
+                let mut listed = self.rt(cx).composer_commands();
                 let reported = !commands.is_empty();
                 if self.capabilities(cx).goal && !listed.iter().any(|c| c.name == goal::COMMAND) {
                     listed.push(CommandInfo {
@@ -284,27 +247,13 @@ impl ChatView {
                 }
                 // `/resume` brings back a closed Canopy chat (DEC-094); the agent's own
                 // picker doesn't work headless, so Canopy's takes its place.
-                listed.retain(|c| c.name != closed::COMMAND);
-                if !self.rt(cx).is_remote() {
-                    listed.push(CommandInfo {
-                        name: closed::COMMAND.into(),
-                        description: "Resume a closed chat".into(),
-                        hint: None,
-                        path: None,
-                        skill: false,
-                    });
-                }
                 let commands = listed.as_slice();
                 suggest.choices = rank_commands(commands, &trigger.query)
                     .into_iter()
                     .map(|command| command_choice(command, false))
                     .collect();
                 // The agent reports them once it has started.
-                suggest.loading = !self.rt(cx).is_remote()
-                    && !reported
-                    && self.backend(cx).is_none_or(|s| {
-                        matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
-                    });
+                suggest.loading = !reported && self.rt(cx).command_catalog_loading();
             }
             Kind::Skill => {
                 let skills: Vec<CommandInfo> = self
@@ -318,152 +267,26 @@ impl ChatView {
                     .into_iter()
                     .map(|command| command_choice(command, true))
                     .collect();
-                suggest.loading = !self.rt(cx).is_remote()
-                    && skills.is_empty()
-                    && self.backend(cx).is_none_or(|s| {
-                        matches!(s.status(), canopy_desktop::chat::session::Status::Starting)
+                suggest.loading = skills.is_empty() && self.rt(cx).command_catalog_loading();
+            }
+            Kind::File | Kind::Pull => {
+                let wanted = trigger.clone();
+                let task = self.runtime.update(cx, |runtime, cx| {
+                    runtime.suggest_attachments(
+                        trigger.query.clone(),
+                        trigger.kind == Kind::Pull,
+                        MAX,
+                        cx,
+                    )
+                });
+                suggest.loading = true;
+                suggest._task = Some(cx.spawn(async move |this, cx| {
+                    let found = task.await.map(|suggestions| {
+                        suggestions.into_iter().map(attachment_choice).collect()
                     });
+                    let _ = this.update(cx, |this, cx| this.suggested(&wanted, found, cx));
+                }));
             }
-            Kind::File | Kind::Pull if self.rt(cx).is_remote() => {
-                let remote = self.rt(cx).remote_source().unwrap();
-                let workspace = remote.context().and_then(|s| s.workspace);
-                if let (Some(host), Some(workspace)) = (remote.host.clone(), workspace) {
-                    let query = trigger.query.clone();
-                    let wanted = trigger.clone();
-                    let is_pull = trigger.kind == Kind::Pull;
-                    suggest.loading = true;
-                    let task = crate::ui::remote_client::executor(cx)
-                        .unwrap()
-                        .spawn(async move {
-                            use canopy_desktop::remote::{client::rpc_error, proto as p};
-                            if is_pull {
-                                let found = p::catalog_service_client::CatalogServiceClient::new(
-                                    host.channel()?,
-                                )
-                                .list_pull_requests(p::PullRequestsRequest {
-                                    workspace: Some(workspace),
-                                    query,
-                                    page_token: None,
-                                })
-                                .await
-                                .map_err(rpc_error)?
-                                .into_inner();
-                                Ok::<_, String>((Vec::new(), found.pulls))
-                            } else {
-                                let found = p::files_service_client::FilesServiceClient::new(
-                                    host.channel()?,
-                                )
-                                .search_files(p::SearchFilesRequest {
-                                    workspace: Some(workspace),
-                                    query,
-                                    limit: MAX as u32,
-                                })
-                                .await
-                                .map_err(rpc_error)?
-                                .into_inner();
-                                Ok((found.entries, Vec::new()))
-                            }
-                        });
-                    suggest._task = Some(cx.spawn(async move |this, cx| {
-                        let found = task.await.unwrap_or_else(|e| Err(e.to_string()));
-                        let _ = this.update(cx, |this, cx| {
-                            if this.suggest.as_ref().is_none_or(|s| !s.open || s.trigger != wanted) {
-                                return;
-                            }
-                            let choices = found.map(|(files, pulls)| {
-                                let mut choices: Vec<Choice> = files.into_iter().map(|entry| {
-                                    let path = entry.relative_path;
-                                    Choice {
-                                        glyph:Glyph::Named(IconName::File), title:entry.name,
-                                        detail:path.clone(), name:path.clone(),
-                                        attachment:Attachment::Path { path:path.into(), label:None },
-                                    }
-                                }).collect();
-                                for choice in pulls {
-                                    let Some(mut pull) = choice.pull else { continue; };
-                                    pull.context_id = Some(choice.context_id);
-                                    let a = canopy_desktop::remote::proto::Attachment {
-                                        label:String::new(),
-                                        content:Some(canopy_desktop::remote::proto::attachment::Content::Pull(pull.clone())),
-                                    };
-                                    let Some(attachment) = canopy_desktop::remote::client::presentation::attachment(&a) else { continue; };
-                                    this.runtime.update(cx, |runtime, _| runtime.remember_remote_attachment(a));
-                                    choices.push(Choice {
-                                        glyph:Glyph::Custom(mentions::pull_icon(&pull.state)),
-                                        title:format!("#{} {}", pull.number, pull.title),
-                                        detail:format!("{} → {}", pull.head, pull.base),
-                                        name:format!("#{}", pull.number), attachment,
-                                    });
-                                }
-                                choices
-                            });
-                            this.suggested(&wanted, choices, cx);
-                        });
-                    }));
-                } else {
-                    suggest.error = Some("This chat has no project folder.".into());
-                }
-            }
-            Kind::File => match self.cwd(cx) {
-                Some(root) => {
-                    let cancel = canopy_desktop::files::CancelGuard::default();
-                    let signal = cancel.0.clone();
-                    let query = trigger.query.clone();
-                    let wanted = trigger.clone();
-                    suggest.loading = true;
-                    suggest._cancel = Some(cancel);
-                    suggest._task = Some(cx.spawn(async move |this, cx| {
-                        cx.background_executor()
-                            .timer(Duration::from_millis(80))
-                            .await;
-                        let search = root.clone();
-                        let found = cx
-                            .background_executor()
-                            .spawn(async move {
-                                canopy_desktop::files::search::mentions(
-                                    &search, &query, MAX, &signal,
-                                )
-                            })
-                            .await;
-                        let _ = this.update(cx, |this, cx| {
-                            this.suggested(
-                                &wanted,
-                                found.map(|found| {
-                                    found.into_iter().map(|f| file_choice(&root, f)).collect()
-                                }),
-                                cx,
-                            )
-                        });
-                    }));
-                }
-                None => suggest.error = Some("This chat has no folder.".into()),
-            },
-            Kind::Pull => match self.cwd(cx) {
-                Some(cwd) => {
-                    let integrations = cx.global::<AppState>().integrations.clone();
-                    let query = trigger.query.clone();
-                    let wanted = trigger.clone();
-                    suggest.loading = true;
-                    suggest._task = Some(cx.spawn(async move |this, cx| {
-                        cx.background_executor()
-                            .timer(Duration::from_millis(250))
-                            .await;
-                        let found = integrations
-                            .update(cx, |integrations, cx| {
-                                integrations.pull_requests(cwd, query, cx)
-                            })
-                            .await;
-                        let _ = this.update(cx, |this, cx| {
-                            this.suggested(
-                                &wanted,
-                                found.map(|pulls| pulls.into_iter().map(pull_choice).collect()),
-                                cx,
-                            )
-                        });
-                    }));
-                }
-                None => suggest.error = Some("This chat has no folder.".into()),
-            },
         }
         self.suggest = Some(suggest);
         cx.notify();
@@ -503,7 +326,6 @@ impl ChatView {
         if let Some(suggest) = self.suggest.as_mut().filter(|s| s.open) {
             suggest.open = false;
             suggest._task = None;
-            suggest._cancel = None;
             suggest
                 .presence
                 .set_open(false, Instant::now(), motion::policy(cx));

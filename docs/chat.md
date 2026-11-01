@@ -1211,8 +1211,11 @@ ani odbioru natywnego macOS, Windows, iOS i Android — pozostaje `NOT RUN`.
 Lokalne i zdalne rozmowy korzystają z `ui::chat::ChatView`, wspólnego composera,
 rendererów wiadomości i narzędzi, zgód, kolejki, celów oraz wyszukiwania. Adapter
 `remote::client::presentation` zachowuje semantykę narzędzi i rozdziela identyfikatory
-wywołań według epoki. Klientowy wariant `ChatRuntime` subskrybuje hosta; nie tworzy
-lokalnego procesu agenta ani lokalnej historii tej rozmowy.
+wywołań według epoki. `ChatRuntime` korzysta z `ThreadTransport::{Local, Grpc}`;
+granica transportu dostarcza operacje i odczyty domenowe. Grpc subskrybuje hosta;
+nie tworzy lokalnego procesu agenta ani lokalnej historii tej rozmowy. Konwersje
+wire, stream, pump i recovery należą do `runtime/transport/grpc.rs`. Szczegóły
+pokrycia i uzasadnienie typów: [granica transportu](command-bus.md#dostęp-do-wątku-local-i-grpc).
 
 `PaneMetadata.remote` zawiera wyłącznie UUID hosta i czatu. Zwykłe taby, przeciąganie,
 splity i odtwarzanie sesji są własnością urządzenia. Ten sam czat można oglądać w
@@ -1242,8 +1245,8 @@ host nie potwierdził, pokazuje tacka nad composerem w miejscu kolejki (`remote:
 jest edytowane): kropka i zdanie według `CommandReceipt.state` — brak potwierdzenia „Message not confirmed
 by {host}” (żółta), ACCEPTED/ATTEMPTING „{host} is processing it” (akcent), DELIVERY_UNKNOWN „{host}
 couldn't confirm it” (żółta), NOT_FOUND „{host} has no record of it” (czerwona). Pod nim treść żądania
-(z `ChatMutation`), pełna w karcie na hover ze statusem. Akcje jak w kolejce: „Check status”
-(`client_reconcile`) i „Send again” (`client_retry_saved`, tylko bez potwierdzenia albo przy NOT_FOUND).
+(z domenowego `PendingRequest`), pełna w karcie na hover ze statusem. Akcje jak w kolejce: „Check status”
+(`check_pending_request`) i „Send again” (`retry_pending_request`, tylko bez potwierdzenia albo przy NOT_FOUND).
 `RemoteSession.recovering` trzyma trwającą akcję: jej przycisk ma spinner (`ButtonLoading`), Send again
 znika na czas sprawdzania. Przycisk „Earlier messages” jest kryjący (`loading_button`, `shadow_md`), ze
 spinnerem podczas pobierania strony; błąd strony (`RemoteSession.history_error`) zamienia go w „Couldn't

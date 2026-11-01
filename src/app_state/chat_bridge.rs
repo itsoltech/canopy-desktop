@@ -582,6 +582,7 @@ fn subscribe(
             // A draft returned to a local composer is not a remote event.
             ChatRuntimeEvent::DraftReturned(_)
             | ChatRuntimeEvent::DraftConsumed(_)
+            | ChatRuntimeEvent::FileRequested(_)
             | ChatRuntimeEvent::EditFinished { .. } => return,
         };
         on_change(event, cx);

@@ -1,15 +1,14 @@
 //! Quiet actions under a message (DEC-042): copy, edit and retry, shown on hover with
 //! the turn's numbers. Hovering anywhere on the message reveals them.
 use super::{rows::Row, tools, view::ChatView};
+use crate::app_state::ContextSource;
 use crate::ui::components::hover_card::content as card;
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{
-    backend::ContextUsage,
     presentation,
     provider::Provider,
     transcript::{ItemId, TurnEnd},
 };
-use canopy_desktop::remote::proto as p;
 use gpui_kit::component::{IconName, button::Button};
 use gpui_kit::{prelude::FluentBuilder, *};
 use std::time::{Duration, Instant};
@@ -41,29 +40,8 @@ impl ChatView {
 
     /// Sends the last message again as a new turn.
     pub(super) fn retry(&mut self, cx: &mut Context<Self>) {
-        if self.rt(cx).is_remote() {
-            let draft = self.transcript(cx).and_then(|t| {
-                t.items().iter().rev().find_map(|i| match &i.body {
-                    canopy_desktop::chat::transcript::Body::User(m) if i.parent.is_none() => {
-                        Some(canopy_desktop::chat::session::Draft {
-                            text: m.text.clone(),
-                            attachments: m.attachments.clone(),
-                            context: m.context.clone(),
-                            goal: m.goal,
-                        })
-                    }
-                    _ => None,
-                })
-            });
-            if let Some(draft) = draft {
-                self.runtime.update(cx, |r, cx| r.retry_remote(draft, cx));
-            }
-            return;
-        }
-        let Some(draft) = self.native(cx).and_then(|session| session.retry_draft()) else {
-            return;
-        };
-        self.with_images(draft, cx, |this, draft, cx| this.send_draft(draft, cx));
+        self.runtime
+            .update(cx, |runtime, cx| runtime.retry_last(cx));
     }
 
     /// Nothing runs, waits or is queued: a message can be sent again or edited.
@@ -245,61 +223,9 @@ fn turn_numbers(end: &TurnEnd, billing: bool) -> String {
     parts.join(" · ")
 }
 
-/// How full a chat's context is, wherever its agent runs.
-struct ContextReading {
-    usage: Option<ContextUsage>,
-    /// A ChatGPT plan's usage limit (Codex, on this computer only).
-    rate: Option<canopy_desktop::chat::codex::adapter::RateLimit>,
-    source: ContextSource,
-}
-
-/// Where a context reading comes from, for the card's wording.
-enum ContextSource {
-    /// The live session on this computer.
-    Local(Provider),
-    /// The last turn another computer reported; `None` while its name is unknown.
-    Remote(Option<String>),
-}
-
-/// The context reading every kind of chat shares: the live Claude or Codex session,
-/// the last turn a host reported for a chat on another computer. Agents that report
-/// no usage (ACP today) have none, and the ring stays away.
-fn context_reading(runtime: &crate::app_state::ChatRuntime) -> Option<ContextReading> {
-    if let Some(remote) = runtime.remote_source() {
-        // Only the newest turn counts: an older reading would understate the context.
-        let end = remote
-            .projection
-            .items
-            .iter()
-            .rev()
-            .find_map(|item| match &item.body {
-                Some(p::transcript_item::Body::TurnEnd(end)) => Some(end),
-                _ => None,
-            })?;
-        let usage = end.usage.as_ref()?;
-        let usage = ContextUsage {
-            used: usage.context_used?,
-            max: usage.context_max.filter(|max| *max > 0)?,
-            buffer: usage.context_buffer.unwrap_or(0),
-        };
-        return Some(ContextReading {
-            usage: Some(usage),
-            rate: None,
-            source: ContextSource::Remote(runtime.remote_host().map(|host| host.name())),
-        });
-    }
-    let session = runtime.native()?;
-    let (usage, rate) = (session.context(), session.rate_limit());
-    (usage.is_some() || rate.is_some()).then(|| ContextReading {
-        usage,
-        rate,
-        source: ContextSource::Local(session.provider()),
-    })
-}
-
 /// The context indicator next to the pickers: how full the model's context window is.
 pub(super) fn context_ring(this: &ChatView, cx: &App) -> Option<Stateful<Div>> {
-    let reading = context_reading(this.rt(cx))?;
+    let reading = this.rt(cx).context_reading()?;
     let mut meters = vec![];
     if let Some(usage) = reading.usage {
         // The CLI compacts once the free space before its buffer runs out: the ring

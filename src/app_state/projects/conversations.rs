@@ -64,7 +64,7 @@ impl ProjectsState {
         let mut source = self
             .conversation_workspace(workspace, cx)
             .ok_or_else(|| SharedString::from("The conversation is no longer available."))?;
-        let mut value = source
+        let value = source
             .all_panes()
             .into_iter()
             .find(|p| p.id == pane)
@@ -72,11 +72,17 @@ impl ProjectsState {
         source
             .rename_chat(pane, title)
             .map_err(|_| SharedString::from("Enter a non-empty name without line breaks."))?;
-        // A remote tab's label belongs to this local view; it does not rename the
-        // host's conversation. Host rename mutations enter through its typed RPC.
-        if value.metadata.remote.is_some() {
-            return self.publish_chat_rename(workspace, pane, title, cx);
-        }
+        super::super::chats::ThreadTransport::rename_presentation(self, value, workspace, title, cx)
+    }
+
+    pub(in crate::app_state) fn rename_owned_chat(
+        &mut self,
+        workspace: WorkspaceId,
+        mut value: canopy_desktop::state::workspace::Pane,
+        title: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let pane = value.id;
         let app = cx.global::<AppState>().clone();
         let settings = app.settings.read(cx);
         let client = settings

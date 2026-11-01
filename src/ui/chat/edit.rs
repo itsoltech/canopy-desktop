@@ -4,19 +4,14 @@
 //! kept their checkpoints.
 use super::{render::centered, view::ChatView};
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::chat::{
-    claude::wire::RewindPreview,
-    session::{Draft, Rewind},
-    transcript::{Body, ItemId},
-};
+use canopy_desktop::chat::{claude::wire::RewindPreview, session::Draft, transcript::ItemId};
 use canopy_desktop::motion;
 use gpui_kit::component::{IconName, Sizable, spinner::Spinner};
 use gpui_kit::{prelude::FluentBuilder, *};
 
 pub(super) struct Editing {
     pub item: ItemId,
-    /// Message the new branch continues after; `None` starts a fresh conversation.
-    pub fork: Option<String>,
+    pub run: u64,
     /// Composer content from before the edit, back on Cancel.
     pub draft: Draft,
     /// What restoring files would change, once the CLI has answered.
@@ -30,8 +25,6 @@ pub(super) struct Editing {
     pub error: Option<String>,
     /// The error offers Check again: the host's preview of the edit is gone or failed.
     pub recheck: bool,
-    /// Context sent with the edited message (after a switch); it goes again.
-    pub context: Option<String>,
 }
 
 impl ChatView {
@@ -40,109 +33,99 @@ impl ChatView {
         if !self.settled(cx) {
             return;
         }
-        if self.rt(cx).is_remote() {
-            // One check at a time; the pencil shows it until the host answers.
-            if self.edit_check.as_ref().is_some_and(|(_, l)| l.active()) {
-                return;
-            }
+        // One check at a time; the pencil shows it until the host answers.
+        if self.edit_check.as_ref().is_some_and(|(_, l)| l.active()) {
+            return;
+        }
+        let (original, preview) = self
+            .runtime
+            .update(cx, |runtime, cx| runtime.preview_message_edit(item, cx));
+        let run = self.rt(cx).generation();
+        let opened = original.is_some();
+        if let Some(original) = original {
+            self.open_message_edit(item, original, None, window, cx);
+        } else {
             let mut loading = ButtonLoading::default();
             loading.set(true, cx);
             self.edit_check = Some((item, loading));
-            cx.notify();
-            let preview = self
-                .runtime
-                .update(cx, |runtime, cx| runtime.client_preview(item, cx));
-            let revision = self.remote_revision;
-            cx.spawn_in(window, async move |this, cx| {
-                let result = preview.await;
-                let _ = this.update_in(cx, |this, window, cx| {
-                    if let Some((_, loading)) = &mut this.edit_check {
-                        loading.set(false, cx);
-                    }
-                    if this.remote_revision != revision {
-                        cx.notify();
-                        return;
-                    }
-                    match result {
-                        Ok(preview) => {
-                            let previous = this.composer_draft(cx);
-                            this.runtime.update(cx, |runtime, cx| {
-                                runtime.save_client_edit(Some(previous.clone()), cx)
-                            });
-                            let original = preview
-                                .original
-                                .as_ref()
-                                .map(canopy_desktop::remote::client::presentation::draft)
-                                .unwrap_or_default();
-                            this.editing = Some(Editing {
-                                item,
-                                fork: None,
-                                draft: previous,
-                                preview: preview.files.map(|f| {
-                                    canopy_desktop::chat::backend::RewindPreview {
-                                        possible: f.possible,
-                                        files: f.paths,
-                                        insertions: f.insertions,
-                                        deletions: f.deletions,
-                                    }
-                                }),
-                                restore: false,
-                                sending: None,
-                                checking: false,
-                                error: None,
-                                recheck: false,
-                                context: original.context.clone(),
-                            });
-                            this.set_composer_draft(original, window, cx);
-                        }
-                        Err(error) => this.shell_error = Some(error),
-                    }
-                    cx.notify();
-                });
-            })
-            .detach();
-            return;
         }
-        let Some(session) = self.native(cx) else {
-            return;
-        };
-        let Some(fork) = session.fork_point(item) else {
-            return;
-        };
-        let Some(message) = session
-            .transcript()
-            .items()
-            .iter()
-            .find_map(|i| match &i.body {
-                Body::User(message) if i.id == item => Some(Draft {
-                    text: message.text.clone(),
-                    attachments: message.attachments.clone(),
-                    context: message.context.clone(),
-                    goal: message.goal,
-                }),
-                _ => None,
-            })
-        else {
-            return;
-        };
-        // Which files changed after this message (answered asynchronously).
-        self.runtime
-            .update(cx, |runtime, cx| runtime.rewind_files(item, true, cx));
-        let draft = self.composer_draft(cx);
+        let revision = self.remote_revision;
+        cx.notify();
+        self.edit_preview = Some(cx.spawn_in(window, async move |this, cx| {
+            let result = preview.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if let Some((_, loading)) = &mut this.edit_check {
+                    loading.set(false, cx);
+                }
+                if this.rt(cx).generation() != run
+                    || (!opened && this.remote_revision != revision)
+                    || (opened
+                        && this
+                            .editing
+                            .as_ref()
+                            .is_none_or(|edit| edit.item != item || edit.run != run))
+                {
+                    cx.notify();
+                    return;
+                }
+                match result {
+                    Ok(preview) => {
+                        let files = Some({
+                            let f = preview.files;
+                            canopy_desktop::chat::backend::RewindPreview {
+                                possible: f.possible,
+                                files: f.paths,
+                                insertions: f.insertions,
+                                deletions: f.deletions,
+                            }
+                        });
+                        if opened {
+                            let edit = this.editing.as_mut().unwrap();
+                            if edit.sending.is_none() {
+                                edit.preview = files;
+                            }
+                        } else {
+                            this.open_message_edit(
+                                item,
+                                preview.original.unwrap_or_default(),
+                                files,
+                                window,
+                                cx,
+                            );
+                        }
+                    }
+                    Err(error) => this.shell_error = Some(error),
+                }
+                cx.notify();
+            });
+        }));
+    }
+
+    fn open_message_edit(
+        &mut self,
+        item: ItemId,
+        original: Draft,
+        preview: Option<RewindPreview>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let previous = self.composer_draft(cx);
+        let run = self.rt(cx).generation();
+        self.runtime.update(cx, |runtime, cx| {
+            runtime.save_message_edit(Some(previous.clone()), cx)
+        });
         self.editing = Some(Editing {
             item,
-            fork,
-            draft,
-            preview: None,
+            run,
+            draft: previous,
+            preview,
             restore: false,
             sending: None,
             checking: false,
             error: None,
             recheck: false,
-            context: message.context.clone(),
         });
-        self.set_composer_draft(message, window, cx);
-        cx.notify();
+        self.set_composer_draft(original, window, cx);
     }
 
     pub(super) fn cancel_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -153,10 +136,9 @@ impl ChatView {
         let Some(editing) = self.editing.take() else {
             return;
         };
-        if self.rt(cx).is_remote() {
-            self.runtime
-                .update(cx, |runtime, cx| runtime.save_client_edit(None, cx));
-        }
+        self.edit_preview = None;
+        self.runtime
+            .update(cx, |runtime, cx| runtime.save_message_edit(None, cx));
         self.set_composer_draft(editing.draft, window, cx);
         cx.notify();
     }
@@ -173,139 +155,21 @@ impl ChatView {
         {
             return;
         }
-        if self.rt(cx).is_remote() {
-            if self
-                .rt(cx)
-                .remote_source()
-                .is_none_or(|s| s.preview.is_none())
-            {
-                // Said in the edit tray, with Check again to ask for a new preview.
-                let error = format!("{} no longer has this edit's preview.", self.host_name(cx));
-                if let Some(editing) = &mut self.editing {
-                    editing.error = Some(error);
-                    editing.recheck = true;
-                }
-                cx.notify();
-                return;
-            }
-            self.save_remote_draft(cx);
-            let restore = self.editing.as_ref().is_some_and(|e| e.restore);
-            let editing = self.editing.as_mut().unwrap();
-            editing.sending = Some(draft.clone());
-            editing.error = None;
-            editing.recheck = false;
-            cx.notify();
-            let revision = self.remote_revision;
-            self.runtime.update(cx, |runtime, cx| {
-                runtime.client_edit(draft, restore, revision, cx)
-            });
-            return;
-        }
-        // Images of a message sent before a restart are read again first.
-        self.with_images(draft, cx, |this, draft, cx| this.send_edit_draft(draft, cx));
-    }
-
-    fn send_edit_draft(&mut self, mut draft: Draft, cx: &mut Context<Self>) {
-        let Some(editing) = &mut self.editing else {
-            return;
-        };
-        if editing.sending.is_some() {
-            return;
-        }
-        draft.context = editing.context.clone();
-        let item = editing.item;
-        let restore = editing.restore && editing.preview.as_ref().is_some_and(|p| p.possible);
-        editing.sending = Some(draft);
+        self.save_remote_draft(cx);
+        let editing = self.editing.as_mut().unwrap();
+        let (item, restore, run) = (editing.item, editing.restore, editing.run);
+        editing.sending = Some(draft.clone());
         editing.error = None;
-        if restore {
-            let asked = self
-                .runtime
-                .update(cx, |runtime, cx| runtime.rewind_files(item, false, cx));
-            if !asked {
-                // The session can't restore now: the text stays to send without files.
-                if let Some(editing) = &mut self.editing {
-                    editing.sending = None;
-                    editing.restore = false;
-                    editing.error = Some("Files can't be restored now.".into());
-                }
-            }
-            cx.notify();
-            return;
+        editing.recheck = false;
+        let revision = self.remote_revision;
+        if let Err(error) = self.runtime.update(cx, |runtime, cx| {
+            runtime.commit_message_edit(item, draft, restore, revision, run, cx)
+        }) {
+            let editing = self.editing.as_mut().unwrap();
+            editing.sending = None;
+            editing.error = Some(error);
+            editing.recheck = true;
         }
-        self.fork_edit(cx);
-    }
-
-    /// Follows the CLI's answers about files (in `after_change`).
-    pub(super) fn sync_edit(&mut self, cx: &mut Context<Self>) {
-        if self.rt(cx).is_remote() {
-            return;
-        }
-        let ended = self
-            .rt(cx)
-            .backend()
-            .is_none_or(|session| session.status().ended());
-        let outcome = self
-            .native(cx)
-            .and_then(|s| s.rewind())
-            .map(|(item, outcome)| (*item, outcome.clone()));
-        let Some(editing) = &mut self.editing else {
-            return;
-        };
-        let outcome = outcome
-            .filter(|(item, _)| *item == editing.item)
-            .map(|(_, outcome)| outcome);
-        let sending = editing.sending.is_some();
-        match outcome {
-            // Dry-run answers only shape the offer; restore answers only the sending.
-            Some(Rewind::Preview(preview)) if !sending && editing.preview.is_none() => {
-                editing.preview = Some(preview)
-            }
-            Some(Rewind::Unavailable(_)) if !sending && editing.preview.is_none() => {
-                editing.preview = Some(Default::default())
-            }
-            Some(Rewind::Done) if sending => self.fork_edit(cx),
-            Some(Rewind::Failed(error)) if sending => {
-                // Nothing was sent: the text stays to be sent with or without files.
-                editing.error = Some(format!("Couldn't restore the files: {error}"));
-                editing.restore = false;
-                editing.sending = None;
-            }
-            _ if sending && ended => {
-                editing.error = Some("The chat ended before the files were restored.".into());
-                editing.restore = false;
-                editing.sending = None;
-            }
-            _ => {}
-        }
-    }
-
-    /// Replaces the session with a branch that continues before the edited message.
-    fn fork_edit(&mut self, cx: &mut Context<Self>) {
-        let Some(editing) = self.editing.take() else {
-            return;
-        };
-        let Some(draft) = editing.sending else {
-            return;
-        };
-        if editing.fork.is_some() && self.pane(cx).metadata.resume_id.is_none() {
-            // Nothing to fork from: keep the text and say so.
-            self.editing = Some(Editing {
-                sending: None,
-                error: Some("This conversation can't be continued from there.".into()),
-                ..editing
-            });
-            cx.notify();
-            return;
-        }
-        // The composer empties once the edit is on its way.
-        self.decision.composer = Some(super::decision::ComposerChange {
-            text: Some(String::new().into()),
-            placeholder: super::decision::COMPOSER_PLACEHOLDER,
-        });
-        self.attachments.pending.clear();
-        let fork = editing.fork.clone();
-        self.runtime
-            .update(cx, |runtime, cx| runtime.restart_edited(fork, draft, cx));
         cx.notify();
     }
 
@@ -323,7 +187,7 @@ impl ChatView {
         let Some(editing) = self.editing.as_ref() else {
             return self.recovery_bar(cx);
         };
-        let remote = self.rt(cx).is_remote();
+        let environment = self.rt(cx).environment_name();
         let files = editing
             .preview
             .as_ref()
@@ -334,8 +198,8 @@ impl ChatView {
             Some(format!("Checking the message on {}…", self.host_name(cx)))
         } else if sending && editing.restore {
             Some("Restoring files…".to_owned())
-        } else if sending && remote {
-            Some(format!("Sending the edit to {}…", self.host_name(cx)))
+        } else if let Some(environment) = environment.filter(|_| sending) {
+            Some(format!("Sending the edit to {environment}…"))
         } else if sending {
             Some("Sending the edit…".to_owned())
         } else {

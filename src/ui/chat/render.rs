@@ -745,14 +745,7 @@ fn item_row(
                 entry,
                 item.id,
                 &message.text,
-                live && this.settled(cx)
-                    && (this
-                        .rt(cx)
-                        .remote_source()
-                        .is_some_and(|s| s.enabled("edit"))
-                        || this
-                            .native(cx)
-                            .is_some_and(|s| s.fork_point(item.id).is_some())),
+                live && this.settled(cx) && this.rt(cx).can_edit_message(item.id),
                 // Sent in another agent's part: it can't be edited from here.
                 match source {
                     Source::Archived { epoch, .. } => rows
@@ -772,9 +765,21 @@ fn item_row(
                 Source::Archived { epoch, .. } => Source::Archived { epoch, index },
             });
             // Only the main conversation forks (a subagent's thread has no session).
-            let fork = end_at
-                .filter(|_| this.threads.is_empty())
-                .filter(|&at| this.fork_request(at, cx).is_some() || (this.capabilities(cx).fork && this.rt(cx).is_remote() && rows.item(at,this.transcript(cx)).is_some_and(|item| matches!(&item.body,Body::TurnEnd(end) if end.resume_at.is_some()))));
+            let fork = end_at.filter(|_| this.threads.is_empty()).filter(|&at| {
+                let epoch = match at {
+                    Source::Current(_) => this.rt(cx).epoch(),
+                    Source::Archived { epoch, .. } => rows.archived[epoch].epoch,
+                };
+                rows.item(at, this.transcript(cx)).is_some_and(|item| {
+                    this.rt(cx).can_fork_at(
+                        crate::app_state::HistoryPosition {
+                            history_epoch: epoch,
+                            item_id: item.id.0,
+                        },
+                        cx,
+                    )
+                })
+            });
             let transcript = this.transcript(cx);
             let end =
                 end_at
@@ -894,26 +899,9 @@ fn tool_row(
 ) -> Div {
     let cwd = this.pane(cx).metadata.cwd.clone().unwrap_or_default();
     let summary = presentation::tool_summary(tool, &cwd);
-    let file = this.tool_files.get(&tool.call_id);
-    let remote_file = this.rt(cx).remote_source().and_then(|source| {
-        source
-            .projection
-            .items
-            .iter()
-            .find_map(|item| match &item.body {
-                Some(canopy_desktop::remote::proto::transcript_item::Body::Tool(wire))
-                    if item.key.is_some_and(|key| {
-                        canopy_desktop::remote::client::presentation::call_id(
-                            key.history_epoch,
-                            &wire.call_id,
-                        ) == tool.call_id
-                    }) =>
-                {
-                    wire.files.first().cloned()
-                }
-                _ => None,
-            })
-    });
+    let file = this
+        .rt(cx)
+        .tool_file(&tool.call_id, this.tool_files.get(&tool.call_id));
     let (status, status_label): (AnyElement, &'static str) = match tool.state {
         ToolState::Streaming | ToolState::Running => (
             Spinner::new().xsmall().color(t::muted()).into_any_element(),
@@ -987,31 +975,8 @@ fn tool_row(
                 .child(label),
         )
         .child(match file {
-            Some(file) => div()
-                .flex_1()
-                .min_w_0()
-                .overflow_hidden()
-                .flex()
-                .child(crate::ui::markdown::file_pill::pill(
-                    ("chat-tool-file", key),
-                    &cwd,
-                    &canopy_desktop::chat::mentions::Target {
-                        path: file.path(),
-                        line: file.line,
-                    },
-                    px(12.),
-                    px(20.),
-                ))
-                .into_any_element(),
-            // A file on the host looks like a local one; it opens in the host's preview.
-            None if remote_file.is_some() => {
-                let file = remote_file.unwrap();
-                let tooltip = match this.rt(cx).remote_host() {
-                    Some(host) => format!("{} · {}", file.relative_path, host.name()),
-                    None => file.relative_path.clone(),
-                };
+            Some(file) => {
                 let runtime = this.runtime.clone();
-                let view = view.downgrade();
                 div()
                     .flex_1()
                     .min_w_0()
@@ -1019,22 +984,16 @@ fn tool_row(
                     .flex()
                     .child(
                         crate::ui::markdown::file_pill::look(
-                            ("chat-remote-tool-file", key),
-                            &canopy_desktop::chat::mentions::Target {
-                                path: file.relative_path.clone().into(),
-                                line: None,
-                            },
-                            tooltip.into(),
+                            ("chat-tool-file", key),
+                            &file.target,
+                            file.tooltip.clone().into(),
                             px(12.),
                             px(20.),
                         )
                         .on_click(move |_, _, cx| {
                             cx.stop_propagation();
-                            let _ = view.update(cx, |_, cx| {
-                                cx.emit(super::ClientFileRequested {
-                                    runtime: runtime.clone(),
-                                    file: file.clone(),
-                                })
+                            runtime.update(cx, |runtime, cx| {
+                                runtime.open_thread_file(file.clone(), cx)
                             });
                         }),
                     )

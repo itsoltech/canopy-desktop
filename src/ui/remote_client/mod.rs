@@ -166,7 +166,7 @@ struct RemoteWindow {
     cancelled: Arc<AtomicBool>,
     workspace: Option<p::WorkspaceRef>,
     terminal: Option<p::TerminalRef>,
-    agents: Option<p::AgentDiscovery>,
+    agents: Option<Vec<crate::app_state::Account>>,
     discovery_busy: bool,
     discovery_abort: Option<tokio::task::AbortHandle>,
     discovery_revision: u64,

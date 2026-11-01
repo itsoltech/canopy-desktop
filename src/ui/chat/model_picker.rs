@@ -331,28 +331,8 @@ impl ChatView {
     /// Every account the picker shows lists its models again in the background, except
     /// the one whose agent already listed them in this chat (DEC-098).
     fn refresh_models(&mut self, cx: &mut Context<Self>) {
-        if self.rt(cx).is_remote() {
-            return;
-        }
-        let (accounts, current) = self.accounts(cx);
-        let locked = self.account_locked(cx);
-        let live =
-            self.rt(cx).is_remote() || self.native(cx).is_some_and(|s| !s.models().is_empty());
-        let catalog = cx.global::<AppState>().model_catalog.clone();
-        let pane = self.pane(cx).clone();
-        for account in accounts {
-            let here = account.id == current;
-            // ACP agents name their models only in a running session.
-            let Some(provider) = account
-                .provider
-                .filter(|_| !(locked && !here || here && live))
-            else {
-                continue;
-            };
-            catalog.update(cx, |catalog, cx| {
-                catalog.refresh(provider, account.id, &pane, cx)
-            });
-        }
+        self.runtime
+            .update(cx, |runtime, cx| runtime.refresh_account_models(cx));
     }
 
     fn turn_page(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -773,18 +753,8 @@ impl ChatView {
         let (accounts, current) = self.accounts(cx);
         let catalog = cx.global::<AppState>().model_catalog.read(cx);
         let query = self.model_picker.search.read(cx).value().to_string();
-        let list = |account: &Account| -> Vec<ModelInfo> {
-            if account.id == current {
-                self.models(cx)
-            } else if self.rt(cx).is_remote() {
-                Vec::new()
-            } else {
-                catalog
-                    .models(&account.id)
-                    .map(<[_]>::to_vec)
-                    .unwrap_or_default()
-            }
-        };
+        let list =
+            |account: &Account| -> Vec<ModelInfo> { self.rt(cx).account_models(&account.id, cx) };
         let choice = |account: &Account, models: &[ModelInfo], model: Option<&ModelInfo>| {
             let (title, note) = match model {
                 Some(info) => (info.label(), None),
@@ -957,7 +927,7 @@ impl ChatView {
 
     /// The accounts rail (before the first message) beside the search and the list.
     fn models_page(&self, rail: bool, cx: &mut Context<Self>) -> Div {
-        let (accounts, current) = self.accounts(cx);
+        let (accounts, _) = self.accounts(cx);
         let tab = self.model_picker.tab.clone();
         let choices = self.model_choices(cx);
         let back = self
@@ -966,35 +936,13 @@ impl ChatView {
         let highlighted = self.model_picker.highlighted;
         let hearts = tab.is_none();
         let searching = !self.model_picker.search.read(cx).value().trim().is_empty();
-        let remote = self.rt(cx).is_remote();
-        let live = remote || self.native(cx).is_some_and(|s| !s.models().is_empty());
-        let catalog = cx.global::<AppState>().model_catalog.read(cx);
         // Under the list: why it is empty, or the account's models still on their way.
         let note = match tab.as_deref() {
             None if choices.is_empty() && !searching => {
                 Some("Models with a heart show here.".to_owned())
             }
             _ if choices.is_empty() => Some("No matching models".to_owned()),
-            Some(profile) if remote && profile != current => {
-                Some("Select this account to load its models from the host.".to_owned())
-            }
-            Some(profile)
-                if !(profile == current && live)
-                    && catalog.models(profile).is_none()
-                    && accounts
-                        .iter()
-                        .any(|a| a.id == profile && a.provider.is_some()) =>
-            {
-                Some(if catalog.fetching(profile) {
-                    "Loading models…".to_owned()
-                } else if let Some(error) = catalog.error(profile) {
-                    format!("Couldn't load models: {error}")
-                } else if profile == current {
-                    "The agent lists its models once it has started.".to_owned()
-                } else {
-                    "Loading models…".to_owned()
-                })
-            }
+            Some(profile) => self.rt(cx).account_models_note(profile, cx),
             _ => None,
         };
         let rows: Vec<_> = choices

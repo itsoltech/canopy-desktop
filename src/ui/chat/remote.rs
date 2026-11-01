@@ -1,8 +1,7 @@
 //! The ordinary composer keeps its device draft while the host accepts a send.
 use super::{render::centered, view::ChatView};
-use crate::app_state::Recovering;
+use crate::app_state::{PendingOutcome as Pending, PendingRequest as SavedRequest, Recovering};
 use crate::ui::{components::*, theme as t};
-use canopy_desktop::remote::{client::ChatMutation, proto as p};
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     IconName, Sizable,
@@ -12,38 +11,29 @@ use gpui_kit::*;
 #[derive(Clone)]
 pub(crate) struct ClientFileRequested {
     pub runtime: Entity<crate::app_state::ChatRuntime>,
-    pub file: canopy_desktop::remote::proto::FileRef,
+    pub file: crate::app_state::ThreadFile,
 }
 impl EventEmitter<ClientFileRequested> for ChatView {}
 impl ChatView {
     pub(super) fn restore_remote_edit(&mut self, cx: &mut Context<Self>) {
-        if self.editing.is_some() || !self.rt(cx).is_remote() {
+        if self.editing.is_some() {
             return;
         }
-        let Some((saved, previous)) = self.runtime.update(cx, |r, _| r.take_client_edit()) else {
+        let Some(saved) = self.runtime.update(cx, |r, _| r.take_saved_message_edit()) else {
             return;
         };
-        let Some(item) = saved.item else {
-            return;
-        };
-        let current = self
-            .rt(cx)
-            .remote_source()
-            .is_some_and(|s| s.run() == saved.run_id)
-            && self.rt(cx).epoch() == item.history_epoch;
         self.editing = Some(super::edit::Editing {
-            item: canopy_desktop::chat::transcript::ItemId(item.item_id),
-            fork: None,
-            draft: previous,
+            item: canopy_desktop::chat::transcript::ItemId(saved.position.item_id),
+            run: self.rt(cx).generation(),
+            draft: saved.previous,
             preview: None,
             restore: false,
             sending: None,
             checking: false,
             error: None,
             recheck: false,
-            context: saved.original.and_then(|d| d.context),
         });
-        if !current {
+        if !saved.current {
             if let Some(edit) = &mut self.editing {
                 edit.error = Some(
                     "The original run has changed. Review the saved request or cancel this edit."
@@ -62,29 +52,36 @@ impl ChatView {
             return;
         };
         let item = edit.item;
+        let run = edit.run;
         edit.checking = true;
         edit.error = None;
         edit.recheck = false;
-        let task = self.runtime.update(cx, |r, cx| r.client_preview(item, cx));
+        let (_, task) = self
+            .runtime
+            .update(cx, |r, cx| r.preview_message_edit(item, cx));
         cx.notify();
-        cx.spawn(async move |this, cx| {
+        self.edit_preview = Some(cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                let Some(edit) = this.editing.as_mut().filter(|e| e.item == item) else {
+                let Some(edit) = this
+                    .editing
+                    .as_mut()
+                    .filter(|e| e.item == item && e.run == run)
+                else {
                     return;
                 };
                 edit.checking = false;
                 match result {
                     Ok(preview) => {
-                        edit.preview =
-                            preview
-                                .files
-                                .map(|f| canopy_desktop::chat::backend::RewindPreview {
-                                    possible: f.possible,
-                                    files: f.paths,
-                                    insertions: f.insertions,
-                                    deletions: f.deletions,
-                                });
+                        edit.preview = Some({
+                            let f = preview.files;
+                            canopy_desktop::chat::backend::RewindPreview {
+                                possible: f.possible,
+                                files: f.paths,
+                                insertions: f.insertions,
+                                deletions: f.deletions,
+                            }
+                        });
                     }
                     Err(error) => {
                         edit.error = Some(error);
@@ -93,26 +90,20 @@ impl ChatView {
                 }
                 cx.notify();
             });
-        })
-        .detach();
+        }));
     }
 
     /// The computer a remote chat runs on, by its name.
     pub(super) fn host_name(&self, cx: &App) -> String {
         self.rt(cx)
-            .remote_source()
-            .and_then(|s| s.host.as_ref())
-            .map(|host| host.name())
-            .filter(|name| !name.is_empty())
+            .environment_name()
             .unwrap_or_else(|| "The other computer".into())
     }
 
     /// Spinners follow the remote session's history page and recovery action.
     pub(super) fn sync_remote_feedback(&mut self, cx: &App) {
-        let Some(source) = self.rt(cx).remote_source() else {
-            return;
-        };
-        let (history, recovering) = (source.history_loading, source.recovering);
+        let runtime = self.rt(cx);
+        let (history, recovering) = (runtime.history_loading(), runtime.recovering());
         let feedback = &mut self.remote_feedback;
         for (loading, active) in [
             (&mut feedback.history, history),
@@ -133,19 +124,11 @@ impl ChatView {
     /// with what can be done about it.
     pub(super) fn recovery_bar(&self, cx: &mut Context<Self>) -> Option<Div> {
         use crate::ui::components::hover_card::content as card;
-        let source = self.rt(cx).remote_source()?;
-        let host = source.host.as_ref()?;
-        let (id, mutation, receipt) =
-            host.chat_mutations(&source.chat())
-                .into_iter()
-                .find(|(_, _, r)| {
-                    r.as_ref()
-                        .is_none_or(|r| !r.resolved_by_user && ![3, 4, 5, 7].contains(&r.state))
-                })?;
-        let recovering = source.recovering;
+        let saved = self.rt(cx).pending_request()?;
+        let id = saved.id.clone();
+        let recovering = self.rt(cx).recovering();
         let host_name = self.host_name(cx);
-        let saved = SavedRequest::of(&mutation);
-        let state = Pending::of(receipt.as_ref().map(|r| r.state));
+        let state = saved.state;
         let line = state.line(&saved, &host_name);
         let (label, detail) = state.card(&host_name);
         let dot = state.dot();
@@ -155,7 +138,7 @@ impl ChatView {
             tray_action("chat-check-request", "Check status", &feedback.check)
                 .disabled(recovering == Some(Recovering::Sending))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.runtime.update(cx, |r, cx| r.client_reconcile(cx))
+                    this.runtime.update(cx, |r, cx| r.check_pending_request(cx))
                 }))
         });
         // Hidden while a check runs: its answer decides whether sending again is safe.
@@ -163,7 +146,7 @@ impl ChatView {
             tray_action("chat-retry-request", "Send again", &feedback.again).on_click(cx.listener(
                 move |this, _, _, cx| {
                     this.runtime
-                        .update(cx, |r, cx| r.client_retry_saved(id.clone(), cx))
+                        .update(cx, |r, cx| r.retry_pending_request(id.clone(), cx))
                 },
             ))
         });
@@ -260,13 +243,13 @@ impl ChatView {
     /// Over the top of the conversation while the host holds earlier messages; a
     /// failed page turns it into Retry.
     pub(super) fn history_button(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let source = self.rt(cx).remote_source()?;
-        if !source.projection.has_earlier {
+        let runtime = self.rt(cx);
+        if !runtime.has_earlier_history() {
             return None;
         }
         let loading = &self.remote_feedback.history;
-        let button = match &source.history_error {
-            Some(_) if !source.history_loading => loading_button_with_icon(
+        let button = match runtime.history_error() {
+            Some(_) if !runtime.history_loading() => loading_button_with_icon(
                 "chat-earlier",
                 "Couldn't load · Retry",
                 icon(IconName::TriangleAlert).text_color(t::red()),
@@ -285,7 +268,7 @@ impl ChatView {
                 .child(
                     // Opaque, with a shadow: it lies over the messages.
                     button.shadow_md().on_click(cx.listener(|this, _, _, cx| {
-                        this.runtime.update(cx, |r, cx| r.client_history(None, cx))
+                        this.runtime.update(cx, |r, cx| r.load_history(None, cx))
                     })),
                 )
                 .into_any_element(),
@@ -293,15 +276,10 @@ impl ChatView {
     }
 
     pub(super) fn save_remote_draft(&mut self, cx: &mut Context<Self>) {
-        if !self.rt(cx).is_remote() {
-            return;
-        }
         let draft = self.composer_draft(cx);
-        let revision = canopy_desktop::remote::client::HostClient::next_view_revision();
-        self.remote_revision = revision;
-        self.runtime.update(cx, |runtime, cx| {
-            runtime.save_client_draft(draft, revision, cx)
-        });
+        self.remote_revision = self
+            .runtime
+            .update(cx, |runtime, cx| runtime.save_composer_draft(draft, cx));
     }
 }
 
@@ -313,62 +291,7 @@ pub(super) struct RemoteFeedback {
     again: ButtonLoading,
 }
 
-/// What a saved request was, for its tray.
-struct SavedRequest {
-    /// Its kind as the tray names it: capitalized, and within a sentence.
-    kind: (&'static str, &'static str),
-    /// What was asked, when it has text: the message, the edit, the command.
-    text: Option<String>,
-}
-impl SavedRequest {
-    fn of(mutation: &ChatMutation) -> Self {
-        let draft = |draft: Option<&p::MessageDraft>| {
-            draft
-                .map(|d| d.text.trim().to_owned())
-                .filter(|text| !text.is_empty())
-        };
-        let (kind, text) = match mutation {
-            ChatMutation::Send(r) => (("Message", "message"), draft(r.draft.as_ref())),
-            ChatMutation::Edit(r) => (("Edit", "edit"), draft(r.draft.as_ref())),
-            ChatMutation::Fork(r) => (("Fork", "fork"), draft(r.replacement.as_ref())),
-            ChatMutation::RunShell(r) => (
-                ("Command", "command"),
-                Some(format!("!{}", r.command_line.trim())),
-            ),
-            ChatMutation::StopShell(_) => (("Stop request", "stop request"), None),
-        };
-        Self { kind, text }
-    }
-}
-
-/// Where a saved request stands, by its receipt (`OperationState`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Pending {
-    /// No receipt (saved before the host answered), or one without a state.
-    Unconfirmed { replayable: bool },
-    /// ACCEPTED / ATTEMPTING: the host is still working on it.
-    Processing,
-    /// DELIVERY_UNKNOWN: it may have run; it is never sent again by itself.
-    Unknown,
-    /// NOT_FOUND: the host never got it.
-    Missing,
-}
 impl Pending {
-    fn of(state: Option<i32>) -> Self {
-        match state {
-            None => Self::Unconfirmed { replayable: true },
-            Some(1 | 2) => Self::Processing,
-            Some(6) => Self::Unknown,
-            Some(8) => Self::Missing,
-            Some(_) => Self::Unconfirmed { replayable: false },
-        }
-    }
-    fn can_check(self) -> bool {
-        self != Self::Missing
-    }
-    fn can_send_again(self) -> bool {
-        matches!(self, Self::Unconfirmed { replayable: true } | Self::Missing)
-    }
     fn dot(self) -> Hsla {
         match self {
             Self::Unconfirmed { .. } | Self::Unknown => t::yellow(),
@@ -427,24 +350,4 @@ fn tray_action(id: &'static str, label: &'static str, loading: &ButtonLoading) -
         })
         .loading(loading.active())
         .child(loading.label(label))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Pending;
-    use core::prelude::v1::test;
-
-    #[test]
-    fn sending_again_waits_while_the_host_may_have_the_request() {
-        assert!(Pending::of(None).can_send_again(), "never confirmed");
-        assert!(
-            Pending::of(Some(8)).can_send_again(),
-            "the host has no record"
-        );
-        assert!(!Pending::of(Some(8)).can_check());
-        for state in [1, 2, 6] {
-            assert!(!Pending::of(Some(state)).can_send_again(), "state {state}");
-            assert!(Pending::of(Some(state)).can_check());
-        }
-    }
 }

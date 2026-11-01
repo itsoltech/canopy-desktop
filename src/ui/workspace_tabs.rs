@@ -168,8 +168,7 @@ impl Workspace {
                 tab.root
                     .find(tab.focused)
                     .and_then(|pane| self.state.chats.read(cx).runtime(pane.id))
-                    .and_then(|runtime| runtime.read(cx).remote_host())
-                    .map(|host| host.name())
+                    .and_then(|runtime| runtime.read(cx).environment_name())
             })
             .collect();
         let rem = f32::from(window.rem_size());

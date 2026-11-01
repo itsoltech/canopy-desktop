@@ -540,6 +540,181 @@ fn meta(h: &Harness, revision: Option<u64>) -> proto::CommandMeta {
 }
 
 #[tokio::test]
+async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() {
+    use canopy_desktop::command_bus::{Command, DraftIntent, QueueChange};
+    use canopy_desktop::host::{CommandKey, CommandState};
+    let h = harness(Duration::from_secs(5), Limits::default()).await;
+    let remote_record = h.client.save_runtime_chat(h.record.clone()).await.unwrap();
+    let local_id = ChatSettings::new_id();
+    let mut metadata = remote_record.metadata().clone();
+    metadata.chat.as_mut().unwrap().id = Some(local_id.clone());
+    let local_record = h
+        .client
+        .save_runtime_chat(
+            ChatRecord::new(
+                local_id.clone(),
+                None,
+                remote_record.agent().into(),
+                metadata,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bus = CommandBus::new(h.client.clone());
+    let host = canopy_desktop::thread::HostId::new(h.rpc.auth.host_id().into()).unwrap();
+    let command_id = uuid::Uuid::new_v4().to_string();
+    let message = uuid::Uuid::new_v4().to_string();
+    let key = CommandKey::local(command_id.clone()).unwrap();
+    let envelope = bus
+        .legacy_envelope(
+            &key,
+            host.clone(),
+            local_id.clone(),
+            Command::Send {
+                message: message.clone(),
+                draft: DraftIntent::Ready(QueueDraft::from(Draft::text("same message"))),
+                context: local_record.send_context(),
+                steer_run: None,
+            },
+            Conditions::default(),
+        )
+        .await
+        .unwrap();
+    let local = bus
+        .execute(envelope.clone(), Principal::local_owner(), None)
+        .await
+        .unwrap();
+    let remote_command = Command::Send {
+        message: message.clone(),
+        draft: decode_draft(proto::MessageDraft {
+            text: "same message".into(),
+            ..Default::default()
+        })
+        .unwrap(),
+        context: remote_record.send_context(),
+        steer_run: None,
+    };
+    let mut remote_meta = meta(&h, None);
+    remote_meta.command_id = command_id;
+    let chat = reference(&h.rpc.auth, remote_record.id());
+    let remote = h
+        .rpc
+        .bus_command(
+            h.grant.clone(),
+            remote_meta.clone(),
+            chat.clone(),
+            remote_command.clone(),
+            None,
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(local.state(), CommandState::Succeeded);
+    assert_eq!(remote.state, proto::OperationState::Succeeded as i32);
+    assert_eq!(local.result(), Some(remote.message_id.as_bytes()));
+    let local_queue = h.client.load_runtime_queue(local_id.clone()).await.unwrap();
+    let remote_queue = h
+        .client
+        .load_runtime_queue(remote_record.id().into())
+        .await
+        .unwrap();
+    assert_eq!(
+        local_queue, remote_queue,
+        "both adapters commit the same domain queue"
+    );
+
+    // Retrying either adapter returns its receipt without accepting a second item.
+    assert_eq!(
+        bus.execute(envelope, Principal::local_owner(), None)
+            .await
+            .unwrap(),
+        local
+    );
+    assert_eq!(
+        h.rpc
+            .bus_command(
+                h.grant.clone(),
+                remote_meta.clone(),
+                chat.clone(),
+                remote_command.clone(),
+                None
+            )
+            .await
+            .unwrap()
+            .into_inner(),
+        remote
+    );
+    assert_eq!(
+        h.client
+            .load_runtime_queue(local_id.clone())
+            .await
+            .unwrap()
+            .entries()
+            .len(),
+        1
+    );
+    assert_eq!(
+        h.client
+            .load_runtime_queue(remote_record.id().into())
+            .await
+            .unwrap()
+            .entries()
+            .len(),
+        1
+    );
+
+    let stale = Command::Queue {
+        revision: local_queue.revision().saturating_sub(1),
+        change: QueueChange::Pause { paused: true },
+    };
+    let envelope = bus
+        .legacy_envelope(
+            &CommandKey::local(uuid::Uuid::new_v4().to_string()).unwrap(),
+            host,
+            local_id.clone(),
+            stale.clone(),
+            Conditions::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        bus.execute(envelope, Principal::local_owner(), None).await,
+        Err(canopy_desktop::settings::Error::ResourceConflict)
+    ));
+    let conflict = h
+        .rpc
+        .bus_command(h.grant.clone(), meta(&h, None), chat.clone(), stale, None)
+        .await
+        .unwrap_err();
+    assert_eq!(conflict.code(), tonic::Code::Aborted);
+    assert_eq!(
+        h.client.load_runtime_queue(local_id).await.unwrap(),
+        local_queue
+    );
+    assert_eq!(
+        h.client
+            .load_runtime_queue(remote_record.id().into())
+            .await
+            .unwrap(),
+        remote_queue
+    );
+
+    // Current authorization still precedes receipt disclosure on a retry.
+    h.client
+        .revoke_runtime_device(h.grant.id().into())
+        .await
+        .unwrap();
+    let denied = h
+        .rpc
+        .bus_command(h.grant.clone(), remote_meta, chat, remote_command, None)
+        .await
+        .unwrap_err();
+    assert_eq!(denied.code(), tonic::Code::PermissionDenied);
+    h.client.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_reused_command_id_with_changed_arguments_conflicts_instead_of_answering_the_old_receipt()
 {
     let h = harness(Duration::from_secs(5), Limits::default()).await;

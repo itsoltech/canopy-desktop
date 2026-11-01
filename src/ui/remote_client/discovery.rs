@@ -1,7 +1,6 @@
 //! New chat: destination, agent/account choice and creation. Agent discovery is a
 //! READ-scoped refresh that never waits for, or blocks, the mutation gate.
 use super::*;
-use canopy_desktop::remote::client::rpc_error;
 use chrome::*;
 use gpui_kit::component::{IconName, button::ButtonVariants};
 
@@ -13,7 +12,10 @@ impl RemoteWindow {
         if self.discovery_busy {
             return;
         }
-        let workspace = self.workspace.clone();
+        let workspace = self
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.workspace_id.clone());
         self.discovery_revision += 1;
         let revision = self.discovery_revision;
         let generation = self.generation;
@@ -21,41 +23,10 @@ impl RemoteWindow {
         if self.scope == Some("discover") {
             self.error = None;
         }
-        let task = self.global.runtime.spawn(async move {
-            tokio::time::timeout(std::time::Duration::from_secs(30), async move {
-                let mut client =
-                    p::catalog_service_client::CatalogServiceClient::new(host.channel()?);
-                let mut agents = Vec::new();
-                let mut token = None;
-                let mut seen = std::collections::HashSet::new();
-                loop {
-                    let page = client
-                        .list_agents(p::AgentDiscoveryRequest {
-                            host_id: host.id().as_str().into(),
-                            workspace: workspace.clone(),
-                            page_token: token,
-                        })
-                        .await
-                        .map_err(rpc_error)?
-                        .into_inner();
-                    agents.extend(page.agents);
-                    token = page.next_page_token;
-                    if let Some(next) = &token {
-                        if !seen.insert(next.clone()) || seen.len() > 256 {
-                            return Err("Agent catalog pagination did not advance.".into());
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                Ok::<_, String>(p::AgentDiscovery {
-                    agents,
-                    next_page_token: None,
-                })
-            })
-            .await
-            .map_err(|_| "Loading agents timed out. Try again.".to_owned())?
-        });
+        let task = self
+            .global
+            .runtime
+            .spawn(crate::app_state::ChatRuntime::discover_environment_accounts(host, workspace));
         self.discovery_abort = Some(task.abort_handle());
         cx.spawn(async move |this, cx| {
             let result = task
@@ -95,22 +66,18 @@ impl RemoteWindow {
         let Some(host) = self.host.clone() else {
             return;
         };
-        let workspace = self.workspace.clone();
+        let workspace = self
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.workspace_id.clone());
         let agent_id = self.value("agent", cx);
         let profile_id = Some(self.value("profile", cx));
         self.run_in(
             "new-chat",
             async move {
-                host.mutate(None, move |channel, command| async move {
-                    p::catalog_service_client::CatalogServiceClient::new(channel)
-                        .create_chat(p::CreateChatRequest {
-                            command: Some(command),
-                            workspace,
-                            agent_id,
-                            profile_id,
-                        })
-                        .await
-                })
+                crate::app_state::ChatRuntime::create_environment_chat(
+                    host, workspace, agent_id, profile_id,
+                )
                 .await?;
                 Ok(Update::Done("Chat created. Open it from Projects.".into()))
             },
@@ -179,7 +146,7 @@ impl RemoteWindow {
                     ),
                 )
             }
-            Some(discovery) if discovery.agents.is_empty() => {
+            Some(discovery) if discovery.is_empty() => {
                 agents = agents.child(
                     div()
                         .py(px(4.))
@@ -189,44 +156,42 @@ impl RemoteWindow {
                 )
             }
             Some(discovery) => {
-                for available in &discovery.agents {
-                    for account in &available.accounts {
-                        let agent_id = available.agent_id.clone();
-                        let account_id = account.account_id.clone();
-                        let selected = agent == agent_id && profile == account_id;
-                        agents = agents.child(
-                            list_row(
-                                SharedString::from(format!("agent:{agent_id}:{account_id}")),
-                                format!("{} · {}", available.name, account.label),
-                                selected,
-                            )
-                            .child(icon(IconName::Bot).flex_shrink_0())
-                            .child(row_text(available.name.clone(), account.label.clone()))
-                            .children(account.native_default.then(|| badge("Default account")))
-                            .children(selected.then(|| {
+                for account in discovery {
+                    let agent_id = account.tool.clone();
+                    let account_id = account.id.clone();
+                    let selected = agent == agent_id && profile == account_id;
+                    agents = agents.child(
+                        list_row(
+                            SharedString::from(format!("agent:{agent_id}:{account_id}")),
+                            format!("{} · {}", account.agent, account.name),
+                            selected,
+                        )
+                        .child(icon(IconName::Bot).flex_shrink_0())
+                        .child(row_text(account.agent.clone(), account.name.clone()))
+                        .children(account.native_default.then(|| badge("Default account")))
+                        .children(
+                            selected.then(|| {
                                 icon(IconName::Check).size(px(12.)).text_color(t::accent())
-                            }))
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    this.fields["agent"].update(cx, |s, cx| {
-                                        s.set_value(agent_id.clone(), window, cx)
-                                    });
-                                    this.fields["profile"].update(cx, |s, cx| {
-                                        s.set_value(account_id.clone(), window, cx)
-                                    });
-                                    cx.notify();
-                                },
-                            )),
-                        );
-                    }
+                            }),
+                        )
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.fields["agent"]
+                                    .update(cx, |s, cx| s.set_value(agent_id.clone(), window, cx));
+                                this.fields["profile"].update(cx, |s, cx| {
+                                    s.set_value(account_id.clone(), window, cx)
+                                });
+                                cx.notify();
+                            },
+                        )),
+                    );
                 }
             }
         }
         agents = agents.children(self.notice("discover"));
         let selected = self.agents.as_ref().is_some_and(|d| {
-            d.agents
-                .iter()
-                .any(|a| a.agent_id == agent && a.accounts.iter().any(|p| p.account_id == profile))
+            d.iter()
+                .any(|account| account.tool == agent && account.id == profile)
         });
         column()
             .gap(px(20.))

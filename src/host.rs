@@ -395,6 +395,17 @@ pub struct QueueEntry {
     pub(crate) steer_run: Option<u64>,
 }
 impl QueueEntry {
+    /// A read-only observation of an executor's queue. Constructing a snapshot
+    /// grants no authority to accept, deliver or settle this entry.
+    pub fn observed(id: String, draft: QueueDraft, state: QueueState, resolved: bool) -> Self {
+        Self {
+            id,
+            draft,
+            state,
+            manual: resolved,
+            steer_run: None,
+        }
+    }
     /// Present only within the host lifetime that accepted this steer intent.
     pub fn steer_run(&self) -> Option<u64> {
         self.steer_run
@@ -419,6 +430,14 @@ pub struct ChatQueue {
     pub(crate) entries: Vec<QueueEntry>,
 }
 impl ChatQueue {
+    /// A queue projection; durable writes still go through the command owner.
+    pub fn observed(revision: u64, paused: bool, entries: Vec<QueueEntry>) -> Self {
+        Self {
+            revision,
+            paused,
+            entries,
+        }
+    }
     pub fn revision(&self) -> u64 {
         self.revision
     }

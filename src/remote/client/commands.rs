@@ -899,6 +899,61 @@ mod draft_tests {
         }
     }
     #[tokio::test]
+    async fn timed_out_chat_mutation_keeps_its_identity_and_blocks_a_new_attempt() {
+        use crate::remote::client::ChatMutation;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("client.json");
+        let (registry, host) = fixture(path.clone());
+        // The injected dispatcher never uses this lazy channel or any service.
+        host.state.lock().unwrap().channel =
+            Some(tonic::transport::Endpoint::from_static("http://127.0.0.1:1").connect_lazy());
+        let chat = p::ChatRef {
+            host_id: host.id().as_str().into(),
+            chat_id: "chat".into(),
+        };
+        let intent = ChatMutation::Send(p::SendMessageRequest {
+            chat: Some(chat.clone()),
+            message_id: "original-message".into(),
+            draft: Some(draft("keep this draft")),
+            ..Default::default()
+        });
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            host.submit_chat_mutation_with(intent.clone(), |_, _| std::future::pending()),
+        )
+        .await;
+        assert!(result.is_err());
+        let pending = host.chat_mutations(&chat);
+        assert_eq!(pending.len(), 1);
+        let command = pending[0].0.clone();
+        assert!(pending[0].2.is_none());
+        let refusal = host
+            .submit_chat_mutation_with(intent, |_, _| async {
+                panic!("an unknown outcome must not dispatch a new command")
+            })
+            .await
+            .unwrap_err();
+        assert!(refusal.contains("unresolved"));
+        let id = host.id().clone();
+        drop(host);
+        drop(registry);
+        let restored = ClientRegistry::open(path, Arc::new(NoVault))
+            .unwrap()
+            .get(&id)
+            .unwrap();
+        let pending = restored.chat_mutations(&chat);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].0, command);
+        assert!(pending[0].2.is_none());
+        let ChatMutation::Send(request) = &pending[0].1 else {
+            panic!("wrong intent")
+        };
+        assert_eq!(request.message_id, "original-message");
+        assert_eq!(request.command.as_ref().unwrap().command_id, command);
+        assert_eq!(request.draft.as_ref().unwrap().text, "keep this draft");
+    }
+
+    #[tokio::test]
     async fn taking_an_offline_message_keeps_a_durable_draft_and_refuses_late_edits() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("client.json");

@@ -355,7 +355,7 @@ impl Workspace {
                 &state.chats,
                 window,
                 |this, _, request: &crate::app_state::ChatForkRequested, window, cx| {
-                    let purpose = new_chat_palette::Purpose::Fork(Box::new(request.0.clone()));
+                    let purpose = new_chat_palette::Purpose::Fork(request.clone());
                     this.open_chat_palette(purpose, window, cx)
                 },
             ),
@@ -370,19 +370,8 @@ impl Workspace {
                     this.select_tool_page(canopy_desktop::state::workspace::ToolPage::Files, cx);
                     this.sync_remote_tools(window, cx);
                     if let Some((_, _, view)) = &this.remote_tools {
-                        view.update(cx, |view, cx| view.open_file(request.file.clone(), cx));
+                        view.update(cx, |view, cx| view.open_thread_file(&request.file, cx));
                     }
-                },
-            ),
-            cx.subscribe_in(
-                &state.chats,
-                window,
-                |this, _, request: &crate::ui::chat::ClientForkRequested, window, cx| {
-                    this.open_chat_palette(
-                        new_chat_palette::Purpose::RemoteFork(request.clone()),
-                        window,
-                        cx,
-                    )
                 },
             ),
             cx.subscribe_in(
@@ -1635,8 +1624,7 @@ impl Workspace {
             || self.modal.is_some()
             || self.task_detail_modal.is_some()
             || self.task_editor_modal.is_some()
-            || (!matches!(&purpose, new_chat_palette::Purpose::RemoteFork(_))
-                && crate::app_state::Chats::unavailable(cx).is_some())
+            || purpose.unavailable(cx)
         {
             return;
         }

@@ -21,8 +21,11 @@ mod commands;
 mod runtime;
 #[allow(unused_imports, reason = "the remote bridge's typed chat API")]
 pub use commands::{ChatSummary, DeletePreflight, ForkChat, ForkReplacement, NewChat};
-pub(crate) use runtime::Recovering;
+pub(in crate::app_state) use runtime::ThreadTransport;
 pub use runtime::backend_of;
+pub(crate) use runtime::{
+    Account, AttachmentSuggestion, HistoryPosition, Recovering, ThreadDestination,
+};
 pub use runtime::{
     AgentOption, Archived, ChatNotice, ChatNoticeKind, ChatRuntime, ChatRuntimeEvent,
     ChatStateChanged, LineState, QueueLine,
@@ -32,6 +35,7 @@ pub use runtime::{
     ChatCommand, ChatSnapshot, DecisionAnswer, EditPreview, FilesPreview, PendingDecision,
     RemoteKey, SnapshotEpoch,
 };
+pub(crate) use runtime::{ContextSource, PendingOutcome, PendingRequest, ThreadFile, ThreadPlace};
 /// Read-only projection for commands invoked from inside a chat registry update.
 #[derive(Default)]
 pub(crate) struct ChatFolders(HashMap<PaneId, std::path::PathBuf>);
@@ -66,7 +70,11 @@ pub struct ForkRequest {
 }
 
 /// Fork asked under a reply: the workspace asks where the new chat goes.
-pub struct ChatForkRequested(pub ForkRequest);
+#[derive(Clone)]
+pub struct ChatForkRequested {
+    pub runtime: Entity<ChatRuntime>,
+    pub(crate) position: HistoryPosition,
+}
 impl EventEmitter<ChatForkRequested> for Chats {}
 
 /// `/resume` typed in a chat: the workspace lists closed chats. `replace`: the empty
@@ -135,10 +143,6 @@ pub struct DetachedChat {
 }
 
 pub struct Chats {
-    /// Projections are not host-owned chats: no local history, process or delete.
-    client_runtimes: HashMap<String, Entity<ChatRuntime>>,
-    client_panes: HashMap<PaneId, String>,
-    client_events: HashMap<String, Subscription>,
     detaching: HashSet<PaneId>,
     /// Every chat runtime by the chat's UUID (`ChatSettings.id`): the only owner. Panes
     /// and remote observers are presentations of it; it outlives them (OWN-01).
@@ -173,9 +177,6 @@ pub struct Chats {
 impl Chats {
     /// The runtime pane `id` (or a detached chat's key) presents, when it has one.
     pub fn runtime(&self, id: PaneId) -> Option<&Entity<ChatRuntime>> {
-        if let Some(key) = self.client_panes.get(&id) {
-            return self.client_runtimes.get(key);
-        }
         self.runtimes.get(self.panes.get(&id)?)
     }
     /// The runtime of chat `chat` (its UUID), with or without a pane.
@@ -203,7 +204,8 @@ impl Chats {
             .or_else(|| self.detached.get(chat).map(|d| d.workspace))
             .or_else(|| {
                 self.known.values().find_map(|(pane, workspace)| {
-                    (pane.metadata.chat.as_ref()?.id.as_deref() == Some(chat)).then_some(*workspace)
+                    (runtime::ThreadTransport::pane_key(pane).as_deref() == Some(chat))
+                        .then_some(*workspace)
                 })
             })
     }
@@ -229,7 +231,7 @@ impl Chats {
             .iter()
             .flat_map(|w| w.all_panes())
             .filter(|p| p.metadata.kind == PaneKind::Chat)
-            .map(|p| (p.id, p.metadata.chat.as_ref().and_then(|c| c.id.clone())))
+            .map(|p| (p.id, runtime::ThreadTransport::pane_key(&p)))
             .collect();
         let mut seen = HashSet::new();
         let targets = ids
@@ -258,6 +260,9 @@ impl Chats {
                 continue;
             };
             let runtime = runtime.read(cx);
+            if runtime.owned_chat_id().is_none() {
+                continue;
+            }
             if runtime.has_conversation() || runtime.is_working() || runtime.history_uncertain() {
                 risk.chats += 1;
             }
@@ -463,9 +468,6 @@ impl Chats {
 
     pub fn new() -> Self {
         Self {
-            client_runtimes: HashMap::new(),
-            client_panes: HashMap::new(),
-            client_events: HashMap::new(),
             detaching: HashSet::new(),
             runtimes: HashMap::new(),
             panes: HashMap::new(),
@@ -523,9 +525,7 @@ impl Chats {
                 workspace
                     .all_panes()
                     .into_iter()
-                    .filter(|pane| {
-                        pane.metadata.kind == PaneKind::Chat && pane.metadata.remote.is_none()
-                    })
+                    .filter(|pane| pane.metadata.kind == PaneKind::Chat)
                     .map(move |mut pane| {
                         pane.metadata.title = workspace.chat_title(pane.id).map(str::to_owned);
                         (pane.id, (pane, workspace.id))
@@ -563,34 +563,13 @@ impl Chats {
             self.views.remove(&id);
             let chat = self.panes.remove(&id);
             if let Some((pane, workspace)) = self.known.remove(&id) {
-                if self.detaching.remove(&id) {
-                    if let Some(chat) = chat {
-                        self.workspaces.insert(chat.clone(), workspace);
-                        self.detached.insert(
-                            chat.clone(),
-                            DetachedChat {
-                                chat,
-                                id,
-                                workspace,
-                                tool: pane.tool.clone(),
-                                title: pane
-                                    .metadata
-                                    .title
-                                    .clone()
-                                    .unwrap_or_else(|| NEW_CHAT_TITLE.into()),
-                            },
-                        );
-                    }
-                    continue;
-                }
-                let runtime = chat.as_ref().and_then(|chat| self.drop_runtime(chat));
-                self.retire(workspace, pane, runtime, cx);
+                self.release_thread_view(id, pane, workspace, chat, cx);
             }
         }
         // Panes showing a chat that already runs (opened from the sidebar, or created
         // remotely and shown here now) present that runtime: never a second one.
         for (id, (pane, workspace)) in &chat_panes {
-            let chat = pane.metadata.chat.as_ref().and_then(|c| c.id.clone());
+            let chat = runtime::ThreadTransport::pane_key(pane);
             if let Some(chat) = chat {
                 if let Some(detached) = self.detached.remove(&chat) {
                     self.panes.remove(&detached.id);
@@ -635,11 +614,7 @@ impl Chats {
         let shown: HashSet<String> = chat_panes
             .iter()
             .filter_map(|(id, (pane, _))| {
-                pane.metadata
-                    .chat
-                    .as_ref()
-                    .and_then(|c| c.id.clone())
-                    .or_else(|| self.panes.get(id).cloned())
+                runtime::ThreadTransport::pane_key(pane).or_else(|| self.panes.get(id).cloned())
             })
             .collect();
         let settings = app.settings.read(cx);
@@ -668,6 +643,9 @@ impl Chats {
         }
         // Runtimes created here before their record was read back.
         for (chat, runtime) in &self.runtimes {
+            if runtime.read(cx).owned_chat_id().is_none() {
+                continue;
+            }
             if shown.contains(chat) || found.contains_key(chat) {
                 continue;
             }
@@ -742,7 +720,6 @@ impl Chats {
         let workspace = app.workspace.read(cx);
         let active = workspace.activation_plan();
         let focused = workspace.active().map(|tab| tab.focused);
-        self.sync_clients(&active, focused, window, cx);
         let ready = self.agents_ready
             && app.tools.read(cx).ready
             && app.tools.read(cx).environment.is_some()
@@ -770,7 +747,7 @@ impl Chats {
             let runtime = match self.runtime(*id) {
                 Some(runtime) => runtime.clone(),
                 None => {
-                    let Some((pane, workspace)) = chat_panes.get(id).filter(|_| ready) else {
+                    let Some((pane, workspace)) = chat_panes.get(id) else {
                         continue;
                     };
                     changed = true;
@@ -791,11 +768,17 @@ impl Chats {
                     vec![
                         // A fork goes on where the user picks; the workspace asks.
                         cx.subscribe(&view, |_, _, request: &ChatForkRequested, cx| {
-                            cx.emit(ChatForkRequested(request.0.clone()))
+                            cx.emit(request.clone())
                         }),
                         cx.subscribe(&view, |_, _, request: &ChatResumeRequested, cx| {
                             cx.emit(*request)
                         }),
+                        cx.subscribe(
+                            &view,
+                            |_, _, event: &crate::ui::chat::ClientFileRequested, cx| {
+                                cx.emit(event.clone())
+                            },
+                        ),
                     ],
                 );
                 self.views.insert(*id, view);
@@ -831,80 +814,6 @@ impl Chats {
         changed |= self.sync_turn_diffs(&app, &active, cx);
         if changed {
             cx.notify();
-        }
-    }
-
-    fn sync_clients(
-        &mut self,
-        active: &[canopy_desktop::state::workspace::Pane],
-        focused: Option<PaneId>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let panes: Vec<_> = cx
-            .global::<AppState>()
-            .projects
-            .read(cx)
-            .runtime_workspaces(cx)
-            .iter()
-            .flat_map(|w| w.all_panes())
-            .filter(|p| p.metadata.remote.is_some())
-            .collect();
-        let keep: HashSet<_> = panes.iter().map(|p| p.id).collect();
-        let gone: Vec<_> = self
-            .client_panes
-            .keys()
-            .filter(|p| !keep.contains(p))
-            .copied()
-            .collect();
-        for id in gone {
-            self.client_panes.remove(&id);
-            self.views.remove(&id);
-            self.view_events.remove(&id);
-        }
-        self.client_runtimes
-            .retain(|key, _| self.client_panes.values().any(|value| value == key));
-        self.client_events
-            .retain(|key, _| self.client_runtimes.contains_key(key));
-        for pane in panes {
-            let key = pane.metadata.remote.as_ref().unwrap().key();
-            self.client_panes.insert(pane.id, key.clone());
-            let visible = active.iter().any(|p| p.id == pane.id);
-            if !visible && !self.views.contains_key(&pane.id) {
-                continue;
-            }
-            let runtime = self
-                .client_runtimes
-                .entry(key.clone())
-                .or_insert_with(|| cx.new(|cx| ChatRuntime::new(pane.clone(), cx)))
-                .clone();
-            self.client_events.entry(key).or_insert_with(|| {
-                cx.subscribe(&runtime, |_, _, _: &ChatStateChanged, cx| cx.notify())
-            });
-            let view = self
-                .views
-                .entry(pane.id)
-                .or_insert_with(|| cx.new(|cx| ChatView::with_runtime(runtime, window, cx)))
-                .clone();
-            self.view_events.entry(pane.id).or_insert_with(|| {
-                vec![
-                    cx.subscribe(
-                        &view,
-                        |_, _, event: &crate::ui::chat::ClientForkRequested, cx| {
-                            cx.emit(event.clone())
-                        },
-                    ),
-                    cx.subscribe(
-                        &view,
-                        |_, _, event: &crate::ui::chat::ClientFileRequested, cx| {
-                            cx.emit(event.clone())
-                        },
-                    ),
-                ]
-            });
-            view.update(cx, |v, cx| {
-                v.set_active(visible, visible && focused == Some(pane.id), cx)
-            });
         }
     }
 
@@ -953,7 +862,7 @@ impl Chats {
         }
         // A pane shows it: that pane's runtime (its layout metadata is current).
         if let Some((id, _)) = Self::chat_panes(cx).into_iter().find(|(_, (pane, _))| {
-            pane.metadata.chat.as_ref().and_then(|c| c.id.as_deref()) == Some(chat)
+            runtime::ThreadTransport::pane_key(pane).as_deref() == Some(chat)
         }) {
             return self
                 .ensure_runtime(id, cx)
@@ -1032,7 +941,7 @@ impl Chats {
         if let Some(runtime) = self.runtime(id) {
             return runtime.clone();
         }
-        let chat = pane.metadata.chat.as_ref().and_then(|c| c.id.clone());
+        let chat = runtime::ThreadTransport::pane_key(&pane);
         if let Some(runtime) = chat
             .as_ref()
             .and_then(|chat| self.runtimes.get(chat))
@@ -1044,7 +953,7 @@ impl Chats {
         }
         let runtime = cx.new(|cx| ChatRuntime::new(pane, cx));
         // A chat from before saved history gets its id from the runtime.
-        let chat = runtime.read(cx).chat_id().expect("a runtime has a chat id");
+        let chat = runtime.read(cx).registry_key();
         self.detached.remove(&chat);
         self.register(chat.clone(), runtime.clone(), cx);
         self.panes.insert(id, chat);
@@ -1698,7 +1607,7 @@ impl Chats {
                     if for_good {
                         runtime.close(cx)
                     } else {
-                        runtime.shutdown(cx)
+                        runtime.stop_owned_execution(cx)
                     }
                 })
             })
@@ -1719,7 +1628,6 @@ impl Chats {
         })
     }
 }
-impl EventEmitter<crate::ui::chat::ClientForkRequested> for Chats {}
 impl EventEmitter<crate::ui::chat::ClientFileRequested> for Chats {}
 
 /// The mode an account's profile starts its chats in.
@@ -1924,6 +1832,61 @@ mod tests {
                 == Some(second.clone())
         })
         .await;
+        // Two device views of the same host conversation share one subscription,
+        // even if legacy metadata happens to carry this local conversation's ID.
+        // Closing both views cannot retire the local owner or its durable queue.
+        cx.update(|cx| {
+            let app = cx.global::<AppState>().clone();
+            let reference = canopy_desktop::state::workspace::RemoteChat::new(
+                uuid::Uuid::new_v4().to_string(),
+                chat.clone(),
+            )
+            .unwrap();
+            let mut attached = vec![];
+            app.workspace.update(cx, |workspace, _| {
+                for _ in 0..2 {
+                    let tab = workspace.open_conversation("Attached", "claude");
+                    let pane = workspace.active().unwrap().focused;
+                    workspace
+                        .set_pane_metadata(
+                            tab,
+                            pane,
+                            PaneMetadata {
+                                kind: PaneKind::Chat,
+                                chat: Some(Box::new(ChatSettings {
+                                    id: Some(chat.clone()),
+                                    ..Default::default()
+                                })),
+                                remote: Some(Box::new(reference.clone())),
+                                ..Default::default()
+                            },
+                        )
+                        .unwrap();
+                    attached.push((tab, pane));
+                }
+            });
+            app.chats.update(cx, |chats, cx| {
+                chats.sync_model(cx);
+                let first = chats.ensure_runtime(attached[0].1, cx).unwrap();
+                let second = chats.ensure_runtime(attached[1].1, cx).unwrap();
+                assert_eq!(first.entity_id(), second.entity_id());
+                assert_ne!(first.entity_id(), runtime.entity_id());
+            });
+            app.workspace.update(cx, |workspace, _| {
+                for (tab, _) in attached {
+                    workspace.close(tab).unwrap();
+                }
+            });
+            app.chats.update(cx, |chats, cx| {
+                chats.sync_model(cx);
+                assert!(chats.retiring.is_empty());
+                assert_eq!(
+                    chats.runtime_for_chat(&chat).unwrap().entity_id(),
+                    runtime.entity_id()
+                );
+            });
+            assert_eq!(runtime.read(cx).queue_lines().len(), 2);
+        });
         // Closing a tab detaches the view; the shared chat and durable queue remain.
         cx.update(|cx| {
             let app = cx.global::<AppState>().clone();

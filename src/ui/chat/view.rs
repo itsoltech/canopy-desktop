@@ -9,11 +9,10 @@ use super::{
 };
 use crate::app_state::{ChatRuntime, ChatRuntimeEvent};
 use crate::ui::components::ButtonLoading;
-use canopy_desktop::chat::mentions::{self, FileRef};
+use canopy_desktop::chat::mentions::FileRef;
 use canopy_desktop::{
     chat::{
         agent::Capabilities,
-        backend_session::BackendSession,
         presentation,
         provider::Provider,
         session::{ChatSession, Draft},
@@ -68,6 +67,7 @@ pub struct ChatView {
     pub(super) editing: Option<Editing>,
     /// The remote message whose edit the host is checking, and its pencil's spinner.
     pub(super) edit_check: Option<(canopy_desktop::chat::transcript::ItemId, ButtonLoading)>,
+    pub(super) edit_preview: Option<Task<()>>,
     pub(super) attachments: super::attachments::Attachments,
     pub(super) navigator: super::navigator::Navigator,
     /// Redraws while a retry or limit countdown is shown.
@@ -151,13 +151,6 @@ impl ChatView {
                 .placeholder(super::decision::COMPOSER_PLACEHOLDER)
                 .submit_on_enter(true)
         });
-        // Remembered model lists stand in until the agent lists its own (DEC-098).
-        let models = cx.observe(
-            &cx.global::<crate::app_state::AppState>()
-                .model_catalog
-                .clone(),
-            |_, _, cx| cx.notify(),
-        );
         let subscription = cx.subscribe_in(
             &composer,
             window,
@@ -241,6 +234,7 @@ impl ChatView {
             copied_reset: None,
             editing: None,
             edit_check: None,
+            edit_preview: None,
             attachments: Default::default(),
             navigator: Default::default(),
             ticker: None,
@@ -268,7 +262,7 @@ impl ChatView {
             composer_was_empty: true,
             recall: None,
             pages: Default::default(),
-            _subscriptions: vec![subscription, models, search, observed, git, events],
+            _subscriptions: vec![subscription, search, observed, git, events],
         };
         // What the runtime already holds shows at once, without replaying motion.
         view.catch_up_archived(cx);
@@ -286,10 +280,6 @@ impl ChatView {
     /// The Claude or Codex session, for their own features; `None` for other agents.
     pub(super) fn native<'a>(&self, cx: &'a App) -> Option<&'a ChatSession> {
         self.runtime.read(cx).native()
-    }
-    /// The running session, whatever its agent.
-    pub(super) fn backend<'a>(&self, cx: &'a App) -> Option<&'a BackendSession> {
-        self.runtime.read(cx).backend()
     }
     pub(super) fn transcript<'a>(&self, cx: &'a App) -> Option<&'a Transcript> {
         self.runtime.read(cx).transcript()
@@ -373,14 +363,24 @@ impl ChatView {
 
     fn on_runtime(&mut self, event: &ChatRuntimeEvent, cx: &mut Context<Self>) {
         match event {
+            ChatRuntimeEvent::FileRequested(file) => cx.emit(super::ClientFileRequested {
+                runtime: self.runtime.clone(),
+                file: file.clone(),
+            }),
             ChatRuntimeEvent::Changed { serial, changes } => {
                 self.runtime_changed(*serial, changes, motion::policy(cx), cx)
             }
             ChatRuntimeEvent::Archived => {
+                self.edit_preview = None;
                 // A replaced session's subagents are no longer running; an open edit
                 // belonged to it, and its draft comes back.
                 self.threads.clear();
-                if let Some(editing) = self.editing.take() {
+                if self
+                    .editing
+                    .as_ref()
+                    .is_none_or(|edit| edit.sending.is_none())
+                    && let Some(editing) = self.editing.take()
+                {
                     self.restore_draft(editing.draft, cx);
                 }
                 self.catch_up_archived(cx);
@@ -388,7 +388,7 @@ impl ChatView {
             }
             ChatRuntimeEvent::Restored => {
                 if self.remote_revision == 0
-                    && let Some(draft) = self.rt(cx).remote_source().and_then(|s| s.draft.clone())
+                    && let Some(draft) = self.rt(cx).saved_draft()
                 {
                     self.restore_draft(draft, cx);
                 }
@@ -397,11 +397,8 @@ impl ChatView {
                 self.presentation_changed(cx);
             }
             ChatRuntimeEvent::Reset => {
-                if self
-                    .rt(cx)
-                    .remote_source()
-                    .is_some_and(|s| s.history_loading)
-                {
+                self.edit_preview = None;
+                if self.rt(cx).history_loading() {
                     let top = self.rows.scroller.read(cx).top_row();
                     self.remote_anchor = self.rows.rows.get(top).and_then(|r| {
                         let super::rows::Kind::Item(source) = r.kind else {
@@ -416,8 +413,7 @@ impl ChatView {
                         Some((epoch, self.rows.item(source, self.transcript(cx))?.id.0))
                     });
                 }
-                if !(self.rt(cx).is_remote()
-                    && self.editing.as_ref().is_some_and(|e| e.sending.is_some()))
+                if self.editing.as_ref().is_none_or(|e| e.sending.is_none())
                     && let Some(editing) = self.editing.take()
                 {
                     self.restore_draft(editing.draft, cx);
@@ -504,7 +500,6 @@ impl ChatView {
             fresh.dedup();
             fresh.extend((synced..len).map(Change::Inserted));
             let current = runtime.serial() == serial && runtime.ready();
-            let session = runtime.backend().filter(|_| current);
             let thinking = current
                 && runtime
                     .status()
@@ -514,7 +509,7 @@ impl ChatView {
             let images = images_in(fresh.iter().filter_map(|change| match *change {
                 Change::Inserted(index) | Change::Updated(index) => transcript.get(index),
             }));
-            if session.is_some() || runtime.is_remote() {
+            if current {
                 for thread in threads.iter_mut().filter(|thread| !thread.archived) {
                     let thinking = thread_thinking(transcript, &thread.call);
                     thread.rows.sync(transcript, &fresh, thinking, policy, cx);
@@ -560,7 +555,6 @@ impl ChatView {
         let policy = motion::policy(cx);
         self.sync_decision(policy, cx);
         self.sync_activity(cx);
-        self.sync_edit(cx);
         self.tick(cx);
         let working = self.is_working(cx);
         self.action.retarget(
@@ -575,32 +569,16 @@ impl ChatView {
 
     /// Checks off the UI thread which tool paths are files Canopy can open.
     fn resolve_tool_files(&mut self, files: Vec<(String, String)>, cx: &mut Context<Self>) {
-        if self.rt(cx).is_remote() {
+        if files.is_empty() {
             return;
         }
-        let Some(cwd) = self.cwd(cx).filter(|_| !files.is_empty()) else {
-            return;
-        };
         self.checked_tools
             .extend(files.iter().map(|(call, _)| call.clone()));
+        let resolve = self
+            .runtime
+            .update(cx, |runtime, cx| runtime.resolve_tool_paths(files, cx));
         cx.spawn(async move |this, cx| {
-            let found = cx
-                .background_executor()
-                .spawn(async move {
-                    files
-                        .into_iter()
-                        .filter_map(|(call, path)| {
-                            let mention = mentions::Mention {
-                                range: 0..0,
-                                label: String::new(),
-                                path,
-                                line: None,
-                            };
-                            Some((call, mentions::resolve(&cwd, &mention)?))
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .await;
+            let found = resolve.await;
             let _ = this.update(cx, |this, cx| {
                 if !found.is_empty() {
                     this.tool_files.extend(found);
@@ -620,21 +598,13 @@ impl ChatView {
         }
         if self.shell_mode(cx) {
             let text = self.composer.read(cx).value().to_string();
-            if self.rt(cx).is_remote() {
-                self.save_remote_draft(cx);
-                self.runtime
-                    .update(cx, |runtime, cx| runtime.client_shell(text, cx));
-                return;
-            }
-            match self
-                .runtime
-                .update(cx, |runtime, cx| runtime.run_shell(&text, cx))
-            {
+            self.save_remote_draft(cx);
+            let revision = self.remote_revision;
+            match self.runtime.update(cx, |runtime, cx| {
+                runtime.submit_composer_shell(text, revision, cx)
+            }) {
                 // One command per `!`, as in Claude Code.
-                Ok(_) => {
-                    self.clear_composer(window, cx);
-                    self.set_shell(false, window, cx);
-                }
+                Ok(()) => {}
                 Err(error) => self.shell_error = Some(error),
             }
             cx.notify();
@@ -647,25 +617,12 @@ impl ChatView {
         {
             return;
         }
-        if self.rt(cx).is_remote() {
-            self.save_remote_draft(cx);
-            self.send_draft(draft, cx);
-            return;
-        }
-        if canopy_desktop::chat::attachments::needs_data(&draft.attachments) {
-            // Saved images are read again first; the composer empties once they are.
-            self.with_images(draft, cx, |this, draft, cx| {
-                this.attachments.pending.clear();
-                this.decision.composer = Some(super::decision::ComposerChange {
-                    text: Some(String::new().into()),
-                    placeholder: super::decision::COMPOSER_PLACEHOLDER,
-                });
-                this.send_draft(draft, cx)
-            });
-        } else {
-            self.clear_composer(window, cx);
-            self.send_draft(draft, cx);
-        }
+        self.save_remote_draft(cx);
+        let revision = self.remote_revision;
+        self.activity_sent();
+        self.runtime.update(cx, |runtime, cx| {
+            runtime.submit_composer_draft(draft, false, revision, cx)
+        });
     }
 
     pub(super) fn send_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
@@ -861,16 +818,10 @@ impl ChatView {
             }
             // Steering is the agent's own feature; without it the message waits.
             if self.is_working(cx) && self.capabilities(cx).steer {
-                if self.rt(cx).is_remote() {
-                    self.save_remote_draft(cx);
-                    self.runtime
-                        .update(cx, |runtime, cx| runtime.steer_draft(draft, cx));
-                    return;
-                }
-                self.clear_composer(window, cx);
-                self.with_images(draft, cx, |this, draft, cx| {
-                    this.runtime
-                        .update(cx, |runtime, cx| runtime.steer_draft(draft, cx));
+                self.save_remote_draft(cx);
+                let revision = self.remote_revision;
+                self.runtime.update(cx, |runtime, cx| {
+                    runtime.submit_composer_draft(draft, true, revision, cx)
                 });
             } else {
                 self.submit(window, cx);
@@ -897,19 +848,15 @@ impl ChatView {
     /// place at the end of the queue, so nothing typed is lost.
     pub(super) fn edit(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let draft = self.composer_draft(cx);
-        let remote = self.rt(cx).is_remote();
         let revision = self.remote_revision;
         let taken = self
             .runtime
             .update(cx, |runtime, cx| runtime.take_queued(id, draft, cx));
         // The composer is cleared now and refilled once the queue gave the message up.
-        if !remote {
-            self.clear_composer(window, cx);
-        }
         cx.spawn_in(window, async move |this, cx| {
             if let Some(mut queued) = taken.await {
                 let _ = this.update_in(cx, |this, window, cx| {
-                    if remote && this.remote_revision != revision {
+                    if this.remote_revision != revision {
                         let mut current = this.composer_draft(cx);
                         if !current.text.is_empty() && !queued.text.is_empty() {
                             current.text.push_str("\n\n");
