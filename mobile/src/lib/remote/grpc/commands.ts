@@ -9,10 +9,10 @@ export function uniqueId(): string {
 export function command(store: HostStore, revision?: string): CommandMeta {
   const state = store.snapshot()
   if (state.epoch === undefined || state.closingEpoch !== undefined) throw Error('Command epoch is unavailable')
-  return { host_id: state.connection.hostId, command_id: uniqueId(), command_epoch: state.epoch, expected_revision: revision }
+  return { command_id: uniqueId(), command_epoch: state.epoch, expected_revision: revision }
 }
 export function checkReceipt(receipt: CommandReceipt): CommandReceipt {
   if (receipt.error) throw Error(receipt.error.message)
-  if ([4,5,6,7,8].includes(receipt.state)) throw Error(`Operation state ${receipt.state}; reconcile before retrying`)
+  if ([4,5,6].includes(receipt.state)) throw Error(`Operation state ${receipt.state}; reconcile before retrying`)
   return receipt
 }

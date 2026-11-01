@@ -1,9 +1,7 @@
 version: v2
 modules:
   - path: proto
-    # Temporary staged migration: lint only the owned canopy.api.v1 contract.
     excludes:
-      - proto/canopy/remote
       - proto/grpc
 lint:
   use:

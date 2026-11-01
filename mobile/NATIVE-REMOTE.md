@@ -57,7 +57,7 @@ changed by this work.
 - QR view uses `PairingClient`, keeps a pending reference for explicit continuation,
   polls the original CSR/token with cancellation, and persists the registry before
   discarding enrollment data. Completion can be retried after a lost response.
-- Chat view consumes SubscribeChat with `ChatEventAssembler` and
+- Chat view consumes SubscribeThread with `ChatEventAssembler` and
   `ChatProjectionOwner`. A staged snapshot becomes visible only at SnapshotEnd;
   UTF-8 append offsets/revisions and sequence boundaries are checked. Large items
   are hash-verified up to 32 MiB with <=64 KiB fragments. ReadHistoryPage is a
@@ -146,9 +146,9 @@ Checks performed on Linux during this implementation:
 
 ## Remaining release work
 
-The host's typed handlers are being implemented independently. A source-level
+The host's typed handlers and existing client calls use API v1. A source-level
 control invoking an RPC is not evidence that the full host/domain/provider path
-has passed acceptance. The full iOS/Android/macOS/Windows matrix and AC-19/27/31/32
+has passed native acceptance. The full iOS/Android/macOS/Windows matrix and AC-19/27/31/32
 remain NOT RUN. E0/RPC-07 and E5 remain incomplete until native integration and
 required feature acceptance are demonstrated.
 
@@ -186,8 +186,9 @@ The follow-up implementation addresses the R12 mobile findings in source:
   the visible buffer adopts it.
 - Search retains typed anchors, page cursors and incomplete flags. Selecting a
   result reads a bounded history page and scrolls to that item. The transcript
-  navigator and return-to-live action are independent of the host view. Fork has
-  explicit private/checkout destination choices.
+  navigator and return-to-live action are independent of the host view. Remote
+  Fork retains the source project and checkout; another checkout or Private is
+  refused before dispatch. A Private source receives a durable rejection.
 - Terminal controls cover Escape, Backspace/Delete, Insert, Home/End, Page keys,
   F1–F12 and Shift/Control/Alt/Meta sequences. A native Expo view captures hardware
   keys in the focused terminal region; the normal input field retains IME text.
@@ -197,14 +198,14 @@ The follow-up implementation addresses the R12 mobile findings in source:
   choices use the new typed catalog APIs, not administrative GetSettings or
   caller-invented prompt metadata.
 - Project close presents the host preflight, runtimes, queues, viewers and dirty
-  devices before CloseResource. Failure remains visible and retryable. There is
+  devices before CloseProject or CloseTerminal. Failure remains visible and retryable. There is
   no remote Quit action. Closing checkouts remain visible with Retry cleanup; new chats and forks cannot target them.
 - Tasks stores non-secret draft fields under host/device/workspace/integration/
   project/task identity. Draft restore entries recover title/body/comment/forms;
   link removal and schema/activity/options pagination call typed provider RPCs.
 - Semantic tool cards show status, activity, elapsed time, commands, structured
   plans, diffs, authorized file actions and subagent thread navigation. Unknown
-  tool details remain inspectable. Interactive chat pages use ReadChatPage,
+  tool details remain inspectable. Interactive chat pages use ReadThreadPage,
   immutable artifact validation, private staging and a sandboxed iframe without
   same-origin privileges, native messaging, credentials, navigation or networking.
 - Sent-message Edit uses PreviewEdit including original context/images and first
@@ -229,3 +230,13 @@ recovery and corrupt HTML cleanup). This supersedes earlier test counts above.
 Native iOS/Android compilation, keyboard/touch/IME/media rendering, vault/TLS/SSH,
 GUI/E2E, live providers and AC-30/platform qualification remain **NOT RUN**. Source
 coverage and these isolated tests are not a native acceptance result.
+
+## API v1 migration
+
+All existing calls and generated TypeScript, Android and iOS method catalogs use
+the hand-written `canopy.api.v1` contract. There is one generated contract and no
+compatibility DTO package. Thread mutations retain their original ThreadTarget
+and command metadata for explicit recovery. Project resources use ProjectRef;
+terminal Private/scratch identity is local to the desktop bus and is not exposed
+to mobile. The source migration passed generator freshness, the full TypeScript
+check and 29 Node unit regressions. Native platform acceptance remains outstanding.

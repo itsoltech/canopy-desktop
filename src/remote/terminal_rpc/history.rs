@@ -51,7 +51,7 @@ pub(super) fn resolve(
 pub(super) async fn read(
     rpc: &TerminalRpc,
     info: &TerminalInfo,
-    request: proto::TerminalHistoryRequest,
+    request: proto::TerminalServiceReadHistoryRequest,
 ) -> Result<Events, Status> {
     if request.rows == 0 || request.rows > PAGE_ROWS {
         return Err(Status::invalid_argument(
@@ -149,7 +149,7 @@ pub(super) async fn read(
 pub(super) fn stream(
     rpc: TerminalRpc,
     owner: String,
-    root: String,
+    info: TerminalInfo,
     mut events: Events,
     slot: super::StreamSlot,
 ) -> super::RpcStream<proto::TerminalHistoryEvent> {
@@ -168,11 +168,13 @@ pub(super) fn stream(
                         _ = &mut deadline => return Err(Status::resource_exhausted("Terminal history is not being read. Read the page again.")),
                         _ = recheck.tick() => {
                             if let Some(state) = &rpc.state { state.accepting()?; }
-                            rpc.auth.resource(&owner, crate::host::READ, &root).await?;
+                            rpc.project_terminal(&info)?;
+                            rpc.auth.resource(&owner, crate::host::READ, super::WorkspaceRoots::root_string(info.root())?).await?;
                         }
                     }
                 };
-                rpc.auth.resource(&owner, crate::host::READ, &root).await?;
+                rpc.project_terminal(&info)?;
+                rpc.auth.resource(&owner, crate::host::READ, super::WorkspaceRoots::root_string(info.root())?).await?;
                 let Some((event, material)) = events.next() else { return Ok::<_, Status>(()); };
                 let charge = rpc.output.reserve_output(&owner, prost::Message::encoded_len(&event))
                     .map_err(|_| Status::resource_exhausted("Terminal output budget is full. Read the page again."))?;

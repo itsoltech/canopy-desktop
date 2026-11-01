@@ -5,17 +5,53 @@ use super::{
     rpc_error,
     store::MutationRecord,
 };
-use crate::{
-    api::{compat, proto as p},
-    remote::proto as old,
-};
+use crate::api::proto as p;
 use prost::Message;
 use tonic::transport::Channel;
 
-#[derive(Clone)]
-pub(super) enum ApiIntent {
+#[derive(Clone, Debug)]
+pub enum ApiIntent {
+    TaskMutation(p::ApplyMutationRequest),
+    TaskUpdate(p::UpdateTaskRequest),
+    TaskSaveFilter(p::SaveFilterRequest),
+    TaskRemoveFilter(p::RemoveFilterRequest),
+    TaskWorktree(p::TaskToWorktreeRequest),
+    ConnectPeer(p::ConnectPeerRequest),
+    RevokeDevice(p::RevokeDeviceRequest),
+    SaveAgent(p::SaveAgentDefinitionRequest),
+    RemoveAgent(p::RemoveAgentDefinitionRequest),
+    SaveProfile(Box<p::SaveProfileRequest>),
+    RemoveProfile(p::RemoveProfileRequest),
+    SaveIntegration(p::SaveIntegrationRequest),
+    RemoveIntegration(p::RemoveIntegrationRequest),
+    BeginImage(p::BeginImageUploadRequest),
+    FinishImage(p::FinishImageUploadRequest),
+    CancelImage(p::CancelImageUploadRequest),
+    BeginFile(p::BeginFileUploadRequest),
+    FinishFile(p::FinishFileUploadRequest),
+    CancelFile(p::CancelFileUploadRequest),
+    BeginTask(p::BeginTaskUploadRequest),
+    FinishTask(p::FinishTaskUploadRequest),
+    CancelTask(p::CancelTaskUploadRequest),
+    OpenTerminal(p::OpenTerminalRequest),
+    StopTerminal(p::StopTerminalRequest),
+    RestartTerminal(p::RestartTerminalRequest),
+    AcquireInput(p::AcquireInputRequest),
+    ReleaseInput(p::ReleaseInputRequest),
+    GitStage(p::StageRequest),
+    GitUnstage(p::UnstageRequest),
+    GitDiscard(p::DiscardRequest),
+    GitCommit(p::CommitRequest),
+    GitPull(p::PullRequest),
+    GitPush(p::PushRequest),
+    GitWorktree(p::ChangeWorktreeRequest),
+    SaveFile(p::SaveFileRequest),
+    CreateFile(p::CreateFileRequest),
+    FilePresence(p::SetDirtyPresenceRequest),
     Create(p::CreateThreadRequest),
     Close(p::CloseThreadRequest),
+    CloseProject(p::CloseProjectRequest),
+    CloseTerminal(p::CloseTerminalRequest),
     OpenProject(p::OpenProjectRequest),
     Start(p::StartRequest),
     Interrupt(p::InterruptRequest),
@@ -46,8 +82,47 @@ pub(super) enum ApiIntent {
 macro_rules! request_field {
     ($value:expr, $field:ident) => {
         match $value {
+            ApiIntent::TaskMutation(v) => &mut v.$field,
+            ApiIntent::TaskUpdate(v) => &mut v.$field,
+            ApiIntent::TaskSaveFilter(v) => &mut v.$field,
+            ApiIntent::TaskRemoveFilter(v) => &mut v.$field,
+            ApiIntent::TaskWorktree(v) => &mut v.$field,
+            ApiIntent::ConnectPeer(v) => &mut v.$field,
+            ApiIntent::RevokeDevice(v) => &mut v.$field,
+            ApiIntent::SaveAgent(v) => &mut v.$field,
+            ApiIntent::RemoveAgent(v) => &mut v.$field,
+            ApiIntent::SaveProfile(v) => &mut v.$field,
+            ApiIntent::RemoveProfile(v) => &mut v.$field,
+            ApiIntent::SaveIntegration(v) => &mut v.$field,
+            ApiIntent::RemoveIntegration(v) => &mut v.$field,
+            ApiIntent::BeginImage(v) => &mut v.$field,
+            ApiIntent::FinishImage(v) => &mut v.$field,
+            ApiIntent::CancelImage(v) => &mut v.$field,
+            ApiIntent::BeginFile(v) => &mut v.$field,
+            ApiIntent::FinishFile(v) => &mut v.$field,
+            ApiIntent::CancelFile(v) => &mut v.$field,
+            ApiIntent::BeginTask(v) => &mut v.$field,
+            ApiIntent::FinishTask(v) => &mut v.$field,
+            ApiIntent::CancelTask(v) => &mut v.$field,
+            ApiIntent::OpenTerminal(v) => &mut v.$field,
+            ApiIntent::StopTerminal(v) => &mut v.$field,
+            ApiIntent::RestartTerminal(v) => &mut v.$field,
+            ApiIntent::AcquireInput(v) => &mut v.$field,
+            ApiIntent::ReleaseInput(v) => &mut v.$field,
+            ApiIntent::GitStage(v) => &mut v.$field,
+            ApiIntent::GitUnstage(v) => &mut v.$field,
+            ApiIntent::GitDiscard(v) => &mut v.$field,
+            ApiIntent::GitCommit(v) => &mut v.$field,
+            ApiIntent::GitPull(v) => &mut v.$field,
+            ApiIntent::GitPush(v) => &mut v.$field,
+            ApiIntent::GitWorktree(v) => &mut v.$field,
+            ApiIntent::SaveFile(v) => &mut v.$field,
+            ApiIntent::CreateFile(v) => &mut v.$field,
+            ApiIntent::FilePresence(v) => &mut v.$field,
             ApiIntent::Create(v) => &mut v.$field,
             ApiIntent::Close(v) => &mut v.$field,
+            ApiIntent::CloseProject(v) => &mut v.$field,
+            ApiIntent::CloseTerminal(v) => &mut v.$field,
             ApiIntent::OpenProject(v) => &mut v.$field,
             ApiIntent::Start(v) => &mut v.$field,
             ApiIntent::Interrupt(v) => &mut v.$field,
@@ -82,9 +157,48 @@ impl ApiIntent {
     }
     pub(super) fn encode(&self) -> (&'static str, Vec<u8>) {
         match self {
+            Self::TaskMutation(v) => ("tasks.mutate", v.encode_to_vec()),
+            Self::TaskUpdate(v) => ("tasks.update", v.encode_to_vec()),
+            Self::TaskSaveFilter(v) => ("tasks.save_filter", v.encode_to_vec()),
+            Self::TaskRemoveFilter(v) => ("tasks.remove_filter", v.encode_to_vec()),
+            Self::TaskWorktree(v) => ("tasks.worktree", v.encode_to_vec()),
+            Self::ConnectPeer(v) => ("peer.connect", v.encode_to_vec()),
+            Self::RevokeDevice(v) => ("host.revoke", v.encode_to_vec()),
+            Self::SaveAgent(v) => ("settings.agent.save", v.encode_to_vec()),
+            Self::RemoveAgent(v) => ("settings.agent.remove", v.encode_to_vec()),
+            Self::SaveProfile(v) => ("settings.profile.save", v.encode_to_vec()),
+            Self::RemoveProfile(v) => ("settings.profile.remove", v.encode_to_vec()),
+            Self::SaveIntegration(v) => ("settings.integration.save", v.encode_to_vec()),
+            Self::RemoveIntegration(v) => ("settings.integration.remove", v.encode_to_vec()),
+            Self::BeginImage(v) => ("artifacts.image.begin", v.encode_to_vec()),
+            Self::FinishImage(v) => ("artifacts.image.finish", v.encode_to_vec()),
+            Self::CancelImage(v) => ("artifacts.image.cancel", v.encode_to_vec()),
+            Self::BeginFile(v) => ("artifacts.file.begin", v.encode_to_vec()),
+            Self::FinishFile(v) => ("artifacts.file.finish", v.encode_to_vec()),
+            Self::CancelFile(v) => ("artifacts.file.cancel", v.encode_to_vec()),
+            Self::BeginTask(v) => ("artifacts.task.begin", v.encode_to_vec()),
+            Self::FinishTask(v) => ("artifacts.task.finish", v.encode_to_vec()),
+            Self::CancelTask(v) => ("artifacts.task.cancel", v.encode_to_vec()),
+            Self::OpenTerminal(v) => ("terminal.open", v.encode_to_vec()),
+            Self::StopTerminal(v) => ("terminal.stop", v.encode_to_vec()),
+            Self::RestartTerminal(v) => ("terminal.restart", v.encode_to_vec()),
+            Self::AcquireInput(v) => ("terminal.acquire", v.encode_to_vec()),
+            Self::ReleaseInput(v) => ("terminal.release", v.encode_to_vec()),
+            Self::GitStage(v) => ("git.stage", v.encode_to_vec()),
+            Self::GitUnstage(v) => ("git.unstage", v.encode_to_vec()),
+            Self::GitDiscard(v) => ("git.discard", v.encode_to_vec()),
+            Self::GitCommit(v) => ("git.commit", v.encode_to_vec()),
+            Self::GitPull(v) => ("git.pull", v.encode_to_vec()),
+            Self::GitPush(v) => ("git.push", v.encode_to_vec()),
+            Self::GitWorktree(v) => ("git.worktree", v.encode_to_vec()),
+            Self::SaveFile(v) => ("files.save", v.encode_to_vec()),
+            Self::CreateFile(v) => ("files.create", v.encode_to_vec()),
+            Self::FilePresence(v) => ("files.presence", v.encode_to_vec()),
             Self::Create(v) => ("create", v.encode_to_vec()),
             Self::Close(v) => ("close", v.encode_to_vec()),
             Self::OpenProject(v) => ("project.open", v.encode_to_vec()),
+            Self::CloseProject(v) => ("project.close", v.encode_to_vec()),
+            Self::CloseTerminal(v) => ("terminal.close", v.encode_to_vec()),
             Self::Start(v) => ("start", v.encode_to_vec()),
             Self::Interrupt(v) => ("interrupt", v.encode_to_vec()),
             Self::Restart(v) => ("restart", v.encode_to_vec()),
@@ -113,8 +227,77 @@ impl ApiIntent {
     }
     pub(super) fn decode(kind: &str, bytes: &[u8]) -> Result<Self, String> {
         match kind {
+            "tasks.mutate" => p::ApplyMutationRequest::decode(bytes).map(Self::TaskMutation),
+            "tasks.update" => p::UpdateTaskRequest::decode(bytes).map(Self::TaskUpdate),
+            "tasks.save_filter" => p::SaveFilterRequest::decode(bytes).map(Self::TaskSaveFilter),
+            "tasks.remove_filter" => {
+                p::RemoveFilterRequest::decode(bytes).map(Self::TaskRemoveFilter)
+            }
+            "tasks.worktree" => p::TaskToWorktreeRequest::decode(bytes).map(Self::TaskWorktree),
+            "peer.connect" => p::ConnectPeerRequest::decode(bytes).map(Self::ConnectPeer),
+            "host.revoke" => p::RevokeDeviceRequest::decode(bytes).map(Self::RevokeDevice),
+            "settings.agent.save" => {
+                p::SaveAgentDefinitionRequest::decode(bytes).map(Self::SaveAgent)
+            }
+            "settings.agent.remove" => {
+                p::RemoveAgentDefinitionRequest::decode(bytes).map(Self::RemoveAgent)
+            }
+            "settings.profile.save" => {
+                p::SaveProfileRequest::decode(bytes).map(|v| Self::SaveProfile(Box::new(v)))
+            }
+            "settings.profile.remove" => {
+                p::RemoveProfileRequest::decode(bytes).map(Self::RemoveProfile)
+            }
+            "settings.integration.save" => {
+                p::SaveIntegrationRequest::decode(bytes).map(Self::SaveIntegration)
+            }
+            "settings.integration.remove" => {
+                p::RemoveIntegrationRequest::decode(bytes).map(Self::RemoveIntegration)
+            }
+            "artifacts.image.begin" => {
+                p::BeginImageUploadRequest::decode(bytes).map(Self::BeginImage)
+            }
+            "artifacts.image.finish" => {
+                p::FinishImageUploadRequest::decode(bytes).map(Self::FinishImage)
+            }
+            "artifacts.image.cancel" => {
+                p::CancelImageUploadRequest::decode(bytes).map(Self::CancelImage)
+            }
+            "artifacts.file.begin" => p::BeginFileUploadRequest::decode(bytes).map(Self::BeginFile),
+            "artifacts.file.finish" => {
+                p::FinishFileUploadRequest::decode(bytes).map(Self::FinishFile)
+            }
+            "artifacts.file.cancel" => {
+                p::CancelFileUploadRequest::decode(bytes).map(Self::CancelFile)
+            }
+            "artifacts.task.begin" => p::BeginTaskUploadRequest::decode(bytes).map(Self::BeginTask),
+            "artifacts.task.finish" => {
+                p::FinishTaskUploadRequest::decode(bytes).map(Self::FinishTask)
+            }
+            "artifacts.task.cancel" => {
+                p::CancelTaskUploadRequest::decode(bytes).map(Self::CancelTask)
+            }
+            "terminal.open" => p::OpenTerminalRequest::decode(bytes).map(Self::OpenTerminal),
+            "terminal.stop" => p::StopTerminalRequest::decode(bytes).map(Self::StopTerminal),
+            "terminal.restart" => {
+                p::RestartTerminalRequest::decode(bytes).map(Self::RestartTerminal)
+            }
+            "terminal.acquire" => p::AcquireInputRequest::decode(bytes).map(Self::AcquireInput),
+            "terminal.release" => p::ReleaseInputRequest::decode(bytes).map(Self::ReleaseInput),
+            "git.stage" => p::StageRequest::decode(bytes).map(Self::GitStage),
+            "git.unstage" => p::UnstageRequest::decode(bytes).map(Self::GitUnstage),
+            "git.discard" => p::DiscardRequest::decode(bytes).map(Self::GitDiscard),
+            "git.commit" => p::CommitRequest::decode(bytes).map(Self::GitCommit),
+            "git.pull" => p::PullRequest::decode(bytes).map(Self::GitPull),
+            "git.push" => p::PushRequest::decode(bytes).map(Self::GitPush),
+            "git.worktree" => p::ChangeWorktreeRequest::decode(bytes).map(Self::GitWorktree),
+            "files.save" => p::SaveFileRequest::decode(bytes).map(Self::SaveFile),
+            "files.create" => p::CreateFileRequest::decode(bytes).map(Self::CreateFile),
+            "files.presence" => p::SetDirtyPresenceRequest::decode(bytes).map(Self::FilePresence),
             "create" => p::CreateThreadRequest::decode(bytes).map(Self::Create),
             "close" => p::CloseThreadRequest::decode(bytes).map(Self::Close),
+            "project.close" => p::CloseProjectRequest::decode(bytes).map(Self::CloseProject),
+            "terminal.close" => p::CloseTerminalRequest::decode(bytes).map(Self::CloseTerminal),
             "project.open" => p::OpenProjectRequest::decode(bytes).map(Self::OpenProject),
             "start" => p::StartRequest::decode(bytes).map(Self::Start),
             "interrupt" => p::InterruptRequest::decode(bytes).map(Self::Interrupt),
@@ -146,8 +329,125 @@ impl ApiIntent {
         }
         .map_err(|_| "Invalid saved API request; intent retained.".into())
     }
-    fn resource(&self) -> Option<p::command_receipt::Resource> {
+    pub(super) fn resource(&self) -> Option<p::command_receipt::Resource> {
+        let task = match self {
+            Self::TaskMutation(v) => v.project.as_ref(),
+            Self::TaskUpdate(v) => v.task.as_ref().and_then(|t| t.project.as_ref()),
+            Self::TaskWorktree(v) => v.task.as_ref().and_then(|t| t.project.as_ref()),
+            _ => None,
+        };
+        if let Some(task) = task {
+            return task.resource.clone().map(|resource| match resource {
+                p::task_project::Resource::Project(p) => p::command_receipt::Resource::Project(p),
+                p::task_project::Resource::Environment(e) => {
+                    p::command_receipt::Resource::Environment(e)
+                }
+            });
+        }
+        let environment = match self {
+            Self::TaskSaveFilter(v) => Some(&v.environment),
+            Self::TaskRemoveFilter(v) => Some(&v.environment),
+            Self::ConnectPeer(v) => Some(&v.environment),
+            Self::RevokeDevice(v) => Some(&v.environment),
+            Self::SaveAgent(v) => Some(&v.environment),
+            Self::RemoveAgent(v) => Some(&v.environment),
+            Self::SaveProfile(v) => Some(&v.environment),
+            Self::RemoveProfile(v) => Some(&v.environment),
+            Self::SaveIntegration(v) => Some(&v.environment),
+            Self::RemoveIntegration(v) => Some(&v.environment),
+            _ => None,
+        };
+        if let Some(environment) = environment {
+            return environment
+                .clone()
+                .map(p::command_receipt::Resource::Environment);
+        }
+        let project = match self {
+            Self::CloseProject(v) => Some(&v.project),
+            Self::CloseTerminal(v) => Some(&v.project),
+            Self::OpenTerminal(v) => Some(&v.project),
+            Self::StopTerminal(v) => Some(&v.project),
+            Self::RestartTerminal(v) => Some(&v.project),
+            Self::AcquireInput(v) => Some(&v.project),
+            Self::ReleaseInput(v) => Some(&v.project),
+            Self::GitStage(v) => Some(&v.project),
+            Self::GitUnstage(v) => Some(&v.project),
+            Self::GitDiscard(v) => Some(&v.project),
+            Self::GitCommit(v) => Some(&v.project),
+            Self::GitPull(v) => Some(&v.project),
+            Self::GitPush(v) => Some(&v.project),
+            Self::GitWorktree(v) => Some(&v.project),
+            _ => None,
+        };
+        if let Some(project) = project {
+            return project.clone().map(p::command_receipt::Resource::Project);
+        }
+        let file = match self {
+            Self::BeginFile(v) => v.file.as_ref(),
+            Self::FinishFile(v) => v.file.as_ref(),
+            Self::CancelFile(v) => v.file.as_ref(),
+            Self::SaveFile(v) => v.file.as_ref(),
+            Self::CreateFile(v) => v.file.as_ref(),
+            Self::FilePresence(v) => v.file.as_ref(),
+            _ => None,
+        };
+        if let Some(file) = file {
+            return file.target.as_ref()?.resource.clone().map(|r| match r {
+                p::resource_target::Resource::Project(p) => {
+                    p::command_receipt::Resource::Project(p)
+                }
+                p::resource_target::Resource::Thread(t) => p::command_receipt::Resource::Target(t),
+            });
+        }
+        let task = match self {
+            Self::BeginTask(v) => v.task.as_ref(),
+            Self::FinishTask(v) => v.task.as_ref(),
+            Self::CancelTask(v) => v.task.as_ref(),
+            _ => None,
+        };
+        if let Some(task) = task {
+            return task.project.as_ref()?.resource.clone().map(|r| match r {
+                p::task_project::Resource::Project(p) => p::command_receipt::Resource::Project(p),
+                p::task_project::Resource::Environment(e) => {
+                    p::command_receipt::Resource::Environment(e)
+                }
+            });
+        }
         let target = match self {
+            Self::ConnectPeer(_)
+            | Self::RevokeDevice(_)
+            | Self::SaveAgent(_)
+            | Self::RemoveAgent(_)
+            | Self::SaveProfile(_)
+            | Self::RemoveProfile(_)
+            | Self::SaveIntegration(_)
+            | Self::RemoveIntegration(_) => return None,
+            Self::BeginFile(_)
+            | Self::FinishFile(_)
+            | Self::CancelFile(_)
+            | Self::BeginTask(_)
+            | Self::FinishTask(_)
+            | Self::CancelTask(_) => return None,
+            Self::BeginImage(v) => &v.target,
+            Self::FinishImage(v) => &v.target,
+            Self::CancelImage(v) => &v.target,
+            Self::SaveFile(_)
+            | Self::CreateFile(_)
+            | Self::FilePresence(_)
+            | Self::GitStage(_)
+            | Self::GitUnstage(_)
+            | Self::GitDiscard(_)
+            | Self::GitCommit(_)
+            | Self::GitPull(_)
+            | Self::GitPush(_)
+            | Self::GitWorktree(_) => return None,
+            Self::OpenTerminal(_)
+            | Self::CloseProject(_)
+            | Self::CloseTerminal(_)
+            | Self::StopTerminal(_)
+            | Self::RestartTerminal(_)
+            | Self::AcquireInput(_)
+            | Self::ReleaseInput(_) => return None,
             Self::Close(v) => &v.target,
             Self::Create(v) => {
                 return v.resource.clone().map(|r| match r {
@@ -165,6 +465,11 @@ impl ApiIntent {
                     .clone()
                     .map(p::command_receipt::Resource::Environment);
             }
+            Self::TaskMutation(_)
+            | Self::TaskUpdate(_)
+            | Self::TaskWorktree(_)
+            | Self::TaskSaveFilter(_)
+            | Self::TaskRemoveFilter(_) => return None,
             Self::Start(v) => &v.target,
             Self::Interrupt(v) => &v.target,
             Self::Restart(v) => &v.target,
@@ -198,11 +503,18 @@ impl ApiIntent {
         target.clone().map(p::command_receipt::Resource::Target)
     }
     pub(super) async fn dispatch(
+        self,
+        channel: Channel,
+        host: &str,
+        _catalog_id: String,
+    ) -> Result<p::CommandReceipt, String> {
+        self.dispatch_typed(channel, host).await
+    }
+    pub(super) async fn dispatch_typed(
         mut self,
         channel: Channel,
         host: &str,
-        catalog_id: String,
-    ) -> Result<old::CommandReceipt, String> {
+    ) -> Result<p::CommandReceipt, String> {
         let meta = self
             .meta()
             .clone()
@@ -227,6 +539,191 @@ impl ApiIntent {
         }
         let mut thread = p::thread_service_client::ThreadServiceClient::new(channel.clone());
         let result = match self {
+            Self::TaskMutation(v) => {
+                p::tasks_service_client::TasksServiceClient::new(channel)
+                    .apply_mutation(v)
+                    .await
+            }
+            Self::TaskUpdate(v) => {
+                p::tasks_service_client::TasksServiceClient::new(channel)
+                    .update_task(v)
+                    .await
+            }
+            Self::TaskSaveFilter(v) => {
+                p::tasks_service_client::TasksServiceClient::new(channel)
+                    .save_filter(v)
+                    .await
+            }
+            Self::TaskRemoveFilter(v) => {
+                p::tasks_service_client::TasksServiceClient::new(channel)
+                    .remove_filter(v)
+                    .await
+            }
+            Self::TaskWorktree(v) => {
+                p::tasks_service_client::TasksServiceClient::new(channel)
+                    .task_to_worktree(v)
+                    .await
+            }
+            Self::ConnectPeer(v) => {
+                p::peer_service_client::PeerServiceClient::new(channel)
+                    .connect_peer(v)
+                    .await
+            }
+            Self::RevokeDevice(v) => {
+                p::host_service_client::HostServiceClient::new(channel)
+                    .revoke_device(v)
+                    .await
+            }
+            Self::SaveAgent(v) => {
+                p::settings_service_client::SettingsServiceClient::new(channel)
+                    .save_agent_definition(v)
+                    .await
+            }
+            Self::RemoveAgent(v) => {
+                p::settings_service_client::SettingsServiceClient::new(channel)
+                    .remove_agent_definition(v)
+                    .await
+            }
+            Self::SaveProfile(v) => {
+                p::settings_service_client::SettingsServiceClient::new(channel)
+                    .save_profile(*v)
+                    .await
+            }
+            Self::RemoveProfile(v) => {
+                p::settings_service_client::SettingsServiceClient::new(channel)
+                    .remove_profile(v)
+                    .await
+            }
+            Self::SaveIntegration(v) => {
+                p::settings_service_client::SettingsServiceClient::new(channel)
+                    .save_integration(v)
+                    .await
+            }
+            Self::RemoveIntegration(v) => {
+                p::settings_service_client::SettingsServiceClient::new(channel)
+                    .remove_integration(v)
+                    .await
+            }
+            Self::BeginImage(v) => {
+                p::artifacts_service_client::ArtifactsServiceClient::new(channel)
+                    .begin_image_upload(v)
+                    .await
+            }
+            Self::FinishImage(v) => {
+                p::artifacts_service_client::ArtifactsServiceClient::new(channel)
+                    .finish_image_upload(v)
+                    .await
+            }
+            Self::CancelImage(v) => {
+                p::artifacts_service_client::ArtifactsServiceClient::new(channel)
+                    .cancel_image_upload(v)
+                    .await
+            }
+            Self::BeginFile(v) => {
+                p::artifacts_service_client::ArtifactsServiceClient::new(channel)
+                    .begin_file_upload(v)
+                    .await
+            }
+            Self::FinishFile(v) => {
+                p::artifacts_service_client::ArtifactsServiceClient::new(channel)
+                    .finish_file_upload(v)
+                    .await
+            }
+            Self::CancelFile(v) => {
+                p::artifacts_service_client::ArtifactsServiceClient::new(channel)
+                    .cancel_file_upload(v)
+                    .await
+            }
+            Self::BeginTask(v) => {
+                p::artifacts_service_client::ArtifactsServiceClient::new(channel)
+                    .begin_task_upload(v)
+                    .await
+            }
+            Self::FinishTask(v) => {
+                p::artifacts_service_client::ArtifactsServiceClient::new(channel)
+                    .finish_task_upload(v)
+                    .await
+            }
+            Self::CancelTask(v) => {
+                p::artifacts_service_client::ArtifactsServiceClient::new(channel)
+                    .cancel_task_upload(v)
+                    .await
+            }
+            Self::OpenTerminal(v) => {
+                p::terminal_service_client::TerminalServiceClient::new(channel)
+                    .open_terminal(v)
+                    .await
+            }
+            Self::StopTerminal(v) => {
+                p::terminal_service_client::TerminalServiceClient::new(channel)
+                    .stop_terminal(v)
+                    .await
+            }
+            Self::RestartTerminal(v) => {
+                p::terminal_service_client::TerminalServiceClient::new(channel)
+                    .restart_terminal(v)
+                    .await
+            }
+            Self::AcquireInput(v) => {
+                p::terminal_service_client::TerminalServiceClient::new(channel)
+                    .acquire_input(v)
+                    .await
+            }
+            Self::ReleaseInput(v) => {
+                p::terminal_service_client::TerminalServiceClient::new(channel)
+                    .release_input(v)
+                    .await
+            }
+            Self::GitStage(v) => {
+                p::git_service_client::GitServiceClient::new(channel)
+                    .stage(v)
+                    .await
+            }
+            Self::GitUnstage(v) => {
+                p::git_service_client::GitServiceClient::new(channel)
+                    .unstage(v)
+                    .await
+            }
+            Self::GitDiscard(v) => {
+                p::git_service_client::GitServiceClient::new(channel)
+                    .discard(v)
+                    .await
+            }
+            Self::GitCommit(v) => {
+                p::git_service_client::GitServiceClient::new(channel)
+                    .commit(v)
+                    .await
+            }
+            Self::GitPull(v) => {
+                p::git_service_client::GitServiceClient::new(channel)
+                    .pull(v)
+                    .await
+            }
+            Self::GitPush(v) => {
+                p::git_service_client::GitServiceClient::new(channel)
+                    .push(v)
+                    .await
+            }
+            Self::GitWorktree(v) => {
+                p::git_service_client::GitServiceClient::new(channel)
+                    .change_worktree(v)
+                    .await
+            }
+            Self::SaveFile(v) => {
+                p::files_service_client::FilesServiceClient::new(channel)
+                    .save_file(v)
+                    .await
+            }
+            Self::CreateFile(v) => {
+                p::files_service_client::FilesServiceClient::new(channel)
+                    .create_file(v)
+                    .await
+            }
+            Self::FilePresence(v) => {
+                p::files_service_client::FilesServiceClient::new(channel)
+                    .set_dirty_presence(v)
+                    .await
+            }
             Self::Create(v) => {
                 p::catalog_service_client::CatalogServiceClient::new(channel)
                     .create_thread(v)
@@ -240,6 +737,16 @@ impl ApiIntent {
             Self::OpenProject(v) => {
                 p::catalog_service_client::CatalogServiceClient::new(channel)
                     .open_project(v)
+                    .await
+            }
+            Self::CloseProject(v) => {
+                p::catalog_service_client::CatalogServiceClient::new(channel)
+                    .close_project(v)
+                    .await
+            }
+            Self::CloseTerminal(v) => {
+                p::catalog_service_client::CatalogServiceClient::new(channel)
+                    .close_terminal(v)
                     .await
             }
             Self::Start(v) => thread.start(v).await,
@@ -284,196 +791,22 @@ impl ApiIntent {
         {
             return Err("API result identity differs from the original request; retain intent for reconciliation.".into());
         }
-        Ok(compat::legacy_receipt(result, catalog_id))
+        Ok(result)
     }
 }
 
 impl HostClient {
-    pub async fn start_thread(&self, chat: old::ChatRef) -> Result<old::CommandReceipt, String> {
+    pub async fn start_thread(&self, chat: String) -> Result<p::CommandReceipt, String> {
         let target = self.thread_target(&chat).await?;
         self.mutate_api(
             ApiIntent::Start(p::StartRequest {
                 command: None,
                 target: Some(target),
             }),
-            chat.chat_id,
+            chat,
             None,
         )
         .await
-    }
-    pub(super) async fn api_chat(&self, intent: &super::ChatMutation) -> Result<ApiIntent, String> {
-        use super::ChatMutation as C;
-        if let C::Send(request) = intent {
-            return self.api_send(request).await;
-        }
-        let chat = intent.chat().ok_or("Thread identity is missing.")?;
-        let target = Some(self.thread_target(chat).await?);
-        let run = |run: &str| {
-            run.parse::<u64>()
-                .map_err(|_| "Invalid run identity.".to_owned())
-        };
-        let item = |item: &Option<old::ItemKey>| {
-            item.map(|v| p::ItemKey {
-                history_epoch: v.history_epoch,
-                item_id: v.item_id,
-            })
-            .ok_or("History item is missing.".to_owned())
-        };
-        let summary = self
-            .cached_chat(&chat.chat_id)
-            .and_then(|c| c.summary)
-            .or_else(|| {
-                self.snapshot()
-                    .catalog
-                    .and_then(|c| c.chats.into_iter().find(|s| s.chat.as_ref() == Some(chat)))
-            });
-        let context = summary.as_ref().map(|s| old::SendContext {
-            agent_id: s.agent_id.clone(),
-            profile_id: s.profile_id.clone(),
-            workspace: s.workspace.clone(),
-            history_epoch: s.history_epoch,
-        });
-        Ok(match intent {
-            C::Interrupt(v) => ApiIntent::Interrupt(p::InterruptRequest {
-                command: None,
-                target,
-                run_id: run(v.run_id.as_deref().ok_or("Run is missing.")?)?,
-            }),
-            C::Restart(v) => ApiIntent::Restart(p::RestartRequest {
-                command: None,
-                target,
-                run_id: run(v.run_id.as_deref().ok_or("Run is missing.")?)?,
-            }),
-            C::Steer(v) => ApiIntent::Steer(p::SteerRequest {
-                command: None,
-                target,
-                run_id: run(&v.run_id)?,
-                message_id: v.message_id.clone(),
-                draft: v
-                    .draft
-                    .clone()
-                    .map(|d| compat::draft(d, chat, context.as_ref()))
-                    .transpose()?,
-            }),
-            C::Respond(v) => {
-                let response = match v.response.clone().ok_or("Decision answer is missing.")? {
-                    old::respond_decision_request::Response::OptionId(id) => {
-                        p::respond_decision_request::Response::OptionId(id)
-                    }
-                    old::respond_decision_request::Response::Native(n) => {
-                        p::respond_decision_request::Response::Native(p::NativeDecision {
-                            action: n.action,
-                            answers: n.answers,
-                            note: n.note,
-                            accept_edits: n.accept_edits,
-                        })
-                    }
-                };
-                ApiIntent::Respond(p::RespondDecisionRequest {
-                    command: None,
-                    target,
-                    run_id: run(&v.run_id)?,
-                    decision_id: run(&v.decision_id)?,
-                    response: Some(response),
-                })
-            }
-            C::Option(v) => ApiIntent::Option(p::SetAgentOptionRequest {
-                command: None,
-                target,
-                option_id: v.option_id.clone(),
-                value_id: v.value_id.clone(),
-            }),
-            C::Agent(v) => ApiIntent::Agent(p::SetThreadAgentRequest {
-                command: None,
-                target,
-                agent_id: v.agent_id.clone(),
-                profile_id: v.profile_id.clone(),
-                model: v.model.clone(),
-            }),
-            C::Goal(v) => match v.action.map(old::GoalAction::try_from) {
-                Some(Ok(old::GoalAction::PauseGoal)) if v.objective.is_none() => {
-                    ApiIntent::PauseGoal(p::PauseGoalRequest {
-                        command: None,
-                        target,
-                    })
-                }
-                Some(Ok(old::GoalAction::ResumeGoal)) if v.objective.is_none() => {
-                    ApiIntent::ResumeGoal(p::ResumeGoalRequest {
-                        command: None,
-                        target,
-                    })
-                }
-                Some(Ok(old::GoalAction::ClearGoal)) if v.objective.is_none() => {
-                    ApiIntent::ClearGoal(p::ClearGoalRequest {
-                        command: None,
-                        target,
-                    })
-                }
-                None | Some(Ok(old::GoalAction::Unspecified)) => match &v.objective {
-                    Some(objective) => ApiIntent::Goal(p::SetGoalRequest {
-                        command: None,
-                        target,
-                        objective: objective.clone(),
-                    }),
-                    None => ApiIntent::ClearGoal(p::ClearGoalRequest {
-                        command: None,
-                        target,
-                    }),
-                },
-                _ => return Err("Invalid goal action.".into()),
-            },
-            C::Background(v) => ApiIntent::Background(p::StopBackgroundRequest {
-                command: None,
-                target,
-                run_id: run(&v.run_id)?,
-                call_id: v.call_id.clone(),
-            }),
-            C::Edit(v) => ApiIntent::MessageEdit(p::EditMessageRequest {
-                command: None,
-                target,
-                run_id: run(&v.run_id)?,
-                item: Some(item(&v.item)?),
-                draft: Some(compat::draft(
-                    v.draft.clone().ok_or("Edit draft is missing.")?,
-                    chat,
-                    context.as_ref(),
-                )?),
-                restore_files: v.restore_files,
-            }),
-            C::RunShell(v) => ApiIntent::Shell(p::RunShellRequest {
-                command: None,
-                target,
-                run_id: run(&v.run_id)?,
-                command_line: v.command_line.clone(),
-            }),
-            C::StopShell(v) => ApiIntent::StopShell(p::StopShellRequest {
-                command: None,
-                target,
-                run_id: run(&v.run_id)?,
-                item: Some(item(&v.item)?),
-            }),
-            C::Fork(v) => {
-                let source = summary
-                    .as_ref()
-                    .and_then(|s| s.workspace.as_ref())
-                    .ok_or("Fork requires a project thread.")?;
-                if v.destination.as_ref() != Some(source) {
-                    return Err("Fork is supported only in the source project and worktree. Choose that location.".into());
-                }
-                ApiIntent::Fork(p::ForkThreadRequest {
-                    command: None,
-                    target,
-                    history_epoch: v.history_epoch,
-                    item_id: v.item_id,
-                    replacement: v
-                        .replacement
-                        .clone()
-                        .map(|d| compat::draft(d, chat, context.as_ref()))
-                        .transpose()?,
-                })
-            }
-            C::Send(_) => unreachable!(),
-        })
     }
     pub async fn list_threads(&self) -> Result<Vec<p::ThreadSummary>, String> {
         let mut threads = Vec::new();
@@ -511,54 +844,13 @@ impl HostClient {
             page_token = Some(next);
         }
     }
-    pub(super) async fn retry_api_outbox(
-        &self,
-        entry: &super::store::OutboxEntry,
-    ) -> Result<old::CommandReceipt, String> {
-        let bytes = entry
-            .api_request
-            .as_ref()
-            .ok_or("Original typed send is missing; retain the draft without replay.")?;
-        let mut intent = ApiIntent::decode("send", bytes)?;
-        let meta = intent
-            .meta()
-            .as_ref()
-            .ok_or("Original command identity is missing.")?;
-        if meta.command_id != entry.id || self.snapshot().record.epoch != Some(meta.command_epoch) {
-            return Err(
-                "Saved send identity or epoch differs; intent retained without replay.".into(),
-            );
-        }
-        let request = old::SendMessageRequest::decode(entry.request.as_slice())
-            .map_err(|_| "Invalid retained send.")?;
-        let original = request
-            .command
-            .as_ref()
-            .ok_or("Retained command identity is missing.")?;
-        if original.host_id != self.id().as_str()
-            || original.command_id != meta.command_id
-            || original.command_epoch != meta.command_epoch
-        {
-            return Err("Retained send identity mismatch.".into());
-        }
-        intent
-            .dispatch(
-                self.channel()?,
-                self.id().as_str(),
-                request.chat.map(|c| c.chat_id).unwrap_or_default(),
-            )
-            .await
-    }
     /// Discovery returns the stored UUID and epoch. A legacy key is never parsed as UUIDv7.
-    pub async fn thread_target(&self, chat: &old::ChatRef) -> Result<p::ThreadTarget, String> {
-        if chat.host_id != self.id().as_str() {
-            return Err("Thread catalog target differs from this host.".into());
-        }
+    pub async fn thread_target(&self, catalog_id: &str) -> Result<p::ThreadTarget, String> {
         let mut request = tonic::Request::new(p::ListThreadsRequest {
             environment: Some(p::EnvironmentRef {
-                host_id: chat.host_id.clone(),
+                host_id: self.id().as_str().into(),
             }),
-            catalog_id: Some(chat.chat_id.clone()),
+            catalog_id: Some(catalog_id.into()),
             page_token: None,
             limit: 1,
         });
@@ -571,7 +863,7 @@ impl HostClient {
         let mut matching = response
             .threads
             .into_iter()
-            .filter(|t| t.catalog_id == chat.chat_id);
+            .filter(|t| t.catalog_id == catalog_id);
         let summary = matching
             .next()
             .ok_or("Thread is no longer available on its original host.")?;
@@ -585,7 +877,7 @@ impl HostClient {
             .thread
             .as_ref()
             .ok_or("Thread identity is missing.")?;
-        if thread.host_id != chat.host_id
+        if thread.host_id != self.id().as_str()
             || crate::thread::ThreadId::parse(&thread.thread_id).is_none()
         {
             return Err("Invalid discovered thread identity.".into());
@@ -594,56 +886,82 @@ impl HostClient {
     }
     pub(super) async fn api_send(
         &self,
-        request: &old::SendMessageRequest,
+        request: &p::SendMessageRequest,
     ) -> Result<ApiIntent, String> {
-        let chat = request.chat.as_ref().ok_or("Thread is missing.")?;
-        let context = request
-            .expected_context
+        if request
+            .target
             .as_ref()
-            .ok_or("Message context is missing.")?;
-        Ok(ApiIntent::Send(p::SendMessageRequest {
-            command: request.command.clone().map(compat::command),
-            target: Some(self.thread_target(chat).await?),
-            message_id: request.message_id.clone(),
-            draft: Some(compat::draft(
-                request.draft.clone().ok_or("Message draft is missing.")?,
-                chat,
-                Some(context),
-            )?),
-            expected_context: Some(p::SendContext {
-                account_id: context.agent_id.clone(),
-                profile_id: context.profile_id.clone(),
-                history_epoch: context.history_epoch,
-            }),
-        }))
+            .and_then(|t| t.thread.as_ref())
+            .is_none_or(|t| t.host_id != self.id().as_str())
+        {
+            return Err("Thread address is missing or belongs to another host.".into());
+        }
+        Ok(ApiIntent::Send(request.clone()))
     }
     pub(super) async fn mutate_api(
+        &self,
+        intent: ApiIntent,
+        catalog_id: String,
+        revision: Option<u64>,
+    ) -> Result<p::CommandReceipt, String> {
+        self.mutate_api_typed(intent, catalog_id, revision).await
+    }
+    pub(super) async fn mutate_api_typed(
+        &self,
+        intent: ApiIntent,
+        catalog_id: String,
+        revision: Option<u64>,
+    ) -> Result<p::CommandReceipt, String> {
+        let host = self.id().as_str().to_owned();
+        self.mutate_api_with(
+            intent,
+            catalog_id,
+            revision,
+            move |intent, channel| async move { intent.dispatch_typed(channel, &host).await },
+        )
+        .await
+    }
+    pub(super) async fn mutate_api_with<F, Fut>(
         &self,
         mut intent: ApiIntent,
         catalog_id: String,
         revision: Option<u64>,
-    ) -> Result<old::CommandReceipt, String> {
+        dispatch: F,
+    ) -> Result<p::CommandReceipt, String>
+    where
+        F: FnOnce(ApiIntent, Channel) -> Fut,
+        Fut: std::future::Future<Output = Result<p::CommandReceipt, String>>,
+    {
         let _gate = self.mutation.lock().await;
         let channel = self.channel()?;
         let meta = self.command(revision)?;
-        *intent.meta() = Some(compat::command(meta.clone()));
+        *intent.meta() = Some(meta.clone());
         let (kind, bytes) = intent.encode();
         if bytes.len() > crate::host::CONTROL_BYTES {
             return Err("Operation exceeds the control limit; intent retained.".into());
         }
-        self.update_record(|record| {
-            if record.mutations.iter().any(|e| e.receipt.as_ref().and_then(|b| old::CommandReceipt::decode(b.as_slice()).ok()).is_none_or(|r| !r.resolved_by_user && !terminal_state(r.state))) {
+        let old_entries = self.snapshot().record.mutations;
+        let bytes = self.save_settings_intent(kind, bytes)?;
+        let journaled = self.update_record(|record| {
+            if record.mutations.iter().any(|e| e.receipt.as_ref().and_then(|b| p::CommandReceipt::decode(b.as_slice()).ok()).is_none_or(|r| !r.resolved_by_user && !terminal_state(r.state))) {
                 return Err("An earlier operation is unresolved. Review its result before another mutation.".into());
             }
             // Every journaled operation is resolved here; only the new one remains.
             record.mutations.clear();
-            record.mutations.push(MutationRecord { id: meta.command_id.clone(), epoch: meta.command_epoch, receipt: None, chat_intent: None, api_intent: Some((kind.into(), bytes)) });
+            record.mutations.push(MutationRecord { id: meta.command_id.clone(), epoch: meta.command_epoch, receipt: None, chat_intent: None, api_intent: Some((kind.into(), bytes.clone())) });
             Ok(())
-        })?;
+        });
+        if let Err(error) = journaled {
+            self.remove_settings_intent(kind, &bytes);
+            return Err(error);
+        }
+        for entry in old_entries {
+            if let Some((kind, bytes)) = entry.api_intent {
+                self.remove_settings_intent(&kind, &bytes);
+            }
+        }
         let started = std::time::Instant::now();
-        let response = intent
-            .dispatch(channel, self.id().as_str(), catalog_id.clone())
-            .await;
+        let response = dispatch(intent, channel).await;
         crate::remote::metrics::record(
             self.id().as_str(),
             &crate::remote::metrics::resource_id(&catalog_id),
@@ -659,12 +977,13 @@ impl HostClient {
         );
         let receipt = response?;
         self.store_api_receipt(&meta.command_id, &receipt)?;
-        check_receipt(receipt)
+        check_receipt(receipt.clone())?;
+        Ok(receipt)
     }
     pub(super) fn store_api_receipt(
         &self,
         id: &str,
-        receipt: &old::CommandReceipt,
+        receipt: &p::CommandReceipt,
     ) -> Result<(), String> {
         self.update_record(|record| {
             let entry = record
@@ -680,11 +999,14 @@ impl HostClient {
     }
     pub async fn update_preferences(
         &self,
-        request: old::UpdatePreferencesRequest,
+        mut request: p::UpdatePreferencesRequest,
         revision: u64,
-    ) -> Result<old::CommandReceipt, String> {
+    ) -> Result<p::CommandReceipt, String> {
+        request.environment = Some(p::EnvironmentRef {
+            host_id: self.id().as_str().into(),
+        });
         self.mutate_api(
-            ApiIntent::Preferences(compat::preferences(request, self.id().as_str())),
+            ApiIntent::Preferences(request),
             "private".into(),
             Some(revision),
         )
@@ -692,10 +1014,10 @@ impl HostClient {
     }
     pub async fn rename_thread(
         &self,
-        chat: old::ChatRef,
+        chat: String,
         title: String,
         revision: Option<u64>,
-    ) -> Result<old::CommandReceipt, String> {
+    ) -> Result<p::CommandReceipt, String> {
         let target = self.thread_target(&chat).await?;
         self.mutate_api(
             ApiIntent::Rename(p::RenameThreadRequest {
@@ -703,77 +1025,40 @@ impl HostClient {
                 target: Some(target),
                 title,
             }),
-            chat.chat_id,
+            chat,
             revision,
         )
         .await
-    }
-    pub async fn change_queue(
-        &self,
-        chat: old::ChatRef,
-        revision: u64,
-        change: old::change_queue_request::Change,
-        context: Option<old::SendContext>,
-    ) -> Result<old::CommandReceipt, String> {
-        let target = Some(self.thread_target(&chat).await?);
-        use old::change_queue_request::Change as C;
-        let intent = match change {
-            C::Edit(v) => ApiIntent::Edit(p::EditQueueMessageRequest {
-                command: None,
-                target,
-                queue_revision: revision,
-                message_id: v.message_id,
-                draft: Some(compat::draft(
-                    v.draft.ok_or("Draft is missing.")?,
-                    &chat,
-                    context.as_ref(),
-                )?),
-            }),
-            C::Move(v) => ApiIntent::Move(p::MoveQueueMessageRequest {
-                command: None,
-                target,
-                queue_revision: revision,
-                message_id: v.message_id,
-                before_message_id: v.before_message_id,
-            }),
-            C::Remove(v) => ApiIntent::Remove(p::RemoveQueueMessageRequest {
-                command: None,
-                target,
-                queue_revision: revision,
-                message_id: v.message_id,
-            }),
-            C::Pause(v) => ApiIntent::Pause(p::PauseQueueRequest {
-                command: None,
-                target,
-                queue_revision: revision,
-                paused: v.paused,
-            }),
-            C::Resolve(v) => ApiIntent::Resolve(p::ResolveUnknownQueueMessageRequest {
-                command: None,
-                target,
-                queue_revision: revision,
-                message_id: v.message_id,
-                resolution: v.resolution,
-                new_message_id: v.new_message_id,
-            }),
-        };
-        // Queue CAS is carried by queue_revision. expected_revision refers to
-        // thread metadata and must not be filled with the unrelated queue value.
-        self.mutate_api(intent, chat.chat_id, None).await
     }
     pub(super) async fn retry_api(
         &self,
         entry: &MutationRecord,
         catalog_id: String,
-    ) -> Result<old::CommandReceipt, String> {
+    ) -> Result<p::CommandReceipt, String> {
         if self.snapshot().record.epoch != Some(entry.epoch) {
             return Err("Command epoch retired; intent retained without replay.".into());
+        }
+        if let Some(receipt) = entry
+            .receipt
+            .as_ref()
+            .map(|bytes| p::CommandReceipt::decode(bytes.as_slice()))
+            .transpose()
+            .map_err(|_| "Invalid saved operation result.")?
+        {
+            if receipt.resolved_by_user || terminal_state(receipt.state) {
+                return Ok(receipt);
+            }
+            if receipt.state == p::OperationState::DeliveryUnknown as i32
+                || receipt.state == p::OperationState::Attempting as i32
+            {
+                return Err("This operation may already have taken effect. Inspect or review its result; its request cannot be replayed.".into());
+            }
         }
         let (kind, bytes) = entry
             .api_intent
             .as_ref()
             .ok_or("Saved typed request is missing.")?;
-        let mut intent = ApiIntent::decode(kind, bytes)?;
+        let mut intent = self.load_settings_intent(kind, bytes)?;
         let meta = intent
             .meta()
             .as_ref()

@@ -266,6 +266,9 @@ persisted without draft text and includes disconnected devices. Resource gates
 serialize these RPC operations; they are not filesystem-wide locks against an
 external process in the final check/rename interval.
 
-The RPC service is independent of Window. App editor wiring, transport/mTLS and
-native platform qualification are separate integration checks; these service
-changes do not by themselves qualify the complete E4 feature matrix.
+Local editor Save and Files Create use the same typed bus before their existing
+file owner performs I/O. Text is staged off the UI thread in the existing artifact
+store; the inbox keeps its immutable identity. The local reservation, baseline
+conflict, buffer generation, BOM/CRLF and error behavior remain with Document.
+The RPC service is independent of Window. Unit tests do not qualify native GUI
+behavior or the complete E4 feature matrix.

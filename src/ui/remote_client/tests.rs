@@ -215,8 +215,8 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
         ui::sidebar::{Navigation, Sidebar},
     };
     use canopy_desktop::{
+        api::proto as p,
         git::{RepositoryIdentity, RepositoryInfo, WorktreeHead, WorktreeInfo},
-        remote::proto as p,
         state::workspace::{PaneKind, PaneMetadata, Workspace},
     };
     use gpui_kit::{Entity, Subscription};
@@ -230,6 +230,7 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
     )
     .unwrap();
     let mut hosts = vec![];
+    let shared_chat_id = uuid::Uuid::new_v4().to_string();
     for (name, origin) in [
         ("Home", "https://github.com/itsoltech/canopy-desktop"),
         (
@@ -239,32 +240,38 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
         ("Other forge", "https://gitlab.com/itsoltech/canopy-desktop"),
     ] {
         let id = uuid::Uuid::new_v4().to_string();
-        let workspace = p::WorkspaceRef {
+        let workspace = p::ProjectRef {
             host_id: id.clone(),
-            workspace_id: "main".into(),
+            project_id: "project".into(),
+            worktree_id: Some("main".into()),
         };
         let catalog = p::Catalog {
-            host_id: id.clone(),
+            environment: Some(p::EnvironmentRef {
+                host_id: id.clone(),
+            }),
             projects: vec![p::ProjectSummary {
-                project_id: "/different/path".into(),
                 name: "canopy-desktop".into(),
                 path: "/different/path".into(),
                 origin: Some(origin.into()),
-                checkouts: vec![p::WorkspaceSummary {
-                    workspace: Some(workspace.clone()),
+                checkouts: vec![p::ProjectCheckout {
+                    project: Some(workspace),
+                    catalog_id: "main".into(),
                     name: "checkout".into(),
                     branch: Some("main".into()),
                     ..Default::default()
                 }],
             }],
-            chats: vec![p::ChatSummary {
-                chat: Some(p::ChatRef {
+            threads: vec![p::CatalogThread {
+                thread: Some(p::ThreadRef {
                     host_id: id.clone(),
-                    chat_id: "same-chat-id".into(),
+                    thread_id: canopy_desktop::thread::ThreadId::new().to_string(),
                 }),
-                workspace: Some(workspace),
-                title: "Plan".into(),
-                ..Default::default()
+                catalog_id: shared_chat_id.clone(),
+                project_catalog_id: Some("main".into()),
+                summary: Some(p::ThreadStatus {
+                    title: "Plan".into(),
+                    ..Default::default()
+                }),
             }],
             ..Default::default()
         };
@@ -294,7 +301,7 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
         let root = std::path::PathBuf::from("/local/canopy");
         app.projects.update(cx, |projects, cx| {
             projects.ready = true;
-            projects.open_worktree(root.clone(), root.clone(), cx);
+            projects.install_test_worktree(root.clone(), root.clone(), cx);
             projects
                 .open_chat(
                     projects.catalog.active,
@@ -399,7 +406,7 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
                 "{label}"
             );
             window.click(
-                format!("chat-remote-{}-same-chat-id", host.id().as_str()),
+                format!("chat-remote-{}-{}", host.id().as_str(), shared_chat_id),
                 cx,
             );
         })
@@ -414,10 +421,10 @@ async fn the_sidebar_groups_origins_but_keeps_each_computers_main_and_chats(
             panic!("remote navigation")
         };
         assert_eq!(target.id(), host.id());
-        let Some(p::resource_ref::Resource::Chat(chat)) = &resource.resource else {
+        let super::ResourceView::Thread(chat) = resource else {
             panic!("chat target")
         };
-        assert_eq!(chat.host_id, host.id().as_str());
+        assert_eq!(chat.host, host.id().as_str());
         cx.update(|cx| assert_eq!(app.projects.read(cx).catalog.active, original));
     }
     cx.update_window(handle.into(), |_, window, cx| {

@@ -3,9 +3,9 @@
 //! rechecks the conditions right before the effect; a plan is only proof of what was
 //! shown, never of what is true now.
 use crate::app_state::{chats::DeletePreflight, project_commands::ProjectClosePreflight};
-use canopy_desktop::remote::{
-    auth::{RpcAuth, storage_status},
-    proto,
+use canopy_desktop::{
+    api::proto,
+    remote::auth::{RpcAuth, storage_status},
 };
 use std::{
     collections::HashMap,
@@ -35,9 +35,15 @@ pub(super) enum PlanKind {
     },
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum PlanResource {
+    Thread(String),
+    Project(String),
+    Terminal(String),
+}
 struct Plan {
     device: String,
-    resource: proto::ResourceRef,
+    resource: PlanResource,
     delete: bool,
     created: Instant,
     kind: PlanKind,
@@ -57,7 +63,7 @@ impl Plans {
     pub(super) fn insert(
         &mut self,
         device: &str,
-        resource: proto::ResourceRef,
+        resource: PlanResource,
         delete: bool,
         kind: PlanKind,
     ) -> Result<String, Status> {
@@ -66,7 +72,7 @@ impl Plans {
     fn insert_at(
         &mut self,
         device: &str,
-        resource: proto::ResourceRef,
+        resource: PlanResource,
         delete: bool,
         kind: PlanKind,
         now: Instant,
@@ -108,7 +114,7 @@ impl Plans {
         &mut self,
         id: &str,
         device: &str,
-        resource: &proto::ResourceRef,
+        resource: &PlanResource,
         command: &str,
     ) -> Result<PlanKind, Status> {
         self.take_at(id, device, resource, command, Instant::now())
@@ -117,7 +123,7 @@ impl Plans {
         &mut self,
         id: &str,
         device: &str,
-        resource: &proto::ResourceRef,
+        resource: &PlanResource,
         command: &str,
         now: Instant,
     ) -> Result<PlanKind, Status> {
@@ -161,11 +167,13 @@ pub(super) struct Dirty {
     online: bool,
 }
 impl Dirty {
-    pub(super) fn wire(&self, workspace: &proto::WorkspaceRef) -> proto::DirtyBufferPresence {
+    pub(super) fn wire(&self, project: &proto::ProjectRef) -> proto::DirtyBufferPresence {
         proto::DirtyBufferPresence {
             device_id: self.device.clone(),
             file: Some(proto::FileRef {
-                workspace: Some(workspace.clone()),
+                target: Some(proto::ResourceTarget {
+                    resource: Some(proto::resource_target::Resource::Project(project.clone())),
+                }),
                 relative_path: self.path.clone(),
             }),
             base_hash: self.base_hash.to_vec(),
@@ -206,13 +214,8 @@ pub(super) fn active_dirty(dirty: &[Dirty]) -> bool {
 mod tests {
     use super::*;
 
-    fn chat(id: &str) -> proto::ResourceRef {
-        proto::ResourceRef {
-            resource: Some(proto::resource_ref::Resource::Chat(proto::ChatRef {
-                host_id: "h".into(),
-                chat_id: id.into(),
-            })),
-        }
+    fn chat(id: &str) -> PlanResource {
+        PlanResource::Thread(id.into())
     }
     fn kind() -> PlanKind {
         PlanKind::Terminal {

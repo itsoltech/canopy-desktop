@@ -1,6 +1,6 @@
 import type { NativeRemote } from './bridge'
 import { decode, toBase64 } from './protobuf'
-import type { ChatEvent, ChatRef, Cursor, ItemFragment, TranscriptItem } from './schema'
+import type { ThreadEvent, ThreadRef, Cursor, ItemFragment, TranscriptItem } from './schema'
 
 const MAX_ITEM = 32 * 1024 * 1024
 const sameCursor = (a: Cursor, b: Cursor) => a.runtime_epoch === b.runtime_epoch && a.stream_id === b.stream_id && a.sequence === b.sequence
@@ -12,19 +12,19 @@ export class ChatEventAssembler {
   private committed?: Cursor
   private snapshotBoundary?: Cursor
   private sequence = 0
-  readonly chat: ChatRef
+  readonly chat: ThreadRef
   private readonly hash: Pick<NativeRemote, 'startHash' | 'hashChunk' | 'finishHash' | 'cancelHash'>
   private readonly subscriptionId: string
-  constructor(chat: ChatRef, subscriptionId: string, hash: Pick<NativeRemote, 'startHash' | 'hashChunk' | 'finishHash' | 'cancelHash'>, since?: Cursor) {
+  constructor(chat: ThreadRef, subscriptionId: string, hash: Pick<NativeRemote, 'startHash' | 'hashChunk' | 'finishHash' | 'cancelHash'>, since?: Cursor) {
     this.chat = chat; this.subscriptionId = subscriptionId; this.hash = hash; this.received = since; this.committed = since
   }
   resumeCursor(): Cursor | undefined { return this.committed ? { ...this.committed } : undefined }
-  async push(event: ChatEvent, install: (event: ChatEvent) => void | Promise<void>): Promise<void> {
+  async push(event: ThreadEvent, install: (event: ThreadEvent) => void | Promise<void>): Promise<void> {
     try { await this.apply(event, install) }
     catch (error) { await this.reset(); throw error }
   }
-  private async apply(event: ChatEvent, install: (event: ChatEvent) => void | Promise<void>): Promise<void> {
-    if (event.chat?.host_id !== this.chat.host_id || event.chat.chat_id !== this.chat.chat_id) throw new ResyncRequired('Chat identity mismatch')
+  private async apply(event: ThreadEvent, install: (event: ThreadEvent) => void | Promise<void>): Promise<void> {
+    if (event.thread?.host_id !== this.chat.host_id || event.thread.thread_id !== this.chat.thread_id) throw new ResyncRequired('Thread identity mismatch')
     if (event.resync) throw new ResyncRequired(event.resync.reason)
     if (event.snapshot_start) {
       if (this.partial || this.snapshotBoundary || !event.snapshot_start.boundary) throw new ResyncRequired('Invalid snapshot start')
@@ -63,9 +63,9 @@ export class ChatEventAssembler {
       const item = decode<TranscriptItem>('TranscriptItem', p.bytes, 0, MAX_ITEM)
       if (item.key?.history_epoch !== f.key.history_epoch || item.key.item_id !== f.key.item_id || item.revision !== f.revision) throw new ResyncRequired('Assembled item identity mismatch')
       // The owner installs the complete decoded item atomically. No partial text is exposed.
-      const replacement: ChatEvent = this.snapshotBoundary
-        ? { chat: this.chat, snapshot_items: { items: [item] } }
-        : { chat: this.chat, cursor: event.cursor, replace_item: item }
+      const replacement: ThreadEvent = this.snapshotBoundary
+        ? { thread: this.chat, snapshot_items: { items: [item] } }
+        : { thread: this.chat, cursor: event.cursor, replace_item: item }
       await install(replacement)
       this.partial = undefined
     } else {

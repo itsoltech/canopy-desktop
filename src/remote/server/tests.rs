@@ -9,6 +9,13 @@ use tonic::{Status, transport::Identity};
 struct Host;
 #[tonic::async_trait]
 impl crate::remote::tasks::TasksHost for Host {
+    async fn configure(
+        &self,
+        _: String,
+        _: crate::command_bus::tasks::TaskConfiguration,
+    ) -> Result<(), Status> {
+        Err(Status::unimplemented("test"))
+    }
     async fn save_filter(&self, _: crate::integrations::filters::TaskFilter) -> Result<(), Status> {
         Err(Status::unimplemented("test"))
     }
@@ -17,7 +24,7 @@ impl crate::remote::tasks::TasksHost for Host {
     }
     async fn task_to_worktree(
         &self,
-        _: proto::WorkspaceRef,
+        _: crate::thread::ProjectRef,
         _: crate::integrations::TaskRef,
         _: String,
     ) -> Result<String, Status> {
@@ -49,7 +56,7 @@ impl gpui_kit::http_client::HttpClient for NoHttp {
 }
 #[tonic::async_trait]
 impl SettingsHost for Host {
-    async fn snapshot(&self) -> Result<proto::HostSettings, Status> {
+    async fn snapshot(&self) -> Result<crate::api::proto::HostSettings, Status> {
         Ok(Default::default())
     }
     async fn update_preferences(
@@ -194,6 +201,52 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         crate::artifacts::ArtifactStore::open(client.clone(), directory.path().join("artifacts"))
             .unwrap(),
     );
+    let root = directory.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let mut projects = crate::state::projects::Projects::default();
+    projects.open(root.clone());
+    let project = projects.current().unwrap();
+    let file_target = crate::api::proto::ResourceTarget {
+        resource: Some(crate::api::proto::resource_target::Resource::Project(
+            crate::api::proto::ProjectRef {
+                host_id: host.id().into(),
+                project_id: serde_json::to_string(&project.id).unwrap(),
+                worktree_id: None,
+            },
+        )),
+    };
+    let roots = super::super::auth::WorkspaceRoots::default();
+    let git_root = directory.path().join("git-project");
+    std::fs::create_dir(&git_root).unwrap();
+    let git_root = git_root.canonicalize().unwrap();
+    git2::Repository::init(&git_root).unwrap();
+    std::fs::write(git_root.join("change.txt"), "stage once").unwrap();
+    projects.open_worktree(git_root.clone(), git_root.clone());
+    let project = projects.current().unwrap();
+    let git_project = crate::api::proto::ProjectRef {
+        host_id: host.id().into(),
+        project_id: serde_json::to_string(&project.id).unwrap(),
+        worktree_id: Some(serde_json::to_string(&project.workspace).unwrap()),
+    };
+    roots.replace_projects(projects.items).unwrap();
+    let git = crate::git::GitClient::start().unwrap();
+    let files = super::super::resources::FilesRpc::new(
+        auth.clone(),
+        roots.clone(),
+        git.clone(),
+        artifacts.clone(),
+        operations.clone(),
+    );
+    let git_rpc = super::super::resources::GitRpc::new(
+        auth.clone(),
+        roots.clone(),
+        git.clone(),
+        crate::terminal::environment::ShellEnvironment {
+            shell: "/bin/sh".into(),
+            vars: Default::default(),
+        },
+        operations.clone(),
+    );
     let tasks = crate::remote::tasks::TasksRpc::new(
         auth.clone(),
         Default::default(),
@@ -202,16 +255,18 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         artifacts,
         Arc::new(Host),
     );
-    let features = Routes::new(proto::settings_service_server::SettingsServiceServer::new(
-        settings.clone(),
-    ))
+    let features = Routes::new(
+        crate::api::proto::settings_service_server::SettingsServiceServer::new(settings.clone()),
+    )
     .add_service(proto::tasks_service_server::TasksServiceServer::new(tasks))
+    .add_service(crate::api::proto::files_service_server::FilesServiceServer::new(files))
+    .add_service(crate::api::proto::git_service_server::GitServiceServer::new(git_rpc))
     .add_service(crate::api::proto::catalog_service_server::CatalogServiceServer::new(api.clone()))
     .add_service(crate::api::proto::thread_service_server::ThreadServiceServer::new(api));
     let server = start(
         "127.0.0.1:0".parse().unwrap(),
         ServerServices {
-            auth,
+            auth: auth.clone(),
             state: state.clone(),
             identity: identity.clone(),
             enrollment,
@@ -238,8 +293,10 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     let mut host_rpc = proto::host_service_client::HostServiceClient::new(unpaired);
     assert_eq!(
         host_rpc
-            .get_info(proto::HostRequest {
-                host_id: host.id().into()
+            .get_info(proto::GetInfoRequest {
+                environment: Some(proto::EnvironmentRef {
+                    host_id: host.id().into()
+                })
             })
             .await
             .unwrap_err()
@@ -252,8 +309,10 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     let mut host_rpc = proto::host_service_client::HostServiceClient::new(channel.clone());
     assert_eq!(
         host_rpc
-            .get_info(proto::HostRequest {
-                host_id: host.id().into()
+            .get_info(proto::GetInfoRequest {
+                environment: Some(proto::EnvironmentRef {
+                    host_id: host.id().into()
+                })
             })
             .await
             .unwrap_err()
@@ -265,9 +324,13 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
             crate::host::DeviceRegistration::new(
                 id.clone(),
                 "test device".into(),
-                der,
-                crate::host::READ | crate::host::TASKS | crate::host::CHAT,
-                vec!["private".into()],
+                der.clone(),
+                crate::host::READ | crate::host::TASKS | crate::host::CHAT | crate::host::FILES_GIT,
+                vec![
+                    "private".into(),
+                    root.to_str().unwrap().into(),
+                    git_root.to_str().unwrap().into(),
+                ],
             )
             .unwrap(),
         )
@@ -275,19 +338,26 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         .unwrap();
     assert_eq!(
         host_rpc
-            .get_info(proto::HostRequest {
-                host_id: host.id().into()
+            .get_info(proto::GetInfoRequest {
+                environment: Some(proto::EnvironmentRef {
+                    host_id: host.id().into()
+                })
             })
             .await
             .unwrap()
             .into_inner()
+            .environment
+            .unwrap()
             .host_id,
         host.id()
     );
     let integrations = proto::tasks_service_client::TasksServiceClient::new(channel.clone())
-        .list_integrations(proto::TaskIntegrationsRequest {
-            host_id: host.id().into(),
-            workspace: None,
+        .list_integrations(proto::ListIntegrationsRequest {
+            resource: Some(proto::list_integrations_request::Resource::Environment(
+                proto::EnvironmentRef {
+                    host_id: host.id().into(),
+                },
+            )),
         })
         .await
         .unwrap()
@@ -298,6 +368,189 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     assert!(integrations.integrations[0].configured);
     assert!(!format!("{integrations:?}").contains(&credential_ref));
     use crate::api::proto as api;
+    let mut git_rpc = api::git_service_client::GitServiceClient::new(channel.clone());
+    let plan = git_rpc
+        .preflight(api::PreflightRequest {
+            project: Some(git_project.clone()),
+            intent: Some(api::preflight_request::Intent::Paths(api::GitPathIntent {
+                operation: api::GitPathOperation::Stage as i32,
+                paths: vec!["change.txt".into()],
+            })),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let stage = api::StageRequest {
+        command: Some(api::CommandMeta {
+            command_id: uuid::Uuid::new_v4().to_string(),
+            command_epoch: 1,
+            expected_revision: None,
+        }),
+        project: Some(git_project),
+        paths: vec!["change.txt".into()],
+        expected: plan.expected,
+    };
+    let staged = git_rpc.stage(stage.clone()).await.unwrap().into_inner();
+    assert_eq!(staged.state, api::OperationState::Succeeded as i32);
+    assert_eq!(
+        host_rpc
+            .get_command(proto::GetCommandRequest {
+                environment: Some(proto::EnvironmentRef {
+                    host_id: host.id().into()
+                }),
+                command_id: staged.command_id.clone(),
+                command_epoch: 1,
+                resource: None,
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .receipt
+            .unwrap(),
+        staged
+    );
+    assert!(
+        git2::Repository::open(&git_root)
+            .unwrap()
+            .index()
+            .unwrap()
+            .get_path(std::path::Path::new("change.txt"), 0)
+            .is_some()
+    );
+    let mut changed_stage = stage.clone();
+    changed_stage.paths = vec!["another.txt".into()];
+    assert_eq!(
+        git_rpc
+            .stage(changed_stage.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::Aborted
+    );
+    let mut files_rpc = api::files_service_client::FilesServiceClient::new(channel.clone());
+    let create_file = api::CreateFileRequest {
+        command: Some(api::CommandMeta {
+            command_id: uuid::Uuid::new_v4().to_string(),
+            command_epoch: 1,
+            expected_revision: None,
+        }),
+        file: Some(api::FileRef {
+            target: Some(file_target.clone()),
+            relative_path: "once.txt".into(),
+        }),
+        directory: false,
+        content: None,
+    };
+    // Simulate interruption after durable acceptance and before dispatch. The
+    // original typed RPC must recover this state rather than strand the epoch.
+    let grant = client.lookup_runtime_device(der).await.unwrap();
+    let accept_file = |request: api::CreateFileRequest| {
+        let auth = auth.clone();
+        let roots = roots.clone();
+        let grant = grant.clone();
+        async move {
+            let file = request.file.unwrap();
+            let prepared = crate::api::resources::prepare_file(
+                &auth,
+                &roots,
+                &grant,
+                request.command.unwrap(),
+                &file.target.unwrap(),
+                crate::command_bus::FileCommand::Create {
+                    path: file.relative_path,
+                    directory: request.directory,
+                    content: None,
+                },
+            )
+            .await
+            .unwrap();
+            auth.client()
+                .accept_runtime_command(prepared.runtime_input().clone(), crate::host::FILES_GIT)
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(
+        accept_file(create_file.clone()).await.state(),
+        crate::host::CommandState::Accepted
+    );
+    let mut removed_file = create_file.clone();
+    removed_file.command.as_mut().unwrap().command_id = uuid::Uuid::new_v4().to_string();
+    removed_file.file.as_mut().unwrap().relative_path = "never-created.txt".into();
+    accept_file(removed_file.clone()).await;
+    let created = files_rpc
+        .create_file(create_file.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(created.state, api::OperationState::Succeeded as i32);
+    assert!(root.join("once.txt").is_file());
+    let mut conflicting_file = create_file.clone();
+    conflicting_file.command.as_mut().unwrap().command_id = uuid::Uuid::new_v4().to_string();
+    let rejected_file = files_rpc
+        .create_file(conflicting_file.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(rejected_file.state, api::OperationState::Rejected as i32);
+    assert_eq!(
+        rejected_file.error.as_ref().unwrap().code,
+        "conditions_changed"
+    );
+    let mut changed_file = create_file.clone();
+    changed_file.directory = true;
+    assert_eq!(
+        files_rpc
+            .create_file(changed_file.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::Aborted
+    );
+    roots.replace_projects(Vec::new()).unwrap();
+    let removed_result = files_rpc
+        .create_file(removed_file.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(removed_result.state, api::OperationState::Rejected as i32);
+    assert_eq!(
+        removed_result.error.as_ref().unwrap().code,
+        "conditions_changed"
+    );
+    assert!(!root.join("never-created.txt").exists());
+    assert_eq!(
+        files_rpc
+            .create_file(removed_file)
+            .await
+            .unwrap()
+            .into_inner(),
+        removed_result
+    );
+    std::fs::remove_dir_all(&git_root).unwrap();
+    assert_eq!(
+        git_rpc.stage(stage.clone()).await.unwrap().into_inner(),
+        staged
+    );
+    assert!(!git_root.exists());
+    std::fs::remove_file(root.join("once.txt")).unwrap();
+    assert_eq!(
+        files_rpc
+            .create_file(create_file.clone())
+            .await
+            .unwrap()
+            .into_inner(),
+        created
+    );
+    assert_eq!(
+        files_rpc
+            .create_file(conflicting_file)
+            .await
+            .unwrap()
+            .into_inner(),
+        rejected_file
+    );
+    assert!(!root.join("once.txt").exists());
     let discovery = api::catalog_service_client::CatalogServiceClient::new(channel.clone())
         .list_threads(api::ListThreadsRequest {
             page_token: None,
@@ -466,6 +719,174 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
             .code(),
         tonic::Code::Aborted
     );
+    let environment = Some(proto::EnvironmentRef {
+        host_id: host.id().into(),
+    });
+    let original_lookup = proto::GetCommandRequest {
+        environment: environment.clone(),
+        command_id: accepted.command_id.clone(),
+        command_epoch: 1,
+        resource: Some(proto::CommandResource {
+            target: Some(proto::command_resource::Target::Thread(target.clone())),
+        }),
+    };
+    assert_eq!(
+        host_rpc
+            .get_command(original_lookup.clone())
+            .await
+            .unwrap()
+            .into_inner()
+            .receipt
+            .unwrap(),
+        accepted
+    );
+    let grant = client
+        .lookup_runtime_device(
+            client
+                .runtime_device_certificate(id.clone())
+                .await
+                .unwrap()
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let pending = crate::command_bus::CommandBus::new(client.clone())
+        .prepare(
+            crate::api::decode::envelope(
+                proto::CommandMeta {
+                    command_id: uuid::Uuid::new_v4().to_string(),
+                    command_epoch: 1,
+                    expected_revision: None,
+                },
+                crate::api::decode::target(target.clone()).unwrap(),
+                crate::command_bus::Command::Control(crate::command_bus::Control::Start),
+            )
+            .unwrap(),
+            crate::command_bus::Principal::authenticated(&grant, 1).unwrap(),
+        )
+        .await
+        .unwrap();
+    let pending = client
+        .accept_runtime_command(pending.runtime_input().clone(), crate::host::CHAT)
+        .await
+        .unwrap();
+    let close = proto::CloseCommandEpochRequest {
+        environment: environment.clone(),
+        expected_epoch: 1,
+    };
+    assert_eq!(
+        host_rpc
+            .close_command_epoch(close.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::FailedPrecondition
+    );
+    client
+        .transition_runtime_command(
+            pending.key().clone(),
+            crate::host::CommandState::Accepted,
+            crate::host::CommandState::Attempting,
+            None,
+        )
+        .await
+        .unwrap();
+    client
+        .transition_runtime_command(
+            pending.key().clone(),
+            crate::host::CommandState::Attempting,
+            crate::host::CommandState::DeliveryUnknown,
+            None,
+        )
+        .await
+        .unwrap();
+    let closed = host_rpc
+        .close_command_epoch(close.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(closed.epoch, 2);
+    assert_eq!(
+        host_rpc
+            .close_command_epoch(close)
+            .await
+            .unwrap()
+            .into_inner(),
+        closed
+    );
+    let lookup = proto::GetCommandRequest {
+        command_id: pending.key().id().into(),
+        ..original_lookup.clone()
+    };
+    let unknown = host_rpc
+        .get_command(lookup.clone())
+        .await
+        .unwrap()
+        .into_inner()
+        .receipt
+        .unwrap();
+    assert_eq!(unknown.state, proto::OperationState::DeliveryUnknown as i32);
+    assert!(!unknown.resolved_by_user);
+    let resolve = proto::ResolveCommandRequest {
+        environment: lookup.environment.clone(),
+        command_id: lookup.command_id.clone(),
+        command_epoch: lookup.command_epoch,
+        resource: lookup.resource.clone(),
+    };
+    let archived = host_rpc
+        .resolve_command(resolve.clone())
+        .await
+        .unwrap()
+        .into_inner()
+        .receipt
+        .unwrap();
+    assert_eq!(
+        archived.state,
+        proto::OperationState::DeliveryUnknown as i32
+    );
+    assert!(archived.resolved_by_user);
+    assert_eq!(
+        host_rpc
+            .resolve_command(resolve)
+            .await
+            .unwrap()
+            .into_inner()
+            .receipt
+            .unwrap(),
+        archived
+    );
+    assert_eq!(
+        host_rpc
+            .close_command_epoch(proto::CloseCommandEpochRequest {
+                environment: environment.clone(),
+                expected_epoch: 2
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .epoch,
+        3
+    );
+    assert_eq!(
+        host_rpc
+            .get_command(lookup)
+            .await
+            .unwrap()
+            .into_inner()
+            .state,
+        proto::CommandLookupState::Retired as i32
+    );
+    assert_eq!(
+        host_rpc
+            .close_command_epoch(proto::CloseCommandEpochRequest {
+                environment,
+                expected_epoch: 1
+            })
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::FailedPrecondition
+    );
     // READ includes Tasks browsing. A read-only device does not need TASKS or
     // ADMIN just to discover the host's safe integration metadata.
     client
@@ -477,6 +898,12 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         )
         .await
         .unwrap();
+    for request in [create_file, changed_file] {
+        assert_eq!(
+            files_rpc.create_file(request).await.unwrap_err().code(),
+            tonic::Code::PermissionDenied
+        );
+    }
     // The old successful receipt is still protected by the current grant.
     assert_eq!(
         thread_rpc
@@ -495,24 +922,33 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         tonic::Code::PermissionDenied
     );
     let readonly = proto::tasks_service_client::TasksServiceClient::new(channel.clone())
-        .list_integrations(proto::TaskIntegrationsRequest {
-            host_id: host.id().into(),
-            workspace: None,
+        .list_integrations(proto::ListIntegrationsRequest {
+            resource: Some(proto::list_integrations_request::Resource::Environment(
+                proto::EnvironmentRef {
+                    host_id: host.id().into(),
+                },
+            )),
         })
         .await
         .unwrap()
         .into_inner();
     assert_eq!(readonly.integrations, integrations.integrations);
     let admin_error = proto::settings_service_client::SettingsServiceClient::new(channel.clone())
-        .get_settings(proto::HostRequest {
-            host_id: host.id().into(),
+        .get_settings(proto::GetSettingsRequest {
+            environment: Some(proto::EnvironmentRef {
+                host_id: host.id().into(),
+            }),
         })
         .await
         .unwrap_err();
     assert_eq!(admin_error.code(), tonic::Code::PermissionDenied);
     assert_eq!(
         host_rpc
-            .read_diagnostics(proto::Empty {})
+            .read_diagnostics(proto::ReadDiagnosticsRequest {
+                environment: Some(proto::EnvironmentRef {
+                    host_id: host.id().into()
+                })
+            })
             .await
             .unwrap_err()
             .code(),
@@ -527,6 +963,12 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         )
         .await
         .unwrap();
+    for request in [stage, changed_stage] {
+        assert_eq!(
+            git_rpc.stage(request).await.unwrap_err().code(),
+            tonic::Code::PermissionDenied
+        );
+    }
     crate::remote::metrics::record(
         host.id(),
         host.id(),
@@ -537,7 +979,11 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         crate::remote::metrics::Outcome::Ok,
     );
     let diagnostics = host_rpc
-        .read_diagnostics(proto::Empty {})
+        .read_diagnostics(proto::ReadDiagnosticsRequest {
+            environment: Some(proto::EnvironmentRef {
+                host_id: host.id().into(),
+            }),
+        })
         .await
         .unwrap()
         .into_inner();
@@ -549,9 +995,101 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
             .all(|record| record.host_id == host.id())
     );
     assert!(!format!("{diagnostics:?}").contains(&credential_ref));
-    let mut host_watch = host_rpc
-        .watch_host(proto::HostRequest {
+    let (revoked_id, revoked_der, _) = device(&identity);
+    client
+        .register_runtime_device(
+            crate::host::DeviceRegistration::new(
+                revoked_id.clone(),
+                "revoked by command".into(),
+                revoked_der,
+                crate::host::READ,
+                vec!["private".into()],
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let revoke = proto::RevokeDeviceRequest {
+        command: Some(proto::CommandMeta {
+            command_id: uuid::Uuid::new_v4().to_string(),
+            command_epoch: 3,
+            expected_revision: None,
+        }),
+        environment: Some(proto::EnvironmentRef {
             host_id: host.id().into(),
+        }),
+        device_id: revoked_id.clone(),
+    };
+    let revoked = host_rpc
+        .revoke_device(revoke.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(revoked.state, proto::OperationState::Succeeded as i32);
+    assert!(revoked.result.is_none());
+    assert_eq!(
+        host_rpc
+            .revoke_device(revoke.clone())
+            .await
+            .unwrap()
+            .into_inner(),
+        revoked
+    );
+    assert!(
+        client
+            .runtime_devices_page(None, true)
+            .await
+            .unwrap()
+            .0
+            .iter()
+            .any(|d| d.id() == revoked_id && d.revoked())
+    );
+    assert_eq!(
+        host_rpc
+            .get_command(proto::GetCommandRequest {
+                environment: revoke.environment.clone(),
+                command_id: revoked.command_id.clone(),
+                command_epoch: 3,
+                resource: Some(proto::CommandResource {
+                    target: Some(proto::command_resource::Target::Environment(
+                        revoke.environment.clone().unwrap()
+                    ))
+                }),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .receipt
+            .unwrap(),
+        revoked
+    );
+    let mut changed = revoke;
+    changed.device_id = uuid::Uuid::new_v4().to_string();
+    assert_eq!(
+        host_rpc
+            .revoke_device(changed.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::Aborted
+    );
+    changed.command.as_mut().unwrap().command_id = uuid::Uuid::new_v4().to_string();
+    let absent = host_rpc
+        .revoke_device(changed.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(absent.state, proto::OperationState::Rejected as i32);
+    assert_eq!(absent.error.as_ref().unwrap().code, "not_found");
+    assert_eq!(
+        host_rpc.revoke_device(changed).await.unwrap().into_inner(),
+        absent
+    );
+    let mut host_watch = host_rpc
+        .watch_host(proto::WatchHostRequest {
+            environment: Some(proto::EnvironmentRef {
+                host_id: host.id().into(),
+            }),
         })
         .await
         .unwrap()
@@ -594,5 +1132,6 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         .await
         .unwrap()
         .unwrap();
+    git.shutdown().await;
     client.shutdown().await.unwrap();
 }

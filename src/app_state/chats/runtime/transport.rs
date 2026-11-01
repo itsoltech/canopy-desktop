@@ -3,8 +3,10 @@
 //! Local operations enter the existing runtime and SQLite bus directly. Only the
 //! gRPC implementation owns wire projections, network tasks and device recovery.
 use super::*;
+use canopy_desktop::command_bus::{Control, DecisionAnswer as BusAnswer};
 
 mod grpc;
+mod local;
 #[cfg(test)]
 mod tests;
 pub(crate) use grpc::Recovering;
@@ -86,14 +88,14 @@ pub(crate) enum EditProgress {
 pub(crate) struct EditedBranch {
     fork: Option<String>,
     draft: Draft,
+    target: MessageEdit,
+    revision: u64,
 }
 
 pub(crate) enum EditSubmission {
     Preparing(Task<Result<Draft, String>>),
-    Restoring,
     AwaitingAcceptance,
     Restart(EditedBranch),
-    RestoreFailed(String),
     Refused { message: String, recheck: bool },
 }
 
@@ -630,7 +632,7 @@ impl ChatRuntime {
         // The same revision fences asynchronous preparation and persisted recovery.
         let revision = canopy_desktop::remote::client::HostClient::next_view_revision();
         match self.transport {
-            ThreadTransport::Local => {}
+            ThreadTransport::Local => self.local_draft_revision = revision,
             ThreadTransport::Grpc(_) => self.save_client_draft(draft, revision, cx),
         }
         revision
@@ -727,10 +729,10 @@ impl ChatRuntime {
                 if let Some(catalog) = source.host.as_ref().and_then(|host| host.shared_catalog()) {
                     for project in &catalog.projects {
                         for checkout in &project.checkouts {
-                            if checkout.closing == Some(true) {
+                            if checkout.closing {
                                 continue;
                             }
-                            let Some(workspace) = &checkout.workspace else {
+                            let Some(project_ref) = &checkout.project else {
                                 continue;
                             };
                             destinations.push(ThreadDestination {
@@ -739,8 +741,8 @@ impl ChatRuntime {
                                 selected: false,
                                 folder_icon: false,
                                 target: Destination::Hosted {
-                                    host: workspace.host_id.clone(),
-                                    workspace: Some(workspace.workspace_id.clone()),
+                                    host: project_ref.host_id.clone(),
+                                    workspace: Some(checkout.catalog_id.clone()),
                                 },
                             });
                         }
@@ -958,6 +960,9 @@ impl ChatRuntime {
         if matches!(target.origin, EditOrigin::Host) {
             return EditProgress::Unchanged;
         }
+        if self.local_edit_pending {
+            return EditProgress::Unchanged;
+        }
         let current = target.run == self.generation && target.epoch == self.epoch;
         let outcome = current
             .then(|| self.native()?.rewind())
@@ -1048,11 +1053,8 @@ impl ChatRuntime {
                 };
                 draft.context = context.clone();
                 if restore {
-                    return if self.rewind_files(target.item, false, cx) {
-                        EditSubmission::Restoring
-                    } else {
-                        EditSubmission::RestoreFailed("Files can't be restored now.".into())
-                    };
+                    self.local_edit(target.clone(), fork.clone(), draft, true, revision, cx);
+                    return EditSubmission::AwaitingAcceptance;
                 }
                 if fork.is_some() && self.pane.metadata.resume_id.is_none() {
                     return EditSubmission::Refused {
@@ -1063,13 +1065,22 @@ impl ChatRuntime {
                 EditSubmission::Restart(EditedBranch {
                     fork: fork.clone(),
                     draft,
+                    target: target.clone(),
+                    revision,
                 })
             }
         }
     }
 
     pub(crate) fn restart_message_edit(&mut self, branch: EditedBranch, cx: &mut Context<Self>) {
-        self.restart_edited(branch.fork, branch.draft, cx);
+        self.local_edit(
+            branch.target,
+            branch.fork,
+            branch.draft,
+            false,
+            branch.revision,
+            cx,
+        );
     }
 
     pub(crate) fn saved_draft(&self) -> Option<Draft> {
@@ -1487,8 +1498,11 @@ impl ChatRuntime {
     ) -> Result<ComposerClear, String> {
         match self.transport {
             ThreadTransport::Local => {
-                self.run_shell(&command, cx)?;
-                Ok(ComposerClear::WhenReady)
+                if command.trim().is_empty() {
+                    return Err("Type a command to run.".into());
+                }
+                self.local_shell(command, cx);
+                Ok(ComposerClear::OnAcceptance)
             }
             ThreadTransport::Grpc(_) => {
                 self.client_shell(command, cx);
@@ -1658,7 +1672,9 @@ impl ChatRuntime {
 
     pub fn start(&mut self, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.start_local(cx),
+            ThreadTransport::Local => {
+                self.local_control(Control::Start, cx, |this, cx| this.start_local(cx))
+            }
             ThreadTransport::Grpc(_) => self.connect_remote(cx),
         }
     }
@@ -1672,7 +1688,13 @@ impl ChatRuntime {
 
     pub fn restart(&mut self, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.restart_local(cx),
+            ThreadTransport::Local => self.local_control(
+                Control::Restart {
+                    run: self.generation,
+                },
+                cx,
+                |this, cx| this.restart_local(cx),
+            ),
             ThreadTransport::Grpc(_) => self.remote_command("restart", cx),
         }
     }
@@ -1707,7 +1729,15 @@ impl ChatRuntime {
         cx: &mut Context<Self>,
     ) {
         match self.transport {
-            ThreadTransport::Local => self.set_account_local(tool, profile, model, cx),
+            ThreadTransport::Local => self.local_control(
+                Control::SetAgent {
+                    tool: tool.clone(),
+                    profile: profile.clone(),
+                    model: model.clone(),
+                },
+                cx,
+                move |this, cx| this.set_account_local(tool, profile, model, cx),
+            ),
             ThreadTransport::Grpc(_) => self.client_set_agent(tool, profile, model, cx),
         }
     }
@@ -1730,63 +1760,133 @@ impl ChatRuntime {
 
     pub fn interrupt(&mut self, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.interrupt_local(cx),
+            ThreadTransport::Local => self.local_control(
+                Control::Interrupt {
+                    run: self.generation,
+                },
+                cx,
+                |this, cx| this.interrupt_local(cx),
+            ),
             ThreadTransport::Grpc(_) => self.remote_command("interrupt", cx),
         }
     }
 
     pub fn respond(&mut self, item: ItemId, response: Response, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.respond_local(item, response, cx),
+            ThreadTransport::Local => {
+                let answer = match &response {
+                    Response::Allow => BusAnswer::Allow,
+                    Response::AllowForChat => BusAnswer::AllowForThread,
+                    Response::Deny(text) => BusAnswer::Deny(text.clone()),
+                    Response::Answer(values) => BusAnswer::Answer(values.clone()),
+                    Response::ApprovePlan { accept_edits } => BusAnswer::ApprovePlan {
+                        accept_edits: *accept_edits,
+                    },
+                    Response::KeepPlanning(text) => BusAnswer::KeepPlanning(text.clone()),
+                };
+                self.local_control(
+                    Control::Respond {
+                        run: self.generation,
+                        item: item.0,
+                        answer,
+                    },
+                    cx,
+                    move |this, cx| this.respond_local(item, response, cx),
+                );
+            }
             ThreadTransport::Grpc(_) => self.respond_grpc(item, response, cx),
         }
     }
 
     pub fn respond_option(&mut self, item: ItemId, option: Option<String>, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.respond_option_local(item, option, cx),
+            ThreadTransport::Local => self.local_control(
+                Control::Respond {
+                    run: self.generation,
+                    item: item.0,
+                    answer: option
+                        .clone()
+                        .map(BusAnswer::Option)
+                        .unwrap_or(BusAnswer::Deny(None)),
+                },
+                cx,
+                move |this, cx| this.respond_option_local(item, option, cx),
+            ),
             ThreadTransport::Grpc(_) => self.respond_option_grpc(item, option, cx),
         }
     }
 
     pub fn set_agent_option(&mut self, id: &str, value: &str, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.set_agent_option_local(id, value, cx),
+            ThreadTransport::Local => {
+                let (id, value) = (id.to_owned(), value.to_owned());
+                self.local_control(
+                    Control::SetOption {
+                        id: id.clone(),
+                        value: value.clone(),
+                    },
+                    cx,
+                    move |this, cx| this.set_agent_option_local(&id, &value, cx),
+                );
+            }
             ThreadTransport::Grpc(_) => self.remote_option(id.into(), value.into(), cx),
         }
     }
 
     pub fn stop_background(&mut self, call: &str, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.stop_background_local(call, cx),
+            ThreadTransport::Local => {
+                let call = call.to_owned();
+                self.local_control(
+                    Control::StopBackground {
+                        run: self.generation,
+                        call: call.clone(),
+                    },
+                    cx,
+                    move |this, cx| this.stop_background_local(&call, cx),
+                );
+            }
             ThreadTransport::Grpc(_) => self.client_stop_background(call.into(), cx),
         }
     }
 
     pub fn pause_goal(&mut self, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.pause_goal_local(cx),
+            ThreadTransport::Local => {
+                self.local_control(Control::PauseGoal, cx, |this, cx| this.pause_goal_local(cx))
+            }
             ThreadTransport::Grpc(_) => self.goal_grpc(ChatCommand::PauseGoal, cx),
         }
     }
 
     pub fn resume_goal(&mut self, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.resume_goal_local(cx),
+            ThreadTransport::Local => self.local_control(Control::ResumeGoal, cx, |this, cx| {
+                this.resume_goal_local(cx)
+            }),
             ThreadTransport::Grpc(_) => self.goal_grpc(ChatCommand::ResumeGoal, cx),
         }
     }
 
     pub fn clear_goal(&mut self, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.clear_goal_local(cx),
+            ThreadTransport::Local => {
+                self.local_control(Control::ClearGoal, cx, |this, cx| this.clear_goal_local(cx))
+            }
             ThreadTransport::Grpc(_) => self.goal_grpc(ChatCommand::ClearGoal, cx),
         }
     }
 
     pub fn set_model(&mut self, model: Option<String>, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.set_model_local(model, cx),
+            ThreadTransport::Local => self.local_control(
+                Control::SetOption {
+                    id: "model".into(),
+                    value: model.clone().unwrap_or_default(),
+                },
+                cx,
+                move |this, cx| this.set_model_local(model, cx),
+            ),
             ThreadTransport::Grpc(_) => {
                 self.remote_option("model".into(), model.unwrap_or_default(), cx)
             }
@@ -1795,7 +1895,14 @@ impl ChatRuntime {
 
     pub fn set_effort(&mut self, effort: Option<Effort>, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.set_effort_local(effort, cx),
+            ThreadTransport::Local => self.local_control(
+                Control::SetOption {
+                    id: "effort".into(),
+                    value: effort.map(|e| e.key()).unwrap_or_default().into(),
+                },
+                cx,
+                move |this, cx| this.set_effort_local(effort, cx),
+            ),
             ThreadTransport::Grpc(_) => self.remote_option(
                 "effort".into(),
                 effort.map(|e| e.key()).unwrap_or_default().into(),
@@ -1806,7 +1913,14 @@ impl ChatRuntime {
 
     pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.set_mode_local(mode, cx),
+            ThreadTransport::Local => self.local_control(
+                Control::SetOption {
+                    id: "mode".into(),
+                    value: mode.key().into(),
+                },
+                cx,
+                move |this, cx| this.set_mode_local(mode, cx),
+            ),
             ThreadTransport::Grpc(_) => self.remote_option("mode".into(), mode.key().into(), cx),
         }
     }
@@ -1820,7 +1934,15 @@ impl ChatRuntime {
 
     pub fn stop_shell(&mut self, id: ItemId, cx: &mut Context<Self>) {
         match self.transport {
-            ThreadTransport::Local => self.stop_shell_local(id, cx),
+            ThreadTransport::Local => self.local_control(
+                Control::StopShell {
+                    run: self.generation,
+                    history_epoch: self.epoch,
+                    item: id.0,
+                },
+                cx,
+                move |this, cx| this.stop_shell_local(id, cx),
+            ),
             ThreadTransport::Grpc(_) => self.client_stop_shell(id, cx),
         }
     }

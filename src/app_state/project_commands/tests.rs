@@ -5,9 +5,11 @@ use super::{AppState, catalog, close_preflight, close_project, listed};
 use crate::app_state::chats::RemoteKey;
 use canopy_desktop::{
     chat::config::ChatSettings,
+    command_bus::{CatalogCommand, Command, CommandBus, CommandEnvelope, Principal, ResourceRef},
     host::{ChatRecord, CommandKey, CommandReceipt, CommandState},
     settings::SettingsClient,
     state::workspace::{PaneKind, PaneMetadata, Workspace, WorkspaceId},
+    thread::{HostId, ProjectRef, WorktreeId},
 };
 use gpui_kit::TestAppContext;
 
@@ -15,7 +17,53 @@ async fn close(cx: &mut TestAppContext, workspace: WorkspaceId, key: CommandKey)
     let preflight = cx
         .update(|cx| close_preflight(workspace, cx))
         .expect("the project can be closed");
-    let task = cx.update(|cx| close_project(RemoteKey::from(key), preflight, cx));
+    let (client, (_, project, _, path, repository, _)) = cx.update(|cx| {
+        let app = cx.global::<AppState>();
+        (
+            app.settings.read(cx).client().unwrap(),
+            listed(cx)
+                .into_iter()
+                .find(|(id, ..)| *id == workspace)
+                .unwrap(),
+        )
+    });
+    let host = client.initialize_runtime().await.unwrap();
+    let root = path.canonicalize().unwrap().to_str().unwrap().to_owned();
+    let request = CommandEnvelope {
+        command_id: uuid::Uuid::parse_str(key.id()).unwrap(),
+        resource: ResourceRef::Project(
+            ProjectRef::new(
+                HostId::new(host.id().into()).unwrap(),
+                project,
+                repository
+                    .as_ref()
+                    .map(|_| WorktreeId::new(serde_json::to_string(&workspace).unwrap()).unwrap()),
+                repository.is_some(),
+            )
+            .unwrap(),
+        ),
+        command: Command::Catalog(CatalogCommand::CloseProject {
+            plan: uuid::Uuid::new_v4().to_string(),
+        }),
+        conditions: Default::default(),
+    };
+    let bus = CommandBus::new(client);
+    let prepared = bus
+        .prepare_catalog(
+            request.clone(),
+            Principal::local_owner(),
+            Some((root.clone(), root)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let task = cx.update(|cx| {
+        close_project(
+            RemoteKey::admitted(prepared.runtime_input().clone()),
+            preflight,
+            cx,
+        )
+    });
     cx.run_until_parked();
     let mut task = Box::pin(task);
     for _ in 0..500 {
@@ -23,7 +71,18 @@ async fn close(cx: &mut TestAppContext, workspace: WorkspaceId, key: CommandKey)
         if let Some(result) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut task))
         {
-            return result.expect("the close is recorded");
+            let receipt = result.expect("the close is recorded");
+            let retry = bus
+                .prepare_catalog(request, Principal::local_owner(), None)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                retry.prior(),
+                Some(&receipt),
+                "retry after catalog removal returns the retained outcome"
+            );
+            return receipt;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
@@ -120,7 +179,7 @@ async fn a_close_whose_cleanup_failed_stays_listed_and_closing_again_retries_it(
     // The original command keeps its outcome.
     assert_eq!(
         client
-            .get_runtime_command(first, canopy_desktop::host::CHAT)
+            .get_runtime_command(failed.key().clone(), canopy_desktop::host::CHAT)
             .await
             .unwrap()
             .unwrap()

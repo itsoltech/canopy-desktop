@@ -19,5 +19,5 @@ export default function HostsScreen() {
 }
 function HostRow({ host }: { host: HostSession }) {
   useRevision(host); const state = host.snapshot(), router = useRouter()
-  return <ThemedView type="backgroundElement" style={{ padding: 16, borderRadius: 16 }}><Action title={host.store.snapshot().connection.name} run={() => router.push({ pathname: '/remote/host', params: { hostId: state.hostId } })} /><ThemedText type="small" themeColor="textSecondary">{state.phase}{state.stale ? ' · cached' : ''} · {state.catalog?.chats.length ?? 0} chats</ThemedText>{state.error && <ThemedText type="small">{state.error}</ThemedText>}</ThemedView>
+  return <ThemedView type="backgroundElement" style={{ padding: 16, borderRadius: 16 }}><Action title={host.store.snapshot().connection.name} run={() => router.push({ pathname: '/remote/host', params: { hostId: state.hostId } })} /><ThemedText type="small" themeColor="textSecondary">{state.phase}{state.stale ? ' · cached' : ''} · {state.catalog?.threads.length ?? 0} chats</ThemedText>{state.error && <ThemedText type="small">{state.error}</ThemedText>}</ThemedView>
 }

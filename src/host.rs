@@ -92,21 +92,6 @@ impl PersistedThread {
 }
 
 impl ChatRecord {
-    /// Explicit recovery retains this chat ID and binds the observed history epoch.
-    pub fn recovery_command(&self, key: CommandKey, expected_reason: &str) -> Option<CommandInput> {
-        if expected_reason.is_empty() || expected_reason.len() > CONTROL_BYTES {
-            return None;
-        }
-        let arguments = serde_json::to_vec(&(self, expected_reason)).ok()?;
-        let fingerprint = Sha256::digest(&arguments).to_vec();
-        CommandInput::new(
-            key,
-            "chat.recover".into(),
-            self.id.clone(),
-            arguments,
-            fingerprint,
-        )
-    }
     pub fn new(
         id: String,
         workspace: Option<String>,
@@ -709,16 +694,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_recovery_arguments_keep_their_bytes_and_reject_unknown_formats() {
+    fn recovery_metadata_rejects_unknown_formats() {
         let legacy = r#"[{"id":"11111111-1111-4111-8111-111111111111","workspace":null,"authority_root":"private","agent":"claude","metadata":{"cwd":null,"profile_id":null,"title":null,"resource":null,"kind":"Chat","arguments":[],"resume_id":null},"recovery_reason":null,"history_epoch":0},"restore context"]"#;
-        let (record, reason): (ChatRecord, String) = serde_json::from_str(legacy).unwrap();
-        let key = CommandKey::local(uuid::Uuid::new_v4().to_string()).unwrap();
-        let command = record.recovery_command(key, &reason).unwrap();
-        assert_eq!(command.arguments, legacy.as_bytes());
-        assert_eq!(
-            command.fingerprint,
-            Sha256::digest(legacy.as_bytes()).to_vec()
-        );
+        let (record, _): (ChatRecord, String) = serde_json::from_str(legacy).unwrap();
         let mut newer = serde_json::to_value(&record).unwrap();
         newer["newer_format"] = true.into();
         assert!(serde_json::from_value::<ChatRecord>(newer).is_err());

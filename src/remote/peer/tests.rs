@@ -54,7 +54,7 @@ impl Node {
         registry.set_local_peer(Some(local.clone()));
         let auth = RpcAuth::new(host.id().into(), client.clone()).unwrap();
         let state = HostState::new(host.id(), vec![]);
-        state.set(p::HostReadiness::Ready, String::new());
+        state.set(crate::api::proto::HostReadiness::Ready, String::new());
         let locks = ResourceLocks::default();
         let rpc = PeerRpc::new(
             auth.clone(),
@@ -68,7 +68,7 @@ impl Node {
             .tls_config(identity.server_config())
             .unwrap()
             .add_service(p::peer_service_server::PeerServiceServer::new(rpc))
-            .add_service(p::host_service_server::HostServiceServer::new(info));
+            .add_service(crate::api::proto::host_service_server::HostServiceServer::new(info));
         let (stop, stopped) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
             router
@@ -128,7 +128,7 @@ impl Node {
             &pem,
         )
         .unwrap();
-        HostRecord {
+        let record = HostRecord {
             mutual: false,
             passive_peer: false,
             auto_connect: true,
@@ -151,7 +151,9 @@ impl Node {
             views: BTreeMap::new(),
             uploads: vec![],
             chats: BTreeMap::new(),
-        }
+        };
+        requester.registry.insert(record.clone()).unwrap();
+        record
     }
     async fn channel(&self, identity: Option<Identity>) -> Channel {
         crate::remote::tls::client_endpoint(
@@ -185,7 +187,12 @@ async fn one_approval_creates_both_identities_and_retries_preserve_grants_and_cr
     let channel = b.channel(Some(identity)).await;
     assert!(
         a.local
-            .connect_back(channel.clone(), &record, None)
+            .connect_back(
+                channel.clone(),
+                &a.registry.get(&record.id).unwrap(),
+                1,
+                None
+            )
             .await
             .unwrap()
     );
@@ -194,6 +201,89 @@ async fn one_approval_creates_both_identities_and_retries_preserve_grants_and_cr
     let saved = reverse.snapshot().record;
     assert!(saved.mutual);
     assert!(saved.auto_connect());
+    let forward = a.registry.get(&record.id).unwrap();
+    let journal = forward.snapshot().record.mutations.last().unwrap().clone();
+    let (kind, bytes) = journal.api_intent.as_ref().unwrap();
+    assert_eq!(kind, "peer.connect");
+    let original = p::ConnectPeerRequest::decode(bytes.as_slice()).unwrap();
+    let mut service = p::peer_service_client::PeerServiceClient::new(channel.clone());
+    let receipt = service
+        .connect_peer(original.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(receipt.state, p::OperationState::Succeeded as i32);
+    assert_eq!(
+        service
+            .connect_peer(original.clone())
+            .await
+            .unwrap()
+            .into_inner(),
+        receipt
+    );
+    let mut changed = original.clone();
+    let port = changed.peer.as_ref().unwrap().port;
+    changed.peer.as_mut().unwrap().port = if port == 65535 { port - 1 } else { port + 1 };
+    assert_eq!(
+        service
+            .connect_peer(changed.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::Aborted
+    );
+    // A missing client acknowledgement must use the exact retained RPC, even
+    // when a newly connected route proposes a different return port.
+    let retry_path = a._dir.path().join("retry-clients.json");
+    let mut retained = forward.snapshot().record;
+    retained.mutations.last_mut().unwrap().receipt = None;
+    crate::remote::client::store::Store::open(retry_path.clone())
+        .unwrap()
+        .save(retained)
+        .unwrap();
+    let retry_registry = ClientRegistry::open(retry_path, a.registry.vault()).unwrap();
+    let retry_host = retry_registry.get(&record.id).unwrap();
+    assert!(
+        a.local
+            .connect_back(channel.clone(), &retry_host, 1, Some(12345))
+            .await
+            .unwrap()
+    );
+    let retried = retry_host
+        .snapshot()
+        .record
+        .mutations
+        .last()
+        .unwrap()
+        .clone();
+    assert_eq!(retried.id, journal.id);
+    assert_eq!(retried.api_intent, journal.api_intent);
+    assert!(!reverse.routes().iter().any(|r| r.name() == "SSH return"));
+    let restricted = b
+        .client
+        .update_runtime_device_authorization(
+            record.device_id.clone(),
+            1,
+            host::READ,
+            vec!["*".into()],
+        )
+        .await
+        .unwrap();
+    for request in [original, changed] {
+        assert_eq!(
+            service.connect_peer(request).await.unwrap_err().code(),
+            tonic::Code::PermissionDenied
+        );
+    }
+    b.client
+        .update_runtime_device_authorization(
+            record.device_id.clone(),
+            restricted.authorization_revision(),
+            host::ALL_SCOPES,
+            vec!["*".into()],
+        )
+        .await
+        .unwrap();
     // Reopening an SSH session changes its remote forwarding port. Updating
     // that route must keep the device, vault reference and route identity.
     let cert = a
@@ -207,9 +297,13 @@ async fn one_approval_creates_both_identities_and_retries_preserve_grants_and_cr
     b.registry
         .install_peer(
             &b.local,
-            a.local.description(Some(first_port)).unwrap(),
-            cert.clone(),
-            vec![a.identity.issuer_certificate().to_vec()],
+            connection(&p::ConnectPeerRequest {
+                peer: Some(a.local.description(Some(first_port)).unwrap()),
+                certificate: cert.clone(),
+                certificate_chain: vec![a.identity.issuer_certificate().to_vec()],
+                ..Default::default()
+            })
+            .unwrap(),
             Some("127.0.0.1".parse().unwrap()),
         )
         .unwrap();
@@ -223,9 +317,13 @@ async fn one_approval_creates_both_identities_and_retries_preserve_grants_and_cr
     b.registry
         .install_peer(
             &b.local,
-            a.local.description(Some(second_port)).unwrap(),
-            cert,
-            vec![a.identity.issuer_certificate().to_vec()],
+            connection(&p::ConnectPeerRequest {
+                peer: Some(a.local.description(Some(second_port)).unwrap()),
+                certificate: cert,
+                certificate_chain: vec![a.identity.issuer_certificate().to_vec()],
+                ..Default::default()
+            })
+            .unwrap(),
             Some("127.0.0.1".parse().unwrap()),
         )
         .unwrap();
@@ -249,14 +347,18 @@ async fn one_approval_creates_both_identities_and_retries_preserve_grants_and_cr
     let reverse_tls =
         pairing::identity(b.registry.vault().as_ref(), &saved.credential_ref).unwrap();
     let reverse_channel = a.channel(Some(reverse_tls)).await;
-    let mut host = p::host_service_client::HostServiceClient::new(reverse_channel);
+    let mut host = crate::api::proto::host_service_client::HostServiceClient::new(reverse_channel);
     assert_eq!(
-        host.get_info(p::HostRequest {
-            host_id: a.local.host_id().into()
+        host.get_info(crate::api::proto::GetInfoRequest {
+            environment: Some(crate::api::proto::EnvironmentRef {
+                host_id: a.local.host_id().into()
+            })
         })
         .await
         .unwrap()
         .into_inner()
+        .environment
+        .unwrap()
         .host_id,
         a.local.host_id()
     );
@@ -273,7 +375,12 @@ async fn one_approval_creates_both_identities_and_retries_preserve_grants_and_cr
         .unwrap();
     assert!(
         a.local
-            .connect_back(channel.clone(), &record, None)
+            .connect_back(
+                channel.clone(),
+                &a.registry.get(&record.id).unwrap(),
+                1,
+                None
+            )
             .await
             .unwrap()
     );
@@ -292,7 +399,12 @@ async fn one_approval_creates_both_identities_and_retries_preserve_grants_and_cr
     reverse.pause_connection().unwrap();
     assert!(
         a.local
-            .connect_back(channel.clone(), &record, None)
+            .connect_back(
+                channel.clone(),
+                &a.registry.get(&record.id).unwrap(),
+                1,
+                None
+            )
             .await
             .unwrap()
     );
@@ -309,10 +421,17 @@ async fn one_approval_creates_both_identities_and_retries_preserve_grants_and_cr
         .revoke_runtime_device(saved.device_id.clone())
         .await
         .unwrap();
-    assert!(a.local.connect_back(channel, &record, None).await.is_err());
     assert!(
-        host.get_info(p::HostRequest {
-            host_id: a.local.host_id().into()
+        a.local
+            .connect_back(channel, &a.registry.get(&record.id).unwrap(), 1, None)
+            .await
+            .is_err()
+    );
+    assert!(
+        host.get_info(crate::api::proto::GetInfoRequest {
+            environment: Some(crate::api::proto::EnvironmentRef {
+                host_id: a.local.host_id().into()
+            })
         })
         .await
         .is_err()
@@ -329,8 +448,10 @@ async fn reciprocal_setup_requires_authorization_and_the_paired_host_key() {
     let mut service = p::peer_service_client::PeerServiceClient::new(public);
     assert_eq!(
         service
-            .get_peer_request(p::HostRequest {
-                host_id: b.local.host_id().into()
+            .get_peer_request(p::GetPeerRequestRequest {
+                environment: Some(p::EnvironmentRef {
+                    host_id: b.local.host_id().into()
+                })
             })
             .await
             .unwrap_err()
@@ -342,7 +463,12 @@ async fn reciprocal_setup_requires_authorization_and_the_paired_host_key() {
     let channel = b.channel(Some(identity)).await;
     assert!(
         !a.local
-            .connect_back(channel.clone(), &record, None)
+            .connect_back(
+                channel.clone(),
+                &a.registry.get(&record.id).unwrap(),
+                1,
+                None
+            )
             .await
             .unwrap()
     );
@@ -366,7 +492,14 @@ async fn reciprocal_setup_requires_authorization_and_the_paired_host_key() {
     assert!(
         service
             .connect_peer(p::ConnectPeerRequest {
-                host_id: b.local.host_id().into(),
+                environment: Some(p::EnvironmentRef {
+                    host_id: b.local.host_id().into()
+                }),
+                command: Some(p::CommandMeta {
+                    command_id: uuid::Uuid::new_v4().to_string(),
+                    command_epoch: 1,
+                    expected_revision: None
+                }),
                 peer: Some(a.local.description(None).unwrap()),
                 certificate: wrong_certificate.der().into(),
                 certificate_chain: wrong_certificate.chain().into()

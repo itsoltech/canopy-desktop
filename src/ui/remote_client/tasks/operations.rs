@@ -9,16 +9,29 @@ impl TasksView {
         let workspace = self.workspace.clone();
         self.run(
             async move {
+                let project = match workspace.clone() {
+                    Some(workspace) => Some(workspace.project.ok_or("Project unavailable.")?),
+                    None => None,
+                };
                 Ok(ResultView::Integrations(
                     Client::new(host.channel()?)
-                        .list_integrations(p::TaskIntegrationsRequest {
-                            host_id: host.id().as_str().into(),
-                            workspace: workspace.clone(),
+                        .list_integrations(p::ListIntegrationsRequest {
+                            resource: Some(match project.clone() {
+                                Some(project) => {
+                                    p::list_integrations_request::Resource::Project(project)
+                                }
+                                None => p::list_integrations_request::Resource::Environment(
+                                    p::EnvironmentRef {
+                                        host_id: host.id().as_str().into(),
+                                    },
+                                ),
+                            }),
                         })
                         .await
                         .map_err(rpc_error)?
                         .into_inner(),
                     workspace,
+                    project,
                 ))
             },
             cx,
@@ -228,17 +241,28 @@ impl TasksView {
                 let mut client = Client::new(host.channel()?);
                 let page = match &kind {
                     Choices::Projects => client
-                        .list_projects(p::TaskProjectsRequest {
-                            host_id: host.id().as_str().into(),
-                            integration_id: integration.id,
-                            workspace,
+                        .list_projects(p::ListProjectsRequest {
+                            project: Some(p::TaskProject {
+                                integration_id: integration.id,
+                                project_key: String::new(),
+                                resource: Some(match workspace {
+                                    Some(w) => p::task_project::Resource::Project(
+                                        w.project.ok_or("Project unavailable.")?,
+                                    ),
+                                    None => {
+                                        p::task_project::Resource::Environment(p::EnvironmentRef {
+                                            host_id: host.id().as_str().into(),
+                                        })
+                                    }
+                                }),
+                            }),
                             page_token: cursor,
                         })
                         .await
                         .map_err(rpc_error)?
                         .into_inner(),
                     Choices::Metadata(kind) => client
-                        .read_options(p::TaskOptionsRequest {
+                        .read_options(p::ReadOptionsRequest {
                             project,
                             kind: (*kind).into(),
                             page_token: cursor,
@@ -255,7 +279,7 @@ impl TasksView {
                             _ => p::TaskSchemaPurpose::TaskLinkTypes,
                         };
                         let schema = client
-                            .get_schema(p::TaskSchemaRequest {
+                            .get_schema(p::GetSchemaRequest {
                                 project,
                                 purpose: purpose as i32,
                                 board_id: board,
@@ -357,10 +381,7 @@ impl TasksView {
             }
         };
         let request = p::QueryTasksRequest {
-            host_id: project.host_id,
-            integration_id: project.integration_id,
-            project_id: project.project_id,
-            workspace: project.workspace,
+            project: Some(project),
             query: value(&self.query, cx),
             page_token: more.then(|| self.next.clone()).flatten(),
             filter_id: self.filter.as_ref().map(|f| f.id.clone()),
@@ -429,7 +450,7 @@ impl TasksView {
             async move {
                 Ok(ResultView::Schema(
                     Client::new(host.channel()?)
-                        .get_schema(p::TaskSchemaRequest {
+                        .get_schema(p::GetSchemaRequest {
                             project: Some(project),
                             task,
                             purpose: purpose as i32,
@@ -506,12 +527,11 @@ impl TasksView {
         let task = self.task_ref().ok();
         // Mutations on the open object use the exact scope returned by the host.
         if let Some(t) = &task {
-            project = p::TaskProject {
-                host_id: t.host_id.clone(),
-                integration_id: t.integration_id.clone(),
-                project_id: t.project_id.clone(),
-                workspace: t.workspace.clone(),
+            let Some(context) = t.project.clone() else {
+                self.fail("Task project is unavailable.", cx);
+                return;
             };
+            project = context;
         }
         let host = self.host.clone();
         let refresh_task = task.clone();
@@ -521,31 +541,21 @@ impl TasksView {
             Loading::Save,
             async move {
                 let receipt = host
-                    .mutate(None, move |channel, command| async move {
-                        Client::new(channel)
-                            .apply_mutation(p::TaskMutationRequest {
-                                command: Some(command),
-                                project: Some(project),
-                                task,
-                                action: Some(action),
-                            })
-                            .await
-                    })
+                    .mutate_task(TaskMutation::Apply(p::ApplyMutationRequest {
+                        command: None,
+                        project: Some(project),
+                        task_id: task.map(|t| t.task_id),
+                        action: Some(action),
+                    }))
                     .await?;
                 if deleting {
                     return Ok(ResultView::Receipt(receipt));
                 }
                 let reference = refresh_task.or_else(|| {
-                    receipt
-                        .operation_output
-                        .as_deref()
-                        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-                        .and_then(|r| r["task_id"].as_str().map(str::to_owned))
+                    task_result(&receipt)
+                        .and_then(|r| r.task_id.clone())
                         .map(|task_id| p::TaskRef {
-                            host_id: creation_project.host_id,
-                            integration_id: creation_project.integration_id,
-                            project_id: creation_project.project_id,
-                            workspace: creation_project.workspace,
+                            project: Some(creation_project),
                             task_id,
                         })
                 });
@@ -625,17 +635,13 @@ impl TasksView {
                 Loading::Save,
                 async move {
                     let receipt = host
-                        .mutate(None, move |channel, command| async move {
-                            Client::new(channel)
-                                .update_task(p::UpdateTaskRequest {
-                                    command: Some(command),
-                                    task: Some(task),
-                                    title,
-                                    description,
-                                    ..Default::default()
-                                })
-                                .await
-                        })
+                        .mutate_task(TaskMutation::Update(p::UpdateTaskRequest {
+                            command: None,
+                            task: Some(task),
+                            title,
+                            description,
+                            ..Default::default()
+                        }))
                         .await?;
                     let refresh = match host.channel() {
                         Ok(channel) => Client::new(channel)
@@ -768,7 +774,7 @@ impl TasksView {
             async move {
                 Ok(ResultView::Comments(
                     Client::new(host.channel()?)
-                        .read_comments(p::TaskCommentsRequest {
+                        .read_comments(p::ReadCommentsRequest {
                             task: Some(task),
                             page_token,
                         })
@@ -898,8 +904,7 @@ impl TasksView {
                 return;
             }
         };
-        let workspace = task.workspace.clone();
-        if workspace.is_none() {
+        if task.project.as_ref().and_then(|p| p.resource.as_ref()).is_none_or(|p| !matches!(p, p::task_project::Resource::Project(project) if project.worktree_id.is_some())) {
             self.fail(
                 "Open this task from a project workspace to create a worktree.",
                 cx,
@@ -916,16 +921,11 @@ impl TasksView {
             Loading::Save,
             async move {
                 let receipt = host
-                    .mutate(None, move |channel, command| async move {
-                        Client::new(channel)
-                            .task_to_worktree(p::TaskToWorktreeRequest {
-                                command: Some(command),
-                                task: Some(task),
-                                workspace,
-                                branch,
-                            })
-                            .await
-                    })
+                    .mutate_task(TaskMutation::Worktree(p::TaskToWorktreeRequest {
+                        command: None,
+                        task: Some(task),
+                        branch,
+                    }))
                     .await?;
                 Ok(ResultView::Receipt(receipt))
             },
@@ -955,14 +955,11 @@ impl TasksView {
         self.run(
             async move {
                 Ok(ResultView::Receipt(
-                    host.mutate(None, move |channel, command| async move {
-                        Client::new(channel)
-                            .save_filter(p::SaveTaskFilterRequest {
-                                command: Some(command),
-                                filter: Some(filter),
-                            })
-                            .await
-                    })
+                    host.mutate_task(TaskMutation::SaveFilter(p::SaveFilterRequest {
+                        command: None,
+                        environment: None,
+                        filter: Some(filter),
+                    }))
                     .await?,
                 ))
             },
@@ -978,14 +975,11 @@ impl TasksView {
         self.run(
             async move {
                 Ok(ResultView::Receipt(
-                    host.mutate(None, move |channel, command| async move {
-                        Client::new(channel)
-                            .remove_filter(p::RemoveTaskFilterRequest {
-                                command: Some(command),
-                                filter_id,
-                            })
-                            .await
-                    })
+                    host.mutate_task(TaskMutation::RemoveFilter(p::RemoveFilterRequest {
+                        command: None,
+                        environment: None,
+                        filter_id,
+                    }))
                     .await?,
                 ))
             },
@@ -996,12 +990,8 @@ impl TasksView {
 impl TasksView {
     fn active_project(&self) -> Result<p::TaskProject, String> {
         if let Ok(t) = self.task_ref() {
-            Ok(p::TaskProject {
-                host_id: t.host_id,
-                integration_id: t.integration_id,
-                project_id: t.project_id,
-                workspace: t.workspace,
-            })
+            t.project
+                .ok_or_else(|| "Task project is unavailable.".into())
         } else {
             self.project_ref()
         }
@@ -1019,7 +1009,7 @@ impl TasksView {
             async move {
                 Ok(ResultView::Activity(
                     Client::new(host.channel()?)
-                        .get_schema(p::TaskSchemaRequest {
+                        .get_schema(p::GetSchemaRequest {
                             project,
                             task,
                             purpose: p::TaskSchemaPurpose::TaskHistory as i32,

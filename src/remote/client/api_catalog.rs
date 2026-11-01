@@ -1,20 +1,47 @@
-//! Catalog adapters preserve the desktop model while using standalone references.
+//! Catalog aliases are resolved explicitly before constructing a native target.
 use super::{HostClient, api_commands::ApiIntent, rpc_error};
-use crate::{
-    api::{projection::value, proto as p},
-    remote::proto as old,
-};
+use crate::api::proto as p;
 use prost::Message;
-
 impl HostClient {
-    pub async fn project_ref(&self, workspace: old::WorkspaceRef) -> Result<p::ProjectRef, String> {
-        if workspace.host_id != self.id().as_str() {
-            return Err("Project belongs to another host.".into());
-        }
+    pub async fn close_project(
+        &self,
+        project: p::ProjectRef,
+        plan_id: String,
+    ) -> Result<p::CommandReceipt, String> {
+        self.mutate_api(
+            ApiIntent::CloseProject(p::CloseProjectRequest {
+                command: None,
+                project: Some(project),
+                plan_id,
+            }),
+            String::new(),
+            None,
+        )
+        .await
+    }
+    pub async fn close_terminal(
+        &self,
+        project: p::ProjectRef,
+        terminal_id: String,
+        plan_id: String,
+    ) -> Result<p::CommandReceipt, String> {
+        self.mutate_api(
+            ApiIntent::CloseTerminal(p::CloseTerminalRequest {
+                command: None,
+                project: Some(project),
+                terminal_id,
+                plan_id,
+            }),
+            String::new(),
+            None,
+        )
+        .await
+    }
+    pub async fn project_ref(&self, catalog_id: &str) -> Result<p::ProjectRef, String> {
         let mut stream = p::catalog_service_client::CatalogServiceClient::new(self.channel()?)
             .read_catalog(p::ReadCatalogRequest {
                 environment: Some(p::EnvironmentRef {
-                    host_id: workspace.host_id.clone(),
+                    host_id: self.id().as_str().into(),
                 }),
             })
             .await
@@ -22,8 +49,6 @@ impl HostClient {
             .into_inner();
         let mut bytes = 0;
         let mut found = None;
-        // Finish the snapshot so an interrupted/replaced catalog cannot choose a
-        // target. Mutation recovery retains the result of this discovery verbatim.
         while let Some(event) = stream.message().await.map_err(rpc_error)? {
             bytes += event.encoded_len();
             if bytes > super::catalog::MAX_CATALOG_BYTES {
@@ -36,14 +61,14 @@ impl HostClient {
             if page
                 .environment
                 .as_ref()
-                .is_none_or(|e| e.host_id != workspace.host_id)
+                .is_none_or(|e| e.host_id != self.id().as_str())
             {
                 return Err("Catalog host identity differs.".into());
             }
             for w in page.projects.into_iter().flat_map(|p| p.checkouts) {
-                if w.catalog_id == workspace.workspace_id {
+                if w.catalog_id == catalog_id {
                     let project = w.project.ok_or("Project identity is missing.")?;
-                    if project.host_id != workspace.host_id || found.replace(project).is_some() {
+                    if project.host_id != self.id().as_str() || found.replace(project).is_some() {
                         return Err("Project discovery is ambiguous.".into());
                     }
                 }
@@ -54,87 +79,44 @@ impl HostClient {
         }
         Err("The project catalog ended before its boundary.".into())
     }
-    async fn agent_project(
-        &self,
-        host_id: &str,
-        workspace: Option<old::WorkspaceRef>,
-    ) -> Result<Option<p::ProjectRef>, String> {
-        if host_id != self.id().as_str() {
-            return Err("Agent request belongs to another host.".into());
-        }
-        match workspace {
-            Some(w) => self.project_ref(w).await.map(Some),
-            None => Ok(None),
-        }
-    }
     pub async fn list_agents(
         &self,
-        request: old::AgentDiscoveryRequest,
-    ) -> Result<old::AgentDiscovery, String> {
-        let project = self
-            .agent_project(&request.host_id, request.workspace)
-            .await?;
-        let result = p::catalog_service_client::CatalogServiceClient::new(self.channel()?)
-            .list_agents(p::ListAgentsRequest {
-                environment: Some(p::EnvironmentRef {
-                    host_id: request.host_id,
-                }),
-                project,
-                page_token: request.page_token,
-            })
+        request: p::ListAgentsRequest,
+    ) -> Result<p::AgentDiscovery, String> {
+        p::catalog_service_client::CatalogServiceClient::new(self.channel()?)
+            .list_agents(request)
             .await
-            .map_err(rpc_error)?
-            .into_inner();
-        Ok(value(result))
+            .map_err(rpc_error)
+            .map(|r| r.into_inner())
     }
     pub async fn agent_catalog(
         &self,
-        request: old::AgentCatalogRequest,
-    ) -> Result<old::AgentCatalog, String> {
-        let project = self
-            .agent_project(&request.host_id, request.workspace)
-            .await?;
-        let result = p::catalog_service_client::CatalogServiceClient::new(self.channel()?)
-            .get_agent_catalog(p::GetAgentCatalogRequest {
-                environment: Some(p::EnvironmentRef {
-                    host_id: request.host_id,
-                }),
-                project,
-                agent_id: request.agent_id,
-                account_id: request.account_id,
-                refresh: request.refresh,
-            })
+        request: p::GetAgentCatalogRequest,
+    ) -> Result<p::AgentCatalog, String> {
+        p::catalog_service_client::CatalogServiceClient::new(self.channel()?)
+            .get_agent_catalog(request)
             .await
-            .map_err(rpc_error)?
-            .into_inner();
-        Ok(value(result))
+            .map_err(rpc_error)
+            .map(|r| r.into_inner())
     }
     pub async fn list_pull_requests(
         &self,
-        request: old::PullRequestsRequest,
-    ) -> Result<old::PullRequests, String> {
-        let project = self
-            .project_ref(request.workspace.ok_or("Project is missing.")?)
-            .await?;
-        let result = p::catalog_service_client::CatalogServiceClient::new(self.channel()?)
-            .list_pull_requests(p::ListPullRequestsRequest {
-                project: Some(project),
-                query: request.query,
-                page_token: request.page_token,
-            })
+        request: p::ListPullRequestsRequest,
+    ) -> Result<p::PullRequests, String> {
+        p::catalog_service_client::CatalogServiceClient::new(self.channel()?)
+            .list_pull_requests(request)
             .await
-            .map_err(rpc_error)?
-            .into_inner();
-        Ok(value(result))
+            .map_err(rpc_error)
+            .map(|r| r.into_inner())
     }
     pub async fn create_thread(
         &self,
-        workspace: Option<old::WorkspaceRef>,
+        project_catalog_id: Option<String>,
         agent: String,
         profile: Option<String>,
-    ) -> Result<old::CommandReceipt, String> {
-        let resource = match workspace {
-            Some(w) => p::create_thread_request::Resource::Project(self.project_ref(w).await?),
+    ) -> Result<p::CommandReceipt, String> {
+        let resource = match project_catalog_id {
+            Some(id) => p::create_thread_request::Resource::Project(self.project_ref(&id).await?),
             None => p::create_thread_request::Resource::Environment(p::EnvironmentRef {
                 host_id: self.id().as_str().into(),
             }),
@@ -151,7 +133,7 @@ impl HostClient {
         )
         .await
     }
-    pub async fn open_project(&self, host_path: String) -> Result<old::CommandReceipt, String> {
+    pub async fn open_project(&self, host_path: String) -> Result<p::CommandReceipt, String> {
         self.mutate_api(
             ApiIntent::OpenProject(p::OpenProjectRequest {
                 command: None,
@@ -165,8 +147,8 @@ impl HostClient {
         )
         .await
     }
-    pub async fn preflight_thread_close(&self, chat: old::ChatRef) -> Result<p::ClosePlan, String> {
-        let target = self.thread_target(&chat).await?;
+    pub async fn preflight_thread_close(&self, catalog_id: &str) -> Result<p::ClosePlan, String> {
+        let target = self.thread_target(catalog_id).await?;
         p::catalog_service_client::CatalogServiceClient::new(self.channel()?)
             .preflight_close(p::PreflightCloseRequest {
                 thread: target.thread,
@@ -177,10 +159,10 @@ impl HostClient {
     }
     pub async fn close_thread(
         &self,
-        chat: old::ChatRef,
+        catalog_id: String,
         plan: p::ClosePlan,
-    ) -> Result<old::CommandReceipt, String> {
-        let target = self.thread_target(&chat).await?;
+    ) -> Result<p::CommandReceipt, String> {
+        let target = self.thread_target(&catalog_id).await?;
         if target.thread != plan.thread {
             return Err("The close confirmation belongs to another thread.".into());
         }
@@ -190,7 +172,7 @@ impl HostClient {
                 target: Some(target),
                 plan_id: plan.plan_id,
             }),
-            chat.chat_id,
+            catalog_id,
             None,
         )
         .await

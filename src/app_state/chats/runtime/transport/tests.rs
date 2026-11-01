@@ -147,14 +147,14 @@ fn local_edit_preserves_restore_progress_errors_and_checks_resume_only_before_fo
             feed(runtime.native_mut().unwrap(), json!({"type":"control_response","response":{
                 "subtype":"success","request_id":preview,"response":{"canRewind":true,"filesChanged":["file.rs"]}}}));
             assert!(matches!(runtime.message_edit_progress(&selection.target, false), EditProgress::Preview(preview) if preview.possible && preview.files == ["file.rs"]));
-            assert!(matches!(runtime.commit_message_edit(&selection.target, Draft::text("edited"), true, 1, cx), EditSubmission::Restoring));
+            assert!(runtime.rewind_files(item, false, cx));
             let restore = runtime.outbox.last().unwrap()["request_id"].clone();
             assert!(matches!(runtime.message_edit_progress(&selection.target, true), EditProgress::Unchanged));
             feed(runtime.native_mut().unwrap(), json!({"type":"control_response","response":{
                 "subtype":"error","request_id":restore,"error":"checkpoint missing"}}));
             assert!(matches!(runtime.message_edit_progress(&selection.target, true), EditProgress::RestoreFailed(error) if error == "Couldn't restore the files: checkpoint missing"));
 
-            assert!(matches!(runtime.commit_message_edit(&selection.target, Draft::text("edited"), true, 1, cx), EditSubmission::Restoring));
+            assert!(runtime.rewind_files(item, false, cx));
             let restore = runtime.outbox.last().unwrap()["request_id"].clone();
             feed(runtime.native_mut().unwrap(), json!({"type":"control_response","response":{
                 "subtype":"success","request_id":restore,"response":{"canRewind":true}}}));
@@ -164,10 +164,10 @@ fn local_edit_preserves_restore_progress_errors_and_checks_resume_only_before_fo
             let EditSubmission::Restart(branch) = runtime.commit_message_edit(&selection.target, Draft::text("edited"), false, 1, cx) else { panic!("the branch is ready, without waiting for a command receipt"); };
             assert_eq!(branch.fork.as_deref(), Some("reply-1"));
 
-            assert!(matches!(runtime.commit_message_edit(&selection.target, Draft::text("edited"), true, 1, cx), EditSubmission::Restoring));
+            assert!(runtime.rewind_files(item, false, cx));
             runtime.native_mut().unwrap().on_event(Event::Exited(Exit { code: Some(0), signal: None, stderr: String::new() }));
             assert!(matches!(runtime.message_edit_progress(&selection.target, true), EditProgress::RestoreFailed(error) if error == "The chat ended before the files were restored."));
-            assert!(matches!(runtime.commit_message_edit(&selection.target, Draft::text("edited"), true, 1, cx), EditSubmission::RestoreFailed(error) if error == "Files can't be restored now."));
+            assert!(!runtime.rewind_files(item, false, cx));
             // It can still send the edit without restoring files.
             assert!(matches!(runtime.commit_message_edit(&selection.target, Draft::text("edited"), false, 1, cx), EditSubmission::Restart(_)));
         });
@@ -294,4 +294,136 @@ fn saved_images_materialize_before_submission_and_missing_files_preserve_the_fai
         matches!(&loaded.attachments[0], Attachment::Image { data: Some(data), .. } if data.as_ref() == "cGl4ZWxz")
     );
     assert_eq!(loaded.text, "saved image");
+}
+
+#[gpui_kit::test]
+async fn local_controls_require_admission_and_reject_a_run_changed_before_dispatch(
+    cx: &mut TestAppContext,
+) {
+    use canopy_desktop::settings::SettingsClient;
+    cx.background_executor.allow_parking();
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("settings.db");
+    let client = SettingsClient::create(&path).await.unwrap();
+    let host = client.initialize_runtime().await.unwrap();
+    let runtime = cx.update(|cx| {
+        let runtime = runtime(cx);
+        runtime.update(cx, |runtime, cx| {
+            runtime.local_control(Control::Start, cx, |this, _| {
+                this.settings
+                    .allowed
+                    .push("must not run without storage".into());
+            });
+            assert!(runtime.settings.allowed.is_empty());
+        });
+        cx.global::<AppState>()
+            .settings
+            .clone()
+            .update(cx, |settings, _| {
+                settings.install_test_client(client.clone(), host);
+            });
+        runtime.update(cx, |runtime, cx| {
+            runtime.catalog_root = Some(None);
+            let run = runtime.generation;
+            runtime.local_control(Control::Interrupt { run }, cx, |this, _| {
+                this.settings
+                    .allowed
+                    .push("must not run in a new generation".into());
+            });
+            runtime.generation += 1;
+        });
+        runtime
+    });
+    for _ in 0..500 {
+        cx.run_until_parked();
+        if cx.update(|cx| runtime.read(cx).local_controls.is_empty()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    cx.update(|cx| {
+        let runtime = runtime.read(cx);
+        assert!(
+            runtime.local_controls.is_empty(),
+            "the owned command must finish"
+        );
+        assert!(
+            runtime.settings.allowed.is_empty(),
+            "a refused command cannot run its effect"
+        );
+        assert!(
+            runtime
+                .notice
+                .as_ref()
+                .is_some_and(|notice| notice.text.contains("conditions_changed"))
+        );
+    });
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let pending: i64 = db
+        .query_row(
+            "SELECT count(*) FROM _canopy_command_inbox WHERE method='chat.interrupt'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        pending, 0,
+        "a known local refusal is acknowledged after recording"
+    );
+    db.execute_batch("CREATE TRIGGER refuse_admission BEFORE INSERT ON _canopy_command_inbox BEGIN SELECT RAISE(ABORT,'inbox unavailable'); END;").unwrap();
+    let (before, generation) = cx.update(|cx| {
+        runtime.update(cx, |runtime, cx| {
+            let mut session = ready();
+            session.submit("original");
+            finish_turn(&mut session, "reply");
+            let item = first_user(&session);
+            runtime.session = Some(BackendSession::Native(Box::new(session)));
+            let selection = runtime.preview_message_edit(item, cx).unwrap();
+            let before = runtime.outbox.len();
+            assert!(matches!(
+                runtime.commit_message_edit(
+                    &selection.target,
+                    Draft::text("replacement"),
+                    true,
+                    2,
+                    cx
+                ),
+                EditSubmission::AwaitingAcceptance
+            ));
+            (before, runtime.generation)
+        })
+    });
+    for _ in 0..500 {
+        cx.run_until_parked();
+        if cx.update(|cx| runtime.read(cx).local_controls.is_empty()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    cx.update(|cx| {
+        let runtime = runtime.read(cx);
+        assert!(runtime.local_controls.is_empty());
+        assert!(!runtime.local_edit_pending);
+        assert_eq!(
+            runtime.outbox.len(),
+            before,
+            "failed admission cannot restore files"
+        );
+        assert_eq!(
+            runtime.generation, generation,
+            "failed admission cannot restart the chat"
+        );
+        assert_eq!(
+            runtime
+                .native()
+                .unwrap()
+                .transcript()
+                .items()
+                .iter()
+                .filter(|i| matches!(&i.body, Body::User(message) if message.text == "replacement"))
+                .count(),
+            0
+        );
+    });
+    client.shutdown().await.unwrap();
 }

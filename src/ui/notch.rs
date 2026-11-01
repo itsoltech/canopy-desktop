@@ -672,7 +672,8 @@ mod tests {
         use super::StatusFilter;
         use canopy_desktop::agents::Status;
         for (status, expected) in [
-            (Status::Starting, StatusFilter::Working),
+            // Starting has no settled activity state yet and appears in All only.
+            (Status::Starting, StatusFilter::All),
             (Status::Working, StatusFilter::Working),
             (Status::Waiting, StatusFilter::Waiting),
             (Status::Failed, StatusFilter::Failed),

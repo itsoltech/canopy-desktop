@@ -91,14 +91,15 @@ export default function ScanScreen(): React.ReactElement {
       if (!saved) await native.writeState('pending-pairing', JSON.stringify({ ref }))
       while (!abort.current.signal.aborted) {
         const result = await client.current.poll(abort.current.signal)
-        setStatus(`Pairing: ${result.state}. Approve this device on the host.`)
-        if (result.state === 'approved') {
+        const stateName = ['unknown', 'pending', 'approved', 'denied', 'expired'][result.state] ?? 'unknown'
+        setStatus(`Pairing: ${stateName}. Approve this device on the host.`)
+        if (result.state === 2) {
           await remoteHosts().add(await client.current.complete(result))
           await native.writeState('pending-pairing', 'null')
           await client.current.cancel()
           break
         }
-        if (['denied', 'expired', 'rejected'].includes(result.state)) { await native.writeState('pending-pairing', 'null'); await client.current.cancel(); throw Error(`Pairing ${result.state}`) }
+        if (result.state === 3 || result.state === 4) { await native.writeState('pending-pairing', 'null'); await client.current.cancel(); throw Error(`Pairing ${stateName}`) }
         await new Promise<void>(resolve => { const done = () => { clearTimeout(timer); abort.current.signal.removeEventListener('abort', done); resolve() }; const timer = setTimeout(done, 1500); abort.current.signal.addEventListener('abort', done, { once: true }) })
       }
       if (abort.current.signal.aborted) return

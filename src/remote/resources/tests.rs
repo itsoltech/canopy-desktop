@@ -26,13 +26,327 @@ pub(super) async fn fixture(root: &Path, database: &Path) -> (RpcAuth, DeviceGra
     let grant = client.lookup_runtime_device(vec![7; 32]).await.unwrap();
     (RpcAuth::new(host.id().into(), client).unwrap(), grant)
 }
-pub(super) fn meta(auth: &RpcAuth) -> proto::CommandMeta {
+pub(super) fn meta(_auth: &RpcAuth) -> proto::CommandMeta {
     proto::CommandMeta {
-        host_id: auth.host_id().into(),
         command_id: uuid::Uuid::new_v4().to_string(),
         command_epoch: 1,
         expected_revision: None,
     }
+}
+
+pub(super) fn project_target(
+    auth: &RpcAuth,
+    root: PathBuf,
+    git: bool,
+) -> (WorkspaceRoots, crate::api::proto::ResourceTarget) {
+    use crate::{api::proto as p, state::projects::Projects};
+    let mut projects = Projects::default();
+    if git {
+        projects.open_worktree(root.clone(), root);
+    } else {
+        projects.open(root);
+    }
+    let project = projects.current().unwrap();
+    let target = p::ResourceTarget {
+        resource: Some(p::resource_target::Resource::Project(p::ProjectRef {
+            host_id: auth.host_id().into(),
+            project_id: serde_json::to_string(&project.id).unwrap(),
+            worktree_id: git.then(|| serde_json::to_string(&project.workspace).unwrap()),
+        })),
+    };
+    let roots = WorkspaceRoots::default();
+    roots.replace_projects(projects.items).unwrap();
+    (roots, target)
+}
+
+pub(super) fn api_meta() -> crate::api::proto::CommandMeta {
+    crate::api::proto::CommandMeta {
+        command_id: uuid::Uuid::new_v4().to_string(),
+        command_epoch: 1,
+        expected_revision: None,
+    }
+}
+
+#[tokio::test]
+async fn thread_file_presence_uses_the_thread_epoch_and_shared_atomic_owner() {
+    use crate::{
+        api::{proto as p, resources as api},
+        command_bus::FileCommand,
+        host::ChatRecord,
+        state::workspace::{PaneKind, PaneMetadata},
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let (auth, grant) = fixture(&root, &dir.path().join("db")).await;
+    let workspace = uuid::Uuid::new_v4().to_string();
+    let chat = uuid::Uuid::new_v4().to_string();
+    let record = auth
+        .client()
+        .save_runtime_chat(
+            ChatRecord::new(
+                chat.clone(),
+                Some(workspace.clone()),
+                "test".into(),
+                PaneMetadata {
+                    kind: PaneKind::Chat,
+                    chat: Some(Box::new(crate::chat::config::ChatSettings {
+                        id: Some(chat),
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .with_authority_root(root.to_str().unwrap().into())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let roots = WorkspaceRoots::default();
+    roots
+        .replace(HashMap::from([(workspace, root.clone())]))
+        .unwrap();
+    let target = p::ResourceTarget {
+        resource: Some(p::resource_target::Resource::Thread(p::ThreadTarget {
+            thread: Some(p::ThreadRef {
+                host_id: auth.host_id().into(),
+                thread_id: record.thread_id().unwrap().to_string(),
+            }),
+            executor_epoch: record.thread().unwrap().executor_epoch(),
+        })),
+    };
+    let command = FileCommand::Presence {
+        path: "edit.txt".into(),
+        base_hash: [3; 32],
+        dirty: true,
+    };
+    let prepared = api::prepare_file(&auth, &roots, &grant, api_meta(), &target, command.clone())
+        .await
+        .unwrap();
+    let identity = command.identity(root.to_str().unwrap().into()).unwrap();
+    let saved = auth
+        .client()
+        .set_runtime_dirty_presence(
+            prepared.runtime_input().clone(),
+            identity.clone(),
+            [3; 32],
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.state(), CommandState::Succeeded);
+    assert_eq!(
+        auth.client()
+            .runtime_file_presence(identity)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let mut stale = target;
+    let Some(p::resource_target::Resource::Thread(thread)) = stale.resource.as_mut() else {
+        unreachable!()
+    };
+    thread.executor_epoch += 1;
+    let meta = api_meta();
+    let stale_command = FileCommand::Presence {
+        path: "other.txt".into(),
+        base_hash: [4; 32],
+        dirty: true,
+    };
+    let rejected = api::prepare_file(
+        &auth,
+        &roots,
+        &grant,
+        meta.clone(),
+        &stale,
+        stale_command.clone(),
+    )
+    .await
+    .unwrap();
+    let receipt = api::receipt(&auth, rejected.prior().unwrap(), &stale).unwrap();
+    assert_eq!(receipt.state, p::OperationState::Rejected as i32);
+    assert_eq!(receipt.error.unwrap().code, "conditions_changed");
+    assert!(
+        auth.client()
+            .runtime_file_presence(
+                stale_command
+                    .identity(root.to_str().unwrap().into())
+                    .unwrap()
+            )
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        api::prepare_file(&auth, &roots, &grant, meta, &stale, stale_command)
+            .await
+            .unwrap()
+            .prior(),
+        rejected.prior()
+    );
+    auth.client().shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn project_file_retry_survives_removal_but_never_bypasses_current_authorization() {
+    use crate::{api::resources as api, command_bus::FileCommand};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir(&root).unwrap();
+    let (auth, grant) = fixture(&root, &dir.path().join("db")).await;
+    let (roots, target) = project_target(&auth, root.clone(), false);
+    let meta = api_meta();
+    let command = FileCommand::Create {
+        path: "once.txt".into(),
+        directory: false,
+        content: None,
+    };
+    let prepared = api::prepare_file(
+        &auth,
+        &roots,
+        &grant,
+        meta.clone(),
+        &target,
+        command.clone(),
+    )
+    .await
+    .unwrap();
+    let locks = ResourceLocks::default();
+    let saved = owned_mutation(
+        auth.clone(),
+        locks,
+        root.clone(),
+        prepared.runtime_input().clone(),
+        {
+            let root = root.clone();
+            move || async move {
+                std::fs::write(root.join("once.txt"), "original").unwrap();
+                Ok(Vec::new())
+            }
+        },
+    )
+    .await
+    .unwrap();
+    roots.replace_projects(Vec::new()).unwrap();
+    std::fs::remove_dir_all(&root).unwrap();
+    let retry = api::prepare_file(
+        &auth,
+        &roots,
+        &grant,
+        meta.clone(),
+        &target,
+        command.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        api::receipt(&auth, retry.prior().unwrap(), &target).unwrap(),
+        api::receipt(&auth, &saved, &target).unwrap()
+    );
+    let changed = FileCommand::Create {
+        path: "different.txt".into(),
+        directory: false,
+        content: None,
+    };
+    assert_eq!(
+        api::prepare_file(
+            &auth,
+            &roots,
+            &grant,
+            meta.clone(),
+            &target,
+            changed.clone()
+        )
+        .await
+        .err()
+        .unwrap()
+        .code(),
+        tonic::Code::Aborted
+    );
+    // Retain the scope but remove the root: neither a saved outcome nor a
+    // fingerprint conflict may disclose a resource after sharing was removed.
+    auth.client()
+        .update_runtime_device_authorization(
+            grant.id().into(),
+            grant.authorization_revision(),
+            host::READ | host::FILES_GIT,
+            vec!["private".into()],
+        )
+        .await
+        .unwrap();
+    for command in [command, changed] {
+        assert_eq!(
+            api::prepare_file(&auth, &roots, &grant, meta.clone(), &target, command)
+                .await
+                .err()
+                .unwrap()
+                .code(),
+            tonic::Code::PermissionDenied
+        );
+    }
+    auth.client().shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn project_file_validation_uses_catalog_metadata_before_resource_io() {
+    use crate::{
+        api::{proto as p, resources as api},
+        command_bus::FileCommand,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("never-created");
+    let (auth, grant) = fixture(&missing, &dir.path().join("db")).await;
+    let (roots, valid) = project_target(&auth, missing.clone(), true);
+    assert_eq!(
+        api::read_root(&auth, &roots, &grant, &valid, host::READ)
+            .await
+            .unwrap(),
+        missing
+    );
+    let mut invalid = valid.clone();
+    let Some(p::resource_target::Resource::Project(project)) = invalid.resource.as_mut() else {
+        unreachable!()
+    };
+    project.worktree_id = None;
+    assert_eq!(
+        api::read_root(&auth, &roots, &grant, &invalid, host::READ)
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::InvalidArgument
+    );
+    assert_eq!(
+        api::prepare_file(
+            &auth,
+            &roots,
+            &grant,
+            api_meta(),
+            &invalid,
+            FileCommand::Create {
+                path: "file.txt".into(),
+                directory: false,
+                content: None
+            }
+        )
+        .await
+        .err()
+        .unwrap()
+        .code(),
+        tonic::Code::InvalidArgument
+    );
+    let (roots, mut ordinary) = project_target(&auth, missing.clone(), false);
+    let Some(p::resource_target::Resource::Project(project)) = ordinary.resource.as_mut() else {
+        unreachable!()
+    };
+    project.worktree_id = Some("foreign".into());
+    assert!(
+        api::read_root(&auth, &roots, &grant, &ordinary, host::READ)
+            .await
+            .is_err()
+    );
+    assert!(!missing.exists());
+    auth.client().shutdown().await.unwrap();
 }
 #[tokio::test]
 async fn accepted_effect_outlives_request_and_retry_does_not_repeat_it() {
@@ -81,6 +395,85 @@ async fn accepted_effect_outlives_request_and_retry_does_not_repeat_it() {
     .unwrap();
     assert_eq!(result.state, proto::OperationState::Succeeded as i32);
     assert_eq!(std::fs::read_to_string(root.join("file")).unwrap(), "once");
+    auth.client().shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn completed_effect_is_retained_but_not_disclosed_after_root_authority_is_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (auth, grant) = fixture(&root, &dir.path().join("db")).await;
+    let (roots, target) = project_target(&auth, root.clone(), false);
+    let prepared = crate::api::resources::prepare_file(
+        &auth,
+        &roots,
+        &grant,
+        api_meta(),
+        &target,
+        crate::command_bus::FileCommand::Create {
+            path: "once.txt".into(),
+            directory: false,
+            content: None,
+        },
+    )
+    .await
+    .unwrap();
+    let key = prepared.runtime_input().key().clone();
+    let worker_auth = auth.clone();
+    let device = grant.id().to_owned();
+    let effect_root = root.clone();
+    let error = owned_mutation(
+        auth.clone(),
+        ResourceLocks::default(),
+        root.clone(),
+        prepared.runtime_input().clone(),
+        move || async move {
+            // The dispatch fence was crossed while authorized. The owner still
+            // records the known outcome when sharing changes during its work.
+            worker_auth
+                .client()
+                .update_runtime_device_authorization(
+                    device,
+                    grant.authorization_revision(),
+                    host::READ | host::FILES_GIT,
+                    vec![],
+                )
+                .await
+                .unwrap();
+            std::fs::write(effect_root.join("once.txt"), "saved once").unwrap();
+            Ok(Vec::new())
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::PermissionDenied);
+    assert_eq!(
+        std::fs::read_to_string(root.join("once.txt")).unwrap(),
+        "saved once"
+    );
+    let current = auth
+        .client()
+        .lookup_runtime_device(vec![7; 32])
+        .await
+        .unwrap();
+    auth.client()
+        .update_runtime_device_authorization(
+            current.id().into(),
+            current.authorization_revision(),
+            host::READ | host::FILES_GIT,
+            vec![root.to_str().unwrap().into()],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        auth.client()
+            .get_runtime_command(key, host::FILES_GIT)
+            .await
+            .unwrap()
+            .unwrap()
+            .state(),
+        CommandState::Succeeded
+    );
     auth.client().shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -222,16 +615,15 @@ async fn root_authorization_precedes_repository_access() {
     std::fs::create_dir(&root).unwrap();
     let (auth, grant) = fixture(&root, &dir.path().join("db")).await;
     let roots = WorkspaceRoots::default();
-    roots
-        .replace(HashMap::from([(
-            "outside".into(),
-            dir.path().join("not-even-created"),
-        )]))
-        .unwrap();
-    let reference = proto::WorkspaceRef {
+    let mut projects = crate::state::projects::Projects::default();
+    projects.open(dir.path().join("not-even-created"));
+    let project = projects.current().unwrap();
+    let reference = proto::ProjectRef {
         host_id: auth.host_id().into(),
-        workspace_id: "outside".into(),
+        project_id: serde_json::to_string(&project.id).unwrap(),
+        worktree_id: None,
     };
+    roots.replace_projects(projects.items).unwrap();
     assert_eq!(
         workspace(&auth, &roots, &grant, Some(&reference), host::READ)
             .await

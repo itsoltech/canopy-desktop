@@ -81,7 +81,7 @@ impl ChatsRpc {
         &self,
         record: ChatRecord,
         grant: DeviceGrant,
-        request: proto::HistoryPageRequest,
+        request: proto::ReadHistoryPageRequest,
     ) -> Result<RpcStream<proto::HistoryPageEvent>, Status> {
         let permit = self.reads.admit(grant.id())?;
         let token = self.page_token(&record, request.page_token, "page")?;
@@ -124,11 +124,11 @@ impl ChatsRpc {
             .collect();
         let images = self.images(record.id(), files, HashMap::new()).await?;
         let context = Context::of(&self.auth, &record);
-        let chat = reference(&self.auth, record.id());
+        let chat = required(reference(&self.auth, &record))?;
         let read_id = uuid::Uuid::new_v4().to_string();
         let mut out = Out::default();
         out.events.push_back(Part::Event(proto::HistoryPageEvent {
-            chat: Some(chat.clone()),
+            thread: Some(chat.clone()),
             part: Some(proto::history_page_event::Part::Start(
                 proto::HistoryPageStart {
                     read_id: read_id.clone(),
@@ -147,7 +147,7 @@ impl ChatsRpc {
                 .push_back(Part::Slot(Slot::new(projected, std::sync::Arc::new(item))));
         }
         out.events.push_back(Part::Event(proto::HistoryPageEvent {
-            chat: Some(chat.clone()),
+            thread: Some(chat.clone()),
             part: Some(proto::history_page_event::Part::EndReadId(read_id)),
         }));
         out.chat = Some(chat);
@@ -177,7 +177,7 @@ impl ChatsRpc {
         grant: DeviceGrant,
         request: proto::SearchHistoryRequest,
     ) -> Result<proto::HistoryMatches, Status> {
-        if request.text.trim().is_empty() || request.text.len() > 1024 {
+        if request.query.trim().is_empty() || request.query.len() > 1024 {
             return Err(Status::invalid_argument(
                 "Enter a search of at most 1024 bytes.",
             ));
@@ -185,7 +185,7 @@ impl ChatsRpc {
         let token = self.page_token(&record, request.page_token, "search")?;
         if token
             .as_ref()
-            .is_some_and(|t| t.query.as_deref() != Some(&request.text))
+            .is_some_and(|t| t.query.as_deref() != Some(&request.query))
         {
             return Err(Status::invalid_argument(
                 "The page token belongs to another search.",
@@ -193,7 +193,7 @@ impl ChatsRpc {
         }
         let mut before = token.as_ref().and_then(|t| t.before);
         let mut upper = token.as_ref().and_then(|t| t.upper);
-        let needle = request.text.to_lowercase();
+        let needle = request.query.to_lowercase();
         let mut found = Vec::new();
         let mut incomplete = false;
         let mut continuation = None;
@@ -218,7 +218,7 @@ impl ChatsRpc {
             before = page.next_before;
             incomplete |= page.rows.skipped > 0;
             continuation =
-                self.encode_token(&record, "search", &page, Some(request.text.clone()))?;
+                self.encode_token(&record, "search", &page, Some(request.query.clone()))?;
             for (epoch, id, payload) in &page.rows.items {
                 let Ok(item) = serde_json::from_str::<t::Item>(payload) else {
                     incomplete = true;
@@ -234,7 +234,7 @@ impl ChatsRpc {
                 };
                 if text.to_lowercase().contains(&needle) {
                     found.push(proto::HistoryMatch {
-                        key: Some(wire::key(*epoch, *id)),
+                        item: Some(wire::key(*epoch, *id)),
                         excerpt: canopy_desktop::chat::presentation::single_line(&text, 240),
                     });
                 }
@@ -245,7 +245,6 @@ impl ChatsRpc {
             tokio::task::yield_now().await;
         }
         Ok(proto::HistoryMatches {
-            chat: Some(reference(&self.auth, record.id())),
             matches: found,
             next_page_token: continuation,
             incomplete,
@@ -254,17 +253,17 @@ impl ChatsRpc {
 }
 
 impl Frame for proto::HistoryPageEvent {
-    fn items(chat: &proto::ChatRef, items: Vec<proto::TranscriptItem>) -> Self {
+    fn items(chat: &proto::ThreadRef, items: Vec<proto::TranscriptItem>) -> Self {
         Self {
-            chat: Some(chat.clone()),
+            thread: Some(chat.clone()),
             part: Some(proto::history_page_event::Part::Items(proto::ItemChunk {
                 items,
             })),
         }
     }
-    fn fragment(chat: &proto::ChatRef, fragment: proto::ItemFragment) -> Self {
+    fn fragment(chat: &proto::ThreadRef, fragment: proto::ItemFragment) -> Self {
         Self {
-            chat: Some(chat.clone()),
+            thread: Some(chat.clone()),
             part: Some(proto::history_page_event::Part::Fragment(fragment)),
         }
     }
@@ -274,7 +273,7 @@ impl Frame for proto::HistoryPageEvent {
 /// authorization or readiness changes during it.
 struct Page {
     out: Out<proto::HistoryPageEvent>,
-    host: tokio::sync::watch::Receiver<proto::HostStatus>,
+    host: tokio::sync::watch::Receiver<canopy_desktop::api::proto::HostStatus>,
     auth: RpcAuth,
     grant: DeviceGrant,
     record: ChatRecord,
@@ -283,8 +282,8 @@ impl Page {
     async fn next(&mut self) -> Result<Option<proto::HistoryPageEvent>, Status> {
         if self.host.has_changed().unwrap_or(true) {
             let readiness = self.host.borrow_and_update().readiness;
-            if readiness == proto::HostReadiness::Draining as i32
-                || readiness == proto::HostReadiness::StorageFault as i32
+            if readiness == canopy_desktop::api::proto::HostReadiness::Draining as i32
+                || readiness == canopy_desktop::api::proto::HostReadiness::StorageFault as i32
             {
                 return Err(Status::unavailable("The host is closing; reconnect later."));
             }

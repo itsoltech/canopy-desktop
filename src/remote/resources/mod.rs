@@ -3,10 +3,9 @@
 mod files;
 mod git;
 mod snapshot;
-use super::{
-    auth::{RpcAuth, WorkspaceRoots, storage_status},
-    proto,
-};
+use super::auth::{RpcAuth, WorkspaceRoots, storage_status};
+#[cfg(test)]
+use crate::api::proto;
 use crate::host::{CommandInput, CommandReceipt, CommandState, DeviceGrant};
 pub use files::FilesRpc;
 pub use git::{GitRpc, WorktreeLifecycle};
@@ -99,15 +98,16 @@ impl ResourceLocks {
     }
 }
 
+#[cfg(test)]
 pub(super) async fn workspace(
     auth: &RpcAuth,
     roots: &WorkspaceRoots,
     grant: &DeviceGrant,
-    reference: Option<&proto::WorkspaceRef>,
+    reference: Option<&proto::ProjectRef>,
     scope: u32,
 ) -> Result<PathBuf, Status> {
     let reference = reference.ok_or_else(|| Status::invalid_argument("Workspace is required."))?;
-    let root = roots.resolve(reference, auth)?;
+    let (_, root) = roots.project(reference.clone(), auth)?;
     auth.resource(grant.id(), scope, WorkspaceRoots::root_string(&root)?)
         .await?;
     Ok(root)
@@ -125,8 +125,9 @@ pub(super) async fn blocking<T: Send + 'static>(
         .await
         .map_err(|_| Status::internal("Resource worker stopped."))?
 }
+#[cfg(test)]
 pub(super) fn receipt(auth: &RpcAuth, receipt: &CommandReceipt) -> proto::CommandReceipt {
-    let mut result = auth.receipt(receipt);
+    let mut result = auth.receipt(receipt).unwrap();
     if matches!(
         receipt.state(),
         CommandState::Failed | CommandState::Rejected
@@ -139,6 +140,7 @@ pub(super) fn receipt(auth: &RpcAuth, receipt: &CommandReceipt) -> proto::Comman
 }
 /// The detached task owns acceptance AND execution. Dropping the HTTP request
 /// cannot strand an accepted operation or cancel a published network mutation.
+#[cfg(test)]
 pub(super) async fn mutation<F, Fut>(
     auth: RpcAuth,
     locks: ResourceLocks,
@@ -150,18 +152,69 @@ where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = Result<Vec<u8>, Status>> + Send + 'static,
 {
+    let result = owned_mutation(auth.clone(), locks, root, input, effect).await?;
+    Ok(receipt(&auth, &result))
+}
+
+#[cfg(test)]
+pub(super) async fn owned_mutation<F, Fut>(
+    auth: RpcAuth,
+    locks: ResourceLocks,
+    root: PathBuf,
+    input: CommandInput,
+    effect: F,
+) -> Result<CommandReceipt, Status>
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = Result<Vec<u8>, Status>> + Send + 'static,
+{
+    validated_mutation(
+        auth,
+        locks,
+        root,
+        input,
+        move || async move { Ok(effect()) },
+    )
+    .await
+}
+
+/// Preconditions run under the same reservation as the eventual effect. A
+/// rejected precondition never crosses the durable attempting boundary.
+pub(crate) async fn validated_mutation<F, Prepare, Effect>(
+    auth: RpcAuth,
+    locks: ResourceLocks,
+    root: PathBuf,
+    input: CommandInput,
+    prepare: F,
+) -> Result<CommandReceipt, Status>
+where
+    F: FnOnce() -> Prepare + Send + 'static,
+    Prepare: Future<Output = Result<Effect, Status>> + Send + 'static,
+    Effect: Future<Output = Result<Vec<u8>, Status>> + Send + 'static,
+{
+    let typed_resource = !input.key.resource.is_empty();
     let operation = locks.begin()?;
     tokio::spawn(async move {
         let _operation = operation;
-        let _guard = locks.acquire(&root).await?;
+        let _guard = if root == Path::new("private") {
+            None
+        } else {
+            Some(locks.acquire(&root).await?)
+        };
         let accepted = auth
             .client()
             .accept_runtime_command(input, crate::host::FILES_GIT)
             .await
             .map_err(storage_status)?;
         if accepted.state() != CommandState::Accepted {
-            return Ok(receipt(&auth, &accepted));
+            return Ok(accepted);
         }
+        let effect = match prepare().await {
+            Ok(effect) => effect,
+            Err(error) => {
+                return reject_precondition(&auth, &accepted, error).await;
+            }
+        };
         auth.client()
             .transition_runtime_command(
                 accepted.key().clone(),
@@ -171,11 +224,31 @@ where
             )
             .await
             .map_err(storage_status)?;
-        let outcome = effect().await;
+        let outcome = effect.await;
+        let transport_error = outcome
+            .as_ref()
+            .err()
+            .filter(|error| {
+                typed_resource
+                    && matches!(
+                        error.code(),
+                        tonic::Code::Unavailable
+                            | tonic::Code::Internal
+                            | tonic::Code::Unknown
+                            | tonic::Code::PermissionDenied
+                            | tonic::Code::Unauthenticated
+                    )
+            })
+            .cloned();
         let (state, bytes) = match outcome {
             Ok(bytes) => (CommandState::Succeeded, bytes),
             Err(error) => {
-                let state = if error.code() == tonic::Code::Unknown {
+                let state = if error.code() == tonic::Code::Unknown
+                    || (typed_resource
+                        && matches!(
+                            error.code(),
+                            tonic::Code::Unavailable | tonic::Code::Internal
+                        )) {
                     CommandState::DeliveryUnknown
                 } else {
                     CommandState::Failed
@@ -184,13 +257,18 @@ where
                     "needs_host_interaction"
                 } else {
                     match error.code() {
+                        tonic::Code::Aborted | tonic::Code::FailedPrecondition
+                            if typed_resource =>
+                        {
+                            "conditions_changed"
+                        }
                         tonic::Code::Aborted => "conflict",
                         tonic::Code::PermissionDenied => "permission_denied",
                         tonic::Code::ResourceExhausted => "resource_limit",
                         _ => "operation_failed",
                     }
                 };
-                let error = proto::DomainError {
+                let error = crate::api::proto::DomainError {
                     code: code.into(),
                     message: error.message().chars().take(8192).collect(),
                     retryable: false,
@@ -208,10 +286,60 @@ where
             )
             .await
             .map_err(storage_status)?;
-        Ok(receipt(&auth, &final_receipt))
+        if let Some(error) = transport_error {
+            return Err(error);
+        }
+        // The owned effect can outlive the sender's grant. Keep its known
+        // outcome, but reauthorize the retained operation before disclosure.
+        auth.client()
+            .get_runtime_command(final_receipt.key().clone(), 0)
+            .await
+            .map_err(storage_status)?
+            .ok_or_else(|| Status::unavailable("Command outcome requires reconciliation."))?;
+        Ok(final_receipt)
     })
     .await
     .map_err(|_| Status::unavailable("Command outcome requires reconciliation."))?
+}
+
+pub(super) async fn reject_precondition(
+    auth: &RpcAuth,
+    accepted: &CommandReceipt,
+    error: Status,
+) -> Result<CommandReceipt, Status> {
+    let receipt = auth
+        .client()
+        .transition_runtime_command(
+            accepted.key().clone(),
+            CommandState::Accepted,
+            CommandState::Rejected,
+            Some(prost::Message::encode_to_vec(
+                &crate::api::proto::DomainError {
+                    code: if matches!(
+                        error.code(),
+                        tonic::Code::Aborted
+                            | tonic::Code::FailedPrecondition
+                            | tonic::Code::NotFound
+                    ) {
+                        "conditions_changed"
+                    } else {
+                        "operation_failed"
+                    }
+                    .into(),
+                    message: error.message().chars().take(8192).collect(),
+                    retryable: false,
+                },
+            )),
+        )
+        .await
+        .map_err(storage_status)?;
+    if matches!(
+        error.code(),
+        tonic::Code::Aborted | tonic::Code::FailedPrecondition | tonic::Code::NotFound
+    ) {
+        return Ok(receipt);
+    }
+    Err(error)
 }
 
 #[cfg(test)]

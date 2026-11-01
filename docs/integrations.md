@@ -302,6 +302,11 @@ The host application implements `TasksHost` for filter changes and task→worktr
 so those operations update the live configuration owner and existing worktree
 lifecycle. Task→worktree additionally requires FILES_GIT on its destination.
 The current request selects no agent; it creates and links the empty worktree.
+An exact retry of an unattempted accepted task-to-worktree command rechecks its
+saved authority before looking up the live project. A removed destination becomes
+a durable `Rejected/conditions_changed`, so it cannot strand the command epoch.
+Project and task resolution for other task writes also runs within readiness;
+status combined with ordinary field edits is rejected before account lookup.
 
 Provider field values use Protobuf Value/Struct with native IDs and types.
 Jira workflow forms retain required fields and do not implicitly submit defaults.
@@ -326,3 +331,11 @@ The scoped provider HTTP wrapper checks the current device grant and immutable
 account configuration before every outbound request. This also covers a write
 following asynchronous schema/status preflight inside an existing adapter; a
 cached provider client cannot keep authority after revoke or account replacement.
+
+All remote Tasks methods use the handwritten native API v1. Local writes enter
+the same typed command bus with an immutable account binding before invoking
+the existing provider owner. Attachment staging runs on the background executor;
+the inbox stores the finished artifact reference. Provider delivery uncertainty
+remains DeliveryUnknown and is never automatically replayed or acknowledged.
+Filters, selections, repository overrides and task links use typed configuration
+commands; connection cleanup remains available without new command admission.

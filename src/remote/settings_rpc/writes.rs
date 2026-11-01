@@ -1,5 +1,5 @@
 use super::{model::Edit, *};
-use crate::host::{CommandInput, CommandKey, CommandState, DeviceGrant};
+use crate::host::{CommandKey, CommandState, DeviceGrant};
 use prost::Message;
 use std::collections::BTreeMap;
 
@@ -21,7 +21,7 @@ fn text(s: &str, max: usize, empty: bool) -> Result<(), Status> {
         Ok(())
     }
 }
-fn identity(s: &str) -> Result<(), Status> {
+pub(super) fn identity(s: &str) -> Result<(), Status> {
     text(s, 256, false)
 }
 fn environments(v: &mut [proto::EnvironmentUpdate]) -> Result<(), Status> {
@@ -104,11 +104,12 @@ impl Write {
     pub(super) fn profile(request: proto::SaveProfileRequest) -> Self {
         Self::Profile(Box::new(request))
     }
-    fn prepare(&mut self) -> Result<(proto::CommandMeta, &'static str, String, Vec<u8>), Status> {
+    fn prepare(&mut self) -> Result<(proto::CommandMeta, proto::EnvironmentRef), Status> {
         macro_rules! finish {
-            ($r:expr,$method:expr,$target:expr) => {{
+            ($r:expr) => {{
                 let meta = $r.command.take().ok_or_else(invalid)?;
-                Ok((meta, $method, $target, $r.encode_to_vec()))
+                let environment = $r.environment.take().ok_or_else(invalid)?;
+                Ok((meta, environment))
             }};
         }
         match self {
@@ -119,9 +120,11 @@ impl Write {
                 text(&a.command, 16384, false)?;
                 if !matches!(
                     proto::BackendKind::try_from(a.backend_kind),
-                    Ok(proto::BackendKind::ClaudeStreamJson
-                        | proto::BackendKind::CodexAppServer
-                        | proto::BackendKind::Acp)
+                    Ok(proto::BackendKind::NativeStream
+                        | proto::BackendKind::NativeServer
+                        | proto::BackendKind::Protocol
+                        | proto::BackendKind::Shell
+                        | proto::BackendKind::Process)
                 ) {
                     return Err(invalid());
                 }
@@ -135,13 +138,12 @@ impl Write {
                     text(id, 256, true)?;
                 }
                 a.environment.clear();
-                let id = a.id.clone();
-                environments(&mut r.environment)?;
-                finish!(r, "settings.agent.save", id)
+                environments(&mut r.variables)?;
+                finish!(r)
             }
             Self::RemoveAgent(r) => {
                 identity(&r.agent_id)?;
-                finish!(r, "settings.agent.remove", r.agent_id.clone())
+                finish!(r)
             }
             Self::Profile(r) => {
                 let p = r.profile.as_mut().ok_or_else(invalid)?;
@@ -163,8 +165,7 @@ impl Write {
                 p.settings = None;
                 p.environment.clear();
                 p.credential_configured = false;
-                let id = p.id.clone();
-                environments(&mut r.environment)?;
+                environments(&mut r.variables)?;
                 normalize_secret(&mut r.credential, false, 2560)?;
                 if let Some(settings) = &mut r.settings {
                     if let Some(options) = &mut settings.options {
@@ -186,15 +187,15 @@ impl Write {
                         return Err(invalid());
                     }
                 }
-                finish!(r, "settings.profile.save", id)
+                finish!(r)
             }
             Self::RemoveProfile(r) => {
                 identity(&r.profile_id)?;
-                finish!(r, "settings.profile.remove", r.profile_id.clone())
+                finish!(r)
             }
             Self::RemoveIntegration(r) => {
                 identity(&r.integration_id)?;
-                finish!(r, "settings.integration.remove", r.integration_id.clone())
+                finish!(r)
             }
             Self::Integration(r) => {
                 let i = r.integration.as_mut().ok_or_else(invalid)?;
@@ -209,9 +210,8 @@ impl Write {
                     return Err(invalid());
                 }
                 i.credential_configured = false;
-                let id = i.id.clone();
                 normalize_secret(&mut r.credential, false, 2560)?;
-                finish!(r, "settings.integration.save", id)
+                finish!(r)
             }
         }
     }
@@ -228,19 +228,20 @@ impl Write {
             Self::RemoveIntegration(r) => Edit::RemoveIntegration(r.integration_id),
             Self::Agent(r) => {
                 let a = r.agent.ok_or_else(invalid)?;
-                let backend = match proto::BackendKind::try_from(a.backend_kind)
-                    .map_err(|_| invalid())?
-                {
-                    proto::BackendKind::ClaudeStreamJson => crate::chat::agent::BackendKind::Claude,
-                    proto::BackendKind::CodexAppServer => crate::chat::agent::BackendKind::Codex,
-                    proto::BackendKind::Acp => crate::chat::agent::BackendKind::Acp,
-                    _ => return Err(invalid()),
-                };
-                let env = env_changes(r.environment, secrets, key, host, &mut staged).await?;
+                let backend =
+                    match proto::BackendKind::try_from(a.backend_kind).map_err(|_| invalid())? {
+                        proto::BackendKind::NativeStream => ToolBackend::NativeStream,
+                        proto::BackendKind::NativeServer => ToolBackend::NativeServer,
+                        proto::BackendKind::Protocol => ToolBackend::Protocol,
+                        proto::BackendKind::Shell => ToolBackend::Shell,
+                        proto::BackendKind::Process => ToolBackend::Process,
+                        _ => return Err(invalid()),
+                    };
+                let env = env_changes(r.variables, secrets, key, host, &mut staged).await?;
                 Edit::Agent(AgentEdit::new(a, backend, env))
             }
             Self::Profile(r) => {
-                let env = env_changes(r.environment, secrets, key, host, &mut staged).await?;
+                let env = env_changes(r.variables, secrets, key, host, &mut staged).await?;
                 let credential =
                     secret_change(r.credential, "credential", secrets, key, host, &mut staged)
                         .await?;
@@ -322,9 +323,17 @@ async fn secret_change(
         None | Some(Action::Unchanged(_)) => SecretChange::Unchanged,
         Some(Action::Remove(_)) => SecretChange::Remove,
         Some(Action::Set(bytes)) => {
-            let input =
-                serde_json::to_vec(&(host, key.device(), key.epoch(), key.id(), slot, &bytes))
-                    .map_err(|_| invalid())?;
+            let input = serde_json::to_vec(&(
+                host,
+                key.device(),
+                key.epoch(),
+                key.id(),
+                key.resource(),
+                key.executor_epoch(),
+                slot,
+                &bytes,
+            ))
+            .map_err(|_| invalid())?;
             let digest = secrets.fingerprint(&input).await?;
             let mut id = [0; 16];
             id.copy_from_slice(&digest[..16]);
@@ -341,52 +350,81 @@ impl SettingsRpc {
         grant: DeviceGrant,
         mut write: Write,
     ) -> Result<proto::CommandReceipt, Status> {
-        let (meta, method, target, canonical) = write.prepare()?;
-        if canonical.len() > crate::host::CONTROL_BYTES {
-            return Err(Status::resource_exhausted(
-                "Settings request exceeds control limit.",
-            ));
-        }
-        let key = self.auth.key(&meta, &grant)?;
+        let (meta, environment) = write.prepare()?;
+        self.auth.check_host(&environment.host_id)?;
+        let resource =
+            crate::command_bus::ResourceRef::Environment(crate::thread::EnvironmentRef {
+                host_id: crate::thread::HostId::new(environment.host_id.clone())
+                    .ok_or_else(invalid)?,
+            });
+        let mut key = CommandKey::remote(
+            grant.id().into(),
+            meta.command_epoch,
+            meta.command_id.clone(),
+        )
+        .ok_or_else(invalid)?;
+        (key.resource, key.executor_epoch) = resource.storage_key();
+        let principal = crate::command_bus::Principal::authenticated(&grant, meta.command_epoch)
+            .map_err(storage_status)?;
         let operation = self.locks.begin()?;
         let this = self.clone();
         tokio::spawn(async move {
             let _operation = operation;
             let _gate = this.gate.lock().await;
             this.auth.resource(grant.id(), ADMIN, "private").await?;
-            let canonical =
-                serde_json::to_vec(&(meta.expected_revision, canonical)).map_err(|_| invalid())?;
-            let fingerprint = this.secrets.fingerprint(&canonical).await?;
             let (edit, staged) = write
                 .edit(this.secrets.as_ref(), &key, this.auth.host_id())
                 .await?;
-            let args = serde_json::to_vec(&edit).map_err(|_| invalid())?;
-            let input = CommandInput::new(
-                key.clone(),
-                method.into(),
-                target,
-                args,
-                fingerprint.to_vec(),
-            )
-            .and_then(|i| i.with_root("private".into()))
-            .ok_or_else(invalid)?;
-            let existing = this
-                .auth
-                .client()
-                .get_runtime_command(key.clone(), ADMIN)
+            let envelope = crate::api::decode::envelope(
+                meta.clone(),
+                resource,
+                crate::command_bus::Command::Settings(edit.clone()),
+            )?;
+            let prepared = crate::command_bus::CommandBus::new(this.auth.client().clone())
+                .prepare(envelope, principal)
                 .await
                 .map_err(storage_status)?;
-            if existing.is_some() {
-                // Dedupe still compares the normalized intent and the current authority.
-                let receipt = this
+            let receipt_resource = proto::command_receipt::Resource::Environment(environment);
+            if let Some(prior) = prepared
+                .prior()
+                .filter(|prior| prior.state() != CommandState::Accepted)
+            {
+                return crate::api::project_receipt(&this.auth, prior, receipt_resource);
+            }
+            let input = prepared.runtime_input().clone();
+            let fingerprint = input.fingerprint.clone();
+            if let Some(expected) = meta.expected_revision
+                && this.host.snapshot().await?.revision != expected
+            {
+                let accepted = this
                     .auth
                     .client()
-                    .accept_runtime_command(input.clone(), ADMIN)
+                    .accept_runtime_command(input, ADMIN)
                     .await
                     .map_err(storage_status)?;
-                if receipt.state() != CommandState::Accepted {
-                    return Ok(this.auth.receipt(&receipt));
-                }
+                let receipt = if accepted.state() == CommandState::Accepted {
+                    this.auth
+                        .client()
+                        .transition_runtime_command(
+                            key,
+                            CommandState::Accepted,
+                            CommandState::Rejected,
+                            Some(
+                                proto::DomainError {
+                                    code: "conditions_changed".into(),
+                                    message: "Settings changed; review the current revision."
+                                        .into(),
+                                    retryable: false,
+                                }
+                                .encode_to_vec(),
+                            ),
+                        )
+                        .await
+                        .map_err(storage_status)?
+                } else {
+                    accepted
+                };
+                return crate::api::project_receipt(&this.auth, &receipt, receipt_resource);
             }
             for (version, value) in &staged {
                 for id in version.parts() {
@@ -405,7 +443,7 @@ impl SettingsRpc {
                 .await
                 .map_err(storage_status)?;
             if accepted.state() != CommandState::Accepted {
-                return Ok(this.auth.receipt(&accepted));
+                return crate::api::project_receipt(&this.auth, &accepted, receipt_resource);
             }
             this.auth
                 .client()
@@ -446,7 +484,7 @@ impl SettingsRpc {
                     } else if error.message().starts_with("needs_host_interaction") {
                         "needs_host_interaction"
                     } else if error.code() == tonic::Code::Aborted {
-                        "conflict"
+                        "conditions_changed"
                     } else if error.code() == tonic::Code::InvalidArgument {
                         "invalid_argument"
                     } else if error.code() == tonic::Code::ResourceExhausted {
@@ -458,6 +496,9 @@ impl SettingsRpc {
                     (
                         if unknown {
                             CommandState::DeliveryUnknown
+                        } else if error.code() == tonic::Code::Aborted {
+                            // The owner's atomic revision check proves no edit occurred.
+                            CommandState::Rejected
                         } else {
                             CommandState::Failed
                         },
@@ -485,7 +526,7 @@ impl SettingsRpc {
                 .map_err(storage_status)?;
             // Cleanup failure remains durably queued and cannot change the committed receipt.
             let _ = this.cleanup_locked().await;
-            Ok(this.auth.receipt(&receipt))
+            crate::api::project_receipt(&this.auth, &receipt, receipt_resource)
         })
         .await
         .map_err(|_| Status::unavailable("Settings outcome requires reconciliation."))?

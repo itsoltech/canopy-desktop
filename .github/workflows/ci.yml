@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Install buf 1.57.2
         run: |
           curl --fail --location --silent --show-error https://github.com/bufbuild/buf/releases/download/v1.57.2/buf-Linux-x86_64 --output "$RUNNER_TEMP/buf"
@@ -26,6 +28,35 @@ jobs:
           chmod +x "$RUNNER_TEMP/buf"
       - name: Lint typed API contract
         run: '"$RUNNER_TEMP/buf" lint'
+      - name: Reject removed contract and compatibility adapters
+        run: |
+          if git grep --untracked --no-exclude-standard -n -E 'canopy[.]remote[.]v1|canopy/remote/v1|remote::proto|api::compat|api::catalog_projection' -- src proto build.rs mobile; then
+            echo 'Removed API contract reference found.' >&2
+            exit 1
+          fi
+          test ! -e src/api/compat.rs
+          test ! -e src/api/projection.rs
+          test ! -e src/api/catalog_projection.rs
+      - name: Check compatibility with first released API v1
+        env:
+          API_V1_RELEASED: ${{ vars.CANOPY_API_V1_RELEASED }}
+        run: |
+          if git show-ref --verify --quiet refs/tags/canopy-api-v1; then
+            "$RUNNER_TEMP/buf" breaking --against '.git#tag=canopy-api-v1,subdir=proto'
+          elif [ "$API_V1_RELEASED" = true ]; then
+            echo 'First-release canopy-api-v1 baseline is required.' >&2
+            exit 1
+          else
+            echo 'API v1 is unreleased; no released breaking baseline exists.'
+          fi
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          # Ubuntu ships descriptor.proto and struct.proto in the dev package.
+          sudo apt-get install --yes --no-install-recommends protobuf-compiler libprotobuf-dev
+      - name: Check generated mobile contract
+        working-directory: mobile
+        run: node scripts/generate-remote.mjs --check
   check:
     runs-on: macos-latest
     env:
@@ -42,5 +73,7 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Run unit tests
         run: cargo test --locked --lib
+      - name: Run desktop unit tests
+        run: cargo test --locked --bin canopy-desktop
       - name: Build local release bundle
         run: ./scripts/build-macos.sh release

@@ -21,7 +21,7 @@ pub(super) fn reference(task: &p::Task, provider: Provider, project: &str) -> lo
         project: ProjectTarget {
             provider,
             key: if project.is_empty() {
-                r.project_id
+                r.project.map(|p| p.project_key).unwrap_or_default()
             } else {
                 project.to_owned()
             },

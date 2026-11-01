@@ -1,6 +1,7 @@
 //! Remote terminal page: the local terminal pane's tabs, surface, grid painter
 //! and status bars over host-rendered frames.
 use super::*;
+use canopy_desktop::api::proto as p;
 use canopy_desktop::{
     remote::client::rpc_error,
     terminal::{
@@ -23,8 +24,8 @@ impl RemoteWindow {
         let (send, receive) = async_channel::bounded(1);
         let task = self.global.runtime.spawn(async move {
             let result = async {
-                tx.send(p::TerminalClientEvent {
-                    event: Some(p::terminal_client_event::Event::Subscribe(
+                tx.send(p::TerminalSessionRequest {
+                    event: Some(p::terminal_session_request::Event::Subscribe(
                         p::TerminalSubscribe {
                             terminal: Some(terminal.clone()),
                             since: None,
@@ -235,12 +236,14 @@ impl RemoteWindow {
                     )))
                     .await;
                     if tx
-                        .send(p::TerminalClientEvent {
-                            event: Some(p::terminal_client_event::Event::Renew(p::TerminalRenew {
-                                terminal: terminal.clone(),
-                                run_id: renewal.run_id.clone(),
-                                fencing_token: renewal.fencing_token,
-                            })),
+                        .send(p::TerminalSessionRequest {
+                            event: Some(p::terminal_session_request::Event::Renew(
+                                p::TerminalRenew {
+                                    terminal: terminal.clone(),
+                                    run_id: renewal.run_id.clone(),
+                                    fencing_token: renewal.fencing_token,
+                                },
+                            )),
                         })
                         .await
                         .is_err()
@@ -270,14 +273,16 @@ impl RemoteWindow {
         };
         self.terminal_input_id += 1;
         if tx
-            .try_send(p::TerminalClientEvent {
-                event: Some(p::terminal_client_event::Event::Input(p::TerminalInput {
-                    terminal: self.terminal.clone(),
-                    run_id: lease.run_id.clone(),
-                    fencing_token: lease.fencing_token,
-                    input_id: self.terminal_input_id,
-                    data,
-                })),
+            .try_send(p::TerminalSessionRequest {
+                event: Some(p::terminal_session_request::Event::Input(
+                    p::TerminalInput {
+                        terminal: self.terminal.clone(),
+                        run_id: lease.run_id.clone(),
+                        fencing_token: lease.fencing_token,
+                        input_id: self.terminal_input_id,
+                        data,
+                    },
+                )),
             })
             .is_err()
         {
@@ -444,7 +449,7 @@ impl RemoteWindow {
             async move {
                 let mut stream =
                     p::terminal_service_client::TerminalServiceClient::new(host.channel()?)
-                        .read_history(p::TerminalHistoryRequest {
+                        .read_history(p::TerminalServiceReadHistoryRequest {
                             terminal: terminal.clone(),
                             run_id: run_id.clone(),
                             offset_from_bottom: offset,
@@ -587,7 +592,17 @@ impl RemoteWindow {
                 catalog
                     .terminals
                     .iter()
-                    .filter(|t| t.workspace == self.workspace || t.terminal == self.terminal)
+                    .filter(|t| {
+                        self.workspace
+                            .as_ref()
+                            .is_some_and(|w| w.catalog_id == t.project_catalog_id)
+                            || t.terminal.as_ref().is_some_and(|t| {
+                                self.terminal.as_ref().is_some_and(|current| {
+                                    current.host_id == t.host_id
+                                        && current.terminal_id == t.terminal_id
+                                })
+                            })
+                    })
                     .cloned()
                     .collect()
             })
@@ -721,7 +736,13 @@ impl RemoteWindow {
                 catalog
                     .terminals
                     .iter()
-                    .find(|t| t.terminal == self.terminal)
+                    .find(|t| {
+                        t.terminal.as_ref().is_some_and(|t| {
+                            self.terminal.as_ref().is_some_and(|current| {
+                                current.host_id == t.host_id && current.terminal_id == t.terminal_id
+                            })
+                        })
+                    })
                     .cloned()
             });
         let held = self.terminal_lease.as_ref().is_some_and(|l| l.held);
@@ -879,11 +900,7 @@ impl RemoteWindow {
             "Stop terminal?"
         };
         self.apply(Update::Confirm(title.into(), "This affects the host process and every connected device. Unsaved terminal work may be lost.".into(), Box::pin(async move {
-            host.mutate(None, move |channel, command| async move {
-                let mut client = p::terminal_service_client::TerminalServiceClient::new(channel);
-                let request = p::TerminalCommandRequest { command: Some(command), terminal, run_id };
-                if restart { client.restart_terminal(request).await } else { client.stop_terminal(request).await }
-            }).await?;
+            host.terminal_lifecycle(terminal.ok_or("Terminal is missing.")?, run_id, restart).await?;
             Ok(Update::Done("Terminal operation completed.".into()))
         })), cx);
     }
@@ -950,8 +967,8 @@ impl RemoteWindow {
                         && lease.held
                         && lease.run_id == this.terminal_run
                     {
-                        let _ = tx.try_send(p::TerminalClientEvent {
-                            event: Some(p::terminal_client_event::Event::Resize(
+                        let _ = tx.try_send(p::TerminalSessionRequest {
+                            event: Some(p::terminal_session_request::Event::Resize(
                                 p::TerminalResize {
                                     terminal: this.terminal.clone(),
                                     run_id: lease.run_id.clone(),

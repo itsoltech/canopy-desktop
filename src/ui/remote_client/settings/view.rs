@@ -3,14 +3,15 @@ use super::{
     *,
 };
 use canopy_desktop::integrations::Provider;
+use canopy_desktop::{api::proto as api, remote::client::SettingsMutation};
 use gpui_kit::component::{IconName, button::ButtonVariants};
 
 pub(super) struct SettingsView {
     host: Arc<HostClient>,
     device: Entity<device::DevicePreferences>,
     runtime: Arc<tokio::runtime::Runtime>,
-    settings: Option<p::HostSettings>,
-    devices: Vec<p::Device>,
+    settings: Option<api::HostSettings>,
+    devices: Vec<api::Device>,
     editor: Option<Entity<Editor>>,
     edit_revision: u64,
     reviewed: bool,
@@ -111,7 +112,7 @@ impl SettingsView {
     }
     fn run<F>(&mut self, future: F, close_editor: bool, cx: &mut Context<Self>)
     where
-        F: std::future::Future<Output = Result<(p::HostSettings, p::Devices, String), String>>
+        F: std::future::Future<Output = Result<(api::HostSettings, api::Devices, String), String>>
             + Send
             + 'static,
     {
@@ -197,7 +198,7 @@ impl SettingsView {
         if let Write::Integration(ref request) = write
             && matches!(
                 request.credential.as_ref().and_then(|s| s.action.as_ref()),
-                Some(p::secret_update::Action::Remove(_))
+                Some(api::secret_update::Action::Remove(_))
             )
         {
             if let Some(i) = &request.integration {
@@ -210,10 +211,11 @@ impl SettingsView {
         self.run(
             async move {
                 let receipt = write.send(host.clone(), revision).await?;
-                let notice = receipt
-                    .operation_output
-                    .unwrap_or_else(|| "Settings saved.".into());
-                snapshot(host, &notice).await.map_err(|e| {
+                let notice = match receipt.result {
+                    Some(api::command_receipt::Result::Preferences(_)) => "Preferences saved.",
+                    _ => "Settings saved.",
+                };
+                snapshot(host, notice).await.map_err(|e| {
                     format!(
                         "Settings were saved, but refreshing failed: {e}. Refresh to check the result; do not repeat the change."
                     )
@@ -313,48 +315,28 @@ impl SettingsView {
         let rev = self.settings.as_ref().map(|s| s.revision);
         self.run(
             async move {
-                host.mutate(
-                    if kind == "device" { None } else { rev },
-                    move |channel, command| async move {
-                        let mut client =
-                            p::settings_service_client::SettingsServiceClient::new(channel.clone());
-                        match kind {
-                            "agent" => {
-                                client
-                                    .remove_agent_definition(p::RemoveAgentDefinitionRequest {
-                                        command: Some(command),
-                                        agent_id: id,
-                                    })
-                                    .await
-                            }
-                            "profile" => {
-                                client
-                                    .remove_profile(p::RemoveProfileRequest {
-                                        command: Some(command),
-                                        profile_id: id,
-                                    })
-                                    .await
-                            }
-                            "integration" => {
-                                client
-                                    .remove_integration(p::RemoveIntegrationRequest {
-                                        command: Some(command),
-                                        integration_id: id,
-                                    })
-                                    .await
-                            }
-                            _ => {
-                                p::host_service_client::HostServiceClient::new(channel)
-                                    .revoke_device(p::RevokeDeviceRequest {
-                                        command: Some(command),
-                                        device_id: id,
-                                    })
-                                    .await
-                            }
+                if kind == "device" {
+                    host.revoke_device(id).await?;
+                } else {
+                    let request = match kind {
+                        "agent" => {
+                            SettingsMutation::RemoveAgent(api::RemoveAgentDefinitionRequest {
+                                agent_id: id,
+                                ..Default::default()
+                            })
                         }
-                    },
-                )
-                .await?;
+                        "profile" => SettingsMutation::RemoveProfile(api::RemoveProfileRequest {
+                            profile_id: id,
+                            ..Default::default()
+                        }),
+                        _ => SettingsMutation::RemoveIntegration(api::RemoveIntegrationRequest {
+                            integration_id: id,
+                            ..Default::default()
+                        }),
+                    };
+                    host.update_settings(request, rev.ok_or("Settings revision is unavailable.")?)
+                        .await?;
+                }
                 snapshot(host, "Change applied.").await
             },
             true,
@@ -507,23 +489,27 @@ impl SettingsView {
 async fn snapshot(
     host: Arc<HostClient>,
     notice: &str,
-) -> Result<(p::HostSettings, p::Devices, String), String> {
-    let request = p::HostRequest {
-        host_id: host.id().as_str().into(),
+) -> Result<(api::HostSettings, api::Devices, String), String> {
+    let request = api::GetInfoRequest {
+        environment: Some(api::EnvironmentRef {
+            host_id: host.id().as_str().into(),
+        }),
     };
-    let settings = p::settings_service_client::SettingsServiceClient::new(host.channel()?)
-        .get_settings(request.clone())
+    let settings = api::settings_service_client::SettingsServiceClient::new(host.channel()?)
+        .get_settings(api::GetSettingsRequest {
+            environment: request.environment.clone(),
+        })
         .await
         .map_err(rpc_error)?
         .into_inner();
-    let mut devices = p::Devices::default();
+    let mut devices = api::Devices::default();
     let mut page_token = None;
     let mut seen = std::collections::BTreeSet::new();
     let mut bytes = 0usize;
     loop {
-        let page = p::host_service_client::HostServiceClient::new(host.channel()?)
-            .list_devices(p::DeviceListRequest {
-                host_id: request.host_id.clone(),
+        let page = api::host_service_client::HostServiceClient::new(host.channel()?)
+            .list_devices(api::ListDevicesRequest {
+                environment: request.environment.clone(),
                 page_token,
                 include_revoked: true,
             })
@@ -647,13 +633,13 @@ impl Render for SettingsView {
                     icon_button(
                         SharedString::from(format!("remove-agent:{}", remove.id)),
                         IconName::Close,
-                        if remove.backend_kind == 3 {
+                        if matches!(remove.backend_kind, 3 | 5) {
                             "Delete agent…"
                         } else {
                             "Built-in agents cannot be deleted"
                         },
                     )
-                    .disabled(disabled || remove.backend_kind != 3)
+                    .disabled(disabled || !matches!(remove.backend_kind, 3 | 5))
                     .on_click(cx.listener(move |s, _, w, cx| {
                         cx.stop_propagation();
                         s.confirm_remove("agent", remove.id.clone(), remove.name.clone(), w, cx)
@@ -671,7 +657,7 @@ impl Render for SettingsView {
                             .disabled(disabled)
                             .on_click(cx.listener(|s, _, w, cx| {
                                 s.edit(
-                                    Draft::Agent(p::AgentDefinition {
+                                    Draft::Agent(api::AgentDefinition {
                                         id: uuid::Uuid::new_v4().to_string(),
                                         backend_kind: 3,
                                         enabled: Some(true),
@@ -754,7 +740,7 @@ impl Render for SettingsView {
                                 {
                                     s.edit(
                                         Draft::Profile(
-                                            p::Profile {
+                                            api::Profile {
                                                 id: uuid::Uuid::new_v4().to_string(),
                                                 agent_id: a.id,
                                                 ..Default::default()
@@ -840,7 +826,7 @@ impl Render for SettingsView {
                             .disabled(disabled)
                             .on_click(cx.listener(|s, _, w, cx| {
                                 s.edit(
-                                    Draft::Integration(p::Integration {
+                                    Draft::Integration(api::Integration {
                                         id: uuid::Uuid::new_v4().to_string(),
                                         kind: "github".into(),
                                         ..Default::default()
@@ -955,7 +941,14 @@ impl Render for SettingsView {
                     if d.scopes.is_empty() {
                         "none".to_owned()
                     } else {
-                        d.scopes.join(", ")
+                        d.scopes
+                            .iter()
+                            .filter_map(|scope| api::Scope::try_from(*scope).ok())
+                            .map(|scope| {
+                                scope.as_str_name().trim_start_matches("SCOPE_").to_owned()
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     },
                     if d.roots.is_empty() {
                         "all".to_owned()

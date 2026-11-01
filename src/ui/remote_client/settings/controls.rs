@@ -1,4 +1,5 @@
 use super::*;
+use canopy_desktop::api::proto as p;
 
 pub(super) fn text(
     value: impl Into<SharedString>,

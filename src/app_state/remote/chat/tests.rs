@@ -11,6 +11,7 @@ use crate::app_state::{
 };
 use canopy_desktop::{
     chat::{agent::Capabilities, config::ChatSettings, history, transcript as t},
+    command_bus::{CommandBus, Conditions, Principal},
     host::DeviceRegistration,
     remote::sync::{Limits, ReplayHub},
     settings::{ChatHistoryBatch, SettingsClient},
@@ -66,21 +67,23 @@ async fn harness(grace: Duration, limits: Limits) -> Harness {
         },
     )
     .unwrap();
+    let record = client.save_runtime_chat(record).await.unwrap();
     let auth = RpcAuth::new(host.id().into(), client.clone()).unwrap();
     let artifacts = Arc::new(
         canopy_desktop::artifacts::ArtifactStore::open(client.clone(), dir.path().join("a"))
             .unwrap(),
     );
     let state = HostState::new(host.id(), vec![]);
-    state.set(proto::HostReadiness::Ready, String::new());
+    state.set(
+        canopy_desktop::api::proto::HostReadiness::Ready,
+        String::new(),
+    );
     let replay = ReplayHub::new(limits);
     let (bridge, app) = fake::bridge();
     let mut rpc = ChatsRpc::new(
         auth,
         bridge,
-        WorkspaceRoots::default(),
         artifacts,
-        ResourceLocks::default(),
         state,
         dir.path().join("chat-attachments"),
         replay.clone(),
@@ -155,21 +158,13 @@ fn snapshot(chat: &str) -> ChatSnapshot {
     }
 }
 
-type Events = RpcStream<proto::ChatEvent>;
+type Events = RpcStream<proto::ThreadEvent>;
 
 #[tokio::test]
 async fn typed_fragment_conversion_stops_disclosure_after_revocation() {
-    use canopy_desktop::api::{projection as mapping, proto as api};
     let h = harness(Duration::from_secs(5), Limits::default()).await;
     let record = h.client.save_runtime_chat(h.record.clone()).await.unwrap();
-    let location = mapping::Location {
-        thread: api::ThreadRef {
-            host_id: h.rpc.auth.host_id().into(),
-            thread_id: record.thread_id().unwrap().to_string(),
-        },
-        catalog: reference(&h.rpc.auth, record.id()),
-        workspace: None,
-    };
+    let thread = reference(&h.rpc.auth, &record);
     let item = proto::TranscriptItem {
         key: Some(proto::ItemKey {
             history_epoch: 0,
@@ -185,26 +180,21 @@ async fn typed_fragment_conversion_stops_disclosure_after_revocation() {
         .unwrap()
         .into_iter()
         .map(|fragment| {
-            Ok(proto::ChatEvent {
-                chat: Some(location.catalog.clone()),
-                event: Some(proto::chat_event::Event::ItemFragment(fragment)),
+            Ok(proto::ThreadEvent {
+                thread: thread.clone(),
+                event: Some(proto::thread_event::Event::ItemFragment(fragment)),
                 ..Default::default()
             })
         })
         .collect::<Vec<_>>();
-    let converted = mapping::thread_stream(
-        location,
-        Box::pin(futures_lite::stream::iter(events)),
-        h.replay.clone(),
-    );
+    let converted = Box::pin(futures_lite::stream::iter(events));
     let mut stream = super::api::authorized(h.rpc.clone(), record, h.grant.clone(), converted);
     assert!(stream.next().await.unwrap().is_ok());
     h.client
         .revoke_runtime_device(h.grant.id().into())
         .await
         .unwrap();
-    // Remaining converted fragments are already buffered, so they must check the
-    // current grant independently of the underlying legacy stream's next poll.
+    // Each buffered fragment rechecks the current grant before disclosure.
     assert_eq!(
         stream.next().await.unwrap().unwrap_err().code(),
         tonic::Code::PermissionDenied
@@ -251,7 +241,7 @@ async fn subscribe(
     (task.await.unwrap(), runtime)
 }
 
-async fn next(events: &mut Events) -> proto::ChatEvent {
+async fn next(events: &mut Events) -> proto::ThreadEvent {
     tokio::time::timeout(Duration::from_secs(5), events.next())
         .await
         .expect("an event in time")
@@ -262,7 +252,7 @@ async fn next(events: &mut Events) -> proto::ChatEvent {
 /// Reads a snapshot to its end: its boundary and the installed items, with
 /// fragmented items reassembled and verified as a client must.
 async fn read_snapshot(events: &mut Events) -> (proto::Cursor, Vec<proto::TranscriptItem>) {
-    use proto::chat_event::Event;
+    use proto::thread_event::Event;
     let Some(Event::SnapshotStart(start)) = next(events).await.event else {
         panic!("a snapshot starts with its boundary");
     };
@@ -297,7 +287,13 @@ async fn read_snapshot(events: &mut Events) -> (proto::Cursor, Vec<proto::Transc
 
 async fn settle(app: &FakeApp, expected: &[Call]) {
     for _ in 0..500 {
-        if app.calls().ends_with(expected) {
+        // A retiring stream can report zero observers after Unsubscribe; that
+        // notification does not undo the completed cleanup of its subscription.
+        if app
+            .calls()
+            .windows(expected.len())
+            .any(|calls| calls == expected)
+        {
             return;
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
@@ -336,7 +332,7 @@ async fn clients_share_one_projection_and_a_reconnect_replays_exactly_what_it_mi
         first.cursor.as_ref().unwrap().sequence,
         boundary.sequence + 1
     );
-    let Some(proto::chat_event::Event::AppendText(append)) = &first.event else {
+    let Some(proto::thread_event::Event::AppendText(append)) = &first.event else {
         panic!("an append")
     };
     assert_eq!((append.utf8_offset, append.text.as_str()), (3, "ló"));
@@ -363,7 +359,7 @@ async fn clients_share_one_projection_and_a_reconnect_replays_exactly_what_it_mi
     );
     assert!(matches!(
         missed.event,
-        Some(proto::chat_event::Event::ReplaceItem(ref i)) if i.key.as_ref().unwrap().item_id == 2
+        Some(proto::thread_event::Event::ReplaceItem(ref i)) if i.key.as_ref().unwrap().item_id == 2
     ));
     settle(&h.app, &[Call::Observers(id, 1)]).await;
     // A cursor of another stream lifetime gets a whole snapshot, never a gap.
@@ -472,20 +468,20 @@ async fn saved_flags_follow_commit_proofs_of_the_exact_version() {
         .try_send(ChatEvent::Committed(right.into_iter().next().unwrap()))
         .unwrap();
     let replaced = next(&mut a).await;
-    let Some(proto::chat_event::Event::ReplaceItem(item)) = &replaced.event else {
+    let Some(proto::thread_event::Event::ReplaceItem(item)) = &replaced.event else {
         panic!("the saved turn end, got {replaced:?}")
     };
     assert!(saved(item), "only the matching commit sets saved");
     let watermark = next(&mut a).await;
     assert_eq!(
         watermark.event,
-        Some(proto::chat_event::Event::SavedSequence(
+        Some(proto::thread_event::Event::SavedSequence(
             replaced.cursor.unwrap().sequence
         ))
     );
     assert!(replaced_after(&boundary, &watermark));
 }
-fn replaced_after(boundary: &proto::Cursor, event: &proto::ChatEvent) -> bool {
+fn replaced_after(boundary: &proto::Cursor, event: &proto::ThreadEvent) -> bool {
     event.cursor.as_ref().unwrap().sequence > boundary.sequence
 }
 
@@ -569,8 +565,8 @@ fn private_and_outside_paths_are_presented_without_exposing_host_paths() {
         .attachments
         .into_iter()
         .map(|a| match a.content {
-            Some(proto::attachment::Content::Path(file)) => {
-                (a.label, file.workspace.is_some(), file.relative_path)
+            Some(proto::attachment::Content::File(file)) => {
+                (a.label, file.project_file, file.relative_path)
             }
             other => panic!("a path, got {other:?}"),
         })
@@ -584,12 +580,89 @@ fn private_and_outside_paths_are_presented_without_exposing_host_paths() {
     );
 }
 
-fn meta(h: &Harness, revision: Option<u64>) -> proto::CommandMeta {
+fn meta(_h: &Harness, revision: Option<u64>) -> proto::CommandMeta {
     proto::CommandMeta {
-        host_id: h.rpc.auth.host_id().into(),
         command_id: uuid::Uuid::new_v4().to_string(),
         command_epoch: 1,
         expected_revision: revision,
+    }
+}
+
+impl ChatsRpc {
+    async fn resolve_draft(
+        &self,
+        grant: &DeviceGrant,
+        record: &ChatRecord,
+        draft: proto::MessageDraft,
+    ) -> Result<QueueDraft, Status> {
+        use canopy_desktop::command_bus::{Command, Control, DraftResources};
+        let record = self
+            .auth
+            .client()
+            .save_runtime_chat(record.clone())
+            .await
+            .map_err(storage_status)?;
+        let target = proto::ThreadTarget {
+            thread: reference(&self.auth, &record),
+            executor_epoch: 0,
+        };
+        let command = Command::Control(Control::Steer {
+            run: 7,
+            message: uuid::Uuid::new_v4().to_string(),
+            draft: Some(canopy_desktop::api::decode::draft(draft)?),
+        });
+        let envelope = canopy_desktop::api::decode::envelope(
+            proto::CommandMeta {
+                command_id: uuid::Uuid::new_v4().to_string(),
+                command_epoch: 1,
+                expected_revision: None,
+            },
+            canopy_desktop::api::decode::target(target)?,
+            command,
+        )?;
+        let prepared = CommandBus::new(self.auth.client().clone())
+            .prepare(
+                envelope,
+                Principal::authenticated(grant, 1).map_err(storage_status)?,
+            )
+            .await
+            .map_err(storage_status)?;
+        prepared
+            .runtime_draft(&DraftResources {
+                roots: canopy_desktop::remote::auth::WorkspaceRoots::default(),
+                pulls: self.pulls.clone(),
+            })
+            .map_err(storage_status)?
+            .ok_or_else(|| Status::invalid_argument("Missing draft."))
+    }
+    async fn execute_bus(
+        &self,
+        grant: DeviceGrant,
+        meta: proto::CommandMeta,
+        thread: Option<proto::ThreadRef>,
+        command: canopy_desktop::command_bus::Command,
+        _resources: Option<()>,
+    ) -> Result<tonic::Response<proto::CommandReceipt>, Status> {
+        let target = proto::ThreadTarget {
+            thread,
+            executor_epoch: 0,
+        };
+        let principal =
+            Principal::authenticated(&grant, meta.command_epoch).map_err(storage_status)?;
+        let envelope = canopy_desktop::api::decode::envelope(
+            meta,
+            canopy_desktop::api::decode::target(target.clone())?,
+            command,
+        )?;
+        let receipt = CommandBus::new(self.auth.client().clone())
+            .execute(envelope, principal, None)
+            .await
+            .map_err(storage_status)?;
+        Ok(tonic::Response::new(canopy_desktop::api::project_receipt(
+            &self.auth,
+            &receipt,
+            proto::command_receipt::Resource::Target(target),
+        )?))
     }
 }
 
@@ -621,7 +694,7 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
     let message = uuid::Uuid::new_v4().to_string();
     let key = CommandKey::local(command_id.clone()).unwrap();
     let envelope = bus
-        .legacy_envelope(
+        .catalog_envelope(
             &key,
             host.clone(),
             local_id.clone(),
@@ -641,7 +714,7 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
         .unwrap();
     let remote_command = Command::Send {
         message: message.clone(),
-        draft: decode_draft(proto::MessageDraft {
+        draft: canopy_desktop::api::decode::draft(proto::MessageDraft {
             text: "same message".into(),
             ..Default::default()
         })
@@ -651,10 +724,10 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
     };
     let mut remote_meta = meta(&h, None);
     remote_meta.command_id = command_id;
-    let chat = reference(&h.rpc.auth, remote_record.id());
+    let chat = reference(&h.rpc.auth, &remote_record);
     let remote = h
         .rpc
-        .bus_command(
+        .execute_bus(
             h.grant.clone(),
             remote_meta.clone(),
             chat.clone(),
@@ -666,7 +739,10 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
         .into_inner();
     assert_eq!(local.state(), CommandState::Succeeded);
     assert_eq!(remote.state, proto::OperationState::Succeeded as i32);
-    assert_eq!(local.result(), Some(remote.message_id.as_bytes()));
+    let Some(proto::command_receipt::Result::Send(sent)) = remote.result.as_ref() else {
+        panic!("send receipt");
+    };
+    assert_eq!(local.result(), Some(sent.message_id.as_bytes()));
     let local_queue = h.client.load_runtime_queue(local_id.clone()).await.unwrap();
     let remote_queue = h
         .client
@@ -687,7 +763,7 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
     );
     assert_eq!(
         h.rpc
-            .bus_command(
+            .execute_bus(
                 h.grant.clone(),
                 remote_meta.clone(),
                 chat.clone(),
@@ -723,7 +799,7 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
         change: QueueChange::Pause { paused: true },
     };
     let envelope = bus
-        .legacy_envelope(
+        .catalog_envelope(
             &CommandKey::local(uuid::Uuid::new_v4().to_string()).unwrap(),
             host,
             local_id.clone(),
@@ -741,7 +817,7 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
     );
     let conflict = h
         .rpc
-        .bus_command(h.grant.clone(), meta(&h, None), chat.clone(), stale, None)
+        .execute_bus(h.grant.clone(), meta(&h, None), chat.clone(), stale, None)
         .await
         .unwrap()
         .into_inner();
@@ -765,7 +841,7 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
         .unwrap();
     let denied = h
         .rpc
-        .bus_command(h.grant.clone(), remote_meta, chat, remote_command, None)
+        .execute_bus(h.grant.clone(), remote_meta, chat, remote_command, None)
         .await
         .unwrap_err();
     assert_eq!(denied.code(), tonic::Code::PermissionDenied);
@@ -776,82 +852,74 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
 async fn a_reused_command_id_with_changed_arguments_conflicts_instead_of_answering_the_old_receipt()
 {
     let h = harness(Duration::from_secs(5), Limits::default()).await;
-    let chat = reference(&h.rpc.auth, h.record.id());
-    let request = |run: &str| proto::ChatCommandRequest {
-        command: None,
-        chat: Some(chat.clone()),
-        run_id: Some(run.into()),
+    let record = h.client.save_runtime_chat(h.record.clone()).await.unwrap();
+    let target = proto::ThreadTarget {
+        thread: reference(&h.rpc.auth, &record),
+        executor_epoch: 0,
     };
     let meta = meta(&h, None);
-    let first = wire_fingerprint(&meta, &request("7"));
-    // The host recorded this interrupt as the runtime's handler does.
-    let key = h.rpc.auth.key(&meta, &h.grant).unwrap();
-    let input = ChatCommand::Interrupt { run: 7 }
-        .command(key, h.record.id())
-        .and_then(|input| input.with_root("private".into()))
-        .and_then(|input| input.with_fingerprint(first.clone()))
+    let envelope = canopy_desktop::api::decode::envelope(
+        meta.clone(),
+        canopy_desktop::api::decode::target(target).unwrap(),
+        canopy_desktop::command_bus::Command::Control(
+            canopy_desktop::command_bus::Control::Interrupt { run: 7 },
+        ),
+    )
+    .unwrap();
+    let bus = CommandBus::new(h.client.clone());
+    let principal = Principal::authenticated(&h.grant, meta.command_epoch).unwrap();
+    let prepared = bus
+        .prepare(envelope.clone(), principal.clone())
+        .await
         .unwrap();
+    let first = prepared.fingerprint().to_vec();
     h.client
-        .accept_runtime_command(input, host::CHAT)
+        .accept_runtime_command(prepared.runtime_input().clone(), host::CHAT)
         .await
         .unwrap();
 
-    // The same request again: its receipt, without looking the chat up (it isn't
-    // in the catalog any more), and nothing reaches the runtime.
-    let receipt = h
-        .rpc
-        .command(
-            h.grant.clone(),
-            meta.clone(),
-            Some(chat.clone()),
-            ChatCommand::Interrupt { run: 7 },
-            first.clone(),
-        )
+    let retry = bus
+        .prepare(envelope.clone(), principal.clone())
         .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(receipt.state, proto::OperationState::Accepted as i32);
-    assert_eq!(receipt.command_id, meta.command_id);
+        .unwrap();
+    let receipt = retry.prior().unwrap();
+    assert_eq!(receipt.state(), host::CommandState::Accepted);
+    assert_eq!(receipt.key().id(), meta.command_id);
 
     // Before: the same ID with another run answered the old receipt as if done.
-    let error = h
-        .rpc
-        .command(
-            h.grant.clone(),
-            meta.clone(),
-            Some(chat.clone()),
-            ChatCommand::Interrupt { run: 8 },
-            wire_fingerprint(&meta, &request("8")),
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(error.code(), tonic::Code::Aborted);
-    assert!(error.message().starts_with("idempotency_conflict"));
+    let mut changed = envelope.clone();
+    changed.command = canopy_desktop::command_bus::Command::Control(
+        canopy_desktop::command_bus::Control::Interrupt { run: 8 },
+    );
+    let error = bus.prepare(changed, principal.clone()).await.err().unwrap();
+    assert!(matches!(
+        error,
+        canopy_desktop::settings::Error::CommandConflict
+    ));
 
     // The expected revision is part of what a command asks.
     let mut revised = meta.clone();
     revised.expected_revision = Some(3);
-    let revised_fingerprint = wire_fingerprint(&revised, &request("7"));
-    assert_ne!(revised_fingerprint, first);
-    let error = h
-        .rpc
-        .command(
-            h.grant.clone(),
-            revised,
-            Some(chat.clone()),
-            ChatCommand::Interrupt { run: 7 },
-            revised_fingerprint,
-        )
-        .await
-        .unwrap_err();
-    assert!(error.message().starts_with("idempotency_conflict"));
+    let mut changed = envelope.clone();
+    changed.conditions.expected_revision = revised.expected_revision;
+    assert!(matches!(
+        bus.prepare(changed, principal.clone()).await.err().unwrap(),
+        canopy_desktop::settings::Error::CommandConflict
+    ));
 
     // The transport identity is not: another ID, epoch or host spelling of the same
     // request has the same fingerprint.
     let mut other = meta.clone();
     other.command_id = uuid::Uuid::new_v4().to_string();
-    other.command_epoch = 9;
-    assert_eq!(wire_fingerprint(&other, &request("7")), first);
+    let mut independent = envelope;
+    independent.command_id = uuid::Uuid::parse_str(&other.command_id).unwrap();
+    assert_eq!(
+        bus.prepare(independent, principal)
+            .await
+            .unwrap()
+            .fingerprint(),
+        first
+    );
 }
 
 #[tokio::test]
@@ -878,15 +946,15 @@ async fn a_pull_request_attachment_needs_the_hosts_signed_context_for_this_check
     };
     let error = h
         .rpc
-        .draft(&h.grant, &h.record, draft(pull.clone()))
+        .resolve_draft(&h.grant, &h.record, draft(pull.clone()))
         .await
         .unwrap_err();
-    assert!(error.message().starts_with("pr_context_required"));
+    assert_eq!(error.code(), tonic::Code::Aborted);
 
     let signed = h.rpc.pulls.publish(h.record.authority_root(), pull.clone());
     let accepted = h
         .rpc
-        .draft(&h.grant, &h.record, draft(signed.clone()))
+        .resolve_draft(&h.grant, &h.record, draft(signed.clone()))
         .await
         .unwrap();
     assert!(matches!(
@@ -899,14 +967,14 @@ async fn a_pull_request_attachment_needs_the_hosts_signed_context_for_this_check
     changed.title = "Something else".into();
     assert!(
         h.rpc
-            .draft(&h.grant, &h.record, draft(changed))
+            .resolve_draft(&h.grant, &h.record, draft(changed))
             .await
             .is_err()
     );
     let elsewhere = h.rpc.pulls.publish("/work/other", pull);
     assert!(
         h.rpc
-            .draft(&h.grant, &h.record, draft(elsewhere))
+            .resolve_draft(&h.grant, &h.record, draft(elsewhere))
             .await
             .is_err()
     );

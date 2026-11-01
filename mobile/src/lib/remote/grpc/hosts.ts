@@ -6,7 +6,7 @@ import { prepareUpload, upload } from './uploads'
 import { fromBase64 } from './protobuf'
 import { ClientOutbox } from './outbox'
 import { CatalogFeed } from './catalog'
-import type { Catalog, HostInfo, HostStatus, RpcTypes, CommandMeta, CommandReceipt } from './schema'
+import type { Catalog, HostInfo, HostStatus, RpcTypes, CommandMeta, CommandReceipt, ThreadRef, ThreadTarget } from './schema'
 
 export type HostSessionState = {
   hostId: string
@@ -38,7 +38,8 @@ export class HostSession {
       for (const image of entry.images ?? []) {
         let uploadId = image.uploadId
         if (!uploadId) {
-          const journal = await prepareUpload(this, { chat: { host_id: entry.hostId, chat_id: entry.chatId } }, 'chat-image', image.id, image.size, fromBase64(image.sha256), image.mediaType)
+          const target = entry.target ?? await this.threadTarget(entry.chatId)
+          const journal = await prepareUpload(this, { image: target }, 'chat-image', image.id, image.size, fromBase64(image.sha256), image.mediaType)
           uploadId = journal.id
           await store.update(state => { const saved = state.outbox.find(e => e.commandId === entry.commandId)?.images?.find(i => i.id === image.id); if (!saved) throw Error('Image outbox disappeared'); saved.uploadId = uploadId; return null })
           image.uploadId = uploadId
@@ -57,13 +58,13 @@ export class HostSession {
   mutate<M extends keyof RpcTypes>(method: M, request: RpcTypes[M]['input'] & { command?: CommandMeta }): Promise<RpcTypes[M]['output']> {
     const operation = this.mutationGate.then(async () => {
       const meta = request.command
-      if (!meta || meta.host_id !== this.state.hostId || this.state.phase !== 'ready') throw Error('Mutation requires the connected originating host')
+      if (!meta || this.state.phase !== 'ready') throw Error('Mutation requires the connected originating host')
       await this.reconcileMutations()
       if (this.store.snapshot().mutations?.some(m => m.epoch === this.store.snapshot().epoch && !m.receipt?.resolved_by_user && (!m.receipt || ![3, 4, 5, 7].includes(m.receipt.state)))) throw Error('An earlier operation has an unknown outcome. Review operation recovery before retrying.')
       await this.store.update(state => { const records = (state.mutations ?? []).filter(m => !m.receipt || ![3,4,5,7].includes(m.receipt.state)); if (records.length >= 100) throw Error('Operation recovery storage is full'); records.push({ chatRequest: chatRequest(method, request), method, commandId: meta.command_id, epoch: meta.command_epoch }); state.mutations = records; return null })
       const result = await this.transport.unary(method, request)
       const receipt = result as CommandReceipt
-      if (receipt.command_id !== meta.command_id || receipt.command_epoch !== meta.command_epoch || receipt.host_id !== meta.host_id) throw Error('Mutation receipt identity mismatch')
+      if (receipt.command_id !== meta.command_id || receipt.command_epoch !== meta.command_epoch || receipt.host_id !== this.state.hostId) throw Error('Mutation receipt identity mismatch')
       await this.store.update(state => { const record = state.mutations?.find(m => m.commandId === meta.command_id); if (record) record.receipt = receipt; return null })
       return result
     })
@@ -76,12 +77,22 @@ export class HostSession {
   async reconcileMutations(): Promise<void> {
     for (const record of this.store.snapshot().mutations ?? []) {
       if (record.receipt && (record.receipt.resolved_by_user || [3,4,5,7].includes(record.receipt.state))) continue
-      const receipt = await this.transport.unary('HostService/GetCommand', { host_id: this.state.hostId, command_id: record.commandId, command_epoch: record.epoch })
+      const result = await this.transport.unary('HostService/GetCommand', { environment: { host_id: this.state.hostId }, command_id: record.commandId, command_epoch: record.epoch })
+      if (result.state !== 1 || !result.receipt) continue
+      const receipt = result.receipt
       if (receipt.command_id !== record.commandId || receipt.command_epoch !== record.epoch || receipt.host_id !== this.state.hostId) throw Error('Recovery receipt identity mismatch')
       await this.store.update(state => { const target = state.mutations?.find(m => m.commandId === record.commandId); if (target) target.receipt = receipt; return null })
     }
   }
   snapshot(): HostSessionState { return this.state }
+  async threadTarget(reference: string | ThreadRef): Promise<ThreadTarget> {
+    const catalog = this.state.catalog?.threads.find(t => typeof reference === 'string' ? t.catalog_id === reference : t.thread?.host_id === reference.host_id && t.thread.thread_id === reference.thread_id)
+    if (!catalog?.thread || catalog.thread.host_id !== this.state.hostId) throw Error('Thread identity is unavailable; refresh the host catalog')
+    const result = await this.transport.unary('CatalogService/ListThreads', { environment: { host_id: this.state.hostId }, catalog_id: catalog.catalog_id, limit: 1 })
+    const target = result.threads[0]?.target
+    if (result.threads.length !== 1 || !target?.thread || target.thread.host_id !== catalog.thread.host_id || target.thread.thread_id !== catalog.thread.thread_id) throw Error('Thread identity changed; refresh the host catalog')
+    return target
+  }
   subscribe(callback: () => void): () => void { this.listeners.add(callback); return () => { this.listeners.delete(callback) } }
   private publish(patch: Partial<HostSessionState>): void {
     this.state = { ...this.state, ...patch }
@@ -118,16 +129,16 @@ export class HostSession {
         hostCertificate: config.hostCertificate, fingerprint: config.fingerprint, credentialRef: config.credentialRef, ...ssh,
       })
       if (generation !== this.generation) { await this.transport.disconnect(); return }
-      const info = await this.transport.unary('HostService/GetInfo', { host_id: config.hostId }, signal)
-      if (info.host_id !== config.hostId || info.protocol_version !== 1) throw Error('Host identity or protocol mismatch')
+      const info = await this.transport.unary('HostService/GetInfo', { environment: { host_id: config.hostId } }, signal)
+      if (info.environment?.host_id !== config.hostId || info.protocol_version !== 1) throw Error('Host identity or protocol mismatch')
       await this.store.update(state => { state.epoch = info.command_epoch; state.lastSeen = new Date().toISOString(); return null })
       if (generation !== this.generation) return
       this.publish({ phase: 'ready', stale: false, info, lastSeen: this.store.snapshot().lastSeen })
       this.attempts = 0
       // Independent bounded RPC streams; a domain storage fault remains a domain status.
-      const hostStream = await this.transport.subscribe('HostService/WatchHost', { host_id: config.hostId }, status => {
+      const hostStream = await this.transport.subscribe('HostService/WatchHost', { environment: { host_id: config.hostId } }, status => {
         if (generation !== this.generation) return
-        if (status.host_id !== config.hostId) throw Error('Host status identity mismatch')
+        if (status.environment?.host_id !== config.hostId) throw Error('Host status identity mismatch')
         this.publish({ status })
       }, signal)
       void hostStream.done.then(() => this.lost(generation), error => this.lost(generation, error))
@@ -139,7 +150,7 @@ export class HostSession {
       void healthStream.done.then(() => this.lost(generation), error => this.lost(generation, error))
       // Paged snapshots are staged and installed whole; a gap or a delta during a snapshot reconnects.
       const feed = new CatalogFeed(config.hostId)
-      const catalogStream = await this.transport.subscribe('CatalogService/WatchSummaries', { host_id: config.hostId }, event => {
+      const catalogStream = await this.transport.subscribe('CatalogService/WatchSummaries', { environment: { host_id: config.hostId } }, event => {
         if (generation !== this.generation) return
         const catalog = feed.apply(this.state.catalog, event)
         if (catalog) this.publish({ catalog })

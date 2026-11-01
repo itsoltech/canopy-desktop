@@ -42,6 +42,18 @@ zamiast dopuścić niekontrolowaną ekspansję.
 
 ## Cykl życia i persystencja
 
+Lokalne otwarcie, restart, przejęcie wejścia i jawne zamknięcie przechodzą przez
+wspólny command bus przed skutkiem. Terminal projektu używa `ProjectRef`.
+Terminal Private/scratch bez projektu i wątku używa `EnvironmentRef` wyłącznie
+wewnątrz lokalnej szyny. Bus dopuszcza ten wariant tylko dla rzeczywistego
+principala lokalnego procesu, także gdy urządzenie zdalne ma grant Private.
+Publiczne RPC Terminal nadal wymagają tożsamości projektu; klient nie przekazuje
+dowolnego cwd i nie otrzymuje dostępu do Private/scratch. Katalog, odczyt historii
+i strumień wejścia/wyjścia również wymagają terminala istniejącego projektu;
+grant Private ani korzeń `*` nie poszerzają tej granicy. Dostęp zdalny do tego
+przypadku wymaga osobnej decyzji produktowej. Quit i cleanup przyjętych operacji
+pozostają dostępne przy pełnym inboxie; nie uruchamiają kolejnego procesu.
+
 Rejestr app_state/terminals.rs jest mapą PaneId → TerminalView. Plan z
 terminal/lifecycle.rs uruchamia wyłącznie pane'y aktywnego taba aktywnego
 workspace'u. Przełączenie na inny tab uruchamia go raz. Już uruchomione
@@ -403,3 +415,24 @@ worktree przywraca istniejący terminal lub tworzy Shell, jeżeli żadnego nie m
 Ukrycie, maksymalizacja i przeniesienie panelu na dół zachowują PTY i tożsamości.
 Dopiero jawne zamknięcie uruchamia dotychczasowy cleanup. Lazy-start respektuje
 widoczność panelu przy restore. Szczegóły: [układ](features/workspace-layout.md).
+
+## Zdalny kontrakt v1
+
+`TerminalService` używa `canopy.api.v1`. Otwieranie, Stop, Restart oraz
+Acquire/Release wchodzą do wspólnego command busa przez `ProjectRef`.
+Host sprawdza zapisany root i aktualne uprawnienia przed zwróceniem wyniku lub
+konfliktu, także po usunięciu wpisu projektu. Nowa próba sprawdza zgodność rootu
+terminala oraz run/lease przed granicą `attempting`; odmowa warunków jest trwała.
+
+Receipt zachowuje pierwotny run i token. Ponowienie Acquire po oddaniu wejścia
+zwraca dawny wynik bez odbierania wejścia nowemu właścicielowi. Stream nadal
+odrzuca stary run lub token. Odłączenie ostatniego streamu urządzenia zwalnia
+lease bez kończenia PTY; odwołanie uprawnień przerywa dostęp do jego bajtów.
+Historia i fragmenty ramek zachowują dotychczasowe granice oraz budżety.
+Nie ma replay wejścia, resize ani renew przez inbox. Klient zapisuje dokładne
+nowe RPC mutacji w istniejącym journalu przed dispatch.
+
+Lokalny lifecycle i katalogowe close korzystają z tej samej szyny. Testy jednostkowe
+obejmują dedupe po usunięciu projektu, odmowę po cofnięciu dostępu, retry lease po
+zmianie holdera oraz brak katalogowania i odczytu Private/scratch mimo pełnego
+grantu urządzenia. Nie potwierdzają GUI ani natywnych klientów mobile.

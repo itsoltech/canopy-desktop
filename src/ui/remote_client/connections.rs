@@ -4,7 +4,7 @@ use super::*;
 #[derive(Clone)]
 pub(crate) struct OpenChat {
     pub host: Arc<HostClient>,
-    pub chat: p::ChatRef,
+    pub chat: String,
 }
 impl EventEmitter<OpenChat> for Connections {}
 

@@ -1,18 +1,16 @@
 import { uniqueId } from './commands'
 import { readCatalog, type CatalogStreamClient } from './catalog'
 import { HostStore, type OutboxEntry, type LocalImage } from './persistence'
-import { OperationState, type CommandReceipt, type MessageDraft, type SendContext, type ChatSummary, type HostInfo, type RpcTypes } from './schema'
+import { type CommandReceipt, type MessageDraft, type SendContext, type ThreadStatus, type HostInfo, type RpcTypes } from './schema'
 
 type Method = keyof RpcTypes
 export interface UnaryClient extends CatalogStreamClient {
   unary<M extends Method>(method: M, request: RpcTypes[M]['input'], signal?: AbortSignal): Promise<RpcTypes[M]['output']>
 }
-function sameContext(expected: SendContext, actual: ChatSummary): boolean {
-  return expected.agent_id === actual.agent_id && expected.profile_id === actual.profile_id &&
-    expected.history_epoch === actual.history_epoch && expected.workspace?.host_id === actual.workspace?.host_id &&
-    expected.workspace?.workspace_id === actual.workspace?.workspace_id
+function sameContext(expected: SendContext, actual: ThreadStatus): boolean {
+  return expected.account_id === actual.agent_id && expected.profile_id === actual.profile_id && expected.history_epoch === actual.history_epoch
 }
-const final = new Set<number>([OperationState.SUCCEEDED, OperationState.FAILED, OperationState.REJECTED, OperationState.COMMAND_RETIRED])
+const final = new Set<number>([3, 4, 5])
 // Single owner per host/device serializes epoch changes and sends across all views.
 export class ClientOutbox {
   private gate: Promise<unknown> = Promise.resolve()
@@ -54,15 +52,16 @@ export class ClientOutbox {
       if (state.closingEpoch !== undefined) throw Error('Command epoch closure is unresolved; text retained')
       const host = state.connection.hostId
       const [info, catalog] = await Promise.all([
-        client.unary('HostService/GetInfo', { host_id: host }),
+        client.unary('HostService/GetInfo', { environment: { host_id: host } }),
         readCatalog(client, host),
       ])
       this.validateInfo(info)
-      if (catalog.host_id !== host) throw Error('Host identity mismatch')
-      const chat = catalog.chats.find(c => c.chat?.chat_id === entry!.chatId && c.chat.host_id === host)
-      if (!chat) throw Error('Chat was removed; outbox text retained')
+      if (catalog.environment?.host_id !== host) throw Error('Host identity mismatch')
+      const listed = catalog.threads.find(c => c.catalog_id === entry!.chatId && c.thread?.host_id === host)
+      const chat = listed?.summary
+      if (!chat || !listed?.thread) throw Error('Chat was removed; outbox text retained')
       // Account cannot be silently changed. Explicit context confirmation is only for a branch change.
-      if (chat.agent_id !== entry.context.agent_id || chat.profile_id !== entry.context.profile_id) throw Error('Chat account changed; outbox text retained')
+      if (chat.agent_id !== entry.context.account_id || chat.profile_id !== entry.context.profile_id) throw Error('Chat account changed; outbox text retained')
       if (!sameContext(entry.context, chat)) {
         if (!confirmedContext || !sameContext(confirmedContext, chat)) throw Error('Chat context changed; explicit confirmation required')
         entry = { ...entry, context: confirmedContext }
@@ -71,7 +70,10 @@ export class ClientOutbox {
         if (entry.images.length > 10 || !this.prepareImages) throw Error('Image preparation unavailable')
         entry = await this.prepareImages(entry)
       }
-      const prepared = { ...entry, epoch: info.command_epoch }
+      const identity = await client.unary('CatalogService/ListThreads', { environment: { host_id: host }, catalog_id: entry.chatId, limit: 1 })
+      const target = identity.threads[0]?.target
+      if (identity.threads.length !== 1 || target?.thread?.host_id !== host || target.thread.thread_id !== listed.thread.thread_id) throw Error('Thread identity changed; outbox text retained')
+      const prepared = { ...entry, target, epoch: info.command_epoch }
       // Persist the exact immutable envelope before any RPC can escape.
       await this.store.update(next => {
         if (next.closingEpoch !== undefined) throw Error('Command epoch closing')
@@ -92,22 +94,26 @@ export class ClientOutbox {
   }
   private async reconcileEntry(entry: OutboxEntry, client: UnaryClient, retryExplicit: boolean): Promise<CommandReceipt> {
     if (entry.receipt && (final.has(entry.receipt.state) || entry.receipt.resolved_by_user)) return entry.receipt
-    const receipt = await client.unary('HostService/GetCommand', { host_id: entry.hostId, command_id: entry.commandId, command_epoch: entry.epoch! })
+    if (!entry.target?.thread) throw Error('Saved thread identity is unavailable; original text retained')
+    const result = await client.unary('HostService/GetCommand', { environment: { host_id: entry.hostId }, command_id: entry.commandId, command_epoch: entry.epoch!, resource: { thread: entry.target } })
+    if (result.state === 2 && retryExplicit) { if (entry.epoch !== this.store.snapshot().epoch) throw Error('Saved command epoch was retired; the request cannot be replayed'); return this.transmit(entry, client) }
+    const receipt = result.receipt
+    if (!receipt) throw Error(result.state === 3 ? 'Command epoch retired; original text retained' : 'Command result not found; original text retained')
     this.validateReceipt(entry, receipt)
-    if (receipt.state === OperationState.NOT_FOUND && retryExplicit) { if (entry.epoch !== this.store.snapshot().epoch) throw Error('Saved command epoch was retired; the request cannot be replayed'); return this.transmit(entry, client) }
     await this.record(entry, receipt)
     return receipt
   }
   private async transmit(entry: OutboxEntry, client: UnaryClient): Promise<CommandReceipt> {
-    const receipt = await client.unary('ChatService/SendMessage', {
-      command: { host_id: entry.hostId, command_id: entry.commandId, command_epoch: entry.epoch! },
-      chat: { host_id: entry.hostId, chat_id: entry.chatId }, message_id: entry.messageId,
+    if (!entry.target?.thread || entry.target.thread.host_id !== entry.hostId) throw Error('Saved thread identity is unavailable; original text retained')
+    const receipt = await client.unary('ThreadService/SendMessage', {
+      command: { command_id: entry.commandId, command_epoch: entry.epoch! },
+      target: entry.target, message_id: entry.messageId,
       draft: entry.draft, expected_context: entry.context,
     })
     this.validateReceipt(entry, receipt); await this.record(entry, receipt); return receipt
   }
   private validateInfo(info: HostInfo): void {
-    if (info.host_id !== this.store.snapshot().connection.hostId || info.protocol_version !== 1) throw Error('Incompatible host identity or protocol')
+    if (info.environment?.host_id !== this.store.snapshot().connection.hostId || info.protocol_version !== 1) throw Error('Incompatible host identity or protocol')
   }
   private validateReceipt(entry: OutboxEntry, receipt: CommandReceipt): void {
     if (receipt.host_id !== entry.hostId || receipt.command_id !== entry.commandId || receipt.command_epoch !== entry.epoch) throw Error('Command receipt identity mismatch')
@@ -142,14 +148,16 @@ export class ClientOutbox {
         ]
         for (const record of records) {
           if (record.receipt?.resolved_by_user || final.has(record.receipt?.state ?? 0)) continue
-          const request = { host_id: state.connection.hostId, command_id: record.commandId, command_epoch: record.epoch }
-          let receipt = await client.unary('HostService/GetCommand', request)
-          const validate = () => { if (receipt.host_id !== request.host_id || receipt.command_id !== request.command_id || receipt.command_epoch !== request.command_epoch) throw Error('Reviewed command identity mismatch') }
+          const request = { environment: { host_id: state.connection.hostId }, command_id: record.commandId, command_epoch: record.epoch }
+          const result = await client.unary('HostService/GetCommand', request)
+          let receipt = result.receipt
+          if (!receipt) throw Error('Command result unavailable; original intent retained')
+          const validate = () => { if (!receipt || receipt.host_id !== state.connection.hostId || receipt.command_id !== request.command_id || receipt.command_epoch !== request.command_epoch) throw Error('Reviewed command identity mismatch') }
           validate()
-          if (receipt.state === OperationState.DELIVERY_UNKNOWN && !receipt.resolved_by_user) {
-            receipt = await client.unary('HostService/ResolveCommand', request)
+          if (receipt.state === 6 && !receipt.resolved_by_user) {
+            receipt = (await client.unary('HostService/ResolveCommand', request)).receipt
             validate()
-            if (!receipt.resolved_by_user) throw Error('Host did not acknowledge operation review')
+            if (!receipt?.resolved_by_user) throw Error('Host did not acknowledge operation review')
           }
           await this.store.update(next => {
             const outbox = next.outbox.find(e => e.commandId === record.commandId && e.epoch === record.epoch)
@@ -160,8 +168,8 @@ export class ClientOutbox {
           })
         }
       }
-      const epoch = await client.unary('HostService/CloseCommandEpoch', { host_id: state.connection.hostId, expected_epoch: expected })
-      if (epoch.host_id !== state.connection.hostId || BigInt(epoch.epoch) !== BigInt(expected) + 1n) throw Error('Unexpected epoch closure result')
+      const epoch = await client.unary('HostService/CloseCommandEpoch', { environment: { host_id: state.connection.hostId }, expected_epoch: expected })
+      if (epoch.environment?.host_id !== state.connection.hostId || BigInt(epoch.epoch) !== BigInt(expected) + 1n) throw Error('Unexpected epoch closure result')
       await this.store.update(next => { next.epoch = epoch.epoch; delete next.closingEpoch; return null })
     })
   }

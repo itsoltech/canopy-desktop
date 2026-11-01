@@ -7,11 +7,12 @@ import { Spacing } from '@/constants/theme'
 import { Action } from './common'
 import { ChatPage } from './chat-page'
 import type { HostSession } from '@/lib/remote/grpc/hosts'
-import type { TranscriptItem, ChatRef } from '@/lib/remote/grpc/schema'
+import type { TranscriptItem, ThreadRef } from '@/lib/remote/grpc/schema'
 const kinds: Record<number, string> = { 0: 'Tool', 1: 'Read', 2: 'Edit', 3: 'Execute', 4: 'Search', 5: 'Fetch', 6: 'Plan', 7: 'Subagent', 8: 'Generic tool' }
-export function Transcript({ item, host, chat }: { item: TranscriptItem; host: HostSession; chat: ChatRef }) {
+export function Transcript({ item, host, chat }: { item: TranscriptItem; host: HostSession; chat: ThreadRef }) {
   const theme = useTheme(), router = useRouter(), [expanded, setExpanded] = useState(false)
   const tool = item.tool
+  const workspace = host.snapshot().catalog?.threads.find(t => t.thread?.thread_id === chat.thread_id && t.thread.host_id === chat.host_id)?.project_catalog_id
   const body = item.user?.draft?.text ?? item.text?.text ?? item.thinking?.text ?? item.decision?.title ?? item.notice?.text ?? item.goal?.objective ?? item.turn_end?.outcome ?? ''
   return <View style={{ gap: Spacing.two }}>
     {!!body && <ThemedText selectable themeColor={item.thinking ? 'textSecondary' : 'text'}>{body}</ThemedText>}
@@ -23,7 +24,7 @@ export function Transcript({ item, host, chat }: { item: TranscriptItem; host: H
       {tool.elapsed_seconds !== undefined && <ThemedText type="small">{tool.elapsed_seconds}s{tool.background ? ' · Background' : ''}</ThemedText>}
       {!!tool.command && <ThemedText selectable type="code">{tool.command}</ThemedText>}
       {tool.plan.map((entry, index) => <ThemedText key={index}>{entry.status} · {entry.content}{entry.priority ? ` · ${entry.priority}` : ''}</ThemedText>)}
-      {tool.files.map(file => <React.Fragment key={`${file.workspace?.workspace_id}:${file.relative_path}`}><Action title={`Open ${file.relative_path}`} run={() => router.push({ pathname: '/remote/workspace', params: { hostId: chat.host_id, workspaceId: file.workspace!.workspace_id, filePath: file.relative_path } })} /><Action title={`Diff ${file.relative_path}`} run={() => router.push({ pathname: '/remote/workspace', params: { hostId: chat.host_id, workspaceId: file.workspace!.workspace_id, filePath: file.relative_path, showDiff: 'true' } })} /></React.Fragment>)}
+      {tool.files.map(file => <React.Fragment key={`${workspace}:${file.relative_path}`}><Action title={`Open ${file.relative_path}`} disabled={!file.project_file || !workspace} run={() => router.push({ pathname: '/remote/workspace', params: { hostId: chat.host_id, workspaceId: workspace!, filePath: file.relative_path } })} /><Action title={`Diff ${file.relative_path}`} disabled={!file.project_file || !workspace} run={() => router.push({ pathname: '/remote/workspace', params: { hostId: chat.host_id, workspaceId: workspace!, filePath: file.relative_path, showDiff: 'true' } })} /></React.Fragment>)}
       {tool.paths.filter(path => !tool.files.some(file => file.relative_path === path)).map(path => <ThemedText key={path} selectable type="small">{path}</ThemedText>)}
       {!!tool.diff.length && <><ThemedText>Changes</ThemedText>{tool.diff.map((line, index) => <ThemedText key={index} selectable type="code">{`${line.old_line ?? ''} ${line.new_line ?? ''} ${line.kind} ${line.text}`}</ThemedText>)}</>}
       {(tool.output || tool.generic_input) && <Action title={expanded ? 'Hide tool details' : 'Show tool details'} run={() => setExpanded(!expanded)} />}

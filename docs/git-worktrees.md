@@ -149,3 +149,12 @@ sprawdzono `workspace (044b)` / `workspace (bb23)`, wybór właściwej ścieżki
 tooltip z pełną ścieżką i commitem oraz dolny status `Detached HEAD · <hash>`.
 Test używał osobnej bazy i disposable worktree; istniejących danych użytkownika
 ani realnych branchy nie zmieniano. Clippy, fmt i release build przeszły.
+
+Lokalne create/remove/merge i retry usunięcia gałęzi przechodzą przez wspólny
+command bus przed procesowym cleanupem i operacją Git. Retry samej gałęzi ma
+akcję DeleteBranch i zachowuje porównywany branch; nie staje się usunięciem
+bieżącego worktree. Cleanup brakującej rejestracji zachowuje jej nazwę.
+Snapshot lokalny pomija ignorowane build output przy fingerprintowaniu zmian;
+dotychczasowy WorktreeAnalysis nadal obejmuje zgodę na utratę ignorowanych plików.
+Zdalne preflighty zachowują własne ograniczenia rozmiaru i aktualne granty do
+wszystkich hostowo ustalonych korzeni.

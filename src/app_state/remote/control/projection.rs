@@ -1,4 +1,5 @@
 use super::*;
+use canopy_desktop::api::proto;
 use canopy_desktop::integrations::AccountScope;
 fn endpoint(value: &str) -> String {
     match url::Url::parse(value) {
@@ -24,12 +25,13 @@ pub(super) fn snapshot(revision: u64, cx: &App) -> Result<proto::HostSettings, S
     let mut profiles = Vec::new();
     for tool in &tools.catalog.tools {
         let backend = if tool.acp {
-            proto::BackendKind::Acp
+            proto::BackendKind::Protocol
         } else {
             match tool.id.as_str() {
-                "claude" => proto::BackendKind::ClaudeStreamJson,
-                "codex" => proto::BackendKind::CodexAppServer,
-                _ => continue,
+                "claude" => proto::BackendKind::NativeStream,
+                "codex" => proto::BackendKind::NativeServer,
+                "shell" => proto::BackendKind::Shell,
+                _ => proto::BackendKind::Process,
             }
         };
         agents.push(proto::AgentDefinition {
@@ -136,12 +138,14 @@ pub(super) fn snapshot(revision: u64, cx: &App) -> Result<proto::HostSettings, S
         .collect();
     let p = &settings.values;
     Ok(proto::HostSettings {
-        host_id: settings.host_id().unwrap_or_default().into(),
+        environment: Some(proto::EnvironmentRef {
+            host_id: settings.host_id().unwrap_or_default().into(),
+        }),
         revision,
         agents,
         profiles,
         integrations,
-        preferences: Some(proto::HostPreferences {
+        preferences: Some(proto::Preferences {
             reopen_last_workspace: p.reopen_last_workspace,
             notch_enabled: p.notch_enabled,
             new_tab_tool: p.new_tab_tool.as_str().into(),

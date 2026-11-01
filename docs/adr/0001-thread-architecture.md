@@ -13,8 +13,8 @@ wymagań wymaga poprawki.
 ## Kontekst
 
 Plan z 2026-10-25 opisuje rozmowę jako zasób konkretnego hosta. Identyfikator `chat.id`
-jest unikalny tylko na tym hoście. Kontrakt `canopy.remote.v1` adresuje zasoby przez
-`ChatRef` i `WorkspaceRef`. Klient lokalny i zdalny mają osobne ścieżki w części kodu.
+był unikalny tylko na tym hoście. Usunięty w PR3 kontrakt adresował zasoby przez
+`ChatRef` i `WorkspaceRef`. Klient lokalny i zdalny miały osobne ścieżki w części kodu.
 
 Plan wykluczał ogólną szynę komend. Jednocześnie wymagał wspólnych handlerów, dedupe,
 autoryzacji i fingerprintu dla lokalnego desktopu i gRPC. Nowe wymaganie dodaje MCP
@@ -25,8 +25,8 @@ Sparowane hosty mają widzieć wątki drugiego komputera także offline. Plan ni
 kto zapisuje metadane wątku, jak hosty wymieniają katalog i co dzieje się z intencjami
 offline innymi niż tekst.
 
-Kontrakt gRPC i jego proto nie są wydane. Komentarz w
-`proto/canopy/remote/v1/canopy.proto` oraz `mobile/NATIVE-REMOTE.md` to potwierdzają.
+Kontrakt gRPC i jego proto nie są wydane, co zapisuje
+[opis bieżącego API](../api-v1.md) oraz `mobile/NATIVE-REMOTE.md`.
 Zmiana łamiąca kontrakt jest więc jeszcze możliwa bez migracji klientów.
 
 ## Decyzje
@@ -243,7 +243,7 @@ systemu, np. notch, nie renderują osobnego stanu projektów.
 Decyzja:
 
 - Nowy typowany pakiet `canopy.api.v1` jest zbudowany wokół wątku i komend.
-- Obecny `canopy.remote.v1` usuwamy w tym samym refaktorze. Kontrakt jest niewydany.
+- Poprzedni kontrakt usunięto w PR3 razem z codegenem i adapterami. Kontrakt jest niewydany.
 - Klucze: `EnvironmentRef{host_id}`, `ThreadRef{host_id, thread_id}` oraz
   `ProjectRef{host_id, project_id, worktree_id?}` (D16). `ChatRef` i `WorkspaceRef`
   znikają z API.
@@ -297,6 +297,13 @@ Konsekwencje: Host odrzuca `ProjectRef` z `worktree_id` dla projektu bez Git ora
 `ProjectRef` bez `worktree_id` dla projektu z Git. Komenda z `ThreadRef` rozwiązuje
 projekt i worktree po stronie wykonawcy. Klient nie przekazuje ich równolegle.
 
+Wyjątek lokalny zatwierdzony 2026-11-01: terminal Private/scratch bez projektu
+i wątku używa `EnvironmentRef` wewnątrz wspólnej szyny. Wariant jest dostępny
+wyłącznie dla autentycznego lokalnego principala, bez sztucznego projektu/wątku
+i bez ścieżki dostarczanej przez transport. Publiczne RPC Terminal nadal wymagają
+tożsamości projektu/wątku; zdalny dostęp do Private/scratch pozostaje osobną
+decyzją produktową.
+
 ## Wpływ na istniejące wymagania
 
 | ID | Zmiana |
@@ -326,6 +333,11 @@ projekt i worktree po stronie wykonawcy. Klient nie przekazuje ich równolegle.
 | OWN-10, OWN-11 | Jedno okno główne; nawigacja klienta jest stanem urządzenia; blokada per użytkownik OS i izolowany `CANOPY_DATA_DIR` (D13). |
 | APP-01, APP-09 | Zasoby projektu przez `ProjectRef` lub `ThreadRef`; nawigacja i układ klienta jako stan urządzenia. |
 | §4, §9.1, RPC-09, RPC-13 | `ProjectRef` w pojęciach, katalogu usług i wymaganiach RPC (D16). |
+| Files/Git, CMD-02/03, RPC-13 | Files używa ProjectRef lub celu wątku; Git wybranego checkoutu używa ProjectRef. Lokalny edytor/create i Git korzystają ze wspólnej szyny. Inbox zachowuje hostowy zakres korzeni Git niezależnie od fingerprintu klienta; zakres i dowody opisuje [API v1](../api-v1.md). |
+| Terminal, CMD-02/03/12, RPC-13 | Lifecycle, katalogowe close i Acquire/Release używają wspólnego inboxu. Lokalne Private/scratch ma wąski wyjątek EnvironmentRef opisany przy D16. Retry lease zachowuje pierwotny wynik; streaming zachowuje właściciela PTY i fencing. |
+| Artifacts/Settings/Tasks, CMD-02/03/12, SEC-06/07 | Dedykowane transfery, konfiguracja i operacje Tasks korzystają z inboxu i istniejących właścicieli. Hostowy Begin dowodzi rootu zamkniętego projektu; sekrety oraz dokładne żądania klienta pozostają w istniejących vaultach. Bez nowego schematu. |
+| §8.1, CMD-08/10/11, Host/Enrollment | RevokeDevice korzysta z busa i atomowego efektu SQLite. GetCommand jest odczytem; tylko ResolveCommand i CloseCommandEpoch zachowują wąski protokół utrzymania własnego inboxu bez CommandMeta. Close, lokalny revoke, odczyt i cleanup działają przy limicie. Pairing zachowuje istniejący protokół przed utworzeniem principal. |
+| Peer/Project lifecycle, CMD-02/03/12 | ConnectPeer zachowuje dokładną intencję w journalu i korzysta z busa ADMIN/Private. CloseProject/CloseTerminal korzystają z hostowych planów i dotychczasowego cleanup; odrzucenie zmienionych warunków jest trwałe. Usunięto stary kontrakt, codegen i projekcje zgodności. |
 | §8.1 (epoka), §14 | Właściciel epoki i outboxu wspólny dla instancji, nie okien; bez N/A dla wielu okien na telefonie. |
 | AC §1, AC-13, AC-24, AC-36, AC-40, stanowisko | Usunięte multiwindow i drugie okno; osobne `CANOPY_DATA_DIR` dla A i B na jednym komputerze; testy `ProjectRef`. |
 

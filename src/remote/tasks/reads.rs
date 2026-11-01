@@ -4,12 +4,11 @@ impl TasksRpc {
     pub(super) async fn projects(
         &self,
         g: DeviceGrant,
-        r: proto::TaskProjectsRequest,
+        r: proto::ListProjectsRequest,
     ) -> Result<proto::TaskChoicePage, Status> {
-        let root = self
-            .authorize_read(&g, &r.host_id, r.workspace.as_ref())
-            .await?;
-        let account = self.account(&r.integration_id).await?;
+        let p = required(r.project)?;
+        let root = self.authorize_read(&g, &p).await?;
+        let account = self.account(&p.integration_id).await?;
         let provider = self.read_provider(&account, &g, &root).await?;
         let mut result = provider
             .projects(r.page_token.as_deref())
@@ -31,14 +30,12 @@ impl TasksRpc {
     pub(super) async fn options(
         &self,
         g: DeviceGrant,
-        r: proto::TaskOptionsRequest,
+        r: proto::ReadOptionsRequest,
     ) -> Result<proto::TaskChoicePage, Status> {
         let p = required(r.project)?;
-        let root = self
-            .authorize_read(&g, &p.host_id, p.workspace.as_ref())
-            .await?;
+        let root = self.authorize_read(&g, &p).await?;
         let account = self.account(&p.integration_id).await?;
-        let project = Self::project(&account, &p.project_id)?;
+        let project = Self::project(&account, &p.project_key)?;
         let kind = match r.kind.as_str() {
             "label" => i::OptionKind::Label,
             "assignee" => i::OptionKind::Assignee,
@@ -60,11 +57,10 @@ impl TasksRpc {
         g: DeviceGrant,
         r: proto::QueryTasksRequest,
     ) -> Result<proto::TaskPage, Status> {
-        let root = self
-            .authorize_read(&g, &r.host_id, r.workspace.as_ref())
-            .await?;
-        let account = self.account(&r.integration_id).await?;
-        let project = Self::project(&account, &r.project_id)?;
+        let p = required(r.project)?;
+        let root = self.authorize_read(&g, &p).await?;
+        let account = self.account(&p.integration_id).await?;
+        let project = Self::project(&account, &p.project_key)?;
         let config = self
             .auth
             .client()
@@ -116,10 +112,7 @@ impl TasksRpc {
             .resource(g.id(), Self::read_scope(&g), &root)
             .await?;
         let reference = proto::TaskRef {
-            host_id: r.host_id,
-            integration_id: r.integration_id,
-            project_id: r.project_id,
-            workspace: r.workspace,
+            project: Some(p),
             task_id: String::new(),
         };
         Ok(proto::TaskPage {
@@ -162,7 +155,7 @@ impl TasksRpc {
     pub(super) async fn comments(
         &self,
         g: DeviceGrant,
-        r: proto::TaskCommentsRequest,
+        r: proto::ReadCommentsRequest,
     ) -> Result<proto::TaskCommentPage, Status> {
         let reference = required(r.task)?;
         let (root, account, task) = self.read_task_context(&g, &reference).await?;
@@ -183,14 +176,12 @@ impl TasksRpc {
     pub(super) async fn schema(
         &self,
         g: DeviceGrant,
-        r: proto::TaskSchemaRequest,
+        r: proto::GetSchemaRequest,
     ) -> Result<proto::TaskSchema, Status> {
         let p = required(r.project.clone())?;
-        let root = self
-            .authorize_read(&g, &p.host_id, p.workspace.as_ref())
-            .await?;
+        let root = self.authorize_read(&g, &p).await?;
         let account = self.account(&p.integration_id).await?;
-        let project = Self::project(&account, &p.project_id)?;
+        let project = Self::project(&account, &p.project_key)?;
         if let Some(t) = &r.task {
             check_reference(&p, t)?;
             Self::task(&project, t)?;
@@ -205,7 +196,7 @@ impl TasksRpc {
     pub(super) async fn attachment(
         &self,
         g: DeviceGrant,
-        r: proto::TaskAttachmentRequest,
+        r: proto::ReadAttachmentRequest,
     ) -> Result<<Self as proto::tasks_service_server::TasksService>::ReadAttachmentStream, Status>
     {
         let reference = required(r.task)?;
@@ -288,9 +279,10 @@ impl TasksRpc {
         self.auth
             .resource(g.id(), Self::read_scope(&g), &root)
             .await?;
+        let context = required(reference.project)?;
         let target = crate::artifacts::Target::Task {
-            integration_id: reference.integration_id,
-            project_id: reference.project_id,
+            integration_id: context.integration_id,
+            project_id: context.project_key,
             task_id: reference.task_id,
             root: root.clone(),
         };
@@ -398,11 +390,7 @@ impl TasksRpc {
     }
 }
 pub(super) fn check_reference(p: &proto::TaskProject, t: &proto::TaskRef) -> Result<(), Status> {
-    if p.host_id != t.host_id
-        || p.integration_id != t.integration_id
-        || p.project_id != t.project_id
-        || p.workspace != t.workspace
-    {
+    if t.project.as_ref() != Some(p) {
         return Err(invalid("Task and project context do not match."));
     }
     Ok(())
@@ -410,7 +398,7 @@ pub(super) fn check_reference(p: &proto::TaskProject, t: &proto::TaskRef) -> Res
 pub(super) async fn read_schema(
     provider: &dyn i::TaskProvider,
     project: &i::ProjectTarget,
-    r: &proto::TaskSchemaRequest,
+    r: &proto::GetSchemaRequest,
 ) -> Result<proto::TaskSchema, Status> {
     use proto::TaskSchemaPurpose as P;
     let purpose = P::try_from(r.purpose).map_err(|_| invalid("Unknown schema purpose."))?;

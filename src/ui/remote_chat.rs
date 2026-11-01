@@ -1,7 +1,8 @@
 //! A host-owned chat opens a normal pane; tab and split ids are local.
 use super::*;
 use canopy_desktop::{
-    remote::{client::HostClient, proto},
+    api::proto,
+    remote::client::HostClient,
     state::workspace::{PaneKind, PaneMetadata, RemoteChat},
 };
 use std::sync::Arc;
@@ -28,16 +29,16 @@ impl Workspace {
         let Some((host, workspace)) = runtime.project_tools_context() else {
             return;
         };
-        let workspace = workspace.map(|workspace_id| proto::WorkspaceRef {
-            host_id: host.id().as_str().into(),
-            workspace_id,
+        let workspace = workspace.and_then(|id| {
+            host.shared_catalog()
+                .and_then(|c| remote_client::checkout(&c, &id))
         });
         let key = format!(
             "{}:{}",
             host.id().as_str(),
             workspace
                 .as_ref()
-                .map(|w| w.workspace_id.as_str())
+                .map(|w| w.catalog_id.as_str())
                 .unwrap_or("private")
         );
         let page = self.state.workspace.read(cx).tool_panel().page();
@@ -82,10 +83,10 @@ impl Workspace {
     pub(super) fn open_remote_chat(
         &mut self,
         host: Arc<HostClient>,
-        chat: proto::ChatRef,
+        chat: String,
         cx: &mut Context<Self>,
     ) {
-        let Some(reference) = RemoteChat::new(chat.host_id.clone(), chat.chat_id.clone()) else {
+        let Some(reference) = RemoteChat::new(host.id().as_str().into(), chat.clone()) else {
             return;
         };
         if host.id().as_str() != reference.host {
@@ -105,10 +106,10 @@ impl Workspace {
                 .update(cx, |p, cx| p.focus_agent(pane.id, cx));
         } else {
             let summary = host.shared_catalog().and_then(|c| {
-                c.chats
+                c.threads
                     .iter()
-                    .find(|s| s.chat.as_ref() == Some(&chat))
-                    .cloned()
+                    .find(|s| s.catalog_id == chat)
+                    .and_then(|s| s.summary.clone())
             });
             let title = summary
                 .as_ref()
@@ -150,12 +151,12 @@ impl Workspace {
 /// offers it, else the host's first.
 pub(crate) fn new_chat_on(
     host: Arc<HostClient>,
-    workspace: Option<proto::WorkspaceRef>,
+    workspace: Option<proto::ProjectCheckout>,
     cx: &mut App,
 ) {
     crate::app_state::ChatRuntime::create_on_environment(
         host,
-        workspace.map(|workspace| workspace.workspace_id),
+        workspace.map(|workspace| workspace.catalog_id),
         cx,
     );
 }

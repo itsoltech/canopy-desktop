@@ -1,6 +1,7 @@
 use super::proto;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+mod local;
 
 /// An immutable entry in the remote staging namespace, never an active config key.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,29 +118,25 @@ impl PreferencesPatch {
     pub fn new_worktree_tool(&self) -> Option<&str> {
         self.new_worktree_tool.as_deref()
     }
-    pub(super) fn from_request(r: proto::UpdatePreferencesRequest) -> Self {
-        Self {
-            reopen_last_workspace: r.reopen_last_workspace,
-            notch_enabled: r.notch_enabled,
-            new_tab_tool: r.new_tab_tool,
-            new_worktree_tool: r.new_worktree_tool,
-            chat_profile: r.chat_profile,
-            chat_model: r.chat_model,
-            chat_effort: r.chat_effort,
-            chat_mode: r.chat_mode,
-        }
-    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AgentEdit {
     id: String,
     name: String,
-    backend: crate::chat::agent::BackendKind,
+    backend: ToolBackend,
     command: String,
     arguments: Vec<String>,
     enabled: Option<bool>,
     environment: BTreeMap<String, SecretChange>,
     default_profile_id: Option<String>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToolBackend {
+    NativeStream,
+    NativeServer,
+    Protocol,
+    Shell,
+    Process,
 }
 impl AgentEdit {
     pub fn enabled(&self) -> Option<bool> {
@@ -154,7 +151,7 @@ impl AgentEdit {
     pub fn name(&self) -> &str {
         &self.name
     }
-    pub fn backend(&self) -> crate::chat::agent::BackendKind {
+    pub fn backend(&self) -> ToolBackend {
         self.backend
     }
     pub fn command(&self) -> &str {
@@ -168,7 +165,7 @@ impl AgentEdit {
     }
     pub(super) fn new(
         a: proto::AgentDefinition,
-        backend: crate::chat::agent::BackendKind,
+        backend: ToolBackend,
         environment: BTreeMap<String, SecretChange>,
     ) -> Self {
         Self {
@@ -288,13 +285,24 @@ impl IntegrationEdit {
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) enum Edit {
+pub enum Edit {
     Agent(AgentEdit),
     RemoveAgent(String),
     Profile(Box<ProfileEdit>),
     RemoveProfile(String),
     Integration(IntegrationEdit),
     RemoveIntegration(String),
+}
+impl Edit {
+    pub(crate) fn normalize(&mut self) -> crate::settings::Result<()> {
+        let id = match self {
+            Self::Agent(edit) => &edit.id,
+            Self::Profile(edit) => &edit.id,
+            Self::Integration(edit) => &edit.id,
+            Self::RemoveAgent(id) | Self::RemoveProfile(id) | Self::RemoveIntegration(id) => id,
+        };
+        super::writes::identity(id).map_err(|_| crate::settings::Error::InvalidRuntimeState)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

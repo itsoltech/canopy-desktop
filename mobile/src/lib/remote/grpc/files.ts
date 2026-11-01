@@ -3,7 +3,8 @@ import type { HostSession } from './hosts'
 import type { FileRef } from './schema'
 import { command, checkReceipt, uniqueId } from './commands'
 import { uploadText } from './uploads'
-import { toBase64 } from './protobuf'
+import { encode, toBase64 } from './protobuf'
+const sameFile = (a: FileRef | undefined, b: FileRef) => !!a && toBase64(encode('FileRef', a)) === toBase64(encode('FileRef', b))
 export async function readTextFile(host: HostSession, file: FileRef, signal?: AbortSignal): Promise<{ text: string; hash: Uint8Array }> {
   let offset = 0, hash: Uint8Array | undefined, complete = false
   const chunks: Uint8Array[] = []
@@ -11,7 +12,7 @@ export async function readTextFile(host: HostSession, file: FileRef, signal?: Ab
   await native.startHash(hashId)
   try {
   const stream = await host.transport.subscribe('FilesService/ReadFile', { file, offset: '0', max_bytes: String(16 * 1024 * 1024) }, async chunk => {
-    if (complete || chunk.file?.workspace?.host_id !== file.workspace?.host_id || chunk.file?.workspace?.workspace_id !== file.workspace?.workspace_id || chunk.file?.relative_path !== file.relative_path || BigInt(chunk.offset) !== BigInt(offset)) throw Error('File stream identity or offset changed')
+    if (complete || !sameFile(chunk.file, file) || BigInt(chunk.offset) !== BigInt(offset)) throw Error('File stream identity or offset changed')
     if (hash && toBase64(hash) !== toBase64(chunk.base_hash)) throw Error('File changed during read')
     hash = chunk.base_hash; offset += chunk.data.length
     if (offset > 16 * 1024 * 1024) throw Error('Editor file exceeds 16 MiB')
@@ -28,11 +29,11 @@ export async function readTextFile(host: HostSession, file: FileRef, signal?: Ab
   } finally { await native.cancelHash(hashId) }
 }
 // Read and validate before a single durable replacement. Failure leaves the old draft.
-export async function reloadTextFile(host: HostSession, file: FileRef, signal: AbortSignal, unchanged: () => boolean) {
+export async function reloadTextFile(host: HostSession, file: FileRef, signal: AbortSignal, unchanged: () => boolean, viewKey?: string) {
   const result = await readTextFile(host, file, signal)
   await host.store.update(state => {
     if (signal.aborted || !unchanged()) throw Error('Reload cancelled or buffer changed; draft retained')
-    const key = `file:${file.workspace!.workspace_id}:${file.relative_path}`
+    const key = viewKey ?? `file:${toBase64(encode('ResourceTarget', file.target!))}:${file.relative_path}`
     ;(state.views ??= {})[key] = { text: result.text, baseHash: toBase64(result.hash), newline: result.text.includes('\r\n') ? 'crlf' : 'lf' }
     return null
   })
@@ -52,7 +53,7 @@ export async function previewFile(host: HostSession, file: FileRef, signal?: Abo
   try {
     let offset = 0n, hash: Uint8Array | undefined, complete = false
     const stream = await host.transport.subscribe('FilesService/ReadFile', { file, offset: '0', max_bytes: String(64 * 1024 * 1024) }, async chunk => {
-      if (complete || chunk.file?.workspace?.host_id !== file.workspace?.host_id || chunk.file?.workspace?.workspace_id !== file.workspace?.workspace_id || chunk.file?.relative_path !== file.relative_path || chunk.offset !== String(offset) || chunk.data.length > 65536) throw Error('Invalid file preview stream')
+      if (complete || !sameFile(chunk.file, file) || chunk.offset !== String(offset) || chunk.data.length > 65536) throw Error('Invalid file preview stream')
       if (hash && toBase64(hash) !== toBase64(chunk.base_hash)) throw Error('File changed during preview')
       hash = chunk.base_hash; offset += BigInt(chunk.data.length)
       if (offset > 64n * 1024n * 1024n) throw Error('File exceeds preview limit')

@@ -2,7 +2,7 @@ use super::{
     HostId,
     store::{CredentialStore, HostRecord},
 };
-use crate::remote::{proto as p, tls};
+use crate::{api::proto as p, remote::tls};
 use base64::{
     Engine,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
@@ -167,7 +167,10 @@ impl PairingInvite {
             .map_err(|_| "Could not sign a device request.")?;
         let mut service = p::enrollment_service_client::EnrollmentServiceClient::new(channel);
         let mut status = service
-            .request_pairing(p::PairingRequest {
+            .request_pairing(p::RequestPairingRequest {
+                environment: Some(p::EnvironmentRef {
+                    host_id: self.wire.host_id.clone(),
+                }),
                 one_time_token: self.wire.one_time_token.clone(),
                 certificate_signing_request: csr.der().to_vec(),
                 device_name: name.clone(),
@@ -179,17 +182,20 @@ impl PairingInvite {
             if cancelled.load(Ordering::Acquire) {
                 return Err("Pairing cancelled; no device credential was installed.".into());
             }
-            if status.state == "approved" {
+            if status.state == p::PairingState::Approved as i32 {
                 break;
             }
-            if status.state != "pending"
+            if status.state != p::PairingState::Pending as i32
                 || self.wire.expires_unix <= chrono::Utc::now().timestamp() as u64
             {
                 return Err("Pairing was denied or expired.".into());
             }
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             status = service
-                .get_pairing_status(p::PairingStatusRequest {
+                .get_pairing_status(p::GetPairingStatusRequest {
+                    environment: Some(p::EnvironmentRef {
+                        host_id: self.wire.host_id.clone(),
+                    }),
                     request_id: status.request_id,
                     proof: self.wire.one_time_token.clone(),
                 })

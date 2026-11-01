@@ -66,7 +66,12 @@ where
     ))
 }
 
-type ConnectedRoute = (Channel, Option<ssh::SshTunnel>, p::HostInfo, p::Catalog);
+type ConnectedRoute = (
+    Channel,
+    Option<ssh::SshTunnel>,
+    crate::api::proto::HostInfo,
+    p::Catalog,
+);
 impl HostClient {
     pub fn routes(&self) -> Vec<ConnectionRoute> {
         self.state.lock().unwrap().record.routes.clone()
@@ -223,18 +228,22 @@ impl HostClient {
             || self.generation.load(Ordering::Acquire) != generation,
         )
         .await?;
-        let info = p::host_service_client::HostServiceClient::new(channel.clone())
-            .get_info(p::HostRequest {
-                host_id: self.id.0.clone(),
+        let info = crate::api::proto::host_service_client::HostServiceClient::new(channel.clone())
+            .get_info(crate::api::proto::GetInfoRequest {
+                environment: Some(crate::api::proto::EnvironmentRef {
+                    host_id: self.id.0.clone(),
+                }),
             })
             .await
             .map_err(super::rpc_error)?
             .into_inner();
-        if info.host_id != self.id.0 || info.protocol_version != 1 {
+        if info.environment.as_ref().map(|e| e.host_id.as_str()) != Some(self.id.0.as_str())
+            || info.protocol_version != 1
+        {
             return Err("Host identity or protocol mismatch.".into());
         }
         let catalog = super::catalog::read_catalog(channel.clone(), &self.id.0).await?;
-        if catalog.host_id != self.id.0 {
+        if catalog.environment.as_ref().map(|e| e.host_id.as_str()) != Some(self.id.0.as_str()) {
             return Err("Catalog host identity mismatch.".into());
         }
         Ok((channel, tunnel, info, catalog))

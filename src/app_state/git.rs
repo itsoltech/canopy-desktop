@@ -1,5 +1,6 @@
 use super::AppState;
 use canopy_desktop::{
+    command_bus::{GitIntent, WorktreeAction, WorktreeIntent},
     git::{
         CreateWorktree, GitClient, RemovalAction, RemovalApproval, RemoveWorktree, RepositoryInfo,
         WorktreeAnalysis, WorktreeRemovalOutcome,
@@ -221,6 +222,15 @@ impl GitState {
         let expected_account = account.clone();
         let context_task = task.clone();
         let context_agent = agent.as_ref().map(|agent| agent.tool.clone());
+        let resource = super::file_ops::LocalResource::capture(&request.repository, cx)?;
+        let intent = WorktreeIntent {
+            start_point: request.new_branch.then(|| request.base.clone()),
+            ..worktree_intent(
+                WorktreeAction::Create,
+                request.branch.clone(),
+                Some(&request.destination),
+            )
+        };
         self.busy = true;
         self.created_path = None;
         self.error = None;
@@ -264,8 +274,13 @@ impl GitState {
                     Ok(())
                 })
                 .map_err(|_| "Worktree creation was cancelled.".to_owned())??;
-                client
-                    .create(request)
+                let input = resource
+                    .begin_git(GitIntent::Worktree(intent), cx.background_executor())
+                    .await?;
+                let outcome = client.create(request).await;
+                resource
+                    .bus
+                    .finish_local_resource(input, outcome)
                     .await
                     .map(|created| (created, context))
             }
@@ -524,20 +539,63 @@ impl GitState {
             .and_then(Result::ok)
             .map(|env| (*env).clone());
         let client = self.client.clone().ok_or("Git is unavailable.")?;
+        let resource = super::file_ops::LocalResource::capture(&request.repository, cx)?;
+        let mut intent = worktree_intent(
+            if matches!(action, RemovalAction::Merge { .. }) {
+                WorktreeAction::Merge
+            } else {
+                WorktreeAction::Remove
+            },
+            analysis.branch.clone(),
+            Some(&request.path),
+        );
+        intent.discard_changes = approval.discard_changes;
+        intent.registration_name = match &request.kind {
+            canopy_desktop::git::RemovalKind::Directory => None,
+            canopy_desktop::git::RemovalKind::MissingRegistration { name } => Some(name.clone()),
+        };
+        intent.delete_unmerged_branch = approval.delete_unmerged_branch;
+        match &action {
+            RemovalAction::KeepBranch => (),
+            RemovalAction::DeleteBranch { target } => {
+                intent.target_branch = Some(target.clone());
+                intent.delete_branch = true;
+            }
+            RemovalAction::Merge {
+                target,
+                delete_branch,
+            } => {
+                intent.target_branch = Some(target.clone());
+                intent.delete_branch = *delete_branch;
+            }
+        }
+        let authority = cleanup_paths
+            .iter()
+            .chain(std::iter::once(&request.repository))
+            .map(|p| {
+                p.to_str()
+                    .map(str::to_owned)
+                    .ok_or("Unsupported path encoding.")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         self.busy = true;
         self.error = None;
         self.removal_result = None;
         self.removal_confirmation = None;
         cx.notify();
-        let stop = if stop_processes && workspace.is_some_and(|id| app.workspace_running(id, cx)) {
-            workspace.map(|id| app.stop_workspace_processes(id, cx))
-        } else {
-            None
-        };
         self.task = Some(cx.spawn(async move |this, cx| {
+            let input = match resource.begin_git_roots(GitIntent::Worktree(intent), authority, cx.background_executor()).await {
+                Ok(input) => input,
+                Err(error) => { let _ = this.update(cx, |this, cx| { this.busy = false; this.error = Some(error); cx.notify(); }); return; }
+            };
+            let stop = this.update(cx, |_, cx| {
+                (stop_processes && workspace.is_some_and(|id| app.workspace_running(id, cx)))
+                    .then(|| workspace.map(|id| app.stop_workspace_processes(id, cx))).flatten()
+            }).ok().flatten();
             if let Some(stop) = stop
                 && let Err(error) = stop.await
             {
+                let _ = resource.bus.finish_local_resource::<()>(input, Err(error.clone())).await;
                 let _ = this.update(cx, |this, cx| {
                     this.busy = false;
                     this.error = Some(format!(
@@ -556,7 +614,14 @@ impl GitState {
                 return;
             }
             let removal_path = request.path.clone();
-            let result = client.execute_worktree_removal(request, action, analysis, approval, env).await;
+            let outcome = client.execute_worktree_removal(request, action, analysis, approval, env).await;
+            let state = match &outcome {
+                Ok(WorktreeRemovalOutcome::Finished(result)) if result.error.is_none() => canopy_desktop::host::CommandState::Succeeded,
+                Ok(WorktreeRemovalOutcome::Finished(_)) | Err(_) => canopy_desktop::host::CommandState::Failed,
+                Ok(_) => canopy_desktop::host::CommandState::Rejected,
+            };
+            let finalized = resource.bus.complete_local_resource(input, state, None).await;
+            let result = outcome;
             let removed = matches!(
                 &result,
                 Ok(WorktreeRemovalOutcome::Finished(result)) if result.worktree_removed
@@ -599,6 +664,9 @@ impl GitState {
                     }
                     Err(error) => this.error = Some(error),
                 }
+                if let Err(error) = finalized {
+                    this.error = Some(error);
+                }
                 let removed_paths = if removed {
                     HashSet::from([removal_path])
                 } else {
@@ -626,13 +694,26 @@ impl GitState {
             return Err("Git is busy.".into());
         }
         let client = self.client.clone().ok_or("Git is unavailable.")?;
+        let resource = super::file_ops::LocalResource::capture(&repository, cx)?;
+        let mut intent =
+            worktree_intent(WorktreeAction::DeleteBranch, analysis.source.clone(), None);
+        intent.target_branch = Some(analysis.target.clone());
+        intent.delete_branch = true;
+        intent.delete_unmerged_branch = analysis.commits_not_in_target > 0;
         self.busy = true;
         self.error = None;
         cx.notify();
         self.task = Some(cx.spawn(async move |this, cx| {
-            let result = client
-                .delete_branch_after_removal(repository, analysis)
-                .await;
+            let result = async {
+                let input = resource
+                    .begin_git(GitIntent::Worktree(intent), cx.background_executor())
+                    .await?;
+                let outcome = client
+                    .delete_branch_after_removal(repository, analysis)
+                    .await;
+                resource.bus.finish_local_resource(input, outcome).await
+            }
+            .await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 match result {
@@ -710,18 +791,57 @@ impl GitState {
             return Ok(());
         }
         let client = self.client.clone().ok_or("Git is unavailable.")?;
+        let resource = super::file_ops::LocalResource::capture(&request.repository, cx)?;
+        let mut intent =
+            worktree_intent(WorktreeAction::Remove, String::new(), Some(&request.path));
+        intent.registration_name = match &request.kind {
+            canopy_desktop::git::RemovalKind::Directory => None,
+            canopy_desktop::git::RemovalKind::MissingRegistration { name } => Some(name.clone()),
+        };
+        intent.discard_changes = discard_changes;
+        let authority = vec![
+            request.repository.to_string_lossy().into_owned(),
+            request.path.to_string_lossy().into_owned(),
+        ];
         self.busy = true;
         self.error = None;
         cx.notify();
-        let stop = if stop_processes {
-            workspace.map(|id| app.stop_workspace_processes(id, cx))
-        } else {
-            None
-        };
         self.task = Some(cx.spawn(async move |this, cx| {
+            let input = match resource
+                .begin_git_roots(
+                    GitIntent::Worktree(intent),
+                    authority,
+                    cx.background_executor(),
+                )
+                .await
+            {
+                Ok(input) => input,
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.busy = false;
+                        this.error = Some(error);
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            let stop = this
+                .update(cx, |_, cx| {
+                    if stop_processes {
+                        workspace.map(|id| app.stop_workspace_processes(id, cx))
+                    } else {
+                        None
+                    }
+                })
+                .ok()
+                .flatten();
             if let Some(stop) = stop
                 && let Err(error) = stop.await
             {
+                let _ = resource
+                    .bus
+                    .finish_local_resource::<()>(input, Err(error.clone()))
+                    .await;
                 let _ = this.update(cx, |this, cx| {
                     this.busy = false;
                     this.error = Some(format!(
@@ -740,7 +860,8 @@ impl GitState {
                 return;
             }
             let removal_path = request.path.clone();
-            let result = client.remove(request, discard_changes).await;
+            let outcome = client.remove(request, discard_changes).await;
+            let result = resource.bus.finish_local_resource(input, outcome).await;
             let removed = matches!(&result, Ok(canopy_desktop::git::RemovalOutcome::Removed));
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
@@ -793,5 +914,20 @@ impl GitState {
                     .await;
             }
         })
+    }
+}
+
+fn worktree_intent(action: WorktreeAction, branch: String, path: Option<&Path>) -> WorktreeIntent {
+    WorktreeIntent {
+        action,
+        branch,
+        path: path.map(|p| p.to_string_lossy().into_owned()),
+        start_point: None,
+        target_branch: None,
+        delete_branch: false,
+        discard_changes: false,
+        delete_unmerged_branch: false,
+        acknowledge_offline_dirty: false,
+        registration_name: None,
     }
 }

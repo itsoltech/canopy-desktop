@@ -2,13 +2,13 @@ import { terminalKey, type KeyModifiers } from './terminal-keys'
 import { recoveryDelay } from './recovery'
 import type { HostSession } from './hosts'
 import { TerminalInputMode } from './schema'
-import type { TerminalHistoryStart, InputLease, TerminalRef, TerminalFrame, TerminalClientEvent, TerminalServerEvent, Cursor } from './schema'
+import type { TerminalHistoryStart, InputLease, TerminalRef, TerminalFrame, TerminalSessionRequest, TerminalServerEvent, Cursor } from './schema'
 import type { RpcStream } from './transport'
-import { command, uniqueId } from './commands'
+import { checkReceipt, command, uniqueId } from './commands'
 import { TerminalFrameAssembler } from './fragments'
 export class TerminalViewOwner {
   readonly terminal: TerminalRef
-  private stream?: RpcStream<TerminalClientEvent, TerminalServerEvent>
+  private stream?: RpcStream<TerminalSessionRequest, TerminalServerEvent>
   private abort?: AbortController
   private historyAbort?: AbortController
   private unsubscribe?: () => void
@@ -98,10 +98,21 @@ export class TerminalViewOwner {
     this.lease = lease; this.leaseUntil = Date.now() + lease.expires_in_ms; clearTimeout(this.timer)
     if (lease.held) this.timer = setTimeout(() => { void this.stream?.send({ renew: { terminal: this.terminal, run_id: lease.run_id, fencing_token: lease.fencing_token } }).catch(e => { this.error = String(e); this.lease = undefined; this.publish() }) }, Math.max(100, Math.min(5000, Math.floor(lease.expires_in_ms / 3))))
   }
-  async acquire(takeOver: boolean) { this.setLease(await this.host.transport.unary('TerminalService/AcquireInput', { command: command(this.host.store), terminal: this.terminal, take_over: takeOver })); this.publish() }
+  project() {
+    const catalog = this.host.snapshot().catalog
+    const terminal = catalog?.terminals.find(t => t.terminal?.terminal_id === this.terminal.terminal_id && t.terminal.host_id === this.terminal.host_id)
+    const project = catalog?.projects.flatMap(p => p.checkouts).find(w => w.catalog_id === terminal?.project_catalog_id)?.project
+    if (!project || project.host_id !== this.terminal.host_id) throw Error('Terminal project is unavailable; refresh the host catalog')
+    return project
+  }
+  async acquire(takeOver: boolean) {
+    const receipt = checkReceipt(await this.host.mutate('TerminalService/AcquireInput', { command: command(this.host.store), project: this.project(), terminal_id: this.terminal.terminal_id, take_over: takeOver }))
+    if (!receipt.terminal?.lease) throw Error('Terminal lease is unavailable; reconcile the original operation')
+    this.setLease(receipt.terminal.lease); this.publish()
+  }
   async release() {
     const lease = this.lease; this.lease = undefined; clearTimeout(this.timer); this.publish()
-    if (lease?.held) await this.host.transport.unary('TerminalService/ReleaseInput', { command: command(this.host.store), terminal: this.terminal, run_id: lease.run_id, fencing_token: lease.fencing_token })
+    if (lease?.held) checkReceipt(await this.host.mutate('TerminalService/ReleaseInput', { command: command(this.host.store), project: this.project(), terminal_id: this.terminal.terminal_id, run_id: lease.run_id, fencing_token: lease.fencing_token }))
   }
   private inputLease() { if (!this.stream || !this.lease?.held || Date.now() >= this.leaseUntil) throw Error('Acquire terminal input first'); return this.lease }
   async input(text: string) {
@@ -114,7 +125,7 @@ export class TerminalViewOwner {
   }
   async paste(text: string) {
     const clean = text.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
-    const bracketed = (BigInt(this.frame?.input_modes ?? '0') & BigInt(TerminalInputMode.BRACKETED_PASTE)) !== 0n
+    const bracketed = (BigInt(this.frame?.input_modes ?? '0') & BigInt(TerminalInputMode.TERMINAL_INPUT_MODE_BRACKETED_PASTE)) !== 0n
     await this.input(bracketed ? `\x1b[200~${clean}\x1b[201~` : clean.replace(/\r?\n/g, '\r'))
   }
   async key(key: string, modifiers: KeyModifiers = {}) {

@@ -215,6 +215,94 @@ fn reason(text: &str) -> Option<Vec<u8>> {
 }
 
 impl Chats {
+    /// Local Delete keeps the existing confirmation and cleanup owner, with the
+    /// same typed admission before the layout or retained resources change.
+    pub(crate) fn delete_local(&mut self, chat: String, cx: &mut Context<Self>) {
+        if self.stopping {
+            return;
+        }
+        let app = cx.global::<AppState>().clone();
+        let Some(client) = app.settings.read(cx).client() else {
+            return;
+        };
+        let record = if let Some(runtime) = self.runtimes.get(&chat) {
+            runtime.update(cx, |runtime, cx| runtime.persisted_record(cx))
+        } else {
+            Task::ready(
+                app.settings
+                    .read(cx)
+                    .chat_record(&chat)
+                    .cloned()
+                    .ok_or_else(|| "The conversation is no longer available.".into()),
+            )
+        };
+        let id = uuid::Uuid::new_v4();
+        self.local_commands.insert(
+            id,
+            cx.spawn(async move |this, cx| {
+                let result = async {
+                    use canopy_desktop::command_bus::{
+                        CatalogCommand, Command, CommandBus, ResourceRef,
+                    };
+                    let record = record.await?;
+                    let thread = record
+                        .thread()
+                        .ok_or("The thread identity is unavailable.")?;
+                    let expected = this
+                        .read_with(cx, |this, cx| this.delete_preflight(&chat, cx))
+                        .map_err(|_| "Chat owner stopped.".to_owned())??;
+                    let bus = CommandBus::new(client);
+                    let input = bus
+                        .begin_local_resource(
+                            ResourceRef::Thread {
+                                thread: thread.thread().clone(),
+                                executor_epoch: thread.executor_epoch(),
+                            },
+                            record.authority_root().into(),
+                            Command::Catalog(CatalogCommand::Close {
+                                plan: id.to_string(),
+                            }),
+                            Vec::new(),
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    let cleanup = this
+                        .update(cx, |this, cx| {
+                            let current = this.delete_preflight(&chat, cx)?;
+                            if current != expected || current.blocked.is_some() {
+                                return Err(current
+                                    .blocked
+                                    .unwrap_or_else(|| "conditions_changed".into()));
+                            }
+                            this.delete_now(&chat, cx)
+                        })
+                        .map_err(|_| "Chat owner stopped.".to_owned())
+                        .and_then(|v| v);
+                    match cleanup {
+                        Err(error) => {
+                            bus.complete_local_resource(
+                                input,
+                                CommandState::Rejected,
+                                reason(&error),
+                            )
+                            .await?;
+                            Err(error)
+                        }
+                        Ok(cleanup) => bus.finish_local_resource(input, cleanup.await).await,
+                    }
+                }
+                .await;
+                let _ = this.update(cx, |this, cx| {
+                    this.local_commands.remove(&id);
+                    if let Err(error) = result {
+                        this.error = Some(error);
+                    }
+                    cx.notify();
+                });
+            }),
+        );
+    }
+
     /// Every catalog chat with its live state, with or without a pane or runtime.
     pub fn chat_summaries(&self, cx: &App) -> Vec<ChatSummary> {
         let settings = cx.global::<AppState>().settings.read(cx);
@@ -902,14 +990,10 @@ impl Chats {
                     Some(_) => r.with_authority_root(authority),
                     None => Some(r),
                 });
-            let key = CommandKey::local(uuid::Uuid::new_v4().to_string()).expect("UUID");
-            let result = match recovered
-                .as_ref()
-                .and_then(|r| Some((r, r.recovery_command(key.clone(), &reason)?)))
-            {
+            let result = match recovered.as_ref() {
                 None => Err("This agent, account or folder can't be used.".to_owned()),
-                Some((record, input)) => client
-                    .recover_runtime_chat(input, record.clone(), reason)
+                Some(recovered) => canopy_desktop::command_bus::CommandBus::new(client.clone())
+                    .recover_local(&record, recovered.clone(), reason)
                     .await
                     .map_err(|error| match error {
                         canopy_desktop::settings::Error::ResourceConflict => {
@@ -920,13 +1004,14 @@ impl Chats {
                             "This agent or account is not configured on this computer.".to_owned()
                         }
                         other => other.to_string(),
-                    })
-                    .map(|_| ()),
+                    }),
             };
             match (result, recovered) {
-                (Ok(()), Some(record)) => {
+                (Ok(receipt), Some(record)) => {
                     let record = committed(&client, record).await;
-                    let _ = client.acknowledge_runtime_command(key).await;
+                    let _ = client
+                        .acknowledge_runtime_command(receipt.key().clone())
+                        .await;
                     cx.update(|cx| {
                         app.settings.update(cx, |settings, cx| {
                             settings.record_saved(record);
@@ -946,7 +1031,9 @@ impl Chats {
                             })
                             .await;
                     }
-                    result.and(Err("This agent, account or folder can't be used.".into()))
+                    result
+                        .map(|_| ())
+                        .and(Err("This agent, account or folder can't be used.".into()))
                 }
             }
         })

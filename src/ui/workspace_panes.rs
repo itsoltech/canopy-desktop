@@ -325,12 +325,24 @@ impl Workspace {
                     .chats
                     .clone()
                     .update(cx, |chats, _| chats.detach_views(&[pane]));
-                target.update(cx, |state, cx| {
-                    if state.id == workspace {
-                        let _ = state.close_pane(tab, pane);
-                        cx.notify();
-                    }
-                })
+                cx.global::<crate::app_state::AppState>()
+                    .terminals
+                    .clone()
+                    .update(cx, |terminals, cx| {
+                        let target = target.clone();
+                        terminals.close_local_panes(
+                            vec![pane],
+                            move |cx| {
+                                target.update(cx, |state, cx| {
+                                    if state.id == workspace {
+                                        let _ = state.close_pane(tab, pane);
+                                        cx.notify();
+                                    }
+                                });
+                            },
+                            cx,
+                        );
+                    });
             },
             cx,
         );

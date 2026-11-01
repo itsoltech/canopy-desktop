@@ -26,7 +26,7 @@ impl RemoteWindow {
             .projects
             .iter()
             .flat_map(|p| &p.checkouts)
-            .find(|w| w.workspace.as_ref() == Some(reference))
+            .find(|w| w.catalog_id == reference.catalog_id)
             .map(|w| w.branch.clone().unwrap_or_else(|| w.name.clone()))
     }
     fn heading(&self) -> (String, String) {

@@ -23,9 +23,10 @@ mod terminal;
 mod tests;
 mod workspace;
 use super::{components::*, theme as t};
-use canopy_desktop::remote::{
-    client::{ClientRegistry, HostClient, Phase, pairing::PairingInvite, store::SystemCredentials},
-    proto as p,
+use canopy_desktop::api::proto as api;
+use canopy_desktop::api::proto as p;
+use canopy_desktop::remote::client::{
+    ClientRegistry, HostClient, Phase, pairing::PairingInvite, store::SystemCredentials,
 };
 use gpui_kit::component::{
     Disableable, Root,
@@ -48,6 +49,47 @@ struct ClientGlobal {
     registry: Arc<tokio::sync::OnceCell<ClientRegistry>>,
     notes: Arc<std::sync::Mutex<BTreeMap<String, String>>>,
     connections: Entity<Connections>,
+}
+/// Device navigation retains catalog aliases separately from RPC authority.
+#[derive(Clone, Debug)]
+pub enum ResourceView {
+    Project(p::ProjectCheckout),
+    Thread(canopy_desktop::state::workspace::RemoteChat),
+    Terminal(p::TerminalRef),
+}
+impl ResourceView {
+    pub fn host_id(&self) -> Option<&str> {
+        match self {
+            Self::Project(p) => p.project.as_ref().map(|p| p.host_id.as_str()),
+            Self::Thread(t) => Some(t.host.as_str()),
+            Self::Terminal(t) => Some(t.host_id.as_str()),
+        }
+    }
+}
+impl PartialEq for ResourceView {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Project(a), Self::Project(b)) => a.project == b.project,
+            (Self::Thread(a), Self::Thread(b)) => a == b,
+            (Self::Terminal(a), Self::Terminal(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+fn project_target(checkout: &p::ProjectCheckout) -> Option<p::ResourceTarget> {
+    Some(p::ResourceTarget {
+        resource: Some(p::resource_target::Resource::Project(
+            checkout.project.clone()?,
+        )),
+    })
+}
+pub(super) fn checkout(catalog: &p::Catalog, id: &str) -> Option<p::ProjectCheckout> {
+    catalog
+        .projects
+        .iter()
+        .flat_map(|p| &p.checkouts)
+        .find(|c| c.catalog_id == id)
+        .cloned()
 }
 fn prepare_connection(cx: &mut App) -> Task<std::result::Result<(), String>> {
     cx.global::<crate::app_state::AppState>()
@@ -147,7 +189,7 @@ struct DeviceLayout {
 struct RemoteWindow {
     embedded: bool,
     compact_tools: bool,
-    requested_resource: Option<p::ResourceRef>,
+    requested_resource: Option<ResourceView>,
     window: AnyWindowHandle,
     global: ClientGlobal,
     registry: Option<ClientRegistry>,
@@ -164,8 +206,8 @@ struct RemoteWindow {
     error: Option<String>,
     info: String,
     cancelled: Arc<AtomicBool>,
-    workspace: Option<p::WorkspaceRef>,
-    terminal: Option<p::TerminalRef>,
+    workspace: Option<p::ProjectCheckout>,
+    terminal: Option<api::TerminalRef>,
     agents: Option<Vec<crate::app_state::Account>>,
     discovery_busy: bool,
     discovery_abort: Option<tokio::task::AbortHandle>,
@@ -177,19 +219,19 @@ struct RemoteWindow {
     file: Option<p::FileRef>,
     file_hash: Vec<u8>,
     directory: Option<p::DirectoryEntries>,
-    git: Option<p::GitStatus>,
-    git_history: Option<p::GitHistory>,
-    git_refs: Option<p::GitRefs>,
+    git: Option<api::GitStatus>,
+    git_history: Option<api::GitHistory>,
+    git_refs: Option<api::GitRefs>,
     git_diff: Option<String>,
     git_history_tab: bool,
     hovered: Option<SharedString>,
     worktree_flags: [bool; 4],
     git_sign: bool,
     features: settings::FeatureViews,
-    terminal_frame: Option<p::TerminalFrame>,
+    terminal_frame: Option<api::TerminalFrame>,
     terminal_run: String,
-    terminal_lease: Option<p::InputLease>,
-    terminal_tx: Option<tokio::sync::mpsc::Sender<p::TerminalClientEvent>>,
+    terminal_lease: Option<api::InputLease>,
+    terminal_tx: Option<tokio::sync::mpsc::Sender<api::TerminalSessionRequest>>,
     generation: u64,
     terminal_focus: FocusHandle,
     terminal_preedit: String,
@@ -198,7 +240,7 @@ struct RemoteWindow {
     terminal_cell_size: (f32, f32),
     terminal_input_id: u64,
     terminal_retries: u8,
-    terminal_history: Option<p::TerminalFrame>,
+    terminal_history: Option<api::TerminalFrame>,
     terminal_history_offset: u32,
     terminal_selection: Option<((u32, u32), (u32, u32))>,
     ssh_fingerprint: Option<String>,
@@ -247,13 +289,13 @@ enum Update {
     Directory(p::DirectoryEntries),
     DirectoryPage(p::DirectoryEntries),
     File(p::FileRef, Vec<u8>, String, bool),
-    Git(p::GitStatus),
-    GitHistory(p::GitHistory),
-    GitRefs(p::GitRefs),
+    Git(api::GitStatus),
+    GitHistory(api::GitHistory),
+    GitRefs(api::GitRefs),
     GitDiff(String),
     SshFingerprint(String),
     RouteSaved,
-    TerminalHistory(p::TerminalFrame),
+    TerminalHistory(api::TerminalFrame),
 }
 /// Confirmation verb and whether the result is destructive.
 fn confirm_action(title: &str) -> (&'static str, bool) {
@@ -457,17 +499,7 @@ impl RemoteWindow {
                 let work = this.global.runtime.spawn(async move {
                     host.save_view_version(key, value, revision)?;
                     if mark && host.phase() == Phase::Ready {
-                        host.mutate(None, move |channel, command| async move {
-                            p::files_service_client::FilesServiceClient::new(channel)
-                                .set_dirty_presence(p::DirtyPresenceRequest {
-                                    command: Some(command),
-                                    file: Some(file),
-                                    base_hash: hash,
-                                    dirty: true,
-                                })
-                                .await
-                        })
-                        .await?;
+                        host.set_file_presence(file, hash, true).await?;
                     }
                     Ok::<_, String>(())
                 });
@@ -695,14 +727,14 @@ impl RemoteWindow {
             Update::Connected => self.refresh_connection(cx),
             Update::TerminalHistory(frame) => self.terminal_history = Some(frame),
             Update::Directory(value) => {
-                if value.workspace != self.workspace {
+                if value.target != self.workspace.as_ref().and_then(project_target) {
                     self.error = Some("Directory identity mismatch.".into());
                 } else {
                     self.directory = Some(value);
                 }
             }
             Update::DirectoryPage(value) => {
-                if value.workspace != self.workspace {
+                if value.target != self.workspace.as_ref().and_then(project_target) {
                     self.error = Some("Directory identity mismatch.".into());
                     return;
                 }
@@ -727,7 +759,21 @@ impl RemoteWindow {
                 if self.page != Page::Files {
                     self.navigate(Page::Files, cx);
                 }
-                self.workspace = file.workspace.clone();
+                if let Some(p::resource_target::Resource::Project(project)) =
+                    file.target.as_ref().and_then(|t| t.resource.as_ref())
+                {
+                    self.workspace = self
+                        .host
+                        .as_ref()
+                        .and_then(|h| h.shared_catalog())
+                        .and_then(|c| {
+                            c.projects
+                                .iter()
+                                .flat_map(|p| &p.checkouts)
+                                .find(|w| w.project.as_ref() == Some(project))
+                                .cloned()
+                        });
+                }
                 self.file = Some(file);
                 self.file_hash = hash;
                 self.file_dirty = dirty;
@@ -1012,18 +1058,29 @@ impl RemoteWindow {
                         use prost::Message;
                         this.workspace = layout
                             .workspace
-                            .and_then(|value| p::WorkspaceRef::decode(value.as_slice()).ok())
+                            .and_then(|value| p::ProjectCheckout::decode(value.as_slice()).ok())
                             .filter(|workspace| {
-                                this.host
-                                    .as_ref()
-                                    .is_some_and(|host| workspace.host_id == host.id().as_str())
+                                this.host.as_ref().is_some_and(|host| {
+                                    workspace
+                                        .project
+                                        .as_ref()
+                                        .is_some_and(|p| p.host_id == host.id().as_str())
+                                })
                             });
                         this.fields["path"]
                             .update(cx, |state, cx| state.set_value(layout.path, window, cx));
                         if let Some(file) = layout
                             .file
                             .and_then(|value| p::FileRef::decode(value.as_slice()).ok())
-                            .filter(|file| file.workspace == this.workspace)
+                            .filter(|file| {
+                                file.target.as_ref().and_then(|t| t.resource.as_ref())
+                                    == this
+                                        .workspace
+                                        .as_ref()
+                                        .and_then(|w| w.project.clone())
+                                        .map(p::resource_target::Resource::Project)
+                                        .as_ref()
+                            })
                             && let Some(host) = this.host.clone()
                         {
                             let key = workspace::file_view_key(&file);
@@ -1039,20 +1096,26 @@ impl RemoteWindow {
                             Page::Chat => {
                                 if let Some(chat) = layout
                                     .chat
-                                    .and_then(|value| p::ChatRef::decode(value.as_slice()).ok())
+                                    .and_then(|value| {
+                                        p::CatalogThread::decode(value.as_slice()).ok()
+                                    })
                                     .filter(|chat| {
-                                        this.host
-                                            .as_ref()
-                                            .is_some_and(|host| chat.host_id == host.id().as_str())
+                                        this.host.as_ref().is_some_and(|host| {
+                                            chat.thread
+                                                .as_ref()
+                                                .is_some_and(|t| t.host_id == host.id().as_str())
+                                        })
                                     })
                                 {
-                                    this.open_chat(chat, window, cx);
+                                    this.open_chat(chat.catalog_id, window, cx);
                                 }
                             }
                             Page::Terminal => {
                                 this.terminal = layout
                                     .terminal
-                                    .and_then(|value| p::TerminalRef::decode(value.as_slice()).ok())
+                                    .and_then(|value| {
+                                        api::TerminalRef::decode(value.as_slice()).ok()
+                                    })
                                     .filter(|terminal| {
                                         this.host.as_ref().is_some_and(|host| {
                                             terminal.host_id == host.id().as_str()
@@ -1084,7 +1147,7 @@ impl RemoteWindow {
         cx.notify();
     }
     /// Remote chats open in the normal ChatView tab of the main window.
-    fn open_chat(&mut self, chat: p::ChatRef, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_chat(&mut self, chat: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(host) = self.host.clone() else {
             return;
         };

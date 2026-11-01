@@ -21,7 +21,7 @@ impl RemoteWindow {
             cx,
         );
     }
-    fn select_workspace(&mut self, reference: p::WorkspaceRef, cx: &mut Context<Self>) {
+    fn select_workspace(&mut self, reference: p::ProjectCheckout, cx: &mut Context<Self>) {
         self.navigate(Page::Files, cx);
         self.workspace = Some(reference);
         self.agents = None;
@@ -38,7 +38,7 @@ impl RemoteWindow {
         self.save_layout(cx);
         self.load_directory(cx);
     }
-    pub(super) fn select_terminal(&mut self, terminal: p::TerminalRef, cx: &mut Context<Self>) {
+    pub(super) fn select_terminal(&mut self, terminal: api::TerminalRef, cx: &mut Context<Self>) {
         self.navigate(Page::Terminal, cx);
         self.terminal = Some(terminal);
         self.terminal_frame = None;
@@ -62,16 +62,11 @@ impl RemoteWindow {
         self.run_in(
             "new-terminal",
             async move {
-                host.mutate(None, move |channel, command| async move {
-                    p::terminal_service_client::TerminalServiceClient::new(channel)
-                        .open_terminal(p::OpenTerminalRequest {
-                            command: Some(command),
-                            workspace,
-                            tool_id,
-                            profile_id,
-                        })
-                        .await
-                })
+                host.open_terminal(
+                    workspace.ok_or("Project is missing.")?.catalog_id,
+                    tool_id,
+                    profile_id,
+                )
                 .await?;
                 Ok(Update::Done(
                     "Terminal started. It appears in the list when the computer reports it.".into(),
@@ -148,8 +143,8 @@ impl RemoteWindow {
             );
         }
         for project in catalog.projects {
-            let closing = project.checkouts.iter().any(|w| w.closing.unwrap_or(false));
-            let close_target = project.checkouts.first().and_then(|w| w.workspace.clone());
+            let closing = project.checkouts.iter().any(|w| w.closing);
+            let close_target = project.checkouts.first().cloned();
             projects = projects.child(
                 row()
                     .h(px(32.))
@@ -159,7 +154,7 @@ impl RemoteWindow {
                     .child(row_text(project.name.clone(), project.path.clone()))
                     .children(close_target.map(|workspace| {
                         button(
-                            SharedString::from(format!("close-project:{}", project.project_id)),
+                            SharedString::from(format!("close-project:{}", project.path)),
                             if closing {
                                 "Retry cleanup…"
                             } else {
@@ -177,11 +172,15 @@ impl RemoteWindow {
                     })),
             );
             for workspace in project.checkouts {
-                let Some(reference) = workspace.workspace else {
+                let Some(_) = workspace.project.as_ref() else {
                     continue;
                 };
-                let closing = workspace.closing.unwrap_or(false);
-                let selected = self.workspace.as_ref() == Some(&reference);
+                let reference = workspace.clone();
+                let closing = workspace.closing;
+                let selected = self
+                    .workspace
+                    .as_ref()
+                    .is_some_and(|w| w.project == reference.project);
                 let detail = workspace
                     .branch
                     .clone()
@@ -189,7 +188,7 @@ impl RemoteWindow {
                     .unwrap_or_default();
                 projects = projects.child(
                     list_row(
-                        SharedString::from(format!("workspace:{}", reference.workspace_id)),
+                        SharedString::from(format!("workspace:{}", reference.catalog_id)),
                         format!("Open {}", workspace.name),
                         selected,
                     )
@@ -208,7 +207,7 @@ impl RemoteWindow {
         }
         projects = projects.children(self.notice("close-project"));
         let mut chats = column().gap(px(4.)).child(section_title("CHATS"));
-        if catalog.chats.is_empty() {
+        if catalog.threads.is_empty() {
             chats = chats.child(
                 div()
                     .py(px(4.))
@@ -217,11 +216,12 @@ impl RemoteWindow {
                     .child("No chats yet. Start one below."),
             );
         }
-        for summary in catalog.chats {
-            if let Some(chat) = summary.chat {
+        for thread in catalog.threads {
+            if let Some(summary) = thread.summary {
+                let chat = thread.catalog_id;
                 chats = chats.child(
                     list_row(
-                        SharedString::from(format!("chat:{}", chat.chat_id)),
+                        SharedString::from(format!("chat:{chat}")),
                         format!("Open chat {}", summary.title),
                         false,
                     )

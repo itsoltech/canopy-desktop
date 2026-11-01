@@ -177,16 +177,25 @@ impl Render for TerminalView {
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let pane = this.pane.id;
                                 let app = cx.global::<AppState>().clone();
-                                app.workspace.update(cx, |state, cx| {
-                                    if let Some(tab) = state
-                                        .tabs()
-                                        .iter()
-                                        .find(|t| t.root.find(pane).is_some())
-                                        .map(|t| t.id)
-                                    {
-                                        let _ = state.close_pane(tab, pane);
-                                        cx.notify();
-                                    }
+                                let workspace = app.workspace.clone();
+                                app.terminals.update(cx, |terminals, cx| {
+                                    terminals.close_local_panes(
+                                        vec![pane],
+                                        move |cx| {
+                                            workspace.update(cx, |state, cx| {
+                                                if let Some(tab) = state
+                                                    .tabs()
+                                                    .iter()
+                                                    .find(|t| t.root.find(pane).is_some())
+                                                    .map(|t| t.id)
+                                                {
+                                                    let _ = state.close_pane(tab, pane);
+                                                    cx.notify();
+                                                }
+                                            });
+                                        },
+                                        cx,
+                                    )
                                 });
                             }))
                             .into_any_element(),

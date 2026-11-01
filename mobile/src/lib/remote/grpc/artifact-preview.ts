@@ -20,13 +20,13 @@ export async function downloadArtifact(host: HostSession, artifact: ArtifactRef,
   } catch (error) { await native.removeAttachment(id); throw error }
 }
 
-export async function readChatPage(host: HostSession, chat: import('./schema').ChatRef, item: import('./schema').ItemKey, signal?: AbortSignal): Promise<{ id: string; uri: string; html: string }> {
+export async function readChatPage(host: HostSession, chat: import('./schema').ThreadRef, item: import('./schema').ItemKey, signal?: AbortSignal): Promise<{ id: string; uri: string; html: string }> {
   if (chat.host_id !== host.snapshot().hostId) throw Error('Page belongs to another host')
   const id = uniqueId(), native = host.transport.native
   await native.beginAttachment(id)
   try {
     let artifact: ArtifactRef | undefined, offset = 0n, complete = false
-    const stream = await host.transport.subscribe('CatalogService/ReadChatPage', { chat, item }, async chunk => {
+    const stream = await host.transport.subscribe('CatalogService/ReadThreadPage', { thread: chat, item }, async chunk => {
       const current = chunk.artifact
       if (!current || current.host_id !== chat.host_id || current.media_type !== 'text/html' || current.sha256.length !== 32 || BigInt(current.size) > 32n * 1024n * 1024n || complete || chunk.offset !== String(offset) || chunk.data.length > 65536 || (!chunk.data.length && !chunk.complete)) throw Error('Invalid page stream')
       if (artifact && (artifact.artifact_id !== current.artifact_id || artifact.size !== current.size || toBase64(artifact.sha256) !== toBase64(current.sha256))) throw Error('Page identity changed')

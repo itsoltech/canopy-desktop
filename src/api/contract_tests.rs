@@ -75,11 +75,45 @@ fn encoded_commands_match_the_registry_exactly() {
             "ListPullRequests",
             "ReadThreadPage",
             "PreflightClose",
+            "PreflightCloseProject",
+            "PreflightCloseTerminal",
             "SubscribeThread",
             "ReadHistoryPage",
             "SearchHistory",
             "GetAgentOptions",
-            "PreviewEdit"
+            "PreviewEdit",
+            "GetSettings",
+            "GetInfo",
+            "WatchHost",
+            "ListDevices",
+            "ReadDiagnostics",
+            "GetCommand",
+            "ResolveCommand",
+            "CloseCommandEpoch",
+            "GetPeerRequest",
+            "RequestPairing",
+            "GetPairingStatus",
+            "GetUpload",
+            "PutChunk",
+            "Download",
+            "ReadHistory",
+            "TerminalSession",
+            "ListDirectory",
+            "SearchFiles",
+            "ReadFile",
+            "Preflight",
+            "GetStatus",
+            "ReadDiff",
+            "ReadHistory",
+            "ListRefs",
+            "ListIntegrations",
+            "ListProjects",
+            "QueryTasks",
+            "GetTask",
+            "GetSchema",
+            "ReadOptions",
+            "ReadComments",
+            "ReadAttachment"
         ]
     );
     for entry in crate::command_bus::registry() {
@@ -118,6 +152,81 @@ fn encoded_commands_match_the_registry_exactly() {
 }
 
 #[test]
+fn inbox_maintenance_has_only_the_two_dedicated_protocol_methods() {
+    let descriptors = prost_types::FileDescriptorSet::decode(p::DESCRIPTOR).unwrap();
+    let file = descriptors
+        .file
+        .iter()
+        .find(|f| f.package.as_deref() == Some("canopy.api.v1"))
+        .unwrap();
+    let host = file
+        .service
+        .iter()
+        .find(|s| s.name.as_deref() == Some("HostService"))
+        .unwrap();
+    for (name, input, output) in [
+        (
+            "CloseCommandEpoch",
+            "CloseCommandEpochRequest",
+            "CommandEpoch",
+        ),
+        (
+            "ResolveCommand",
+            "ResolveCommandRequest",
+            "ResolveCommandResponse",
+        ),
+    ] {
+        let method = host
+            .method
+            .iter()
+            .find(|m| m.name.as_deref() == Some(name))
+            .unwrap();
+        assert_eq!(
+            method.input_type.as_deref(),
+            Some(format!(".canopy.api.v1.{input}").as_str())
+        );
+        assert_eq!(
+            method.output_type.as_deref(),
+            Some(format!(".canopy.api.v1.{output}").as_str())
+        );
+        let request = file
+            .message_type
+            .iter()
+            .find(|m| m.name.as_deref() == Some(input))
+            .unwrap();
+        assert!(
+            request
+                .field
+                .iter()
+                .all(|f| f.type_name.as_deref() != Some(".canopy.api.v1.CommandMeta")),
+            "{name} must not admit another inbox command"
+        );
+    }
+    let close = file
+        .message_type
+        .iter()
+        .find(|m| m.name.as_deref() == Some("CloseCommandEpochRequest"))
+        .unwrap();
+    assert_eq!(
+        close
+            .field
+            .iter()
+            .map(|f| f.name.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        ["environment", "expected_epoch"]
+    );
+    let resolve = file
+        .message_type
+        .iter()
+        .find(|m| m.name.as_deref() == Some("ResolveCommandResponse"))
+        .unwrap();
+    assert_eq!(
+        resolve.field[0].type_name.as_deref(),
+        Some(".canopy.api.v1.CommandReceipt")
+    );
+}
+
+#[test]
 fn public_contract_is_standalone_and_thread_commands_have_no_parallel_project() {
     let descriptors = prost_types::FileDescriptorSet::decode(p::DESCRIPTOR).unwrap();
     let file = descriptors
@@ -125,7 +234,44 @@ fn public_contract_is_standalone_and_thread_commands_have_no_parallel_project() 
         .iter()
         .find(|f| f.package.as_deref() == Some("canopy.api.v1"))
         .unwrap();
-    assert_eq!(file.dependency, ["google/protobuf/descriptor.proto"]);
+    assert_eq!(
+        file.dependency,
+        [
+            "google/protobuf/descriptor.proto",
+            "google/protobuf/struct.proto"
+        ]
+    );
+    let terminal = file
+        .service
+        .iter()
+        .find(|service| service.name.as_deref() == Some("TerminalService"))
+        .unwrap();
+    for method in &terminal.method {
+        if method.output_type.as_deref() != Some(".canopy.api.v1.CommandReceipt") {
+            continue;
+        }
+        let request = file
+            .message_type
+            .iter()
+            .find(|message| {
+                method.input_type.as_deref()
+                    == Some(format!(".canopy.api.v1.{}", message.name.as_deref().unwrap()).as_str())
+            })
+            .unwrap();
+        assert!(
+            request
+                .field
+                .iter()
+                .any(|field| field.type_name.as_deref() == Some(".canopy.api.v1.ProjectRef")),
+            "Terminal lifecycle requires a project identity"
+        );
+        assert!(
+            request.field.iter().all(|field| field.type_name.as_deref()
+                != Some(".canopy.api.v1.EnvironmentRef")
+                && !["path", "cwd"].contains(&field.name.as_deref().unwrap())),
+            "Private/scratch identity must remain local to the bus"
+        );
+    }
     for message in &file.message_type {
         assert!(!["ChatRef", "WorkspaceRef"].contains(&message.name.as_deref().unwrap()));
         for field in &message.field {

@@ -1,13 +1,13 @@
 import { ChatEventAssembler, ResyncRequired } from './fragments'
 import type { NativeRemote } from './bridge'
-import type { ChatEvent, ChatRef, ChatSummary, ChatQueue, TranscriptItem, HistoryPageStart, HistoryPageEvent } from './schema'
+import type { ThreadEvent, ThreadRef, ThreadStatus, ThreadQueue, TranscriptItem, HistoryPageStart, HistoryPageEvent } from './schema'
 import { encode } from './protobuf'
 
 const key = (item: TranscriptItem) => {
   if (!item.key) throw new ResyncRequired('Missing item identity')
   return `${item.key.history_epoch}:${item.key.item_id}`
 }
-export type ChatProjection = { items: TranscriptItem[]; summary?: ChatSummary; queue?: ChatQueue; savedSequence: string; hasEarlier: boolean }
+export type ChatProjection = { items: TranscriptItem[]; summary?: ThreadStatus; queue?: ThreadQueue; savedSequence: string; hasEarlier: boolean }
 const empty = (): ChatProjection => ({ items: [], savedSequence: '0', hasEarlier: false })
 /** A view publishes only complete snapshots and verified item revisions. */
 export class ChatProjectionOwner {
@@ -16,7 +16,7 @@ export class ChatProjectionOwner {
   private bytes = 0
   snapshot(): ChatProjection { return this.value }
   discardSnapshot(): void { this.staging = undefined; this.bytes = 0 }
-  apply(event: ChatEvent): boolean {
+  apply(event: ThreadEvent): boolean {
     if (event.snapshot_start) {
       if (this.staging) throw new ResyncRequired('Nested snapshot')
       this.staging = { ...empty(), summary: event.snapshot_start.summary, queue: event.snapshot_start.queue, savedSequence: event.snapshot_start.saved_sequence }
@@ -67,19 +67,19 @@ export class HistoryPageAssembler {
   private start?: HistoryPageStart
   private complete = false
   private readonly boundary = { runtime_epoch: 'history', stream_id: 'page', sequence: '0' }
-  constructor(private readonly chat: ChatRef, id: string, native: NativeRemote) { this.assembler = new ChatEventAssembler(chat, id, native) }
+  constructor(private readonly chat: ThreadRef, id: string, native: NativeRemote) { this.assembler = new ChatEventAssembler(chat, id, native) }
   async push(event: HistoryPageEvent): Promise<void> {
-    if (this.complete || event.chat?.host_id !== this.chat.host_id || event.chat.chat_id !== this.chat.chat_id) throw new ResyncRequired('History identity mismatch')
-    let frame: ChatEvent
+    if (this.complete || event.thread?.host_id !== this.chat.host_id || event.thread.thread_id !== this.chat.thread_id) throw new ResyncRequired('History identity mismatch')
+    let frame: ThreadEvent
     if (event.start) {
       if (this.start || !event.start.read_id) throw new ResyncRequired('History start conflict')
       this.start = event.start
-      frame = { chat: this.chat, snapshot_start: { boundary: this.boundary, saved_sequence: '0' } }
+      frame = { thread: this.chat, snapshot_start: { boundary: this.boundary, saved_sequence: '0' } }
     } else {
       if (!this.start) throw new ResyncRequired('Missing history start')
-      if (event.items) frame = { chat: this.chat, snapshot_items: event.items }
-      else if (event.fragment) frame = { chat: this.chat, item_fragment: event.fragment }
-      else if (event.end_read_id === this.start.read_id) frame = { chat: this.chat, snapshot_end: { boundary: this.boundary, has_earlier_history: !!this.start.previous_page_token } }
+      if (event.items) frame = { thread: this.chat, snapshot_items: event.items }
+      else if (event.fragment) frame = { thread: this.chat, item_fragment: event.fragment }
+      else if (event.end_read_id === this.start.read_id) frame = { thread: this.chat, snapshot_end: { boundary: this.boundary, has_earlier_history: !!this.start.previous_page_token } }
       else throw new ResyncRequired('History boundary mismatch')
     }
     await this.assembler.push(frame, value => { this.owner.apply(value) })

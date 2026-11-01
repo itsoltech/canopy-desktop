@@ -153,9 +153,12 @@ Agent capability names are the typed host names; fork is restricted to a valid
 TurnEnd fork point. Close chat detaches; Delete separately preflights and confirms.
 The initial earlier-history request uses `before`, later requests use its opaque
 page token. Settings use typed host preferences/profile metadata and write-only
-secret updates; unchanged secrets are omitted. Removing an integration credential
-uses confirmed Disconnect integration, preserving task/project links. Reviewed
-command retirement uses ResolveCommand, including uncertain online mutations.
+secret updates; unchanged secrets are omitted. Device permissions translate the
+numeric wire scopes to Read, Chat, Approve, Files/Git, Terminal, Tasks and Admin;
+unspecified and unknown scopes have explicit fallback labels. Removing an
+integration credential uses confirmed Disconnect integration, preserving
+task/project links. Reviewed command retirement uses ResolveCommand, including
+uncertain online mutations.
 Tasks discover safe integration metadata through the TASKS-scoped ListIntegrations,
 without requiring Settings/admin access. Goal state/accounting and typed
 pause/resume/clear controls follow advertised capabilities. Contextual attachments
@@ -163,6 +166,12 @@ cannot enter the durable outbox; online SendMessage retains the original context
 uses resumable image uploads, and leaves the draft intact on failure.
 
 ## Verification boundary
+
+The projection-only chat unit test inserts a reserved GPUI entity and releases it
+before deferred attachment. GPUI's ordinary entity creation event retains a strong
+handle until effects are flushed, which would otherwise start the real connection
+registry worker. The test keeps the real chat constructor and projection behavior
+without mixing Tokio worker notifications with GPUI's deterministic scheduler.
 
 Focused Rust client tests use fake credential stores, typed command closures and
 private temporary files; no real vault, host providers or user database. Client

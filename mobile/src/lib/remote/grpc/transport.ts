@@ -2,7 +2,7 @@ import { methods, type RpcTypes } from './schema'
 import { encode, decode, toBase64, fromBase64 } from './protobuf'
 import type { NativeRemote, RpcEvent } from './bridge'
 import { timing, timingStart } from './metrics'
-import type { ChatRef, CommandMeta } from './schema'
+import type { ThreadRef, ThreadTarget, CommandMeta, EnvironmentRef, ProjectRef } from './schema'
 
 type Method = keyof RpcTypes
 type Input<M extends Method> = RpcTypes[M]['input']
@@ -49,12 +49,13 @@ export class GrpcTransport {
     let output: Output<M> | undefined
     let count = 0
     const stream = await this.stream(method, value => { output = value; if (++count !== 1) throw Error('multiple unary responses') }, signal, deadlineMs)
-    const started = timingStart(), target = request as { command?: CommandMeta; chat?: ChatRef; host_id?: string }
-    const host = target.command?.host_id ?? target.chat?.host_id ?? target.host_id
+    const started = timingStart(), target = request as { command?: CommandMeta; thread?: ThreadRef; target?: ThreadTarget; environment?: EnvironmentRef; project?: ProjectRef }
+    const thread = target.target?.thread ?? target.thread
+    const host = thread?.host_id ?? target.project?.host_id ?? target.environment?.host_id
     let ok = false
     try { await stream.send(request); await stream.finish(); await stream.done; ok = output !== undefined }
     catch (error) { stream.cancel(); throw error }
-    finally { if (host) timing(host, target.chat?.chat_id ?? host, target.command?.command_id, 'client_round_trip', started, ok) }
+    finally { if (host) timing(host, thread?.thread_id ?? host, target.command?.command_id, 'client_round_trip', started, ok) }
     if (output === undefined) throw Error('missing unary response')
     return output
   }

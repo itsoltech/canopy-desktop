@@ -1,12 +1,14 @@
 use super::snapshot;
 use super::*;
 use crate::{
+    api::{self, proto},
+    command_bus::{Command, GitCommand},
     git::{self, GitClient, changes, network},
     host::{FILES_GIT, READ},
     terminal::environment::ShellEnvironment,
 };
 use prost::Message;
-use proto::git_preflight_request::Intent;
+use proto::preflight_request::Intent;
 use std::collections::HashMap;
 use std::{
     pin::Pin,
@@ -40,7 +42,7 @@ pub struct GitRpc {
 struct ApprovedPlan {
     device: String,
     root: PathBuf,
-    request: proto::GitPreflightRequest,
+    request: proto::PreflightRequest,
     expected: proto::GitPrecondition,
     expires: Instant,
     prepared: Prepared,
@@ -60,6 +62,7 @@ enum Prepared {
         git::RemovalApproval,
     ),
     Stop,
+    DeleteBranch(git::BranchAnalysis),
 }
 impl GitRpc {
     pub fn new(
@@ -86,16 +89,22 @@ impl GitRpc {
     async fn authorized<T>(
         &self,
         request: &Request<T>,
-        workspace_ref: Option<&proto::WorkspaceRef>,
+        project: Option<&proto::ProjectRef>,
         scope: u32,
     ) -> Result<(DeviceGrant, PathBuf), Status> {
         let grant = self.auth.authenticate(request).await?;
-        let root = workspace(&self.auth, &self.roots, &grant, workspace_ref, scope).await?;
+        let project = required(project)?.clone();
+        if project.worktree_id.is_none() {
+            return Err(Status::invalid_argument("Git requires a project checkout."));
+        }
+        let root =
+            api::resources::read_root(&self.auth, &self.roots, &grant, &target(project), scope)
+                .await?;
         Ok((grant, root))
     }
     async fn check_dirty_paths(&self, root: &Path, intent: &Intent) -> Result<(), Status> {
         if let Intent::Paths(paths) = intent
-            && paths.operation == proto::GitPathOperation::DiscardPaths as i32
+            && paths.operation == proto::GitPathOperation::Discard as i32
         {
             for path in &paths.paths {
                 validate_path(root, path)?;
@@ -133,7 +142,7 @@ impl GitRpc {
     ) -> Result<Vec<PathBuf>, Status> {
         let mut destinations = Vec::new();
         if let Intent::Worktree(worktree) = intent {
-            if worktree.action == proto::WorktreeAction::CreateWorktree as i32 {
+            if worktree.action == proto::WorktreeAction::Create as i32 {
                 let path = required(worktree.path.clone())?;
                 if !Path::new(&path).is_absolute()
                     || Path::new(&path).components().any(|p| {
@@ -204,41 +213,86 @@ impl GitRpc {
         &self,
         grant: DeviceGrant,
         meta: proto::CommandMeta,
-        mut request: proto::GitPreflightRequest,
+        mut request: proto::PreflightRequest,
         expected: proto::GitPrecondition,
-        method: &'static str,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
-        let root = workspace(
+        normalize(&mut request)?;
+        let target = target(required(request.project.clone())?);
+        let prepared = api::resources::prepare(
             &self.auth,
             &self.roots,
             &grant,
-            request.workspace.as_ref(),
-            FILES_GIT,
+            meta,
+            &target,
+            Command::Git(GitCommand {
+                intent: api::git::intent(request.intent.as_ref().unwrap())?,
+                expected: api::git::snapshot(&expected)?,
+            }),
         )
         .await?;
-        normalize(&mut request)?;
-        // The immutable client intent and expected snapshot, not the live plan,
-        // fingerprint retry. A final receipt remains retrievable after plan expiry.
-        let arguments = (request.encode_to_vec(), expected.encode_to_vec());
-        let input = self.auth.input(
-            &meta,
-            &grant,
-            method,
-            request.workspace.as_ref().unwrap().workspace_id.clone(),
-            serde_json::to_vec(&arguments).map_err(domain)?,
-            WorkspaceRoots::root_string(&root)?.into(),
-        )?;
+        if let Some(receipt) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return Ok(Response::new(api::resources::receipt(
+                &self.auth, receipt, &target,
+            )?));
+        }
+        let mut input = prepared.input.clone();
+        let root = PathBuf::from(
+            input
+                .root
+                .as_ref()
+                .ok_or_else(|| Status::internal("Git root is unavailable."))?,
+        );
+        // Only the host's retained preflight supplies affected roots. A missing
+        // or mismatched plan can only reach the durable rejection below.
+        let approved_destinations = {
+            let plans = self
+                .plans
+                .lock()
+                .map_err(|_| Status::internal("Git plans unavailable."))?;
+            expected
+                .preflight_id
+                .as_ref()
+                .and_then(|id| {
+                    plans
+                        .get(id)
+                        .filter(|plan| {
+                            plan.device == grant.id()
+                                && plan.root == root
+                                && plan.request == request
+                                && plan.expected == expected
+                        })
+                        .map(|plan| plan.destinations.clone())
+                })
+                .unwrap_or_default()
+        };
+        let authority = approved_destinations
+            .iter()
+            .map(|root| WorkspaceRoots::root_string(root).map(str::to_owned))
+            .collect::<Result<Vec<_>, _>>()?;
+        if prepared.prior().is_none() {
+            crate::command_bus::git::SavedAuthority::bind(&mut input, authority)
+                .map_err(storage_status)?;
+        }
         let service = self.clone();
-        let result = mutation(
+        let validation_target = target.clone();
+        let result = validated_mutation(
             self.auth.clone(),
             self.locks.clone(),
             root.clone(),
             input,
             move || async move {
-                service
-                    .auth
-                    .resource(grant.id(), FILES_GIT, WorkspaceRoots::root_string(&root)?)
-                    .await?;
+                api::resources::revalidate_root(
+                    &service.auth,
+                    &service.roots,
+                    &grant,
+                    &validation_target,
+                    FILES_GIT,
+                    &root,
+                )
+                .await?;
                 let id = expected.preflight_id.as_ref().ok_or_else(|| {
                     Status::failed_precondition("Review and approve a current Git preflight first.")
                 })?;
@@ -253,6 +307,7 @@ impl GitRpc {
                     || plan.root != root
                     || plan.request != request
                     || plan.expected != expected
+                    || plan.destinations != approved_destinations
                 {
                     return Err(Status::aborted(
                         "Git preflight does not match this operation.",
@@ -266,7 +321,7 @@ impl GitRpc {
                         "Affected worktree paths changed since preflight.",
                     ));
                 }
-                let _destination_guards = destinations
+                let destination_guards = destinations
                     .iter()
                     .map(|path| {
                         service.locks.gate().try_reserve_root(path).ok_or_else(|| {
@@ -290,7 +345,10 @@ impl GitRpc {
                 blocking(move || snapshot::check(&verify_root, &verify_expected)).await?;
                 let worktree = match request.intent.as_ref() {
                     Some(Intent::Worktree(intent))
-                        if intent.action != proto::WorktreeAction::CreateWorktree as i32 =>
+                        if !matches!(
+                            proto::WorktreeAction::try_from(intent.action),
+                            Ok(proto::WorktreeAction::Create | proto::WorktreeAction::DeleteBranch)
+                        ) =>
                     {
                         Some(intent.clone())
                     }
@@ -301,61 +359,71 @@ impl GitRpc {
                         domain("needs_host_interaction: Worktree lifecycle owner is unavailable.")
                     })?;
                     lifecycle.preflight(root.clone(), intent.clone()).await?;
-                    if let Err(error) = lifecycle.apply(root.clone(), intent.clone()).await {
-                        let _ = lifecycle.finished(root.clone(), false).await;
-                        return Err(error);
-                    }
                 }
-                let apply_root = root.clone();
-                let env = service.environment.clone();
-                let apply_expected = expected.clone();
-                let apply_destinations = plan.destination_snapshots.clone();
-                let intent = request.intent.unwrap();
-                let result = if matches!(&plan.prepared, Prepared::Stop) {
-                    Ok(b"Stopped workspace processes.".to_vec())
-                } else {
-                    service
-                        .git
-                        .run_resource_operation(move || {
-                            snapshot::check(&apply_root, &apply_expected)?;
-                            for (path, expected) in &apply_destinations {
-                                snapshot::check(path, expected)?;
-                            }
-                            apply(&apply_root, plan.prepared, intent, &apply_expected, &env)
-                        })
-                        .await
-                        .map_err(Status::unknown)
-                        .and_then(|result| result)
-                };
-                if worktree.is_some() {
-                    let removed = !root.exists();
-                    if let Err(error) = service
-                        .lifecycle
-                        .as_ref()
-                        .unwrap()
-                        .finished(root.clone(), removed)
-                        .await
-                        && let Ok(mut bytes) = result
-                    {
-                        bytes.extend(format!("\nCleanup warning: {}", error.message()).as_bytes());
-                        return Ok(bytes);
+                Ok(async move {
+                    let _destination_guards = destination_guards;
+                    if let Some(intent) = &worktree {
+                        let lifecycle = service.lifecycle.as_ref().unwrap();
+                        if let Err(error) = lifecycle.apply(root.clone(), intent.clone()).await {
+                            let _ = lifecycle.finished(root.clone(), false).await;
+                            return Err(error);
+                        }
                     }
-                }
-                result
+                    let apply_root = root.clone();
+                    let env = service.environment.clone();
+                    let apply_expected = expected.clone();
+                    let apply_destinations = plan.destination_snapshots.clone();
+                    let intent = request.intent.unwrap();
+                    let result = if matches!(&plan.prepared, Prepared::Stop) {
+                        Ok(b"Stopped workspace processes.".to_vec())
+                    } else {
+                        service
+                            .git
+                            .run_resource_operation(move || {
+                                snapshot::check(&apply_root, &apply_expected)?;
+                                for (path, expected) in &apply_destinations {
+                                    snapshot::check(path, expected)?;
+                                }
+                                apply(&apply_root, plan.prepared, intent, &apply_expected, &env)
+                            })
+                            .await
+                            .map_err(Status::unknown)
+                            .and_then(|result| result)
+                    };
+                    if worktree.is_some() {
+                        let removed = !root.exists();
+                        if let Err(error) = service
+                            .lifecycle
+                            .as_ref()
+                            .unwrap()
+                            .finished(root.clone(), removed)
+                            .await
+                            && let Ok(mut bytes) = result
+                        {
+                            bytes.extend(
+                                format!("\nCleanup warning: {}", error.message()).as_bytes(),
+                            );
+                            return Ok(bytes);
+                        }
+                    }
+                    result
+                })
             },
         )
         .await?;
-        Ok(Response::new(result))
+        Ok(Response::new(api::resources::receipt(
+            &self.auth, &result, &target,
+        )?))
     }
 }
 #[tonic::async_trait]
 impl proto::git_service_server::GitService for GitRpc {
     async fn preflight(
         &self,
-        request: Request<proto::GitPreflightRequest>,
+        request: Request<proto::PreflightRequest>,
     ) -> Result<Response<proto::GitPlan>, Status> {
         let (grant, root) = self
-            .authorized(&request, request.get_ref().workspace.as_ref(), FILES_GIT)
+            .authorized(&request, request.get_ref().project.as_ref(), FILES_GIT)
             .await?;
         let mut request = request.into_inner();
         normalize(&mut request)?;
@@ -385,7 +453,10 @@ impl proto::git_service_server::GitService for GitRpc {
             .await?;
         let mut impacts = Vec::new();
         if let Some(Intent::Worktree(intent)) = &request.intent
-            && intent.action != proto::WorktreeAction::CreateWorktree as i32
+            && !matches!(
+                proto::WorktreeAction::try_from(intent.action),
+                Ok(proto::WorktreeAction::Create | proto::WorktreeAction::DeleteBranch)
+            )
         {
             impacts.extend(
                 self.lifecycle
@@ -440,7 +511,7 @@ impl proto::git_service_server::GitService for GitRpc {
             },
         );
         Ok(Response::new(proto::GitPlan {
-            workspace: request.workspace,
+            project: request.project,
             plan_id: id,
             expected: Some(expected),
             impacts,
@@ -451,12 +522,12 @@ impl proto::git_service_server::GitService for GitRpc {
     }
     async fn get_status(
         &self,
-        request: Request<proto::WorkspaceRequest>,
+        request: Request<proto::GetStatusRequest>,
     ) -> Result<Response<proto::GitStatus>, Status> {
         let (_, root) = self
-            .authorized(&request, request.get_ref().workspace.as_ref(), READ)
+            .authorized(&request, request.get_ref().project.as_ref(), READ)
             .await?;
-        let workspace = request.into_inner().workspace;
+        let project = request.into_inner().project;
         let result = blocking(move || {
             let expected = snapshot::capture(&root)?;
             let changes = changes::status(&root).map_err(domain)?;
@@ -488,7 +559,7 @@ impl proto::git_service_server::GitService for GitRpc {
             }
             snapshot::check(&root, &expected)?;
             let result = proto::GitStatus {
-                workspace,
+                project,
                 head_oid: expected.head_oid.clone(),
                 branch,
                 files: files.into_values().collect(),
@@ -510,10 +581,10 @@ impl proto::git_service_server::GitService for GitRpc {
         Pin<Box<dyn tokio_stream::Stream<Item = Result<proto::DiffChunk, Status>> + Send>>;
     async fn read_diff(
         &self,
-        request: Request<proto::DiffRequest>,
+        request: Request<proto::ReadDiffRequest>,
     ) -> Result<Response<Self::ReadDiffStream>, Status> {
         let (grant, root) = self
-            .authorized(&request, request.get_ref().workspace.as_ref(), READ)
+            .authorized(&request, request.get_ref().project.as_ref(), READ)
             .await?;
         let request = request.into_inner();
         validate_path(&root, &request.path)?;
@@ -571,10 +642,10 @@ impl proto::git_service_server::GitService for GitRpc {
     }
     async fn read_history(
         &self,
-        request: Request<proto::GitHistoryRequest>,
+        request: Request<proto::ReadHistoryRequest>,
     ) -> Result<Response<proto::GitHistory>, Status> {
         let (_, root) = self
-            .authorized(&request, request.get_ref().workspace.as_ref(), READ)
+            .authorized(&request, request.get_ref().project.as_ref(), READ)
             .await?;
         let request = request.into_inner();
         Ok(Response::new(
@@ -583,10 +654,10 @@ impl proto::git_service_server::GitService for GitRpc {
     }
     async fn list_refs(
         &self,
-        request: Request<proto::WorkspaceRequest>,
+        request: Request<proto::ListRefsRequest>,
     ) -> Result<Response<proto::GitRefs>, Status> {
         let (_, root) = self
-            .authorized(&request, request.get_ref().workspace.as_ref(), READ)
+            .authorized(&request, request.get_ref().project.as_ref(), READ)
             .await?;
         let refs = blocking(move || {
             let repo = snapshot::repository(&root)?;
@@ -626,30 +697,61 @@ impl proto::git_service_server::GitService for GitRpc {
     }
     async fn stage(
         &self,
-        request: Request<proto::GitPathsRequest>,
+        request: Request<proto::StageRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
-        self.paths(request, proto::GitPathOperation::StagePaths, "git.stage")
-            .await
+        let grant = self.auth.authenticate(&request).await?;
+        let request = request.into_inner();
+        self.execute(
+            grant,
+            required(request.command)?,
+            proto::PreflightRequest {
+                project: request.project,
+                intent: Some(Intent::Paths(proto::GitPathIntent {
+                    operation: proto::GitPathOperation::Stage as i32,
+                    paths: request.paths,
+                })),
+            },
+            required(request.expected)?,
+        )
+        .await
     }
     async fn unstage(
         &self,
-        request: Request<proto::GitPathsRequest>,
+        request: Request<proto::UnstageRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
-        self.paths(
-            request,
-            proto::GitPathOperation::UnstagePaths,
-            "git.unstage",
+        let grant = self.auth.authenticate(&request).await?;
+        let request = request.into_inner();
+        self.execute(
+            grant,
+            required(request.command)?,
+            proto::PreflightRequest {
+                project: request.project,
+                intent: Some(Intent::Paths(proto::GitPathIntent {
+                    operation: proto::GitPathOperation::Unstage as i32,
+                    paths: request.paths,
+                })),
+            },
+            required(request.expected)?,
         )
         .await
     }
     async fn discard(
         &self,
-        request: Request<proto::GitPathsRequest>,
+        request: Request<proto::DiscardRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
-        self.paths(
-            request,
-            proto::GitPathOperation::DiscardPaths,
-            "git.discard",
+        let grant = self.auth.authenticate(&request).await?;
+        let request = request.into_inner();
+        self.execute(
+            grant,
+            required(request.command)?,
+            proto::PreflightRequest {
+                project: request.project,
+                intent: Some(Intent::Paths(proto::GitPathIntent {
+                    operation: proto::GitPathOperation::Discard as i32,
+                    paths: request.paths,
+                })),
+            },
+            required(request.expected)?,
         )
         .await
     }
@@ -662,112 +764,83 @@ impl proto::git_service_server::GitService for GitRpc {
         self.execute(
             grant,
             required(request.command)?,
-            proto::GitPreflightRequest {
-                workspace: request.workspace,
+            proto::PreflightRequest {
+                project: request.project,
                 intent: Some(Intent::Commit(proto::GitCommitIntent {
                     message: request.message,
                     sign: request.sign,
                 })),
             },
             required(request.expected)?,
-            "git.commit",
         )
         .await
     }
     async fn pull(
         &self,
-        request: Request<proto::GitNetworkRequest>,
-    ) -> Result<Response<proto::CommandReceipt>, Status> {
-        self.network(request, proto::GitNetworkAction::PullRemote, "git.pull")
-            .await
-    }
-    async fn push(
-        &self,
-        request: Request<proto::GitNetworkRequest>,
-    ) -> Result<Response<proto::CommandReceipt>, Status> {
-        self.network(request, proto::GitNetworkAction::PushRemote, "git.push")
-            .await
-    }
-    async fn change_worktree(
-        &self,
-        request: Request<proto::WorktreeRequest>,
-    ) -> Result<Response<proto::CommandReceipt>, Status> {
-        let grant = self.auth.authenticate(&request).await?;
-        let request = request.into_inner();
-        let intent = proto::GitWorktreeIntent {
-            action: request.action,
-            branch: request.branch,
-            path: request.path,
-            start_point: request.start_point,
-            target_branch: request.target_branch,
-            delete_branch: request.delete_branch,
-            discard_changes: request.discard_changes,
-            delete_unmerged_branch: request.delete_unmerged_branch,
-            acknowledge_offline_dirty: request.acknowledge_offline_dirty,
-        };
-        self.execute(
-            grant,
-            required(request.command)?,
-            proto::GitPreflightRequest {
-                workspace: request.workspace,
-                intent: Some(Intent::Worktree(intent)),
-            },
-            required(request.expected)?,
-            "git.worktree",
-        )
-        .await
-    }
-}
-impl GitRpc {
-    async fn paths(
-        &self,
-        request: Request<proto::GitPathsRequest>,
-        operation: proto::GitPathOperation,
-        method: &'static str,
+        request: Request<proto::PullRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
         let grant = self.auth.authenticate(&request).await?;
         let request = request.into_inner();
         self.execute(
             grant,
             required(request.command)?,
-            proto::GitPreflightRequest {
-                workspace: request.workspace,
-                intent: Some(Intent::Paths(proto::GitPathIntent {
-                    operation: operation as i32,
-                    paths: request.paths,
-                })),
-            },
-            required(request.expected)?,
-            method,
-        )
-        .await
-    }
-    async fn network(
-        &self,
-        request: Request<proto::GitNetworkRequest>,
-        action: proto::GitNetworkAction,
-        method: &'static str,
-    ) -> Result<Response<proto::CommandReceipt>, Status> {
-        let grant = self.auth.authenticate(&request).await?;
-        let request = request.into_inner();
-        self.execute(
-            grant,
-            required(request.command)?,
-            proto::GitPreflightRequest {
-                workspace: request.workspace,
+            proto::PreflightRequest {
+                project: request.project,
                 intent: Some(Intent::Network(proto::GitNetworkIntent {
-                    action: action as i32,
+                    action: proto::GitNetworkAction::Pull as i32,
                     remote: request.remote,
                     upstream_branch: request.upstream_branch,
                 })),
             },
             required(request.expected)?,
-            method,
+        )
+        .await
+    }
+    async fn push(
+        &self,
+        request: Request<proto::PushRequest>,
+    ) -> Result<Response<proto::CommandReceipt>, Status> {
+        let grant = self.auth.authenticate(&request).await?;
+        let request = request.into_inner();
+        self.execute(
+            grant,
+            required(request.command)?,
+            proto::PreflightRequest {
+                project: request.project,
+                intent: Some(Intent::Network(proto::GitNetworkIntent {
+                    action: proto::GitNetworkAction::Push as i32,
+                    remote: request.remote,
+                    upstream_branch: request.upstream_branch,
+                })),
+            },
+            required(request.expected)?,
+        )
+        .await
+    }
+    async fn change_worktree(
+        &self,
+        request: Request<proto::ChangeWorktreeRequest>,
+    ) -> Result<Response<proto::CommandReceipt>, Status> {
+        let grant = self.auth.authenticate(&request).await?;
+        let request = request.into_inner();
+        self.execute(
+            grant,
+            required(request.command)?,
+            proto::PreflightRequest {
+                project: request.project,
+                intent: Some(Intent::Worktree(required(request.intent)?)),
+            },
+            required(request.expected)?,
         )
         .await
     }
 }
-fn normalize(request: &mut proto::GitPreflightRequest) -> Result<(), Status> {
+fn target(project: proto::ProjectRef) -> proto::ResourceTarget {
+    proto::ResourceTarget {
+        resource: Some(proto::resource_target::Resource::Project(project)),
+    }
+}
+fn normalize(request: &mut proto::PreflightRequest) -> Result<(), Status> {
     let intent = request
         .intent
         .as_mut()
@@ -781,6 +854,7 @@ fn normalize(request: &mut proto::GitPreflightRequest) -> Result<(), Status> {
             ));
         }
     }
+    api::git::intent(intent)?;
     if request.encoded_len() > crate::host::CONTROL_BYTES / 2 {
         return Err(Status::resource_exhausted("Git intent is too large."));
     }
@@ -809,7 +883,7 @@ fn prepare(root: &Path, intent: &Intent) -> Result<(Prepared, Vec<String>), Stat
                 return Err(Status::invalid_argument("Path operation is required."));
             }
             let status = changes::status(root).map_err(domain)?;
-            let staged = operation == proto::GitPathOperation::UnstagePaths;
+            let staged = operation == proto::GitPathOperation::Unstage;
             let mut files = Vec::new();
             for path in &paths.paths {
                 validate_path(root, path)?;
@@ -853,8 +927,8 @@ fn prepare(root: &Path, intent: &Intent) -> Result<(Prepared, Vec<String>), Stat
         Intent::Network(intent) => {
             let operation =
                 match proto::GitNetworkAction::try_from(intent.action).map_err(domain)? {
-                    proto::GitNetworkAction::PullRemote => network::Operation::Pull,
-                    proto::GitNetworkAction::PushRemote => network::Operation::Push,
+                    proto::GitNetworkAction::Pull => network::Operation::Pull,
+                    proto::GitNetworkAction::Push => network::Operation::Push,
                     _ => return Err(Status::invalid_argument("Network operation is required.")),
                 };
             let plan = network::prepare(root.to_owned()).map_err(domain)?;
@@ -887,7 +961,7 @@ fn prepare(root: &Path, intent: &Intent) -> Result<(Prepared, Vec<String>), Stat
         }
         Intent::Worktree(intent) => {
             match proto::WorktreeAction::try_from(intent.action).map_err(domain)? {
-                proto::WorktreeAction::CreateWorktree => {
+                proto::WorktreeAction::Create => {
                     let destination = PathBuf::from(required(intent.path.clone())?);
                     if destination.exists() {
                         return Err(Status::already_exists(
@@ -941,18 +1015,42 @@ fn prepare(root: &Path, intent: &Intent) -> Result<(Prepared, Vec<String>), Stat
                         vec![format!("Create worktree for branch {}.", intent.branch)],
                     ))
                 }
-                proto::WorktreeAction::StopWorktree => Ok((
+                proto::WorktreeAction::Stop => Ok((
                     Prepared::Stop,
                     vec!["Stop processes in this workspace; preserve files and drafts.".into()],
                 )),
-                action @ (proto::WorktreeAction::RemoveWorktree
-                | proto::WorktreeAction::MergeWorktree) => {
+                proto::WorktreeAction::DeleteBranch => {
+                    if intent.path.is_some()
+                        || intent.start_point.is_some()
+                        || !intent.delete_branch
+                    {
+                        return Err(Status::invalid_argument(
+                            "Branch deletion must only select source and comparison branches.",
+                        ));
+                    }
+                    let target = required(intent.target_branch.clone())?;
+                    let analysis =
+                        git::analyze_branch(root, &intent.branch, &target).map_err(domain)?;
+                    if analysis.commits_not_in_target > 0 && !intent.delete_unmerged_branch {
+                        return Err(domain(
+                            "Explicit unmerged branch deletion approval is required.",
+                        ));
+                    }
+                    Ok((
+                        Prepared::DeleteBranch(analysis),
+                        vec![format!(
+                            "Delete local branch {} after worktree cleanup.",
+                            intent.branch
+                        )],
+                    ))
+                }
+                action @ (proto::WorktreeAction::Remove | proto::WorktreeAction::Merge) => {
                     if intent.path.as_deref().is_some_and(|p| Path::new(p) != root) {
                         return Err(Status::invalid_argument(
                             "Removal path must be the selected workspace.",
                         ));
                     }
-                    if action == proto::WorktreeAction::MergeWorktree {
+                    if action == proto::WorktreeAction::Merge {
                         let signing =
                             git::signing::info(&repo.config().map_err(domain)?).map_err(domain)?;
                         if signing.enabled {
@@ -988,7 +1086,7 @@ fn prepare(root: &Path, intent: &Intent) -> Result<(Prepared, Vec<String>), Stat
                         kind: git::RemovalKind::Directory,
                     };
                     let target = intent.target_branch.clone();
-                    let action = if action == proto::WorktreeAction::MergeWorktree {
+                    let action = if action == proto::WorktreeAction::Merge {
                         git::RemovalAction::Merge {
                             target: required(target.clone())?,
                             delete_branch: intent.delete_branch,
@@ -1040,9 +1138,9 @@ fn apply(
             for file in files {
                 let edit =
                     match proto::GitPathOperation::try_from(intent.operation).map_err(domain)? {
-                        proto::GitPathOperation::StagePaths => changes::Edit::Stage(Some(file)),
-                        proto::GitPathOperation::UnstagePaths => changes::Edit::Unstage(Some(file)),
-                        proto::GitPathOperation::DiscardPaths => changes::Edit::Discard(file),
+                        proto::GitPathOperation::Stage => changes::Edit::Stage(Some(file)),
+                        proto::GitPathOperation::Unstage => changes::Edit::Unstage(Some(file)),
+                        proto::GitPathOperation::Discard => changes::Edit::Discard(file),
                         _ => return Err(domain("Invalid path operation.")),
                     };
                 changes::edit_checked(root, edit, &|| {
@@ -1136,10 +1234,14 @@ fn apply(
             }
         }
         (Prepared::Stop, Intent::Worktree(_)) => Ok(Vec::new()),
+        (Prepared::DeleteBranch(analysis), Intent::Worktree(_)) => {
+            git::delete_branch_after_removal(root, &analysis).map_err(domain)?;
+            Ok(br#"{"branch_deleted":true}"#.to_vec())
+        }
         _ => Err(Status::internal("Git preflight type mismatch.")),
     }
 }
-fn history(root: &Path, request: proto::GitHistoryRequest) -> Result<proto::GitHistory, Status> {
+fn history(root: &Path, request: proto::ReadHistoryRequest) -> Result<proto::GitHistory, Status> {
     let repo = snapshot::repository(root)?;
     let limit = if request.limit == 0 {
         50
@@ -1219,7 +1321,7 @@ fn history(root: &Path, request: proto::GitHistoryRequest) -> Result<proto::GitH
         next_before_oid,
     })
 }
-fn read_diff(root: &Path, request: &proto::DiffRequest) -> Result<changes::FileDiff, Status> {
+fn read_diff(root: &Path, request: &proto::ReadDiffRequest) -> Result<changes::FileDiff, Status> {
     crate::files::resolve(root, Path::new(&request.path)).map_err(domain)?;
     if let Some(commit) = &request.commit {
         let repo = snapshot::repository(root)?;
@@ -1285,6 +1387,196 @@ fn read_diff(root: &Path, request: &proto::DiffRequest) -> Result<changes::FileD
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn removed_worktree_retry_requires_every_saved_authority_root_before_result_or_conflict()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap().join("source");
+        let destination = dir.path().canonicalize().unwrap().join("destination");
+        std::fs::create_dir(&root).unwrap();
+        let repo = git2::Repository::init(&root).unwrap();
+        let tree_id = repo.index().unwrap().write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let signature = git2::Signature::now("Test", "test@example.test").unwrap();
+        repo.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[])
+            .unwrap();
+        let (auth, grant) = super::super::tests::fixture(&root, &dir.path().join("db")).await;
+        let grant = auth
+            .client()
+            .update_runtime_device_authorization(
+                grant.id().into(),
+                grant.authorization_revision(),
+                READ | FILES_GIT,
+                vec![
+                    root.to_str().unwrap().into(),
+                    destination.to_str().unwrap().into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let (roots, target) = super::super::tests::project_target(&auth, root.clone(), true);
+        let Some(proto::resource_target::Resource::Project(project)) = target.resource else {
+            unreachable!()
+        };
+        let worker = GitClient::start().unwrap();
+        let service = GitRpc::new(
+            auth.clone(),
+            roots,
+            worker.clone(),
+            ShellEnvironment {
+                shell: "/bin/sh".into(),
+                vars: HashMap::new(),
+            },
+            ResourceLocks::default(),
+        );
+        let request = proto::PreflightRequest {
+            project: Some(project),
+            intent: Some(Intent::Worktree(proto::GitWorktreeIntent {
+                action: proto::WorktreeAction::Create as i32,
+                branch: "new-checkout".into(),
+                path: Some(destination.to_str().unwrap().into()),
+                start_point: Some("HEAD".into()),
+                ..Default::default()
+            })),
+        };
+        let destinations = service
+            .authorize_destinations(&grant, &root, request.intent.as_ref().unwrap())
+            .await
+            .unwrap();
+        let (prepared, _) = prepare(&root, request.intent.as_ref().unwrap()).unwrap();
+        let mut expected = snapshot::capture(&root).unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        expected.preflight_id = Some(id.clone());
+        service.plans.lock().unwrap().insert(
+            id,
+            ApprovedPlan {
+                device: grant.id().into(),
+                root: root.clone(),
+                request: request.clone(),
+                expected: expected.clone(),
+                expires: Instant::now() + Duration::from_secs(300),
+                prepared,
+                destinations,
+                destination_snapshots: Vec::new(),
+            },
+        );
+        let stranded_meta = super::super::tests::api_meta();
+        let target = super::target(request.project.clone().unwrap());
+        let stranded = api::resources::prepare(
+            &auth,
+            &service.roots,
+            &grant,
+            stranded_meta.clone(),
+            &target,
+            Command::Git(GitCommand {
+                intent: api::git::intent(request.intent.as_ref().unwrap()).unwrap(),
+                expected: api::git::snapshot(&expected).unwrap(),
+            }),
+        )
+        .await
+        .unwrap();
+        let mut stranded_input = stranded.runtime_input().clone();
+        crate::command_bus::git::SavedAuthority::bind(
+            &mut stranded_input,
+            vec![destination.to_str().unwrap().into()],
+        )
+        .unwrap();
+        auth.client()
+            .accept_runtime_command(stranded_input, FILES_GIT)
+            .await
+            .unwrap();
+        let meta = super::super::tests::api_meta();
+        let saved = service
+            .execute(
+                grant.clone(),
+                meta.clone(),
+                request.clone(),
+                expected.clone(),
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(saved.state, proto::OperationState::Succeeded as i32);
+        assert!(destination.join(".git").is_file());
+        // The shared plan was consumed by the completed command. An unstarted
+        // Accepted retry must reject it durably and retain its original roots.
+        let rejected = service
+            .execute(
+                grant.clone(),
+                stranded_meta.clone(),
+                request.clone(),
+                expected.clone(),
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(rejected.state, proto::OperationState::Rejected as i32);
+        assert_eq!(rejected.error.as_ref().unwrap().code, "conditions_changed");
+        std::fs::remove_dir_all(&destination).unwrap();
+        service.roots.replace_projects(Vec::new()).unwrap();
+        assert_eq!(
+            service
+                .execute(
+                    grant.clone(),
+                    meta.clone(),
+                    request.clone(),
+                    expected.clone()
+                )
+                .await
+                .unwrap()
+                .into_inner(),
+            saved
+        );
+        let mut changed = request.clone();
+        let Some(Intent::Worktree(intent)) = &mut changed.intent else {
+            unreachable!()
+        };
+        intent.branch = "another-checkout".into();
+        assert_eq!(
+            service
+                .execute(
+                    grant.clone(),
+                    meta.clone(),
+                    changed.clone(),
+                    expected.clone()
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Aborted
+        );
+        auth.client()
+            .update_runtime_device_authorization(
+                grant.id().into(),
+                grant.authorization_revision(),
+                READ | FILES_GIT,
+                vec![root.to_str().unwrap().into()],
+            )
+            .await
+            .unwrap();
+        for meta in [meta, stranded_meta] {
+            for request in [&request, &changed] {
+                assert_eq!(
+                    service
+                        .execute(
+                            grant.clone(),
+                            meta.clone(),
+                            request.clone(),
+                            expected.clone()
+                        )
+                        .await
+                        .unwrap_err()
+                        .code(),
+                    tonic::Code::PermissionDenied
+                );
+            }
+        }
+        assert!(!destination.exists());
+        worker.shutdown().await;
+        auth.client().shutdown().await.unwrap();
+    }
+
     #[tokio::test]
     async fn approved_stage_executes_once_and_stale_plan_preserves_index() {
         let dir = tempfile::tempdir().unwrap();
@@ -1293,10 +1585,10 @@ mod tests {
         let repo = git2::Repository::init(&root).unwrap();
         std::fs::write(root.join("file.txt"), "one").unwrap();
         let (auth, grant) = super::super::tests::fixture(&root, &dir.path().join("db")).await;
-        let roots = WorkspaceRoots::default();
-        roots
-            .replace(HashMap::from([("workspace".into(), root.clone())]))
-            .unwrap();
+        let (roots, target) = super::super::tests::project_target(&auth, root.clone(), true);
+        let Some(proto::resource_target::Resource::Project(project)) = target.resource else {
+            unreachable!()
+        };
         let worker = GitClient::start().unwrap();
         let service = GitRpc::new(
             auth.clone(),
@@ -1308,13 +1600,10 @@ mod tests {
             },
             ResourceLocks::default(),
         );
-        let request = proto::GitPreflightRequest {
-            workspace: Some(proto::WorkspaceRef {
-                host_id: auth.host_id().into(),
-                workspace_id: "workspace".into(),
-            }),
+        let request = proto::PreflightRequest {
+            project: Some(project),
             intent: Some(Intent::Paths(proto::GitPathIntent {
-                operation: proto::GitPathOperation::StagePaths as i32,
+                operation: proto::GitPathOperation::Stage as i32,
                 paths: vec!["file.txt".into()],
             })),
         };
@@ -1335,14 +1624,13 @@ mod tests {
                 destination_snapshots: Vec::new(),
             },
         );
-        let meta = super::super::tests::meta(&auth);
+        let meta = super::super::tests::api_meta();
         let result = service
             .execute(
                 grant.clone(),
                 meta.clone(),
                 request.clone(),
                 expected.clone(),
-                "git.stage",
             )
             .await
             .unwrap()
@@ -1356,12 +1644,18 @@ mod tests {
         );
         assert_eq!(
             service
-                .execute(grant.clone(), meta, request.clone(), expected, "git.stage")
+                .execute(
+                    grant.clone(),
+                    meta.clone(),
+                    request.clone(),
+                    expected.clone()
+                )
                 .await
                 .unwrap()
                 .into_inner(),
             result
         );
+        let succeeded_retry = (meta, expected);
         std::fs::write(root.join("file.txt"), "two").unwrap();
         let mut expected = snapshot::capture(&root).unwrap();
         let (prepared, _) = prepare(&root, request.intent.as_ref().unwrap()).unwrap();
@@ -1387,19 +1681,19 @@ mod tests {
             .get_path(Path::new("file.txt"), 0)
             .unwrap()
             .id;
+        let rejected_meta = super::super::tests::api_meta();
         let failure = service
             .execute(
-                grant,
-                super::super::tests::meta(&auth),
-                request,
-                expected,
-                "git.stage",
+                grant.clone(),
+                rejected_meta.clone(),
+                request.clone(),
+                expected.clone(),
             )
             .await
             .unwrap()
             .into_inner();
-        assert_eq!(failure.state, proto::OperationState::Failed as i32);
-        assert_eq!(failure.error.unwrap().code, "conflict");
+        assert_eq!(failure.state, proto::OperationState::Rejected as i32);
+        assert_eq!(failure.error.as_ref().unwrap().code, "conditions_changed");
         assert_eq!(
             repo.index()
                 .unwrap()
@@ -1408,6 +1702,82 @@ mod tests {
                 .id,
             before
         );
+        service.roots.replace_projects(Vec::new()).unwrap();
+        drop(repo);
+        std::fs::remove_dir_all(&root).unwrap();
+        // Neither retry needs a current catalog entry, repository or live plan.
+        for (meta, expected, saved) in [
+            (succeeded_retry.0, succeeded_retry.1, result),
+            (rejected_meta, expected, failure),
+        ] {
+            assert_eq!(
+                service
+                    .execute(
+                        grant.clone(),
+                        meta.clone(),
+                        request.clone(),
+                        expected.clone()
+                    )
+                    .await
+                    .unwrap()
+                    .into_inner(),
+                saved
+            );
+            let mut changed = request.clone();
+            let Some(Intent::Paths(paths)) = &mut changed.intent else {
+                unreachable!()
+            };
+            paths.paths = vec!["other.txt".into()];
+            assert_eq!(
+                service
+                    .execute(
+                        grant.clone(),
+                        meta.clone(),
+                        changed.clone(),
+                        expected.clone()
+                    )
+                    .await
+                    .unwrap_err()
+                    .code(),
+                tonic::Code::Aborted
+            );
+            auth.client()
+                .update_runtime_device_authorization(
+                    grant.id().into(),
+                    auth.client()
+                        .lookup_runtime_device(vec![7; 32])
+                        .await
+                        .unwrap()
+                        .authorization_revision(),
+                    READ | FILES_GIT,
+                    vec!["private".into()],
+                )
+                .await
+                .unwrap();
+            for request in [request.clone(), changed] {
+                assert_eq!(
+                    service
+                        .execute(grant.clone(), meta.clone(), request, expected.clone())
+                        .await
+                        .unwrap_err()
+                        .code(),
+                    tonic::Code::PermissionDenied
+                );
+            }
+            auth.client()
+                .update_runtime_device_authorization(
+                    grant.id().into(),
+                    auth.client()
+                        .lookup_runtime_device(vec![7; 32])
+                        .await
+                        .unwrap()
+                        .authorization_revision(),
+                    READ | FILES_GIT,
+                    vec![root.to_str().unwrap().into()],
+                )
+                .await
+                .unwrap();
+        }
         worker.shutdown().await;
         auth.client().shutdown().await.unwrap();
     }

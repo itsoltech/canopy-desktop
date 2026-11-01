@@ -9,13 +9,13 @@ use crate::{
 };
 use tonic::Status;
 
-pub(super) fn required<T>(value: Option<T>) -> Result<T, Status> {
+pub(crate) fn required<T>(value: Option<T>) -> Result<T, Status> {
     value.ok_or_else(|| Status::invalid_argument("Required field is missing."))
 }
-pub(super) fn host(value: String) -> Result<HostId, Status> {
+pub(crate) fn host(value: String) -> Result<HostId, Status> {
     HostId::new(value).ok_or_else(|| Status::invalid_argument("Invalid host identity."))
 }
-pub(super) fn environment(value: p::EnvironmentRef) -> Result<EnvironmentRef, Status> {
+pub(crate) fn environment(value: p::EnvironmentRef) -> Result<EnvironmentRef, Status> {
     Ok(EnvironmentRef {
         host_id: host(value.host_id)?,
     })

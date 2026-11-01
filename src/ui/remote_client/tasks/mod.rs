@@ -4,11 +4,12 @@ use crate::ui::{
     markdown::MarkdownView,
     task_edit::composer::{ComposerChanged, MarkdownComposer},
 };
+use canopy_desktop::{api::proto as p, remote::client::TaskMutation};
 use gpui_kit::component::{
     WindowExt,
     select::{SelectEvent, SelectState},
 };
-use p::task_mutation_request::Action as Mutation;
+use p::apply_mutation_request::Action as Mutation;
 mod adapter;
 mod attachments;
 mod choices;
@@ -40,7 +41,11 @@ enum Choices {
     reason = "The busy gate permits one pending task operation result, including its receipt and updated task DTO."
 )]
 enum ResultView {
-    Integrations(p::TaskIntegrations, Option<p::WorkspaceRef>),
+    Integrations(
+        p::TaskIntegrations,
+        Option<p::ProjectCheckout>,
+        Option<p::ProjectRef>,
+    ),
     Choices(Choices, p::TaskChoicePage, bool),
     Tasks(p::TaskPage, bool),
     Detail(p::Task),
@@ -76,13 +81,14 @@ enum DetailAction {
     Link,
 }
 type Picker = Entity<SelectState<Vec<SelectOption>>>;
-pub(super) struct OpenWorkspace(pub(super) p::WorkspaceRef);
+pub(super) struct OpenWorkspace(pub(super) p::ProjectCheckout);
 impl EventEmitter<OpenWorkspace> for TasksView {}
 pub(super) struct TasksView {
     host: Arc<HostClient>,
     runtime: Arc<tokio::runtime::Runtime>,
     window: AnyWindowHandle,
-    workspace: Option<p::WorkspaceRef>,
+    workspace: Option<p::ProjectCheckout>,
+    project_address: Option<p::ProjectRef>,
     integrations: Vec<p::TaskIntegration>,
     discovery_pending: bool,
     integration: Option<p::TaskIntegration>,
@@ -161,7 +167,7 @@ impl TasksView {
     pub(super) fn new(
         host: Arc<HostClient>,
         runtime: Arc<tokio::runtime::Runtime>,
-        workspace: Option<p::WorkspaceRef>,
+        workspace: Option<p::ProjectCheckout>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -175,6 +181,7 @@ impl TasksView {
         let project_picker = picker(window, cx, true);
         let filter_picker = picker(window, cx, true);
         let mut s = Self {
+            project_address: None,
             host,
             runtime,
             workspace,
@@ -303,13 +310,14 @@ impl TasksView {
     }
     pub(super) fn set_workspace(
         &mut self,
-        workspace: Option<p::WorkspaceRef>,
+        workspace: Option<p::ProjectCheckout>,
         cx: &mut Context<Self>,
     ) {
         // An open task keeps the workspace with which it was fetched. A new
         // project selection captures the navigation scope for subsequent reads.
         if self.workspace != workspace {
             self.workspace = workspace;
+            self.project_address = None;
             self.integrations.clear();
             self.discovery_pending = true;
             if self.ready() {
@@ -324,16 +332,28 @@ impl TasksView {
     }
     fn project_ref(&self) -> Result<p::TaskProject, String> {
         Ok(p::TaskProject {
-            host_id: self.host.id().as_str().into(),
+            resource: Some(self.resource()?),
             integration_id: self
                 .integration
                 .as_ref()
                 .ok_or("Choose an integration.")?
                 .id
                 .clone(),
-            project_id: self.project.as_ref().ok_or("Choose a project.")?.id.clone(),
-            workspace: self.workspace.clone(),
+            project_key: self.project.as_ref().ok_or("Choose a project.")?.id.clone(),
         })
+    }
+    fn resource(&self) -> Result<p::task_project::Resource, String> {
+        if self.workspace.is_some() {
+            Ok(p::task_project::Resource::Project(
+                self.project_address
+                    .clone()
+                    .ok_or("Project discovery is pending.")?,
+            ))
+        } else {
+            Ok(p::task_project::Resource::Environment(p::EnvironmentRef {
+                host_id: self.host.id().as_str().into(),
+            }))
+        }
     }
     fn task_ref(&self) -> Result<p::TaskRef, String> {
         self.task
@@ -422,10 +442,11 @@ impl TasksView {
     }
     fn install(&mut self, result: ResultView, cx: &mut Context<Self>) {
         match result {
-            ResultView::Integrations(s, workspace) => {
+            ResultView::Integrations(s, workspace, project_address) => {
                 if workspace != self.workspace {
                     return;
                 }
+                self.project_address = project_address;
                 self.integrations = s.integrations;
                 self.sync_integration_picker(cx);
                 // A single configured account needs no choice; its projects load directly.
@@ -621,33 +642,23 @@ impl TasksView {
                 self.sync_comment_views(cx);
             }
             ResultView::Receipt(receipt) => {
-                let result = receipt
-                    .operation_output
-                    .as_deref()
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
-                self.returned_workspace = result
-                    .as_ref()
-                    .and_then(|r| r["workspace_id"].as_str())
-                    .map(str::to_owned);
+                let result = task_result(&receipt);
+                self.returned_workspace = result.and_then(|r| r.worktree_catalog_id.clone());
                 self.notice = result
-                    .as_ref()
-                    .and_then(|r| r["notice"].as_str())
+                    .and_then(|r| r.notice.as_deref())
                     .unwrap_or("Change applied.")
                     .to_owned();
                 if self.returned_workspace.is_some() {
                     self.notice = "Worktree created.".into();
                 }
-                if let Some(id) = result.as_ref().and_then(|r| r["deleted_task_id"].as_str()) {
+                if let Some(id) = result.and_then(|r| r.deleted_task_id.as_deref()) {
                     self.tasks
                         .retain(|t| t.task.as_ref().is_none_or(|t| t.task_id != id));
                     self.task = None;
                     self.editing = false;
                     self.action = None;
                 }
-                if let Some(id) = result
-                    .as_ref()
-                    .and_then(|r| r["deleted_comment_id"].as_str())
-                {
+                if let Some(id) = result.and_then(|r| r.deleted_comment_id.as_deref()) {
                     self.comments.retain(|c| c.id != id);
                     self.comment_views.remove(id);
                     if self.comment_id.as_deref() == Some(id) {
@@ -655,7 +666,7 @@ impl TasksView {
                         self.comment_rich = None;
                     }
                 }
-                if let Some(id) = result.as_ref().and_then(|r| r["task_id"].as_str()) {
+                if let Some(id) = result.and_then(|r| r.task_id.as_deref()) {
                     self.notice.push_str(&format!(" Task {id}."));
                 }
             }
@@ -683,11 +694,7 @@ impl TasksView {
                 self.activity_next = schema.next_page_token;
             }
             ResultView::Changed(receipt, task, error) => {
-                let commented = receipt
-                    .operation_output
-                    .as_deref()
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-                    .is_some_and(|r| r["comment_id"].is_string());
+                let commented = task_result(&receipt).is_some_and(|r| r.comment_id.is_some());
                 self.install(ResultView::Receipt(receipt), cx);
                 if let Some(task) = task {
                     if let Some(row) = self.tasks.iter_mut().find(|t| t.task == task.task) {
@@ -759,14 +766,18 @@ impl TasksView {
     }
     fn draft_key(&self) -> String {
         if let Some(task) = self.task.as_ref().and_then(|t| t.task.as_ref()) {
+            let Some(project) = task.project.as_ref() else {
+                return "task-draft:unavailable".into();
+            };
             format!(
                 "task-draft:{}:{}:{}:{}",
-                task.integration_id,
-                task.project_id,
-                task.workspace
-                    .as_ref()
-                    .map(|w| w.workspace_id.as_str())
-                    .unwrap_or("global"),
+                project.integration_id,
+                project.project_key,
+                match project.resource.as_ref() {
+                    Some(p::task_project::Resource::Project(p)) =>
+                        p.worktree_id.as_deref().unwrap_or(&p.project_id),
+                    _ => "global",
+                },
                 task.task_id
             )
         } else {
@@ -779,7 +790,7 @@ impl TasksView {
                 self.project.as_ref().map(|p| p.id.as_str()).unwrap_or(""),
                 self.workspace
                     .as_ref()
-                    .map(|w| w.workspace_id.as_str())
+                    .map(|w| w.catalog_id.as_str())
                     .unwrap_or("global")
             )
         }
@@ -815,6 +826,12 @@ impl TasksView {
             });
         })
         .detach();
+    }
+}
+fn task_result(receipt: &p::CommandReceipt) -> Option<&p::TaskResult> {
+    match receipt.result.as_ref() {
+        Some(p::command_receipt::Result::Task(result)) => Some(result),
+        _ => None,
     }
 }
 impl Drop for TasksView {

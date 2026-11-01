@@ -2,9 +2,9 @@
 //! the QR token only gates a locally approved request over the pinned TLS channel.
 use super::{
     auth::{RpcAuth, storage_status},
-    proto,
     tls::{DeviceCertificate, HostIdentity},
 };
+use crate::api::proto;
 use crate::host::{DeviceGrant, DeviceRegistration};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, Mac};
@@ -273,7 +273,7 @@ fn status(window: &Window, pending: &Pending) -> proto::PairingStatus {
     let now = Instant::now();
     let mut result = proto::PairingStatus {
         request_id: pending.id.clone(),
-        state: "pending".into(),
+        state: proto::PairingState::Pending as i32,
         certificate: None,
         certificate_chain: vec![],
         device: None,
@@ -284,46 +284,53 @@ fn status(window: &Window, pending: &Pending) -> proto::PairingStatus {
             grant,
             until,
         } if now < *until => {
-            result.state = "approved".into();
+            result.state = proto::PairingState::Approved as i32;
             result.certificate = Some(certificate.der().into());
             result.certificate_chain = certificate.chain().to_vec();
             result.device = Some(proto::Device {
                 device_id: grant.id().into(),
                 name: grant.name().into(),
-                scopes: scope_names(grant.scopes()),
+                scopes: scope_values(grant.scopes()),
                 roots: grant.roots().into(),
                 revoked: false,
             });
         }
-        Stage::Approved { .. } => result.state = "expired".into(),
-        _ if now >= window.expires => result.state = "expired".into(),
-        Stage::Denied => result.state = "denied".into(),
+        Stage::Approved { .. } => result.state = proto::PairingState::Expired as i32,
+        _ if now >= window.expires => result.state = proto::PairingState::Expired as i32,
+        Stage::Denied => result.state = proto::PairingState::Denied as i32,
         Stage::Pending | Stage::Approving => {}
     }
     result
 }
-pub(crate) fn scope_names(scopes: u32) -> Vec<String> {
+pub(crate) fn scope_values(scopes: u32) -> Vec<i32> {
     [
-        (1, "read"),
-        (2, "chat"),
-        (4, "approve"),
-        (8, "files_git"),
-        (16, "terminal"),
-        (32, "tasks"),
-        (64, "admin"),
+        (crate::host::READ, proto::Scope::Read),
+        (crate::host::CHAT, proto::Scope::Chat),
+        (crate::host::APPROVE, proto::Scope::Approve),
+        (crate::host::FILES_GIT, proto::Scope::FilesGit),
+        (crate::host::TERMINAL, proto::Scope::Terminal),
+        (crate::host::TASKS, proto::Scope::Tasks),
+        (crate::host::ADMIN, proto::Scope::Admin),
     ]
     .into_iter()
     .filter(|(bit, _)| scopes & bit != 0)
-    .map(|(_, name)| name.into())
+    .map(|(_, scope)| scope as i32)
     .collect()
 }
 #[tonic::async_trait]
 impl proto::enrollment_service_server::EnrollmentService for EnrollmentRpc {
     async fn request_pairing(
         &self,
-        request: Request<proto::PairingRequest>,
+        request: Request<proto::RequestPairingRequest>,
     ) -> Result<Response<proto::PairingStatus>, Status> {
         let request = request.into_inner();
+        self.auth.check_host(
+            &request
+                .environment
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Environment is required."))?
+                .host_id,
+        )?;
         if request.device_name.trim().is_empty()
             || request.device_name.len() > 256
             || request.device_name.chars().any(char::is_control)
@@ -372,9 +379,16 @@ impl proto::enrollment_service_server::EnrollmentService for EnrollmentRpc {
     }
     async fn get_pairing_status(
         &self,
-        request: Request<proto::PairingStatusRequest>,
+        request: Request<proto::GetPairingStatusRequest>,
     ) -> Result<Response<proto::PairingStatus>, Status> {
         let request = request.into_inner();
+        self.auth.check_host(
+            &request
+                .environment
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Environment is required."))?
+                .host_id,
+        )?;
         let state = self
             .window
             .lock()
@@ -397,7 +411,7 @@ impl proto::enrollment_service_server::EnrollmentService for EnrollmentRpc {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::proto::enrollment_service_server::EnrollmentService;
+    use crate::api::proto::enrollment_service_server::EnrollmentService;
 
     #[tokio::test]
     async fn approval_binds_one_key_and_bad_grants_do_not_strand_pairing() {
@@ -413,7 +427,10 @@ mod tests {
         let key = rcgen::KeyPair::generate().unwrap();
         let params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
         let csr = params.serialize_request(&key).unwrap().der().to_vec();
-        let request = proto::PairingRequest {
+        let request = proto::RequestPairingRequest {
+            environment: Some(proto::EnvironmentRef {
+                host_id: invite.host_id.clone(),
+            }),
             one_time_token: invite.one_time_token.clone(),
             certificate_signing_request: csr,
             device_name: "phone".into(),
@@ -455,7 +472,10 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            rpc.get_pairing_status(Request::new(proto::PairingStatusRequest {
+            rpc.get_pairing_status(Request::new(proto::GetPairingStatusRequest {
+                environment: Some(proto::EnvironmentRef {
+                    host_id: invite.host_id.clone()
+                }),
                 request_id: first.request_id.clone(),
                 proof: vec![0; 32]
             }))
@@ -463,14 +483,17 @@ mod tests {
             .is_err()
         );
         let approved = rpc
-            .get_pairing_status(Request::new(proto::PairingStatusRequest {
+            .get_pairing_status(Request::new(proto::GetPairingStatusRequest {
+                environment: Some(proto::EnvironmentRef {
+                    host_id: invite.host_id.clone(),
+                }),
                 request_id: first.request_id,
                 proof: invite.one_time_token,
             }))
             .await
             .unwrap()
             .into_inner();
-        assert_eq!(approved.state, "approved");
+        assert_eq!(approved.state, proto::PairingState::Approved as i32);
         let certificate = approved.certificate.unwrap();
         let grant = client
             .lookup_runtime_device(certificate.clone())

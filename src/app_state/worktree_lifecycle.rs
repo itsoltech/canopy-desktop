@@ -3,10 +3,8 @@
 //! remote service reaches them through a bounded channel; it never holds app state.
 use super::AppState;
 use canopy_desktop::{
-    remote::{
-        proto::{GitWorktreeIntent, WorktreeAction},
-        resources::WorktreeLifecycle,
-    },
+    api::proto::{GitWorktreeIntent, WorktreeAction},
+    remote::resources::WorktreeLifecycle,
     state::workspace::{PaneId, WorkspaceId},
 };
 use futures_channel::oneshot;
@@ -108,7 +106,7 @@ async fn merge_target(
     intent: &GitWorktreeIntent,
     cx: &mut AsyncApp,
 ) -> Result<Option<(WorkspaceId, PathBuf)>, String> {
-    if intent.action != WorktreeAction::MergeWorktree as i32 {
+    if intent.action != WorktreeAction::Merge as i32 {
         return Ok(None);
     }
     let Some(branch) = intent.target_branch.clone() else {
@@ -233,7 +231,7 @@ async fn dirty_elsewhere(
             )
         })
         .collect();
-    let stop = intent.action == WorktreeAction::StopWorktree as i32;
+    let stop = intent.action == WorktreeAction::Stop as i32;
     let active = cx.update(|cx| {
         let remote = cx.global::<AppState>().remote.read(cx);
         presence
@@ -271,7 +269,7 @@ fn preflight(
     cx: &mut App,
 ) -> Result<Vec<String>, String> {
     let app = cx.global::<AppState>().clone();
-    let stop = intent.action == WorktreeAction::StopWorktree as i32;
+    let stop = intent.action == WorktreeAction::Stop as i32;
     if let Some(error) = app.terminals.read(cx).workspace_cleanup_error(id, cx) {
         return Err(format!(
             "Resolve the previous terminal cleanup failure first: {error}"
@@ -333,7 +331,7 @@ async fn apply(
         stop.await
             .map_err(|error| format!("Could not confirm process cleanup: {error}"))?;
     }
-    if intent.action == WorktreeAction::StopWorktree as i32 {
+    if intent.action == WorktreeAction::Stop as i32 {
         return Ok(());
     }
     let target = merge_target(id, intent, cx).await?;

@@ -1,22 +1,34 @@
 import type { HostSession } from './hosts'
-import type { ArtifactRef, ResourceRef, CommandMeta } from './schema'
+import type { ArtifactRef, FileRef, ThreadTarget, TaskRef, CommandMeta } from './schema'
 import { command, checkReceipt, uniqueId } from './commands'
 import { fromBase64, toBase64 } from './protobuf'
 /** Upload journal is durable before Begin; retries retain both command IDs and bytes. */
-export type UploadJournal = { id: string; begin: CommandMeta; finish: CommandMeta; target: ResourceRef; purpose: string; size: string; hash: Uint8Array; mediaType: string; localId: string; uploadId?: string; artifact?: ArtifactRef }
-export async function prepareUpload(host: HostSession, target: ResourceRef, purpose: string, localId: string, size: number, hash: Uint8Array, mediaType: string): Promise<UploadJournal> {
+export type UploadTarget = { image: ThreadTarget; file?: never; task?: never } | { image?: never; file: FileRef; task?: never } | { image?: never; file?: never; task: TaskRef }
+export type UploadJournal = { id: string; hostId: string; begin: CommandMeta; finish: CommandMeta; target: UploadTarget; purpose: string; size: string; hash: Uint8Array; mediaType: string; localId: string; uploadId?: string; artifact?: ArtifactRef }
+export async function prepareUpload(host: HostSession, target: UploadTarget, purpose: string, localId: string, size: number, hash: Uint8Array, mediaType: string): Promise<UploadJournal> {
   if (size < 0 || size > 64 * 1024 * 1024 || hash.length !== 32) throw Error('Invalid upload source')
-  const journal = { id: uniqueId(), begin: command(host.store), finish: command(host.store), target, purpose, size: String(size), hash, mediaType, localId }
+  const journal = { id: uniqueId(), hostId: host.snapshot().hostId, begin: command(host.store), finish: command(host.store), target, purpose, size: String(size), hash, mediaType, localId }
   await host.store.update(state => { (state.uploads ??= []).push(journal); return null })
   return journal
 }
 export async function upload(host: HostSession, id: string, signal?: AbortSignal): Promise<ArtifactRef> {
   let journal = host.store.snapshot().uploads?.find(u => u.id === id)
   if (!journal) throw Error('Upload journal missing')
+  if (journal.hostId !== host.snapshot().hostId || !journal.target || (!journal.target.image && !journal.target.file && !journal.target.task)) throw Error('Saved upload identity is unavailable; source retained')
   if (journal.artifact) return journal.artifact
   const save = async () => { const value = journal!; await host.store.update(state => { state.uploads = state.uploads?.map(u => u.id === id ? value : u); return null }) }
-  let status = journal.uploadId ? await host.transport.unary('ArtifactsService/GetUpload', { host_id: journal.begin.host_id, upload_id: journal.uploadId }, signal) : await host.transport.unary('ArtifactsService/BeginUpload', { command: journal.begin, target: journal.target, purpose: journal.purpose, size: journal.size, sha256: journal.hash, media_type: journal.mediaType }, signal)
-  if (status.host_id !== journal.begin.host_id || !status.upload_id) throw Error('Upload identity mismatch')
+  const environment = { host_id: journal.hostId }
+  if (!journal.uploadId) {
+    const content = { size: journal.size, sha256: journal.hash, media_type: journal.mediaType }
+    const receipt = checkReceipt(journal.target.image
+      ? await host.transport.unary('ArtifactsService/BeginImageUpload', { command: journal.begin, target: journal.target.image, content }, signal)
+      : journal.target.file ? await host.transport.unary('ArtifactsService/BeginFileUpload', { command: journal.begin, file: journal.target.file, content }, signal)
+      : await host.transport.unary('ArtifactsService/BeginTaskUpload', { command: journal.begin, task: journal.target.task, content }, signal))
+    if (receipt.host_id !== journal.hostId || receipt.command_id !== journal.begin.command_id || receipt.command_epoch !== journal.begin.command_epoch || !receipt.artifact?.upload_id) throw Error('Upload receipt identity mismatch')
+    journal = { ...journal, uploadId: receipt.artifact.upload_id }; await save()
+  }
+  let status = await host.transport.unary('ArtifactsService/GetUpload', { environment, upload_id: journal.uploadId! }, signal)
+  if (status.environment?.host_id !== journal.hostId || !status.upload_id) throw Error('Upload identity mismatch')
   if (journal.uploadId && journal.uploadId !== status.upload_id) throw Error('Upload identity changed')
   journal = { ...journal, uploadId: status.upload_id }; await save()
   if (!status.artifact) {
@@ -25,17 +37,21 @@ export async function upload(host: HostSession, id: string, signal?: AbortSignal
       if (status.received.some(r => BigInt(r.offset) <= BigInt(offset) && BigInt(r.offset) + BigInt(r.length) >= BigInt(offset + length))) continue
       const bytes = fromBase64(await host.transport.native.readAttachment(journal.localId, offset, length))
       if (bytes.length !== length) throw Error('Staged source changed')
-      status = await host.transport.unary('ArtifactsService/PutChunk', { host_id: journal.begin.host_id, upload_id: journal.uploadId!, offset: String(offset), data: bytes }, signal)
-      if (status.host_id !== journal.begin.host_id || status.upload_id !== journal.uploadId) throw Error('Chunk acknowledgement identity mismatch')
+      status = await host.transport.unary('ArtifactsService/PutChunk', { environment, upload_id: journal.uploadId!, offset: String(offset), data: bytes }, signal)
+      if (status.environment?.host_id !== journal.hostId || status.upload_id !== journal.uploadId) throw Error('Chunk acknowledgement identity mismatch')
     }
-    checkReceipt(await host.transport.unary('ArtifactsService/FinishUpload', { command: journal.finish, upload_id: journal.uploadId! }, signal))
-    status = await host.transport.unary('ArtifactsService/GetUpload', { host_id: journal.begin.host_id, upload_id: journal.uploadId! }, signal)
+    const finish = { command: journal.finish, upload_id: journal.uploadId!, origin: { command_id: journal.begin.command_id, command_epoch: journal.begin.command_epoch } }
+    checkReceipt(journal.target.image
+      ? await host.transport.unary('ArtifactsService/FinishImageUpload', { ...finish, target: journal.target.image }, signal)
+      : journal.target.file ? await host.transport.unary('ArtifactsService/FinishFileUpload', { ...finish, file: journal.target.file }, signal)
+      : await host.transport.unary('ArtifactsService/FinishTaskUpload', { ...finish, task: journal.target.task }, signal))
+    status = await host.transport.unary('ArtifactsService/GetUpload', { environment, upload_id: journal.uploadId! }, signal)
   }
   const artifact = status.artifact
-  if (!artifact || artifact.host_id !== journal.begin.host_id || artifact.size !== journal.size || toBase64(artifact.sha256) !== toBase64(journal.hash)) throw Error('Upload is not ready or digest changed')
+  if (!artifact || artifact.host_id !== journal.hostId || artifact.size !== journal.size || toBase64(artifact.sha256) !== toBase64(journal.hash)) throw Error('Upload is not ready or digest changed')
   journal = { ...journal, artifact }; await save(); return artifact
 }
-export async function uploadText(host: HostSession, target: ResourceRef, text: string): Promise<ArtifactRef> {
+export async function uploadText(host: HostSession, target: UploadTarget, text: string): Promise<ArtifactRef> {
   const bytes = new TextEncoder().encode(text), id = uniqueId(), native = host.transport.native
   // Native staging enforces total attachment budget and atomically publishes the source.
   await native.beginAttachment(id)

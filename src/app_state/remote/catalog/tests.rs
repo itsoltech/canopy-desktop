@@ -103,78 +103,121 @@ async fn a_device_sees_only_its_roots_and_then_only_what_changed() {
             .collect(),
         records: vec![mine.clone(), other.clone(), private.clone()],
     };
-    let first = catalog(&auth, &grant, &event(false), &[]);
+    let terminal =
+        |id: &str, root: &str| TerminalInfo::new(id.into(), root.into(), id.into(), None);
+    let terminals = vec![
+        terminal("mine", "/work/a").with_workspace(workspace_ref(a)),
+        terminal("other", "/work/b").with_workspace(workspace_ref(b)),
+        terminal("private", "/work/a"),
+        terminal("scratch", "/work/a").with_workspace(workspace_ref(WorkspaceId::new())),
+        terminal("changed", "/work/a").with_workspace(workspace_ref(b)),
+    ];
+    let first = catalog(&auth, &grant, &event(false), &terminals);
     // Neither another checkout's project and chats nor Private chats are listed.
     assert_eq!(first.projects.len(), 1);
     assert_eq!(first.projects[0].checkouts[0].path, "/work/a");
-    assert_eq!(first.chats.len(), 1);
-    assert_eq!(first.chats[0].chat.as_ref().unwrap().chat_id, mine.id());
+    assert_eq!(first.threads.len(), 1);
+    assert_eq!(first.threads[0].catalog_id, mine.id());
+    assert_eq!(first.terminals.len(), 1);
+    assert_eq!(
+        first.terminals[0].terminal.as_ref().unwrap().terminal_id,
+        "mine"
+    );
 
     use proto::summary_event::Change;
     use watch::Plan;
     let (plan, sent) = watch::diff(None, &first);
     assert!(matches!(plan, Plan::Snapshot));
     // A status change of a visible chat is one chat delta; invisible ones send nothing.
-    let (plan, sent) = watch::diff(Some(&sent), &catalog(&auth, &grant, &event(true), &[]));
+    let (plan, sent) = watch::diff(
+        Some(&sent),
+        &catalog(&auth, &grant, &event(true), &terminals),
+    );
     assert!(
-        matches!(&plan, Plan::Deltas(c) if matches!(c.as_slice(), [Change::Chat(c)] if c.state == proto::ChatState::Working as i32))
+        matches!(&plan, Plan::Deltas(c) if matches!(c.as_slice(), [Change::Thread(c)] if c.summary.as_ref().unwrap().state == proto::ThreadState::Working as i32))
     );
     // A deleted chat is reported as deleted.
     let mut gone = event(true);
     gone.chats.retain(|c| c.chat != mine.id());
-    let (plan, sent) = watch::diff(Some(&sent), &catalog(&auth, &grant, &gone, &[]));
+    let (plan, sent) = watch::diff(Some(&sent), &catalog(&auth, &grant, &gone, &terminals));
     assert!(matches!(
         &plan,
-        Plan::Deltas(c) if matches!(c.as_slice(), [Change::Deleted(proto::ResourceRef { resource: Some(proto::resource_ref::Resource::Chat(c)) })]
-            if c.chat_id == mine.id())
+        Plan::Deltas(c) if matches!(c.as_slice(), [Change::Deleted(proto::CatalogDeleted { resource: Some(proto::catalog_deleted::Resource::ThreadCatalogId(c)) })]
+            if c == mine.id())
     ));
     // A project change resends the whole catalog.
     let mut closed = gone;
     closed.workspaces.retain(|w| w.workspace != a);
-    let (plan, _) = watch::diff(Some(&sent), &catalog(&auth, &grant, &closed, &[]));
+    let (plan, _) = watch::diff(Some(&sent), &catalog(&auth, &grant, &closed, &terminals));
     assert!(matches!(plan, Plan::Snapshot));
+    auth.client()
+        .update_runtime_device_authorization(
+            grant.id().into(),
+            grant.authorization_revision(),
+            host::ALL_SCOPES,
+            vec!["*".into()],
+        )
+        .await
+        .unwrap();
+    let grant = auth
+        .client()
+        .lookup_runtime_device(vec![3; 32])
+        .await
+        .unwrap();
+    let all = catalog(&auth, &grant, &event(false), &terminals);
+    assert_eq!(all.terminals.len(), 2);
+    assert!(all.terminals.iter().all(|t| matches!(
+        t.terminal.as_ref().unwrap().terminal_id.as_str(),
+        "mine" | "other"
+    )));
 }
 
 /// About 2100 chats with 512-byte titles and a project with thousands of checkouts:
 /// well over one frame, as unary `ListResources` cannot carry it.
 fn large_catalog() -> proto::Catalog {
-    let checkout = |i: usize| proto::WorkspaceSummary {
-        workspace: Some(proto::WorkspaceRef {
+    let checkout = |i: usize| proto::ProjectCheckout {
+        catalog_id: i.to_string(),
+        project: Some(proto::ProjectRef {
             host_id: "h".into(),
-            workspace_id: i.to_string(),
+            project_id: "repo".into(),
+            worktree_id: Some(i.to_string()),
         }),
         name: format!("tree-{i}"),
         path: format!("/work/repo/.worktrees/{}-{i}", "x".repeat(200)),
-        closing: Some(false),
+        closing: false,
         branch: None,
         repository_path: Some("/work/repo".into()),
     };
     proto::Catalog {
-        host_id: "h".into(),
+        environment: Some(proto::EnvironmentRef {
+            host_id: "h".into(),
+        }),
         projects: vec![
             proto::ProjectSummary {
                 origin: None,
-                project_id: "/work/repo".into(),
                 name: "repo".into(),
                 path: "/work/repo".into(),
                 checkouts: (0..3000).map(checkout).collect(),
             },
             proto::ProjectSummary {
                 origin: None,
-                project_id: "/work/empty".into(),
                 name: "empty".into(),
                 path: "/work/empty".into(),
                 checkouts: vec![],
             },
         ],
-        chats: (0..2100)
-            .map(|i| proto::ChatSummary {
-                chat: Some(proto::ChatRef {
+        threads: (0..2100)
+            .map(|i| proto::CatalogThread {
+                catalog_id: format!("chat-{i}"),
+                thread: Some(proto::ThreadRef {
                     host_id: "h".into(),
-                    chat_id: format!("chat-{i}"),
+                    thread_id: format!("thread-{i}"),
                 }),
-                title: format!("{i:04}{}", "t".repeat(508)),
-                agent_id: "claude".into(),
+                summary: Some(proto::ThreadStatus {
+                    title: format!("{i:04}{}", "t".repeat(508)),
+                    agent_id: "claude".into(),
+                    ..Default::default()
+                }),
                 ..Default::default()
             })
             .collect(),
@@ -234,9 +277,9 @@ fn a_catalog_over_one_frame_arrives_whole_in_bounded_pages() {
 fn the_projection_budget_is_finite_and_released() {
     let hub = canopy_desktop::remote::sync::ReplayHub::new(Default::default());
     let mut huge = large_catalog();
-    let chats = huge.chats.clone();
+    let chats = huge.threads.clone();
     for _ in 0..40 {
-        huge.chats.extend(chats.iter().cloned());
+        huge.threads.extend(chats.iter().cloned());
     }
     assert!(huge.encoded_len() > 32 * 1024 * 1024);
     let error = pages::Projection::charge(&hub, huge).err().unwrap();
@@ -276,12 +319,17 @@ async fn a_changed_authorization_drops_what_was_queued_before_the_next_event() {
         .unwrap();
     let auth = RpcAuth::new(host.id().into(), client.clone()).unwrap();
     let state = HostState::new(host.id(), vec![]);
-    state.set(proto::HostReadiness::Ready, String::new());
+    state.set(
+        canopy_desktop::api::proto::HostReadiness::Ready,
+        String::new(),
+    );
     let mut status = state.watch();
     let hub = canopy_desktop::remote::sync::ReplayHub::new(Default::default());
     let (a, b) = (WorkspaceId::new(), WorkspaceId::new());
     let in_a = record(Some(&workspace_ref(a)), "/work/a");
     let in_b = record(Some(&workspace_ref(b)), "/work/b");
+    let in_a = client.save_runtime_chat(in_a).await.unwrap();
+    let in_b = client.save_runtime_chat(in_b).await.unwrap();
     let workspace = |id, root: &str| WorkspaceSummary {
         project: canopy_desktop::state::workspace::ProjectId::new(),
         origin: None,
@@ -292,8 +340,9 @@ async fn a_changed_authorization_drops_what_was_queued_before_the_next_event() {
         repository: None,
         closing: false,
     };
+    let workspaces = vec![workspace(a, "/work/a"), workspace(b, "/work/b")];
     let event = |working| CatalogEvent {
-        workspaces: vec![workspace(a, "/work/a"), workspace(b, "/work/b")],
+        workspaces: workspaces.clone(),
         chats: vec![summary(&in_a, working), summary(&in_b, working)],
         records: vec![in_a.clone(), in_b.clone()],
     };
@@ -351,8 +400,8 @@ async fn a_changed_authorization_drops_what_was_queued_before_the_next_event() {
     let Some(Change::Snapshot(resync)) = queue.take("epoch").unwrap().unwrap().change else {
         panic!("a changed authorization resends the whole catalog");
     };
-    assert_eq!(resync.chats.len(), 1);
-    assert_eq!(resync.chats[0].chat.as_ref().unwrap().chat_id, in_a.id());
+    assert_eq!(resync.threads.len(), 1);
+    assert_eq!(resync.threads[0].catalog_id, in_a.id());
     assert!(!queue.pending());
     // Revoked with an event queued: the next authorization fails before it is sent.
     queue

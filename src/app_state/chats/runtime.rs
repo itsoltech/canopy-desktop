@@ -241,6 +241,11 @@ pub struct ChatRuntime {
     /// Remote commands waiting on what the session does next (an edit's start, a
     /// file restore's answer).
     remote_waits: remote::Waits,
+    local_controls: HashMap<uuid::Uuid, Task<()>>,
+    applying_command: bool,
+    local_start_pending: bool,
+    local_edit_pending: bool,
+    local_draft_revision: u64,
     /// Working (true) or idle last told to the notch, for agents without hooks.
     reported_activity: Option<bool>,
     /// What the notch was last told this chat waits for.
@@ -353,6 +358,11 @@ impl ChatRuntime {
             send_on_start: None,
             edit_recovery: None,
             remote_waits: Default::default(),
+            local_controls: HashMap::new(),
+            applying_command: false,
+            local_start_pending: false,
+            local_edit_pending: false,
+            local_draft_revision: 0,
             reported_activity: None,
             reported_decision: None,
             reported_goal: None,
@@ -884,6 +894,7 @@ impl ChatRuntime {
         if std::mem::take(&mut self.start_waiting) {
             self.start(cx);
         }
+        self.settle_record_waiters();
         cx.emit(ChatStateChanged);
         cx.notify();
     }
@@ -1666,7 +1677,17 @@ impl ChatRuntime {
     /// The chat is gone or the app quits: stop for good.
     pub fn close(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
         self.closed = true;
-        self.shutdown(cx)
+        self.fail_record_waiters("The thread closed before its record was saved.");
+        self.remote_waits = Default::default();
+        let close = self.shutdown(cx);
+        let commands: Vec<_> = self.local_controls.drain().map(|(_, task)| task).collect();
+        cx.spawn(async move |_, _| {
+            let result = close.await;
+            for command in commands {
+                command.await;
+            }
+            result
+        })
     }
 
     /// Stops the agent process; every caller joins the same bounded close.
@@ -1816,7 +1837,7 @@ impl ChatRuntime {
                 this.session = None;
                 this.archived.clear();
                 cx.emit(ChatRuntimeEvent::Reset);
-                this.start(cx);
+                this.start_local(cx);
             });
         })
         .detach();
@@ -1850,7 +1871,7 @@ impl ChatRuntime {
                 this.switching = false;
                 if !this.closed {
                     this.boundary = Boundary::Edited;
-                    this.start(cx);
+                    this.start_local(cx);
                 }
                 // Not started (closing, already starting): nothing was sent.
                 if let Some(draft) = this.send_on_start.take() {
@@ -2074,8 +2095,20 @@ impl ChatRuntime {
     /// Forgets a rule remembered for this chat. The running process keeps it until Restart:
     /// the CLI cannot drop a session rule.
     pub fn remove_rule(&mut self, rule: &str, cx: &mut Context<Self>) {
+        let rule = rule.to_owned();
+        self.local_control(
+            canopy_desktop::command_bus::Control::SetOption {
+                id: "forget_rule".into(),
+                value: rule.clone(),
+            },
+            cx,
+            move |this, cx| this.remove_rule_local(&rule, cx),
+        );
+    }
+    pub(super) fn remove_rule_local(&mut self, rule: &str, cx: &mut Context<Self>) {
         self.settings.allowed.retain(|allowed| allowed != rule);
         self.persist(None, cx);
+        self.save_record(cx);
         cx.notify();
     }
     fn set_model_local(&mut self, model: Option<String>, cx: &mut Context<Self>) {

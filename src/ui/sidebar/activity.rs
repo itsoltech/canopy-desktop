@@ -51,17 +51,17 @@ impl Activity {
     }
     /// A chat on another computer, from its catalog state.
     pub fn remote(state: i32, goal: bool) -> Self {
-        use canopy_desktop::remote::proto::ChatState;
-        match ChatState::try_from(state).ok() {
-            Some(ChatState::Working) if goal => Self::Goal,
-            Some(ChatState::Working) => Self::Working,
-            Some(ChatState::NeedsDecision) => Self::Attention,
-            Some(ChatState::Idle) => Self::Idle,
-            Some(ChatState::ChatStarting) => Self::Starting,
-            Some(ChatState::Interrupting) => Self::Stopping,
-            Some(ChatState::Exited) => Self::Exited,
-            Some(ChatState::ChatFailed) => Self::Error,
-            Some(ChatState::Dormant) => Self::NotStarted,
+        use canopy_desktop::api::proto::ThreadState;
+        match ThreadState::try_from(state).ok() {
+            Some(ThreadState::Working) if goal => Self::Goal,
+            Some(ThreadState::Working) => Self::Working,
+            Some(ThreadState::NeedsDecision) => Self::Attention,
+            Some(ThreadState::Idle) => Self::Idle,
+            Some(ThreadState::Starting) => Self::Starting,
+            Some(ThreadState::Interrupting) => Self::Stopping,
+            Some(ThreadState::Exited) => Self::Exited,
+            Some(ThreadState::Failed) => Self::Error,
+            Some(ThreadState::Dormant) => Self::NotStarted,
             _ => Self::NoStatus,
         }
     }

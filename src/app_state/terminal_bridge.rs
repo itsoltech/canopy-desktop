@@ -100,11 +100,13 @@ fn rows(
     Row,
     Option<std::sync::Arc<canopy_desktop::terminal::control::Run>>,
 )> {
-    cx.global::<AppState>()
-        .terminals
+    let app = cx.global::<AppState>();
+    let projects = &app.projects.read(cx).catalog;
+    app.terminals
         .read(cx)
         .all()
         .into_iter()
+        .filter(|(workspace, _)| projects.items.iter().any(|p| p.workspace == *workspace))
         .filter(|(_, view)| only.is_none_or(|id| view.read(cx).terminal_id() == id))
         .map(|(workspace, view)| {
             let run = view.read(cx).run();
@@ -116,10 +118,17 @@ fn not_found() -> Status {
     Status::not_found("The terminal is no longer available.")
 }
 fn find(id: &str, cx: &App) -> Result<Entity<TerminalView>, Status> {
-    cx.global::<AppState>()
-        .terminals
+    let app = cx.global::<AppState>();
+    let projects = &app.projects.read(cx).catalog;
+    app.terminals
         .read(cx)
-        .find(id, cx)
+        .all()
+        .into_iter()
+        .find(|(workspace, view)| {
+            projects.items.iter().any(|p| p.workspace == *workspace)
+                && view.read(cx).terminal_id() == id
+        })
+        .map(|(_, view)| view)
         .ok_or_else(not_found)
 }
 /// The run a command names must still be the current one.

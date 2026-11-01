@@ -5,14 +5,16 @@ use super::{
     auth::RpcAuth,
     client::{ClientRegistry, store::HostRecord},
     host::HostState,
-    proto as p,
     resources::ResourceLocks,
     tls::HostIdentity,
 };
 use crate::{
+    api::{decode, proto as p, resources},
+    command_bus::{Command, PeerConnection},
     host::{self, DeviceRegistration},
     settings::SettingsClient,
 };
+use prost::Message;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tonic::{Request, Response, Status, transport::Channel};
@@ -61,7 +63,9 @@ impl LocalPeer {
             vec![self.address.ip().to_string()]
         };
         Ok(p::PeerHost {
-            host_id: self.host_id().into(),
+            environment: Some(p::EnvironmentRef {
+                host_id: self.host_id().into(),
+            }),
             name: std::env::var("HOSTNAME")
                 .or_else(|_| std::env::var("COMPUTERNAME"))
                 .ok()
@@ -130,15 +134,19 @@ impl LocalPeer {
     pub(crate) async fn connect_back(
         &self,
         channel: Channel,
-        record: &HostRecord,
+        host: &super::client::HostClient,
+        epoch: u64,
         return_port: Option<u16>,
     ) -> Result<bool, String> {
+        let record = host.snapshot().record;
         if record.id.as_str() == self.host_id() {
             return Ok(true);
         }
-        let mut service = p::peer_service_client::PeerServiceClient::new(channel);
-        let mut request = Request::new(p::HostRequest {
-            host_id: record.id.as_str().into(),
+        let mut service = p::peer_service_client::PeerServiceClient::new(channel.clone());
+        let mut request = Request::new(p::GetPeerRequestRequest {
+            environment: Some(p::EnvironmentRef {
+                host_id: record.id.as_str().into(),
+            }),
         });
         request.set_timeout(std::time::Duration::from_secs(15));
         let challenge = match service.get_peer_request(request).await {
@@ -153,26 +161,52 @@ impl LocalPeer {
             }
             Err(status) => return Err(super::client::rpc_error(status)),
         };
-        if challenge.host_id != record.id.as_str() {
+        if challenge.environment.as_ref().map(|e| e.host_id.as_str()) != Some(record.id.as_str()) {
             return Err("The reciprocal host identity changed.".into());
         }
         let (certificate, certificate_chain) = self
-            .certificate(record, &challenge.certificate_signing_request)
+            .certificate(&record, &challenge.certificate_signing_request)
             .await?;
         let description = self.description(return_port)?;
-        let mut request = Request::new(p::ConnectPeerRequest {
+        let request = p::ConnectPeerRequest {
+            command: None,
             peer: Some(description),
             certificate,
             certificate_chain,
-            host_id: record.id.as_str().into(),
-        });
-        request.set_timeout(std::time::Duration::from_secs(20));
-        service
-            .connect_peer(request)
-            .await
-            .map_err(super::client::rpc_error)?;
-        Ok(true)
+            environment: Some(p::EnvironmentRef {
+                host_id: record.id.as_str().into(),
+            }),
+        };
+        host.connect_peer_on(channel, request, epoch).await
     }
+    pub(crate) fn validate_certificate(&self, certificate: &[u8]) -> Result<(), String> {
+        use rustls::pki_types::pem::PemObject;
+        rustls::sign::CertifiedKey::from_der(
+            vec![certificate.to_vec().into()],
+            rustls::pki_types::PrivateKeyDer::from_pem_slice(self.key().as_bytes())
+                .map_err(|_| "Invalid local peer key.")?,
+            &rustls::crypto::ring::default_provider(),
+        )
+        .map(|_| ())
+        .map_err(|_| "Reciprocal certificate does not match this computer.".into())
+    }
+}
+
+fn connection(body: &p::ConnectPeerRequest) -> Result<PeerConnection, Status> {
+    let peer = decode::required(body.peer.clone())?;
+    Ok(PeerConnection {
+        host: decode::environment(decode::required(peer.environment)?)?.host_id,
+        name: peer.name,
+        server_name: peer.server_name,
+        certificate: peer.certificate,
+        fingerprint: peer.certificate_sha256,
+        addresses: peer.addresses,
+        port: u16::try_from(peer.port)
+            .map_err(|_| Status::invalid_argument("Invalid peer port."))?,
+        return_tunnel: peer.return_tunnel,
+        device_certificate: body.certificate.clone(),
+        certificate_chain: body.certificate_chain.clone(),
+    })
 }
 #[cfg(test)]
 mod tests;
@@ -196,6 +230,7 @@ pub struct PeerRpc {
     registry: ClientRegistry,
     state: HostState,
     locks: ResourceLocks,
+    gate: Arc<tokio::sync::Mutex<()>>,
 }
 impl PeerRpc {
     pub fn new(
@@ -211,71 +246,153 @@ impl PeerRpc {
             registry,
             state,
             locks,
+            gate: Arc::default(),
         }
     }
-    async fn authorize<T>(&self, request: &Request<T>) -> Result<String, Status> {
+    async fn authorize<T>(&self, request: &Request<T>) -> Result<host::DeviceGrant, Status> {
         self.state.accepting()?;
         let device = self.auth.authenticate(request).await?;
         self.auth
             .resource(device.id(), host::ADMIN, "private")
             .await?;
-        Ok(device.id().into())
+        Ok(device)
     }
 }
 #[tonic::async_trait]
 impl p::peer_service_server::PeerService for PeerRpc {
     async fn get_peer_request(
         &self,
-        request: Request<p::HostRequest>,
+        request: Request<p::GetPeerRequestRequest>,
     ) -> Result<Response<p::PeerCertificateRequest>, Status> {
         self.authorize(&request).await?;
-        self.auth.check_host(&request.get_ref().host_id)?;
+        self.auth.check_host(
+            &decode::environment(decode::required(request.get_ref().environment.clone())?)?
+                .host_id
+                .to_string(),
+        )?;
         Ok(Response::new(p::PeerCertificateRequest {
-            host_id: self.local.host_id().into(),
+            environment: Some(p::EnvironmentRef {
+                host_id: self.local.host_id().into(),
+            }),
             certificate_signing_request: self.local.request().map_err(Status::internal)?,
         }))
     }
     async fn connect_peer(
         &self,
         request: Request<p::ConnectPeerRequest>,
-    ) -> Result<Response<p::Empty>, Status> {
-        let device = self.authorize(&request).await?;
-        self.auth.check_host(&request.get_ref().host_id)?;
+    ) -> Result<Response<p::CommandReceipt>, Status> {
+        let grant = self.authorize(&request).await?;
         let observed = request.remote_addr().map(|addr| addr.ip());
         let body = request.into_inner();
-        let peer = body
-            .peer
-            .ok_or_else(|| Status::invalid_argument("Missing peer identity."))?;
+        let environment = decode::required(body.environment.clone())?;
+        self.auth.check_host(&environment.host_id)?;
+        let meta = decode::required(body.command.clone())?;
+        let peer = connection(&body)?;
         let operation = self.locks.begin()?;
         let this = self.clone();
         // The effect remains owned until the registry commits, even if the
         // caller disconnects. Shutdown waits for it through ResourceLocks.
-        let host = tokio::spawn(async move {
+        let receipt = tokio::spawn(async move {
             let _operation = operation;
-            let grant = this.auth.resource(&device, host::ADMIN, "private").await?;
+            let _gate = this.gate.lock().await;
+            let prepared = resources::prepare_environment(
+                &this.auth,
+                &grant,
+                meta,
+                environment.clone(),
+                Command::Peer(peer.clone()),
+            )
+            .await?;
+            if let Some(prior) = prepared
+                .prior()
+                .filter(|prior| prior.state() != host::CommandState::Accepted)
+            {
+                return resources::receipt_for_resource(
+                    &this.auth,
+                    prior,
+                    p::command_receipt::Resource::Environment(environment),
+                );
+            }
+            this.local
+                .validate_certificate(&peer.device_certificate)
+                .map_err(Status::invalid_argument)?;
+            if peer.host.as_str() == this.local.host_id()
+                || (peer.return_tunnel && !observed.is_some_and(|ip| ip.is_loopback()))
+            {
+                return Err(Status::invalid_argument(
+                    "Invalid reciprocal computer identity.",
+                ));
+            }
+            let accepted = this
+                .auth
+                .client()
+                .accept_runtime_command(prepared.runtime_input().clone(), host::ADMIN)
+                .await
+                .map_err(super::auth::storage_status)?;
+            if accepted.state() != host::CommandState::Accepted {
+                return resources::receipt_for_resource(
+                    &this.auth,
+                    &accepted,
+                    p::command_receipt::Resource::Environment(environment),
+                );
+            }
+            let grant = this
+                .auth
+                .resource(grant.id(), host::ADMIN, "private")
+                .await?;
+            this.auth
+                .client()
+                .transition_runtime_command(
+                    accepted.key().clone(),
+                    host::CommandState::Accepted,
+                    host::CommandState::Attempting,
+                    None,
+                )
+                .await
+                .map_err(super::auth::storage_status)?;
             let mut peer = peer;
             peer.name = grant.name().into();
             let registry = this.registry.clone();
             let local = this.local.clone();
-            let host = tokio::task::spawn_blocking(move || {
-                registry.install_peer(
-                    &local,
-                    peer,
-                    body.certificate,
-                    body.certificate_chain,
-                    observed,
+            let result =
+                tokio::task::spawn_blocking(move || registry.install_peer(&local, peer, observed))
+                    .await;
+            let (state, result) = match result {
+                Ok(Ok(host)) => {
+                    host.start_connection();
+                    (host::CommandState::Succeeded, None)
+                }
+                _ => (
+                    host::CommandState::DeliveryUnknown,
+                    Some(
+                        p::DomainError {
+                            code: "delivery_unknown".into(),
+                            message: "Peer storage outcome requires host reconciliation.".into(),
+                            retryable: false,
+                        }
+                        .encode_to_vec(),
+                    ),
+                ),
+            };
+            let receipt = this
+                .auth
+                .client()
+                .transition_runtime_command(
+                    accepted.key().clone(),
+                    host::CommandState::Attempting,
+                    state,
+                    result,
                 )
-            })
-            .await
-            .map_err(|_| Status::internal("Peer storage worker stopped."))?
-            .map_err(Status::failed_precondition)?;
-            Ok::<_, Status>(host)
+                .await
+                .map_err(super::auth::storage_status)?;
+            resources::receipt_for_resource(
+                &this.auth,
+                &receipt,
+                p::command_receipt::Resource::Environment(environment),
+            )
         })
         .await
         .map_err(|_| Status::internal("Peer connection worker stopped."))??;
-        // Starting the catalog is independent of the response. Failed routes are
-        // visible in Connections and retry without repeating trust enrollment.
-        host.start_connection();
-        Ok(Response::new(p::Empty {}))
+        Ok(Response::new(receipt))
     }
 }

@@ -187,7 +187,7 @@ impl ChatView {
                     });
                 }));
             }
-            EditSubmission::Restoring | EditSubmission::AwaitingAcceptance => {
+            EditSubmission::AwaitingAcceptance => {
                 let editing = self.editing.as_mut().unwrap();
                 editing.sending = Some(draft);
                 editing.error = None;
@@ -204,7 +204,6 @@ impl ChatView {
                 self.runtime
                     .update(cx, |runtime, cx| runtime.restart_message_edit(branch, cx));
             }
-            EditSubmission::RestoreFailed(error) => self.edit_restore_failed(error),
             EditSubmission::Refused { message, recheck } => {
                 let editing = self.editing.as_mut().unwrap();
                 editing.sending = None;

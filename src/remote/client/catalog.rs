@@ -3,7 +3,7 @@
 //! chat and terminal deltas follow on the watch stream. A gap, a foreign boundary or a
 //! lost stream drops the staging and the installed catalog stays as it was.
 use super::{HostClient, rpc_error};
-use crate::remote::proto as p;
+use crate::api::proto as p;
 use prost::Message;
 use tonic::transport::Channel;
 
@@ -45,7 +45,7 @@ impl CatalogStaging {
     ) -> Result<Option<(p::Cursor, p::Catalog)>, String> {
         let boundary = part.boundary.ok_or("Catalog page without boundary.")?;
         let page = part.page.ok_or("Empty catalog page.")?;
-        if page.host_id != host {
+        if page.environment.as_ref().map(|e| e.host_id.as_str()) != Some(host) {
             return Err("Catalog identity mismatch.".into());
         }
         let bytes = page.encoded_len();
@@ -53,7 +53,9 @@ impl CatalogStaging {
             self.staged = Some((
                 boundary.clone(),
                 p::Catalog {
-                    host_id: host.into(),
+                    environment: Some(p::EnvironmentRef {
+                        host_id: host.into(),
+                    }),
                     ..Default::default()
                 },
                 0,
@@ -83,7 +85,7 @@ impl CatalogStaging {
 fn merge(staged: &mut p::Catalog, page: p::Catalog) -> Result<(), String> {
     for project in page.projects {
         match staged.projects.last_mut() {
-            Some(last) if last.project_id == project.project_id => {
+            Some(last) if last.path == project.path => {
                 if last.name != project.name
                     || last.path != project.path
                     || last.origin != project.origin
@@ -93,18 +95,14 @@ fn merge(staged: &mut p::Catalog, page: p::Catalog) -> Result<(), String> {
                 last.checkouts.extend(project.checkouts);
             }
             _ => {
-                if staged
-                    .projects
-                    .iter()
-                    .any(|p| p.project_id == project.project_id)
-                {
+                if staged.projects.iter().any(|p| p.path == project.path) {
                     return Err("Repeated catalog project.".into());
                 }
                 staged.projects.push(project);
             }
         }
     }
-    staged.chats.extend(page.chats);
+    staged.threads.extend(page.threads);
     staged.terminals.extend(page.terminals);
     Ok(())
 }
@@ -139,7 +137,7 @@ impl CatalogFeed {
                 return Ok(true);
             }
             Change::Snapshot(value) => {
-                if value.host_id != host {
+                if value.environment.as_ref().map(|e| e.host_id.as_str()) != Some(host) {
                     return Err("Catalog identity mismatch.".into());
                 }
                 self.staging.discard();
@@ -162,12 +160,12 @@ impl CatalogFeed {
         }
         let current = std::sync::Arc::make_mut(catalog.as_mut().ok_or("Missing catalog.")?);
         match change {
-            Change::Chat(value) => {
-                if value.chat.as_ref().is_none_or(|c| c.host_id != host) {
+            Change::Thread(value) => {
+                if value.thread.as_ref().is_none_or(|c| c.host_id != host) {
                     return Err("Chat identity mismatch.".into());
                 }
-                current.chats.retain(|c| c.chat != value.chat);
-                current.chats.push(value);
+                current.threads.retain(|c| c.thread != value.thread);
+                current.threads.push(*value);
             }
             Change::Terminal(value) => {
                 if value.terminal.as_ref().is_none_or(|t| t.host_id != host) {
@@ -177,10 +175,10 @@ impl CatalogFeed {
                 current.terminals.push(value);
             }
             Change::Deleted(value) => match value.resource {
-                Some(p::resource_ref::Resource::Chat(chat)) => {
-                    current.chats.retain(|c| c.chat.as_ref() != Some(&chat))
+                Some(p::catalog_deleted::Resource::ThreadCatalogId(chat)) => {
+                    current.threads.retain(|c| c.catalog_id != chat)
                 }
-                Some(p::resource_ref::Resource::Terminal(terminal)) => current
+                Some(p::catalog_deleted::Resource::Terminal(terminal)) => current
                     .terminals
                     .retain(|t| t.terminal.as_ref() != Some(&terminal)),
                 _ => return Err("Workspace catalog changed. Reconnect to reload.".into()),
@@ -206,7 +204,6 @@ pub async fn read_catalog(channel: Channel, host: &str) -> Result<p::Catalog, St
         .into_inner();
     let mut staging = CatalogStaging::default();
     while let Some(event) = stream.message().await.map_err(rpc_error)? {
-        let event = crate::api::catalog_projection::legacy_event(event, host).map_err(rpc_error)?;
         let Some(p::summary_event::Change::SnapshotPart(part)) = event.change else {
             return Err("Unexpected catalog event.".into());
         };
@@ -235,13 +232,17 @@ mod tests {
             sequence,
         }
     }
-    fn chat(id: &str) -> p::ChatSummary {
-        p::ChatSummary {
-            chat: Some(p::ChatRef {
+    fn chat(id: &str) -> p::CatalogThread {
+        p::CatalogThread {
+            thread: Some(p::ThreadRef {
                 host_id: "h".into(),
-                chat_id: id.into(),
+                thread_id: id.into(),
             }),
-            title: id.into(),
+            catalog_id: id.into(),
+            summary: Some(p::ThreadStatus {
+                title: id.into(),
+                ..Default::default()
+            }),
             ..Default::default()
         }
     }
@@ -252,8 +253,10 @@ mod tests {
                 p::CatalogSnapshotPart {
                     boundary: Some(cursor(boundary)),
                     page: Some(p::Catalog {
-                        host_id: "h".into(),
-                        chats: chats.iter().map(|id| chat(id)).collect(),
+                        environment: Some(p::EnvironmentRef {
+                            host_id: "h".into(),
+                        }),
+                        threads: chats.iter().map(|id| chat(id)).collect(),
                         ..Default::default()
                     }),
                     first,
@@ -267,8 +270,10 @@ mod tests {
     fn a_paged_snapshot_replaces_the_catalog_only_whole() {
         let mut feed = CatalogFeed::default();
         let mut catalog = Some(std::sync::Arc::new(p::Catalog {
-            host_id: "h".into(),
-            chats: vec![chat("old")],
+            environment: Some(p::EnvironmentRef {
+                host_id: "h".into(),
+            }),
+            threads: vec![chat("old")],
             ..Default::default()
         }));
         assert!(
@@ -276,20 +281,20 @@ mod tests {
                 .apply("h", &mut catalog, part(1, true, false, &["a"]))
                 .unwrap()
         );
-        assert_eq!(catalog.as_ref().unwrap().chats[0].title, "old");
+        assert_eq!(catalog.as_ref().unwrap().threads[0].catalog_id, "old");
         // A delta during the snapshot drops the staging; the old catalog stays.
         let delta = |sequence| p::SummaryEvent {
             cursor: Some(cursor(sequence)),
-            change: Some(p::summary_event::Change::Chat(chat("x"))),
+            change: Some(p::summary_event::Change::Thread(Box::new(chat("x")))),
         };
         assert!(feed.apply("h", &mut catalog, delta(2)).is_err());
-        assert_eq!(catalog.as_ref().unwrap().chats.len(), 1);
+        assert_eq!(catalog.as_ref().unwrap().threads.len(), 1);
         // A page of another snapshot never completes the dropped one.
         assert!(
             feed.apply("h", &mut catalog, part(1, false, true, &["b"]))
                 .is_err()
         );
-        assert_eq!(catalog.as_ref().unwrap().chats[0].title, "old");
+        assert_eq!(catalog.as_ref().unwrap().threads[0].catalog_id, "old");
         // A restarted snapshot installs all rows of all its pages at its last page.
         let mut feed = CatalogFeed::default();
         feed.apply("h", &mut catalog, part(4, true, false, &["a"]))
@@ -303,47 +308,35 @@ mod tests {
         let titles: Vec<_> = catalog
             .as_ref()
             .unwrap()
-            .chats
+            .threads
             .iter()
-            .map(|c| c.title.as_str())
+            .map(|c| c.catalog_id.as_str())
             .collect();
         assert_eq!(titles, ["a", "b", "c"]);
         // Deltas continue after the boundary.
         let sidebar_snapshot = catalog.clone().unwrap();
         assert!(feed.apply("h", &mut catalog, delta(5)).unwrap());
         assert_eq!(
-            sidebar_snapshot.chats.len(),
+            sidebar_snapshot.threads.len(),
             3,
             "an installed sidebar snapshot is immutable"
         );
-        assert_eq!(catalog.as_ref().unwrap().chats.len(), 4);
-        // A typed deletion must retain the connected host when projected back
-        // into the desktop's catalog, or its ChatRef will never match a row.
-        let deleted = crate::api::catalog_projection::legacy_event(
-            crate::api::proto::SummaryEvent {
-                cursor: Some(crate::api::projection::value(cursor(6))),
-                change: Some(crate::api::proto::summary_event::Change::Deleted(
-                    crate::api::proto::CatalogDeleted {
-                        resource: Some(
-                            crate::api::proto::catalog_deleted::Resource::ThreadCatalogId(
-                                "x".into(),
-                            ),
-                        ),
-                    },
-                )),
-            },
-            "h",
-        )
-        .unwrap();
+        assert_eq!(catalog.as_ref().unwrap().threads.len(), 4);
+        let deleted = p::SummaryEvent {
+            cursor: Some(cursor(6)),
+            change: Some(p::summary_event::Change::Deleted(p::CatalogDeleted {
+                resource: Some(p::catalog_deleted::Resource::ThreadCatalogId("x".into())),
+            })),
+        };
         assert!(feed.apply("h", &mut catalog, deleted).unwrap());
-        assert_eq!(catalog.as_ref().unwrap().chats.len(), 3);
+        assert_eq!(catalog.as_ref().unwrap().threads.len(), 3);
         assert!(
             catalog
                 .as_ref()
                 .unwrap()
-                .chats
+                .threads
                 .iter()
-                .all(|c| c.title != "x")
+                .all(|c| c.catalog_id != "x")
         );
         assert!(feed.apply("h", &mut catalog, delta(8)).is_err());
     }

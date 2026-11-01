@@ -1,15 +1,17 @@
 //! Native Tasks RPCs. Provider credentials and accepted work remain owned by the host.
+mod decode;
 mod mapping;
 mod reads;
 mod transport;
 mod writes;
 use super::{
     auth::{RpcAuth, WorkspaceRoots, storage_status},
-    proto,
     resources::ResourceLocks,
 };
 use crate::{
+    api::{self, proto},
     artifacts::ArtifactStore,
+    command_bus::{Command, TaskCommand},
     host::{CommandInput, CommandState, DeviceGrant, TASKS},
     integrations as i,
 };
@@ -21,11 +23,16 @@ use tonic::{Request, Response, Status};
 /// The live application owns configuration reconciliation and worktree lifecycle.
 #[tonic::async_trait]
 pub trait TasksHost: Send + Sync + 'static {
+    async fn configure(
+        &self,
+        root: String,
+        change: crate::command_bus::tasks::TaskConfiguration,
+    ) -> Result<(), Status>;
     async fn save_filter(&self, filter: i::filters::TaskFilter) -> Result<(), Status>;
     async fn remove_filter(&self, id: String) -> Result<(), Status>;
     async fn task_to_worktree(
         &self,
-        workspace: proto::WorkspaceRef,
+        project: crate::thread::ProjectRef,
         task: i::TaskRef,
         branch: String,
     ) -> Result<String, Status>;
@@ -57,14 +64,6 @@ impl TasksRpc {
             host,
         }
     }
-    async fn authorize(
-        &self,
-        grant: &DeviceGrant,
-        host: &str,
-        workspace: Option<&proto::WorkspaceRef>,
-    ) -> Result<String, Status> {
-        self.authorize_scope(grant, host, workspace, TASKS).await
-    }
     fn read_scope(grant: &DeviceGrant) -> u32 {
         if grant.scopes() & crate::host::READ != 0 {
             crate::host::READ
@@ -75,24 +74,27 @@ impl TasksRpc {
     async fn authorize_read(
         &self,
         grant: &DeviceGrant,
-        host: &str,
-        workspace: Option<&proto::WorkspaceRef>,
+        project: &proto::TaskProject,
     ) -> Result<String, Status> {
-        self.authorize_scope(grant, host, workspace, Self::read_scope(grant))
+        self.authorize_scope(grant, project, Self::read_scope(grant))
             .await
     }
     async fn authorize_scope(
         &self,
         grant: &DeviceGrant,
-        host: &str,
-        workspace: Option<&proto::WorkspaceRef>,
+        project: &proto::TaskProject,
         scope: u32,
     ) -> Result<String, Status> {
-        self.auth.check_host(host)?;
         self.auth.scope(grant, scope)?;
-        let root = match workspace {
-            Some(w) => WorkspaceRoots::root_string(&self.roots.resolve(w, &self.auth)?)?.to_owned(),
-            None => "private".into(),
+        let root = match required(project.resource.as_ref())? {
+            proto::task_project::Resource::Project(project) => {
+                let (_, root) = self.roots.project(project.clone(), &self.auth)?;
+                WorkspaceRoots::root_string(&root)?.to_owned()
+            }
+            proto::task_project::Resource::Environment(environment) => {
+                self.auth.check_host(&environment.host_id)?;
+                "private".into()
+            }
         };
         self.auth.resource(grant.id(), scope, &root).await?;
         Ok(root)
@@ -147,11 +149,10 @@ impl TasksRpc {
         grant: &DeviceGrant,
         reference: &proto::TaskRef,
     ) -> Result<(String, i::Account, i::TaskRef), Status> {
-        let root = self
-            .authorize_read(grant, &reference.host_id, reference.workspace.as_ref())
-            .await?;
-        let account = self.account(&reference.integration_id).await?;
-        let project = Self::project(&account, &reference.project_id)?;
+        let context = required(reference.project.as_ref())?;
+        let root = self.authorize_read(grant, context).await?;
+        let account = self.account(&context.integration_id).await?;
+        let project = Self::project(&account, &context.project_key)?;
         Ok((root, account, Self::task(&project, reference)?))
     }
     fn project(account: &i::Account, id: &str) -> Result<i::ProjectTarget, Status> {
@@ -178,7 +179,7 @@ impl TasksRpc {
         Ok(target)
     }
     fn task(project: &i::ProjectTarget, task: &proto::TaskRef) -> Result<i::TaskRef, Status> {
-        if task.project_id != project.key {
+        if required(task.project.as_ref())?.project_key != project.key {
             return Err(invalid("Task belongs to a different project."));
         }
         let reference = i::TaskRef {
@@ -191,37 +192,26 @@ impl TasksRpc {
         }
         Ok(reference)
     }
-    async fn task_context(
-        &self,
-        grant: &DeviceGrant,
-        reference: &proto::TaskRef,
-    ) -> Result<(String, i::Account, i::TaskRef), Status> {
-        let root = self
-            .authorize(grant, &reference.host_id, reference.workspace.as_ref())
-            .await?;
-        let account = self.account(&reference.integration_id).await?;
-        let project = Self::project(&account, &reference.project_id)?;
-        Ok((root, account, Self::task(&project, reference)?))
-    }
-    async fn mutation<F, Fut>(
+    async fn mutation<F, Prepare, Effect>(
         &self,
         input: CommandInput,
-        effect: F,
+        resource: proto::command_receipt::Resource,
+        scope: u32,
+        reject_recovery: bool,
+        prepare: F,
     ) -> Result<proto::CommandReceipt, Status>
     where
-        F: FnOnce() -> Fut + Send + 'static,
-        Fut: Future<Output = Result<Vec<u8>, Status>> + Send + 'static,
+        F: FnOnce() -> Prepare + Send + 'static,
+        Prepare: Future<Output = Result<Effect, Status>> + Send + 'static,
+        Effect: Future<Output = Result<Vec<u8>, Status>> + Send + 'static,
     {
         let operation = self.locks.begin()?;
         let auth = self.auth.clone();
         let root = required(input.root.clone())?;
         let owner = input.key().device().to_owned();
-        let scope = if input.method == "tasks.worktree" {
-            TASKS | crate::host::FILES_GIT
-        } else {
-            TASKS
-        };
-        tokio::spawn(async move {
+        let roots = self.roots.clone();
+        let validation_resource = resource.clone();
+        let receipt = tokio::spawn(async move {
             let _operation = operation;
             let accepted = auth
                 .client()
@@ -230,8 +220,38 @@ impl TasksRpc {
                 .map_err(storage_status)?;
             if accepted.state() != CommandState::Accepted {
                 auth.resource(&owner, scope, &root).await?;
-                return Ok(auth.receipt(&accepted));
+                return Ok::<_, Status>(accepted);
             }
+            let readiness = async {
+                let grant = auth.resource(&owner, scope, &root).await?;
+                if let proto::command_receipt::Resource::Project(project) = validation_resource {
+                    let target = proto::ResourceTarget {
+                        resource: Some(proto::resource_target::Resource::Project(project)),
+                    };
+                    api::resources::revalidate_root(
+                        &auth,
+                        &roots,
+                        &grant,
+                        &target,
+                        scope,
+                        std::path::Path::new(&root),
+                    )
+                    .await?;
+                }
+                if reject_recovery {
+                    return Err(Status::failed_precondition(
+                        "Review the current task state and submit a new command.",
+                    ));
+                }
+                prepare().await
+            }
+            .await;
+            let effect = match readiness {
+                Ok(effect) => effect,
+                Err(error) => {
+                    return super::resources::reject_precondition(&auth, &accepted, error).await;
+                }
+            };
             // The CAS grants exactly one dispatch; storage checks current grants again.
             auth.client()
                 .transition_runtime_command(
@@ -242,10 +262,13 @@ impl TasksRpc {
                 )
                 .await
                 .map_err(storage_status)?;
-            let (state, result) = match effect().await {
+            let (state, result) = match effect.await {
                 Ok(bytes) => (CommandState::Succeeded, bytes),
                 Err(error) => {
-                    let unknown = error.code() == tonic::Code::Unknown;
+                    let unknown = matches!(
+                        error.code(),
+                        tonic::Code::Unknown | tonic::Code::Unavailable | tonic::Code::Internal
+                    );
                     let code = if error.message().starts_with("needs_host_interaction") {
                         "needs_host_interaction"
                     } else if unknown {
@@ -279,10 +302,76 @@ impl TasksRpc {
                 .await
                 .map_err(storage_status)?;
             auth.resource(&owner, scope, &root).await?;
-            Ok(auth.receipt(&receipt))
+            Ok(receipt)
         })
         .await
-        .map_err(|_| Status::unavailable("Command outcome requires reconciliation."))?
+        .map_err(|_| Status::unavailable("Command outcome requires reconciliation."))??;
+        api::resources::receipt_for_resource(&self.auth, &receipt, resource)
+    }
+
+    async fn account_input(
+        &self,
+        prepared: &crate::command_bus::PreparedCommand,
+        integration: &str,
+    ) -> Result<(CommandInput, i::Account), Status> {
+        use crate::command_bus::tasks::AccountBinding;
+        let mut input = prepared.runtime_input().clone();
+        let account = if prepared.prior().is_some() {
+            AccountBinding::read(&input.arguments)
+                .map_err(storage_status)?
+                .account
+        } else {
+            let account = self.account(integration).await?;
+            AccountBinding::bind(&mut input, account.clone()).map_err(storage_status)?;
+            account
+        };
+        Ok((input, account))
+    }
+
+    async fn prepare(
+        &self,
+        grant: &DeviceGrant,
+        meta: proto::CommandMeta,
+        project: &proto::TaskProject,
+        command: TaskCommand,
+    ) -> Result<
+        (
+            crate::command_bus::PreparedCommand,
+            proto::command_receipt::Resource,
+        ),
+        Status,
+    > {
+        match required(project.resource.clone())? {
+            proto::task_project::Resource::Project(project) => {
+                let target = proto::ResourceTarget {
+                    resource: Some(proto::resource_target::Resource::Project(project.clone())),
+                };
+                let prepared = api::resources::prepare(
+                    &self.auth,
+                    &self.roots,
+                    grant,
+                    meta,
+                    &target,
+                    Command::Task(command),
+                )
+                .await?;
+                Ok((prepared, proto::command_receipt::Resource::Project(project)))
+            }
+            proto::task_project::Resource::Environment(environment) => {
+                let prepared = api::resources::prepare_environment(
+                    &self.auth,
+                    grant,
+                    meta,
+                    environment.clone(),
+                    Command::Task(command),
+                )
+                .await?;
+                Ok((
+                    prepared,
+                    proto::command_receipt::Resource::Environment(environment),
+                ))
+            }
+        }
     }
 }
 fn required<T>(value: Option<T>) -> Result<T, Status> {
@@ -303,15 +392,33 @@ fn write_error(value: i::WriteError) -> Status {
 
 #[tonic::async_trait]
 impl proto::tasks_service_server::TasksService for TasksRpc {
+    async fn configure_task_project(
+        &self,
+        r: Request<proto::ConfigureTaskProjectRequest>,
+    ) -> Result<Response<proto::CommandReceipt>, Status> {
+        let g = self.auth.authenticate(&r).await?;
+        self.configure_project(g, r.into_inner())
+            .await
+            .map(Response::new)
+    }
     async fn list_integrations(
         &self,
-        r: Request<proto::TaskIntegrationsRequest>,
+        r: Request<proto::ListIntegrationsRequest>,
     ) -> Result<Response<proto::TaskIntegrations>, Status> {
         let grant = self.auth.authenticate(&r).await?;
         let request = r.into_inner();
-        let root = self
-            .authorize_read(&grant, &request.host_id, request.workspace.as_ref())
-            .await?;
+        let project = proto::TaskProject {
+            resource: Some(match required(request.resource)? {
+                proto::list_integrations_request::Resource::Project(project) => {
+                    proto::task_project::Resource::Project(project)
+                }
+                proto::list_integrations_request::Resource::Environment(environment) => {
+                    proto::task_project::Resource::Environment(environment)
+                }
+            }),
+            ..Default::default()
+        };
+        let root = self.authorize_read(&grant, &project).await?;
         let config = self
             .auth
             .client()
@@ -351,28 +458,28 @@ impl proto::tasks_service_server::TasksService for TasksRpc {
     >;
     async fn list_projects(
         &self,
-        r: Request<proto::TaskProjectsRequest>,
+        r: Request<proto::ListProjectsRequest>,
     ) -> Result<Response<proto::TaskChoicePage>, Status> {
         let g = self.auth.authenticate(&r).await?;
         self.projects(g, r.into_inner()).await.map(Response::new)
     }
     async fn get_schema(
         &self,
-        r: Request<proto::TaskSchemaRequest>,
+        r: Request<proto::GetSchemaRequest>,
     ) -> Result<Response<proto::TaskSchema>, Status> {
         let g = self.auth.authenticate(&r).await?;
         self.schema(g, r.into_inner()).await.map(Response::new)
     }
     async fn read_options(
         &self,
-        r: Request<proto::TaskOptionsRequest>,
+        r: Request<proto::ReadOptionsRequest>,
     ) -> Result<Response<proto::TaskChoicePage>, Status> {
         let g = self.auth.authenticate(&r).await?;
         self.options(g, r.into_inner()).await.map(Response::new)
     }
     async fn read_comments(
         &self,
-        r: Request<proto::TaskCommentsRequest>,
+        r: Request<proto::ReadCommentsRequest>,
     ) -> Result<Response<proto::TaskCommentPage>, Status> {
         let g = self.auth.authenticate(&r).await?;
         self.comments(g, r.into_inner()).await.map(Response::new)
@@ -393,14 +500,14 @@ impl proto::tasks_service_server::TasksService for TasksRpc {
     }
     async fn read_attachment(
         &self,
-        r: Request<proto::TaskAttachmentRequest>,
+        r: Request<proto::ReadAttachmentRequest>,
     ) -> Result<Response<Self::ReadAttachmentStream>, Status> {
         let g = self.auth.authenticate(&r).await?;
         self.attachment(g, r.into_inner()).await.map(Response::new)
     }
     async fn apply_mutation(
         &self,
-        r: Request<proto::TaskMutationRequest>,
+        r: Request<proto::ApplyMutationRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
         let g = self.auth.authenticate(&r).await?;
         self.apply(g, r.into_inner()).await.map(Response::new)
@@ -414,14 +521,14 @@ impl proto::tasks_service_server::TasksService for TasksRpc {
     }
     async fn save_filter(
         &self,
-        r: Request<proto::SaveTaskFilterRequest>,
+        r: Request<proto::SaveFilterRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
         let g = self.auth.authenticate(&r).await?;
         self.save(g, r.into_inner()).await.map(Response::new)
     }
     async fn remove_filter(
         &self,
-        r: Request<proto::RemoveTaskFilterRequest>,
+        r: Request<proto::RemoveFilterRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
         let g = self.auth.authenticate(&r).await?;
         self.remove(g, r.into_inner()).await.map(Response::new)

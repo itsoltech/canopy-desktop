@@ -1,5 +1,5 @@
 //! Pure domain-to-wire projection. Provider names never determine tool semantics.
-use super::proto;
+use crate::api::proto;
 use crate::chat::{self, transcript as t};
 use std::{collections::HashMap, path::Path};
 use tonic::Status;
@@ -12,23 +12,27 @@ pub fn key(epoch: u64, id: u64) -> proto::ItemKey {
 }
 pub fn attachment(
     value: &t::Attachment,
-    workspace: Option<&proto::WorkspaceRef>,
+    project_file: bool,
     root: &Path,
     images: &HashMap<String, proto::ArtifactRef>,
 ) -> Result<proto::Attachment, Status> {
     use proto::attachment::Content;
     let content = match value {
         t::Attachment::Image { file, .. } => {
-            Content::Image(images.get(file).cloned().ok_or_else(|| {
+            let image = images.get(file).cloned().ok_or_else(|| {
                 Status::failed_precondition(
                     "The chat image has not been published for remote reading.",
                 )
-            })?)
+            })?;
+            Content::Image(proto::ImageAttachment {
+                host_id: image.host_id,
+                artifact_id: image.artifact_id,
+                sha256: image.sha256,
+                media_type: image.media_type,
+                size: image.size,
+            })
         }
         t::Attachment::Path { path, .. } => {
-            let workspace = workspace.cloned().ok_or_else(|| {
-                Status::failed_precondition("A private chat file is not a project file.")
-            })?;
             let relative = if path.is_absolute() {
                 path.strip_prefix(root).map_err(|_| {
                     Status::permission_denied("The attachment is outside this checkout.")
@@ -42,8 +46,8 @@ pub fn attachment(
             {
                 return Err(Status::permission_denied("Invalid attachment path."));
             }
-            Content::Path(proto::FileRef {
-                workspace: Some(workspace),
+            Content::File(proto::FileAttachment {
+                project_file,
                 relative_path: relative.to_string_lossy().into_owned(),
             })
         }
@@ -101,7 +105,7 @@ pub fn attachment(
 }
 pub fn draft(
     value: &chat::session::Draft,
-    workspace: Option<&proto::WorkspaceRef>,
+    project_file: bool,
     root: &Path,
     images: &HashMap<String, proto::ArtifactRef>,
 ) -> Result<proto::MessageDraft, Status> {
@@ -112,7 +116,7 @@ pub fn draft(
         attachments: value
             .attachments
             .iter()
-            .map(|a| attachment(a, workspace, root, images))
+            .map(|a| attachment(a, project_file, root, images))
             .collect::<Result<_, _>>()?,
     })
 }
@@ -121,7 +125,7 @@ pub fn item(
     epoch: u64,
     revision: u64,
     run: u64,
-    workspace: Option<&proto::WorkspaceRef>,
+    project_file: bool,
     root: &Path,
     images: &HashMap<String, proto::ArtifactRef>,
 ) -> Result<proto::TranscriptItem, Status> {
@@ -136,7 +140,7 @@ pub fn item(
                     context: message.context.clone(),
                     goal: message.goal,
                 },
-                workspace,
+                project_file,
                 root,
                 images,
             )?),
@@ -234,7 +238,7 @@ pub fn item(
                 },
                 files: tool
                     .file_path()
-                    .and_then(|path| scoped_file(path, workspace, root))
+                    .and_then(|path| scoped_file(path, project_file, root))
                     .into_iter()
                     .collect(),
                 page_item: (tool.name == chat::page::SHOW_TOOL
@@ -371,11 +375,7 @@ pub fn item(
     })
 }
 
-fn scoped_file(
-    path: &str,
-    workspace: Option<&proto::WorkspaceRef>,
-    root: &Path,
-) -> Option<proto::FileRef> {
+fn scoped_file(path: &str, project_file: bool, root: &Path) -> Option<proto::FileAttachment> {
     let path = Path::new(path);
     let relative = if path.is_absolute() {
         path.strip_prefix(root).ok()?
@@ -389,8 +389,8 @@ fn scoped_file(
     {
         return None;
     }
-    Some(proto::FileRef {
-        workspace: workspace.cloned(),
+    Some(proto::FileAttachment {
+        project_file,
         relative_path: relative.to_str()?.into(),
     })
 }
@@ -473,7 +473,7 @@ mod tests {
             body: t::Body::Tool(tool),
             trimmed: false,
         };
-        let projected = item(&value, 1, 1, 1, None, Path::new("/"), &HashMap::new()).unwrap();
+        let projected = item(&value, 1, 1, 1, false, Path::new("/"), &HashMap::new()).unwrap();
         let Some(proto::transcript_item::Body::Tool(tool)) = projected.body else {
             panic!("tool projection missing")
         };

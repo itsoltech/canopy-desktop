@@ -4,13 +4,13 @@ mod secrets;
 mod writes;
 use super::{
     auth::{RpcAuth, storage_status},
-    proto,
     resources::ResourceLocks,
 };
+use crate::api::proto;
 use crate::host::ADMIN;
 pub use model::{
-    AgentEdit, IntegrationEdit, PreferencesPatch, ProfileEdit, ProfileOptions, ProfileSettingsEdit,
-    SecretChange, SecretVersion,
+    AgentEdit, Edit as SettingsCommand, IntegrationEdit, PreferencesPatch, ProfileEdit,
+    ProfileOptions, ProfileSettingsEdit, SecretChange, SecretVersion, ToolBackend,
 };
 pub use secrets::{PlatformSettingsSecrets, SettingsSecrets};
 use std::sync::Arc;
@@ -74,7 +74,7 @@ impl SettingsRpc {
         let principal = crate::command_bus::Principal::authenticated(&grant, meta.command_epoch)
             .map_err(storage_status)?;
         let receipt = self.preferences_owned(envelope, principal).await?;
-        Ok(Response::new(crate::api::compat::receipt(
+        Ok(Response::new(crate::api::project_receipt(
             &self.auth,
             &receipt,
             crate::api::proto::command_receipt::Resource::Environment(environment),
@@ -148,13 +148,21 @@ impl SettingsRpc {
 impl proto::settings_service_server::SettingsService for SettingsRpc {
     async fn get_settings(
         &self,
-        r: Request<proto::HostRequest>,
+        r: Request<proto::GetSettingsRequest>,
     ) -> Result<Response<proto::HostSettings>, Status> {
         let grant = self.authorize(&r).await?;
-        self.auth.check_host(&r.get_ref().host_id)?;
+        self.auth.check_host(
+            &r.get_ref()
+                .environment
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Environment is required."))?
+                .host_id,
+        )?;
         let mut snapshot = self.host.snapshot().await?;
         self.auth.resource(grant.id(), ADMIN, "private").await?;
-        snapshot.host_id = self.auth.host_id().into();
+        snapshot.environment = Some(proto::EnvironmentRef {
+            host_id: self.auth.host_id().into(),
+        });
         for profile in &mut snapshot.profiles {
             if let Some(options) = &mut profile.settings
                 && options
@@ -182,30 +190,7 @@ impl proto::settings_service_server::SettingsService for SettingsRpc {
         &self,
         r: Request<proto::UpdatePreferencesRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
-        let grant = self.auth.authenticate(&r).await?;
-        let mut request = r.into_inner();
-        let meta = request
-            .command
-            .take()
-            .ok_or_else(|| Status::invalid_argument("Command metadata is required."))?;
-        let key = self.auth.key(&meta, &grant)?;
-        let envelope = crate::command_bus::CommandEnvelope {
-            command_id: uuid::Uuid::parse_str(key.id())
-                .map_err(|_| Status::invalid_argument("Invalid command identity."))?,
-            resource: crate::command_bus::ResourceRef::Environment(crate::thread::EnvironmentRef {
-                host_id: crate::thread::HostId::new(meta.host_id)
-                    .ok_or_else(|| Status::invalid_argument("Invalid host identity."))?,
-            }),
-            command: PreferencesPatch::from_request(request).into_command(),
-            conditions: crate::command_bus::Conditions {
-                expected_revision: meta.expected_revision,
-                ..Default::default()
-            },
-        };
-        let principal = crate::command_bus::Principal::authenticated(&grant, meta.command_epoch)
-            .map_err(storage_status)?;
-        let receipt = self.preferences_owned(envelope, principal).await?;
-        Ok(Response::new(self.auth.receipt(&receipt)))
+        self.api_preferences(r).await
     }
     async fn save_agent_definition(
         &self,

@@ -727,7 +727,7 @@ mod tests {
             let app = AppState::install_test(Model::new(), cx);
             app.projects.update(cx, |p, cx| {
                 p.ready = true;
-                p.open_worktree("/workspace/repo".into(), "/workspace/repo".into(), cx);
+                p.install_test_worktree("/workspace/repo".into(), "/workspace/repo".into(), cx);
             });
             app.tools.update(cx, |tools, _| tools.ready = true);
             let (chat, terminal) = app.workspace.update(cx, |w, _| {

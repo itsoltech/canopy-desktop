@@ -1,7 +1,7 @@
 //! Host-discovered PR context is signed as a bounded, expiring capability for
 //! that checkout. The signature authenticates data; filesystem and chat access
 //! still require the current device grant at acceptance.
-use super::proto;
+use crate::api::proto;
 use hmac::{Hmac, Mac};
 use prost::Message;
 use sha2::Sha256;

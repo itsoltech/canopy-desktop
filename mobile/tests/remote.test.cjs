@@ -8,8 +8,11 @@ const { encode, decode, toBase64 } = require(resolve(root, 'protobuf.js'))
 const { HostStore } = require(resolve(root, 'persistence.js'))
 const { ClientOutbox } = require(resolve(root, 'outbox.js'))
 const { GrpcTransport } = require(resolve(root, 'transport.js'))
+const { scopeLabel } = require(resolve(root, 'permissions.js'))
 const connection = { hostId: 'host-a', deviceId: 'device-a', name: 'A', serverName: 'canopy.local', fingerprint: 'a'.repeat(64), hostCertificate: 'test', credentialRef: 'credential-a', routes: [{ kind: 'direct', address: '127.0.0.1', port: 1234 }], route: 0 }
-const context = { agent_id: 'acp', history_epoch: '7' }
+const context = { account_id: 'acp', history_epoch: '7' }
+const target = { thread: { host_id: 'host-a', thread_id: 'thread-a' }, executor_epoch: '1' }
+const catalogThread = context => ({ catalog_id: 'chat-a', thread: target.thread, summary: { agent_id: context.account_id, profile_id: context.profile_id, history_epoch: context.history_epoch } })
 const draft = { text: 'Do work', attachments: [], goal: false }
 const entry = (id = 'command-a') => ({ commandId: id, messageId: 'message-' + id, hostId: 'host-a', deviceId: 'device-a', chatId: 'chat-a', context, draft, createdAt: '2026-10-25T00:00:00Z' })
 function storage() {
@@ -24,24 +27,24 @@ function server() {
       assert.equal(method, 'CatalogService/ReadCatalog')
       requests.push({ method, request: structuredClone(request) })
       const cursor = { runtime_epoch: 'runtime', stream_id: 'catalog', sequence: '1' }
-      const page = { host_id: 'host-a', projects: [], terminals: [], chats: [{ chat: { host_id: 'host-a', chat_id: 'chat-a' }, ...this.chatContext }] }
+      const page = { environment: { host_id: 'host-a' }, projects: [], terminals: [], threads: [catalogThread(this.chatContext)] }
       const done = Promise.resolve().then(() => onMessage({ cursor, snapshot_part: { boundary: cursor, page, first: true, last: true } }))
       return { done, cancel() {}, async send() {}, async finish() {} }
     },
     async unary(method, request) {
       requests.push({ method, request: structuredClone(request) })
-      if (method === 'HostService/GetInfo') return { host_id: 'host-a', protocol_version: 1, command_epoch: this.epoch }
-      if (method === 'CatalogService/ListResources') return { host_id: 'host-a', chats: [{ chat: { host_id: 'host-a', chat_id: 'chat-a' }, ...this.chatContext }] }
-      if (method === 'ChatService/SendMessage') {
+      if (method === 'HostService/GetInfo') return { environment: { host_id: 'host-a' }, protocol_version: 1, command_epoch: this.epoch }
+      if (method === 'CatalogService/ListThreads') return { threads: [{ target }] }
+      if (method === 'ThreadService/SendMessage') {
         if (!effects.includes(request.command.command_id)) effects.push(request.command.command_id)
         if (this.loseSend) throw Error('response lost')
-        return { ...request.command, state: 3 }
+        return { host_id: 'host-a', ...request.command, state: 3 }
       }
-      if (method === 'HostService/GetCommand') return { ...request, state: effects.includes(request.command_id) ? 3 : 8 }
+      if (method === 'HostService/GetCommand') return effects.includes(request.command_id) ? { state: 1, receipt: { host_id: 'host-a', command_id: request.command_id, command_epoch: request.command_epoch, state: 3 } } : { state: 2 }
       if (method === 'HostService/CloseCommandEpoch') {
         this.epoch = String(BigInt(request.expected_epoch) + 1n)
         if (this.loseClose) throw Error('close response lost')
-        return { host_id: 'host-a', epoch: this.epoch }
+        return { environment: { host_id: 'host-a' }, epoch: this.epoch }
       }
       throw Error(method)
     },
@@ -49,16 +52,20 @@ function server() {
 }
 
 test('protobuf encoding interoperates with protoc: unicode, max uint64, optional empty and binary', () => {
-  const object = { command: { host_id: 'h', command_id: 'c', command_epoch: '18446744073709551615' }, chat: { host_id: 'h', chat_id: 'čat' }, message_id: 'm', draft: { text: '你好 🧑‍💻', attachments: [], goal: true }, expected_context: { agent_id: 'acp', profile_id: '', history_epoch: '123' } }
+  const object = { command: { command_id: 'c', command_epoch: '18446744073709551615' }, target: { thread: { host_id: 'h', thread_id: 'čat' }, executor_epoch: '1' }, message_id: 'm', draft: { text: '你好 🧑‍💻', attachments: [], goal: true }, expected_context: { account_id: 'acp', profile_id: '', history_epoch: '123' } }
   const bytes = encode('SendMessageRequest', object)
-  const decoded = execFileSync('protoc', ['-I', '../proto', '--decode=canopy.remote.v1.SendMessageRequest', 'canopy/remote/v1/canopy.proto'], { cwd: resolve(__dirname, '..'), input: bytes }).toString()
+  const decoded = execFileSync('protoc', ['-I', '../proto', '--decode=canopy.api.v1.SendMessageRequest', 'canopy/api/v1/api.proto'], { cwd: resolve(__dirname, '..'), input: bytes }).toString()
   assert.match(decoded, /18446744073709551615/)
   assert.match(decoded, /profile_id: ""/)
   assert.deepEqual(decode('SendMessageRequest', bytes), object)
-  const file = { host_id: 'h', upload_id: 'u', offset: '999', data: Uint8Array.from([0, 255, 128, 10]) }
+  const file = { environment: { host_id: 'h' }, upload_id: 'u', offset: '999', data: Uint8Array.from([0, 255, 128, 10]) }
   assert.deepEqual(decode('PutChunkRequest', encode('PutChunkRequest', file)), file)
   assert.throws(() => decode('PutChunkRequest', Uint8Array.from([34, 128])), /truncated/)
-  assert.throws(() => encode('TerminalClientEvent', { input: {}, resize: {} }), /oneof/)
+  assert.throws(() => encode('TerminalSessionRequest', { input: {}, resize: {} }), /oneof/)
+})
+test('device permissions decoded from protobuf display readable scope labels, including future values', () => {
+  const devices = decode('Devices', encode('Devices', { devices: [{ device_id: 'phone', name: 'Phone', scopes: [1, 2, 3, 4, 5, 6, 7, 0, 99] }] }))
+  assert.equal(devices.devices[0].scopes.map(scopeLabel).join(', '), 'Read, Chat, Approve, Files/Git, Terminal, Tasks, Admin, Unspecified, Unknown scope (99)')
 })
 test('outbox persists envelope before send; disk failure causes no effect and preserves draft', async () => {
   const io = storage(), store = await HostStore.open(io, connection), outbox = new ClientOutbox(store), remote = server()
@@ -107,10 +114,10 @@ test('not_found retains old command ID; account changes reject unsent text', asy
   await assert.rejects(outbox.sendExplicit('command-a', remote))
   remote.effects.length = 0 // Simulate request never reaching host rather than lost response.
   remote.loseSend = false
-  await outbox.reconcile(remote)
+  await assert.rejects(outbox.reconcile(remote), /not found/)
   assert.deepEqual(remote.effects, [])
   await outbox.sendExplicit('command-a', remote)
-  const sends = remote.requests.filter(r => r.method === 'ChatService/SendMessage')
+  const sends = remote.requests.filter(r => r.method === 'ThreadService/SendMessage')
   assert.deepEqual(sends[0].request, sends[1].request)
 })
 test('lost Close response blocks new envelopes, retry is same epoch and retains unsent text', async () => {
@@ -132,9 +139,9 @@ test('reviewed unknown command survives lost review response and epoch closure w
   await store.update(state => { state.epoch = '2'; state.mutations = [{ method: 'GitService/Push', commandId: 'uncertain', epoch: '2' }]; return null })
   let reviewed = false, reviewCalls = 0, closeCalls = 0
   const remote = { async unary(method, request) {
-    if (method === 'HostService/GetCommand') return { ...request, state: 6, resolved_by_user: reviewed }
+    if (method === 'HostService/GetCommand') return { state: 1, receipt: { host_id: 'host-a', command_id: request.command_id, command_epoch: request.command_epoch, state: 6, resolved_by_user: reviewed } }
     if (method === 'HostService/ResolveCommand') { reviewed = true; reviewCalls++; throw Error('review reply lost') }
-    if (method === 'HostService/CloseCommandEpoch') { assert.equal(reviewed, true); closeCalls++; return { host_id: 'host-a', epoch: '3' } }
+    if (method === 'HostService/CloseCommandEpoch') { assert.equal(reviewed, true); closeCalls++; return { environment: { host_id: 'host-a' }, epoch: '3' } }
     throw Error('Unexpected effect replay: ' + method)
   } }
   await assert.rejects(new ClientOutbox(store).closeEpoch(remote, true), /review reply lost/)
@@ -184,12 +191,12 @@ function fragments() {
   const bytes = encode('TranscriptItem', item)
   const digest = Uint8Array.from(createHash('sha256').update(bytes).digest())
   const result = []
-  for (let offset = 0; offset < bytes.length; offset += 65536) result.push({ chat: { host_id: 'h', chat_id: 'c' }, cursor: { runtime_epoch: 'r', stream_id: 's', sequence: String(11 + result.length) }, item_fragment: { key: item.key, revision: item.revision, transfer_id: 'transfer', offset: String(offset), total_bytes: String(bytes.length), sha256: digest, data: bytes.slice(offset, offset + 65536) } })
+  for (let offset = 0; offset < bytes.length; offset += 65536) result.push({ thread: { host_id: 'h', thread_id: 'c' }, cursor: { runtime_epoch: 'r', stream_id: 's', sequence: String(11 + result.length) }, item_fragment: { key: item.key, revision: item.revision, transfer_id: 'transfer', offset: String(offset), total_bytes: String(bytes.length), sha256: digest, data: bytes.slice(offset, offset + 65536) } })
   return { item, events: result }
 }
 test('fragment assembly commits cursor only after complete verified item; cancel discards partial', async () => {
   const since = { runtime_epoch: 'r', stream_id: 's', sequence: '10' }
-  const a = new ChatEventAssembler({ host_id: 'h', chat_id: 'c' }, 'subscription', hashes(), since)
+  const a = new ChatEventAssembler({ host_id: 'h', thread_id: 'c' }, 'subscription', hashes(), since)
   const { item, events } = fragments(), installed = []
   await a.push(events[0], value => installed.push(value))
   assert.deepEqual(a.resumeCursor(), since)
@@ -201,7 +208,7 @@ test('fragment assembly commits cursor only after complete verified item; cancel
 })
 test('bad fragment hash and live gap never expose partial replacement or advance resumable cursor', async () => {
   const since = { runtime_epoch: 'r', stream_id: 's', sequence: '10' }
-  const a = new ChatEventAssembler({ host_id: 'h', chat_id: 'c' }, 'subscription', hashes(), since)
+  const a = new ChatEventAssembler({ host_id: 'h', thread_id: 'c' }, 'subscription', hashes(), since)
   const { events } = fragments(), installed = []
   events.at(-1).item_fragment.data[2] ^= 1
   await a.push(events[0], value => installed.push(value))
@@ -214,10 +221,10 @@ test('bad fragment hash and live gap never expose partial replacement or advance
 
 const { ChatProjectionOwner, HistoryPageAssembler } = require(resolve(root, 'projection.js'))
 test('snapshot installation is atomic; interrupted replacement retains old projection and UTF8 tail validates offsets', async () => {
-  const owner = new ChatProjectionOwner(), chat = { host_id: 'h', chat_id: 'c' }, boundary = { runtime_epoch: 'r', stream_id: 's', sequence: '10' }
+  const owner = new ChatProjectionOwner(), chat = { host_id: 'h', thread_id: 'c' }, boundary = { runtime_epoch: 'r', stream_id: 's', sequence: '10' }
   const assembler = new ChatEventAssembler(chat, 'view', hashes())
   const item = { key: { history_epoch: '1', item_id: '1' }, revision: '1', turn_id: '1', trimmed: false, text: { text: '你', streaming: true } }
-  const push = value => assembler.push({ chat, ...value }, event => owner.apply(event))
+  const push = value => assembler.push({ thread: chat, ...value }, event => owner.apply(event))
   await push({ snapshot_start: { boundary, saved_sequence: '0' } })
   await push({ snapshot_items: { items: [item] } })
   assert.equal(owner.snapshot().items.length, 0)
@@ -231,12 +238,12 @@ test('snapshot installation is atomic; interrupted replacement retains old proje
   assert.throws(() => owner.apply({ append_text: { key: item.key, expected_revision: '2', revision: '3', utf8_offset: '2', text: 'bad', streaming: false } }), /offset conflict/)
 })
 test('fragmented history page is unavailable until matching end boundary', async () => {
-  const chat = { host_id: 'h', chat_id: 'c' }, page = new HistoryPageAssembler(chat, 'history', hashes()), { item, events } = fragments()
-  await page.push({ chat, start: { read_id: 'read', previous_page_token: 'older', incomplete: false } })
-  for (const event of events) await page.push({ chat, fragment: event.item_fragment })
+  const chat = { host_id: 'h', thread_id: 'c' }, page = new HistoryPageAssembler(chat, 'history', hashes()), { item, events } = fragments()
+  await page.push({ thread: chat, start: { read_id: 'read', previous_page_token: 'older', incomplete: false } })
+  for (const event of events) await page.push({ thread: chat, fragment: event.item_fragment })
   assert.throws(() => page.result(), /Incomplete/)
-  await assert.rejects(page.push({ chat, end_read_id: 'wrong' }), /boundary/)
-  await page.push({ chat, end_read_id: 'read' })
+  await assert.rejects(page.push({ thread: chat, end_read_id: 'wrong' }), /boundary/)
+  await page.push({ thread: chat, end_read_id: 'read' })
   assert.deepEqual(page.result().items, [item])
   await page.dispose()
 })
@@ -251,23 +258,23 @@ test('upload retries lost Begin and Finish responses using immutable IDs and rec
     native: { async readAttachment(id, offset, length) { return bytes.subarray(offset, offset + length).toString('base64') } },
     async unary(method, request) {
       calls.push({ method, request: structuredClone(request) })
-      if (method.endsWith('/BeginUpload') && loseBegin) { loseBegin = false; throw Error('lost begin response') }
+      if (method.endsWith('/BeginImageUpload')) { if (loseBegin) { loseBegin = false; throw Error('lost begin response') }; return { host_id: 'host-a', ...request.command, state: 3, artifact: { upload_id: 'upload' } } }
       if (method.endsWith('/PutChunk')) { assert.equal(received, false); assert.deepEqual(Buffer.from(request.data), bytes); received = true }
-      if (method.endsWith('/FinishUpload')) { ready = true; if (loseFinish) { loseFinish = false; throw Error('lost finish response') }; return { ...request.command, state: 3 } }
-      return { host_id: 'host-a', upload_id: 'upload', received: received ? [{ offset: '0', length: String(bytes.length) }] : [], artifact: ready ? artifact : undefined }
+      if (method.endsWith('/FinishImageUpload')) { ready = true; if (loseFinish) { loseFinish = false; throw Error('lost finish response') }; return { host_id: 'host-a', ...request.command, state: 3 } }
+      return { environment: { host_id: 'host-a' }, upload_id: 'upload', received: received ? [{ offset: '0', length: String(bytes.length) }] : [], artifact: ready ? artifact : undefined }
     },
   }
-  let host = { store, transport }
-  const journal = await prepareUpload(host, { chat: { host_id: 'host-a', chat_id: 'chat-a' } }, 'chat-image', 'source', bytes.length, digest, 'image/png')
+  let host = { store, transport, snapshot: () => ({ hostId: 'host-a' }) }
+  const journal = await prepareUpload(host, { image: target }, 'chat-image', 'source', bytes.length, digest, 'image/png')
   await assert.rejects(upload(host, journal.id), /lost begin/)
-  host = { store: await HostStore.open(io, connection), transport }
+  host = { store: await HostStore.open(io, connection), transport, snapshot: host.snapshot }
   await assert.rejects(upload(host, journal.id), /lost finish/)
-  host = { store: await HostStore.open(io, connection), transport }
+  host = { store: await HostStore.open(io, connection), transport, snapshot: host.snapshot }
   assert.deepEqual(await upload(host, journal.id), artifact)
-  const begins = calls.filter(c => c.method.endsWith('/BeginUpload'))
+  const begins = calls.filter(c => c.method.endsWith('/BeginImageUpload'))
   assert.deepEqual(begins[0].request, begins[1].request)
   assert.equal(calls.filter(c => c.method.endsWith('/PutChunk')).length, 1)
-  assert.equal(calls.filter(c => c.method.endsWith('/FinishUpload')).length, 1)
+  assert.equal(calls.filter(c => c.method.endsWith('/FinishImageUpload')).length, 1)
 })
 
 test('standard protobuf Struct maps preserve nested typed provider fields and hostile map keys', () => {
@@ -282,10 +289,11 @@ const { TerminalViewOwner } = require(resolve(root, 'terminal.js'))
 test('terminal sends fenced mode-aware input and never repeats bytes after lost acknowledgement', async () => {
   const io = storage(), store = await HostStore.open(io, connection); await store.update(s => { s.epoch = '2' })
   let receive, resolveStream; const sent = []
-  const host = { store, snapshot: () => ({ hostId: 'host-a', phase: 'ready' }), subscribe: () => () => {}, transport: {
+  const host = { store, snapshot: () => ({ hostId: 'host-a', phase: 'ready', catalog: { terminals: [{ terminal: { host_id: 'host-a', terminal_id: 'term' }, project_catalog_id: 'w' }], projects: [{ checkouts: [{ catalog_id: 'w', project: { host_id: 'host-a', project_id: 'project-a', worktree_id: 'worktree-a' } }] }] } }), subscribe: () => () => {}, transport: {
     async stream(method, callback) { receive = callback; return { send: async value => { sent.push(value) }, cancel() {}, done: new Promise(resolve => { resolveStream = resolve }) } },
-    async unary(method) { return { terminal: { host_id: 'host-a', terminal_id: 'term' }, run_id: 'run', fencing_token: '91', expires_in_ms: 15000, held: !method.endsWith('ReleaseInput') } },
+    async unary() { throw Error('Unexpected read') },
   } }
+  host.mutate = async (method, request) => ({ host_id: 'host-a', ...request.command, state: 3, terminal: { terminal_id: 'term', run_id: 'run', lease: { terminal: { host_id: 'host-a', terminal_id: 'term' }, run_id: 'run', fencing_token: '91', expires_in_ms: 15000, held: !method.endsWith('ReleaseInput') } } })
   const owner = new TerminalViewOwner(host, 'term'); owner.start(); await new Promise(resolve => setImmediate(resolve))
   const terminal = { host_id: 'host-a', terminal_id: 'term' }
   receive({ terminal, run_id: 'run', cursor: { runtime_epoch: 'epoch', stream_id: 'term', sequence: '1' }, frame: { columns: 80, rows: 24, cells: [], cursor_column: 0, cursor_row: 0, input_modes: '5', lost_scrollback: false, complete: true } })
@@ -346,15 +354,15 @@ test('chat and terminal recover after more than three transient read failures an
   t.mock.timers.enable({ apis: ['setTimeout'] })
   for (const kind of ['chat', 'terminal']) {
     let attempts = 0, stop
-    const host = { snapshot: () => ({ hostId: 'host-a', phase: 'ready' }), subscribe: () => () => {}, transport: {
+    const host = { snapshot: () => ({ hostId: 'host-a', phase: 'ready', catalog: { threads: [{ catalog_id: 'c', thread: { host_id: 'host-a', thread_id: 'c' } }] } }), subscribe: () => () => {}, transport: {
       native: hashes(),
       async subscribe(method, request, receive, signal) {
         attempts++
         if (attempts <= 5) throw Error('transient overflow')
-        const chat = request.chat, boundary = { runtime_epoch: 'e', stream_id: 's', sequence: '1' }
-        await receive({ chat, snapshot_start: { boundary, saved_sequence: '0' } })
-        await receive({ chat, snapshot_end: { boundary, has_earlier_history: false } })
-        await receive({ chat, cursor: { ...boundary, sequence: '2' }, replace_item: { key: { history_epoch: '1', item_id: '1' }, revision: '1', turn_id: '1', trimmed: false, text: { text: 'recovered', streaming: false } } })
+        const thread = request.thread, boundary = { runtime_epoch: 'e', stream_id: 's', sequence: '1' }
+        await receive({ thread, snapshot_start: { boundary, saved_sequence: '0' } })
+        await receive({ thread, snapshot_end: { boundary, has_earlier_history: false } })
+        await receive({ thread, cursor: { ...boundary, sequence: '2' }, replace_item: { key: { history_epoch: '1', item_id: '1' }, revision: '1', turn_id: '1', trimmed: false, text: { text: 'recovered', streaming: false } } })
         return { done: new Promise(resolve => { stop = resolve; signal.addEventListener('abort', resolve, { once: true }) }) }
       },
       async stream(method, receive, signal) {
@@ -376,7 +384,7 @@ test('chat and terminal recover after more than three transient read failures an
 const { reloadTextFile } = require(resolve(root, 'files.js'))
 test('reload preserves durable draft on failed, cancelled or concurrent reads and atomically installs success', async () => {
   const io = storage(), store = await HostStore.open(io, connection), key = 'file:w:note.txt'
-  const file = { workspace: { host_id: 'host-a', workspace_id: 'w' }, relative_path: 'note.txt' }
+  const file = { target: { project: { host_id: 'host-a', project_id: 'project-a', worktree_id: 'worktree-a' } }, relative_path: 'note.txt' }
   await store.update(state => { state.views = { [key]: { text: 'unsaved draft', baseHash: 'old' } } })
   let fail = true, complete = true
   const host = { store, transport: { native: hashes(), async subscribe(method, request, callback) {
@@ -395,7 +403,7 @@ test('reload preserves durable draft on failed, cancelled or concurrent reads an
   await assert.rejects(reloadTextFile(host, file, new AbortController().signal, () => true), /disk full/)
   io.fail = false
   assert.equal(store.snapshot().views[key].text, 'unsaved draft')
-  await reloadTextFile(host, file, new AbortController().signal, () => true)
+  await reloadTextFile(host, file, new AbortController().signal, () => true, key)
   assert.equal((await HostStore.open(io, connection)).snapshot().views[key].text, 'host text')
 })
 const { terminalKey } = require(resolve(root, 'terminal-keys.js'))
@@ -416,15 +424,15 @@ test('terminal navigation, function and hardware modifiers produce TUI sequences
 const { chatRequest, retryChatMutation, restoreChatRequest } = require(resolve(root, 'chat-commands.js'))
 test('explicit chat recovery preserves original request and command ID across lost replies; unknown is not replayed', async () => {
   const io = storage(), store = await HostStore.open(io, connection)
-  const request = { command: { host_id: 'host-a', command_id: 'edit-original', command_epoch: '2' }, chat: { host_id: 'host-a', chat_id: 'c' }, run_id: 'run', item: { history_epoch: '1', item_id: '4' }, draft: { text: 'replacement', attachments: [{ label: 'quote', quote: { text: 'original context' } }], goal: false }, restore_files: true }
-  await store.update(state => { state.epoch = '2'; state.mutations = [{ method: 'ChatService/EditMessage', commandId: request.command.command_id, epoch: '2', chatRequest: chatRequest('ChatService/EditMessage', request) }] })
-  let sends = 0, status = 8, lost = true
+  const request = { command: { command_id: 'edit-original', command_epoch: '2' }, target, run_id: '1', item: { history_epoch: '1', item_id: '4' }, draft: { text: 'replacement', attachments: [{ label: 'quote', quote: { text: 'original context' } }], goal: false }, restore_files: true }
+  await store.update(state => { state.epoch = '2'; state.mutations = [{ method: 'ThreadService/EditMessage', commandId: request.command.command_id, epoch: '2', chatRequest: chatRequest('ThreadService/EditMessage', request) }] })
+  let sends = 0, status = 2, lost = true
   const transport = { async unary(method, body) {
-    if (method.endsWith('/GetCommand')) return { ...request.command, state: status }
+    if (method.endsWith('/GetCommand')) return status === 2 ? { state: 2 } : { state: 1, receipt: { host_id: 'host-a', ...request.command, state: status } }
     assert.deepEqual(body, request)
     sends++
     if (lost) { lost = false; throw Error('lost reply') }
-    return { ...request.command, state: 3 }
+    return { host_id: 'host-a', ...request.command, state: 3 }
   } }
   await assert.rejects(retryChatMutation(store, transport, 'edit-original'), /lost reply/)
   const restored = await HostStore.open(io, connection)
@@ -433,10 +441,10 @@ test('explicit chat recovery preserves original request and command ID across lo
   status = 6
   assert.equal((await retryChatMutation(restored, transport, 'edit-original')).state, 6)
   assert.equal(sends, 2)
-  await restored.update(state => { state.epoch = '3' }); status = 8
+  await restored.update(state => { state.epoch = '3' }); status = 2
   await assert.rejects(retryChatMutation(restored, transport, 'edit-original'), /retired/)
   assert.equal(sends, 2)
-  assert.deepEqual(restoreChatRequest('ChatService/EditMessage', restored.snapshot().mutations[0].chatRequest), request)
+  assert.deepEqual(restoreChatRequest('ThreadService/EditMessage', restored.snapshot().mutations[0].chatRequest), request)
 })
 
 const { readChatPage } = require(resolve(root, 'artifact-preview.js'))
@@ -455,7 +463,7 @@ test('interactive chat page validates authorized artifact and cleans corrupted o
     },
     async subscribe(method, request, receive) { return { done: receive({ artifact: { ...artifact, sha256: corrupt ? new Uint8Array(32) : artifact.sha256 }, offset: '0', data: bytes, complete: finish }) } },
   } }
-  const chat = { host_id: 'host-a', chat_id: 'c' }, item = { history_epoch: '1', item_id: '2' }
+  const chat = { host_id: 'host-a', thread_id: 'c' }, item = { history_epoch: '1', item_id: '2' }
   corrupt = true
   await assert.rejects(readChatPage(host, chat, item), /checksum/); assert.equal(files.size, 0)
   corrupt = false; finish = false
@@ -468,11 +476,11 @@ test('interactive chat page validates authorized artifact and cleans corrupted o
 
 test('returning to live history cancels an older page even when transport finishes late', async () => {
   let finish, signal
-  const chat = { host_id: 'h', chat_id: 'c' }
-  const host = { snapshot: () => ({ hostId: 'h' }), transport: { native: hashes(), async subscribe(method, request, receive, cancellation) {
+  const chat = { host_id: 'h', thread_id: 'c' }
+  const host = { snapshot: () => ({ hostId: 'h', catalog: { threads: [{ catalog_id: 'c', thread: chat }] } }), transport: { native: hashes(), async subscribe(method, request, receive, cancellation) {
     signal = cancellation
-    await receive({ chat, start: { read_id: 'old', previous_page_token: 'older', incomplete: true } })
-    await receive({ chat, end_read_id: 'old' })
+    await receive({ thread: chat, start: { read_id: 'old', previous_page_token: 'older', incomplete: true } })
+    await receive({ thread: chat, end_read_id: 'old' })
     return { done: new Promise(resolve => { finish = resolve }) }
   } } }
   const owner = new ChatViewOwner(host, 'c'), pending = owner.earlier()
@@ -549,13 +557,13 @@ test('contextual Send recovery keeps original envelope while the next composer d
   const composer = new ComposerDraft(outbox, 'chat-a')
   await composer.edit({ text: 'A', attachments: [{ label: 'quote', quote: { text: 'context A' } }] }, context)
   const a = composer.snapshot()
-  const request = { command: { host_id: 'host-a', command_id: 'send-original', command_epoch: '2' }, chat: { host_id: 'host-a', chat_id: 'chat-a' }, message_id: 'message-original', draft: a.draft, expected_context: a.context }
-  await store.update(state => { state.epoch = '2'; state.mutations = [{ method: 'ChatService/SendMessage', commandId: request.command.command_id, epoch: '2', chatRequest: chatRequest('ChatService/SendMessage', request) }] })
+  const request = { command: { command_id: 'send-original', command_epoch: '2' }, target, message_id: 'message-original', draft: a.draft, expected_context: a.context }
+  await store.update(state => { state.epoch = '2'; state.mutations = [{ method: 'ThreadService/SendMessage', commandId: request.command.command_id, epoch: '2', chatRequest: chatRequest('ThreadService/SendMessage', request) }] })
   const captured = barrier(), finish = barrier()
   let delivered = false, attempts = 0
   const transport = { async unary(method, body) {
-    if (method === 'HostService/GetCommand') return { ...request.command, state: delivered ? 3 : 8 }
-    assert.equal(method, 'ChatService/SendMessage'); assert.deepEqual(body, request)
+    if (method === 'HostService/GetCommand') return delivered ? { state: 1, receipt: { host_id: 'host-a', ...request.command, state: 3 } } : { state: 2 }
+    assert.equal(method, 'ThreadService/SendMessage'); assert.deepEqual(body, request)
     attempts++; captured.release(); await finish.wait; delivered = true
     throw Error('accepted but reply lost')
   } }
@@ -567,5 +575,5 @@ test('contextual Send recovery keeps original envelope while the next composer d
   assert.equal((await retryChatMutation(restored, transport, 'send-original')).state, 3)
   assert.equal(attempts, 1)
   assert.deepEqual(new ComposerDraft(new ClientOutbox(restored), 'chat-a').snapshot(), b)
-  assert.deepEqual(restoreChatRequest('ChatService/SendMessage', restored.snapshot().mutations[0].chatRequest), request)
+  assert.deepEqual(restoreChatRequest('ThreadService/SendMessage', restored.snapshot().mutations[0].chatRequest), request)
 })

@@ -6,7 +6,7 @@ mod tasks;
 #[cfg(test)]
 mod tests;
 use crate::app_state::AppState;
-use canopy_desktop::remote::{proto, resources::ResourceLocks, settings_rpc::*};
+use canopy_desktop::remote::{resources::ResourceLocks, settings_rpc::*};
 use futures_channel::oneshot;
 use gpui_kit::*;
 use std::sync::Arc;
@@ -25,11 +25,16 @@ pub struct ControlBridge {
     reason = "The control queue is bounded to 64 operations and carries owned settings edits without an extra allocation."
 )]
 enum Op {
+    TaskConfiguration(
+        String,
+        canopy_desktop::command_bus::tasks::TaskConfiguration,
+        Reply<()>,
+    ),
     Preferences(
         canopy_desktop::command_bus::PreparedCommand,
         Reply<canopy_desktop::host::CommandReceipt>,
     ),
-    Snapshot(Reply<proto::HostSettings>),
+    Snapshot(Reply<canopy_desktop::api::proto::HostSettings>),
     Edit(edits::Edit, Option<u64>, Reply<()>),
     Filter(
         Option<canopy_desktop::integrations::filters::TaskFilter>,
@@ -37,7 +42,7 @@ enum Op {
         Reply<()>,
     ),
     Worktree(
-        proto::WorkspaceRef,
+        canopy_desktop::thread::ProjectRef,
         canopy_desktop::integrations::TaskRef,
         String,
         tokio::runtime::Handle,
@@ -131,6 +136,10 @@ impl ControlBridge {
                         let result = state
                             .update(cx, |state, cx| state.check(expected, cx))
                             .and_then(|_| edits::apply(edit, cx));
+                        finish(result, reply, cx);
+                    }
+                    Op::TaskConfiguration(root, change, reply) => {
+                        let result = tasks::configure(root, change, cx);
                         finish(result, reply, cx);
                     }
                     Op::Filter(filter, id, reply) => {

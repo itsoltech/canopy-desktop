@@ -508,12 +508,28 @@ impl FilesState {
         let Some(root) = self.root.clone() else {
             return;
         };
+        let resource = super::file_ops::LocalResource::capture(&root, cx);
         self.creating = true;
         self.creation = Some(cx.spawn(async move |this, cx| {
             let (base, path) = (root.clone(), relative.clone());
             let result = cx
                 .background_executor()
-                .spawn(async move { files::create(&base, &path) })
+                .spawn(async move {
+                    use canopy_desktop::command_bus::{Command, FileCommand};
+                    let resource = resource?;
+                    let input = resource
+                        .begin(Command::File(FileCommand::Create {
+                            path: path
+                                .to_str()
+                                .ok_or("Unsupported file path encoding.")?
+                                .into(),
+                            directory: false,
+                            content: None,
+                        }))
+                        .await?;
+                    let outcome = files::create(&base, &path);
+                    resource.bus.finish_local_resource(input, outcome).await
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.creating = false;
