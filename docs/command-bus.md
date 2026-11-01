@@ -1,6 +1,6 @@
 # Wspólna magistrala komend
 
-`src/command_bus.rs` realizuje pierwszy zakres BUS-01..04 i CMD-01..12 na
+`src/command_bus.rs` realizuje dwa pierwsze zakresy BUS-01..04 i CMD-01..12 na
 istniejącym workerze SQLite. Desktop i gRPC przekazują typowany zamiar do tego
 samego właściciela walidacji, autoryzacji, fingerprintu i deduplikacji. Odczyty
 i operacje wyłącznie widoku nie korzystają z inboxu.
@@ -13,6 +13,10 @@ i operacje wyłącznie widoku nie korzystają z inboxu.
 | `chat.send` | Przyjęcie wiadomości do trwałej kolejki; ID wiadomości |
 | `chat.queue.edit`, `move`, `remove`, `pause`, `resolve_unknown` | Atomowa zmiana kolejki i jej nowa rewizja |
 | `settings.preferences` | Patch preferencji, pełne zatwierdzone wartości i wynikowa rewizja ustawień |
+| `chat.create`, `chat.delete`, `chat.fork` | Istniejący właściciel lifecycle; fork zachowuje źródłowy projekt/worktree i dedupe źródła |
+| `chat.start`, `interrupt`, `restart`, `steer`, `respond`, `set_option`, `set_agent` | Przyjęcie przez bus, wykonanie przez istniejący runtime |
+| `chat.set_goal`, `pause_goal`, `resume_goal`, `clear_goal`, `stop_background`, `edit`, `shell`, `stop_shell` | Istniejący handler runtime, trwałe stany i kontrola runu |
+| `projects.open` | Istniejący właściciel projektów i jego persist; intencja adresowana środowiskiem |
 
 `Command`, `CommandEnvelope`, `Conditions`, `ResourceRef` i `Principal` nie są
 typami Protobuf. `registry()` udostępnia nazwę, ryzyko i scope każdej komendy;
@@ -26,8 +30,8 @@ pochodzi z uwierzytelnienia adaptera, nigdy z pola żądania.
 
 Pełny klucz inboxu to `(resource, executor_epoch, principal, command_id)`.
 Dla wątku resource jest istniejącym `ThreadId`, a envelope zawiera `ThreadRef`
-i epokę executora. Preferencje używają `EnvironmentRef` hosta. Rejestr przewiduje
-też `ProjectRef`; w tym zakresie nie ma komend projektu. Niewdrożone komendy
+i epokę executora. Preferencje i open używają `EnvironmentRef` hosta. Create
+używa `ProjectRef` albo środowiska dla Private. Niewdrożone komendy
 zachowują namespace `resource=''`, `executor_epoch=0`. Epoka komend urządzenia
 dalej chroni zamkniętą retencję; nie zastępuje epoki executora.
 
@@ -42,6 +46,9 @@ epokę executora i warunki rewizji. Fingerprint SHA-256 obejmuje znormalizowaną
 metodę, zasób, argumenty i warunki, bez bajtów Protobuf. Zapisany zamiar pozwala
 odtworzyć te dane. Taki sam ID i zamiar zwracają zapisany stan; zmienione
 argumenty lub warunki powodują konflikt.
+Niezgodna epoka executora daje trwałe `Rejected/conditions_changed` pod pierwotnym
+kluczem, tak jak przestarzała rewizja kolejki. Także zmiana rewizji między prepare
+i przyjęciem przez runtime zapisuje odmowę przed odpowiedzią, bez efektu.
 
 Incoming draft zachowuje referencje załączników i podpisany kontekst. Rozwiązanie
 workspace, kontekstu i retencji obrazów następuje po dedupe. Treść pliku nie jest
@@ -51,15 +58,22 @@ Legacy `GetCommand` i `ResolveCommand` nie zawierają resource ani epoki executo
 Po sprawdzeniu uprawnień odrzucają niejednoznaczny command ID, zamiast wybierać
 dowolny wiersz. Odzyskanie wyniku: ponowić oryginalne typowane RPC z tym samym
 command ID. Jawny retry Send zachowuje ID i zapisany request; nie stosuje hedgingu.
-Typowane komendy mają kontrakt [canopy.api.v1](api-v1.md). Stare odczyty
-i pozostałe operacje pozostają dostępne na czas niewydanej migracji.
+Typowane komendy mają kontrakt [canopy.api.v1](api-v1.md). Odczyty katalogu,
+discovery, subskrypcje i historia wątków używają nowego kontraktu; pozostałe
+operacje pozostają dostępne na czas niewydanej migracji.
 
 ## Zapis i niepewność dostarczenia
 
-Wdrożone efekty są zmianami SQLite. Efekt domenowy i `succeeded` commitują się
+Efekty wyłącznie SQLite i `succeeded` commitują się
 w jednej transakcji (CMD-08). Nieudany zapis receipt wycofuje nazwę, preferencje,
 kolejkę i retencję obrazów; nie wolno publikować sukcesu po samym enqueue zapisu.
 Nie powstaje drugi inbox, worker ani warstwa repozytorium.
+Kontrole runtime i lifecycle zachowują swojego dotychczasowego właściciela:
+bus przygotowuje oryginalny input, a istniejący handler ponownie sprawdza grant,
+rewizję i epokę w transakcji acceptance. Efekty zewnętrzne mają `attempting`
+przed skutkiem i `delivery_unknown` po niepewnej awarii; nie ma automatycznego replay.
+Create/open sprawdzają zapisany zamiar i autoryzację przed ponowną rezolucją celu.
+Zadanie aplikacji i `ResourceLocks` utrzymują operację po anulowaniu RPC.
 
 Sukces Send oznacza przyjęcie do kolejki, nie zakończenie wykonania. Istniejący
 właściciel runtime osobno zapisuje `attempting` przed późniejszym dostarczeniem.
@@ -98,13 +112,12 @@ Adopcja bazy sprzed runtime pozostaje transakcyjna. Prywatny prerelease o innym
 fingerprincie nadal kończy się `UnsupportedSchema`; nie ma resetu ani automatycznej
 aktualizacji niezgodnego schematu.
 
-Poza magistralą pozostają create/delete/fork/recover, start/interrupt/restart,
-steer/respond/options/agent/goal/background/edit/shell, otwieranie/zamykanie
-projektów, terminale, Files/Git, Tasks/integracje, profile/sekrety, administracja
+Poza nowym kontraktem pozostają recover, zamykanie projektów, terminale,
+Files/Git, Tasks/integracje, profile/sekrety, administracja
 urządzeniami i artefaktami oraz inne mutacje. Ich dotychczasowe ścieżki pozostają
-czynne. Sekrety nie trafiają do plaintext inboxu. Pierwszy etap
-[canopy.api.v1](api-v1.md) udostępnia osiem komend rejestru, odczyt tożsamości
-wątków i parytet deskryptora z rejestrem. Pełne BUS-05/RPC-11 czeka na pozostałe
+czynne. Sekrety nie trafiają do plaintext inboxu. Dwa etapy
+[canopy.api.v1](api-v1.md) udostępniają komendy wątków/katalogu, preferencje,
+odczyty i parytet deskryptora z rejestrem. Pełne BUS-05/RPC-11 czeka na pozostałe
 komendy i rzeczywisty rejestr narzędzi. Nie dodano outbox replay, replikacji ani handoff.
 
 ## Dostęp do wątku: Local i Grpc
@@ -119,7 +132,8 @@ Kilka widoków tej samej referencji hosta współdzieli jedną subskrypcję.
 
 Local bezpośrednio wywołuje istniejący bus, runtime, właściciela Settings i workery.
 Nie koduje Protobuf i nie łączy się z własnym serwerem. Grpc skupia konwersje
-`canopy.api.v1` dla komend busa oraz legacy odczyty, projekcję, stream/pump, dziennik żądań i odzyskiwanie szkiców
+`canopy.api.v1` dla komend busa, odczytów wątku/katalogu i discovery oraz przejściową
+konwersję projekcji desktopu, stream/pump, dziennik żądań i odzyskiwanie szkiców
 w `transport/grpc.rs`. Krótkie odczyty mają właściciela anulowania zarówno po stronie
 wywołującego, jak i subskrypcji. Mutacje nadal należą do istniejącego właściciela
 operacji i trwałego dziennika; odłączenie widoku nie oznacza przerwania wykonania.

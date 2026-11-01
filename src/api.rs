@@ -1,6 +1,10 @@
 //! Typed command adapters. Admission and durable results belong to CommandBus.
+mod catalog;
+pub mod catalog_projection;
 pub mod compat;
-mod decode;
+pub use catalog::CatalogPublisher;
+pub mod decode;
+pub mod projection;
 pub(crate) mod rpc;
 pub use decode::project as checked_project_ref;
 pub use rpc::{ThreadPublisher, ThreadRpc};

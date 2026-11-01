@@ -20,7 +20,7 @@ pub(super) fn environment(value: p::EnvironmentRef) -> Result<EnvironmentRef, St
         host_id: host(value.host_id)?,
     })
 }
-pub(super) fn target(value: p::ThreadTarget) -> Result<ResourceRef, Status> {
+pub fn target(value: p::ThreadTarget) -> Result<ResourceRef, Status> {
     let thread = required(value.thread)?;
     Ok(ResourceRef::Thread {
         thread: ThreadRef {
@@ -73,7 +73,7 @@ pub fn project(
     Ok(checked)
 }
 
-pub(super) fn envelope(
+pub fn envelope(
     meta: p::CommandMeta,
     resource: ResourceRef,
     command: crate::command_bus::Command,
@@ -90,7 +90,7 @@ pub(super) fn envelope(
     })
 }
 
-pub(super) fn draft(value: p::MessageDraft) -> Result<DraftIntent, Status> {
+pub fn draft(value: p::MessageDraft) -> Result<DraftIntent, Status> {
     let attachments = value
         .attachments
         .into_iter()

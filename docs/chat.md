@@ -725,6 +725,15 @@ aż warunek jest spełniony. Sprawdzone na żywo z Claude Code 2.1.295 i codex-c
 
 ## Etap 14: fork rozmowy do nowego czatu
 
+Kontrakt zdalny `canopy.api.v1.ForkThread` jest ograniczony do projektu i worktree
+źródła. Host wyprowadza cel z metadanych wątku; żądanie nie zawiera destination.
+Cross-project i Private destination są poza kontraktem. Istniejąca paleta pozostaje,
+ale zdalny wybór innego checkoutu albo Private zwraca jawną odmowę przed wysłaniem
+komendy; nigdy nie zmienia się po cichu na źródło. Fork prywatnego źródła przez to
+RPC również wymaga odmowy. Lokalny fork zachowuje dotychczasowy wybór celu.
+Adres źródła, epoka executora i pełny request zostają w dzienniku retry. Szczegóły:
+[typowane API](api-v1.md).
+
 - Pod zakończoną odpowiedzią agenta (akcje na hover) przycisk Fork (`git-branch`, „Fork into a new chat”),
   gdy tura ma punkt wznowienia (`TurnEnd.resume_at`), część ma zapisaną sesję agenta, a czat historię
   (`ChatView::fork_request`, `ui/chat/fork.rs`); także w częściach sprzed Restart/Edit, nie w wątkach subagentów.

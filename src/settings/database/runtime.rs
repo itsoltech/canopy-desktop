@@ -375,6 +375,20 @@ impl Database {
             .map(chat_record)
             .collect()
     }
+    /// Keyset scan over live catalog rows; callers advance past hidden rows too.
+    pub fn runtime_chats_page(&self, after: Option<String>) -> Result<Vec<ChatRecord>> {
+        require_host(self)?;
+        if after.as_ref().is_some_and(|id| !host::valid_id(id)) {
+            return Err(Error::InvalidRuntimeState);
+        }
+        self.db
+            .prepare(&format!("SELECT {CHAT_COLUMNS} FROM _canopy_runtime_chats WHERE closed_at IS NULL AND chat_id > ?1 ORDER BY chat_id LIMIT 64"))?
+            .query_map([after.unwrap_or_default()], chat_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .map(chat_record)
+            .collect()
+    }
     /// A resource request must not materialize the whole host chat catalog.
     pub fn load_runtime_chat(&self, id: String) -> Result<Option<ChatRecord>> {
         require_host(self)?;
@@ -464,6 +478,7 @@ impl Database {
         input: CommandInput,
         scope: u32,
     ) -> Result<CommandReceipt> {
+        let scope = bus::runtime_scope(&input, scope)?;
         let diagnostic_host = self.runtime_host().ok().map(|host| host.id);
         let diagnostic_key = input.key.clone();
         let diagnostic_resource = Some(metrics::resource_id(&input.target));
@@ -474,7 +489,7 @@ impl Database {
                 .db
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             authorize_root(&tx, &input.key, scope, command_root(&input)?, true)?;
-            let result = match existing(&tx, &input)? {
+            let result = match bus::runtime_admission(&tx, &input, scope)? {
                 Some(result) => {
                     retried = true;
                     result
@@ -987,6 +1002,9 @@ fn mutate_queue(
 ) -> Result<CommandReceipt> {
     input.root = Some(chat_root(tx, &chat, &input.key)?);
     authorize_root(tx, &input.key, scope, command_root(&input)?, true)?;
+    if let Some(prior) = bus::runtime_admission(tx, &input, scope)? {
+        return Ok(prior);
+    }
     if let Some(result) = existing(tx, &input)? {
         return Ok(result);
     }
@@ -1317,10 +1335,15 @@ fn accept_message(
     resolved_intent: Option<host::MessageIntent>,
     scope: u32,
 ) -> Result<CommandReceipt> {
+    let scope = bus::runtime_scope(&input, scope)?;
     if !host::valid_id(&chat) || !host::valid_id(&message) || !draft.valid() {
         return Err(Error::InvalidRuntimeState);
     }
-    if input.method != "chat.send" || input.target != chat {
+    if !matches!(
+        input.method.as_str(),
+        "chat.send" | "chat.steer" | "chat.set_goal"
+    ) || input.target != chat
+    {
         return Err(Error::InvalidRuntimeState);
     }
     let payload = serde_json::to_string(&draft).map_err(|_| Error::InvalidRuntimeState)?;
@@ -1329,6 +1352,9 @@ fn accept_message(
     }
     input.root = Some(chat_root(tx, &chat, &input.key)?);
     authorize_root(tx, &input.key, scope, command_root(&input)?, true)?;
+    if let Some(prior) = bus::runtime_admission(tx, &input, scope)? {
+        return Ok(prior);
+    }
     let intent = if let Some(intent) = resolved_intent {
         Some(intent)
     } else {
@@ -1350,12 +1376,36 @@ fn accept_message(
             {
                 None
             }
+            Err(_) if !input.key.resource.is_empty() => {
+                let (_, _, _, command, _): (
+                    String,
+                    String,
+                    u64,
+                    crate::command_bus::Command,
+                    crate::command_bus::Conditions,
+                ) = serde_json::from_slice(&input.arguments).map_err(|_| Error::CommandConflict)?;
+                let steer_run = match command {
+                    crate::command_bus::Command::Control(crate::command_bus::Control::Steer {
+                        run,
+                        ..
+                    }) => Some(run),
+                    crate::command_bus::Command::Control(
+                        crate::command_bus::Control::SetGoal { .. },
+                    ) => None,
+                    _ => return Err(Error::CommandConflict),
+                };
+                let record = load_chat(tx, "chat_id=?1 AND closed_at IS NULL", &chat)?
+                    .ok_or(Error::NotFound)?;
+                Some(host::MessageIntent {
+                    message_id: message.clone(),
+                    draft: draft.clone(),
+                    context: record.send_context(),
+                    steer_run,
+                })
+            }
             Err(_) => return Err(Error::CommandConflict),
         }
     };
-    if let Some(result) = existing(tx, &input)? {
-        return Ok(result);
-    }
     let exists: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM _canopy_runtime_chats WHERE chat_id=?1 AND closed_at IS NULL)",
         [&chat],

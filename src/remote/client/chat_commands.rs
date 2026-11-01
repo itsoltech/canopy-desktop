@@ -1,10 +1,22 @@
-use super::{HostClient, commands::check_receipt, rpc_error, store::MutationRecord};
+use super::{
+    HostClient,
+    commands::{check_receipt, terminal_state},
+    store::MutationRecord,
+};
 use crate::remote::proto as p;
 use prost::Message;
 
 /// Non-secret chat intent retained by the device until its outcome is known.
 #[derive(Clone, Debug)]
 pub enum ChatMutation {
+    Interrupt(p::ChatCommandRequest),
+    Restart(p::ChatCommandRequest),
+    Steer(p::SteerRequest),
+    Respond(p::RespondDecisionRequest),
+    Option(p::SetAgentOptionRequest),
+    Agent(p::SetChatAgentRequest),
+    Goal(p::SetGoalRequest),
+    Background(p::StopBackgroundRequest),
     Send(p::SendMessageRequest),
     Edit(p::EditMessageRequest),
     Fork(p::ForkChatRequest),
@@ -14,6 +26,13 @@ pub enum ChatMutation {
 impl ChatMutation {
     fn command_mut(&mut self) -> &mut Option<p::CommandMeta> {
         match self {
+            Self::Interrupt(v) | Self::Restart(v) => &mut v.command,
+            Self::Steer(v) => &mut v.command,
+            Self::Respond(v) => &mut v.command,
+            Self::Option(v) => &mut v.command,
+            Self::Agent(v) => &mut v.command,
+            Self::Goal(v) => &mut v.command,
+            Self::Background(v) => &mut v.command,
             Self::Send(v) => &mut v.command,
             Self::Edit(v) => &mut v.command,
             Self::Fork(v) => &mut v.command,
@@ -23,6 +42,13 @@ impl ChatMutation {
     }
     pub fn chat(&self) -> Option<&p::ChatRef> {
         match self {
+            Self::Interrupt(v) | Self::Restart(v) => v.chat.as_ref(),
+            Self::Steer(v) => v.chat.as_ref(),
+            Self::Respond(v) => v.chat.as_ref(),
+            Self::Option(v) => v.chat.as_ref(),
+            Self::Agent(v) => v.chat.as_ref(),
+            Self::Goal(v) => v.chat.as_ref(),
+            Self::Background(v) => v.chat.as_ref(),
             Self::Send(v) => v.chat.as_ref(),
             Self::Edit(v) => v.chat.as_ref(),
             Self::Fork(v) => v.chat.as_ref(),
@@ -32,6 +58,14 @@ impl ChatMutation {
     }
     fn encode(&self) -> (&'static str, Vec<u8>) {
         match self {
+            Self::Interrupt(v) => ("interrupt", v.encode_to_vec()),
+            Self::Restart(v) => ("restart", v.encode_to_vec()),
+            Self::Steer(v) => ("steer", v.encode_to_vec()),
+            Self::Respond(v) => ("respond", v.encode_to_vec()),
+            Self::Option(v) => ("option", v.encode_to_vec()),
+            Self::Agent(v) => ("agent", v.encode_to_vec()),
+            Self::Goal(v) => ("goal", v.encode_to_vec()),
+            Self::Background(v) => ("background", v.encode_to_vec()),
             Self::Send(v) => ("send", v.encode_to_vec()),
             Self::Edit(v) => ("edit", v.encode_to_vec()),
             Self::Fork(v) => ("fork", v.encode_to_vec()),
@@ -41,6 +75,14 @@ impl ChatMutation {
     }
     fn decode(kind: &str, bytes: &[u8]) -> Result<Self, String> {
         match kind {
+            "interrupt" => p::ChatCommandRequest::decode(bytes).map(Self::Interrupt),
+            "restart" => p::ChatCommandRequest::decode(bytes).map(Self::Restart),
+            "steer" => p::SteerRequest::decode(bytes).map(Self::Steer),
+            "respond" => p::RespondDecisionRequest::decode(bytes).map(Self::Respond),
+            "option" => p::SetAgentOptionRequest::decode(bytes).map(Self::Option),
+            "agent" => p::SetChatAgentRequest::decode(bytes).map(Self::Agent),
+            "goal" => p::SetGoalRequest::decode(bytes).map(Self::Goal),
+            "background" => p::StopBackgroundRequest::decode(bytes).map(Self::Background),
             "send" => p::SendMessageRequest::decode(bytes).map(Self::Send),
             "edit" => p::EditMessageRequest::decode(bytes).map(Self::Edit),
             "fork" => p::ForkChatRequest::decode(bytes).map(Self::Fork),
@@ -54,16 +96,8 @@ impl ChatMutation {
         self,
         channel: tonic::transport::Channel,
     ) -> Result<p::CommandReceipt, String> {
-        let mut client = p::chat_service_client::ChatServiceClient::new(channel);
-        match self {
-            Self::Send(_) => return Err("This saved send predates typed thread addressing; retain it for review without replay.".into()),
-            Self::Edit(value) => client.edit_message(value).await,
-            Self::Fork(value) => client.fork_chat(value).await,
-            Self::RunShell(value) => client.run_shell(value).await,
-            Self::StopShell(value) => client.stop_shell(value).await,
-        }
-        .map(|response| response.into_inner())
-        .map_err(rpc_error)
+        let _ = (self, channel);
+        Err("This operation has no original typed thread address. Retain it for review without replay.".into())
     }
 }
 impl HostClient {
@@ -94,11 +128,7 @@ impl HostClient {
         &self,
         intent: ChatMutation,
     ) -> Result<p::CommandReceipt, String> {
-        let api = if let ChatMutation::Send(request) = &intent {
-            Some(self.api_send(request).await?)
-        } else {
-            None
-        };
+        let api = Some(self.api_chat(&intent).await?);
         let host = self.id().as_str().to_owned();
         self.submit_chat_mutation_prepared(intent, api, move |intent, api, channel| async move {
             if let Some(api) = api {
@@ -165,10 +195,10 @@ impl HostClient {
             return Err("Chat operation exceeds control limit; draft retained.".into());
         }
         self.update_record(|record| {
-            if record.mutations.iter().any(|entry| entry.receipt.as_ref().and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok()).is_none_or(|receipt| !receipt.resolved_by_user && ![3,4,5,7].contains(&receipt.state))) {
+            if record.mutations.iter().any(|entry| entry.receipt.as_ref().and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok()).is_none_or(|receipt| !receipt.resolved_by_user && !terminal_state(receipt.state))) {
                 return Err("An earlier operation is unresolved. Review its result before another mutation.".into());
             }
-            record.mutations.retain(|entry| entry.receipt.as_ref().and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok()).is_none_or(|receipt| !receipt.resolved_by_user && ![3,4,5,7].contains(&receipt.state)));
+            record.mutations.retain(|entry| entry.receipt.as_ref().and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok()).is_none_or(|receipt| !receipt.resolved_by_user && !terminal_state(receipt.state)));
             if record.mutations.len() >= 100 { return Err("Operation recovery storage is full.".into()); }
             record.mutations.push(MutationRecord { id: meta.command_id.clone(), epoch: meta.command_epoch, receipt: None, chat_intent: Some((kind.into(), bytes)), api_intent });
             Ok(())
@@ -195,8 +225,7 @@ impl HostClient {
         let receipt = response?;
         self.save_chat_receipt(&meta, receipt)
     }
-    /// Explicit recovery only: Send retries its original typed RPC in the open
-    /// epoch; legacy mutations use NOT_FOUND. Host dedupe fences every retry.
+    /// Explicit recovery repeats the saved typed RPC without target discovery.
     pub async fn retry_chat_mutation(&self, id: &str) -> Result<p::CommandReceipt, String> {
         let _gate = self.mutation.lock().await;
         let record = self.snapshot().record;
@@ -219,49 +248,7 @@ impl HostClient {
             self.store_api_receipt(id, &receipt)?;
             return check_receipt(receipt);
         }
-        let (kind, bytes) = entry
-            .chat_intent
-            .as_ref()
-            .ok_or("Operation has no replayable chat intent.")?;
-        let mut intent = ChatMutation::decode(kind, bytes)?;
-        let meta = intent
-            .command_mut()
-            .clone()
-            .ok_or("Saved command identity is missing.")?;
-        if meta.command_id != id
-            || meta.command_epoch != entry.epoch
-            || meta.host_id != self.id().as_str()
-        {
-            return Err("Saved command identity mismatch.".into());
-        }
-        let channel = self.channel()?;
-        // Migrated Send has a per-thread inbox key. Legacy GetCommand cannot
-        // disambiguate a UUID shared by threads; the original typed RPC can.
-        if matches!(intent, ChatMutation::Send(_)) {
-            if record.epoch != Some(meta.command_epoch) {
-                return Err("Command epoch retired; intent retained without replay.".into());
-            }
-            return Err("This saved send has no original thread address. Retain it for review; it cannot be safely replayed.".into());
-        }
-        let result = p::host_service_client::HostServiceClient::new(channel.clone())
-            .get_command(p::GetCommandRequest {
-                host_id: meta.host_id.clone(),
-                command_id: id.into(),
-                command_epoch: meta.command_epoch,
-            })
-            .await
-            .map_err(rpc_error)?
-            .into_inner();
-        self.validate_receipt(&meta, &result)?;
-        let receipt = if result.state == p::OperationState::NotFound as i32 {
-            if record.epoch != Some(meta.command_epoch) {
-                return Err("Command epoch retired; intent retained without replay.".into());
-            }
-            intent.dispatch(channel).await?
-        } else {
-            result
-        };
-        self.save_chat_receipt(&meta, receipt)
+        Err("This saved operation has no original thread address. Retain it for review; it cannot be safely replayed.".into())
     }
     fn save_chat_receipt(
         &self,

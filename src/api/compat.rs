@@ -7,7 +7,7 @@ use crate::{
 use serde::Deserialize;
 use tonic::Status;
 
-pub(crate) fn receipt(
+pub fn receipt(
     auth: &RpcAuth,
     value: &CommandReceipt,
     resource: p::command_receipt::Resource,
@@ -49,7 +49,7 @@ pub(crate) fn receipt(
     }
     let invalid =
         || Status::internal("Committed command result is invalid; retain the original request.");
-    let bytes = value.result().ok_or_else(invalid)?;
+    let bytes = value.result().unwrap_or_default();
     use p::command_receipt::Result as R;
     receipt.result = Some(match value.method() {
         "chat.send" => R::Send(p::SendResult {
@@ -88,6 +88,24 @@ pub(crate) fn receipt(
         method if method.starts_with("chat.queue.") => R::Queue(p::QueueResult {
             revision: serde_json::from_slice(bytes).map_err(|_| invalid())?,
         }),
+        method if crate::command_bus::registry().any(|m| m.name == method) => {
+            R::Runtime(p::RuntimeResult {
+                created_target: None,
+                catalog_id: None,
+                item: if method == "chat.shell" {
+                    serde_json::from_slice::<serde_json::Value>(bytes)
+                        .ok()
+                        .and_then(|v| {
+                            Some(p::ItemKey {
+                                history_epoch: v["history_epoch"].as_u64()?,
+                                item_id: v["item_id"].as_u64()?,
+                            })
+                        })
+                } else {
+                    None
+                },
+            })
+        }
         _ => return Err(invalid()),
     });
     Ok(receipt)
@@ -132,6 +150,17 @@ pub fn legacy_receipt(value: p::CommandReceipt, catalog_id: String) -> old::Comm
             receipt.operation_output =
                 Some(serde_json::json!({"values":values,"revision":v.revision}).to_string())
         }
+        Some(p::command_receipt::Result::Runtime(v)) => {
+            if let Some(id) = v.catalog_id {
+                receipt.resource_id = id;
+            }
+            if let Some(item) = v.item {
+                receipt.operation_output = Some(
+                    serde_json::json!({"history_epoch":item.history_epoch,"item_id":item.item_id})
+                        .to_string(),
+                );
+            }
+        }
         None => (),
     }
     receipt
@@ -161,6 +190,8 @@ pub fn draft(
                     host_id: v.host_id,
                     artifact_id: v.artifact_id,
                     sha256: v.sha256,
+                    media_type: v.media_type,
+                    size: v.size,
                 }),
                 O::Path(v) => {
                     if let Some(workspace) = &v.workspace {

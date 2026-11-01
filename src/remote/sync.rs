@@ -192,6 +192,7 @@ struct Inner {
     state: Mutex<State>,
     queued: Arc<AtomicUsize>,
     assemblies: Arc<AtomicUsize>,
+    conversions: Arc<AtomicUsize>,
 }
 #[derive(Clone)]
 pub struct ReplayHub {
@@ -285,6 +286,7 @@ impl ReplayHub {
                 }),
                 queued: Arc::new(AtomicUsize::new(0)),
                 assemblies: Arc::new(AtomicUsize::new(0)),
+                conversions: Arc::new(AtomicUsize::new(0)),
             }),
         }
     }
@@ -313,6 +315,23 @@ impl ReplayHub {
         }
         ByteReservation::reserve(
             &self.inner.assemblies,
+            &Arc::default(),
+            bytes,
+            Limits {
+                device: limit,
+                global: limit,
+                ..self.inner.limits
+            },
+        )
+        .ok_or(Error::ResourceExhausted)
+    }
+    /// A standalone transcript conversion can retain one 32 MiB item while
+    /// decoding/encoding its replacement. Keep this temporary workspace separate
+    /// from the existing catalog/terminal material held by the source stream.
+    pub(crate) fn reserve_conversion(&self, bytes: usize) -> Result<ByteReservation, Error> {
+        let limit = 2 * crate::remote::transcript::MAX_ITEM_BYTES + 512 * 1024;
+        ByteReservation::reserve(
+            &self.inner.conversions,
             &Arc::default(),
             bytes,
             Limits {

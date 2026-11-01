@@ -498,7 +498,7 @@ impl CommandKey {
 
 /// Only normalized, nonsecret arguments enter this record. Secret-bearing handlers
 /// must first persist immutable vault references and a keyed fingerprint.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CommandInput {
     pub(crate) key: CommandKey,
     pub(crate) method: String,
@@ -551,6 +551,12 @@ impl CommandInput {
     pub fn send_context(&self) -> Option<(SendContext, Option<u64>)> {
         let intent: MessageIntent = serde_json::from_slice(&self.arguments).ok()?;
         (self.method == "chat.send").then_some((intent.context, intent.steer_run))
+    }
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+    pub fn authority_root(&self) -> Option<&str> {
+        self.root.as_deref()
     }
 }
 

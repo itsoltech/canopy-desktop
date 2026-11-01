@@ -14,6 +14,7 @@ fn main() {
     println!("cargo:rerun-if-changed=proto/grpc/health/v1/health.proto");
     tonic_prost_build::configure()
         .file_descriptor_set_path(output.join("canopy-api-v1.bin"))
+        .boxed(".canopy.api.v1.SummaryEvent.change.thread")
         .compile_protos(&["proto/canopy/api/v1/api.proto"], &["proto"])
         .expect("compile the typed Canopy API contract");
     println!("cargo:rerun-if-changed=proto/canopy/api/v1/api.proto");

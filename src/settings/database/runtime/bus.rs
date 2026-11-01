@@ -7,8 +7,55 @@ use crate::command_bus::{
 mod tests;
 
 impl Database {
+    pub(crate) fn prepare_bus_catalog(
+        &mut self,
+        mut envelope: CommandEnvelope,
+        principal: Principal,
+        resolution: Option<(String, String)>,
+    ) -> Result<Option<PreparedCommand>> {
+        require_host(self)?;
+        if envelope.resource.host_id().as_str() != self.runtime_host()?.id() {
+            return Err(Error::NotFound);
+        }
+        match (&envelope.resource, &envelope.command) {
+            (
+                ResourceRef::Project(_) | ResourceRef::Environment(_),
+                Command::Catalog(crate::command_bus::CatalogCommand::Create { .. }),
+            )
+            | (
+                ResourceRef::Environment(_),
+                Command::Catalog(crate::command_bus::CatalogCommand::OpenProject { .. }),
+            ) => (),
+            _ => return Err(Error::InvalidRuntimeState),
+        }
+        let scope = envelope.command.required_scope();
+        let mut input = envelope.input(&principal, "catalog".into())?;
+        authorize(&self.db, &input.key, scope, true)?;
+        let saved: Option<(String,String,u32)> = self.db.query_row(
+            "SELECT target,required_root,required_scope FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
+            params![input.key.device,input.key.id,input.key.resource,integer(input.key.executor_epoch)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+        let prior = if let Some((target, root, saved_scope)) = saved {
+            authorize_root(&self.db, &input.key, saved_scope, &root, true)?;
+            input.target = target;
+            input.root = Some(root);
+            existing(&self.db, &input)?
+        } else if let Some((target, root)) = resolution {
+            input.target = target;
+            input.root = Some(root);
+            authorize_root(&self.db, &input.key, scope, command_root(&input)?, true)?;
+            None
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(PreparedCommand {
+            input,
+            envelope,
+            record: None,
+            prior,
+        }))
+    }
     pub(crate) fn prepare_bus_command(
-        &self,
+        &mut self,
         mut envelope: CommandEnvelope,
         principal: Principal,
     ) -> Result<PreparedCommand> {
@@ -18,7 +65,14 @@ impl Database {
         }
         let (target, record) = match &envelope.resource {
             ResourceRef::Thread { thread, .. } => {
-                if matches!(envelope.command, Command::Preferences { .. }) {
+                if matches!(
+                    envelope.command,
+                    Command::Preferences { .. }
+                        | Command::Catalog(
+                            crate::command_bus::CatalogCommand::Create { .. }
+                                | crate::command_bus::CatalogCommand::OpenProject { .. }
+                        )
+                ) {
                     return Err(Error::InvalidRuntimeState);
                 }
                 let target: String = self.db.query_row("SELECT legacy_chat_id FROM _canopy_thread_alias WHERE legacy_host_id=?1 AND thread_id=?2", params![thread.host_id.as_str(),thread.thread_id.to_string()], |r| r.get(0)).optional()?.ok_or(Error::NotFound)?;
@@ -44,7 +98,7 @@ impl Database {
             },
         );
         authorize_root(&self.db, &input.key, scope, command_root(&input)?, true)?;
-        let prior = existing(&self.db, &input)?;
+        let mut prior = existing(&self.db, &input)?;
         if prior.is_none()
             && let ResourceRef::Thread { executor_epoch, .. } = &envelope.resource
             && record
@@ -52,10 +106,21 @@ impl Database {
                 .and_then(ChatRecord::thread)
                 .is_some_and(|stored| stored.executor_epoch() != *executor_epoch)
         {
-            return Err(Error::ResourceConflict);
+            let tx = self
+                .db
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            prior = Some(reject_conditions(&tx, &input, scope)?);
+            tx.commit()?;
         }
         if prior.is_none() && matches!(envelope.resource, ResourceRef::Thread { .. }) {
             chat_commands::live_chat(&self.db, &input.target)?;
+            if private_fork(&envelope.command, record.as_ref().ok_or(Error::NotFound)?) {
+                let tx = self
+                    .db
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+                prior = Some(reject_private_fork(&tx, &input, scope)?);
+                tx.commit()?;
+            }
         }
         Ok(PreparedCommand {
             input,
@@ -222,6 +287,95 @@ impl Database {
 fn reject_conditions(tx: &Transaction, input: &CommandInput, scope: u32) -> Result<CommandReceipt> {
     let result = br#"{"reason":"conditions_changed: The resource changed; review its current state before a new command."}"#;
     insert_command(tx, input, CommandState::Rejected, Some(result), scope)
+}
+
+fn private_fork(command: &Command, record: &ChatRecord) -> bool {
+    matches!(
+        command,
+        Command::Control(crate::command_bus::Control::Fork { .. })
+    ) && record.workspace().is_none()
+}
+
+fn reject_private_fork(
+    tx: &Transaction,
+    input: &CommandInput,
+    scope: u32,
+) -> Result<CommandReceipt> {
+    insert_command(
+        tx,
+        input,
+        CommandState::Rejected,
+        Some(br#"{"reason":"unsupported: Fork requires a project thread."}"#),
+        scope,
+    )
+}
+
+/// Runtime handlers consume the bus's original input, then fence it again in
+/// their acceptance transaction. No adapter can relax attachment permissions.
+pub(super) fn runtime_admission(
+    tx: &Transaction,
+    input: &CommandInput,
+    fallback_scope: u32,
+) -> Result<Option<CommandReceipt>> {
+    let intent = if input.key.resource.is_empty() {
+        None
+    } else {
+        Some(serde_json::from_slice::<(String, String, u64, Command, crate::command_bus::Conditions)>(&input.arguments)
+            .map_err(|_| Error::InvalidRuntimeState)?)
+    };
+    let scope = intent
+        .as_ref()
+        .map_or(fallback_scope, |(_, _, _, command, _)| {
+            command.required_scope()
+        });
+    authorize_root(tx, &input.key, scope, command_root(input)?, true)?;
+    if let Some(prior) = existing(tx, input)? {
+        return Ok(Some(prior));
+    }
+    if let Some((method, resource, epoch, command, conditions)) = intent {
+        if method != input.method
+            || command.metadata().name != input.method
+            || resource != input.key.resource
+            || epoch != input.key.executor_epoch
+        {
+            return Err(Error::InvalidRuntimeState);
+        }
+        if matches!(
+            command,
+            Command::Catalog(
+                crate::command_bus::CatalogCommand::Create { .. }
+                    | crate::command_bus::CatalogCommand::OpenProject { .. }
+            )
+        ) {
+            return Ok(None);
+        }
+        let record = load_chat(tx, "chat_id=?1 AND closed_at IS NULL", &input.target)?
+            .ok_or(Error::NotFound)?;
+        authorize_root(tx, &input.key, scope, record.authority_root(), true)?;
+        let thread = record.thread().ok_or(Error::InvalidRuntimeState)?;
+        if thread.executor_epoch() != epoch
+            || record.authority_root() != command_root(input)?
+            || conditions
+                .expected_revision
+                .is_some_and(|r| r != thread.revision())
+        {
+            return reject_conditions(tx, input, scope).map(Some);
+        }
+        if private_fork(&command, &record) {
+            return reject_private_fork(tx, input, scope).map(Some);
+        }
+        chat_commands::live_chat(tx, &input.target)?;
+    }
+    Ok(None)
+}
+
+pub(super) fn runtime_scope(input: &CommandInput, fallback: u32) -> Result<u32> {
+    if input.key.resource.is_empty() {
+        return Ok(fallback);
+    }
+    let (_, _, _, command, _): (String, String, u64, Command, crate::command_bus::Conditions) =
+        serde_json::from_slice(&input.arguments).map_err(|_| Error::InvalidRuntimeState)?;
+    Ok(command.required_scope())
 }
 
 fn validate_dispatch(db: &Connection, prepared: &PreparedCommand) -> Result<()> {

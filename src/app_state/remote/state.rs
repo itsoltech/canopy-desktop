@@ -519,6 +519,7 @@ impl RemoteState {
                 )
                 .with_discovery(discovery)
                 .with_output_budget(replay.clone());
+                let api = api.with_catalog(Arc::new(catalog.clone()));
                 let files = FilesRpc::new(
                     auth.clone(),
                     roots.clone(),

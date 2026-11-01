@@ -23,6 +23,12 @@ enum Command {
         crate::command_bus::Dispatch,
         Reply<crate::host::CommandReceipt>,
     ),
+    PrepareBusCatalog(
+        crate::command_bus::CommandEnvelope,
+        crate::command_bus::Principal,
+        Option<(String, String)>,
+        Reply<Option<crate::command_bus::PreparedCommand>>,
+    ),
     CommitBusPreferences(
         Box<crate::command_bus::PreparedCommand>,
         u64,
@@ -136,6 +142,7 @@ enum Command {
     InitializeRuntime(Reply<crate::host::RuntimeHost>),
     SaveRuntimeChat(crate::host::ChatRecord, Reply<crate::host::ChatRecord>),
     LoadRuntimeChats(Reply<Vec<crate::host::ChatRecord>>),
+    RuntimeChatsPage(Option<String>, Reply<Vec<crate::host::ChatRecord>>),
     LoadRuntimeChat(String, Reply<Option<crate::host::ChatRecord>>),
     LoadRuntimeThread(
         crate::thread::ThreadId,
@@ -221,6 +228,18 @@ pub struct SettingsClient {
     sender: SyncSender<Command>,
 }
 impl SettingsClient {
+    pub(crate) async fn prepare_bus_catalog(
+        &self,
+        envelope: crate::command_bus::CommandEnvelope,
+        principal: crate::command_bus::Principal,
+        resolution: Option<(String, String)>,
+    ) -> Result<Option<crate::command_bus::PreparedCommand>> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::PrepareBusCatalog(
+            envelope, principal, resolution, tx,
+        ))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
     pub(crate) async fn prepare_bus_command(
         &self,
         envelope: crate::command_bus::CommandEnvelope,
@@ -532,6 +551,14 @@ impl SettingsClient {
         self.enqueue(Command::LoadRuntimeChats(tx))?;
         rx.await.map_err(|_| Error::WorkerStopped)?
     }
+    pub async fn runtime_chats_page(
+        &self,
+        after: Option<String>,
+    ) -> Result<Vec<crate::host::ChatRecord>> {
+        let (tx, rx) = oneshot::channel();
+        self.enqueue(Command::RuntimeChatsPage(after, tx))?;
+        rx.await.map_err(|_| Error::WorkerStopped)?
+    }
     pub async fn load_runtime_chat(&self, id: String) -> Result<Option<crate::host::ChatRecord>> {
         let (tx, rx) = oneshot::channel();
         self.enqueue(Command::LoadRuntimeChat(id, tx))?;
@@ -767,6 +794,10 @@ impl SettingsClient {
                         Command::PrepareBus(envelope, principal, reply) => {
                             let _ = reply.send(db.prepare_bus_command(envelope, principal));
                         }
+                        Command::PrepareBusCatalog(envelope, principal, resolution, reply) => {
+                            let _ =
+                                reply.send(db.prepare_bus_catalog(envelope, principal, resolution));
+                        }
                         Command::DispatchBus(prepared, dispatch, reply) => {
                             let _ = reply.send(db.dispatch_bus_command(*prepared, dispatch));
                         }
@@ -830,6 +861,9 @@ impl SettingsClient {
                         }
                         Command::LoadRuntimeChats(reply) => {
                             let _ = reply.send(db.load_runtime_chats());
+                        }
+                        Command::RuntimeChatsPage(after, reply) => {
+                            let _ = reply.send(db.runtime_chats_page(after));
                         }
                         Command::LoadRuntimeChat(id, reply) => {
                             let _ = reply.send(db.load_runtime_chat(id));
