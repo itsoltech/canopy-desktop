@@ -1,7 +1,7 @@
 //! Composer island: message field, account/model, reasoning and mode pickers, Send/Stop.
 use super::suggest::SuggestKey;
 use super::{render::centered, view::ChatView};
-use crate::app_state::{AppState, ChatNotice, ChatNoticeKind};
+use crate::app_state::{ChatNotice, ChatNoticeKind};
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{
     config::{Mode, ModelInfo},
@@ -21,16 +21,7 @@ use std::time::Instant;
 
 /// Accounts are the profiles of the chat agents configured in Preferences: Claude
 /// Code, Codex and ACP agents (one without profiles is a single account).
-pub(super) struct Account {
-    /// The catalog tool that runs it.
-    pub tool: String,
-    /// Claude or Codex; `None` for an ACP agent.
-    pub provider: Option<Provider>,
-    /// The tool's name, for its mark.
-    pub agent: String,
-    pub id: String,
-    pub name: String,
-}
+pub(super) use crate::app_state::Account;
 
 /// The mark of the agent a chat talks to.
 pub(super) fn provider_icon(provider: Provider) -> AnyElement {
@@ -393,67 +384,7 @@ impl ChatView {
 
     /// Claude Code and Codex profiles, and the chat's own.
     pub(super) fn accounts(&self, cx: &App) -> (Vec<Account>, String) {
-        if let Some(source) = self.rt(cx).remote_source() {
-            let accounts = source
-                .agents
-                .iter()
-                .flat_map(|agent| {
-                    agent.accounts.iter().map(|account| Account {
-                        tool: agent.agent_id.clone(),
-                        provider: Provider::from_tool(&agent.agent_id),
-                        agent: agent.name.clone(),
-                        id: account.account_id.clone(),
-                        name: account.label.clone(),
-                    })
-                })
-                .collect();
-            return (accounts, self.profile(cx));
-        }
-        let catalog = &cx.global::<AppState>().tools.read(cx).catalog;
-        let mut accounts = vec![];
-        for provider in Provider::ALL {
-            let Some(tool) = catalog.get(provider.tool()).filter(|tool| tool.enabled) else {
-                continue;
-            };
-            let short = match provider {
-                Provider::Claude => "Claude",
-                Provider::Codex => "Codex",
-            };
-            accounts.extend(tool.profiles.iter().map(|profile| Account {
-                tool: tool.id.clone(),
-                provider: Some(provider),
-                agent: tool.name.clone(),
-                id: profile.id.clone(),
-                name: if tool.profiles.len() == 1 {
-                    provider.name().into()
-                } else {
-                    format!("{short} {}", profile.name)
-                },
-            }));
-        }
-        for tool in catalog.tools.iter().filter(|tool| tool.acp && tool.enabled) {
-            let account = |id: String, name: String| Account {
-                tool: tool.id.clone(),
-                provider: None,
-                agent: tool.name.clone(),
-                id,
-                name,
-            };
-            if tool.profiles.is_empty() {
-                accounts.push(account(tool.id.clone(), tool.name.clone()));
-            }
-            accounts.extend(tool.profiles.iter().map(|profile| {
-                account(
-                    profile.id.clone(),
-                    if tool.profiles.len() == 1 {
-                        tool.name.clone()
-                    } else {
-                        format!("{} {}", tool.name, profile.name)
-                    },
-                )
-            }));
-        }
-        (accounts, self.profile(cx))
+        self.rt(cx).accounts(cx)
     }
 
     /// The chat's account: its profile id, else the agent's default profile.

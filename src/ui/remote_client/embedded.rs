@@ -252,6 +252,26 @@ impl RemoteWindow {
     }
 }
 impl RemoteWorkspace {
+    pub(in crate::ui) fn open_thread_file(
+        &mut self,
+        file: &crate::app_state::ThreadFile,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((host, workspace, path)) = file.environment_address() else {
+            return;
+        };
+        self.open_file(
+            p::FileRef {
+                workspace: Some(p::WorkspaceRef {
+                    host_id: host.to_owned(),
+                    workspace_id: workspace.to_owned(),
+                }),
+                relative_path: path.to_string_lossy().into_owned(),
+            },
+            cx,
+        );
+    }
+
     pub(in crate::ui) fn open_file(&mut self, file: p::FileRef, cx: &mut Context<Self>) {
         self.view.update(cx, |view, cx| {
             view.navigate(Page::Files, cx);

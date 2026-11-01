@@ -54,6 +54,7 @@ pub enum ChatRuntimeEvent {
         revision: u64,
         result: Result<(), String>,
     },
+    FileRequested(transport::ThreadFile),
     /// The process stops (close, restart): live presentations of it end.
     Stopping,
 }
@@ -101,9 +102,13 @@ struct Shell {
     _pump: Task<()>,
 }
 
-mod client;
 mod host_services;
-pub(crate) use client::{Recovering, RemoteSession};
+mod transport;
+pub(crate) use transport::{
+    Account, AttachmentSuggestion, ComposerClear, ComposerOperation, ContextSource,
+    DraftPreparation, EditProgress, EditSubmission, HistoryPosition, MessageEdit, PendingOutcome,
+    PendingRequest, Recovering, ThreadDestination, ThreadFile, ThreadPlace, ThreadTransport,
+};
 mod queue;
 // The remote bridge's typed chat operations; the gRPC server is their caller.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -197,7 +202,7 @@ pub fn backend_of(tool: &str, cx: &App) -> Option<BackendKind> {
 }
 
 pub struct ChatRuntime {
-    remote: Option<RemoteSession>,
+    transport: ThreadTransport,
     pane: Pane,
     settings: ChatSettings,
     session: Option<BackendSession>,
@@ -301,6 +306,9 @@ pub struct ChatRuntime {
     run_pane: canopy_desktop::state::workspace::PaneId,
     /// Remote clients subscribed to this chat; like views, they keep it awake.
     observers: usize,
+    /// Saved model lists and device favorites notify through the same runtime
+    /// observation as the executing environment's live catalog.
+    _catalog_observation: Option<Subscription>,
 }
 
 impl ChatRuntime {
@@ -316,46 +324,10 @@ impl ChatRuntime {
         let pane_id = pane.id;
         let mut settings = pane.metadata.chat.as_deref().cloned().unwrap_or_default();
         let resumed = pane.metadata.resume_id.is_some();
-        let remote = pane.metadata.remote.clone();
-        if let Some(remote) = &remote {
-            use sha2::{Digest, Sha256};
-            let digest = Sha256::digest(remote.key().as_bytes());
-            let mut id = [0; 16];
-            id.copy_from_slice(&digest[..16]);
-            // Only a local attachment staging namespace, never a host chat id.
-            settings.id = Some(uuid::Uuid::from_bytes(id).to_string());
-        }
-        let history = match settings.id.clone() {
-            _ if remote.is_some() => History::Loaded,
-            Some(chat) => {
-                let load = cx
-                    .global::<AppState>()
-                    .chat_history
-                    .clone()
-                    .update(cx, |history, cx| history.load(&chat, cx));
-                History::Loading(cx.spawn(async move |this, cx| {
-                    let saved = load.await;
-                    let _ = this.update(cx, |this, cx| this.restore_history(saved, cx));
-                }))
-            }
-            None => {
-                // A chat from before saved history: it gets an id now.
-                settings.id = Some(ChatSettings::new_id());
-                let this = cx.entity().downgrade();
-                cx.defer(move |cx| {
-                    let _ = this.update(cx, |this, cx| this.persist(None, cx));
-                });
-                History::Loaded
-            }
-        };
-        if remote.is_some() {
-            let view = cx.entity().downgrade();
-            cx.defer(move |cx| {
-                let _ = view.update(cx, |this, cx| this.connect_remote(cx));
-            });
-        }
+        let (transport, history) = ThreadTransport::initialize(&pane, &mut settings, cx);
+        let catalog_observation = ThreadTransport::observe_catalog(cx);
         Self {
-            remote: remote.map(|value| RemoteSession::new(*value)),
+            transport,
             pane,
             settings,
             session: None,
@@ -413,6 +385,7 @@ impl ChatRuntime {
             catalog_root: None,
             run_pane: pane_id,
             observers: 0,
+            _catalog_observation: catalog_observation,
         }
     }
 
@@ -423,7 +396,7 @@ impl ChatRuntime {
     /// A pane of the layout shows this chat now (opened from the sidebar, or a chat
     /// created remotely). The runtime keeps its own, current launch state; the pane
     /// becomes its local key. A running agent stays registered under its old key.
-    pub(in crate::app_state) fn attach_pane(&mut self, pane: Pane, cx: &mut Context<Self>) {
+    fn attach_pane_local(&mut self, pane: Pane, cx: &mut Context<Self>) {
         self.catalog_root = None;
         self.pane.id = pane.id;
         if pane.metadata.title.is_some() {
@@ -480,37 +453,6 @@ impl ChatRuntime {
             _ => None,
         }
     }
-    pub fn goal(&self) -> Option<&canopy_desktop::chat::goal::Goal> {
-        if let Some(remote) = &self.remote {
-            return remote.goal.as_ref();
-        }
-        self.native().and_then(ChatSession::goal)
-    }
-    pub fn ready(&self) -> bool {
-        self.remote
-            .as_ref()
-            .is_some_and(|r| r.projection.summary.is_some())
-            || self.backend().is_some()
-    }
-    pub fn commands(&self) -> Vec<canopy_desktop::chat::config::CommandInfo> {
-        if let Some(remote) = &self.remote {
-            return remote
-                .catalog
-                .iter()
-                .flat_map(|c| &c.commands)
-                .map(|c| canopy_desktop::chat::config::CommandInfo {
-                    name: c.name.clone(),
-                    description: c.description.clone(),
-                    hint: c.argument_hint.clone(),
-                    path: c.path.as_ref().map(Into::into),
-                    skill: c.skill,
-                })
-                .collect();
-        }
-        self.backend()
-            .map(|s| s.commands().to_vec())
-            .unwrap_or_default()
-    }
     fn native_mut(&mut self) -> Option<&mut ChatSession> {
         match &mut self.session {
             Some(BackendSession::Native(session)) => Some(session),
@@ -523,27 +465,9 @@ impl ChatRuntime {
             _ => None,
         }
     }
-    /// The running transcript.
-    pub fn transcript(&self) -> Option<&Transcript> {
-        if let Some(remote) = &self.remote {
-            return Some(&remote.transcript);
-        }
-        self.session.as_ref().map(BackendSession::transcript)
-    }
     /// What the chat's agent can do. Before it starts: what its protocol family offers
     /// at most (an ACP agent tells only once initialized).
-    pub fn capabilities(&self, cx: &App) -> Capabilities {
-        if let Some(remote) = &self.remote {
-            let mut c = Capabilities::default();
-            c.images = remote.enabled("images");
-            c.embedded_context = remote.enabled("embedded_context");
-            c.cancel = remote.enabled("cancel");
-            c.steer = remote.enabled("steer");
-            c.fork = remote.enabled("fork");
-            c.rewind = remote.enabled("rewind");
-            c.goal = remote.enabled("goal");
-            return c;
-        }
+    fn local_capabilities(&self, cx: &App) -> Capabilities {
         match (&self.session, self.backend_kind(cx)) {
             (Some(session), _) => session.capabilities(),
             (None, Some(BackendKind::Acp) | None) => Capabilities::default(),
@@ -551,18 +475,9 @@ impl ChatRuntime {
         }
     }
     /// The protocol family of the chat's agent; `None` when its tool is gone.
-    pub fn backend_kind(&self, cx: &App) -> Option<BackendKind> {
-        if let Some(remote) = &self.remote {
-            return remote.backend(&self.pane.tool);
-        }
-        backend_of(&self.pane.tool, cx)
-    }
     /// The agent's own options (ACP configuration, models and modes) with their
     /// opaque ids. Claude and Codex keep their dedicated model and mode controls.
-    pub fn agent_options(&self) -> Vec<AgentOption> {
-        if let Some(remote) = &self.remote {
-            return remote.options();
-        }
+    fn local_agent_options(&self) -> Vec<AgentOption> {
         let Some(session) = self.acp() else {
             return vec![];
         };
@@ -600,10 +515,7 @@ impl ChatRuntime {
         self.terminals.output(id)
     }
     /// Requests waiting on the user, oldest first.
-    pub fn pending_decisions(&self) -> Vec<ItemId> {
-        if let Some(remote) = &self.remote {
-            return remote.transcript.items().iter().filter_map(|i| matches!(&i.body, Body::Permission(p) if p.decision == canopy_desktop::chat::transcript::Decision::Pending).then_some(i.id)).collect();
-        }
+    fn local_pending_decisions(&self) -> Vec<ItemId> {
         match &self.session {
             Some(BackendSession::Native(session)) => session.pending_decisions(),
             Some(BackendSession::Acp(session)) => {
@@ -615,32 +527,7 @@ impl ChatRuntime {
         }
     }
     /// Choices an ACP agent offered for decision `item`, ids untouched (AGT-11).
-    pub fn decision_options(&self, item: ItemId) -> Option<Vec<acp::PermissionOption>> {
-        if let Some(remote) = &self.remote {
-            let decision = remote
-                .projection
-                .items
-                .iter()
-                .find(|i| {
-                    i.key
-                        .is_some_and(|k| k.history_epoch == self.epoch && k.item_id == item.0)
-                })
-                .and_then(|i| match &i.body {
-                    Some(canopy_desktop::remote::proto::transcript_item::Body::Decision(d)) => {
-                        Some(d)
-                    }
-                    _ => None,
-                })?;
-            return (!decision.options.is_empty()).then(|| {
-                decision
-                    .options
-                    .iter()
-                    .map(|o| {
-                        acp::PermissionOption::new(o.id.clone(), o.label.clone(), String::new())
-                    })
-                    .collect()
-            });
-        }
+    fn local_decision_options(&self, item: ItemId) -> Option<Vec<acp::PermissionOption>> {
         self.acp()?
             .permissions()
             .find(|request| request.item == item)
@@ -648,31 +535,7 @@ impl ChatRuntime {
     }
     /// The account's models (Claude, Codex): as its agent lists them, else as last
     /// remembered (DEC-098).
-    pub fn models(&self, cx: &App) -> Vec<canopy_desktop::chat::config::ModelInfo> {
-        if let Some(source) = &self.remote {
-            let options = source.options();
-            let effort = options.iter().find(|o| o.id == "effort");
-            return options
-                .iter()
-                .find(|o| o.id == "model")
-                .into_iter()
-                .flat_map(|o| &o.choices)
-                .map(|model| canopy_desktop::chat::config::ModelInfo {
-                    value: model.id.clone(),
-                    display_name: model.label.clone(),
-                    description: model.description.clone().unwrap_or_default(),
-                    effort_levels: effort
-                        .into_iter()
-                        .flat_map(|o| &o.choices)
-                        .filter_map(|c| Effort::from_key(&c.id))
-                        .collect(),
-                    default_effort: effort.and_then(|o| Effort::from_key(&o.value)),
-                    default: model.id == "default",
-                    supports_auto: true,
-                    ..Default::default()
-                })
-                .collect();
-        }
+    fn local_models(&self, cx: &App) -> Vec<canopy_desktop::chat::config::ModelInfo> {
         match self.native().map(ChatSession::models) {
             Some(models) if !models.is_empty() => models.to_vec(),
             _ if self.provider().is_none() => vec![],
@@ -719,15 +582,7 @@ impl ChatRuntime {
         (label != "Default").then_some(label)
     }
     /// The agent's display name: its tool's name in the catalog.
-    pub fn agent_name(&self, cx: &App) -> String {
-        if let Some(remote) = &self.remote {
-            return remote
-                .agents
-                .iter()
-                .find(|a| a.agent_id == self.pane.tool)
-                .map(|a| a.name.clone())
-                .unwrap_or_else(|| self.pane.tool.clone());
-        }
+    fn local_agent_name(&self, cx: &App) -> String {
         if let Some(provider) = self.provider() {
             return provider.name().to_owned();
         }
@@ -763,9 +618,6 @@ impl ChatRuntime {
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
-    pub fn epoch_meta(&self) -> &EpochMeta {
-        &self.epoch_meta
-    }
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
@@ -775,37 +627,16 @@ impl ChatRuntime {
     pub fn resumed(&self) -> bool {
         self.resumed
     }
-    pub fn history_off(&self) -> bool {
-        self.history_off
-    }
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
         self.pane.metadata.cwd.clone()
     }
     /// The Claude or Codex agent the chat talks to; `None` for an ACP agent.
-    pub fn provider(&self) -> Option<Provider> {
-        if let Some(remote) = &self.remote {
-            return match remote.backend(&self.pane.tool)? {
-                BackendKind::Claude => Some(Provider::Claude),
-                BackendKind::Codex => Some(Provider::Codex),
-                BackendKind::Acp => None,
-            };
-        }
-        Provider::from_tool(&self.pane.tool)
-    }
     /// Identifies the chat's saved history.
     pub fn chat_id(&self) -> Option<String> {
         self.settings.id.clone()
     }
     /// The chat's account: its profile id, else the agent's default profile.
-    pub fn profile(&self, cx: &App) -> String {
-        if self.remote.is_some() {
-            return self
-                .pane
-                .metadata
-                .profile_id
-                .clone()
-                .unwrap_or_else(|| self.pane.tool.clone());
-        }
+    fn local_profile(&self, cx: &App) -> String {
         self.pane
             .metadata
             .profile_id
@@ -819,12 +650,6 @@ impl ChatRuntime {
                     .or_else(|| tool.profiles.is_empty().then(|| tool.id.clone()))
             })
             .unwrap_or_default()
-    }
-    pub fn status(&self) -> Option<&Status> {
-        if let Some(remote) = &self.remote {
-            return Some(&remote.status);
-        }
-        self.session.as_ref().map(BackendSession::status)
     }
     pub fn history_uncertain(&self) -> bool {
         matches!(self.history, History::Loading(_)) || self.history_off
@@ -851,12 +676,6 @@ impl ChatRuntime {
         }
     }
     /// Created without starting its agent (a turn diff, a hidden or remote chat).
-    pub fn dormant(&self) -> bool {
-        if self.remote.is_some() {
-            return false;
-        }
-        self.session.is_none() && !self.starting && !self.closed && self.error.is_none()
-    }
     /// A process is running or starting; Stop worktree has something to stop.
     pub fn is_live(&self) -> bool {
         self.starting || self.process.is_some() || !self.closing_done()
@@ -873,12 +692,6 @@ impl ChatRuntime {
             && (self.error.is_some() || self.status().is_some_and(Status::ended))
     }
     /// Starting or closing: Restart waits for it.
-    pub fn busy(&self) -> bool {
-        if let Some(remote) = &self.remote {
-            return remote.busy;
-        }
-        self.starting || !self.closing_done()
-    }
     fn closing_done(&self) -> bool {
         self.closing
             .as_ref()
@@ -905,28 +718,8 @@ impl ChatRuntime {
     pub fn running_commands(&self) -> usize {
         self.shells.len()
     }
-    pub fn shell_running(&self, id: ItemId) -> bool {
-        if let Some(source) = &self.remote {
-            return source
-                .transcript
-                .items()
-                .iter()
-                .any(|i| i.id == id && matches!(&i.body,Body::Shell(s) if s.running));
-        }
-        self.shells.contains_key(&id)
-    }
     /// The conversation has messages: its agent and account are fixed (DEC-087).
-    pub fn account_locked(&self) -> bool {
-        if let Some(source) = &self.remote {
-            return source.busy
-                || !source.transcript.items().is_empty()
-                || !self.archived.is_empty()
-                || source
-                    .projection
-                    .queue
-                    .as_ref()
-                    .is_some_and(|q| !q.entries.is_empty());
-        }
+    fn local_account_locked(&self) -> bool {
         self.resumed
             || self.sent_any
             || self.has_conversation()
@@ -1117,11 +910,7 @@ impl ChatRuntime {
     // Lifecycle.
 
     /// Starts (or restarts) the agent with the pane's current account and choices.
-    pub fn start(&mut self, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.connect_remote(cx);
-            return;
-        }
+    fn start_local(&mut self, cx: &mut Context<Self>) {
         if self.closed || self.starting || !self.closing_done() || self.process.is_some() {
             return;
         }
@@ -1774,11 +1563,7 @@ impl ChatRuntime {
     }
 
     /// Whether a view presents this chat (LIFE-09: only an unpresented one sleeps).
-    pub fn set_presented(&mut self, presented: bool, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.presented = presented;
-            return;
-        }
+    fn set_presented_local(&mut self, presented: bool, cx: &mut Context<Self>) {
         if self.presented != presented {
             self.presented = presented;
             self.schedule_sleep(cx);
@@ -1859,11 +1644,7 @@ impl ChatRuntime {
         .detach();
     }
 
-    pub fn restart(&mut self, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.remote_command("restart", cx);
-            return;
-        }
+    fn restart_local(&mut self, cx: &mut Context<Self>) {
         if self.can_restart() {
             self.process = None;
             self.start(cx);
@@ -1889,11 +1670,7 @@ impl ChatRuntime {
     }
 
     /// Stops the agent process; every caller joins the same bounded close.
-    pub fn shutdown(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
-        if let Some(remote) = &mut self.remote {
-            remote.stop();
-            return Task::ready(Ok(()));
-        }
+    fn shutdown_local(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
         if let Some(closing) = &self.closing
             && closing.generation == self.generation
             && closing
@@ -1992,17 +1769,13 @@ impl ChatRuntime {
 
     /// Switches the account (Claude or Codex) before the first message: a new process
     /// for the new profile, with `model` chosen (`None`: the account's default).
-    pub fn set_account(
+    fn set_account_local(
         &mut self,
         tool: String,
         profile: String,
         model: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
-            self.client_set_agent(tool, profile, model, cx);
-            return;
-        }
         if self.closed
             || self.switching
             || self.account_locked()
@@ -2097,21 +1870,14 @@ impl ChatRuntime {
 
     /// The session can take messages now.
     /// A dormant chat accepts them too: they wait in the host queue, which starts it.
-    pub fn accepts_messages(&self) -> bool {
-        if let Some(remote) = &self.remote {
-            return remote.host.is_some() && !remote.busy && remote.projection.summary.is_some();
-        }
+    fn accepts_messages_local(&self) -> bool {
         self.recovery.is_none()
             && (self.dormant() || self.session.as_ref().is_some_and(|s| !s.status().ended()))
     }
     /// Writes `draft` into the running turn (CHAT-03). It is accepted like any message
     /// first (durable ID, receipts) and goes first in line as a steer once `attempting`
     /// is recorded. With no turn to steer it is an ordinary message.
-    pub fn steer_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.send_remote(draft, true, cx);
-            return;
-        }
+    fn steer_draft_local(&mut self, draft: Draft, cx: &mut Context<Self>) {
         if self
             .session
             .as_ref()
@@ -2133,11 +1899,7 @@ impl ChatRuntime {
         self.send_draft_as(draft, true, cx);
     }
     /// Stop: decisions are refused, the turn ends and the queue is held (CHAT-04).
-    pub fn interrupt(&mut self, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.remote_command("interrupt", cx);
-            return;
-        }
+    fn interrupt_local(&mut self, cx: &mut Context<Self>) {
         if let Err((reason, _)) = self.interrupt_checked(cx) {
             self.notice = Some(ChatNotice::error(reason));
             cx.notify();
@@ -2165,56 +1927,16 @@ impl ChatRuntime {
         self.after_change(cx);
         written
     }
-    pub fn respond(&mut self, item: ItemId, response: Response, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            use canopy_desktop::remote::proto as p;
-            let (action, answers, note, accept_edits) = match response {
-                Response::Allow => (p::NativeDecisionAction::AllowOnce, vec![], None, false),
-                Response::AllowForChat => {
-                    (p::NativeDecisionAction::AllowForChat, vec![], None, false)
-                }
-                Response::Deny(note) => (p::NativeDecisionAction::Deny, vec![], note, false),
-                Response::Answer(answers) => {
-                    (p::NativeDecisionAction::Answer, answers, None, false)
-                }
-                Response::ApprovePlan { accept_edits } => (
-                    p::NativeDecisionAction::ApprovePlan,
-                    vec![],
-                    None,
-                    accept_edits,
-                ),
-                Response::KeepPlanning(note) => {
-                    (p::NativeDecisionAction::KeepPlanning, vec![], note, false)
-                }
-            };
-            self.client_respond(
-                item,
-                p::respond_decision_request::Response::Native(p::NativeDecision {
-                    action: action as i32,
-                    answers,
-                    note,
-                    accept_edits,
-                }),
-                cx,
-            );
-            return;
-        }
+    fn respond_local(&mut self, item: ItemId, response: Response, cx: &mut Context<Self>) {
         self.act(|session| session.respond(item, response), cx);
     }
     /// Answers an ACP agent's request with the option it offered (`None`: cancel).
-    pub fn respond_option(&mut self, item: ItemId, option: Option<String>, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            if let Some(option) = option {
-                self.client_respond(
-                    item,
-                    canopy_desktop::remote::proto::respond_decision_request::Response::OptionId(
-                        option,
-                    ),
-                    cx,
-                );
-            }
-            return;
-        }
+    fn respond_option_local(
+        &mut self,
+        item: ItemId,
+        option: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(session) = &mut self.session else {
             return;
         };
@@ -2225,11 +1947,7 @@ impl ChatRuntime {
         self.after_change(cx);
     }
     /// Chooses `value` for the agent's option `id`, as the agent offered them.
-    pub fn set_agent_option(&mut self, id: &str, value: &str, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.remote_option(id.into(), value.into(), cx);
-            return;
-        }
+    fn set_agent_option_local(&mut self, id: &str, value: &str, cx: &mut Context<Self>) {
         let Some(BackendSession::Acp(session)) = &mut self.session else {
             return;
         };
@@ -2318,11 +2036,7 @@ impl ChatRuntime {
             cx.notify();
         }
     }
-    pub fn stop_background(&mut self, call: &str, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.client_stop_background(call.into(), cx);
-            return;
-        }
+    fn stop_background_local(&mut self, call: &str, cx: &mut Context<Self>) {
         self.act(|session| session.stop_background(call), cx);
     }
     /// Said in the conversation, not to the agent.
@@ -2345,25 +2059,13 @@ impl ChatRuntime {
         cx.notify();
         asked
     }
-    pub fn pause_goal(&mut self, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.client_goal(canopy_desktop::remote::proto::GoalAction::PauseGoal, cx);
-            return;
-        }
+    fn pause_goal_local(&mut self, cx: &mut Context<Self>) {
         self.act(|session| session.pause_goal(), cx);
     }
-    pub fn resume_goal(&mut self, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.client_goal(canopy_desktop::remote::proto::GoalAction::ResumeGoal, cx);
-            return;
-        }
+    fn resume_goal_local(&mut self, cx: &mut Context<Self>) {
         self.act(|session| session.resume_goal(), cx);
     }
-    pub fn clear_goal(&mut self, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.client_goal(canopy_desktop::remote::proto::GoalAction::ClearGoal, cx);
-            return;
-        }
+    fn clear_goal_local(&mut self, cx: &mut Context<Self>) {
         self.act(|session| session.clear_goal(EndReason::ClearedByUser), cx);
     }
 
@@ -2376,29 +2078,13 @@ impl ChatRuntime {
         self.persist(None, cx);
         cx.notify();
     }
-    pub fn set_model(&mut self, model: Option<String>, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.remote_option("model".into(), model.unwrap_or_default(), cx);
-            return;
-        }
+    fn set_model_local(&mut self, model: Option<String>, cx: &mut Context<Self>) {
         self.change(|session| session.set_model(model), cx);
     }
-    pub fn set_effort(&mut self, effort: Option<Effort>, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.remote_option(
-                "effort".into(),
-                effort.map(|e| e.key()).unwrap_or_default().into(),
-                cx,
-            );
-            return;
-        }
+    fn set_effort_local(&mut self, effort: Option<Effort>, cx: &mut Context<Self>) {
         self.change(|session| session.set_effort(effort), cx);
     }
-    pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.remote_option("mode".into(), mode.key().into(), cx);
-            return;
-        }
+    fn set_mode_local(&mut self, mode: Mode, cx: &mut Context<Self>) {
         self.change(|session| session.set_mode(mode), cx);
     }
     fn change(
@@ -2420,10 +2106,7 @@ impl ChatRuntime {
         self.after_change(cx);
     }
 
-    fn persist(&mut self, account: Option<(String, String)>, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            return;
-        }
+    fn persist_local(&mut self, account: Option<(String, String)>, cx: &mut Context<Self>) {
         let pane = self.pane.id;
         let settings = self.settings.clone();
         cx.global::<AppState>()
@@ -2546,11 +2229,7 @@ impl ChatRuntime {
     }
 
     /// Stop on a running command's card: it ends, and the agent hears it was stopped.
-    pub fn stop_shell(&mut self, id: ItemId, cx: &mut Context<Self>) {
-        if self.remote.is_some() {
-            self.client_stop_shell(id, cx);
-            return;
-        }
+    fn stop_shell_local(&mut self, id: ItemId, cx: &mut Context<Self>) {
         if let Some(shell) = self.shells.get(&id) {
             self.stopped_shells.insert(id);
             shell.running.stop();

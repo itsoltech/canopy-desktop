@@ -326,7 +326,7 @@ impl ChatRuntime {
         }
     }
 
-    pub fn snapshot(&self, cx: &App) -> ChatSnapshot {
+    pub(super) fn snapshot_local(&self, cx: &App) -> ChatSnapshot {
         let options = self.remote_options();
         ChatSnapshot {
             chat: self.chat_id().unwrap_or_default(),
@@ -400,7 +400,7 @@ impl ChatRuntime {
     /// Sent user message `item` of history part `history_epoch` in run `run` as it can
     /// be edited now: the point the new branch continues after (`None`: the
     /// conversation starts over) and the message as sent. Errors are `code: text`.
-    fn edit_target(
+    pub(super) fn edit_target(
         &self,
         run: u64,
         history_epoch: u64,
@@ -679,7 +679,7 @@ impl ChatRuntime {
     }
 
     /// Requests waiting on the user, oldest first, bound to this run.
-    pub fn decisions(&self) -> Vec<PendingDecision> {
+    pub(super) fn decisions_local(&self) -> Vec<PendingDecision> {
         let Some(session) = &self.session else {
             return vec![];
         };

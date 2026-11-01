@@ -4,12 +4,16 @@ mod task_drafts;
 pub use integrations::{GithubUnavailable, IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
 mod editors;
-pub(crate) use chats::Recovering;
+pub(crate) use chats::{
+    Account, AttachmentSuggestion, ComposerClear, ComposerOperation, DraftPreparation,
+    EditProgress, EditSubmission, HistoryPosition, MessageEdit, Recovering, ThreadDestination,
+};
 pub use chats::{
     AgentOption, Archived, ChatForkRequested, ChatGuardRequest, ChatNotice, ChatNoticeKind,
-    ChatRecoveryRequested, ChatResumeRequested, ChatRuntime, ChatRuntimeEvent, ForkRequest,
-    LineState, PageTokens, QueueLine, backend_of,
+    ChatRecoveryRequested, ChatResumeRequested, ChatRuntime, ChatRuntimeEvent, LineState,
+    PageTokens, QueueLine, backend_of,
 };
+pub(crate) use chats::{ContextSource, PendingOutcome, PendingRequest, ThreadFile, ThreadPlace};
 pub use editors::{Editors, GuardRequest};
 mod files;
 pub use files::FilesState;

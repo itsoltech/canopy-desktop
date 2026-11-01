@@ -111,45 +111,11 @@ impl ChatView {
             }
             let source = page.html.clone();
             let id = call.clone();
-            let remote = self.rt(cx).remote_source().and_then(|s| {
-                let key = s
-                    .projection
-                    .items
-                    .iter()
-                    .find_map(|item| match &item.body {
-                        Some(canopy_desktop::remote::proto::transcript_item::Body::Tool(tool))
-                            if item.key.is_some_and(|key| {
-                                canopy_desktop::remote::client::presentation::call_id(
-                                    key.history_epoch,
-                                    &tool.call_id,
-                                ) == call
-                            }) =>
-                        {
-                            tool.page_item
-                        }
-                        _ => None,
-                    })?;
-                Some((s.host.clone()?, s.chat(), key))
-            });
-            let download = remote.and_then(|(host, chat, key)| {
-                crate::ui::remote_client::executor(cx).ok().map(|runtime| {
-                    runtime.spawn(async move {
-                        let bytes = host.read_chat_page(chat, key).await?;
-                        let html = String::from_utf8(bytes)
-                            .map_err(|_| "Invalid UTF-8 page.".to_owned())?;
-                        Ok::<_, String>(crate::ui::remote_client::isolated_html(&html))
-                    })
-                })
+            let prepared = self.runtime.update(cx, |runtime, cx| {
+                runtime.thread_page(call.clone(), source, cx)
             });
             let prepare = cx.spawn(async move |this, cx| {
-                let result = if let Some(download) = download {
-                    download.await.map_err(|e| e.to_string()).and_then(|r| r)
-                } else {
-                    Ok(cx
-                        .background_executor()
-                        .spawn(async move { page::inline_images(&source) })
-                        .await)
-                };
+                let result = prepared.await;
                 let _ = this.update(cx, |this, cx| {
                     if let Some(card) = this.pages.cards.get_mut(&id) {
                         match result {

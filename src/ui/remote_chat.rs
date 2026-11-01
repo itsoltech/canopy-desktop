@@ -12,7 +12,7 @@ impl Workspace {
             .chats
             .read(cx)
             .runtime(pane)
-            .filter(|r| r.read(cx).is_remote())
+            .filter(|r| r.read(cx).project_tools_context().is_some())
             .cloned()
     }
     pub(super) fn sync_remote_tools(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -25,13 +25,13 @@ impl Workspace {
             return;
         };
         let runtime = source.read(cx);
-        let Some(client) = runtime.remote_source() else {
+        let Some((host, workspace)) = runtime.project_tools_context() else {
             return;
         };
-        let Some(host) = client.host.clone() else {
-            return;
-        };
-        let workspace = client.context().and_then(|c| c.workspace);
+        let workspace = workspace.map(|workspace_id| proto::WorkspaceRef {
+            host_id: host.id().as_str().into(),
+            workspace_id,
+        });
         let key = format!(
             "{}:{}",
             host.id().as_str(),
@@ -74,10 +74,11 @@ impl Workspace {
             return false;
         };
         if let Some(runtime) = self.state.chats.read(cx).runtime(pane.id).cloned() {
-            runtime.update(cx, |r, cx| r.client_new_chat(cx));
+            runtime.update(cx, |r, cx| r.create_sibling(cx));
         }
         true
     }
+
     pub(super) fn open_remote_chat(
         &mut self,
         host: Arc<HostClient>,
@@ -152,82 +153,9 @@ pub(crate) fn new_chat_on(
     workspace: Option<proto::WorkspaceRef>,
     cx: &mut App,
 ) {
-    let app = cx.global::<crate::app_state::AppState>().clone();
-    let preferred = crate::app_state::Chats::provider(cx).tool().to_owned();
-    let executor = match remote_client::executor(cx) {
-        Ok(executor) => executor,
-        Err(error) => {
-            app.chats.update(cx, |chats, cx| {
-                chats.error = Some(error.to_string());
-                cx.notify();
-            });
-            return;
-        }
-    };
-    let task = executor.spawn(async move {
-        let mut client = proto::catalog_service_client::CatalogServiceClient::new(host.channel()?);
-        let agents = client
-            .list_agents(proto::AgentDiscoveryRequest {
-                host_id: host.id().as_str().into(),
-                workspace: workspace.clone(),
-                page_token: None,
-            })
-            .await
-            .map_err(canopy_desktop::remote::client::rpc_error)?
-            .into_inner()
-            .agents;
-        let agent = agents
-            .iter()
-            .find(|a| a.agent_id == preferred)
-            .or(agents.first())
-            .map(|a| a.agent_id.clone())
-            .ok_or_else(|| format!("{} has no agents set up.", host.name()))?;
-        let receipt = host
-            .mutate(None, |channel, command| {
-                let agent = agent.clone();
-                async move {
-                    proto::catalog_service_client::CatalogServiceClient::new(channel)
-                        .create_chat(proto::CreateChatRequest {
-                            command: Some(command),
-                            workspace,
-                            agent_id: agent,
-                            profile_id: None,
-                        })
-                        .await
-                }
-            })
-            .await?;
-        let chat = RemoteChat::new(host.id().as_str().into(), receipt.resource_id)
-            .ok_or_else(|| "The computer returned an invalid chat.".to_owned())?;
-        Ok::<_, String>((chat, agent))
-    });
-    cx.spawn(async move |cx| {
-        let result = task.await.unwrap_or_else(|e| Err(e.to_string()));
-        cx.update(|cx| {
-            let opened = result.and_then(|(chat, agent)| {
-                let target = app.projects.read(cx).catalog.active;
-                app.projects.update(cx, |p, cx| {
-                    p.open_chat(
-                        target,
-                        "New chat",
-                        &agent,
-                        PaneMetadata {
-                            kind: PaneKind::Chat,
-                            title: Some("New chat".into()),
-                            remote: Some(Box::new(chat)),
-                            ..Default::default()
-                        },
-                        cx,
-                    )
-                })
-            });
-            if let Err(error) = opened {
-                app.chats.update(cx, |chats, cx| {
-                    chats.error = Some(error);
-                    cx.notify();
-                });
-            }
-        })
-    })
-    .detach();
+    crate::app_state::ChatRuntime::create_on_environment(
+        host,
+        workspace.map(|workspace| workspace.workspace_id),
+        cx,
+    );
 }

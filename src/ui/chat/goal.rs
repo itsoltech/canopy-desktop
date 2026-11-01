@@ -111,26 +111,14 @@ impl ChatView {
         {
             return;
         }
-        if self.rt(cx).is_remote() {
-            self.save_remote_draft(cx);
-            self.send_draft(
-                Draft {
-                    text,
-                    goal: true,
-                    ..Default::default()
-                },
-                cx,
-            );
-            return;
-        }
-        self.clear_composer(window, cx);
-        self.set_goal_mode(false, window, cx);
-        self.send_draft(
+        self.submit_composer(
             Draft {
                 text,
                 goal: true,
                 ..Default::default()
             },
+            false,
+            window,
             cx,
         );
     }

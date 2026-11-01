@@ -18,7 +18,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::{prelude::FluentBuilder, *};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
@@ -52,10 +52,17 @@ pub(super) struct Attachments {
     insert: Vec<InlineToken>,
     /// Thumbnails of images, by file name in the chat's folder.
     pub previews: HashMap<String, Arc<Image>>,
-    loading: HashSet<String>,
+    loading: HashMap<String, Task<()>>,
     /// The image shown full size, and its presence.
     pub lightbox: Option<Arc<Image>>,
     pub lightbox_presence: Option<Presence>,
+}
+
+impl Attachments {
+    pub(super) fn clear_composer(&mut self) {
+        self.pending.clear();
+        self.insert.clear();
+    }
 }
 
 /// The folder of the chat's attached images.
@@ -232,13 +239,14 @@ impl ChatView {
         });
     }
 
-    /// Empties the composer after sending.
     pub(super) fn clear_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer
             .update(cx, |state, cx| state.clean(window, cx));
-        self.clear_code_blocks(cx);
-        self.attachments.pending.clear();
-        self.attachments.insert.clear();
+        if !self.code_parts.is_empty() {
+            self.code_parts.clear();
+            cx.notify();
+        }
+        self.attachments.clear_composer();
     }
 
     fn next_attachment(&mut self) -> u64 {
@@ -331,19 +339,13 @@ impl ChatView {
     }
 
     /// Images become image attachments, anything else a path for the agent to read.
-    pub(super) fn attach_paths(&mut self, mut paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        if self.rt(cx).is_remote() {
-            // The host can't read this computer's files; only images travel with the
-            // message.
-            let (images, others): (Vec<_>, Vec<_>) =
-                paths.into_iter().partition(|p| prepare::is_image_path(p));
-            paths = images;
-            if !others.is_empty() {
-                let text = unreadable_on_host(&self.host_name(cx), &others);
-                self.runtime.update(cx, |runtime, cx| {
-                    runtime.show_notice(crate::app_state::ChatNotice::error(text), cx)
-                });
-            }
+    pub(super) fn attach_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let (paths, rejected) = self.rt(cx).attachment_paths(paths);
+        if !rejected.is_empty() {
+            let text = unreadable_on_host(&self.host_name(cx), &rejected);
+            self.runtime.update(cx, |runtime, cx| {
+                runtime.show_notice(crate::app_state::ChatNotice::error(text), cx)
+            });
         }
         for path in paths {
             let image = prepare::is_image_path(&path);
@@ -512,46 +514,6 @@ impl ChatView {
         .detach();
     }
 
-    /// Runs `send` with `draft` once its saved images are loaded again (a message sent
-    /// again after a restart); otherwise right away.
-    pub(super) fn with_images(
-        &mut self,
-        draft: Draft,
-        cx: &mut Context<Self>,
-        send: impl FnOnce(&mut Self, Draft, &mut Context<Self>) + 'static,
-    ) {
-        if self.rt(cx).is_remote() {
-            send(self, draft, cx);
-            return;
-        }
-        if !prepare::needs_data(&draft.attachments) {
-            send(self, draft, cx);
-            return;
-        }
-        let chat = self.chat_id(cx);
-        cx.spawn(async move |this, cx| {
-            let loaded = cx
-                .background_spawn(async move {
-                    let dir = folder(chat.as_deref())?;
-                    let attachments = prepare::with_data(&dir, draft.attachments)?;
-                    Ok::<_, String>(Draft {
-                        text: draft.text,
-                        attachments,
-                        context: draft.context,
-                        goal: false,
-                    })
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| match loaded {
-                Ok(draft) => send(this, draft, cx),
-                Err(error) => this
-                    .runtime
-                    .update(cx, |runtime, cx| runtime.note(error, cx)),
-            });
-        })
-        .detach();
-    }
-
     /// A saved image's thumbnail, loading it when not known yet.
     fn preview_of(
         &mut self,
@@ -583,33 +545,17 @@ impl ChatView {
             return;
         };
         if self.attachments.previews.contains_key(file)
-            || !self.attachments.loading.insert(file.clone())
+            || self.attachments.loading.contains_key(file)
         {
             return;
         }
         let (file, format) = (file.clone(), format_of(media_type));
-        let chat = self.chat_id(cx);
-        let remote = self.rt(cx).remote_source().and_then(|s| {
-            let artifact = s.originals.get(&file).and_then(|a| match &a.content {
-                Some(canopy_desktop::remote::proto::attachment::Content::Image(i)) => {
-                    Some(i.clone())
-                }
-                _ => None,
-            })?;
-            Some((s.host.clone()?, artifact))
-        });
-        let remote_only = self.rt(cx).is_remote() && file.starts_with("remote:");
-        let download = remote.and_then(|(host, artifact)| {
-            crate::ui::remote_client::executor(cx)
-                .ok()
-                .map(|runtime| runtime.spawn(async move { host.download(artifact).await.ok() }))
-        });
-        cx.spawn(async move |this, cx| {
-            let bytes = if let Some(download) = download { download.await.ok().flatten() } else if remote_only { None } else { cx
-                .background_spawn(async move {
-                    prepare::image_bytes(&folder(chat.as_deref()).ok()?, &attachment)
-                })
-                .await };
+        let image = self
+            .runtime
+            .update(cx, |runtime, cx| runtime.attachment_image(attachment, cx));
+        let key = file.clone();
+        let loading = cx.spawn(async move |this, cx| {
+            let bytes = image.await;
             let _ = this.update(cx, |this, cx| {
                 this.attachments.loading.remove(&file);
                 let Some(bytes) = bytes else {
@@ -625,8 +571,8 @@ impl ChatView {
                 this.attachments.previews.insert(file, image);
                 cx.notify();
             });
-        })
-        .detach();
+        });
+        self.attachments.loading.insert(key, loading);
     }
 
     pub(super) fn open_lightbox(&mut self, image: Arc<Image>, cx: &mut Context<Self>) {
@@ -1172,6 +1118,30 @@ fn unreadable_on_host(host: &str, paths: &[PathBuf]) -> String {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    fn consuming_a_composer_discards_badges_waiting_for_insertion() {
+        let mut attachments = Attachments::default();
+        attachments.pending.push(Pending {
+            id: 1,
+            text: "[file]".into(),
+            state: AttachState::Ready(Attachment::Path {
+                path: "file".into(),
+                label: Some("[file]".into()),
+            }),
+            preview: None,
+            image: false,
+        });
+        attachments
+            .insert
+            .push(InlineToken::new(token_id(1), "[file]"));
+        attachments.clear_composer();
+        assert!(attachments.pending.is_empty());
+        assert!(
+            attachments.insert.is_empty(),
+            "accepted content must not reappear at the next composer render"
+        );
+    }
 
     #[test]
     fn mentions_become_badge_links_and_the_rest_reads_literally() {

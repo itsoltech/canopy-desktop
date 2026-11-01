@@ -163,14 +163,6 @@ impl ChatView {
         cx.notify();
     }
 
-    /// Empties every part: the composer is one field again.
-    pub(super) fn clear_code_blocks(&mut self, cx: &mut Context<Self>) {
-        if !self.code_parts.is_empty() {
-            self.code_parts.clear();
-            cx.notify();
-        }
-    }
-
     fn new_part(
         &mut self,
         before: InputContent,
