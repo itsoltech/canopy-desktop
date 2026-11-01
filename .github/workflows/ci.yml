@@ -52,7 +52,8 @@ jobs:
       - name: Install protoc
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends protobuf-compiler
+          # Ubuntu ships descriptor.proto and struct.proto in the dev package.
+          sudo apt-get install --yes --no-install-recommends protobuf-compiler libprotobuf-dev
       - name: Check generated mobile contract
         working-directory: mobile
         run: node scripts/generate-remote.mjs --check
