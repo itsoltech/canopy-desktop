@@ -95,6 +95,18 @@ pub(super) fn idempotency_conflict() -> Status {
     Status::aborted("idempotency_conflict: this command ID was used for another operation.")
 }
 
+#[tonic::async_trait]
+impl canopy_desktop::api::ThreadPublisher for ChatsRpc {
+    async fn committed(&self, receipt: &host::CommandReceipt) {
+        let client = self.auth.client();
+        if let Ok(Some(record)) = client.load_runtime_chat(receipt.target().into()).await
+            && let Ok(queue) = client.load_runtime_queue(receipt.target().into()).await
+        {
+            let _ = self.bridge.bus_committed(record, queue).await;
+        }
+    }
+}
+
 impl ChatsRpc {
     pub(super) async fn bus_command(
         &self,
@@ -125,25 +137,18 @@ impl ChatsRpc {
         let principal =
             Principal::authenticated(&grant, meta.command_epoch).map_err(storage_status)?;
         let owned = self.operations.begin()?;
-        let bridge = self.bridge.clone();
+        let publisher = self.clone();
         let resources = command_bus::DraftResources {
             roots: self.roots.clone(),
             pulls: self.pulls.clone(),
         };
-        let client = self.auth.client().clone();
         let receipt = tokio::spawn(async move {
             let _owned = owned;
             let receipt = bus
                 .execute(envelope, principal, Some(&resources))
                 .await
                 .map_err(storage_status)?;
-            if let Ok(Some(record)) = client.load_runtime_chat(receipt.target().into()).await
-                && let Ok(queue) = client.load_runtime_queue(receipt.target().into()).await
-            {
-                // Acceptance is already committed. Publication never re-executes
-                // the command; an unavailable runtime leaves the durable queue.
-                let _ = bridge.bus_committed(record, queue).await;
-            }
+            canopy_desktop::api::ThreadPublisher::committed(&publisher, &receipt).await;
             Ok::<_, Status>(receipt)
         })
         .await

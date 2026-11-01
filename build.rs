@@ -12,6 +12,11 @@ fn main() {
         .expect("compile the native Canopy gRPC contract (protoc is required)");
     println!("cargo:rerun-if-changed=proto/canopy/remote/v1/canopy.proto");
     println!("cargo:rerun-if-changed=proto/grpc/health/v1/health.proto");
+    tonic_prost_build::configure()
+        .file_descriptor_set_path(output.join("canopy-api-v1.bin"))
+        .compile_protos(&["proto/canopy/api/v1/api.proto"], &["proto"])
+        .expect("compile the typed Canopy API contract");
+    println!("cargo:rerun-if-changed=proto/canopy/api/v1/api.proto");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         cc::Build::new()
             .file("native/video_preview.m")

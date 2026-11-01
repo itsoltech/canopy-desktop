@@ -1,0 +1,17 @@
+version: v2
+modules:
+  - path: proto
+    # Temporary staged migration: lint only the owned canopy.api.v1 contract.
+    excludes:
+      - proto/canopy/remote
+      - proto/grpc
+lint:
+  use:
+    - STANDARD
+  except:
+    # Every command deliberately returns the shared, durable CommandReceipt.
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
+breaking:
+  use:
+    - FILE

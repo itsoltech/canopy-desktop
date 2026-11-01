@@ -977,19 +977,15 @@ impl ChatRuntime {
                     encode_draft(&host, &chat, &context, &originals, draft, namespace, false)
                         .await?;
                 let receipt = host
-                    .mutate(Some(revision), |channel, command| async move {
-                        p::chat_service_client::ChatServiceClient::new(channel)
-                            .change_queue(p::ChangeQueueRequest {
-                                command: Some(command),
-                                chat: Some(chat),
-                                queue_revision: revision,
-                                change: Some(p::change_queue_request::Change::Edit(p::QueueEdit {
-                                    message_id: message,
-                                    draft: Some(draft),
-                                })),
-                            })
-                            .await
-                    })
+                    .change_queue(
+                        chat,
+                        revision,
+                        p::change_queue_request::Change::Edit(p::QueueEdit {
+                            message_id: message,
+                            draft: Some(draft),
+                        }),
+                        Some(context),
+                    )
                     .await?;
                 if receipt.state != p::OperationState::Succeeded as i32 {
                     return Err(receipt
@@ -1131,18 +1127,12 @@ impl ChatRuntime {
                     revision = receipt.queue_revision.or(revision);
                 }
                 if let Some(revision) = revision {
-                    host.mutate(Some(revision), |channel, meta| async move {
-                        p::chat_service_client::ChatServiceClient::new(channel)
-                            .change_queue(p::ChangeQueueRequest {
-                                command: Some(meta),
-                                chat: Some(chat),
-                                queue_revision: revision,
-                                change: Some(p::change_queue_request::Change::Pause(
-                                    p::QueuePause { paused: false },
-                                )),
-                            })
-                            .await
-                    })
+                    host.change_queue(
+                        chat,
+                        revision,
+                        p::change_queue_request::Change::Pause(p::QueuePause { paused: false }),
+                        None,
+                    )
                     .await?;
                 }
                 Ok(())
@@ -1378,18 +1368,14 @@ impl ChatRuntime {
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
             .spawn(async move {
-                host.mutate(Some(revision), |channel, meta| async move {
-                    p::chat_service_client::ChatServiceClient::new(channel)
-                        .change_queue(p::ChangeQueueRequest {
-                            command: Some(meta),
-                            chat: Some(chat),
-                            queue_revision: revision,
-                            change: Some(p::change_queue_request::Change::Remove(p::QueueRemove {
-                                message_id: message,
-                            })),
-                        })
-                        .await
-                })
+                host.change_queue(
+                    chat,
+                    revision,
+                    p::change_queue_request::Change::Remove(p::QueueRemove {
+                        message_id: message,
+                    }),
+                    None,
+                )
                 .await
             });
         cx.spawn(
@@ -2545,17 +2531,7 @@ impl ChatRuntime {
         let chat = source.chat();
         self.remote_task(
             async move {
-                host.mutate(Some(revision), |channel, meta| async move {
-                    p::chat_service_client::ChatServiceClient::new(channel)
-                        .change_queue(p::ChangeQueueRequest {
-                            command: Some(meta),
-                            chat: Some(chat),
-                            queue_revision: revision,
-                            change: Some(change),
-                        })
-                        .await
-                })
-                .await?;
+                host.change_queue(chat, revision, change, None).await?;
                 Ok(())
             },
             cx,

@@ -153,9 +153,9 @@ async fn preferences_cas_waits_for_commit_and_preserves_queued_local_change(
                 canopy_desktop::command_bus::Principal::local_owner()
             )
             .await
-            .unwrap_err()
-            .code(),
-        tonic::Code::Aborted
+            .unwrap()
+            .state(),
+        canopy_desktop::host::CommandState::Rejected
     );
     let second = bridge.snapshot().await.unwrap();
     cx.update(|cx| {

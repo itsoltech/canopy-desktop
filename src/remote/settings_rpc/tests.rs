@@ -58,6 +58,8 @@ impl SettingsSecrets for Secrets {
     }
 }
 struct Host {
+    client: SettingsClient,
+    preferences_revision: tokio::sync::Mutex<u64>,
     secrets: Arc<Secrets>,
     values: Mutex<Vec<String>>,
     calls: AtomicUsize,
@@ -74,12 +76,28 @@ impl SettingsHost for Host {
     }
     async fn update_preferences(
         &self,
-        _: crate::command_bus::CommandEnvelope,
-        _: crate::command_bus::Principal,
+        envelope: crate::command_bus::CommandEnvelope,
+        principal: crate::command_bus::Principal,
     ) -> Result<crate::host::CommandReceipt, Status> {
-        Err(Status::unimplemented(
-            "This fixture only implements credential settings.",
-        ))
+        let mut revision = self.preferences_revision.lock().await;
+        let bus = crate::command_bus::CommandBus::new(self.client.clone());
+        let prepared = bus
+            .prepare(envelope, principal)
+            .await
+            .map_err(storage_status)?;
+        if let Some(prior) = prepared.prior() {
+            return Ok(prior.clone());
+        }
+        let (receipt, snapshot) = bus
+            .commit_preferences(prepared, *revision)
+            .await
+            .map_err(storage_status)?;
+        if snapshot.is_some() {
+            let result: serde_json::Value =
+                serde_json::from_slice(receipt.result().unwrap()).unwrap();
+            *revision = result["revision"].as_u64().unwrap();
+        }
+        Ok(receipt)
     }
     async fn save_agent(&self, _: AgentEdit, _: Option<u64>) -> Result<(), Status> {
         Ok(())
@@ -153,6 +171,8 @@ async fn fixture(dir: &std::path::Path) -> (SettingsRpc, DeviceGrant, Arc<Host>,
     let grant = client.lookup_runtime_device(vec![1; 32]).await.unwrap();
     let secrets = Arc::new(Secrets::default());
     let owner = Arc::new(Host {
+        client: client.clone(),
+        preferences_revision: tokio::sync::Mutex::new(42),
         secrets: secrets.clone(),
         values: Mutex::new(vec![]),
         calls: AtomicUsize::new(0),
@@ -173,6 +193,93 @@ async fn fixture(dir: &std::path::Path) -> (SettingsRpc, DeviceGrant, Arc<Host>,
         owner,
         secrets,
     )
+}
+#[tokio::test]
+async fn typed_preferences_receipt_keeps_original_values_revision_and_domain_rejection() {
+    use crate::{
+        api::{proto as api, rpc::preferences_envelope},
+        command_bus::Principal,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let (rpc, grant, _, _) = fixture(dir.path()).await;
+    let original = api::UpdatePreferencesRequest {
+        command: Some(api::CommandMeta {
+            command_id: uuid::Uuid::new_v4().to_string(),
+            command_epoch: 1,
+            expected_revision: Some(42),
+        }),
+        environment: Some(api::EnvironmentRef {
+            host_id: rpc.auth.host_id().into(),
+        }),
+        notch_enabled: Some(false),
+        chat_effort: Some("high".into()),
+        chat_mode: Some("plan".into()),
+        ..Default::default()
+    };
+    let execute = |request: api::UpdatePreferencesRequest| {
+        let rpc = rpc.clone();
+        let grant = grant.clone();
+        async move {
+            let (meta, environment, envelope) = preferences_envelope(request)?;
+            let receipt = rpc
+                .preferences_owned(
+                    envelope,
+                    Principal::authenticated(&grant, meta.command_epoch).map_err(storage_status)?,
+                )
+                .await?;
+            crate::api::compat::receipt(
+                &rpc.auth,
+                &receipt,
+                api::command_receipt::Resource::Environment(environment),
+            )
+        }
+    };
+    let first = execute(original.clone()).await.unwrap();
+    let Some(api::command_receipt::Result::Preferences(result)) = first.result.as_ref() else {
+        panic!("missing preferences result")
+    };
+    assert_eq!(result.revision, 43);
+    let values = result.values.as_ref().unwrap();
+    assert!(!values.notch_enabled);
+    assert_eq!(values.chat_effort.as_deref(), Some("high"));
+    assert_eq!(values.chat_mode.as_deref(), Some("plan"));
+    let retained = crate::api::compat::legacy_receipt(first.clone(), "private".into());
+    let retained: serde_json::Value =
+        serde_json::from_str(retained.operation_output.as_deref().unwrap()).unwrap();
+    assert_eq!(retained["values"]["notch_enabled"], false);
+    assert_eq!(retained["revision"], 43);
+    let mut later = original.clone();
+    later.command.as_mut().unwrap().command_id = uuid::Uuid::new_v4().to_string();
+    later.command.as_mut().unwrap().expected_revision = Some(43);
+    later.notch_enabled = Some(true);
+    let later = execute(later).await.unwrap();
+    assert_ne!(first, later);
+    assert_eq!(execute(original.clone()).await.unwrap(), first);
+    let mut stale = original.clone();
+    stale.command.as_mut().unwrap().command_id = uuid::Uuid::new_v4().to_string();
+    let rejected = execute(stale.clone()).await.unwrap();
+    assert_eq!(rejected.state, api::OperationState::Rejected as i32);
+    assert_eq!(rejected.error.as_ref().unwrap().code, "conditions_changed");
+    assert_eq!(execute(stale).await.unwrap(), rejected);
+    assert!(
+        rpc.auth
+            .client()
+            .load()
+            .await
+            .unwrap()
+            .preferences
+            .notch_enabled
+    );
+    rpc.auth
+        .client()
+        .revoke_runtime_device(grant.id().into())
+        .await
+        .unwrap();
+    assert_eq!(
+        execute(original).await.unwrap_err().code(),
+        tonic::Code::PermissionDenied
+    );
+    rpc.auth.client().shutdown().await.unwrap();
 }
 fn request(rpc: &SettingsRpc, value: &str) -> proto::SaveProfileRequest {
     proto::SaveProfileRequest {

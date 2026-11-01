@@ -1,4 +1,5 @@
 //! Device-owned native remote client. Host identity never follows the selected tab or route.
+mod api_commands;
 pub mod catalog;
 mod chat_commands;
 mod commands;

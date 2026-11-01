@@ -56,7 +56,7 @@ impl ChatMutation {
     ) -> Result<p::CommandReceipt, String> {
         let mut client = p::chat_service_client::ChatServiceClient::new(channel);
         match self {
-            Self::Send(value) => client.send_message(value).await,
+            Self::Send(_) => return Err("This saved send predates typed thread addressing; retain it for review without replay.".into()),
             Self::Edit(value) => client.edit_message(value).await,
             Self::Fork(value) => client.fork_chat(value).await,
             Self::RunShell(value) => client.run_shell(value).await,
@@ -94,16 +94,49 @@ impl HostClient {
         &self,
         intent: ChatMutation,
     ) -> Result<p::CommandReceipt, String> {
-        self.submit_chat_mutation_with(intent, |intent, channel| intent.dispatch(channel))
-            .await
+        let api = if let ChatMutation::Send(request) = &intent {
+            Some(self.api_send(request).await?)
+        } else {
+            None
+        };
+        let host = self.id().as_str().to_owned();
+        self.submit_chat_mutation_prepared(intent, api, move |intent, api, channel| async move {
+            if let Some(api) = api {
+                let catalog_id = intent.chat().map(|c| c.chat_id.clone()).unwrap_or_default();
+                api.dispatch(channel, &host, catalog_id).await
+            } else {
+                intent.dispatch(channel).await
+            }
+        })
+        .await
     }
+    #[cfg(test)]
     pub(super) async fn submit_chat_mutation_with<F, Fut>(
         &self,
-        mut intent: ChatMutation,
+        intent: ChatMutation,
         dispatch: F,
     ) -> Result<p::CommandReceipt, String>
     where
         F: FnOnce(ChatMutation, tonic::transport::Channel) -> Fut,
+        Fut: std::future::Future<Output = Result<p::CommandReceipt, String>>,
+    {
+        self.submit_chat_mutation_prepared(intent, None, move |intent, _, channel| {
+            dispatch(intent, channel)
+        })
+        .await
+    }
+    pub(super) async fn submit_chat_mutation_prepared<F, Fut>(
+        &self,
+        mut intent: ChatMutation,
+        mut api: Option<super::api_commands::ApiIntent>,
+        dispatch: F,
+    ) -> Result<p::CommandReceipt, String>
+    where
+        F: FnOnce(
+            ChatMutation,
+            Option<super::api_commands::ApiIntent>,
+            tonic::transport::Channel,
+        ) -> Fut,
         Fut: std::future::Future<Output = Result<p::CommandReceipt, String>>,
     {
         let _gate = self.mutation.lock().await;
@@ -116,8 +149,19 @@ impl HostClient {
         }
         let meta = self.command(None)?;
         *intent.command_mut() = Some(meta.clone());
+        if let Some(api) = &mut api {
+            *api.meta() = Some(crate::api::compat::command(meta.clone()));
+        }
+        let api_intent = api.as_ref().map(|intent| {
+            let (kind, bytes) = intent.encode();
+            (kind.into(), bytes)
+        });
         let (kind, bytes) = intent.encode();
-        if bytes.len() > 1024 * 1024 {
+        if bytes.len() > 1024 * 1024
+            || api_intent
+                .as_ref()
+                .is_some_and(|(_, bytes)| bytes.len() > crate::host::CONTROL_BYTES)
+        {
             return Err("Chat operation exceeds control limit; draft retained.".into());
         }
         self.update_record(|record| {
@@ -126,7 +170,7 @@ impl HostClient {
             }
             record.mutations.retain(|entry| entry.receipt.as_ref().and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok()).is_none_or(|receipt| !receipt.resolved_by_user && ![3,4,5,7].contains(&receipt.state)));
             if record.mutations.len() >= 100 { return Err("Operation recovery storage is full.".into()); }
-            record.mutations.push(MutationRecord { id: meta.command_id.clone(), epoch: meta.command_epoch, receipt: None, chat_intent: Some((kind.into(), bytes)) });
+            record.mutations.push(MutationRecord { id: meta.command_id.clone(), epoch: meta.command_epoch, receipt: None, chat_intent: Some((kind.into(), bytes)), api_intent });
             Ok(())
         })?;
         let resource = intent
@@ -134,7 +178,7 @@ impl HostClient {
             .map(|chat| chat.chat_id.clone())
             .unwrap_or_default();
         let started = std::time::Instant::now();
-        let response = dispatch(intent, channel).await;
+        let response = dispatch(intent, api, channel).await;
         crate::remote::metrics::record(
             self.id().as_str(),
             &crate::remote::metrics::resource_id(&resource),
@@ -164,6 +208,17 @@ impl HostClient {
             .iter()
             .find(|entry| entry.id == id)
             .ok_or("Chat operation not found.")?;
+        if entry.api_intent.is_some() {
+            let catalog_id = entry
+                .chat_intent
+                .as_ref()
+                .and_then(|(kind, bytes)| ChatMutation::decode(kind, bytes).ok())
+                .and_then(|intent| intent.chat().map(|chat| chat.chat_id.clone()))
+                .unwrap_or_default();
+            let receipt = self.retry_api(entry, catalog_id).await?;
+            self.store_api_receipt(id, &receipt)?;
+            return check_receipt(receipt);
+        }
         let (kind, bytes) = entry
             .chat_intent
             .as_ref()
@@ -186,8 +241,7 @@ impl HostClient {
             if record.epoch != Some(meta.command_epoch) {
                 return Err("Command epoch retired; intent retained without replay.".into());
             }
-            let receipt = intent.dispatch(channel).await?;
-            return self.save_chat_receipt(&meta, receipt);
+            return Err("This saved send has no original thread address. Retain it for review; it cannot be safely replayed.".into());
         }
         let result = p::host_service_client::HostServiceClient::new(channel.clone())
             .get_command(p::GetCommandRequest {

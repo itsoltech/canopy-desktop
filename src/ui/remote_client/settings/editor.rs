@@ -28,13 +28,13 @@ impl Write {
         host: Arc<HostClient>,
         revision: u64,
     ) -> Result<p::CommandReceipt, String> {
+        if let Self::Preferences(request) = self {
+            return host.update_preferences(request, revision).await;
+        }
         host.mutate(Some(revision), move |channel, command| async move {
             let mut client = p::settings_service_client::SettingsServiceClient::new(channel);
             match self {
-                Self::Preferences(mut r) => {
-                    r.command = Some(command);
-                    client.update_preferences(r).await
-                }
+                Self::Preferences(_) => unreachable!("preferences use the typed command client"),
                 Self::Agent(mut r) => {
                     r.command = Some(command);
                     client.save_agent_definition(r).await

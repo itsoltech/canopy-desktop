@@ -494,7 +494,12 @@ impl RemoteState {
                     pulls.clone(),
                     operations.clone(),
                 );
-                let chats = chats.with_pull_contexts(pulls);
+                let chats = chats.with_pull_contexts(pulls.clone());
+                let api = canopy_desktop::api::ThreadRpc::new(
+                    auth.clone(), state.clone(), operations.clone(),
+                    canopy_desktop::command_bus::DraftResources { roots: roots.clone(), pulls },
+                    Arc::new(chats.clone()),
+                );
                 let terminal_rpc = TerminalRpc::new(
                     auth.clone(),
                     roots.clone(),
@@ -541,6 +546,21 @@ impl RemoteState {
                     ArtifactsRpc::new(auth.clone(), roots, operations.clone(), artifacts);
                 let features = tonic::service::Routes::new(
                     proto::chat_service_server::ChatServiceServer::new(chats.clone())
+                        .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
+                        .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
+                )
+                .add_service(
+                    canopy_desktop::api::proto::catalog_service_server::CatalogServiceServer::new(api.clone())
+                        .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
+                        .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
+                )
+                .add_service(
+                    canopy_desktop::api::proto::thread_service_server::ThreadServiceServer::new(api)
+                        .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
+                        .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
+                )
+                .add_service(
+                    canopy_desktop::api::proto::settings_service_server::SettingsServiceServer::new(settings.clone())
                         .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
                         .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
                 )

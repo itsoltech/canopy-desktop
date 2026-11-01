@@ -447,10 +447,9 @@ fn preferences_retry_returns_original_committed_values_and_revision_after_later_
     );
     let stale = preferences(&db, uuid::Uuid::new_v4(), false, Some(42));
     let prepared = db.prepare_bus_command(stale, principal.clone()).unwrap();
-    assert!(matches!(
-        db.commit_bus_preferences(prepared, 44),
-        Err(Error::ResourceConflict)
-    ));
+    let (rejected, snapshot) = db.commit_bus_preferences(prepared, 44).unwrap();
+    assert_eq!(rejected.state(), CommandState::Rejected);
+    assert!(snapshot.is_none());
     assert!(db.load().unwrap().preferences.notch_enabled);
     drop(db);
     let mut db = Database::open(&dir.path().join("commands.db"), Access::ReadWrite).unwrap();
@@ -632,6 +631,23 @@ fn every_queue_change_is_durable_deduped_and_revision_checked() {
     let first = id();
     let second = id();
     let resent = id();
+    let before = db.load_runtime_queue(chat.id.clone()).unwrap();
+    let invalid = envelope(
+        &chat,
+        uuid::Uuid::new_v4(),
+        Command::Queue {
+            revision: before.revision(),
+            change: QueueChange::Remove { message: id() },
+        },
+    );
+    let rejected = execute(&mut db, invalid.clone(), principal.clone()).unwrap();
+    assert_eq!(rejected.state(), CommandState::Rejected);
+    // Validation failed after its tentative queue revision increment.
+    assert_eq!(db.load_runtime_queue(chat.id.clone()).unwrap(), before);
+    assert_eq!(
+        execute(&mut db, invalid, principal.clone()).unwrap(),
+        rejected
+    );
     for message in [&first, &second] {
         execute(
             &mut db,
@@ -674,10 +690,13 @@ fn every_queue_change_is_durable_deduped_and_revision_checked() {
         assert_eq!(db.load_runtime_queue(chat.id.clone()).unwrap(), after);
         let mut stale = request;
         stale.command_id = uuid::Uuid::new_v4();
-        assert!(matches!(
-            execute(&mut db, stale, principal.clone()),
-            Err(Error::ResourceConflict)
-        ));
+        let rejected = execute(&mut db, stale.clone(), principal.clone()).unwrap();
+        assert_eq!(rejected.state(), CommandState::Rejected);
+        assert_eq!(
+            execute(&mut db, stale, principal.clone()).unwrap(),
+            rejected
+        );
+        assert_eq!(db.load_runtime_queue(chat.id.clone()).unwrap(), after);
     }
     let queue = db.load_runtime_queue(chat.id.clone()).unwrap();
     assert!(queue.paused());
@@ -754,9 +773,11 @@ fn wrong_host_target_and_conditions_never_accept_an_effect() {
     ));
     let mut stale = rename(&chat, uuid::Uuid::new_v4(), "stale");
     stale.conditions.expected_revision = Some(0);
-    assert!(matches!(
-        execute(&mut db, stale, Principal::local_owner()),
-        Err(Error::ResourceConflict)
-    ));
+    assert_eq!(
+        execute(&mut db, stale, Principal::local_owner())
+            .unwrap()
+            .state(),
+        CommandState::Rejected
+    );
     assert_eq!(db.load_runtime_chat(chat.id.clone()).unwrap(), Some(chat));
 }
