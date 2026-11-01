@@ -300,6 +300,8 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     use crate::api::proto as api;
     let discovery = api::catalog_service_client::CatalogServiceClient::new(channel.clone())
         .list_threads(api::ListThreadsRequest {
+            page_token: None,
+            limit: 0,
             environment: Some(api::EnvironmentRef {
                 host_id: host.id().into(),
             }),
@@ -420,9 +422,45 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     let mut stale_epoch = send.clone();
     stale_epoch.command.as_mut().unwrap().command_id = uuid::Uuid::new_v4().to_string();
     stale_epoch.target.as_mut().unwrap().executor_epoch += 1;
+    let epoch_rejected = thread_rpc
+        .send_message(stale_epoch.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(epoch_rejected.state, api::OperationState::Rejected as i32);
+    assert_eq!(
+        epoch_rejected.error.as_ref().unwrap().code,
+        "conditions_changed"
+    );
+    assert_eq!(
+        epoch_rejected.resource,
+        stale_epoch
+            .target
+            .clone()
+            .map(api::command_receipt::Resource::Target)
+    );
     assert_eq!(
         thread_rpc
-            .send_message(stale_epoch)
+            .send_message(stale_epoch.clone())
+            .await
+            .unwrap()
+            .into_inner(),
+        epoch_rejected
+    );
+    assert_eq!(
+        client
+            .load_runtime_queue(chat_id.clone())
+            .await
+            .unwrap()
+            .entries()
+            .len(),
+        1
+    );
+    let mut changed_epoch_intent = stale_epoch.clone();
+    changed_epoch_intent.draft.as_mut().unwrap().text = "different stale intent".into();
+    assert_eq!(
+        thread_rpc
+            .send_message(changed_epoch_intent)
             .await
             .unwrap_err()
             .code(),
@@ -443,6 +481,14 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     assert_eq!(
         thread_rpc
             .send_message(send.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::PermissionDenied
+    );
+    assert_eq!(
+        thread_rpc
+            .send_message(stale_epoch)
             .await
             .unwrap_err()
             .code(),

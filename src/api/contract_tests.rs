@@ -63,12 +63,45 @@ fn encoded_commands_match_the_registry_exactly() {
             }
         }
     }
-    assert_eq!(reads, ["ListThreads"]);
+    assert_eq!(
+        reads,
+        [
+            "ListThreads",
+            "ReadCatalog",
+            "ListResources",
+            "WatchSummaries",
+            "ListAgents",
+            "GetAgentCatalog",
+            "ListPullRequests",
+            "ReadThreadPage",
+            "PreflightClose",
+            "SubscribeThread",
+            "ReadHistoryPage",
+            "SearchHistory",
+            "GetAgentOptions",
+            "PreviewEdit"
+        ]
+    );
     for entry in crate::command_bus::registry() {
         let option = commands
             .remove(entry.name)
             .unwrap_or_else(|| panic!("{} has no RPC", entry.name));
-        assert_eq!(option.scope, entry.scope, "{} scope", entry.name);
+        let mut scope = 0;
+        for value in option.scopes {
+            let bit = match p::Scope::try_from(value).unwrap() {
+                p::Scope::Read => crate::host::READ,
+                p::Scope::Chat => crate::host::CHAT,
+                p::Scope::Approve => crate::host::APPROVE,
+                p::Scope::FilesGit => crate::host::FILES_GIT,
+                p::Scope::Terminal => crate::host::TERMINAL,
+                p::Scope::Tasks => crate::host::TASKS,
+                p::Scope::Admin => crate::host::ADMIN,
+                p::Scope::Unspecified => panic!("{} unspecified scope", entry.name),
+            };
+            assert_eq!(scope & bit, 0, "{} duplicate scope", entry.name);
+            scope |= bit;
+        }
+        assert_eq!(scope, entry.scope, "{} scope", entry.name);
         let risk = match entry.risk {
             crate::command_bus::Risk::Metadata => p::Risk::Metadata,
             crate::command_bus::Risk::Delivery => p::Risk::Delivery,
@@ -104,9 +137,13 @@ fn public_contract_is_standalone_and_thread_commands_have_no_parallel_project() 
                     .contains("canopy.remote")
             );
             if message
-                .field
-                .iter()
-                .any(|f| f.type_name.as_deref() == Some(".canopy.api.v1.ThreadTarget"))
+                .name
+                .as_deref()
+                .is_some_and(|n| n.ends_with("Request"))
+                && message
+                    .field
+                    .iter()
+                    .any(|f| f.type_name.as_deref() == Some(".canopy.api.v1.ThreadTarget"))
             {
                 assert!(
                     !["project", "worktree", "workspace"].iter().any(|n| field

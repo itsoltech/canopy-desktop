@@ -7,6 +7,7 @@
 //! its recorded state before anything about its target is looked up, so a retry after
 //! the target is gone (or its plan was consumed) never repeats an effect or reports a
 //! misleading not-found.
+mod api;
 mod pages;
 mod plans;
 #[cfg(test)]
@@ -486,6 +487,7 @@ impl proto::catalog_service_server::CatalogService for CatalogRpc {
         let receipt = self
             .owned(async move {
                 let key = RemoteKey {
+                    input: None,
                     key,
                     fingerprint: Some(fingerprint),
                 };
@@ -742,6 +744,7 @@ impl proto::catalog_service_server::CatalogService for CatalogRpc {
                     .await?;
                 let bridge = self.bridge.clone();
                 let key = RemoteKey {
+                    input: None,
                     key,
                     fingerprint: Some(fingerprint),
                 };
@@ -768,6 +771,7 @@ impl proto::catalog_service_server::CatalogService for CatalogRpc {
                 }
                 let bridge = self.bridge.clone();
                 let key = RemoteKey {
+                    input: None,
                     key,
                     fingerprint: Some(fingerprint),
                 };
@@ -924,6 +928,7 @@ impl proto::catalog_service_server::CatalogService for CatalogRpc {
         let receipt = self
             .owned(async move {
                 let key = RemoteKey {
+                    input: None,
                     key,
                     fingerprint: Some(fingerprint),
                 };

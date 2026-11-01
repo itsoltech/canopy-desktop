@@ -6,6 +6,16 @@ use crate::remote::proto as p;
 use prost::Message;
 use std::future::Future;
 use tonic::transport::Channel;
+
+pub(super) fn terminal_state(state: i32) -> bool {
+    matches!(
+        p::OperationState::try_from(state),
+        Ok(p::OperationState::Succeeded
+            | p::OperationState::Failed
+            | p::OperationState::Rejected
+            | p::OperationState::CommandRetired)
+    )
+}
 impl HostClient {
     /// All online mutations share an epoch gate. Persist only command identity,
     /// never credentials/request bodies. Unknown outcomes require reconciliation.
@@ -34,7 +44,7 @@ impl HostClient {
                 r.receipt
                     .as_ref()
                     .and_then(|v| p::CommandReceipt::decode(v.as_slice()).ok())
-                    .is_none_or(|r| ![3, 4, 5, 7].contains(&r.state))
+                    .is_none_or(|r| !terminal_state(r.state))
             })
         {
             return Err(
@@ -48,7 +58,7 @@ impl HostClient {
                 m.receipt
                     .as_ref()
                     .and_then(|v| p::CommandReceipt::decode(v.as_slice()).ok())
-                    .is_none_or(|v| !v.resolved_by_user && ![3, 4, 5, 7].contains(&v.state))
+                    .is_none_or(|v| !v.resolved_by_user && !terminal_state(v.state))
             });
             if r.mutations.len() >= 100 {
                 return Err("Operation recovery storage is full.".into());
@@ -565,7 +575,7 @@ impl HostClient {
                     && e.receipt
                         .as_ref()
                         .and_then(|b| p::CommandReceipt::decode(b.as_slice()).ok())
-                        .is_none_or(|v| !v.resolved_by_user && ![3, 4, 5, 7].contains(&v.state))
+                        .is_none_or(|v| !v.resolved_by_user && !terminal_state(v.state))
             }) {
                 return Err("Reconcile the uncertain message before dismissing it.".into());
             }
@@ -626,7 +636,7 @@ impl HostClient {
                 .as_ref()
                 .and_then(|b| p::CommandReceipt::decode(b.as_slice()).ok())
                 .ok_or("No reviewed result.")?;
-            if !receipt.resolved_by_user && ![3, 4, 5, 7].contains(&receipt.state) {
+            if !receipt.resolved_by_user && !terminal_state(receipt.state) {
                 return Err(
                     "The operation is still executing. Check it again before deciding.".into(),
                 );
@@ -670,9 +680,7 @@ impl HostClient {
                 .receipt
                 .as_ref()
                 .and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok())
-                .is_some_and(|receipt| {
-                    receipt.resolved_by_user || [3, 4, 5, 7].contains(&receipt.state)
-                })
+                .is_some_and(|receipt| receipt.resolved_by_user || terminal_state(receipt.state))
             {
                 continue;
             }
@@ -711,9 +719,7 @@ impl HostClient {
                 .receipt
                 .as_ref()
                 .and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok())
-                .is_some_and(|receipt| {
-                    receipt.resolved_by_user || [3, 4, 5, 7].contains(&receipt.state)
-                })
+                .is_some_and(|receipt| receipt.resolved_by_user || terminal_state(receipt.state))
             {
                 continue;
             }
@@ -767,12 +773,12 @@ impl HostClient {
                     && e.receipt
                         .as_ref()
                         .and_then(|b| p::CommandReceipt::decode(b.as_slice()).ok())
-                        .is_none_or(|r| ![3, 4, 5, 7].contains(&r.state))
+                        .is_none_or(|r| !terminal_state(r.state))
             }) || record.mutations.iter().any(|e| {
                 e.receipt
                     .as_ref()
                     .and_then(|b| p::CommandReceipt::decode(b.as_slice()).ok())
-                    .is_none_or(|r| ![3, 4, 5, 7].contains(&r.state))
+                    .is_none_or(|r| !terminal_state(r.state))
             }))
         {
             return Err(
@@ -809,7 +815,7 @@ impl HostClient {
                 let saved =
                     saved.and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok());
                 if saved.as_ref().is_some_and(|receipt| {
-                    receipt.resolved_by_user || [3, 4, 5, 7].contains(&receipt.state)
+                    receipt.resolved_by_user || terminal_state(receipt.state)
                 }) {
                     continue;
                 }
@@ -830,7 +836,9 @@ impl HostClient {
                     .map_err(rpc_error)?
                     .into_inner();
                 self.validate_receipt(&meta, &receipt)?;
-                if receipt.state == 6 && !receipt.resolved_by_user {
+                if receipt.state == p::OperationState::DeliveryUnknown as i32
+                    && !receipt.resolved_by_user
+                {
                     receipt = client
                         .resolve_command(request)
                         .await
@@ -882,7 +890,14 @@ pub fn check_receipt(receipt: p::CommandReceipt) -> Result<p::CommandReceipt, St
     if let Some(error) = &receipt.error {
         return Err(error.message.clone());
     }
-    if [4, 5, 6, 7, 8].contains(&receipt.state) {
+    if matches!(
+        p::OperationState::try_from(receipt.state),
+        Ok(p::OperationState::Failed
+            | p::OperationState::Rejected
+            | p::OperationState::DeliveryUnknown
+            | p::OperationState::CommandRetired
+            | p::OperationState::NotFound)
+    ) {
         return Err(format!(
             "Operation state {}. Inspect recovery before retrying.",
             receipt.state
@@ -949,8 +964,80 @@ mod draft_tests {
     }
     #[derive(Clone, Default)]
     struct RetryEndpoint(Arc<std::sync::Mutex<Vec<crate::api::proto::SendMessageRequest>>>);
+    macro_rules! unexpected_api_methods {
+        ($($method:ident($request:ident) -> $response:ident),* $(,)?) => {$(
+            fn $method<'life0, 'async_trait>(&'life0 self, _: tonic::Request<crate::api::proto::$request>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<tonic::Response<crate::api::proto::$response>, tonic::Status>> + Send + 'async_trait>>
+            where 'life0: 'async_trait, Self: 'async_trait {
+                Box::pin(async { Err(tonic::Status::unimplemented("unexpected method")) })
+            }
+        )*};
+    }
     #[tonic::async_trait]
     impl crate::api::proto::thread_service_server::ThreadService for RetryEndpoint {
+        type SubscribeThreadStream = crate::remote::host::RpcStream<crate::api::proto::ThreadEvent>;
+        type ReadHistoryPageStream =
+            crate::remote::host::RpcStream<crate::api::proto::HistoryPageEvent>;
+        fn subscribe_thread<'life0, 'async_trait>(
+            &'life0 self,
+            _: tonic::Request<crate::api::proto::SubscribeThreadRequest>,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            tonic::Response<Self::SubscribeThreadStream>,
+                            tonic::Status,
+                        >,
+                    > + Send
+                    + 'async_trait,
+            >,
+        >
+        where
+            'life0: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async { Err(tonic::Status::unimplemented("unexpected method")) })
+        }
+        fn read_history_page<'life0, 'async_trait>(
+            &'life0 self,
+            _: tonic::Request<crate::api::proto::ReadHistoryPageRequest>,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            tonic::Response<Self::ReadHistoryPageStream>,
+                            tonic::Status,
+                        >,
+                    > + Send
+                    + 'async_trait,
+            >,
+        >
+        where
+            'life0: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async { Err(tonic::Status::unimplemented("unexpected method")) })
+        }
+        unexpected_api_methods! {
+            search_history(SearchHistoryRequest) -> HistoryMatches,
+            get_agent_options(GetAgentOptionsRequest) -> AgentOptions,
+            preview_edit(PreviewEditRequest) -> EditPreview,
+            start(StartRequest) -> CommandReceipt,
+            interrupt(InterruptRequest) -> CommandReceipt,
+            restart(RestartRequest) -> CommandReceipt,
+            steer(SteerRequest) -> CommandReceipt,
+            respond_decision(RespondDecisionRequest) -> CommandReceipt,
+            set_agent_option(SetAgentOptionRequest) -> CommandReceipt,
+            set_thread_agent(SetThreadAgentRequest) -> CommandReceipt,
+            set_goal(SetGoalRequest) -> CommandReceipt,
+            pause_goal(PauseGoalRequest) -> CommandReceipt,
+            resume_goal(ResumeGoalRequest) -> CommandReceipt,
+            clear_goal(ClearGoalRequest) -> CommandReceipt,
+            stop_background(StopBackgroundRequest) -> CommandReceipt,
+            edit_message(EditMessageRequest) -> CommandReceipt,
+            run_shell(RunShellRequest) -> CommandReceipt,
+            stop_shell(StopShellRequest) -> CommandReceipt,
+            fork_thread(ForkThreadRequest) -> CommandReceipt,
+        }
         async fn send_message(
             &self,
             r: tonic::Request<crate::api::proto::SendMessageRequest>,

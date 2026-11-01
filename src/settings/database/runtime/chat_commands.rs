@@ -62,6 +62,7 @@ impl Database {
         artifacts: Vec<String>,
     ) -> Result<CommandReceipt> {
         require_host(self)?;
+        let scope = bus::runtime_scope(&input, scope)?;
         let diagnostic_host = self.runtime_host()?.id;
         if input.target != chat {
             return Err(Error::CommandConflict);
@@ -71,13 +72,14 @@ impl Database {
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         input.root = Some(chat_root(&tx, &chat, &input.key)?);
         authorize_root(&tx, &input.key, scope, command_root(&input)?, true)?;
-        if let Some(prior) = existing(&tx, &input)? {
+        if let Some(prior) = bus::runtime_admission(&tx, &input, scope)? {
             metrics::command_transition(
                 &diagnostic_host,
                 &metrics::resource_id(&input.target),
                 &input.key,
                 Outcome::Retry,
             );
+            tx.commit()?;
             return Ok(prior);
         }
         live_chat(&tx, &chat)?;
@@ -119,14 +121,47 @@ impl Database {
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         authorize_saved(&tx, &key, true)?;
         let prior = receipt(&tx, &key)?.ok_or(Error::NotFound)?;
-        if prior.method != "chat.fork" || prior.target != record.id || source_chat == record.id {
+        if prior.method != "chat.fork"
+            || (if key.resource.is_empty() {
+                prior.target != record.id
+            } else {
+                prior.target != source_chat
+            })
+            || source_chat == record.id
+        {
             return Err(Error::CommandConflict);
         }
-        let (root, arguments): (String, Vec<u8>) = tx.query_row(
-            "SELECT required_root,arguments FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
-            params![key.device,key.id,key.resource,integer(key.executor_epoch)?], |r| Ok((r.get(0)?,r.get(1)?)))?;
-        let intent: serde_json::Value =
+        let (root, arguments, fingerprint): (String, Vec<u8>, Vec<u8>) = tx.query_row(
+            "SELECT required_root,arguments,fingerprint FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
+            params![key.device,key.id,key.resource,integer(key.executor_epoch)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+        let mut intent: serde_json::Value =
             serde_json::from_slice(&arguments).map_err(|_| Error::InvalidRuntimeState)?;
+        if !key.resource.is_empty() {
+            use crate::command_bus::{Command, Conditions, Control};
+            let (_, _, _, command, _): (String, String, u64, Command, Conditions) =
+                serde_json::from_slice(&arguments).map_err(|_| Error::InvalidRuntimeState)?;
+            let Command::Control(Control::Fork {
+                history_epoch,
+                replacement,
+                ..
+            }) = command
+            else {
+                return Err(Error::CommandConflict);
+            };
+            let source = load_chat(&tx, "chat_id=?1 AND closed_at IS NULL", &source_chat)?
+                .ok_or(Error::NotFound)?;
+            if source.workspace != record.workspace || source.workspace.is_none() {
+                return Err(Error::ResourceConflict);
+            }
+            use sha2::Digest;
+            let replacement_fingerprint = replacement.map(|_| {
+                let mut hash = sha2::Sha256::new();
+                hash.update(b"canopy/fork-replacement/v1\0");
+                hash.update(&fingerprint);
+                hash.finalize().to_vec()
+            });
+            intent = serde_json::json!({"source":source_chat,"history_epoch":history_epoch,"replacement_fingerprint":replacement_fingerprint});
+        }
         if intent.get("source").and_then(|v| v.as_str()) != Some(&source_chat)
             || root != record.authority_root
         {

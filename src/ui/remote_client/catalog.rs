@@ -15,15 +15,7 @@ impl RemoteWindow {
         self.run_in(
             "open-project",
             async move {
-                host.mutate(None, move |channel, command| async move {
-                    p::catalog_service_client::CatalogServiceClient::new(channel)
-                        .open_project(p::OpenProjectRequest {
-                            command: Some(command),
-                            host_path,
-                        })
-                        .await
-                })
-                .await?;
+                host.open_project(host_path).await?;
                 Ok(Update::Done("Project opened on the other computer.".into()))
             },
             cx,

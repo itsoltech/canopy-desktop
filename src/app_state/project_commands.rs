@@ -5,7 +5,7 @@
 use super::{AppState, chats::RemoteKey};
 use canopy_desktop::{
     host::{CHAT, CommandInput, CommandReceipt, CommandState},
-    state::workspace::{PaneId, WorkspaceId},
+    state::workspace::{PaneId, ProjectId, WorkspaceId},
 };
 use gpui_kit::*;
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,7 @@ use std::path::PathBuf;
 /// One open project or worktree as a client lists it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WorkspaceSummary {
+    pub project: ProjectId,
     pub origin: Option<canopy_desktop::git::RepositoryIdentity>,
     pub branch: Option<String>,
     pub workspace: WorkspaceId,
@@ -34,6 +35,7 @@ pub struct WorkspaceSummary {
 /// the cleanup succeeds, so a device can retry the close (never a false removal).
 #[derive(Clone, Debug)]
 struct Closing {
+    project: ProjectId,
     name: String,
     checkout: PathBuf,
     repository: Option<PathBuf>,
@@ -43,13 +45,21 @@ struct ClosingProjects(HashMap<WorkspaceId, Closing>);
 impl Global for ClosingProjects {}
 
 /// A listed project: ID, name, checkout, repository and whether it is closing.
-pub type Listed = (WorkspaceId, String, PathBuf, Option<PathBuf>, bool);
+pub type Listed = (
+    WorkspaceId,
+    ProjectId,
+    String,
+    PathBuf,
+    Option<PathBuf>,
+    bool,
+);
+pub type ProjectListing = (WorkspaceId, ProjectId, String, PathBuf, Option<PathBuf>);
 
 /// The catalog's projects and the closed ones whose cleanup still waits for a retry.
 pub fn listed(cx: &App) -> Vec<Listed> {
     let mut listed: Vec<Listed> = catalog(cx)
         .into_iter()
-        .map(|(id, name, path, repository)| (id, name, path, repository, false))
+        .map(|(id, project, name, path, repository)| (id, project, name, path, repository, false))
         .collect();
     if let Some(closing) = cx.try_global::<ClosingProjects>() {
         let chats = cx.global::<AppState>().chats.read(cx);
@@ -59,6 +69,7 @@ pub fn listed(cx: &App) -> Vec<Listed> {
             {
                 listed.push((
                     *id,
+                    project.project,
                     project.name.clone(),
                     project.checkout.clone(),
                     project.repository.clone(),
@@ -74,10 +85,11 @@ pub fn listed(cx: &App) -> Vec<Listed> {
 pub fn resolve_listed(projects: Vec<Listed>) -> Vec<WorkspaceSummary> {
     projects
         .into_iter()
-        .filter_map(|(workspace, name, path, repository, closing)| {
+        .filter_map(|(workspace, project, name, path, repository, closing)| {
             let canonical_root = std::fs::canonicalize(path).ok()?;
             let (origin, branch) = canopy_desktop::git::checkout_identity(&canonical_root);
             Some(WorkspaceSummary {
+                project,
                 origin,
                 branch,
                 workspace,
@@ -110,7 +122,7 @@ fn reason(text: &str) -> Option<Vec<u8>> {
 }
 
 /// The catalog's projects with their checkout paths (not yet canonical).
-pub fn catalog(cx: &App) -> Vec<(WorkspaceId, String, PathBuf, Option<PathBuf>)> {
+pub fn catalog(cx: &App) -> Vec<ProjectListing> {
     cx.global::<AppState>()
         .projects
         .read(cx)
@@ -120,6 +132,7 @@ pub fn catalog(cx: &App) -> Vec<(WorkspaceId, String, PathBuf, Option<PathBuf>)>
         .map(|p| {
             (
                 p.workspace,
+                p.id,
                 p.name.clone(),
                 p.worktree_path.clone().unwrap_or_else(|| p.path.clone()),
                 p.repository_path.clone(),
@@ -130,13 +143,13 @@ pub fn catalog(cx: &App) -> Vec<(WorkspaceId, String, PathBuf, Option<PathBuf>)>
 
 /// Canonical roots, read on a worker. A checkout gone from disk is left out (it can't
 /// be granted or worked in).
-pub fn resolve(
-    projects: Vec<(WorkspaceId, String, PathBuf, Option<PathBuf>)>,
-) -> Vec<WorkspaceSummary> {
+pub fn resolve(projects: Vec<ProjectListing>) -> Vec<WorkspaceSummary> {
     resolve_listed(
         projects
             .into_iter()
-            .map(|(id, name, path, repository)| (id, name, path, repository, false))
+            .map(|(id, project, name, path, repository)| {
+                (id, project, name, path, repository, false)
+            })
             .collect(),
     )
 }
@@ -216,6 +229,10 @@ fn command(
     root: String,
     arguments: &impl Serialize,
 ) -> Option<CommandInput> {
+    if let Some(input) = key.input {
+        return (input.authority_root() == Some(root.as_str()) && input.target() == root)
+            .then_some(input);
+    }
     let arguments = serde_json::to_vec(arguments).ok()?;
     let typed = Sha256::digest(&arguments).to_vec();
     let input = CommandInput::new(key.key, method.into(), root.clone(), arguments, typed)?;
@@ -301,7 +318,8 @@ pub fn close_project(
     let listed = catalog(cx)
         .into_iter()
         .find(|(id, ..)| *id == expected.workspace)
-        .map(|(_, name, path, repository)| Closing {
+        .map(|(_, project, name, path, repository)| Closing {
+            project,
             name,
             checkout: path,
             repository,

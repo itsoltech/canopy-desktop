@@ -262,7 +262,7 @@ fn serve(op: Op, cx: &mut App) {
 /// The workspace must be the open project whose canonical checkout is `root`.
 async fn open_terminal(
     open: OpenTerminal,
-    projects: Vec<(WorkspaceId, String, PathBuf, Option<PathBuf>)>,
+    projects: Vec<super::project_commands::ProjectListing>,
     cx: &mut AsyncApp,
 ) -> Result<TerminalInfo, Status> {
     let workspace: WorkspaceId = serde_json::from_str(&open.workspace)

@@ -8,7 +8,18 @@ import "google/protobuf/descriptor.proto";
 message CommandOption {
   string name = 1;
   Risk risk = 2;
-  uint32 scope = 3;
+  repeated Scope scopes = 3;
+}
+
+enum Scope {
+  SCOPE_UNSPECIFIED = 0;
+  SCOPE_READ = 1;
+  SCOPE_CHAT = 2;
+  SCOPE_APPROVE = 3;
+  SCOPE_FILES_GIT = 4;
+  SCOPE_TERMINAL = 5;
+  SCOPE_TASKS = 6;
+  SCOPE_ADMIN = 7;
 }
 
 extend google.protobuf.MethodOptions {
@@ -24,35 +35,105 @@ enum Risk {
 
 service CatalogService {
   rpc ListThreads(ListThreadsRequest) returns (ListThreadsResponse);
+  rpc ReadCatalog(ReadCatalogRequest) returns (stream SummaryEvent);
+  rpc ListResources(ListResourcesRequest) returns (Catalog);
+  rpc WatchSummaries(WatchSummariesRequest) returns (stream SummaryEvent);
+  rpc ListAgents(ListAgentsRequest) returns (AgentDiscovery);
+  rpc GetAgentCatalog(GetAgentCatalogRequest) returns (AgentCatalog);
+  rpc ListPullRequests(ListPullRequestsRequest) returns (PullRequests);
+  rpc ReadThreadPage(ReadThreadPageRequest) returns (stream ArtifactChunk);
+  rpc PreflightClose(PreflightCloseRequest) returns (ClosePlan);
+  rpc CreateThread(CreateThreadRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.create" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc CloseThread(CloseThreadRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.delete" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc OpenProject(OpenProjectRequest) returns (CommandReceipt) {
+    option (command) = {name: "projects.open" risk: RISK_CONFIGURATION scopes: SCOPE_CHAT};
+  }
   rpc RenameThread(RenameThreadRequest) returns (CommandReceipt) {
-    option (command) = {name: "chat.rename" risk: RISK_METADATA scope: 2};
+    option (command) = {name: "chat.rename" risk: RISK_METADATA scopes: SCOPE_CHAT};
   }
 }
 
 service ThreadService {
+  rpc SubscribeThread(SubscribeThreadRequest) returns (stream ThreadEvent);
+  rpc ReadHistoryPage(ReadHistoryPageRequest) returns (stream HistoryPageEvent);
+  rpc SearchHistory(SearchHistoryRequest) returns (HistoryMatches);
+  rpc GetAgentOptions(GetAgentOptionsRequest) returns (AgentOptions);
+  rpc PreviewEdit(PreviewEditRequest) returns (EditPreview);
+  rpc Start(StartRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.start" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc Interrupt(InterruptRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.interrupt" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc Restart(RestartRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.restart" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc Steer(SteerRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.steer" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc RespondDecision(RespondDecisionRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.respond" risk: RISK_DELIVERY scopes: SCOPE_APPROVE};
+  }
+  rpc SetAgentOption(SetAgentOptionRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.set_option" risk: RISK_CONFIGURATION scopes: SCOPE_CHAT};
+  }
+  rpc SetThreadAgent(SetThreadAgentRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.set_agent" risk: RISK_CONFIGURATION scopes: SCOPE_CHAT};
+  }
+  rpc SetGoal(SetGoalRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.set_goal" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc PauseGoal(PauseGoalRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.pause_goal" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc ResumeGoal(ResumeGoalRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.resume_goal" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc ClearGoal(ClearGoalRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.clear_goal" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc StopBackground(StopBackgroundRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.stop_background" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc EditMessage(EditMessageRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.edit" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc RunShell(RunShellRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.shell" risk: RISK_DELIVERY scopes: SCOPE_CHAT scopes: SCOPE_TERMINAL};
+  }
+  rpc StopShell(StopShellRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.stop_shell" risk: RISK_DELIVERY scopes: SCOPE_CHAT scopes: SCOPE_TERMINAL};
+  }
+  rpc ForkThread(ForkThreadRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.fork" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
   rpc SendMessage(SendMessageRequest) returns (CommandReceipt) {
-    option (command) = {name: "chat.send" risk: RISK_DELIVERY scope: 2};
+    option (command) = {name: "chat.send" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
   }
   rpc EditQueueMessage(EditQueueMessageRequest) returns (CommandReceipt) {
-    option (command) = {name: "chat.queue.edit" risk: RISK_METADATA scope: 2};
+    option (command) = {name: "chat.queue.edit" risk: RISK_METADATA scopes: SCOPE_CHAT};
   }
   rpc MoveQueueMessage(MoveQueueMessageRequest) returns (CommandReceipt) {
-    option (command) = {name: "chat.queue.move" risk: RISK_METADATA scope: 2};
+    option (command) = {name: "chat.queue.move" risk: RISK_METADATA scopes: SCOPE_CHAT};
   }
   rpc RemoveQueueMessage(RemoveQueueMessageRequest) returns (CommandReceipt) {
-    option (command) = {name: "chat.queue.remove" risk: RISK_METADATA scope: 2};
+    option (command) = {name: "chat.queue.remove" risk: RISK_METADATA scopes: SCOPE_CHAT};
   }
   rpc PauseQueue(PauseQueueRequest) returns (CommandReceipt) {
-    option (command) = {name: "chat.queue.pause" risk: RISK_METADATA scope: 2};
+    option (command) = {name: "chat.queue.pause" risk: RISK_METADATA scopes: SCOPE_CHAT};
   }
   rpc ResolveUnknownQueueMessage(ResolveUnknownQueueMessageRequest) returns (CommandReceipt) {
-    option (command) = {name: "chat.queue.resolve_unknown" risk: RISK_DELIVERY scope: 2};
+    option (command) = {name: "chat.queue.resolve_unknown" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
   }
 }
 
 service SettingsService {
   rpc UpdatePreferences(UpdatePreferencesRequest) returns (CommandReceipt) {
-    option (command) = {name: "settings.preferences" risk: RISK_CONFIGURATION scope: 64};
+    option (command) = {name: "settings.preferences" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
   }
 }
 
@@ -88,10 +169,13 @@ message ListThreadsRequest {
   // Opaque catalog key used to join the temporarily retained read catalog.
   // It is not a ThreadId, and cannot be used as a command target.
   optional string catalog_id = 2;
+  optional string page_token = 3;
+  uint32 limit = 4;
 }
 
 message ListThreadsResponse {
   repeated ThreadSummary threads = 1;
+  optional string next_page_token = 2;
 }
 
 message ThreadSummary {
@@ -137,6 +221,8 @@ message ImageAttachment {
   string host_id = 1;
   string artifact_id = 2;
   bytes sha256 = 3;
+  string media_type = 4;
+  uint64 size = 5;
 }
 
 message FileAttachment {
@@ -295,6 +381,7 @@ message CommandReceipt {
   oneof resource {
     ThreadTarget target = 5;
     EnvironmentRef environment = 6;
+    ProjectRef project = 13;
   }
   DomainError error = 7;
   oneof result {
@@ -302,5 +389,155 @@ message CommandReceipt {
     SendResult send = 9;
     QueueResult queue = 10;
     PreferencesResult preferences = 11;
+    RuntimeResult runtime = 12;
   }
 }
+
+// Runtime effects keep their existing owner and durable state machine.
+message RuntimeResult {
+  ThreadTarget created_target = 1;
+  optional ItemKey item = 2;
+  optional string catalog_id = 3;
+}
+
+message StartRequest { CommandMeta command = 1; ThreadTarget target = 2; }
+message InterruptRequest { CommandMeta command = 1; ThreadTarget target = 2; uint64 run_id = 3; }
+message RestartRequest { CommandMeta command = 1; ThreadTarget target = 2; uint64 run_id = 3; }
+message SteerRequest { CommandMeta command = 1; ThreadTarget target = 2; uint64 run_id = 3; string message_id = 4; MessageDraft draft = 5; }
+message RespondDecisionRequest {
+  CommandMeta command = 1; ThreadTarget target = 2; uint64 run_id = 3; uint64 decision_id = 4;
+  oneof response { string option_id = 5; NativeDecision native = 6; }
+}
+enum NativeDecisionAction {
+  NATIVE_DECISION_ACTION_UNSPECIFIED = 0;
+  NATIVE_DECISION_ACTION_ALLOW_ONCE = 1;
+  NATIVE_DECISION_ACTION_ALLOW_FOR_THREAD = 2;
+  NATIVE_DECISION_ACTION_DENY = 3;
+  NATIVE_DECISION_ACTION_ANSWER = 4;
+  NATIVE_DECISION_ACTION_APPROVE_PLAN = 5;
+  NATIVE_DECISION_ACTION_KEEP_PLANNING = 6;
+}
+message NativeDecision { NativeDecisionAction action = 1; repeated string answers = 2; optional string note = 3; bool accept_edits = 4; }
+message SetAgentOptionRequest { CommandMeta command = 1; ThreadTarget target = 2; string option_id = 3; string value_id = 4; }
+message SetThreadAgentRequest { CommandMeta command = 1; ThreadTarget target = 2; string agent_id = 3; string profile_id = 4; optional string model = 5; }
+message SetGoalRequest { CommandMeta command = 1; ThreadTarget target = 2; string objective = 3; }
+message PauseGoalRequest { CommandMeta command = 1; ThreadTarget target = 2; }
+message ResumeGoalRequest { CommandMeta command = 1; ThreadTarget target = 2; }
+message ClearGoalRequest { CommandMeta command = 1; ThreadTarget target = 2; }
+message StopBackgroundRequest { CommandMeta command = 1; ThreadTarget target = 2; uint64 run_id = 3; string call_id = 4; }
+message EditMessageRequest { CommandMeta command = 1; ThreadTarget target = 2; uint64 run_id = 3; ItemKey item = 4; MessageDraft draft = 5; bool restore_files = 6; }
+message RunShellRequest { CommandMeta command = 1; ThreadTarget target = 2; uint64 run_id = 3; string command_line = 4; }
+message StopShellRequest { CommandMeta command = 1; ThreadTarget target = 2; uint64 run_id = 3; ItemKey item = 4; }
+// The executor derives the destination from the source's project and worktree.
+message ForkThreadRequest { CommandMeta command = 1; ThreadTarget target = 2; uint64 history_epoch = 3; uint64 item_id = 4; MessageDraft replacement = 5; }
+
+message Cursor { string runtime_epoch = 1; string stream_id = 2; uint64 sequence = 3; }
+message ItemKey { uint64 history_epoch = 1; uint64 item_id = 2; }
+message SubscribeThreadRequest { ThreadRef thread = 1; Cursor since = 2; }
+message ReadHistoryPageRequest { ThreadRef thread = 1; optional string page_token = 2; uint32 limit = 3; ItemKey around = 4; ItemKey before = 5; }
+message SearchHistoryRequest { ThreadRef thread = 1; string query = 2; optional string page_token = 3; }
+message GetAgentOptionsRequest { ThreadRef thread = 1; }
+message PreviewEditRequest { ThreadRef thread = 1; uint64 run_id = 2; ItemKey item = 3; }
+message Capability { string operation = 1; bool supported = 2; string reason = 3; }
+message OptionChoice { string id = 1; string label = 2; optional string description = 3; }
+message AgentOption { string id = 1; string label = 2; optional string category = 3; string current_value = 4; repeated OptionChoice choices = 5; string effect = 6; }
+message AgentOptions { ThreadRef thread = 1; repeated AgentOption options = 2; repeated Capability capabilities = 3; }
+message FileRestorePreview { bool possible = 1; repeated string paths = 2; uint64 insertions = 3; uint64 deletions = 4; string reason = 5; }
+message EditPreview { ThreadRef thread = 1; uint64 run_id = 2; ItemKey item = 3; bool editable = 4; string reason = 5; bool first_message = 6; MessageDraft original = 7; FileRestorePreview files = 8; }
+message ThreadStatus {
+  ThreadRef thread = 1; string title = 2; string agent_id = 3; optional string profile_id = 4;
+  ThreadState state = 5; uint32 pending_decisions = 6; uint32 queued_messages = 7;
+  optional uint64 run_id = 8; uint64 history_epoch = 9; GoalState goal = 10;
+}
+enum ThreadState {
+  THREAD_STATE_UNSPECIFIED = 0; THREAD_STATE_DORMANT = 1; THREAD_STATE_STARTING = 2;
+  THREAD_STATE_IDLE = 3; THREAD_STATE_WORKING = 4; THREAD_STATE_NEEDS_DECISION = 5;
+  THREAD_STATE_INTERRUPTING = 6; THREAD_STATE_EXITED = 7; THREAD_STATE_FAILED = 8;
+}
+enum QueueDelivery {
+  QUEUE_DELIVERY_UNSPECIFIED = 0; QUEUE_DELIVERY_QUEUED = 1; QUEUE_DELIVERY_ATTEMPTING = 2;
+  QUEUE_DELIVERY_DELIVERED = 3; QUEUE_DELIVERY_FAILED = 4; QUEUE_DELIVERY_DISMISSED = 5; QUEUE_DELIVERY_UNKNOWN = 6;
+}
+message QueueEntry { string message_id = 1; MessageDraft draft = 2; QueueDelivery delivery = 3; bool resolved_by_user = 4; }
+message ThreadQueue { uint64 revision = 1; bool paused = 2; repeated QueueEntry entries = 3; }
+message TranscriptItem {
+  ItemKey key = 1; uint64 revision = 2; uint64 turn_id = 3; optional string parent_call_id = 4; bool trimmed = 5;
+  oneof body { UserMessage user = 6; TextBlock text = 7; TextBlock thinking = 8; ToolCall tool = 9; Decision decision = 10; Notice notice = 11; TurnEnd turn_end = 12; ShellRun shell = 13; GoalState goal = 14; }
+}
+message UserMessage { string message_id = 1; MessageDraft draft = 2; string delivery = 3; }
+message TextBlock { string text = 1; bool streaming = 2; }
+message ToolCall {
+  string call_id = 1; string original_name = 2; ToolKind kind = 3; string title = 4; string state = 5;
+  repeated string paths = 6; optional string output = 7; bool background = 8; optional string activity = 9;
+  optional double elapsed_seconds = 10; optional string command = 11; repeated DiffLine diff = 12;
+  optional string generic_input = 13; repeated PlanEntry plan = 14; repeated FileAttachment files = 15; ItemKey page_item = 16;
+}
+enum ToolKind {
+  TOOL_KIND_UNSPECIFIED = 0; TOOL_KIND_READ = 1; TOOL_KIND_EDIT = 2; TOOL_KIND_EXECUTE = 3;
+  TOOL_KIND_SEARCH = 4; TOOL_KIND_FETCH = 5; TOOL_KIND_PLAN = 6; TOOL_KIND_SUBAGENT = 7; TOOL_KIND_OTHER = 8;
+}
+message DiffLine { optional uint32 old_line = 1; optional uint32 new_line = 2; string kind = 3; string text = 4; }
+message PlanEntry { string content = 1; string status = 2; optional string priority = 3; }
+message Decision {
+  string decision_id = 1; string run_id = 2; string title = 3; string state = 4;
+  repeated OptionChoice options = 5; optional string resolution = 6; optional string native_kind = 7;
+  optional string description = 8; repeated DecisionQuestion questions = 9; bool can_remember = 10;
+}
+message DecisionQuestion { string question = 1; string header = 2; repeated OptionChoice options = 3; bool multiple = 4; }
+message Notice { string kind = 1; string text = 2; optional uint64 until_unix = 3; }
+message TurnEnd { string outcome = 1; optional string error = 2; Usage usage = 3; bool saved = 4; optional bool fork_available = 5; }
+message Usage { uint64 input_tokens = 1; uint64 output_tokens = 2; optional uint64 context_used = 3; optional uint64 context_max = 4; optional uint64 context_buffer = 5; }
+message ShellRun { string command = 1; string output = 2; bool running = 3; bool stopped = 4; optional int32 exit_code = 5; }
+message GoalState { string objective = 1; string state = 2; uint32 turns = 3; optional string note = 4; optional uint64 tokens = 5; optional uint64 budget = 6; optional uint64 elapsed_seconds = 7; uint32 checks = 8; optional uint64 since_unix = 9; }
+message SnapshotStart { Cursor boundary = 1; ThreadStatus summary = 2; ThreadQueue queue = 3; uint64 saved_sequence = 4; }
+message ItemChunk { repeated TranscriptItem items = 1; }
+message ItemFragment { ItemKey key = 1; uint64 revision = 2; string transfer_id = 3; uint64 offset = 4; uint64 total_bytes = 5; bytes sha256 = 6; bytes data = 7; }
+message SnapshotEnd { Cursor boundary = 1; bool has_earlier_history = 2; }
+message TextAppend { ItemKey key = 1; uint64 expected_revision = 2; uint64 revision = 3; uint64 utf8_offset = 4; string text = 5; bool streaming = 6; }
+message ResyncRequired { string reason = 1; }
+message ThreadEvent {
+  ThreadRef thread = 1; Cursor cursor = 2;
+  oneof event { SnapshotStart snapshot_start = 3; ItemChunk snapshot_items = 4; SnapshotEnd snapshot_end = 5; TranscriptItem replace_item = 6; TextAppend append_text = 7; ThreadQueue queue_changed = 8; ThreadStatus status = 9; ResyncRequired resync = 10; Decision decision = 11; uint64 saved_sequence = 12; ItemFragment item_fragment = 13; }
+}
+message HistoryPageStart { string read_id = 1; optional string previous_page_token = 2; bool incomplete = 3; }
+message HistoryPageEvent { ThreadRef thread = 1; oneof part { HistoryPageStart start = 2; ItemChunk items = 3; ItemFragment fragment = 4; string end_read_id = 5; } }
+message HistoryMatch { ItemKey item = 1; string excerpt = 2; }
+message HistoryMatches { repeated HistoryMatch matches = 1; optional string next_page_token = 2; bool incomplete = 3; }
+
+message ReadCatalogRequest { EnvironmentRef environment = 1; }
+message ListResourcesRequest { EnvironmentRef environment = 1; }
+message WatchSummariesRequest { EnvironmentRef environment = 1; Cursor since = 2; }
+// Catalog keys join the existing desktop projection during the PR3 transition.
+// They are never accepted in place of typed command/resource references.
+message ProjectCheckout {
+  ProjectRef project = 1; string catalog_id = 2; string name = 3; string path = 4;
+  bool closing = 5; optional string branch = 6; optional string repository_path = 7;
+}
+message ProjectSummary { string name = 1; string path = 2; optional string origin = 3; repeated ProjectCheckout checkouts = 4; }
+message CatalogThread { ThreadRef thread = 1; string catalog_id = 2; optional string project_catalog_id = 3; ThreadStatus summary = 4; }
+message TerminalRef { string host_id = 1; string terminal_id = 2; }
+message TerminalSummary { TerminalRef terminal = 1; string project_catalog_id = 2; string title = 3; bool running = 4; optional string input_device_id = 5; }
+message Catalog { EnvironmentRef environment = 1; repeated ProjectSummary projects = 2; repeated CatalogThread threads = 3; repeated TerminalSummary terminals = 4; }
+message CatalogSnapshotPart { Cursor boundary = 1; Catalog page = 2; bool first = 3; bool last = 4; }
+message CatalogDeleted { oneof resource { string thread_catalog_id = 1; TerminalRef terminal = 2; } }
+message SummaryEvent { Cursor cursor = 1; oneof change { Catalog snapshot = 2; CatalogThread thread = 3; TerminalSummary terminal = 4; CatalogDeleted deleted = 5; CatalogSnapshotPart snapshot_part = 6; } }
+message ListAgentsRequest { EnvironmentRef environment = 1; ProjectRef project = 2; optional string page_token = 3; }
+message AvailableAccount { string account_id = 1; string label = 2; bool native_default = 3; }
+enum BackendKind { BACKEND_KIND_UNSPECIFIED = 0; BACKEND_KIND_NATIVE_STREAM = 1; BACKEND_KIND_NATIVE_SERVER = 2; BACKEND_KIND_PROTOCOL = 3; }
+message AvailableAgent { string agent_id = 1; string name = 2; BackendKind backend_kind = 3; repeated AvailableAccount accounts = 4; }
+message AgentDiscovery { repeated AvailableAgent agents = 1; optional string next_page_token = 2; }
+message GetAgentCatalogRequest { EnvironmentRef environment = 1; ProjectRef project = 2; string agent_id = 3; string account_id = 4; bool refresh = 5; }
+message AgentCommand { string id = 1; string name = 2; string description = 3; optional string argument_hint = 4; bool skill = 5; optional string path = 6; }
+message AgentCatalog { string agent_id = 1; string account_id = 2; repeated AgentOption options = 3; repeated Capability capabilities = 4; repeated AgentCommand commands = 5; bool refreshing = 6; optional string error = 7; }
+message ListPullRequestsRequest { ProjectRef project = 1; string query = 2; optional string page_token = 3; }
+message PullRequestChoice { string context_id = 1; PullAttachment pull = 2; string author = 3; }
+message PullRequests { repeated PullRequestChoice pulls = 1; optional string next_page_token = 2; }
+message ReadThreadPageRequest { ThreadRef thread = 1; ItemKey item = 2; }
+message ArtifactRef { string host_id = 1; string artifact_id = 2; string media_type = 3; uint64 size = 4; bytes sha256 = 5; }
+message ArtifactChunk { ArtifactRef artifact = 1; uint64 offset = 2; bytes data = 3; bool complete = 4; }
+message PreflightCloseRequest { ThreadRef thread = 1; }
+message CloseRisk { string title = 1; bool working = 2; uint32 queued = 3; uint32 observers = 4; }
+message ClosePlan { ThreadRef thread = 1; string plan_id = 2; repeated CloseRisk risks = 3; bool can_execute = 4; string reason = 5; }
+message CreateThreadRequest { CommandMeta command = 1; oneof resource { ProjectRef project = 2; EnvironmentRef environment = 3; } string agent_id = 4; string profile_id = 5; }
+message CloseThreadRequest { CommandMeta command = 1; ThreadTarget target = 2; string plan_id = 3; }
+message OpenProjectRequest { CommandMeta command = 1; EnvironmentRef environment = 2; string host_path = 3; }

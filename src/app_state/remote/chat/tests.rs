@@ -157,6 +157,60 @@ fn snapshot(chat: &str) -> ChatSnapshot {
 
 type Events = RpcStream<proto::ChatEvent>;
 
+#[tokio::test]
+async fn typed_fragment_conversion_stops_disclosure_after_revocation() {
+    use canopy_desktop::api::{projection as mapping, proto as api};
+    let h = harness(Duration::from_secs(5), Limits::default()).await;
+    let record = h.client.save_runtime_chat(h.record.clone()).await.unwrap();
+    let location = mapping::Location {
+        thread: api::ThreadRef {
+            host_id: h.rpc.auth.host_id().into(),
+            thread_id: record.thread_id().unwrap().to_string(),
+        },
+        catalog: reference(&h.rpc.auth, record.id()),
+        workspace: None,
+    };
+    let item = proto::TranscriptItem {
+        key: Some(proto::ItemKey {
+            history_epoch: 0,
+            item_id: 1,
+        }),
+        body: Some(proto::transcript_item::Body::Text(proto::TextBlock {
+            text: "x".repeat(128 * 1024),
+            streaming: false,
+        })),
+        ..Default::default()
+    };
+    let events = canopy_desktop::remote::transcript::fragments(&item)
+        .unwrap()
+        .into_iter()
+        .map(|fragment| {
+            Ok(proto::ChatEvent {
+                chat: Some(location.catalog.clone()),
+                event: Some(proto::chat_event::Event::ItemFragment(fragment)),
+                ..Default::default()
+            })
+        })
+        .collect::<Vec<_>>();
+    let converted = mapping::thread_stream(
+        location,
+        Box::pin(futures_lite::stream::iter(events)),
+        h.replay.clone(),
+    );
+    let mut stream = super::api::authorized(h.rpc.clone(), record, h.grant.clone(), converted);
+    assert!(stream.next().await.unwrap().is_ok());
+    h.client
+        .revoke_runtime_device(h.grant.id().into())
+        .await
+        .unwrap();
+    // Remaining converted fragments are already buffered, so they must check the
+    // current grant independently of the underlying legacy stream's next poll.
+    assert_eq!(
+        stream.next().await.unwrap().unwrap_err().code(),
+        tonic::Code::PermissionDenied
+    );
+}
+
 /// Subscribes a client; the first one creates the projection, for which the test
 /// answers as the runtime with `initial` items. Returns the stream, and the
 /// runtime's event sender when a projection was created.

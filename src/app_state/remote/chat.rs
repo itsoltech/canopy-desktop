@@ -1,4 +1,5 @@
 //! Native chat RPCs call the same app-owned handlers as the local desktop.
+mod api;
 mod durability;
 mod history;
 mod projection;
@@ -93,18 +94,6 @@ pub(in crate::app_state) fn wire_fingerprint(
 /// `idempotency_conflict` for a command ID reused for anything else.
 pub(super) fn idempotency_conflict() -> Status {
     Status::aborted("idempotency_conflict: this command ID was used for another operation.")
-}
-
-#[tonic::async_trait]
-impl canopy_desktop::api::ThreadPublisher for ChatsRpc {
-    async fn committed(&self, receipt: &host::CommandReceipt) {
-        let client = self.auth.client();
-        if let Ok(Some(record)) = client.load_runtime_chat(receipt.target().into()).await
-            && let Ok(queue) = client.load_runtime_queue(receipt.target().into()).await
-        {
-            let _ = self.bridge.bus_committed(record, queue).await;
-        }
-    }
 }
 
 impl ChatsRpc {
@@ -275,6 +264,7 @@ impl ChatsRpc {
         }
         self.record(&grant, &chat, scope).await?;
         let key = RemoteKey {
+            input: None,
             key: self.auth.key(&meta, &grant)?,
             fingerprint: Some(fingerprint),
         };
@@ -1022,6 +1012,7 @@ impl proto::chat_service_server::ChatService for ChatsRpc {
                 .map(|_| ForkReplacement::fingerprint(&fingerprint)),
         };
         let key = RemoteKey {
+            input: None,
             key,
             fingerprint: Some(fingerprint),
         };
@@ -1256,10 +1247,19 @@ pub(in crate::app_state) fn edit_reason(error: &str) -> String {
 }
 pub(super) fn resource_id(key: &host::CommandKey, kind: &str) -> String {
     use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(
+    let identity = if key.resource().is_empty() {
         serde_json::to_vec(&(kind, key.device(), key.epoch(), key.id()))
-            .expect("command identity encodes"),
-    );
+    } else {
+        serde_json::to_vec(&(
+            kind,
+            key.resource(),
+            key.executor_epoch(),
+            key.device(),
+            key.epoch(),
+            key.id(),
+        ))
+    };
+    let digest = Sha256::digest(identity.expect("command identity encodes"));
     let mut bytes = [0; 16];
     bytes.copy_from_slice(&digest[..16]);
     bytes[6] = (bytes[6] & 15) | 0x80;

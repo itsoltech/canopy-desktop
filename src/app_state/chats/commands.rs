@@ -58,6 +58,12 @@ fn inbox(
     arguments: &impl Serialize,
     root: String,
 ) -> Option<CommandInput> {
+    if let Some(input) = key.input {
+        // Fork is addressed at its source, while its effect creates a new ID.
+        return (input.authority_root() == Some(root.as_str())
+            && (method == "chat.fork" || input.target() == target))
+            .then_some(input);
+    }
     let arguments = serde_json::to_vec(arguments).ok()?;
     let typed = Sha256::digest(&arguments).to_vec();
     let input = CommandInput::new(key.key, method.into(), target, arguments, typed)?;

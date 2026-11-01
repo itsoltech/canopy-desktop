@@ -8,6 +8,287 @@ use crate::{
 fn id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
+
+#[test]
+fn typed_steer_and_goal_use_the_existing_queue_and_dedupe_before_target_resolution() {
+    use crate::command_bus::Control;
+    let (_dir, mut db) = database();
+    let record = chat(&mut db);
+    let (_, principal) = principal(&mut db);
+    let message = id();
+    let draft = QueueDraft::from(crate::chat::session::Draft::text("steered text"));
+    let request = envelope(
+        &record,
+        uuid::Uuid::new_v4(),
+        Command::Control(Control::Steer {
+            run: 7,
+            message: message.clone(),
+            draft: Some(DraftIntent::Ready(draft.clone())),
+        }),
+    );
+    let prepared = db
+        .prepare_bus_command(request.clone(), principal.clone())
+        .unwrap();
+    let receipt = db
+        .accept_runtime_message(prepared.input, record.id().into(), message.clone(), draft)
+        .unwrap();
+    assert_eq!(receipt.state(), CommandState::Succeeded);
+    let queue = db.load_runtime_queue(record.id().into()).unwrap();
+    assert_eq!(queue.entries()[0].steer_run(), Some(7));
+    let goal_message = id();
+    let goal = envelope(
+        &record,
+        uuid::Uuid::new_v4(),
+        Command::Control(Control::SetGoal {
+            objective: "finish the task".into(),
+        }),
+    );
+    let prepared = db.prepare_bus_command(goal, principal.clone()).unwrap();
+    db.accept_runtime_message(
+        prepared.input,
+        record.id().into(),
+        goal_message,
+        QueueDraft::from(crate::chat::session::Draft {
+            text: "finish the task".into(),
+            attachments: vec![],
+            context: None,
+            goal: true,
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        db.load_runtime_queue(record.id().into())
+            .unwrap()
+            .entries()
+            .len(),
+        2
+    );
+    db.db
+        .execute(
+            "DELETE FROM _canopy_runtime_chats WHERE chat_id=?1",
+            [record.id()],
+        )
+        .unwrap();
+    let prior = db
+        .prepare_bus_command(request, principal)
+        .unwrap()
+        .prior
+        .unwrap();
+    assert_eq!(prior.result(), Some(message.as_bytes()));
+}
+
+#[test]
+fn runtime_acceptance_rechecks_revision_and_commits_its_rejection_before_retry() {
+    use crate::command_bus::Control;
+    let (_dir, mut db) = database();
+    let record = chat(&mut db);
+    let (_, principal) = principal(&mut db);
+    let mut request = envelope(
+        &record,
+        uuid::Uuid::new_v4(),
+        Command::Control(Control::Edit {
+            run: 1,
+            history_epoch: 0,
+            item: 1,
+            draft: incoming("replacement"),
+            restore_files: false,
+        }),
+    );
+    request.conditions.expected_revision = Some(record.thread().unwrap().revision());
+    let prepared = db
+        .prepare_bus_command(request.clone(), principal.clone())
+        .unwrap();
+    execute(
+        &mut db,
+        rename(&record, uuid::Uuid::new_v4(), "changed before acceptance"),
+        principal.clone(),
+    )
+    .unwrap();
+    let input = prepared.runtime_input().clone();
+    let rejected = db
+        .accept_runtime_chat_command(input.clone(), host::CHAT, record.id().into(), vec![])
+        .unwrap();
+    assert_eq!(rejected.state(), CommandState::Rejected);
+    assert!(
+        db.load_runtime_queue(record.id().into())
+            .unwrap()
+            .entries()
+            .is_empty()
+    );
+    let retried = db
+        .prepare_bus_command(request.clone(), principal.clone())
+        .unwrap()
+        .prior
+        .unwrap();
+    assert_eq!(retried.result(), rejected.result());
+    assert_eq!(retried.state(), CommandState::Rejected);
+    request.conditions.expected_revision = None;
+    assert!(matches!(
+        db.prepare_bus_command(request, principal),
+        Err(Error::CommandConflict)
+    ));
+}
+
+#[test]
+fn catalog_retry_uses_saved_authority_before_resolution_or_conflict() {
+    use crate::{command_bus::CatalogCommand, thread::EnvironmentRef};
+    let (_dir, mut db) = database();
+    let (device, principal) = principal(&mut db);
+    let request = CommandEnvelope {
+        command_id: uuid::Uuid::new_v4(),
+        resource: ResourceRef::Environment(EnvironmentRef {
+            host_id: crate::thread::HostId::new(db.runtime_host().unwrap().id().into()).unwrap(),
+        }),
+        command: Command::Catalog(CatalogCommand::OpenProject {
+            path: "/original/folder".into(),
+        }),
+        conditions: Conditions::default(),
+    };
+    assert!(
+        db.prepare_bus_catalog(request.clone(), principal.clone(), None)
+            .unwrap()
+            .is_none()
+    );
+    let prepared = db
+        .prepare_bus_catalog(
+            request.clone(),
+            principal.clone(),
+            Some(("/resolved".into(), "/resolved".into())),
+        )
+        .unwrap()
+        .unwrap();
+    let input = prepared.runtime_input().clone();
+    db.accept_runtime_command(input.clone(), host::CHAT)
+        .unwrap();
+    db.transition_runtime_command(
+        input.key().clone(),
+        CommandState::Accepted,
+        CommandState::Attempting,
+        None,
+    )
+    .unwrap();
+    db.transition_runtime_command(
+        input.key().clone(),
+        CommandState::Attempting,
+        CommandState::DeliveryUnknown,
+        None,
+    )
+    .unwrap();
+    let retry = db
+        .prepare_bus_catalog(request.clone(), principal.clone(), None)
+        .unwrap()
+        .unwrap()
+        .prior
+        .unwrap();
+    assert_eq!(retry.state(), CommandState::DeliveryUnknown);
+    let mut changed = request.clone();
+    changed.command = Command::Catalog(CatalogCommand::OpenProject {
+        path: "/another/folder".into(),
+    });
+    assert!(matches!(
+        db.prepare_bus_catalog(changed.clone(), principal.clone(), None),
+        Err(Error::CommandConflict)
+    ));
+    db.db
+        .execute(
+            "UPDATE _canopy_remote_devices SET roots='[]' WHERE device_id=?1",
+            [&device],
+        )
+        .unwrap();
+    for request in [request, changed] {
+        assert!(matches!(
+            db.prepare_bus_catalog(request, principal.clone(), None),
+            Err(Error::NotAuthorized)
+        ));
+    }
+}
+
+#[test]
+fn typed_fork_keeps_source_identity_and_refuses_another_checkout_or_private() {
+    use crate::command_bus::Control;
+    let (_dir, mut db) = database();
+    let mut source = chat(&mut db);
+    let (_, principal) = principal(&mut db);
+    let private = envelope(
+        &source,
+        uuid::Uuid::new_v4(),
+        Command::Control(Control::Fork {
+            history_epoch: 0,
+            item: 2,
+            replacement: None,
+        }),
+    );
+    let rejected = db
+        .prepare_bus_command(private.clone(), principal.clone())
+        .unwrap()
+        .prior
+        .unwrap();
+    assert_eq!(rejected.state(), CommandState::Rejected);
+    assert_eq!(
+        db.prepare_bus_command(private, principal.clone())
+            .unwrap()
+            .prior
+            .unwrap(),
+        rejected
+    );
+    source.workspace = Some("source-checkout".into());
+    source.authority_root = "/source".into();
+    let source = db.save_runtime_chat(source).unwrap();
+    let request = envelope(
+        &source,
+        uuid::Uuid::new_v4(),
+        Command::Control(Control::Fork {
+            history_epoch: 0,
+            item: 2,
+            replacement: None,
+        }),
+    );
+    let prepared = db
+        .prepare_bus_command(request.clone(), principal.clone())
+        .unwrap();
+    let input = prepared.runtime_input().clone();
+    let key = input.key().clone();
+    db.accept_runtime_command(input, host::CHAT).unwrap();
+    db.transition_runtime_command(
+        key.clone(),
+        CommandState::Accepted,
+        CommandState::Attempting,
+        None,
+    )
+    .unwrap();
+    let mut fork = chat(&mut db);
+    // Completion creates a fresh identity; retained aliases cannot be reused.
+    fork.id = id();
+    fork.metadata.chat.as_mut().unwrap().id = Some(fork.id.clone());
+    fork.thread = None;
+    fork.authority_root = "/source".into();
+    for destination in [None, Some("different-checkout".into())] {
+        fork.workspace = destination;
+        assert!(matches!(
+            db.complete_runtime_fork(key.clone(), fork.clone(), source.id().into(), None),
+            Err(Error::ResourceConflict)
+        ));
+        assert!(db.load_runtime_chat(fork.id().into()).unwrap().is_none());
+    }
+    fork.workspace = source.workspace.clone();
+    db.complete_runtime_fork(key.clone(), fork.clone(), source.id().into(), None)
+        .unwrap();
+    let receipt = db
+        .prepare_bus_command(request, principal)
+        .unwrap()
+        .prior
+        .unwrap();
+    assert_eq!(receipt.state(), CommandState::Succeeded);
+    assert_eq!(receipt.target(), source.id());
+    assert_eq!(receipt.result(), Some(fork.id().as_bytes()));
+    assert_eq!(
+        db.load_runtime_chat(fork.id().into())
+            .unwrap()
+            .unwrap()
+            .workspace(),
+        source.workspace()
+    );
+}
 fn database() -> (tempfile::TempDir, Database) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("commands.db");
@@ -325,14 +606,60 @@ fn composite_identity_isolates_threads_executors_and_principals_and_legacy_is_am
             .unwrap()
             .resolved_by_user()
     );
-    assert!(matches!(
+    assert_eq!(
         execute(
             &mut db,
             rename(&first, uuid::Uuid::new_v4(), "stale executor"),
             principal
-        ),
-        Err(Error::ResourceConflict)
+        )
+        .unwrap()
+        .state(),
+        CommandState::Rejected
+    );
+}
+
+#[test]
+fn stale_executor_rejection_is_durable_and_authorized_before_retry_or_conflict() {
+    let (dir, mut db) = database();
+    let chat = chat(&mut db);
+    let (device, principal) = principal(&mut db);
+    db.db
+        .execute(
+            "UPDATE _canopy_runtime_chats SET executor_epoch=1 WHERE chat_id=?1",
+            [chat.id()],
+        )
+        .unwrap();
+    let id = uuid::Uuid::new_v4();
+    let original = rename(&chat, id, "must not change");
+    let rejected = execute(&mut db, original.clone(), principal.clone()).unwrap();
+    assert_eq!(rejected.state(), CommandState::Rejected);
+    assert_eq!(rejected.key().executor_epoch(), 0);
+    assert_eq!(
+        db.load_runtime_chat(chat.id.clone())
+            .unwrap()
+            .unwrap()
+            .metadata
+            .title,
+        chat.metadata.title
+    );
+    drop(db);
+    let mut db = Database::open(&dir.path().join("commands.db"), Access::ReadWrite).unwrap();
+    db.initialize_runtime().unwrap();
+    assert_eq!(
+        execute(&mut db, original.clone(), principal.clone()).unwrap(),
+        rejected
+    );
+    assert!(matches!(
+        execute(&mut db, rename(&chat, id, "changed"), principal.clone()),
+        Err(Error::CommandConflict)
     ));
+    db.revoke_runtime_device(device).unwrap();
+    for intent in [original, rename(&chat, id, "changed")] {
+        assert!(matches!(
+            execute(&mut db, intent, principal.clone()),
+            Err(Error::NotAuthorized)
+        ));
+    }
 }
 
 #[test]

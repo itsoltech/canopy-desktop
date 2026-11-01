@@ -48,14 +48,16 @@ impl HostClient {
         if chat.host_id != self.id().as_str() {
             return Err("Page belongs to another host.".into());
         }
-        let mut stream = p::catalog_service_client::CatalogServiceClient::new(self.channel()?)
-            .read_chat_page(p::ChatPageRequest {
-                chat: Some(chat),
-                item: Some(item),
-            })
-            .await
-            .map_err(rpc_error)?
-            .into_inner();
+        let thread = self.thread_target(&chat).await?.thread;
+        let mut stream =
+            crate::api::proto::catalog_service_client::CatalogServiceClient::new(self.channel()?)
+                .read_thread_page(crate::api::proto::ReadThreadPageRequest {
+                    thread,
+                    item: Some(crate::api::projection::value(item)),
+                })
+                .await
+                .map_err(rpc_error)?
+                .into_inner();
         let mut artifact = None;
         let mut bytes = Vec::new();
         let mut complete = false;
@@ -394,17 +396,15 @@ impl HostClient {
         around: Option<p::ItemKey>,
         before: Option<p::ItemKey>,
     ) -> Result<(Vec<p::TranscriptItem>, Option<String>), String> {
-        let mut stream = p::chat_service_client::ChatServiceClient::new(self.channel()?)
-            .read_history_page(p::HistoryPageRequest {
+        let mut stream = self
+            .read_thread_history(p::HistoryPageRequest {
                 chat: Some(chat.clone()),
                 page_token: token,
                 limit: 100,
                 around,
                 before,
             })
-            .await
-            .map_err(rpc_error)?
-            .into_inner();
+            .await?;
         let boundary = p::Cursor {
             runtime_epoch: "history".into(),
             stream_id: "page".into(),

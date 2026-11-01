@@ -20,7 +20,6 @@ pub(super) async fn discover_accounts(
     workspace: Option<String>,
 ) -> Result<Vec<super::Account>, String> {
     tokio::time::timeout(std::time::Duration::from_secs(30), async move {
-        let mut client = p::catalog_service_client::CatalogServiceClient::new(host.channel()?);
         let workspace = workspace.map(|workspace_id| p::WorkspaceRef {
             host_id: host.id().as_str().into(),
             workspace_id,
@@ -29,15 +28,13 @@ pub(super) async fn discover_accounts(
         let mut token = None;
         let mut seen = HashSet::new();
         loop {
-            let page = client
+            let page = host
                 .list_agents(p::AgentDiscoveryRequest {
                     host_id: host.id().as_str().into(),
                     workspace: workspace.clone(),
                     page_token: token,
                 })
-                .await
-                .map_err(canopy_desktop::remote::client::rpc_error)?
-                .into_inner();
+                .await?;
             for agent in page.agents {
                 accounts.extend(agent.accounts.into_iter().map(|account| super::Account {
                     tool: agent.agent_id.clone(),
@@ -73,18 +70,7 @@ pub(super) async fn create_chat(
         host_id: host.id().as_str().into(),
         workspace_id,
     });
-    let receipt = host
-        .mutate(None, move |channel, command| async move {
-            p::catalog_service_client::CatalogServiceClient::new(channel)
-                .create_chat(p::CreateChatRequest {
-                    command: Some(command),
-                    workspace,
-                    agent_id: agent,
-                    profile_id: profile,
-                })
-                .await
-        })
-        .await?;
+    let receipt = host.create_thread(workspace, agent, profile).await?;
     RemoteChat::new(host.id().as_str().into(), receipt.resource_id)
         .ok_or_else(|| "The computer returned an invalid chat.".into())
 }
@@ -106,7 +92,7 @@ pub(super) fn create_environment(host: Arc<HostClient>, workspace: Option<String
         }
     };
     let task = executor.spawn(async move {
-        let agents = p::catalog_service_client::CatalogServiceClient::new(host.channel()?)
+        let agents = host
             .list_agents(p::AgentDiscoveryRequest {
                 host_id: host.id().as_str().into(),
                 workspace: workspace.clone().map(|workspace_id| p::WorkspaceRef {
@@ -115,9 +101,7 @@ pub(super) fn create_environment(host: Arc<HostClient>, workspace: Option<String
                 }),
                 page_token: None,
             })
-            .await
-            .map_err(canopy_desktop::remote::client::rpc_error)?
-            .into_inner()
+            .await?
             .agents;
         let agent = agents
             .iter()
@@ -382,6 +366,14 @@ impl RemoteSession {
                 Some(format!("!{}", r.command_line.trim())),
             ),
             ChatMutation::StopShell(_) => (("Stop request", "stop request"), None),
+            ChatMutation::Interrupt(_) => (("Interrupt", "interrupt"), None),
+            ChatMutation::Restart(_) => (("Restart", "restart"), None),
+            ChatMutation::Steer(r) => (("Steer", "steer"), draft(r.draft.as_ref())),
+            ChatMutation::Respond(_) => (("Decision", "decision"), None),
+            ChatMutation::Option(_) => (("Agent option", "agent option"), None),
+            ChatMutation::Agent(_) => (("Agent selection", "agent selection"), None),
+            ChatMutation::Goal(_) => (("Goal", "goal"), None),
+            ChatMutation::Background(_) => (("Stop request", "stop request"), None),
         };
         Some(PendingRequest {
             id,
@@ -689,15 +681,13 @@ impl ChatRuntime {
         let task = executor.spawn(async move {
             use canopy_desktop::remote::client::rpc_error;
             if pulls {
-                let found = p::catalog_service_client::CatalogServiceClient::new(host.channel()?)
+                let found = host
                     .list_pull_requests(p::PullRequestsRequest {
                         workspace: Some(workspace),
                         query,
                         page_token: None,
                     })
-                    .await
-                    .map_err(rpc_error)?
-                    .into_inner();
+                    .await?;
                 let mut suggestions = vec![];
                 let mut originals = vec![];
                 for choice in found.pulls {
@@ -818,15 +808,13 @@ impl ChatRuntime {
         let chat = source.chat();
         let executor = crate::ui::remote_client::executor(cx).ok()?;
         let search = executor.spawn(async move {
-            let page = p::chat_service_client::ChatServiceClient::new(host.channel()?)
-                .search_history(p::SearchHistoryRequest {
+            let page = host
+                .search_thread_history(p::SearchHistoryRequest {
                     chat: Some(chat),
                     text: query,
                     page_token: token,
                 })
-                .await
-                .map_err(canopy_desktop::remote::client::rpc_error)?
-                .into_inner();
+                .await?;
             Ok(HistorySearch {
                 matches: page
                     .matches
@@ -1179,16 +1167,7 @@ impl ChatRuntime {
             .unwrap()
             .spawn(async move {
                 let receipt = host
-                    .mutate(None, |channel, meta| async move {
-                        p::catalog_service_client::CatalogServiceClient::new(channel)
-                            .create_chat(p::CreateChatRequest {
-                                command: Some(meta),
-                                workspace: context.workspace,
-                                agent_id: context.agent_id,
-                                profile_id: context.profile_id,
-                            })
-                            .await
-                    })
+                    .create_thread(context.workspace, context.agent_id, context.profile_id)
                     .await?;
                 RemoteChat::new(host.id().as_str().into(), receipt.resource_id)
                     .ok_or_else(|| "Invalid chat identity.".to_owned())
@@ -1235,17 +1214,13 @@ impl ChatRuntime {
         let chat = source.chat();
         self.remote_task(
             async move {
-                host.mutate(None, |channel, meta| async move {
-                    p::chat_service_client::ChatServiceClient::new(channel)
-                        .set_chat_agent(p::SetChatAgentRequest {
-                            command: Some(meta),
-                            chat: Some(chat),
-                            agent_id: tool,
-                            profile_id: profile,
-                            model,
-                        })
-                        .await
-                })
+                host.submit_chat_mutation(ChatMutation::Agent(p::SetChatAgentRequest {
+                    command: None,
+                    chat: Some(chat),
+                    agent_id: tool,
+                    profile_id: profile,
+                    model,
+                }))
                 .await?;
                 Ok(())
             },
@@ -1266,16 +1241,12 @@ impl ChatRuntime {
         let call = native.unwrap_or(call);
         self.remote_task(
             async move {
-                host.mutate(None, |channel, meta| async move {
-                    p::chat_service_client::ChatServiceClient::new(channel)
-                        .stop_background(p::StopBackgroundRequest {
-                            command: Some(meta),
-                            chat: Some(chat),
-                            run_id: run,
-                            call_id: call,
-                        })
-                        .await
-                })
+                host.submit_chat_mutation(ChatMutation::Background(p::StopBackgroundRequest {
+                    command: None,
+                    chat: Some(chat),
+                    run_id: run,
+                    call_id: call,
+                }))
                 .await?;
                 Ok(())
             },
@@ -1291,17 +1262,13 @@ impl ChatRuntime {
         let run = source.run();
         self.remote_task(
             async move {
-                host.mutate(None, |channel, meta| async move {
-                    p::chat_service_client::ChatServiceClient::new(channel)
-                        .steer(p::SteerRequest {
-                            command: Some(meta),
-                            chat: Some(chat),
-                            run_id: run,
-                            message_id: message,
-                            draft: None,
-                        })
-                        .await
-                })
+                host.submit_chat_mutation(ChatMutation::Steer(p::SteerRequest {
+                    command: None,
+                    chat: Some(chat),
+                    run_id: run,
+                    message_id: message,
+                    draft: None,
+                }))
                 .await?;
                 Ok(())
             },
@@ -1435,13 +1402,7 @@ impl ChatRuntime {
         let chat = source.chat();
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
-            .spawn(async move {
-                p::chat_service_client::ChatServiceClient::new(host.channel()?)
-                    .get_agent_options(p::ChatRequest { chat: Some(chat) })
-                    .await
-                    .map(|r| r.into_inner())
-                    .map_err(canopy_desktop::remote::client::rpc_error)
-            });
+            .spawn(async move { host.thread_options(chat).await });
         let task = source.own_read(task);
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(options)) = task.await {
@@ -1646,26 +1607,11 @@ impl ChatRuntime {
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                 }
                 let result = async {
-                    let mut client =
-                        p::chat_service_client::ChatServiceClient::new(host.channel()?);
-                    let options = client
-                        .get_agent_options(p::ChatRequest {
-                            chat: Some(chat.clone()),
-                        })
-                        .await
-                        .map_err(canopy_desktop::remote::client::rpc_error)?
-                        .into_inner();
+                    let options = host.thread_options(chat.clone()).await?;
                     if tx.send(ClientEvent::Options(options)).await.is_err() {
                         return Ok(());
                     }
-                    let mut stream = client
-                        .subscribe_chat(p::SubscribeChatRequest {
-                            chat: Some(chat.clone()),
-                            since: None,
-                        })
-                        .await
-                        .map_err(canopy_desktop::remote::client::rpc_error)?
-                        .into_inner();
+                    let mut stream = host.subscribe_thread(chat.clone(), None).await?;
                     let mut projection = ChatProjection::default();
                     let mut saved = std::time::Instant::now();
                     while let Some(event) = stream
@@ -1880,37 +1826,31 @@ impl ChatRuntime {
         let work = crate::ui::remote_client::executor(cx)
             .unwrap()
             .spawn(async move {
-                let mut client =
-                    p::catalog_service_client::CatalogServiceClient::new(host.channel()?);
                 let mut agents = vec![];
                 let mut token = None;
                 loop {
-                    let page = client
+                    let page = host
                         .list_agents(p::AgentDiscoveryRequest {
                             host_id: host.id().as_str().into(),
                             workspace: summary.workspace.clone(),
                             page_token: token,
                         })
-                        .await
-                        .map_err(canopy_desktop::remote::client::rpc_error)?
-                        .into_inner();
+                        .await?;
                     agents.extend(page.agents);
                     token = page.next_page_token;
                     if token.is_none() {
                         break;
                     }
                 }
-                let catalog = client
-                    .get_agent_catalog(p::AgentCatalogRequest {
+                let catalog = host
+                    .agent_catalog(p::AgentCatalogRequest {
                         host_id: host.id().as_str().into(),
                         workspace: summary.workspace,
                         agent_id: summary.agent_id.clone(),
                         account_id: summary.profile_id.unwrap_or(summary.agent_id),
                         refresh: false,
                     })
-                    .await
-                    .map_err(canopy_desktop::remote::client::rpc_error)?
-                    .into_inner();
+                    .await?;
                 Ok::<_, String>((agents, catalog))
             });
         let work = source.own_read(work);
@@ -2070,17 +2010,13 @@ impl ChatRuntime {
                 encode_draft(&host, &chat, &context, &originals, draft, namespace, stage).await?;
             let key = format!("native-draft:{}", chat.chat_id);
             if steer {
-                host.mutate(None, |channel, meta| async move {
-                    p::chat_service_client::ChatServiceClient::new(channel)
-                        .steer(p::SteerRequest {
-                            command: Some(meta),
-                            chat: Some(chat),
-                            run_id: run,
-                            message_id: uuid::Uuid::new_v4().to_string(),
-                            draft: Some(request),
-                        })
-                        .await
-                })
+                host.submit_chat_mutation(ChatMutation::Steer(p::SteerRequest {
+                    command: None,
+                    chat: Some(chat),
+                    run_id: run,
+                    message_id: uuid::Uuid::new_v4().to_string(),
+                    draft: Some(request),
+                }))
                 .await?;
             } else if request
                 .attachments
@@ -2195,11 +2131,7 @@ impl ChatRuntime {
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
             .spawn(async move {
-                let result = p::chat_service_client::ChatServiceClient::new(host.channel()?)
-                    .preview_edit(request)
-                    .await
-                    .map_err(canopy_desktop::remote::client::rpc_error)?
-                    .into_inner();
+                let result = host.preview_thread_edit(request).await?;
                 if !result.editable {
                     return Err(result.reason);
                 }
@@ -2423,17 +2355,14 @@ impl ChatRuntime {
         let run = source.run();
         self.remote_task(
             async move {
-                host.mutate(None, |channel, meta| async move {
-                    let request = p::ChatCommandRequest {
-                        command: Some(meta),
-                        chat: Some(chat),
-                        run_id: (!run.is_empty()).then_some(run),
-                    };
-                    let mut client = p::chat_service_client::ChatServiceClient::new(channel);
-                    match command {
-                        "interrupt" => client.interrupt(request).await,
-                        _ => client.restart(request).await,
-                    }
+                let request = p::ChatCommandRequest {
+                    command: None,
+                    chat: Some(chat),
+                    run_id: (!run.is_empty()).then_some(run),
+                };
+                host.submit_chat_mutation(match command {
+                    "interrupt" => ChatMutation::Interrupt(request),
+                    _ => ChatMutation::Restart(request),
                 })
                 .await?;
                 Ok(())
@@ -2451,16 +2380,12 @@ impl ChatRuntime {
         let chat = source.chat();
         self.remote_task(
             async move {
-                host.mutate(None, |channel, meta| async move {
-                    p::chat_service_client::ChatServiceClient::new(channel)
-                        .set_agent_option(p::SetAgentOptionRequest {
-                            command: Some(meta),
-                            chat: Some(chat),
-                            option_id: id,
-                            value_id: value,
-                        })
-                        .await
-                })
+                host.submit_chat_mutation(ChatMutation::Option(p::SetAgentOptionRequest {
+                    command: None,
+                    chat: Some(chat),
+                    option_id: id,
+                    value_id: value,
+                }))
                 .await?;
                 Ok(())
             },
@@ -2497,17 +2422,13 @@ impl ChatRuntime {
         let chat = source.chat();
         self.remote_task(
             async move {
-                host.mutate(None, |channel, meta| async move {
-                    p::chat_service_client::ChatServiceClient::new(channel)
-                        .respond_decision(p::RespondDecisionRequest {
-                            command: Some(meta),
-                            chat: Some(chat),
-                            run_id: decision.run_id,
-                            decision_id: decision.decision_id,
-                            response: Some(response),
-                        })
-                        .await
-                })
+                host.submit_chat_mutation(ChatMutation::Respond(p::RespondDecisionRequest {
+                    command: None,
+                    chat: Some(chat),
+                    run_id: decision.run_id,
+                    decision_id: decision.decision_id,
+                    response: Some(response),
+                }))
                 .await?;
                 Ok(())
             },
@@ -2547,16 +2468,12 @@ impl ChatRuntime {
         let chat = source.chat();
         self.remote_task(
             async move {
-                host.mutate(None, |channel, meta| async move {
-                    p::chat_service_client::ChatServiceClient::new(channel)
-                        .set_goal(p::SetGoalRequest {
-                            command: Some(meta),
-                            chat: Some(chat),
-                            objective: None,
-                            action: Some(action as i32),
-                        })
-                        .await
-                })
+                host.submit_chat_mutation(ChatMutation::Goal(p::SetGoalRequest {
+                    command: None,
+                    chat: Some(chat),
+                    objective: None,
+                    action: Some(action as i32),
+                }))
                 .await?;
                 Ok(())
             },

@@ -75,6 +75,7 @@ async fn a_device_sees_only_its_roots_and_then_only_what_changed() {
     let private = record(None, "private");
     let workspaces = vec![
         WorkspaceSummary {
+            project: canopy_desktop::state::workspace::ProjectId::new(),
             origin: None,
             branch: None,
             workspace: a,
@@ -84,6 +85,7 @@ async fn a_device_sees_only_its_roots_and_then_only_what_changed() {
             closing: false,
         },
         WorkspaceSummary {
+            project: canopy_desktop::state::workspace::ProjectId::new(),
             origin: None,
             branch: None,
             workspace: b,
@@ -281,6 +283,7 @@ async fn a_changed_authorization_drops_what_was_queued_before_the_next_event() {
     let in_a = record(Some(&workspace_ref(a)), "/work/a");
     let in_b = record(Some(&workspace_ref(b)), "/work/b");
     let workspace = |id, root: &str| WorkspaceSummary {
+        project: canopy_desktop::state::workspace::ProjectId::new(),
         origin: None,
         branch: None,
         workspace: id,
@@ -371,6 +374,7 @@ async fn a_changed_authorization_drops_what_was_queued_before_the_next_event() {
 fn large_event() -> CatalogEvent {
     let workspaces: Vec<_> = (0..3000)
         .map(|i| WorkspaceSummary {
+            project: canopy_desktop::state::workspace::ProjectId::new(),
             origin: None,
             branch: None,
             workspace: WorkspaceId::new(),

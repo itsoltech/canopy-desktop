@@ -3,7 +3,11 @@
 //! The concrete enum and the existing SQLite writer replace adapter-owned scope,
 //! fingerprint and retry checks. There is no second inbox, worker or repository.
 //! Pure reads stay outside this module. Secret-bearing settings are not migrated.
+mod catalog;
+mod control;
+pub use catalog::CatalogCommand;
 mod drafts;
+pub use control::{Control, DecisionAnswer};
 pub(crate) mod preferences;
 pub use drafts::{AttachmentIntent, DraftIntent, DraftResources, PullIntent};
 pub use preferences::{PreferenceWrite, SettingsRevision};
@@ -84,8 +88,11 @@ pub static REGISTRY: &[CommandMetadata] = &[
         workspace_attachment_scope: 0,
     },
 ];
-pub fn registry() -> impl ExactSizeIterator<Item = &'static CommandMetadata> {
-    REGISTRY.iter()
+pub fn registry() -> impl Iterator<Item = &'static CommandMetadata> {
+    REGISTRY
+        .iter()
+        .chain(control::REGISTRY)
+        .chain(catalog::REGISTRY)
 }
 
 /// CMD-03: supplied by the authenticated transport or the in-process owner,
@@ -212,6 +219,8 @@ impl From<QueueMutation> for QueueChange {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Command {
+    Catalog(CatalogCommand),
+    Control(Control),
     Rename {
         title: String,
     },
@@ -240,6 +249,9 @@ pub enum Command {
 impl Command {
     pub fn required_scope(&self) -> u32 {
         let workspace_files = match self {
+            Self::Control(control) => control
+                .draft()
+                .is_some_and(DraftIntent::has_workspace_files),
             Self::Send { draft, .. }
             | Self::ThreadSend { draft, .. }
             | Self::Queue {
@@ -261,7 +273,17 @@ impl Command {
         })
     }
     pub fn metadata(&self) -> &'static CommandMetadata {
+        if let Self::Catalog(command) = self {
+            return command.metadata();
+        }
+        if let Self::Control(control) = self {
+            return control::REGISTRY
+                .iter()
+                .find(|m| m.name == control.method())
+                .expect("registered control");
+        }
         &REGISTRY[match self {
+            Self::Control(_) | Self::Catalog(_) => unreachable!(),
             Self::Rename { .. } => 0,
             Self::Send { .. } | Self::ThreadSend { .. } => 1,
             Self::Queue { change, .. } => match change {
@@ -276,6 +298,8 @@ impl Command {
     }
     fn normalize(&mut self) -> Result<()> {
         match self {
+            Self::Catalog(command) => command.normalize()?,
+            Self::Control(control) => control.normalize()?,
             Self::Rename { title } => {
                 *title = title.trim().into();
                 if title.is_empty() || title.len() > 256 || title.chars().any(char::is_control) {
@@ -359,6 +383,27 @@ pub struct PreparedCommand {
     pub(crate) prior: Option<CommandReceipt>,
 }
 impl PreparedCommand {
+    pub fn runtime_input(&self) -> &CommandInput {
+        &self.input
+    }
+    pub fn fingerprint(&self) -> &[u8] {
+        &self.input.fingerprint
+    }
+    pub fn record(&self) -> Option<&ChatRecord> {
+        self.record.as_ref()
+    }
+    pub fn control(&self) -> Option<&Control> {
+        match &self.envelope.command {
+            Command::Control(control) => Some(control),
+            _ => None,
+        }
+    }
+    pub fn runtime_draft(&self, resources: &DraftResources) -> Result<Option<QueueDraft>> {
+        self.control()
+            .and_then(Control::draft)
+            .map(|d| d.resolve(self, Some(resources)))
+            .transpose()
+    }
     pub fn prior(&self) -> Option<&CommandReceipt> {
         self.prior.as_ref()
     }
@@ -408,6 +453,19 @@ impl CommandBus {
         principal: Principal,
     ) -> Result<PreparedCommand> {
         self.client.prepare_bus_command(envelope, principal).await
+    }
+    /// The owner supplies authoritative catalog resolution separately from the
+    /// stable intent. A first call without resolution checks saved auth/dedupe
+    /// before any project lookup or filesystem probe.
+    pub async fn prepare_catalog(
+        &self,
+        envelope: CommandEnvelope,
+        principal: Principal,
+        resolution: Option<(String, String)>,
+    ) -> Result<Option<PreparedCommand>> {
+        self.client
+            .prepare_bus_catalog(envelope, principal, resolution)
+            .await
     }
     pub async fn execute(
         &self,

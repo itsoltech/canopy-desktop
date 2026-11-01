@@ -195,15 +195,18 @@ impl CatalogFeed {
 /// The whole catalog of `host` read page by page (`ReadCatalog`); nothing partial is
 /// returned.
 pub async fn read_catalog(channel: Channel, host: &str) -> Result<p::Catalog, String> {
-    let mut stream = p::catalog_service_client::CatalogServiceClient::new(channel)
-        .read_catalog(p::HostRequest {
-            host_id: host.into(),
+    let mut stream = crate::api::proto::catalog_service_client::CatalogServiceClient::new(channel)
+        .read_catalog(crate::api::proto::ReadCatalogRequest {
+            environment: Some(crate::api::proto::EnvironmentRef {
+                host_id: host.into(),
+            }),
         })
         .await
         .map_err(rpc_error)?
         .into_inner();
     let mut staging = CatalogStaging::default();
     while let Some(event) = stream.message().await.map_err(rpc_error)? {
+        let event = crate::api::catalog_projection::legacy_event(event, host).map_err(rpc_error)?;
         let Some(p::summary_event::Change::SnapshotPart(part)) = event.change else {
             return Err("Unexpected catalog event.".into());
         };
@@ -314,6 +317,34 @@ mod tests {
             "an installed sidebar snapshot is immutable"
         );
         assert_eq!(catalog.as_ref().unwrap().chats.len(), 4);
-        assert!(feed.apply("h", &mut catalog, delta(7)).is_err());
+        // A typed deletion must retain the connected host when projected back
+        // into the desktop's catalog, or its ChatRef will never match a row.
+        let deleted = crate::api::catalog_projection::legacy_event(
+            crate::api::proto::SummaryEvent {
+                cursor: Some(crate::api::projection::value(cursor(6))),
+                change: Some(crate::api::proto::summary_event::Change::Deleted(
+                    crate::api::proto::CatalogDeleted {
+                        resource: Some(
+                            crate::api::proto::catalog_deleted::Resource::ThreadCatalogId(
+                                "x".into(),
+                            ),
+                        ),
+                    },
+                )),
+            },
+            "h",
+        )
+        .unwrap();
+        assert!(feed.apply("h", &mut catalog, deleted).unwrap());
+        assert_eq!(catalog.as_ref().unwrap().chats.len(), 3);
+        assert!(
+            catalog
+                .as_ref()
+                .unwrap()
+                .chats
+                .iter()
+                .all(|c| c.title != "x")
+        );
+        assert!(feed.apply("h", &mut catalog, delta(8)).is_err());
     }
 }

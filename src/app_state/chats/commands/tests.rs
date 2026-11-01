@@ -79,6 +79,7 @@ fn fork_of(
         source_folder,
     };
     let key = RemoteKey {
+        input: None,
         key: CommandKey::local(uuid::Uuid::new_v4().to_string()).unwrap(),
         fingerprint: Some(fingerprint),
     };

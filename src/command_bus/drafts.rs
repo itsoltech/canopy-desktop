@@ -121,7 +121,7 @@ impl DraftIntent {
         }
         Ok(())
     }
-    fn resolve(
+    pub(super) fn resolve(
         &self,
         prepared: &PreparedCommand,
         resources: Option<&DraftResources>,
@@ -342,6 +342,8 @@ pub(super) fn resolve_command(
                 },
             },
         },
-        Command::Preferences { .. } => return Err(Error::InvalidRuntimeState),
+        Command::Preferences { .. } | Command::Control(_) | Command::Catalog(_) => {
+            return Err(Error::InvalidRuntimeState);
+        }
     })
 }

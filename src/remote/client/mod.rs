@@ -1,5 +1,7 @@
 //! Device-owned native remote client. Host identity never follows the selected tab or route.
+mod api_catalog;
 mod api_commands;
+mod api_reads;
 pub mod catalog;
 mod chat_commands;
 mod commands;
@@ -393,9 +395,9 @@ impl HostClient {
             let result = async {
                 let mut health = p::host_service_client::HostServiceClient::new(channel.clone())
                     .watch_host(p::HostRequest { host_id: record.id.0.clone() }).await.map_err(rpc_error)?.into_inner();
-                let mut stream = p::catalog_service_client::CatalogServiceClient::new(channel)
-                    .watch_summaries(p::SubscribeRequest {
-                        host_id: record.id.0.clone(),
+                let mut stream = crate::api::proto::catalog_service_client::CatalogServiceClient::new(channel)
+                    .watch_summaries(crate::api::proto::WatchSummariesRequest {
+                        environment: Some(crate::api::proto::EnvironmentRef { host_id: record.id.0.clone() }),
                         since: None,
                     })
                     .await
@@ -426,6 +428,7 @@ impl HostClient {
                         // Pages of a snapshot are staged; the catalog changes only
                         // with a whole snapshot or a delta after it.
                         let started = std::time::Instant::now();
+                        let event = crate::api::catalog_projection::legacy_event(event, &host.id.0).map_err(rpc_error)?;
                         let applied = feed.apply(&host.id.0, &mut state.catalog, event);
                         crate::remote::metrics::record(
                             &host.id.0,
@@ -710,19 +713,49 @@ mod tests {
         };
         let intent = ChatMutation::RunShell(p::RunShellRequest {
             chat: Some(chat.clone()),
-            run_id: "run".into(),
+            run_id: "7".into(),
             command_line: "echo preserve-intent".into(),
             ..Default::default()
         });
-        assert!(host.submit_chat_mutation(intent.clone()).await.is_err());
+        // Target discovery precedes mutation ownership. Simulate its completed
+        // result so this failure occurs during dispatch, where retaining the
+        // original request is required rather than recording an unsent lookup.
+        let prepared = api_commands::ApiIntent::Shell(crate::api::proto::RunShellRequest {
+            target: Some(crate::api::proto::ThreadTarget {
+                thread: Some(crate::api::proto::ThreadRef {
+                    host_id: chat.host_id.clone(),
+                    thread_id: crate::thread::ThreadId::new().to_string(),
+                }),
+                executor_epoch: 3,
+            }),
+            run_id: 7,
+            command_line: "echo preserve-intent".into(),
+            command: None,
+        });
+        let host_id = chat.host_id.clone();
+        assert!(
+            host.submit_chat_mutation_prepared(
+                intent.clone(),
+                Some(prepared.clone()),
+                move |_, api, channel| async move {
+                    api.unwrap()
+                        .dispatch(channel, &host_id, "chat".into())
+                        .await
+                }
+            )
+            .await
+            .is_err()
+        );
         let pending = host.chat_mutations(&chat);
         assert_eq!(pending.len(), 1);
         let original = pending[0].0.clone();
         assert!(
-            host.submit_chat_mutation(intent)
-                .await
-                .unwrap_err()
-                .contains("unresolved")
+            host.submit_chat_mutation_prepared(intent, Some(prepared), |_, _, _| async {
+                panic!("an unresolved operation must prevent a second dispatch")
+            })
+            .await
+            .unwrap_err()
+            .contains("unresolved")
         );
         assert_eq!(host.chat_mutations(&chat)[0].0, original);
         let id = host.id().clone();

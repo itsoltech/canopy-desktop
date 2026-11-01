@@ -261,12 +261,23 @@ impl ChatCommand {
 pub struct RemoteKey {
     pub key: CommandKey,
     pub fingerprint: Option<Vec<u8>>,
+    pub input: Option<CommandInput>,
+}
+impl RemoteKey {
+    pub fn admitted(input: CommandInput) -> Self {
+        Self {
+            key: input.key().clone(),
+            fingerprint: None,
+            input: Some(input),
+        }
+    }
 }
 impl From<CommandKey> for RemoteKey {
     fn from(key: CommandKey) -> Self {
         Self {
             key,
             fingerprint: None,
+            input: None,
         }
     }
 }
@@ -1230,8 +1241,15 @@ impl ChatRuntime {
             return Task::ready(Err("This chat has no identity.".into()));
         };
         // The same ID with other arguments is an idempotency conflict in the inbox.
-        let RemoteKey { key, fingerprint } = key;
+        let RemoteKey {
+            key,
+            fingerprint,
+            input: admitted,
+        } = key;
         let Some(input) = self.command_root(cx).and_then(|root| {
+            if let Some(input) = admitted {
+                return Some(input);
+            }
             let input = command.command(key, &chat)?.with_root(root)?;
             match fingerprint {
                 Some(fingerprint) => input.with_fingerprint(fingerprint),
