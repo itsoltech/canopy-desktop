@@ -678,16 +678,20 @@ async fn local_and_grpc_send_share_durable_results_retry_and_queue_conditions() 
         )
         .await
         .unwrap();
-    assert!(matches!(
-        bus.execute(envelope, Principal::local_owner(), None).await,
-        Err(canopy_desktop::settings::Error::ResourceConflict)
-    ));
+    assert_eq!(
+        bus.execute(envelope, Principal::local_owner(), None)
+            .await
+            .unwrap()
+            .state(),
+        canopy_desktop::host::CommandState::Rejected
+    );
     let conflict = h
         .rpc
         .bus_command(h.grant.clone(), meta(&h, None), chat.clone(), stale, None)
         .await
-        .unwrap_err();
-    assert_eq!(conflict.code(), tonic::Code::Aborted);
+        .unwrap()
+        .into_inner();
+    assert_eq!(conflict.state, proto::OperationState::Rejected as i32);
     assert_eq!(
         h.client.load_runtime_queue(local_id).await.unwrap(),
         local_queue

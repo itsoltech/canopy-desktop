@@ -1,0 +1,306 @@
+syntax = "proto3";
+
+package canopy.api.v1;
+
+import "google/protobuf/descriptor.proto";
+
+// Metadata mirrors the Rust command registry. The bus owns enforcement.
+message CommandOption {
+  string name = 1;
+  Risk risk = 2;
+  uint32 scope = 3;
+}
+
+extend google.protobuf.MethodOptions {
+  CommandOption command = 51000;
+}
+
+enum Risk {
+  RISK_UNSPECIFIED = 0;
+  RISK_METADATA = 1;
+  RISK_DELIVERY = 2;
+  RISK_CONFIGURATION = 3;
+}
+
+service CatalogService {
+  rpc ListThreads(ListThreadsRequest) returns (ListThreadsResponse);
+  rpc RenameThread(RenameThreadRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.rename" risk: RISK_METADATA scope: 2};
+  }
+}
+
+service ThreadService {
+  rpc SendMessage(SendMessageRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.send" risk: RISK_DELIVERY scope: 2};
+  }
+  rpc EditQueueMessage(EditQueueMessageRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.queue.edit" risk: RISK_METADATA scope: 2};
+  }
+  rpc MoveQueueMessage(MoveQueueMessageRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.queue.move" risk: RISK_METADATA scope: 2};
+  }
+  rpc RemoveQueueMessage(RemoveQueueMessageRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.queue.remove" risk: RISK_METADATA scope: 2};
+  }
+  rpc PauseQueue(PauseQueueRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.queue.pause" risk: RISK_METADATA scope: 2};
+  }
+  rpc ResolveUnknownQueueMessage(ResolveUnknownQueueMessageRequest) returns (CommandReceipt) {
+    option (command) = {name: "chat.queue.resolve_unknown" risk: RISK_DELIVERY scope: 2};
+  }
+}
+
+service SettingsService {
+  rpc UpdatePreferences(UpdatePreferencesRequest) returns (CommandReceipt) {
+    option (command) = {name: "settings.preferences" risk: RISK_CONFIGURATION scope: 64};
+  }
+}
+
+message EnvironmentRef {
+  string host_id = 1;
+}
+
+message ThreadRef {
+  string host_id = 1;
+  string thread_id = 2;
+}
+
+message ProjectRef {
+  string host_id = 1;
+  string project_id = 2;
+  optional string worktree_id = 3;
+}
+
+// Principal comes from the authenticated connection, never the request.
+message CommandMeta {
+  string command_id = 1;
+  uint64 command_epoch = 2;
+  optional uint64 expected_revision = 3;
+}
+
+message ThreadTarget {
+  ThreadRef thread = 1;
+  uint64 executor_epoch = 2;
+}
+
+message ListThreadsRequest {
+  EnvironmentRef environment = 1;
+  // Opaque catalog key used to join the temporarily retained read catalog.
+  // It is not a ThreadId, and cannot be used as a command target.
+  optional string catalog_id = 2;
+}
+
+message ListThreadsResponse {
+  repeated ThreadSummary threads = 1;
+}
+
+message ThreadSummary {
+  ThreadTarget target = 1;
+  string catalog_id = 2;
+  string title = 3;
+  uint64 revision = 4;
+}
+
+message RenameThreadRequest {
+  CommandMeta command = 1;
+  ThreadTarget target = 2;
+  string title = 3;
+}
+
+// The thread owns project/checkout resolution. No parallel project target.
+message SendContext {
+  string account_id = 1;
+  optional string profile_id = 2;
+  uint64 history_epoch = 3;
+}
+
+message MessageDraft {
+  string text = 1;
+  repeated Attachment attachments = 2;
+  optional string context = 3;
+  bool goal = 4;
+}
+
+message Attachment {
+  string label = 1;
+  oneof content {
+    ImageAttachment image = 2;
+    FileAttachment file = 3;
+    QuoteAttachment quote = 4;
+    CommandAttachment command = 5;
+    PullAttachment pull = 6;
+    ShellAttachment shell = 7;
+  }
+}
+
+message ImageAttachment {
+  string host_id = 1;
+  string artifact_id = 2;
+  bytes sha256 = 3;
+}
+
+message FileAttachment {
+  string relative_path = 1;
+  // Selects project files versus private thread files, without naming a project.
+  bool project_file = 2;
+}
+
+message QuoteAttachment {
+  string text = 1;
+}
+
+message CommandAttachment {
+  string name = 1;
+  bool skill = 2;
+  optional string path = 3;
+  optional string description = 4;
+}
+
+message PullAttachment {
+  uint64 number = 1;
+  string title = 2;
+  string url = 3;
+  string head = 4;
+  string base = 5;
+  string state = 6;
+  string body = 7;
+  optional string context_id = 8;
+}
+
+message ShellAttachment {
+  string command = 1;
+  optional int32 exit_code = 2;
+  bool stopped = 3;
+  string output = 4;
+}
+
+message SendMessageRequest {
+  CommandMeta command = 1;
+  ThreadTarget target = 2;
+  string message_id = 3;
+  MessageDraft draft = 4;
+  SendContext expected_context = 5;
+}
+
+message EditQueueMessageRequest {
+  CommandMeta command = 1;
+  ThreadTarget target = 2;
+  uint64 queue_revision = 3;
+  string message_id = 4;
+  MessageDraft draft = 5;
+}
+
+message MoveQueueMessageRequest {
+  CommandMeta command = 1;
+  ThreadTarget target = 2;
+  uint64 queue_revision = 3;
+  string message_id = 4;
+  optional string before_message_id = 5;
+}
+
+message RemoveQueueMessageRequest {
+  CommandMeta command = 1;
+  ThreadTarget target = 2;
+  uint64 queue_revision = 3;
+  string message_id = 4;
+}
+
+message PauseQueueRequest {
+  CommandMeta command = 1;
+  ThreadTarget target = 2;
+  uint64 queue_revision = 3;
+  bool paused = 4;
+}
+
+enum UnknownResolution {
+  UNKNOWN_RESOLUTION_UNSPECIFIED = 0;
+  UNKNOWN_RESOLUTION_ACCEPT_AS_DELIVERED = 1;
+  UNKNOWN_RESOLUTION_SEND_AGAIN = 2;
+  UNKNOWN_RESOLUTION_DISMISS = 3;
+}
+
+message ResolveUnknownQueueMessageRequest {
+  CommandMeta command = 1;
+  ThreadTarget target = 2;
+  uint64 queue_revision = 3;
+  string message_id = 4;
+  UnknownResolution resolution = 5;
+  optional string new_message_id = 6;
+}
+
+message UpdatePreferencesRequest {
+  CommandMeta command = 1;
+  EnvironmentRef environment = 2;
+  optional bool reopen_last_workspace = 3;
+  optional bool notch_enabled = 4;
+  optional string new_tab_tool = 5;
+  optional string new_worktree_tool = 6;
+  optional string chat_profile = 7;
+  optional string chat_model = 8;
+  optional string chat_effort = 9;
+  optional string chat_mode = 10;
+}
+
+enum OperationState {
+  OPERATION_STATE_UNSPECIFIED = 0;
+  OPERATION_STATE_ACCEPTED = 1;
+  OPERATION_STATE_ATTEMPTING = 2;
+  OPERATION_STATE_SUCCEEDED = 3;
+  OPERATION_STATE_FAILED = 4;
+  OPERATION_STATE_REJECTED = 5;
+  OPERATION_STATE_DELIVERY_UNKNOWN = 6;
+}
+
+message DomainError {
+  string code = 1;
+  string message = 2;
+  bool retryable = 3;
+}
+
+message RenameResult {
+  string title = 1;
+  uint64 revision = 2;
+}
+
+message SendResult {
+  string message_id = 1;
+}
+
+message QueueResult {
+  uint64 revision = 1;
+}
+
+message Preferences {
+  bool reopen_last_workspace = 1;
+  bool notch_enabled = 2;
+  string new_tab_tool = 3;
+  string new_worktree_tool = 4;
+  optional string chat_profile = 5;
+  optional string chat_model = 6;
+  optional string chat_effort = 7;
+  optional string chat_mode = 8;
+}
+
+message PreferencesResult {
+  Preferences values = 1;
+  uint64 revision = 2;
+}
+
+message CommandReceipt {
+  string host_id = 1;
+  string command_id = 2;
+  uint64 command_epoch = 3;
+  OperationState state = 4;
+  // Echoes the original address, including on retry after deletion.
+  oneof resource {
+    ThreadTarget target = 5;
+    EnvironmentRef environment = 6;
+  }
+  DomainError error = 7;
+  oneof result {
+    RenameResult rename = 8;
+    SendResult send = 9;
+    QueueResult queue = 10;
+    PreferencesResult preferences = 11;
+  }
+}

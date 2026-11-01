@@ -123,6 +123,10 @@ fn device(identity: &HostIdentity) -> (String, Vec<u8>, Identity) {
         Identity::from_pem(chain, key.serialize_pem()),
     )
 }
+#[tonic::async_trait]
+impl crate::api::ThreadPublisher for Host {
+    async fn committed(&self, _: &crate::host::CommandReceipt) {}
+}
 #[tokio::test]
 async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     let directory = tempfile::tempdir().unwrap();
@@ -150,6 +154,36 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     let state = HostState::new(host.id(), vec![]);
     let (enrollment, _) = EnrollmentRpc::new(auth.clone(), identity.clone());
     let operations = ResourceLocks::default();
+    let chat_id = uuid::Uuid::new_v4().to_string();
+    let chat = client
+        .save_runtime_chat(
+            crate::host::ChatRecord::new(
+                chat_id.clone(),
+                None,
+                "test-account".into(),
+                crate::state::workspace::PaneMetadata {
+                    kind: crate::state::workspace::PaneKind::Chat,
+                    chat: Some(Box::new(crate::chat::config::ChatSettings {
+                        id: Some(chat_id.clone()),
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let api = crate::api::ThreadRpc::new(
+        auth.clone(),
+        state.clone(),
+        operations.clone(),
+        crate::command_bus::DraftResources {
+            roots: Default::default(),
+            pulls: Default::default(),
+        },
+        Arc::new(Host),
+    );
     let settings = settings_rpc::SettingsRpc::new(
         auth.clone(),
         operations.clone(),
@@ -171,7 +205,9 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     let features = Routes::new(proto::settings_service_server::SettingsServiceServer::new(
         settings.clone(),
     ))
-    .add_service(proto::tasks_service_server::TasksServiceServer::new(tasks));
+    .add_service(proto::tasks_service_server::TasksServiceServer::new(tasks))
+    .add_service(crate::api::proto::catalog_service_server::CatalogServiceServer::new(api.clone()))
+    .add_service(crate::api::proto::thread_service_server::ThreadServiceServer::new(api));
     let server = start(
         "127.0.0.1:0".parse().unwrap(),
         ServerServices {
@@ -230,7 +266,7 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
                 id.clone(),
                 "test device".into(),
                 der,
-                crate::host::READ | crate::host::TASKS,
+                crate::host::READ | crate::host::TASKS | crate::host::CHAT,
                 vec!["private".into()],
             )
             .unwrap(),
@@ -261,6 +297,137 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
     assert_eq!(integrations.integrations[0].provider, "github");
     assert!(integrations.integrations[0].configured);
     assert!(!format!("{integrations:?}").contains(&credential_ref));
+    use crate::api::proto as api;
+    let discovery = api::catalog_service_client::CatalogServiceClient::new(channel.clone())
+        .list_threads(api::ListThreadsRequest {
+            environment: Some(api::EnvironmentRef {
+                host_id: host.id().into(),
+            }),
+            catalog_id: Some(chat_id.clone()),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let target = discovery.threads[0].target.clone().unwrap();
+    assert_eq!(
+        target.thread.as_ref().unwrap().thread_id,
+        chat.thread_id().unwrap().to_string()
+    );
+    assert_ne!(target.thread.as_ref().unwrap().thread_id, chat_id);
+    let send = api::SendMessageRequest {
+        command: Some(api::CommandMeta {
+            command_id: uuid::Uuid::new_v4().to_string(),
+            command_epoch: 1,
+            expected_revision: None,
+        }),
+        target: Some(target.clone()),
+        message_id: uuid::Uuid::new_v4().to_string(),
+        draft: Some(api::MessageDraft {
+            text: "durable message".into(),
+            ..Default::default()
+        }),
+        expected_context: Some(api::SendContext {
+            account_id: "test-account".into(),
+            profile_id: None,
+            history_epoch: 0,
+        }),
+    };
+    let mut thread_rpc = api::thread_service_client::ThreadServiceClient::new(channel.clone());
+    let accepted = thread_rpc
+        .send_message(send.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(accepted.state, api::OperationState::Succeeded as i32);
+    assert_eq!(
+        accepted.resource,
+        Some(api::command_receipt::Resource::Target(target.clone()))
+    );
+    assert_eq!(
+        thread_rpc
+            .send_message(send.clone())
+            .await
+            .unwrap()
+            .into_inner(),
+        accepted
+    );
+    assert_eq!(
+        client
+            .load_runtime_queue(chat_id.clone())
+            .await
+            .unwrap()
+            .entries()
+            .len(),
+        1
+    );
+    let mut changed = send.clone();
+    changed.draft.as_mut().unwrap().text = "different intent".into();
+    assert_eq!(
+        thread_rpc.send_message(changed).await.unwrap_err().code(),
+        tonic::Code::Aborted
+    );
+    let stale_queue = api::RemoveQueueMessageRequest {
+        command: Some(api::CommandMeta {
+            command_id: uuid::Uuid::new_v4().to_string(),
+            command_epoch: 1,
+            expected_revision: None,
+        }),
+        target: Some(target.clone()),
+        queue_revision: 0,
+        message_id: send.message_id.clone(),
+    };
+    let rejected = thread_rpc
+        .remove_queue_message(stale_queue.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(rejected.state, api::OperationState::Rejected as i32);
+    assert_eq!(rejected.error.as_ref().unwrap().code, "conditions_changed");
+    assert_eq!(
+        thread_rpc
+            .remove_queue_message(stale_queue)
+            .await
+            .unwrap()
+            .into_inner(),
+        rejected
+    );
+    assert_eq!(
+        client
+            .load_runtime_queue(chat_id.clone())
+            .await
+            .unwrap()
+            .entries()
+            .len(),
+        1
+    );
+    let mut wrong_host = send.clone();
+    wrong_host
+        .target
+        .as_mut()
+        .unwrap()
+        .thread
+        .as_mut()
+        .unwrap()
+        .host_id = uuid::Uuid::new_v4().to_string();
+    assert_eq!(
+        thread_rpc
+            .send_message(wrong_host)
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::NotFound
+    );
+    let mut stale_epoch = send.clone();
+    stale_epoch.command.as_mut().unwrap().command_id = uuid::Uuid::new_v4().to_string();
+    stale_epoch.target.as_mut().unwrap().executor_epoch += 1;
+    assert_eq!(
+        thread_rpc
+            .send_message(stale_epoch)
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::Aborted
+    );
     // READ includes Tasks browsing. A read-only device does not need TASKS or
     // ADMIN just to discover the host's safe integration metadata.
     client
@@ -272,6 +439,15 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         )
         .await
         .unwrap();
+    // The old successful receipt is still protected by the current grant.
+    assert_eq!(
+        thread_rpc
+            .send_message(send.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::PermissionDenied
+    );
     let readonly = proto::tasks_service_client::TasksServiceClient::new(channel.clone())
         .list_integrations(proto::TaskIntegrationsRequest {
             host_id: host.id().into(),
@@ -349,6 +525,10 @@ async fn typed_tls_health_requires_current_device_and_shutdown_ends_watches() {
         tonic_health::pb::health_check_response::ServingStatus::Serving as i32
     );
     client.revoke_runtime_device(id.clone()).await.unwrap();
+    assert_eq!(
+        thread_rpc.send_message(send).await.unwrap_err().code(),
+        tonic::Code::PermissionDenied
+    );
     state.authorization_changed();
     let refused = tokio::time::timeout(Duration::from_secs(2), watch.message())
         .await

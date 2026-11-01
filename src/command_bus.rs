@@ -221,6 +221,14 @@ pub enum Command {
         context: SendContext,
         steer_run: Option<u64>,
     },
+    /// The public thread API resolves the checkout from host-owned metadata.
+    ThreadSend {
+        message: String,
+        draft: DraftIntent,
+        account: String,
+        profile: Option<String>,
+        history_epoch: u64,
+    },
     Queue {
         revision: u64,
         change: QueueChange,
@@ -233,6 +241,7 @@ impl Command {
     pub fn required_scope(&self) -> u32 {
         let workspace_files = match self {
             Self::Send { draft, .. }
+            | Self::ThreadSend { draft, .. }
             | Self::Queue {
                 change: QueueChange::Edit { draft, .. },
                 ..
@@ -254,7 +263,7 @@ impl Command {
     pub fn metadata(&self) -> &'static CommandMetadata {
         &REGISTRY[match self {
             Self::Rename { .. } => 0,
-            Self::Send { .. } => 1,
+            Self::Send { .. } | Self::ThreadSend { .. } => 1,
             Self::Queue { change, .. } => match change {
                 QueueChange::Edit { .. } => 2,
                 QueueChange::Move { .. } => 3,
@@ -273,7 +282,7 @@ impl Command {
                     return Err(Error::InvalidRuntimeState);
                 }
             }
-            Self::Send { message, draft, .. } => {
+            Self::Send { message, draft, .. } | Self::ThreadSend { message, draft, .. } => {
                 if !host::valid_id(message) {
                     return Err(Error::InvalidRuntimeState);
                 }
@@ -426,7 +435,18 @@ impl CommandBus {
         let envelope = self
             .legacy_envelope(&key, host, chat, command, Conditions::default())
             .await?;
-        self.execute(envelope, principal, None).await
+        let receipt = self.execute(envelope, principal, None).await?;
+        // Existing local convenience callers report a domain conflict as an
+        // error. The bus still owns and commits the rejection first.
+        if receipt.key().device() == host::LOCAL_PRINCIPAL
+            && receipt.state() == host::CommandState::Rejected
+        {
+            self.client
+                .acknowledge_runtime_command(receipt.key().clone())
+                .await?;
+            return Err(Error::ResourceConflict);
+        }
+        Ok(receipt)
     }
     pub async fn queue_local(
         &self,

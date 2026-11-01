@@ -54,6 +54,7 @@ impl HostClient {
                 return Err("Operation recovery storage is full.".into());
             }
             r.mutations.push(MutationRecord {
+                api_intent: None,
                 chat_intent: None,
                 id: meta.command_id.clone(),
                 epoch: meta.command_epoch,
@@ -264,6 +265,7 @@ impl HostClient {
             return Err("Local outbox is full. Resolve or remove saved messages first.".into());
         }
         r.outbox.push(OutboxEntry {
+            api_request: None,
             id: id.clone(),
             request,
             attempted: false,
@@ -430,6 +432,7 @@ impl HostClient {
         }
         let mut request = p::SendMessageRequest::decode(entry.request.as_slice())
             .map_err(|_| "Saved message is invalid.")?;
+        let mut saved_api = entry.api_request.clone();
         if entry.attempted {
             let meta = request
                 .command
@@ -442,6 +445,9 @@ impl HostClient {
                     "The saved command epoch was retired. Reconcile before creating a new message."
                         .into(),
                 );
+            }
+            if saved_api.is_none() {
+                return Err("This saved send has no original thread address. Retain it for review without replay.".into());
             }
         } else {
             let catalog = self.snapshot_catalog().await?;
@@ -474,6 +480,24 @@ impl HostClient {
             let mut meta = self.command(None)?;
             meta.command_id = id.to_owned();
             request.command = Some(meta);
+            let api = self.api_send(&request).await?;
+            saved_api = Some(api.encode().1);
+        }
+        let api_bytes = saved_api.ok_or("Original typed send is missing.")?;
+        let mut api = super::api_commands::ApiIntent::decode("send", &api_bytes)?;
+        let api_meta = api
+            .meta()
+            .as_ref()
+            .ok_or("Original typed command identity is missing.")?;
+        let original_meta = request
+            .command
+            .as_ref()
+            .ok_or("Original command identity is missing.")?;
+        if api_meta.command_id != id
+            || api_meta.command_id != original_meta.command_id
+            || api_meta.command_epoch != original_meta.command_epoch
+        {
+            return Err("Saved send identity mismatch; intent retained without replay.".into());
         }
         self.update_record(|r| {
             let entry = r
@@ -482,12 +506,21 @@ impl HostClient {
                 .find(|e| e.id == id)
                 .ok_or("Saved message disappeared.")?;
             entry.request = request.encode_to_vec();
+            entry.api_request = Some(api_bytes);
             entry.attempted = true;
             Ok(())
         })?;
         let started = std::time::Instant::now();
-        let response = p::chat_service_client::ChatServiceClient::new(channel)
-            .send_message(request.clone())
+        let response = api
+            .dispatch(
+                channel,
+                self.id().as_str(),
+                request
+                    .chat
+                    .as_ref()
+                    .map(|c| c.chat_id.clone())
+                    .unwrap_or_default(),
+            )
             .await;
         let resource = crate::remote::metrics::resource_id(
             request
@@ -509,7 +542,7 @@ impl HostClient {
                 crate::remote::metrics::Outcome::DeliveryUnknown
             },
         );
-        let receipt = response.map_err(rpc_error)?.into_inner();
+        let receipt = response?;
         self.validate_receipt(request.command.as_ref().unwrap(), &receipt)?;
         self.save_outbox_receipt(id, &receipt)?;
         check_receipt(receipt)
@@ -604,6 +637,7 @@ impl HostClient {
                 return Err("Review saved operations before resolving this message.".into());
             }
             record.mutations.push(MutationRecord {
+                api_intent: None,
                 id: receipt.command_id.clone(),
                 epoch: receipt.command_epoch,
                 receipt: Some(receipt.encode_to_vec()),
@@ -614,6 +648,7 @@ impl HostClient {
                 request.command = None;
                 request.message_id = uuid::Uuid::new_v4().to_string();
                 record.outbox.push(OutboxEntry {
+                    api_request: None,
                     id: next.clone(),
                     request: request.encode_to_vec(),
                     attempted: false,
@@ -635,8 +670,15 @@ impl HostClient {
                 .receipt
                 .as_ref()
                 .and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok())
-                .is_some_and(|receipt| receipt.resolved_by_user)
+                .is_some_and(|receipt| {
+                    receipt.resolved_by_user || [3, 4, 5, 7].contains(&receipt.state)
+                })
             {
+                continue;
+            }
+            if entry.api_intent.is_some() {
+                let receipt = self.retry_api(&entry, String::new()).await?;
+                self.store_api_receipt(&entry.id, &receipt)?;
                 continue;
             }
             let receipt = client
@@ -669,8 +711,15 @@ impl HostClient {
                 .receipt
                 .as_ref()
                 .and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok())
-                .is_some_and(|receipt| receipt.resolved_by_user)
+                .is_some_and(|receipt| {
+                    receipt.resolved_by_user || [3, 4, 5, 7].contains(&receipt.state)
+                })
             {
+                continue;
+            }
+            if entry.api_request.is_some() {
+                let receipt = self.retry_api_outbox(&entry).await?;
+                self.save_outbox_receipt(&entry.id, &receipt)?;
                 continue;
             }
             let request = p::SendMessageRequest::decode(entry.request.as_slice())
@@ -897,6 +946,169 @@ mod draft_tests {
             text: text.into(),
             ..Default::default()
         }
+    }
+    #[derive(Clone, Default)]
+    struct RetryEndpoint(Arc<std::sync::Mutex<Vec<crate::api::proto::SendMessageRequest>>>);
+    #[tonic::async_trait]
+    impl crate::api::proto::thread_service_server::ThreadService for RetryEndpoint {
+        async fn send_message(
+            &self,
+            r: tonic::Request<crate::api::proto::SendMessageRequest>,
+        ) -> Result<tonic::Response<crate::api::proto::CommandReceipt>, tonic::Status> {
+            use crate::api::proto as api;
+            let r = r.into_inner();
+            self.0.lock().unwrap().push(r.clone());
+            let meta = r.command.unwrap();
+            let target = r.target.unwrap();
+            Ok(tonic::Response::new(api::CommandReceipt {
+                host_id: target.thread.as_ref().unwrap().host_id.clone(),
+                command_id: meta.command_id,
+                command_epoch: meta.command_epoch,
+                state: api::OperationState::Succeeded as i32,
+                resource: Some(api::command_receipt::Resource::Target(target)),
+                error: None,
+                result: Some(api::command_receipt::Result::Send(api::SendResult {
+                    message_id: r.message_id,
+                })),
+            }))
+        }
+        async fn edit_queue_message(
+            &self,
+            _: tonic::Request<crate::api::proto::EditQueueMessageRequest>,
+        ) -> Result<tonic::Response<crate::api::proto::CommandReceipt>, tonic::Status> {
+            Err(tonic::Status::unimplemented("unexpected method"))
+        }
+        async fn move_queue_message(
+            &self,
+            _: tonic::Request<crate::api::proto::MoveQueueMessageRequest>,
+        ) -> Result<tonic::Response<crate::api::proto::CommandReceipt>, tonic::Status> {
+            Err(tonic::Status::unimplemented("unexpected method"))
+        }
+        async fn remove_queue_message(
+            &self,
+            _: tonic::Request<crate::api::proto::RemoveQueueMessageRequest>,
+        ) -> Result<tonic::Response<crate::api::proto::CommandReceipt>, tonic::Status> {
+            Err(tonic::Status::unimplemented("unexpected method"))
+        }
+        async fn pause_queue(
+            &self,
+            _: tonic::Request<crate::api::proto::PauseQueueRequest>,
+        ) -> Result<tonic::Response<crate::api::proto::CommandReceipt>, tonic::Status> {
+            Err(tonic::Status::unimplemented("unexpected method"))
+        }
+        async fn resolve_unknown_queue_message(
+            &self,
+            _: tonic::Request<crate::api::proto::ResolveUnknownQueueMessageRequest>,
+        ) -> Result<tonic::Response<crate::api::proto::CommandReceipt>, tonic::Status> {
+            Err(tonic::Status::unimplemented("unexpected method"))
+        }
+    }
+    #[tokio::test]
+    async fn lost_typed_send_keeps_original_thread_epoch_after_client_restart() {
+        use crate::{
+            api::proto as api,
+            remote::client::{ChatMutation, api_commands::ApiIntent},
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("client.json");
+        let (registry, host) = fixture(path.clone());
+        host.state.lock().unwrap().channel =
+            Some(tonic::transport::Endpoint::from_static("http://127.0.0.1:1").connect_lazy());
+        let chat = p::ChatRef {
+            host_id: host.id().as_str().into(),
+            chat_id: uuid::Uuid::new_v4().to_string(),
+        };
+        let target = api::ThreadTarget {
+            thread: Some(api::ThreadRef {
+                host_id: chat.host_id.clone(),
+                thread_id: crate::thread::ThreadId::new().to_string(),
+            }),
+            executor_epoch: 7,
+        };
+        let legacy = ChatMutation::Send(p::SendMessageRequest {
+            chat: Some(chat.clone()),
+            message_id: "retained-message".into(),
+            draft: Some(draft("retain both draft and original target")),
+            ..Default::default()
+        });
+        let typed = ApiIntent::Send(api::SendMessageRequest {
+            target: Some(target.clone()),
+            message_id: "retained-message".into(),
+            draft: Some(api::MessageDraft {
+                text: "retain both draft and original target".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            host.submit_chat_mutation_prepared(legacy, Some(typed), |_, _, _| {
+                std::future::pending()
+            }),
+        )
+        .await;
+        assert!(result.is_err());
+        let saved = host.snapshot().record.mutations[0].clone();
+        let id = host.id().clone();
+        drop(host);
+        drop(registry);
+        let restored = ClientRegistry::open(path, Arc::new(NoVault))
+            .unwrap()
+            .get(&id)
+            .unwrap();
+        // No catalog or projection survived. Recovery must use the persisted RPC.
+        assert!(restored.snapshot().record.catalog.is_empty());
+        let entry = restored.snapshot().record.mutations[0].clone();
+        assert_eq!(entry.api_intent, saved.api_intent);
+        let (kind, bytes) = entry.api_intent.unwrap();
+        let ApiIntent::Send(request) = ApiIntent::decode(&kind, &bytes).unwrap() else {
+            panic!("wrong retained method")
+        };
+        assert_eq!(request.target.as_ref(), Some(&target));
+        assert_eq!(request.command.as_ref().unwrap().command_id, saved.id);
+        assert_eq!(request.command.as_ref().unwrap().command_epoch, saved.epoch);
+        assert_eq!(restored.chat_mutations(&chat)[0].0, saved.id);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let recorder = RetryEndpoint::default();
+        let service = recorder.clone();
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(api::thread_service_server::ThreadServiceServer::new(
+                    service,
+                ))
+                .serve_with_incoming_shutdown(
+                    tokio_stream::wrappers::TcpListenerStream::new(listener),
+                    async {
+                        let _ = stopped.await;
+                    },
+                )
+                .await
+                .unwrap();
+        });
+        let channel = tonic::transport::Endpoint::from_shared(endpoint)
+            .unwrap()
+            .connect()
+            .await
+            .unwrap();
+        restored.state.lock().unwrap().channel = Some(channel);
+        // Only ThreadService exists: rediscovery or a legacy fallback fails.
+        let retried = restored.retry_chat_mutation(&saved.id).await.unwrap();
+        assert_eq!(retried.message_id, "retained-message");
+        assert_eq!(recorder.0.lock().unwrap()[0].encode_to_vec(), bytes);
+        // A pre-migration attempted send cannot acquire today's thread identity.
+        restored
+            .update_record(|r| {
+                r.mutations[0].api_intent = None;
+                Ok(())
+            })
+            .unwrap();
+        let refusal = restored.retry_chat_mutation(&saved.id).await.unwrap_err();
+        assert!(refusal.contains("no original thread address"));
+        assert_eq!(restored.chat_mutations(&chat)[0].0, saved.id);
+        stop.send(()).unwrap();
+        server.await.unwrap();
     }
     #[tokio::test]
     async fn timed_out_chat_mutation_keeps_its_identity_and_blocks_a_new_attempt() {

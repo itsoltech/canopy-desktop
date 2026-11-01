@@ -187,6 +187,8 @@ impl ConnectionRoute {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct OutboxEntry {
+    #[serde(default)]
+    pub api_request: Option<Vec<u8>>,
     pub id: String,
     pub request: Vec<u8>,
     pub attempted: bool,
@@ -196,6 +198,8 @@ pub(crate) struct OutboxEntry {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct MutationRecord {
+    #[serde(default)]
+    pub api_intent: Option<(String, Vec<u8>)>,
     #[serde(default)]
     pub chat_intent: Option<(String, Vec<u8>)>,
     pub id: String,

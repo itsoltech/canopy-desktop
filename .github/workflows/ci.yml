@@ -15,6 +15,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  proto:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install buf 1.57.2
+        run: |
+          curl --fail --location --silent --show-error https://github.com/bufbuild/buf/releases/download/v1.57.2/buf-Linux-x86_64 --output "$RUNNER_TEMP/buf"
+          echo "644e6fa4a62afc2b0d425d3ac9538d2f512947c0f2e82fc95c41a5eab6729414  $RUNNER_TEMP/buf" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/buf"
+      - name: Lint typed API contract
+        run: '"$RUNNER_TEMP/buf" lint'
   check:
     runs-on: macos-latest
     env:

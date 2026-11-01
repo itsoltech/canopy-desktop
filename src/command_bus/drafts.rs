@@ -25,6 +25,11 @@ pub enum AttachmentIntent {
         relative: String,
         label: Option<String>,
     },
+    ThreadPath {
+        project_file: bool,
+        relative: String,
+        label: Option<String>,
+    },
     Image {
         host: HostId,
         artifact: String,
@@ -62,7 +67,7 @@ fn relative(value: &str) -> Result<PathBuf> {
 }
 impl DraftIntent {
     pub(super) fn has_workspace_files(&self) -> bool {
-        matches!(self, Self::Incoming { attachments, .. } if attachments.iter().any(|a| matches!(a, AttachmentIntent::Path { workspace: Some(_), .. })))
+        matches!(self, Self::Incoming { attachments, .. } if attachments.iter().any(|a| matches!(a, AttachmentIntent::Path { workspace: Some(_), .. } | AttachmentIntent::ThreadPath { project_file: true, .. })))
     }
     pub(super) fn normalize(&mut self) -> Result<()> {
         match self {
@@ -83,6 +88,11 @@ impl DraftIntent {
                 for attachment in attachments {
                     match attachment {
                         AttachmentIntent::Path {
+                            relative: path,
+                            label,
+                            ..
+                        }
+                        | AttachmentIntent::ThreadPath {
                             relative: path,
                             label,
                             ..
@@ -136,6 +146,30 @@ impl DraftIntent {
         let mut images = Vec::new();
         for attachment in attachments {
             match attachment {
+                AttachmentIntent::ThreadPath {
+                    project_file,
+                    relative: path,
+                    label,
+                } => {
+                    let root = if *project_file {
+                        let workspace = record.workspace().ok_or(Error::ResourceConflict)?;
+                        let roots = &resources.ok_or(Error::InvalidRuntimeState)?.roots;
+                        let root = roots.resolve_host_workspace(workspace)?;
+                        if root.to_str() != Some(record.authority_root()) {
+                            return Err(Error::NotAuthorized);
+                        }
+                        root
+                    } else {
+                        if record.workspace().is_some() {
+                            return Err(Error::ResourceConflict);
+                        }
+                        record.metadata().cwd.clone().ok_or(Error::NotFound)?
+                    };
+                    values.push(Attachment::Path {
+                        path: root.join(relative(path)?),
+                        label: label.clone(),
+                    });
+                }
                 AttachmentIntent::Image { host, artifact, .. } => {
                     if host != prepared.envelope.resource.host_id() {
                         return Err(Error::NotAuthorized);
@@ -252,6 +286,27 @@ pub(super) fn resolve_command(
 ) -> Result<Dispatch> {
     Ok(match &prepared.envelope.command {
         Command::Rename { title } => Dispatch::Rename(title.clone()),
+        Command::ThreadSend {
+            message,
+            draft,
+            account,
+            profile,
+            history_epoch,
+        } => {
+            let record = prepared.record.as_ref().ok_or(Error::NotFound)?;
+            Dispatch::Send {
+                message: message.clone(),
+                draft: draft.resolve(prepared, resources)?,
+                context: SendContext::new(
+                    account.clone(),
+                    profile.clone(),
+                    record.workspace().map(str::to_owned),
+                    *history_epoch,
+                )
+                .ok_or(Error::InvalidRuntimeState)?,
+                steer_run: None,
+            }
+        }
         Command::Send {
             message,
             draft,

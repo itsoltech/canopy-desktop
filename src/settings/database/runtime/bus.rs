@@ -74,49 +74,84 @@ impl Database {
         let tx = self
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        validate_dispatch(&tx, &prepared)?;
+        if let Err(error) = validate_dispatch(&tx, &prepared) {
+            if !matches!(error, Error::ResourceConflict) {
+                return Err(error);
+            }
+            let receipt = reject_conditions(
+                &tx,
+                &prepared.input,
+                prepared.envelope.command.required_scope(),
+            )?;
+            tx.commit()?;
+            return Ok(receipt);
+        }
         if let Some(prior) = existing(&tx, &prepared.input)? {
             return Ok(prior);
         }
         let input = prepared.input;
         let chat = input.target.clone();
         let scope = prepared.envelope.command.required_scope();
-        let result = match dispatch {
-            Dispatch::Rename(title) => {
-                let mut record = load_chat(&tx, "chat_id=?1 AND closed_at IS NULL", &chat)?
-                    .ok_or(Error::NotFound)?;
-                record.metadata.title = Some(title);
-                record.metadata.chat_title_state =
-                    Some(crate::state::workspace::ChatTitleState::Named);
-                let metadata = serde_json::to_string(&record.metadata)
-                    .map_err(|_| Error::InvalidRuntimeState)?;
-                tx.execute("UPDATE _canopy_runtime_chats SET metadata=?2,revision=revision+(metadata IS NOT ?2) WHERE chat_id=?1",params![chat,metadata])?;
-                let record = load_chat(&tx, "chat_id=?1", &chat)?.ok_or(Error::NotFound)?;
-                let result = serde_json::to_vec(&serde_json::json!({"title": record.metadata.title, "revision": record.thread().ok_or(Error::InvalidRuntimeState)?.revision()})).map_err(|_| Error::InvalidRuntimeState)?;
-                insert_command(
-                    &tx,
-                    &input,
-                    CommandState::Succeeded,
-                    Some(&result),
-                    prepared.envelope.command.required_scope(),
-                )?
-            }
-            Dispatch::Send {
-                message,
-                draft,
-                context,
-                steer_run,
-            } => {
-                let intent = host::MessageIntent {
-                    message_id: message.clone(),
-                    draft: draft.clone(),
+        // Queue validation can fail after bumping its revision. Roll back every
+        // tentative effect before persisting a domain rejection in the same tx.
+        tx.execute_batch("SAVEPOINT bus_effect")?;
+        let result = (|| -> Result<CommandReceipt> {
+            Ok(match dispatch {
+                Dispatch::Rename(title) => {
+                    let mut record = load_chat(&tx, "chat_id=?1 AND closed_at IS NULL", &chat)?
+                        .ok_or(Error::NotFound)?;
+                    record.metadata.title = Some(title);
+                    record.metadata.chat_title_state =
+                        Some(crate::state::workspace::ChatTitleState::Named);
+                    let metadata = serde_json::to_string(&record.metadata)
+                        .map_err(|_| Error::InvalidRuntimeState)?;
+                    tx.execute("UPDATE _canopy_runtime_chats SET metadata=?2,revision=revision+(metadata IS NOT ?2) WHERE chat_id=?1",params![chat,metadata])?;
+                    let record = load_chat(&tx, "chat_id=?1", &chat)?.ok_or(Error::NotFound)?;
+                    let result = serde_json::to_vec(&serde_json::json!({"title": record.metadata.title, "revision": record.thread().ok_or(Error::InvalidRuntimeState)?.revision()})).map_err(|_| Error::InvalidRuntimeState)?;
+                    insert_command(
+                        &tx,
+                        &input,
+                        CommandState::Succeeded,
+                        Some(&result),
+                        prepared.envelope.command.required_scope(),
+                    )?
+                }
+                Dispatch::Send {
+                    message,
+                    draft,
                     context,
                     steer_run,
-                };
-                accept_message(&tx, input, chat, message, draft, Some(intent), scope)?
+                } => {
+                    let intent = host::MessageIntent {
+                        message_id: message.clone(),
+                        draft: draft.clone(),
+                        context,
+                        steer_run,
+                    };
+                    accept_message(
+                        &tx,
+                        input.clone(),
+                        chat,
+                        message,
+                        draft,
+                        Some(intent),
+                        scope,
+                    )?
+                }
+                Dispatch::Queue { revision, mutation } => {
+                    mutate_queue(&tx, input.clone(), chat, revision, mutation, scope)?
+                }
+            })
+        })();
+        let result = match result {
+            Err(Error::ResourceConflict) => {
+                tx.execute_batch("ROLLBACK TO bus_effect; RELEASE bus_effect")?;
+                reject_conditions(&tx, &input, scope)?
             }
-            Dispatch::Queue { revision, mutation } => {
-                mutate_queue(&tx, input, chat, revision, mutation, scope)?
+            result => {
+                let receipt = result?;
+                tx.execute_batch("RELEASE bus_effect")?;
+                receipt
             }
         };
         tx.commit()?;
@@ -151,7 +186,13 @@ impl Database {
             .expected_revision
             .is_some_and(|expected| expected != revision)
         {
-            return Err(Error::ResourceConflict);
+            let receipt = reject_conditions(
+                &tx,
+                &prepared.input,
+                prepared.envelope.command.required_scope(),
+            )?;
+            tx.commit()?;
+            return Ok((receipt, None));
         }
         let before = super::super::read_snapshot(&tx, super::super::schema(&tx)?)?;
         let snapshot = super::super::apply_preferences(&tx, changes)?;
@@ -176,6 +217,11 @@ impl Database {
         tx.commit()?;
         Ok((receipt, Some(snapshot)))
     }
+}
+
+fn reject_conditions(tx: &Transaction, input: &CommandInput, scope: u32) -> Result<CommandReceipt> {
+    let result = br#"{"reason":"conditions_changed: The resource changed; review its current state before a new command."}"#;
+    insert_command(tx, input, CommandState::Rejected, Some(result), scope)
 }
 
 fn validate_dispatch(db: &Connection, prepared: &PreparedCommand) -> Result<()> {

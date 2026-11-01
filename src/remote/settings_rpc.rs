@@ -65,6 +65,35 @@ pub struct SettingsRpc {
     gate: Arc<tokio::sync::Mutex<()>>,
 }
 impl SettingsRpc {
+    pub(crate) async fn api_preferences(
+        &self,
+        r: Request<crate::api::proto::UpdatePreferencesRequest>,
+    ) -> Result<Response<crate::api::proto::CommandReceipt>, Status> {
+        let grant = self.auth.authenticate(&r).await?;
+        let (meta, environment, envelope) = crate::api::rpc::preferences_envelope(r.into_inner())?;
+        let principal = crate::command_bus::Principal::authenticated(&grant, meta.command_epoch)
+            .map_err(storage_status)?;
+        let receipt = self.preferences_owned(envelope, principal).await?;
+        Ok(Response::new(crate::api::compat::receipt(
+            &self.auth,
+            &receipt,
+            crate::api::proto::command_receipt::Resource::Environment(environment),
+        )?))
+    }
+    async fn preferences_owned(
+        &self,
+        envelope: crate::command_bus::CommandEnvelope,
+        principal: crate::command_bus::Principal,
+    ) -> Result<crate::host::CommandReceipt, Status> {
+        let host = self.host.clone();
+        let operation = self.locks.begin()?;
+        tokio::spawn(async move {
+            let _operation = operation;
+            host.update_preferences(envelope, principal).await
+        })
+        .await
+        .map_err(|_| Status::unknown("Preferences outcome is uncertain; retry the same ID."))?
+    }
     pub fn new(
         auth: RpcAuth,
         locks: ResourceLocks,
@@ -175,14 +204,7 @@ impl proto::settings_service_server::SettingsService for SettingsRpc {
         };
         let principal = crate::command_bus::Principal::authenticated(&grant, meta.command_epoch)
             .map_err(storage_status)?;
-        let host = self.host.clone();
-        let operation = self.locks.begin()?;
-        let receipt = tokio::spawn(async move {
-            let _operation = operation;
-            host.update_preferences(envelope, principal).await
-        })
-        .await
-        .map_err(|_| Status::unknown("Preferences outcome is uncertain; retry the same ID."))??;
+        let receipt = self.preferences_owned(envelope, principal).await?;
         Ok(Response::new(self.auth.receipt(&receipt)))
     }
     async fn save_agent_definition(

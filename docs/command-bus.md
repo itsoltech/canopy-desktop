@@ -51,7 +51,8 @@ Legacy `GetCommand` i `ResolveCommand` nie zawierają resource ani epoki executo
 Po sprawdzeniu uprawnień odrzucają niejednoznaczny command ID, zamiast wybierać
 dowolny wiersz. Odzyskanie wyniku: ponowić oryginalne typowane RPC z tym samym
 command ID. Jawny retry Send zachowuje ID i zapisany request; nie stosuje hedgingu.
-Protobuf pozostaje bez zmian.
+Typowane komendy mają kontrakt [canopy.api.v1](api-v1.md). Stare odczyty
+i pozostałe operacje pozostają dostępne na czas niewydanej migracji.
 
 ## Zapis i niepewność dostarczenia
 
@@ -101,9 +102,10 @@ Poza magistralą pozostają create/delete/fork/recover, start/interrupt/restart,
 steer/respond/options/agent/goal/background/edit/shell, otwieranie/zamykanie
 projektów, terminale, Files/Git, Tasks/integracje, profile/sekrety, administracja
 urządzeniami i artefaktami oraz inne mutacje. Ich dotychczasowe ścieżki pozostają
-czynne. Sekrety nie trafiają do plaintext inboxu. Ten etap nie dodaje nowego
-pakietu API, MCP, outbox replay, replikacji ani handoff.
-BUS-05/RPC-11 i porównanie deskryptorów są odroczone do `canopy.api.v1`.
+czynne. Sekrety nie trafiają do plaintext inboxu. Pierwszy etap
+[canopy.api.v1](api-v1.md) udostępnia osiem komend rejestru, odczyt tożsamości
+wątków i parytet deskryptora z rejestrem. Pełne BUS-05/RPC-11 czeka na pozostałe
+komendy i rzeczywisty rejestr narzędzi. Nie dodano outbox replay, replikacji ani handoff.
 
 ## Dostęp do wątku: Local i Grpc
 
@@ -117,7 +119,7 @@ Kilka widoków tej samej referencji hosta współdzieli jedną subskrypcję.
 
 Local bezpośrednio wywołuje istniejący bus, runtime, właściciela Settings i workery.
 Nie koduje Protobuf i nie łączy się z własnym serwerem. Grpc skupia konwersje
-`canopy.remote.v1`, projekcję, stream/pump, dziennik żądań i odzyskiwanie szkiców
+`canopy.api.v1` dla komend busa oraz legacy odczyty, projekcję, stream/pump, dziennik żądań i odzyskiwanie szkiców
 w `transport/grpc.rs`. Krótkie odczyty mają właściciela anulowania zarówno po stronie
 wywołującego, jak i subskrypcji. Mutacje nadal należą do istniejącego właściciela
 operacji i trwałego dziennika; odłączenie widoku nie oznacza przerwania wykonania.
@@ -190,4 +192,4 @@ Workspace nadal wybiera środowisko dla New Chat i New Tab z metadanych aktywnej
 karty: na hoście tworzy czat przez wspólne `create_sibling`, a lokalny New Tab
 zachowuje uruchomienie skonfigurowanego narzędzia. Pozostaje dotychczasowa kolejność
 guardów modali i lokalnego workflow tworzenia; wybór ten nie wykonuje RPC.
-Przyszła zmiana kontraktu RPC i szersze API zasobów pozostają osobnym etapem.
+Pozostała migracja kontraktu RPC i szersze API zasobów pozostają osobnym etapem.
