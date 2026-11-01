@@ -12,13 +12,15 @@ export default function NotesScreen() {
   const { hostId, workspaceId } = useLocalSearchParams<{ hostId: string; workspaceId: string }>()
   const { host, error } = useHost(hostId); useRevision(host)
   const [scope, setScope] = useState<'worktree' | 'project'>('worktree'), [preview, setPreview] = useState(false), [, redraw] = useState(0), [path, setPath] = useState('')
-  const project = host?.snapshot().catalog?.projects.find(project => project.checkouts.some(checkout => checkout.workspace?.workspace_id === workspaceId))
-  const key = JSON.stringify([hostId, scope, scope === 'project' ? project?.project_id : workspaceId])
+  const project = host?.snapshot().catalog?.projects.find(project => project.checkouts.some(checkout => checkout.catalog_id === workspaceId))
+  const checkout = project?.checkouts.find(checkout => checkout.catalog_id === workspaceId)
+  const key = JSON.stringify([hostId, scope, scope === 'project' ? project?.path : workspaceId])
   const text = notes.get(key) ?? ''
   const change = (value: string) => { notes.set(key, value); redraw(value => value + 1) }
   const exportNote = async (create: boolean) => {
     if (!host || !path.trim()) return
-    const file = { workspace: { host_id: hostId, workspace_id: workspaceId }, relative_path: path }
+    if (!checkout?.project) throw Error('Checkout is unavailable')
+    const file = { target: { project: checkout.project }, relative_path: path }
     const source = text
     if (create) checkReceipt(await host.mutate('FilesService/CreateFile', { command: command(host.store), file, directory: false }))
     const current = await readTextFile(host, file)

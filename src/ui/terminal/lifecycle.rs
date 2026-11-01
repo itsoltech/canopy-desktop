@@ -22,6 +22,26 @@ fn cleanup_is_current(
 }
 
 impl TerminalView {
+    /// The local owner captures catalog identity when present. Private/scratch
+    /// uses the host environment without inventing a project or source thread.
+    pub(crate) fn local_resource(
+        &self,
+        cx: &App,
+    ) -> Result<crate::app_state::file_ops::LocalResource, String> {
+        let Some(root) = self.pane.metadata.cwd.as_deref() else {
+            return crate::app_state::file_ops::LocalResource::environment(cx);
+        };
+        let projects = cx.global::<crate::app_state::AppState>().projects.read(cx);
+        if !projects
+            .catalog
+            .items
+            .iter()
+            .any(|p| p.worktree_path.as_deref().unwrap_or(&p.path) == root)
+        {
+            return crate::app_state::file_ops::LocalResource::environment(cx);
+        }
+        crate::app_state::file_ops::LocalResource::capture(root, cx)
+    }
     /// Starts a new run owned by `holder` (the device that asked for it).
     pub fn start_for(&mut self, holder: Holder, cx: &mut Context<Self>) {
         self.next_holder = holder;
@@ -56,13 +76,26 @@ impl TerminalView {
         if self.cleanup_result().is_some_and(|result| result.is_ok()) {
             self.cleanup = None;
         }
+        let local = if self.next_holder == Holder::Local {
+            self.local_resource(cx).map(Some)
+        } else {
+            Ok(None)
+        };
+        let command = canopy_desktop::command_bus::Command::Terminal(match self.run.as_ref() {
+            Some(run) => canopy_desktop::command_bus::TerminalCommand::Restart {
+                terminal: self.terminal_id.clone(),
+                run: run.id().into(),
+            },
+            None => canopy_desktop::command_bus::TerminalCommand::Open {
+                tool: self.pane.tool.clone(),
+                profile: self.pane.metadata.profile_id.clone(),
+            },
+        });
         self.generation += 1;
         let generation = self.generation;
         let holder = std::mem::replace(&mut self.next_holder, Holder::Local);
         self.pump = None;
-        if let Some(run) = self.run.take() {
-            run.supersede();
-        }
+        let previous_run = self.run.take();
         self.lease = None;
         self.lease_timer = None;
         self.session = None;
@@ -91,57 +124,90 @@ impl TerminalView {
             .flat_map(|w| w.all_panes())
             .find(|p| p.id == self.pane.id)
             .unwrap_or_else(|| self.pane.clone());
-        let registration = if matches!(pane.tool.as_str(), "claude" | "codex") {
-            match app
-                .agents
-                .update(cx, |agents, cx| agents.register(pane.clone(), cx))
-            {
-                Ok(registration) => {
-                    self.agent_run = Some(registration.run.clone());
-                    Some(registration)
-                }
-                Err(error) => {
-                    self.starting = false;
-                    self.error = Some(error);
-                    cx.notify();
-                    return;
-                }
-            }
-        } else {
-            None
-        };
+        let register = matches!(pane.tool.as_str(), "claude" | "codex");
         let size = self.columns;
         self.task = Some(cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let env = match env {
-                        Some(env) => env,
-                        None => Arc::new(ShellEnvironment::load()?),
-                    };
-                    if registration.is_some() {
-                        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-                        let helper = canopy_desktop::agents::launch::helper_path(&executable);
-                        canopy_desktop::agents::launch::validate_helper(&helper)?;
-                        canopy_desktop::agents::launch::augment(&mut catalog, &mut pane, &helper)?;
+            let admitted = match local {
+                Ok(Some(owner)) => owner.begin(command).await.map(|input| Some((owner, input))),
+                Ok(None) => Ok(None),
+                Err(error) => Err(error),
+            };
+            let result = match &admitted {
+                Err(error) => Err(error.clone()),
+                Ok(_) => {
+                    if let Some(run) = previous_run {
+                        run.supersede();
                     }
-                    let mut prepared =
-                        canopy_desktop::terminal::agent_config::prepare(&catalog, &pane, &env)?;
-                    if let Some(registration) = &registration {
-                        canopy_desktop::agents::launch::environment(
-                            &mut prepared.environment,
-                            registration,
-                        );
+                    let registration = this
+                        .update(cx, |this, cx| {
+                            if this.generation != generation || this.stopping {
+                                return Err("Terminal start was superseded.".into());
+                            }
+                            if register {
+                                let registration = app
+                                    .agents
+                                    .update(cx, |agents, cx| agents.register(pane.clone(), cx))?;
+                                this.agent_run = Some(registration.run.clone());
+                                Ok(Some(registration))
+                            } else {
+                                Ok(None)
+                            }
+                        })
+                        .map_err(|_| "Terminal owner stopped.".to_owned())
+                        .and_then(|v| v);
+                    match registration {
+                        Err(error) => Err(error),
+                        Ok(registration) => {
+                            cx.background_executor()
+                                .spawn(async move {
+                                    let env = match env {
+                                        Some(env) => env,
+                                        None => Arc::new(ShellEnvironment::load()?),
+                                    };
+                                    if registration.is_some() {
+                                        let executable =
+                                            std::env::current_exe().map_err(|e| e.to_string())?;
+                                        let helper = canopy_desktop::agents::launch::helper_path(
+                                            &executable,
+                                        );
+                                        canopy_desktop::agents::launch::validate_helper(&helper)?;
+                                        canopy_desktop::agents::launch::augment(
+                                            &mut catalog,
+                                            &mut pane,
+                                            &helper,
+                                        )?;
+                                    }
+                                    let mut prepared =
+                                        canopy_desktop::terminal::agent_config::prepare(
+                                            &catalog, &pane, &env,
+                                        )?;
+                                    if let Some(registration) = &registration {
+                                        canopy_desktop::agents::launch::environment(
+                                            &mut prepared.environment,
+                                            registration,
+                                        );
+                                    }
+                                    let session = Session::start_with_config(
+                                        prepared.spec,
+                                        &prepared.environment,
+                                        size,
+                                        prepared.files,
+                                    )?;
+                                    Ok::<_, String>((env, session))
+                                })
+                                .await
+                        }
                     }
-                    let session = Session::start_with_config(
-                        prepared.spec,
-                        &prepared.environment,
-                        size,
-                        prepared.files,
-                    )?;
-                    Ok::<_, String>((env, session))
-                })
-                .await;
+                }
+            };
+            let fence_error = match admitted {
+                Ok(Some((owner, input))) => owner
+                    .bus
+                    .finish_local_resource(input, result.as_ref().map(|_| ()).map_err(Clone::clone))
+                    .await
+                    .err(),
+                _ => None,
+            };
             let _ = this.update(cx, |this, cx| {
                 if generation != this.generation {
                     if let Ok((_, session)) = result {
@@ -159,6 +225,9 @@ impl TerminalView {
                         this.run = Some(Run::new(session.clone(), Some(holder)));
                         this.session = Some(session);
                         this.refresh(cx);
+                        if let Some(error) = fence_error {
+                            this.error = Some(error);
+                        }
                         this.pump = Some(cx.spawn(async move |this, cx| {
                             while notifications.recv().await.is_ok() {
                                 // One coalesced wake slot: output cannot accumulate UI tasks.
@@ -246,6 +315,7 @@ impl TerminalView {
             run.retire();
         }
         let start = self.task.take();
+        let input_control = self.input_control.take();
         let current = self.session.clone();
         if let Some(session) = &current {
             session.stop();
@@ -257,6 +327,9 @@ impl TerminalView {
         let task = cx.spawn(async move |_, cx| {
             if let Some(start) = start {
                 start.await;
+            }
+            if let Some(control) = input_control {
+                control.await;
             }
             let late = owner.update(cx, |this, _| this.session.clone());
             let mut cleanup = Ok(());
@@ -346,13 +419,39 @@ impl TerminalView {
     }
     /// The host user takes input and size back from a device, explicitly.
     pub fn take_input(&mut self, cx: &mut Context<Self>) {
-        if let Some(run) = &self.run
-            && let Err(error) = run.acquire(Holder::Local, true)
-        {
-            self.input_error = Some(error.to_string());
+        if self.input_control.is_some() || self.stopping {
+            return;
         }
-        self.refresh(cx);
-        cx.notify();
+        let Some(run) = self.run.clone() else {
+            return;
+        };
+        let resource = self.local_resource(cx);
+        let terminal = self.terminal_id.clone();
+        self.input_control = Some(cx.spawn(async move |this, cx| {
+            let result = async {
+                let resource = resource?;
+                let input = resource
+                    .begin(canopy_desktop::command_bus::Command::Terminal(
+                        canopy_desktop::command_bus::TerminalCommand::Acquire {
+                            terminal,
+                            take_over: true,
+                        },
+                    ))
+                    .await?;
+                let outcome = run
+                    .acquire(Holder::Local, true)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string());
+                resource.bus.finish_local_resource(input, outcome).await
+            }
+            .await;
+            let _ = this.update(cx, |this, cx| {
+                this.input_control = None;
+                this.input_error = result.err();
+                this.refresh(cx);
+                cx.notify();
+            });
+        }));
     }
     /// The device holding input, if any; local typing is refused meanwhile.
     pub fn input_device(&self) -> Option<&Holder> {

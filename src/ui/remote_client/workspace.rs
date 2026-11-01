@@ -140,41 +140,19 @@ impl RemoteWindow {
             async move {
                 let artifact = host
                     .upload(
-                        p::ResourceRef {
-                            resource: Some(p::resource_ref::Resource::File(file.clone())),
-                        },
-                        "file-save",
+                        canopy_desktop::remote::client::UploadTarget::File(file.clone()),
+                        "file_save",
                         "application/octet-stream",
                         bytes,
                     )
                     .await?;
-                let save_file = file.clone();
-                host.mutate(None, move |channel, command| async move {
-                    p::files_service_client::FilesServiceClient::new(channel)
-                        .save_file(p::SaveFileRequest {
-                            command: Some(command),
-                            file: Some(save_file),
-                            expected_hash,
-                            content: Some(artifact),
-                        })
-                        .await
-                })
-                .await?;
+                host.save_file(file.clone(), expected_hash, artifact)
+                    .await?;
                 let (bytes, hash) = host.read_file(file.clone()).await?;
                 let text = String::from_utf8(bytes).map_err(|_| "Saved file is not UTF-8.")?;
                 let base_hash = hash.clone();
-                let dirty_file = file.clone();
-                host.mutate(None, move |channel, command| async move {
-                    p::files_service_client::FilesServiceClient::new(channel)
-                        .set_dirty_presence(p::DirtyPresenceRequest {
-                            command: Some(command),
-                            file: Some(dirty_file),
-                            base_hash,
-                            dirty: false,
-                        })
-                        .await
-                })
-                .await?;
+                host.set_file_presence(file.clone(), base_hash, false)
+                    .await?;
                 host.save_view(file_view_key(&file), String::new())?;
                 Ok(Update::File(file, hash, text, false))
             },
@@ -230,17 +208,15 @@ impl RemoteWindow {
             "files",
             async move {
                 let append = token.is_some();
-                let result = p::files_service_client::FilesServiceClient::new(host.channel()?)
-                    .list_directory(p::ListDirectoryRequest {
-                        directory: Some(p::FileRef {
-                            workspace: Some(workspace),
+                let result = host
+                    .list_directory(
+                        p::FileRef {
+                            target: project_target(&workspace),
                             relative_path,
-                        }),
-                        page_token: token,
-                    })
-                    .await
-                    .map_err(rpc_error)?
-                    .into_inner();
+                        },
+                        token,
+                    )
+                    .await?;
                 Ok(if append {
                     Update::DirectoryPage(result)
                 } else {
@@ -257,21 +233,18 @@ impl RemoteWindow {
         if !self.ready() || self.workspace.is_none() {
             return;
         }
-        let workspace = self.workspace.clone();
+        let workspace = self.workspace.clone().unwrap();
         let query = self.value("query", cx);
         self.run_in(
             "files",
             async move {
                 Ok(Update::Directory(
-                    p::files_service_client::FilesServiceClient::new(host.channel()?)
-                        .search_files(p::SearchFilesRequest {
-                            workspace,
-                            query,
-                            limit: 200,
-                        })
-                        .await
-                        .map_err(rpc_error)?
-                        .into_inner(),
+                    host.search_files(
+                        project_target(&workspace).ok_or("Project unavailable.")?,
+                        query,
+                        200,
+                    )
+                    .await?,
                 ))
             },
             cx,
@@ -310,36 +283,23 @@ impl RemoteWindow {
                     return Err("Connect to the computer first.".into());
                 }
                 let file = p::FileRef {
-                    workspace: Some(workspace.clone()),
+                    target: project_target(&workspace),
                     relative_path: join_path(&folder, &name),
                 };
                 let listed = folder.clone();
                 this.run_in(
                     "files",
                     async move {
-                        host.mutate(None, move |channel, command| async move {
-                            p::files_service_client::FilesServiceClient::new(channel)
-                                .create_file(p::CreateFileRequest {
-                                    command: Some(command),
-                                    file: Some(file),
-                                    directory,
-                                    content: None,
-                                })
-                                .await
-                        })
-                        .await?;
-                        let listing =
-                            p::files_service_client::FilesServiceClient::new(host.channel()?)
-                                .list_directory(p::ListDirectoryRequest {
-                                    directory: Some(p::FileRef {
-                                        workspace: Some(workspace),
-                                        relative_path: listed,
-                                    }),
-                                    page_token: None,
-                                })
-                                .await
-                                .map_err(rpc_error)?
-                                .into_inner();
+                        host.create_file(file, directory, None).await?;
+                        let listing = host
+                            .list_directory(
+                                p::FileRef {
+                                    target: project_target(&workspace),
+                                    relative_path: listed,
+                                },
+                                None,
+                            )
+                            .await?;
                         Ok(Update::Directory(listing))
                     },
                     cx,
@@ -364,19 +324,9 @@ impl RemoteWindow {
                 Box::pin(async move {
                     let (bytes, hash) = host.read_file(file.clone()).await?;
                     let text = String::from_utf8(bytes).map_err(|_| "File is not UTF-8.")?;
-                    let target = file.clone();
                     let base_hash = hash.clone();
-                    host.mutate(None, move |channel, command| async move {
-                        p::files_service_client::FilesServiceClient::new(channel)
-                            .set_dirty_presence(p::DirtyPresenceRequest {
-                                command: Some(command),
-                                file: Some(target),
-                                base_hash,
-                                dirty: false,
-                            })
-                            .await
-                    })
-                    .await?;
+                    host.set_file_presence(file.clone(), base_hash, false)
+                        .await?;
                     host.save_view(file_view_key(&file), String::new())?;
                     Ok(Update::File(file, hash, text, false))
                 }),
@@ -497,7 +447,7 @@ impl RemoteWindow {
                                     this.open_folder(entry_path.clone(), window, cx);
                                 } else {
                                     let file = p::FileRef {
-                                        workspace: this.workspace.clone(),
+                                        target: this.workspace.as_ref().and_then(project_target),
                                         relative_path: entry_path.clone(),
                                     };
                                     this.open_remote_file(file, cx);
@@ -681,17 +631,8 @@ impl RemoteWindow {
         self.run_in(
             "editor",
             async move {
-                host.mutate(None, move |channel, command| async move {
-                    p::files_service_client::FilesServiceClient::new(channel)
-                        .set_dirty_presence(p::DirtyPresenceRequest {
-                            command: Some(command),
-                            file,
-                            base_hash,
-                            dirty,
-                        })
-                        .await
-                })
-                .await?;
+                host.set_file_presence(file.ok_or("File is unavailable.")?, base_hash, dirty)
+                    .await?;
                 Ok(Update::Done(
                     if dirty {
                         "The other computer knows this file has unsaved edits."
@@ -715,9 +656,9 @@ impl RemoteWindow {
             "git-status",
             async move {
                 Ok(Update::Git(
-                    p::git_service_client::GitServiceClient::new(host.channel()?)
-                        .get_status(p::WorkspaceRequest {
-                            workspace: Some(workspace),
+                    api::git_service_client::GitServiceClient::new(host.channel()?)
+                        .get_status(api::GetStatusRequest {
+                            project: workspace.project,
                         })
                         .await
                         .map_err(rpc_error)?
@@ -737,11 +678,17 @@ impl RemoteWindow {
         self.run_in(
             "git",
             async move {
-                let mut client = p::git_service_client::GitServiceClient::new(host.channel()?);
+                let project = Some(
+                    workspace
+                        .ok_or("Project is unavailable.")?
+                        .project
+                        .ok_or("Project is unavailable.")?,
+                );
+                let mut client = api::git_service_client::GitServiceClient::new(host.channel()?);
                 let plan = client
-                    .preflight(p::GitPreflightRequest {
-                        workspace: workspace.clone(),
-                        intent: Some(p::git_preflight_request::Intent::Paths(p::GitPathIntent {
+                    .preflight(api::PreflightRequest {
+                        project: project.clone(),
+                        intent: Some(api::preflight_request::Intent::Paths(api::GitPathIntent {
                             operation,
                             paths: paths.clone(),
                         })),
@@ -766,15 +713,11 @@ impl RemoteWindow {
                         "Discard these changes?".into(),
                         detail,
                         Box::pin(async move {
-                            host.mutate(None, move |channel, command| async move {
-                                p::git_service_client::GitServiceClient::new(channel)
-                                    .discard(p::GitPathsRequest {
-                                        command: Some(command),
-                                        workspace,
-                                        paths,
-                                        expected,
-                                    })
-                                    .await
+                            host.git_discard(api::DiscardRequest {
+                                command: None,
+                                project,
+                                paths,
+                                expected,
                             })
                             .await?;
                             Ok(Update::Done(
@@ -783,21 +726,23 @@ impl RemoteWindow {
                         }),
                     ));
                 }
-                host.mutate(None, move |channel, command| async move {
-                    let mut client = p::git_service_client::GitServiceClient::new(channel);
-                    let request = p::GitPathsRequest {
-                        command: Some(command),
-                        workspace,
+                if operation == 1 {
+                    host.git_stage(api::StageRequest {
+                        command: None,
+                        project,
                         paths,
                         expected,
-                    };
-                    if operation == 1 {
-                        client.stage(request).await
-                    } else {
-                        client.unstage(request).await
-                    }
-                })
-                .await?;
+                    })
+                    .await?;
+                } else {
+                    host.git_unstage(api::UnstageRequest {
+                        command: None,
+                        project,
+                        paths,
+                        expected,
+                    })
+                    .await?;
+                }
                 Ok(Update::Done(
                     if operation == 1 {
                         "Stage sent. Refresh to see the result."
@@ -810,7 +755,7 @@ impl RemoteWindow {
             cx,
         );
     }
-    fn change_rows(&self, status: &p::GitStatus, staged: bool, cx: &mut Context<Self>) -> Div {
+    fn change_rows(&self, status: &api::GitStatus, staged: bool, cx: &mut Context<Self>) -> Div {
         let ready = self.ready();
         let files = status
             .files
@@ -1189,10 +1134,17 @@ impl RemoteWindow {
                                 "refs",
                                 async move {
                                     Ok(Update::GitRefs(
-                                        p::git_service_client::GitServiceClient::new(
+                                        api::git_service_client::GitServiceClient::new(
                                             host.channel()?,
                                         )
-                                        .list_refs(p::WorkspaceRequest { workspace })
+                                        .list_refs(api::ListRefsRequest {
+                                            project: Some(
+                                                workspace
+                                                    .ok_or("Project is unavailable.")?
+                                                    .project
+                                                    .ok_or("Project is unavailable.")?,
+                                            ),
+                                        })
                                         .await
                                         .map_err(rpc_error)?
                                         .into_inner(),
@@ -1374,9 +1326,14 @@ impl RemoteWindow {
             "history",
             async move {
                 Ok(Update::GitHistory(
-                    p::git_service_client::GitServiceClient::new(host.channel()?)
-                        .read_history(p::GitHistoryRequest {
-                            workspace,
+                    api::git_service_client::GitServiceClient::new(host.channel()?)
+                        .read_history(api::ReadHistoryRequest {
+                            project: Some(
+                                workspace
+                                    .ok_or("Project is unavailable.")?
+                                    .project
+                                    .ok_or("Project is unavailable.")?,
+                            ),
                             before_oid,
                             limit: 50,
                         })
@@ -1402,9 +1359,14 @@ impl RemoteWindow {
         self.run_in(
             "diff",
             async move {
-                let mut stream = p::git_service_client::GitServiceClient::new(host.channel()?)
-                    .read_diff(p::DiffRequest {
-                        workspace,
+                let mut stream = api::git_service_client::GitServiceClient::new(host.channel()?)
+                    .read_diff(api::ReadDiffRequest {
+                        project: Some(
+                            workspace
+                                .ok_or("Project is unavailable.")?
+                                .project
+                                .ok_or("Project is unavailable.")?,
+                        ),
                         path,
                         staged,
                         commit,
@@ -1445,7 +1407,7 @@ impl RemoteWindow {
             return;
         };
         let workspace = self.workspace.clone();
-        let intent = p::GitWorktreeIntent {
+        let intent = api::GitWorktreeIntent {
             action,
             branch: self.value("branch", cx),
             path: nonempty(self.value("worktree_path", cx)),
@@ -1465,10 +1427,16 @@ impl RemoteWindow {
         self.run_in(
             "worktree",
             async move {
-                let plan = p::git_service_client::GitServiceClient::new(host.channel()?)
-                    .preflight(p::GitPreflightRequest {
-                        workspace: workspace.clone(),
-                        intent: Some(p::git_preflight_request::Intent::Worktree(intent.clone())),
+                let project = Some(
+                    workspace
+                        .ok_or("Project is unavailable.")?
+                        .project
+                        .ok_or("Project is unavailable.")?,
+                );
+                let plan = api::git_service_client::GitServiceClient::new(host.channel()?)
+                    .preflight(api::PreflightRequest {
+                        project: project.clone(),
+                        intent: Some(api::preflight_request::Intent::Worktree(intent.clone())),
                     })
                     .await
                     .map_err(rpc_error)?
@@ -1484,23 +1452,11 @@ impl RemoteWindow {
                         .collect::<Vec<_>>()
                         .join("\n"),
                     Box::pin(async move {
-                        host.mutate(None, move |channel, command| async move {
-                            p::git_service_client::GitServiceClient::new(channel)
-                                .change_worktree(p::WorktreeRequest {
-                                    command: Some(command),
-                                    workspace,
-                                    action: intent.action,
-                                    branch: intent.branch,
-                                    path: intent.path,
-                                    expected: plan.expected,
-                                    start_point: intent.start_point,
-                                    target_branch: intent.target_branch,
-                                    delete_branch: intent.delete_branch,
-                                    discard_changes: intent.discard_changes,
-                                    delete_unmerged_branch: intent.delete_unmerged_branch,
-                                    acknowledge_offline_dirty: intent.acknowledge_offline_dirty,
-                                })
-                                .await
+                        host.git_worktree(api::ChangeWorktreeRequest {
+                            command: None,
+                            project,
+                            intent: Some(intent),
+                            expected: plan.expected,
                         })
                         .await?;
                         Ok(Update::Done(
@@ -1529,21 +1485,27 @@ impl RemoteWindow {
         self.run_in(
             scope,
             async move {
+                let project = Some(
+                    workspace
+                        .ok_or("Project is unavailable.")?
+                        .project
+                        .ok_or("Project is unavailable.")?,
+                );
                 let intent = if operation == 0 {
-                    p::git_preflight_request::Intent::Commit(p::GitCommitIntent {
+                    api::preflight_request::Intent::Commit(api::GitCommitIntent {
                         message: message.clone(),
                         sign,
                     })
                 } else {
-                    p::git_preflight_request::Intent::Network(p::GitNetworkIntent {
+                    api::preflight_request::Intent::Network(api::GitNetworkIntent {
                         action: operation as i32,
                         remote: remote.clone(),
                         upstream_branch: upstream_branch.clone(),
                     })
                 };
-                let plan = p::git_service_client::GitServiceClient::new(host.channel()?)
-                    .preflight(p::GitPreflightRequest {
-                        workspace: workspace.clone(),
+                let plan = api::git_service_client::GitServiceClient::new(host.channel()?)
+                    .preflight(api::PreflightRequest {
+                        project: project.clone(),
                         intent: Some(intent),
                     })
                     .await
@@ -1552,34 +1514,34 @@ impl RemoteWindow {
                 if !plan.can_execute {
                     return Err(plan.reason);
                 }
-                host.mutate(None, move |channel, command| async move {
-                    let mut client = p::git_service_client::GitServiceClient::new(channel);
-                    if operation == 0 {
-                        client
-                            .commit(p::CommitRequest {
-                                command: Some(command),
-                                workspace,
-                                message,
-                                expected: plan.expected,
-                                sign,
-                            })
-                            .await
-                    } else {
-                        let request = p::GitNetworkRequest {
-                            command: Some(command),
-                            workspace,
-                            remote,
-                            expected: plan.expected,
-                            upstream_branch: upstream_branch.clone(),
-                        };
-                        if operation == 1 {
-                            client.pull(request).await
-                        } else {
-                            client.push(request).await
-                        }
-                    }
-                })
-                .await?;
+                if operation == 0 {
+                    host.git_commit(api::CommitRequest {
+                        command: None,
+                        project,
+                        message,
+                        expected: plan.expected,
+                        sign,
+                    })
+                    .await?;
+                } else if operation == 1 {
+                    host.git_pull(api::PullRequest {
+                        command: None,
+                        project,
+                        remote,
+                        expected: plan.expected,
+                        upstream_branch,
+                    })
+                    .await?;
+                } else {
+                    host.git_push(api::PushRequest {
+                        command: None,
+                        project,
+                        remote,
+                        expected: plan.expected,
+                        upstream_branch,
+                    })
+                    .await?;
+                }
                 Ok(Update::Done(
                     match operation {
                         0 => "Commit sent. Refresh to see the result.",
@@ -1597,9 +1559,9 @@ impl RemoteWindow {
 pub(super) fn file_view_key(file: &p::FileRef) -> String {
     format!(
         "file:{}:{}",
-        file.workspace
+        file.target
             .as_ref()
-            .map(|w| w.workspace_id.as_str())
+            .map(|target| format!("{target:?}"))
             .unwrap_or_default(),
         file.relative_path
     )

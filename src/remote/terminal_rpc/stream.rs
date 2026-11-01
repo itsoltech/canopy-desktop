@@ -28,14 +28,14 @@ pub(super) async fn open(
     rpc: TerminalRpc,
     grant: DeviceGrant,
     credential: Vec<u8>,
-    mut inbound: Streaming<proto::TerminalClientEvent>,
+    mut inbound: Streaming<proto::TerminalSessionRequest>,
     slot: StreamSlot,
 ) -> Result<super::RpcStream<proto::TerminalServerEvent>, Status> {
     let first = tokio::time::timeout(SUBSCRIBE_TIMEOUT, inbound.message())
         .await
         .map_err(|_| Status::deadline_exceeded("Subscribe to the terminal first."))??;
-    let Some(proto::TerminalClientEvent {
-        event: Some(proto::terminal_client_event::Event::Subscribe(subscribe)),
+    let Some(proto::TerminalSessionRequest {
+        event: Some(proto::terminal_session_request::Event::Subscribe(subscribe)),
     }) = first
     else {
         return Err(Status::invalid_argument(
@@ -180,6 +180,7 @@ impl View {
             }
         }
         self.rpc.auth.scope(&grant, scope)?;
+        self.rpc.project_terminal(&self.info)?;
         self.grant = self
             .rpc
             .auth
@@ -207,8 +208,8 @@ impl View {
         }
         Ok(())
     }
-    async fn client(&mut self, event: proto::terminal_client_event::Event) {
-        use proto::terminal_client_event::Event as Client;
+    async fn client(&mut self, event: proto::terminal_session_request::Event) {
+        use proto::terminal_session_request::Event as Client;
         match event {
             Client::Subscribe(_) => self.error(&Status::invalid_argument(
                 "This stream is already subscribed.",
@@ -348,7 +349,7 @@ impl View {
     }
     async fn serve(
         mut self,
-        mut inbound: impl futures_lite::Stream<Item = Result<proto::TerminalClientEvent, Status>>
+        mut inbound: impl futures_lite::Stream<Item = Result<proto::TerminalSessionRequest, Status>>
         + Unpin,
         sender: mpsc::Sender<(
             proto::TerminalServerEvent,
@@ -388,7 +389,7 @@ impl View {
                     if let Err(error) = self.reauthorize(READ).await { return error; }
                 }
                 message = inbound.next() => match message {
-                    Some(Ok(proto::TerminalClientEvent { event: Some(event) })) => {
+                    Some(Ok(proto::TerminalSessionRequest { event: Some(event) })) => {
                         self.client(event).await;
                     }
                     Some(Ok(_)) => self.error(&Status::invalid_argument("Empty terminal event.")),
@@ -436,7 +437,9 @@ impl View {
         }
     }
 }
-async fn host_changed(host: &mut Option<tokio::sync::watch::Receiver<proto::HostStatus>>) {
+async fn host_changed(
+    host: &mut Option<tokio::sync::watch::Receiver<crate::api::proto::HostStatus>>,
+) {
     if let Some(host) = host {
         let _ = host.changed().await;
     } else {
@@ -487,10 +490,11 @@ mod tests {
             root,
             "Test".into(),
             Some(run.clone()),
-        );
+        )
+        .with_workspace("workspace".into());
         let target = Some(rpc.reference(info.id()));
         let state = crate::remote::host::HostState::new(rpc.auth.host_id(), vec![]);
-        state.set(proto::HostReadiness::Ready, String::new());
+        state.set(crate::api::proto::HostReadiness::Ready, String::new());
         let rpc = rpc.with_state(state.clone());
         let auth = rpc.auth.clone();
         let device = grant.clone();
@@ -532,8 +536,8 @@ mod tests {
         // Do not poll receiver. The old send-wait loop would now ignore input
         // until its five-second timeout and would not notice EOF promptly.
         input
-            .send(Ok(proto::TerminalClientEvent {
-                event: Some(proto::terminal_client_event::Event::Input(
+            .send(Ok(proto::TerminalSessionRequest {
+                event: Some(proto::terminal_session_request::Event::Input(
                     proto::TerminalInput {
                         terminal: target.clone(),
                         run_id: run.id().into(),
@@ -563,8 +567,8 @@ mod tests {
         .await
         .unwrap();
         input
-            .send(Ok(proto::TerminalClientEvent {
-                event: Some(proto::terminal_client_event::Event::Resize(
+            .send(Ok(proto::TerminalSessionRequest {
+                event: Some(proto::terminal_session_request::Event::Resize(
                     proto::TerminalResize {
                         terminal: target,
                         run_id: run.id().into(),

@@ -168,7 +168,7 @@ impl ProjectsState {
                     client.save_runtime_chat(record).await?;
                 }
                 let envelope = bus
-                    .legacy_envelope(
+                    .catalog_envelope(
                         &key,
                         host,
                         chat.clone(),
@@ -302,29 +302,14 @@ impl ProjectsState {
                     });
                     return;
                 }
-                app.projects.update(cx, |projects, cx| {
-                    if !projects.chat_exists(workspace, pane, cx) {
-                        return;
+                app.chats.update(cx, |chats, cx| {
+                    // A saved layout may not have opened this chat's runtime yet.
+                    // Adopt its existing pane before issuing the typed Delete.
+                    if chats.chat_of_pane(pane).is_none() {
+                        chats.ensure_runtime(pane, cx);
                     }
-                    if let Err(error) =
-                        projects.update_chat_workspace(workspace, cx, false, |state| {
-                            let tab = state
-                                .tabs()
-                                .iter()
-                                .find(|t| t.root.find(pane).is_some())
-                                .map(|t| t.id)
-                                .ok_or_else(|| {
-                                    SharedString::from("The conversation is no longer available.")
-                                })?;
-                            state.close_pane(tab, pane).map_err(|_| {
-                                SharedString::from("The conversation could not be deleted.")
-                            })
-                        })
-                    {
-                        app.chats.update(cx, |chats, cx| {
-                            chats.error = Some(error.to_string());
-                            cx.notify();
-                        });
+                    if let Some(chat) = chats.chat_of_pane(pane).map(str::to_owned) {
+                        chats.delete_local(chat, cx);
                     }
                 });
             },
@@ -520,7 +505,16 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn standalone_commands_keep_project_and_resolve_the_panes_current_tab(cx: &mut TestAppContext) {
+    async fn standalone_commands_keep_project_and_resolve_the_panes_current_tab(
+        cx: &mut TestAppContext,
+    ) {
+        cx.background_executor.allow_parking();
+        let directory = tempfile::tempdir().unwrap();
+        let client =
+            canopy_desktop::settings::SettingsClient::create(directory.path().join("settings.db"))
+                .await
+                .unwrap();
+        let host = client.initialize_runtime().await.unwrap();
         let (app, workspace, pane, neighbor, destination, target, probe, project) =
             cx.update(|cx| {
                 let mut scratch = Workspace::new();
@@ -542,6 +536,11 @@ mod tests {
                 let target = scratch.active().unwrap().focused;
                 let workspace = scratch.id;
                 let app = AppState::install_test(scratch, cx);
+                app.settings.update(cx, |settings, _| {
+                    settings.install_test_client(client.clone(), host)
+                });
+                app.chat_history
+                    .update(cx, |history, cx| history.initialize(client.clone(), cx));
                 let project = app.projects.update(cx, |projects, cx| {
                     let mut catalog = projects.catalog.clone();
                     let id = catalog.open("/project".into());
@@ -618,6 +617,20 @@ mod tests {
         });
         cx.update(|cx| {
             action(cx);
+        });
+        for _ in 0..500 {
+            cx.run_until_parked();
+            if cx.update(|cx| app.projects.read(cx).scratch.chat_title(pane).is_none()) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        cx.update(|cx| {
+            assert!(
+                app.chats.read(cx).error.is_none(),
+                "{:?}",
+                app.chats.read(cx).error
+            );
             let projects = app.projects.read(cx);
             assert_eq!(projects.catalog.active, Some(project));
             assert_eq!(app.workspace.read(cx).id, project);
@@ -626,17 +639,33 @@ mod tests {
             assert!(remaining.iter().any(|p| p.id == neighbor));
             assert!(remaining.iter().any(|p| p.id == target));
         });
+        let shutdown = cx.update(|cx| app.chats.update(cx, |chats, cx| chats.shutdown(cx)));
+        shutdown.await.unwrap();
+        client.shutdown().await.unwrap();
     }
 
     #[gpui_kit::test]
-    fn inactive_project_chat_commands_preserve_the_visible_project_and_neighbor(
+    async fn inactive_project_chat_commands_preserve_the_visible_project_and_neighbor(
         cx: &mut TestAppContext,
     ) {
+        cx.background_executor.allow_parking();
+        let directory = tempfile::tempdir().unwrap();
+        let client =
+            canopy_desktop::settings::SettingsClient::create(directory.path().join("settings.db"))
+                .await
+                .unwrap();
+        let host = client.initialize_runtime().await.unwrap();
+        let checkout = std::fs::canonicalize(directory.path()).unwrap();
         let (app, source, pane, neighbor, visible, probe) = cx.update(|cx| {
             let app = AppState::install_test(Workspace::new(), cx);
+            app.settings.update(cx, |settings, _| {
+                settings.install_test_client(client.clone(), host)
+            });
+            app.chat_history
+                .update(cx, |history, cx| history.initialize(client.clone(), cx));
             let (source, pane, neighbor, visible) = app.projects.update(cx, |projects, cx| {
                 projects.ready = true;
-                projects.open_worktree("/repo".into(), "/worktree".into(), cx);
+                projects.install_test_worktree(checkout.clone(), checkout.clone(), cx);
                 let source = projects.catalog.active.unwrap();
                 projects
                     .open_chat(
@@ -646,7 +675,7 @@ mod tests {
                         PaneMetadata {
                             kind: PaneKind::Chat,
                             title: Some("Project conversation".into()),
-                            cwd: Some("/worktree".into()),
+                            cwd: Some(checkout.clone()),
                             ..Default::default()
                         },
                         cx,
@@ -660,7 +689,7 @@ mod tests {
                         .unwrap();
                     (pane, neighbor)
                 });
-                projects.open_worktree("/other".into(), "/other".into(), cx);
+                projects.install_test_worktree("/other".into(), "/other".into(), cx);
                 let visible = projects.catalog.active.unwrap();
                 projects
                     .publish_chat_rename(source, pane, "Named project conversation", cx)
@@ -696,6 +725,27 @@ mod tests {
                 .clone();
             assert_eq!(request.ids, [pane]);
             (request.action)(cx);
+        });
+        for _ in 0..500 {
+            cx.run_until_parked();
+            if cx.update(|cx| {
+                app.projects
+                    .read(cx)
+                    .conversation_workspace(source, cx)
+                    .unwrap()
+                    .chat_title(pane)
+                    .is_none()
+            }) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        cx.update(|cx| {
+            assert!(
+                app.chats.read(cx).error.is_none(),
+                "{:?}",
+                app.chats.read(cx).error
+            );
             let projects = app.projects.read(cx);
             let remaining = projects.conversation_workspace(source, cx).unwrap();
             assert!(remaining.chat_title(pane).is_none());
@@ -703,6 +753,9 @@ mod tests {
             assert_eq!(projects.catalog.active, Some(visible));
             assert_eq!(app.workspace.read(cx).id, visible);
         });
+        let shutdown = cx.update(|cx| app.chats.update(cx, |chats, cx| chats.shutdown(cx)));
+        shutdown.await.unwrap();
+        client.shutdown().await.unwrap();
     }
 
     #[gpui_kit::test]

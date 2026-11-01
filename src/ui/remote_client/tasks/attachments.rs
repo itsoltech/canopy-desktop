@@ -75,11 +75,8 @@ impl TasksView {
                             "txt" | "md" => "text/plain",
                             _ => "application/octet-stream",
                         };
-                        let id = host.prepare_attachment(
-                            p::ResourceRef {
-                                resource: Some(p::resource_ref::Resource::Task(task.clone())),
-                            },
-                            "task_attachment",
+                        let id = host.prepare_task_attachment(
+                            task.clone(),
                             media,
                             &bytes,
                         )?;
@@ -105,32 +102,23 @@ impl TasksView {
             async move {
                 let artifact = host.resume_upload(&id).await?;
                 host.save_view(format!("task-upload:{id}"),serde_json::json!({"task":task.encode_to_vec(),"name":name,"attempted":true}).to_string())?;
-                let project = p::TaskProject {
-                    host_id: task.host_id.clone(),
-                    integration_id: task.integration_id.clone(),
-                    project_id: task.project_id.clone(),
-                    workspace: task.workspace.clone(),
-                };
+                let project = task.project.clone().ok_or("Task project is missing.")?;
                 let receipt = host
-                    .mutate(None, move |channel, command| async move {
-                        Client::new(channel)
-                            .apply_mutation(p::TaskMutationRequest {
-                                command: Some(command),
+                    .mutate_task(TaskMutation::Apply(p::ApplyMutationRequest {
+                                command: None,
                                 project: Some(project),
-                                task: Some(task),
+                                task_id: Some(task.task_id),
                                 action: Some(Mutation::Attachment(p::TaskAttachmentWrite {
                                     action: Some(p::task_attachment_write::Action::Attach(
-                                        artifact,
+                                        p::ArtifactRef { host_id: artifact.host_id, artifact_id: artifact.artifact_id, media_type: artifact.media_type, size: artifact.size, sha256: artifact.sha256 },
                                     )),
                                     name,
                                 })),
-                            })
-                            .await
-                    })
+                            }))
                     .await?;
                 let cleanup=host.remove_local_attachment(&id);
                 let mut receipt=receipt;
-                if let Err(error)=cleanup{receipt.operation_output=Some(serde_json::json!({"notice":format!("Attachment added. Local cleanup failed: {error}. Do not repeat attachment creation.")}).to_string());}
+                if let Err(error)=cleanup && let Some(p::command_receipt::Result::Task(result)) = receipt.result.as_mut() { result.notice=Some(format!("Attachment added. Local cleanup failed: {error}. Do not repeat attachment creation.")); }
                 let _=host.save_view(format!("task-upload:{id}"),"".into());
                 Ok(ResultView::UploadAttached(receipt))
             },
@@ -153,7 +141,7 @@ impl TasksView {
         self.run(
             async move {
                 let mut stream = Client::new(host.channel()?)
-                    .read_attachment(p::TaskAttachmentRequest {
+                    .read_attachment(p::ReadAttachmentRequest {
                         task: Some(task),
                         attachment_id: attachment.id,
                     })
@@ -221,7 +209,17 @@ impl TasksView {
             let Ok(task) = p::TaskRef::decode(bytes.as_slice()) else {
                 continue;
             };
-            if task.host_id != self.host.id().as_str() {
+            if task
+                .project
+                .as_ref()
+                .and_then(|p| p.resource.as_ref())
+                .is_none_or(|p| match p {
+                    p::task_project::Resource::Project(p) => p.host_id != self.host.id().as_str(),
+                    p::task_project::Resource::Environment(e) => {
+                        e.host_id != self.host.id().as_str()
+                    }
+                })
+            {
                 continue;
             }
             let Some(name) = value["name"].as_str() else {

@@ -12,6 +12,13 @@ pub enum DecisionAnswer {
     Option(String),
 }
 
+/// Only an in-process fork selects a destination. Remote Fork inherits its source.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LocalForkDestination {
+    pub workspace: Option<String>,
+    pub chat: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Control {
     Start,
@@ -70,6 +77,8 @@ pub enum Control {
         history_epoch: u64,
         item: u64,
         replacement: Option<DraftIntent>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        local_destination: Option<LocalForkDestination>,
     },
 }
 impl Control {

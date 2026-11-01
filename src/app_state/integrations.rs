@@ -264,6 +264,14 @@ impl IntegrationsState {
                 return;
             }
         };
+        let commands = match self.configuration_commands(&config, cx) {
+            Ok(commands) => commands,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
         let http = cx.http_client();
         self.busy = true;
         self.error = None;
@@ -273,6 +281,18 @@ impl IntegrationsState {
         self.loading = false;
         cx.notify();
         self.write = Some(cx.spawn(async move |this, cx| {
+            let inputs = match super::file_ops::LocalResource::begin_set(commands).await {
+                Ok(inputs) => inputs,
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.busy = false;
+                        this.connection = "Connection failed".into();
+                        this.error = Some(error);
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
             let result = async {
                 let candidate = config.accounts.iter().find(|a| a.id == id).unwrap();
                 let login = canopy_desktop::integrations::client(http, candidate, token.clone())?
@@ -299,13 +319,18 @@ impl IntegrationsState {
                 Ok(clean_retired(config, client, cx.background_executor().clone()).await)
             }
             .await;
+            let finalized = super::file_ops::LocalResource::finish_set(
+                inputs,
+                result.as_ref().map(|_| ()).map_err(Clone::clone),
+            )
+            .await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 match result {
                     Ok((config, warning)) => {
                         this.config = config;
                         this.connection = format!("{} · Token verified", scope.label());
-                        this.error = warning;
+                        this.error = finalized.err().or(warning);
                         this.cache.clear();
                         this.items = Arc::new(vec![]);
                         this.more = false;
@@ -388,6 +413,14 @@ impl IntegrationsState {
         let mut config = self.config.clone();
         config.accounts.retain(|a| a.id != account.id);
         config.retired_credentials.push(account.credential.clone());
+        let commands = match self.configuration_commands(&config, cx) {
+            Ok(commands) => commands,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
         self.busy = true;
         self.detail = None;
         self.read = None;
@@ -395,7 +428,18 @@ impl IntegrationsState {
         self.error = None;
         cx.notify();
         self.write = Some(cx.spawn(async move |this, cx| {
-            let result = client.save_integrations(config.clone()).await;
+            let result = async {
+                let inputs = super::file_ops::LocalResource::begin_set(commands).await?;
+                let outcome = client
+                    .save_integrations(config.clone())
+                    .await
+                    .map_err(|e| e.to_string());
+                let finalized =
+                    super::file_ops::LocalResource::finish_set(inputs, outcome.clone()).await;
+                outcome?;
+                Ok::<_, String>(finalized.err())
+            }
+            .await;
             let (config, warning) = if result.is_ok() {
                 clean_retired(config, client, cx.background_executor().clone()).await
             } else {
@@ -404,10 +448,10 @@ impl IntegrationsState {
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 match result {
-                    Ok(()) => {
+                    Ok(fence_warning) => {
                         this.config = config;
                         this.connection = format!("{} · Disconnected", account.scope.label());
-                        this.error = warning;
+                        this.error = fence_warning.or(warning);
                         this.cache.clear();
                         this.items = Arc::new(vec![]);
                         this.more = false;
@@ -811,12 +855,30 @@ impl IntegrationsState {
             return Err("Invalid integration configuration.".into());
         }
         let previous = self.config.clone();
+        let commands = if completion.is_none() {
+            self.configuration_commands(&config, cx)?
+        } else {
+            Vec::new()
+        };
         let http = cx.http_client();
         self.busy = true;
         self.error = None;
         cx.notify();
         self.write = Some(cx.spawn(async move |this, cx| {
             let mut recovery = None;
+            let inputs = {
+                match super::file_ops::LocalResource::begin_set(commands).await {
+                    Ok(inputs) => inputs,
+                    Err(error) => {
+                        let _ = this.update(cx, |this, cx| {
+                            this.busy = false;
+                            this.error = Some(error);
+                            cx.notify();
+                        });
+                        return;
+                    }
+                }
+            };
             let mut cleanup_warning = None;
             let mut config = config;
             let result = async {
@@ -894,7 +956,8 @@ impl IntegrationsState {
                 Ok::<_, String>(())
             }
             .await;
-            let outcome = result.clone();
+            let mut outcome = result.clone();
+            outcome = super::file_ops::LocalResource::finish_set(inputs, outcome).await;
             let published = this.update(cx, |this, cx| {
                 this.busy = false;
                 match result {
@@ -902,7 +965,7 @@ impl IntegrationsState {
                         let old_key = this.cache_key();
                         let old_target = this.target.clone();
                         this.config = config;
-                        this.error = cleanup_warning;
+                        this.error = outcome.as_ref().err().cloned().or(cleanup_warning);
                         // Repository identity is already cached: switching Jira projects must not
                         // wait behind unrelated work on the libgit2 worker.
                         this.target = this

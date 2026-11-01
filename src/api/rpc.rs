@@ -107,38 +107,12 @@ impl ThreadRpc {
         let principal =
             Principal::authenticated(&grant, meta.command_epoch).map_err(storage_status)?;
         let receipt = self.execute_owned(envelope, principal).await?;
-        let mut response = super::compat::receipt(
+        let response = super::committed_receipt(
             &self.auth,
             &receipt,
-            p::command_receipt::Resource::Target(target),
-        )?;
-        if receipt.method() == "chat.fork" && receipt.state() == host::CommandState::Succeeded {
-            let id = std::str::from_utf8(receipt.result().unwrap_or_default())
-                .map_err(|_| Status::internal("Invalid committed fork identity."))?
-                .to_owned();
-            let thread = self
-                .auth
-                .client()
-                .runtime_thread_alias(
-                    crate::thread::HostId::new(self.auth.host_id().into())
-                        .ok_or_else(|| Status::internal("Invalid host identity."))?,
-                    id.clone(),
-                )
-                .await
-                .map_err(storage_status)?
-                .ok_or_else(|| Status::internal("Missing fork identity."))?;
-            response.result = Some(p::command_receipt::Result::Runtime(p::RuntimeResult {
-                created_target: Some(p::ThreadTarget {
-                    thread: Some(p::ThreadRef {
-                        host_id: self.auth.host_id().into(),
-                        thread_id: thread.to_string(),
-                    }),
-                    executor_epoch: 0,
-                }),
-                catalog_id: Some(id),
-                item: None,
-            }));
-        }
+            Some(p::command_receipt::Resource::Target(target)),
+        )
+        .await?;
         Ok(Response::new(response))
     }
     async fn execute_owned(
@@ -252,6 +226,30 @@ impl p::catalog_service_server::CatalogService for ThreadRpc {
         r: Request<p::CreateThreadRequest>,
     ) -> Result<Response<p::CommandReceipt>, Status> {
         self.catalog()?.create_thread(r).await
+    }
+    async fn preflight_close_project(
+        &self,
+        r: Request<p::PreflightCloseProjectRequest>,
+    ) -> Result<Response<p::ProjectClosePlan>, Status> {
+        self.catalog()?.preflight_close_project(r).await
+    }
+    async fn preflight_close_terminal(
+        &self,
+        r: Request<p::PreflightCloseTerminalRequest>,
+    ) -> Result<Response<p::TerminalClosePlan>, Status> {
+        self.catalog()?.preflight_close_terminal(r).await
+    }
+    async fn close_project(
+        &self,
+        r: Request<p::CloseProjectRequest>,
+    ) -> Result<Response<p::CommandReceipt>, Status> {
+        self.catalog()?.close_project(r).await
+    }
+    async fn close_terminal(
+        &self,
+        r: Request<p::CloseTerminalRequest>,
+    ) -> Result<Response<p::CommandReceipt>, Status> {
+        self.catalog()?.close_terminal(r).await
     }
     async fn close_thread(
         &self,
@@ -750,6 +748,7 @@ impl p::thread_service_server::ThreadService for ThreadRpc {
                 history_epoch: r.history_epoch,
                 item: r.item_id,
                 replacement: r.replacement.map(decode::draft).transpose()?,
+                local_destination: None,
             }),
         )
         .await
@@ -872,16 +871,6 @@ impl p::thread_service_server::ThreadService for ThreadRpc {
             },
         )
         .await
-    }
-}
-
-#[tonic::async_trait]
-impl p::settings_service_server::SettingsService for crate::remote::settings_rpc::SettingsRpc {
-    async fn update_preferences(
-        &self,
-        r: Request<p::UpdatePreferencesRequest>,
-    ) -> Result<Response<p::CommandReceipt>, Status> {
-        self.api_preferences(r).await
     }
 }
 
@@ -1080,7 +1069,7 @@ mod tests {
             .unwrap();
         let grant = client.lookup_runtime_device(vec![7; 32]).await.unwrap();
         let state = HostState::new(host.id(), vec![]);
-        state.set(crate::remote::proto::HostReadiness::Ready, String::new());
+        state.set(p::HostReadiness::Ready, String::new());
         let operations = ResourceLocks::default();
         let publication = Arc::new(Publication {
             started: tokio::sync::Notify::new(),

@@ -4,10 +4,10 @@ use super::{
     auth::{RpcAuth, WorkspaceRoots, storage_status},
     composer::PullContexts,
     host::RpcStream,
-    proto,
     resources::ResourceLocks,
 };
 use crate::{
+    api::proto,
     artifacts::{ArtifactStore, BeginUpload, Purpose, Target},
     chat::{
         self,
@@ -86,15 +86,15 @@ impl Discovery {
         &self,
         grant: &crate::host::DeviceGrant,
         host: &str,
-        workspace: Option<&proto::WorkspaceRef>,
+        project: Option<&proto::ProjectRef>,
     ) -> Result<String, RpcStatus> {
         self.auth.check_host(host)?;
         self.auth.scope(grant, READ)?;
-        let root = workspace
+        let root = project
             .map(|w| {
                 self.roots
-                    .resolve(w, &self.auth)
-                    .and_then(|p| Ok(WorkspaceRoots::root_string(&p)?.to_owned()))
+                    .project(w.clone(), &self.auth)
+                    .and_then(|(_, p)| Ok(WorkspaceRoots::root_string(&p)?.to_owned()))
             })
             .transpose()?
             .unwrap_or_else(|| "private".into());
@@ -103,11 +103,15 @@ impl Discovery {
     }
     pub async fn list_agents(
         &self,
-        r: Request<proto::AgentDiscoveryRequest>,
+        r: Request<proto::ListAgentsRequest>,
     ) -> Result<Response<proto::AgentDiscovery>, RpcStatus> {
         let g = self.auth.authenticate(&r).await?;
         let r = r.into_inner();
-        let root = self.root(&g, &r.host_id, r.workspace.as_ref()).await?;
+        let host = r
+            .environment
+            .ok_or_else(|| RpcStatus::invalid_argument("Environment is required."))?
+            .host_id;
+        let root = self.root(&g, &host, r.project.as_ref()).await?;
         let catalog = self
             .auth
             .client()
@@ -122,14 +126,14 @@ impl Discovery {
                 agent_id: tool.id.clone(),
                 name: tool.name.clone(),
                 backend_kind: if tool.acp {
-                    proto::BackendKind::Acp
+                    proto::BackendKind::Protocol
                 } else if tool.id == "claude" {
-                    proto::BackendKind::ClaudeStreamJson
+                    proto::BackendKind::NativeStream
                 } else {
-                    proto::BackendKind::CodexAppServer
+                    proto::BackendKind::NativeServer
                 } as i32,
                 accounts: if tool.profiles.is_empty() {
-                    vec![proto::AgentAccount {
+                    vec![proto::AvailableAccount {
                         account_id: tool.id.clone(),
                         label: "Native account".into(),
                         native_default: true,
@@ -137,7 +141,7 @@ impl Discovery {
                 } else {
                     tool.profiles
                         .iter()
-                        .map(|p| proto::AgentAccount {
+                        .map(|p| proto::AvailableAccount {
                             account_id: p.id.clone(),
                             label: p.name.clone(),
                             native_default: Some(&p.id) == tool.default_profile.as_ref(),
@@ -152,11 +156,15 @@ impl Discovery {
     }
     pub async fn agent_catalog(
         &self,
-        r: Request<proto::AgentCatalogRequest>,
+        r: Request<proto::GetAgentCatalogRequest>,
     ) -> Result<Response<proto::AgentCatalog>, RpcStatus> {
         let g = self.auth.authenticate(&r).await?;
         let r = r.into_inner();
-        let root = self.root(&g, &r.host_id, r.workspace.as_ref()).await?;
+        let host = r
+            .environment
+            .ok_or_else(|| RpcStatus::invalid_argument("Environment is required."))?
+            .host_id;
+        let root = self.root(&g, &host, r.project.as_ref()).await?;
         let catalog = self
             .auth
             .client()
@@ -229,12 +237,12 @@ impl Discovery {
     }
     pub async fn pull_requests(
         &self,
-        r: Request<proto::PullRequestsRequest>,
+        r: Request<proto::ListPullRequestsRequest>,
     ) -> Result<Response<proto::PullRequests>, RpcStatus> {
         let grant = self.auth.authenticate(&r).await?;
         let r = r.into_inner();
         let workspace = r
-            .workspace
+            .project
             .ok_or_else(|| RpcStatus::invalid_argument("Workspace is required."))?;
         let root = self
             .root(&grant, &workspace.host_id, Some(&workspace))
@@ -346,12 +354,12 @@ impl Discovery {
     }
     pub async fn read_page(
         &self,
-        r: Request<proto::ChatPageRequest>,
+        r: Request<proto::ReadThreadPageRequest>,
     ) -> Result<Response<RpcStream<proto::ArtifactChunk>>, RpcStatus> {
         let grant = self.auth.authenticate(&r).await?;
         let r = r.into_inner();
         let chat = r
-            .chat
+            .thread
             .ok_or_else(|| RpcStatus::invalid_argument("Chat is required."))?;
         self.auth.check_host(&chat.host_id)?;
         let item = r
@@ -360,7 +368,10 @@ impl Discovery {
         let record = self
             .auth
             .client()
-            .load_runtime_chat(chat.chat_id.clone())
+            .load_runtime_thread(
+                crate::thread::ThreadId::parse(&chat.thread_id)
+                    .ok_or_else(|| RpcStatus::invalid_argument("Invalid thread identity."))?,
+            )
             .await
             .map_err(storage_status)?
             .ok_or_else(|| RpcStatus::not_found("Chat was deleted."))?;
@@ -368,14 +379,14 @@ impl Discovery {
         self.auth.resource(grant.id(), READ, &root).await?;
         let mut page = self
             .pages
-            .page(chat.chat_id.clone(), item.history_epoch, item.item_id)
+            .page(record.id().into(), item.history_epoch, item.item_id)
             .await?;
         if page.is_none() {
             let row = self
                 .auth
                 .client()
                 .read_remote_history_page(crate::settings::RemoteHistoryRequest {
-                    chat: chat.chat_id.clone(),
+                    chat: record.id().into(),
                     upper: Some((item.history_epoch, item.item_id)),
                     before: None,
                     limit: 1,
@@ -402,7 +413,7 @@ impl Discovery {
             .ok_or_else(|| RpcStatus::not_found("This item has no retained interactive page."))?;
         let store = self.artifacts.clone();
         let owner = grant.id().to_owned();
-        let id = chat.chat_id;
+        let id = record.id().to_owned();
         let cwd = record
             .metadata()
             .cwd
@@ -921,7 +932,7 @@ mod tests {
                 name: "N".repeat(1024),
                 backend_kind: 3,
                 accounts: (0..128)
-                    .map(|p| proto::AgentAccount {
+                    .map(|p| proto::AvailableAccount {
                         account_id: format!("{n}-{p}"),
                         label: "L".repeat(1024),
                         native_default: false,

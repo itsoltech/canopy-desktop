@@ -1,6 +1,6 @@
 use super::*;
+use crate::command_bus::tasks::{TaskAction as A, TaskAttachmentAction, TaskChanges, TaskStatus};
 use mapping as m;
-use proto::task_mutation_request::Action as A;
 use serde_json::{Value, json};
 
 pub(super) struct MutationContext<'a> {
@@ -13,74 +13,132 @@ pub(super) struct MutationContext<'a> {
 }
 
 impl TasksRpc {
-    pub(super) async fn apply(
+    pub(super) async fn configure_project(
         &self,
         g: DeviceGrant,
-        mut r: proto::TaskMutationRequest,
+        mut r: proto::ConfigureTaskProjectRequest,
     ) -> Result<proto::CommandReceipt, Status> {
+        use crate::command_bus::tasks::TaskConfiguration;
         let meta = required(r.command.take())?;
-        let p = required(r.project.clone())?;
-        let root = self.authorize(&g, &p.host_id, p.workspace.as_ref()).await?;
-        let account = self.account(&p.integration_id).await?;
-        let project = Self::project(&account, &p.project_id)?;
-        if let Some(t) = &r.task {
-            reads::check_reference(&p, t)?;
-            Self::task(&project, t)?;
+        let change = decode::configuration(required(r.change.take())?)?;
+        let resource = required(r.resource.take())?;
+        let is_project = matches!(
+            resource,
+            proto::configure_task_project_request::Resource::Project(_)
+        );
+        if matches!(change, TaskConfiguration::SelectFilter(_)) == is_project {
+            return Err(invalid(
+                "Filter selection requires the environment; repository and links require a project.",
+            ));
         }
-        required(r.action.as_ref())?;
-        if r.encoded_len() > 1024 * 1024 {
-            return Err(invalid("Task mutation exceeds 1 MiB."));
+        let context = proto::TaskProject {
+            resource: Some(match resource {
+                proto::configure_task_project_request::Resource::Project(p) => {
+                    proto::task_project::Resource::Project(p)
+                }
+                proto::configure_task_project_request::Resource::Environment(e) => {
+                    proto::task_project::Resource::Environment(e)
+                }
+            }),
+            ..Default::default()
+        };
+        let (prepared, resource) = self
+            .prepare(&g, meta, &context, TaskCommand::Configure(change.clone()))
+            .await?;
+        if let Some(prior) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return api::resources::receipt_for_resource(&self.auth, prior, resource);
         }
-        let input = self.auth.input(
-            &meta,
-            &g,
-            "tasks.mutate",
-            format!(
-                "{}/{}/{}",
-                account.id,
-                project.key,
-                r.task
-                    .as_ref()
-                    .map(|t| t.task_id.as_str())
-                    .unwrap_or("create")
-            ),
-            intent(&account, &r),
-            root.clone(),
-        )?;
+        let input = prepared.runtime_input().clone();
+        let root = required(input.root.clone())?;
         let this = self.clone();
-        self.mutation(input, move || async move {
-            this.current_account(&account).await?;
-            let provider = this.provider(&account, &g, &root).await?;
-            let task = r
-                .task
-                .as_ref()
-                .map(|t| Self::task(&project, t))
-                .transpose()?;
-            let command = this
-                .command(
-                    MutationContext {
-                        provider: provider.as_ref(),
-                        project: &project,
-                        task: task.as_ref(),
-                        grant: &g,
-                        reference: &p,
-                        root: &root,
-                    },
-                    required(r.action)?,
-                )
-                .await?;
+        self.mutation(input, resource, TASKS, false, move || async move {
             this.auth.resource(g.id(), TASKS, &root).await?;
-            this.current_account(&account).await?;
-            match command {
-                Some(command) => Ok(m::receipt(
-                    provider.write(&command).await.map_err(write_error)?,
-                )),
-                None => Ok(br#"{"notice":"Task already has the requested state."}"#.to_vec()),
-            }
+            Ok(async move {
+                this.host.configure(root, change).await?;
+                Ok(b"{}".to_vec())
+            })
         })
         .await
     }
-    async fn current_account(&self, account: &i::Account) -> Result<(), Status> {
+    pub(super) async fn apply(
+        &self,
+        g: DeviceGrant,
+        mut r: proto::ApplyMutationRequest,
+    ) -> Result<proto::CommandReceipt, Status> {
+        let meta = required(r.command.take())?;
+        let p = required(r.project.clone())?;
+        let action = decode::action(required(r.action.take())?)?;
+        let command = TaskCommand::Mutate {
+            integration: p.integration_id.clone(),
+            project: p.project_key.clone(),
+            task: r.task_id.clone(),
+            action: action.clone(),
+        };
+        let (prepared, resource) = self.prepare(&g, meta, &p, command).await?;
+        if let Some(prior) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return api::resources::receipt_for_resource(&self.auth, prior, resource);
+        }
+        let reject_recovery = prepared.prior().is_some() && action.requires_fresh_admission();
+        let (input, account) = self.account_input(&prepared, &p.integration_id).await?;
+        let root = required(input.root.clone())?;
+        let this = self.clone();
+        self.mutation(
+            input,
+            resource,
+            TASKS,
+            reject_recovery,
+            move || async move {
+                let project = Self::project(&account, &p.project_key)?;
+                this.current_account(&account).await?;
+                let provider = this.provider(&account, &g, &root).await?;
+                let task = r
+                    .task_id
+                    .map(|task_id| {
+                        Self::task(
+                            &project,
+                            &proto::TaskRef {
+                                project: Some(p.clone()),
+                                task_id,
+                            },
+                        )
+                    })
+                    .transpose()?;
+                let command = this
+                    .command(
+                        MutationContext {
+                            provider: provider.as_ref(),
+                            project: &project,
+                            task: task.as_ref(),
+                            grant: &g,
+                            reference: &p,
+                            root: &root,
+                        },
+                        action,
+                    )
+                    .await?;
+                this.auth.resource(g.id(), TASKS, &root).await?;
+                this.current_account(&account).await?;
+                Ok(async move {
+                    match command {
+                        Some(command) => Ok(m::receipt(
+                            provider.write(&command).await.map_err(write_error)?,
+                        )),
+                        None => {
+                            Ok(br#"{"notice":"Task already has the requested state."}"#.to_vec())
+                        }
+                    }
+                })
+            },
+        )
+        .await
+    }
+    pub(super) async fn current_account(&self, account: &i::Account) -> Result<(), Status> {
         if self.account(&account.id).await? != *account {
             return Err(Status::aborted(
                 "Integration changed before dispatch. Refresh the connection.",
@@ -95,13 +153,8 @@ impl TasksRpc {
     ) -> Result<proto::CommandReceipt, Status> {
         let meta = required(r.command.take())?;
         let reference = required(r.task.clone())?;
-        let (root, account, task) = self.task_context(&g, &reference).await?;
-        #[allow(deprecated)]
-        if r.state_id.is_some() {
-            return Err(invalid(
-                "Use the provider-native status choice instead of state_id.",
-            ));
-        }
+        let context = required(reference.project.as_ref())?;
+        let changes = decode::changes(&r)?;
         if r.status.is_some()
             && (r.title.is_some()
                 || r.description.is_some()
@@ -111,34 +164,45 @@ impl TasksRpc {
         {
             return Err(invalid("Submit status separately from other fields."));
         }
-        let input = self.auth.input(
-            &meta,
-            &g,
-            "tasks.update",
-            format!("{}/{}/{}", account.id, task.project.key, task.id),
-            intent(&account, &r),
-            root.clone(),
-        )?;
+        let command = TaskCommand::Update {
+            integration: context.integration_id.clone(),
+            project: context.project_key.clone(),
+            task: reference.task_id.clone(),
+            changes: changes.clone(),
+        };
+        let (prepared, resource) = self.prepare(&g, meta, context, command).await?;
+        if let Some(prior) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return api::resources::receipt_for_resource(&self.auth, prior, resource);
+        }
+        let (input, account) = self
+            .account_input(&prepared, &context.integration_id)
+            .await?;
+        let root = required(input.root.clone())?;
+        let project_key = context.project_key.clone();
         let this = self.clone();
-        self.mutation(input,move||async move{
+        self.mutation(input,resource,TASKS,false,move||async move{
+            let task = Self::task(&Self::project(&account, &project_key)?, &reference)?;
             this.current_account(&account).await?;
             let provider=this.provider(&account,&g,&root).await?;
             if account.provider==i::Provider::Jira && r.description.is_some() {
                 let current=provider.task(&task).await.map_err(domain)?;
                 if current.jira.as_ref().is_none_or(|d|!d.description_editable){return Err(domain("The description contains rich Jira content. Use the native field document to preserve it."));}
             }
-            let command=if let Some(status)=r.status.clone(){status_command(provider.as_ref(),&task,status).await?}else{Some(update_command(&task,&r)?)};
+            let command=if let Some(status)=changes.status.clone(){status_command(provider.as_ref(),&task,status).await?}else{Some(update_command(&task,&changes)?)};
             this.auth.resource(g.id(),TASKS,&root).await?;this.current_account(&account).await?;
-            match command{Some(c)=>Ok(m::receipt(provider.write(&c).await.map_err(write_error)?)),None=>Ok(br#"{"notice":"Task already has the requested state."}"#.to_vec())}
+            Ok(async move { match command{Some(c)=>Ok(m::receipt(provider.write(&c).await.map_err(write_error)?)),None=>Ok(br#"{"notice":"Task already has the requested state."}"#.to_vec())} })
         }).await
     }
     pub(super) async fn save(
         &self,
         g: DeviceGrant,
-        mut r: proto::SaveTaskFilterRequest,
+        mut r: proto::SaveFilterRequest,
     ) -> Result<proto::CommandReceipt, Status> {
         let meta = required(r.command.take())?;
-        let root = self.authorize(&g, &meta.host_id, None).await?;
+        let environment = required(r.environment.take())?;
         let f = required(r.filter.as_ref())?;
         if f.builtin {
             return Err(invalid("Built-in filters cannot be overwritten."));
@@ -154,46 +218,76 @@ impl TasksRpc {
             },
         };
         filter.validate().map_err(invalid)?;
-        let input = self.auth.input(
-            &meta,
-            &g,
-            "tasks.save_filter",
-            filter.id.clone(),
-            r.encode_to_vec(),
-            root.clone(),
-        )?;
+        let context = proto::TaskProject {
+            resource: Some(proto::task_project::Resource::Environment(environment)),
+            ..Default::default()
+        };
+        let (prepared, resource) = self
+            .prepare(&g, meta, &context, TaskCommand::SaveFilter(filter.clone()))
+            .await?;
+        if let Some(prior) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return api::resources::receipt_for_resource(&self.auth, prior, resource);
+        }
+        let input = prepared.runtime_input().clone();
+        let root = required(input.root.clone())?;
         let this = self.clone();
-        self.mutation(input, move || async move {
+        self.mutation(input, resource, TASKS, false, move || async move {
             this.auth.resource(g.id(), TASKS, &root).await?;
-            this.host.save_filter(filter).await?;
-            Ok(b"{}".to_vec())
+            Ok(async move {
+                this.host.save_filter(filter).await?;
+                Ok(b"{}".to_vec())
+            })
         })
         .await
     }
     pub(super) async fn remove(
         &self,
         g: DeviceGrant,
-        mut r: proto::RemoveTaskFilterRequest,
+        mut r: proto::RemoveFilterRequest,
     ) -> Result<proto::CommandReceipt, Status> {
         let meta = required(r.command.take())?;
-        let root = self.authorize(&g, &meta.host_id, None).await?;
+        let environment = required(r.environment.take())?;
         if uuid::Uuid::parse_str(&r.filter_id).is_err() {
             return Err(invalid("Only custom filters can be removed."));
         }
-        let input = self.auth.input(
-            &meta,
-            &g,
-            "tasks.remove_filter",
-            r.filter_id.clone(),
-            r.encode_to_vec(),
-            root.clone(),
-        )?;
+        let context = proto::TaskProject {
+            resource: Some(proto::task_project::Resource::Environment(environment)),
+            ..Default::default()
+        };
+        let (prepared, resource) = self
+            .prepare(
+                &g,
+                meta,
+                &context,
+                TaskCommand::RemoveFilter(r.filter_id.clone()),
+            )
+            .await?;
+        if let Some(prior) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return api::resources::receipt_for_resource(&self.auth, prior, resource);
+        }
+        let reject_recovery = prepared.prior().is_some();
+        let input = prepared.runtime_input().clone();
+        let root = required(input.root.clone())?;
         let this = self.clone();
-        self.mutation(input, move || async move {
-            this.auth.resource(g.id(), TASKS, &root).await?;
-            this.host.remove_filter(r.filter_id).await?;
-            Ok(b"{}".to_vec())
-        })
+        self.mutation(
+            input,
+            resource,
+            TASKS,
+            reject_recovery,
+            move || async move {
+                this.auth.resource(g.id(), TASKS, &root).await?;
+                Ok(async move {
+                    this.host.remove_filter(r.filter_id).await?;
+                    Ok(b"{}".to_vec())
+                })
+            },
+        )
         .await
     }
     pub(super) async fn worktree(
@@ -202,53 +296,67 @@ impl TasksRpc {
         mut r: proto::TaskToWorktreeRequest,
     ) -> Result<proto::CommandReceipt, Status> {
         let meta = required(r.command.take())?;
-        let reference = required(r.task.as_ref())?;
-        let workspace = required(r.workspace.clone())?;
-        let (_, account, task) = self.task_context(&g, reference).await?;
-        let root = self
-            .authorize(&g, &workspace.host_id, Some(&workspace))
-            .await?;
-        if reference
-            .workspace
-            .as_ref()
-            .is_some_and(|w| w != &workspace)
-        {
-            return Err(invalid("Task and destination workspace differ."));
+        let reference = required(r.task.clone())?;
+        let context = required(reference.project.as_ref())?;
+        let project_ref = match required(context.resource.clone())? {
+            proto::task_project::Resource::Project(project) => project,
+            _ => return Err(invalid("Worktree requires a project checkout.")),
+        };
+        if project_ref.worktree_id.is_none() {
+            return Err(invalid("Worktree requires a Git checkout."));
         }
-        // This operation also mutates a repository, so require its capability.
-        self.auth
-            .resource(g.id(), crate::host::FILES_GIT, &root)
-            .await?;
         if r.branch.is_empty()
             || !git2::Reference::is_valid_name(&format!("refs/heads/{}", r.branch))
         {
             return Err(invalid("Invalid worktree branch."));
         }
-        let input = self.auth.input(
-            &meta,
-            &g,
-            "tasks.worktree",
-            workspace.workspace_id.clone(),
-            intent(&account, &r),
-            root.clone(),
-        )?;
+        let command = TaskCommand::Worktree {
+            integration: context.integration_id.clone(),
+            project: context.project_key.clone(),
+            task: reference.task_id.clone(),
+            branch: r.branch.clone(),
+        };
+        let (prepared, resource) = self.prepare(&g, meta, context, command).await?;
+        if let Some(prior) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return api::resources::receipt_for_resource(&self.auth, prior, resource);
+        }
+        let reject_recovery = prepared.prior().is_some();
+        let (input, account) = self
+            .account_input(&prepared, &context.integration_id)
+            .await?;
+        let root = required(input.root.clone())?;
+        let project_key = context.project_key.clone();
         let this = self.clone();
-        self.mutation(input, move || async move {
-            this.current_account(&account).await?;
-            let provider = this.provider(&account, &g, &root).await?;
-            let item = provider.task(&task).await.map_err(domain)?;
-            if !item.reference.same_task(&task) {
-                return Err(domain("Provider returned a different task."));
-            }
-            this.auth
-                .resource(g.id(), TASKS | crate::host::FILES_GIT, &root)
-                .await?;
-            let id = this
-                .host
-                .task_to_worktree(workspace, item.reference, r.branch)
-                .await?;
-            Ok(serde_json::to_vec(&json!({"workspace_id":id})).expect("string result"))
-        })
+        self.mutation(
+            input,
+            resource,
+            TASKS | crate::host::FILES_GIT,
+            reject_recovery,
+            move || async move {
+                let (project_ref, _) = this.roots.project(project_ref, &this.auth)?;
+                let task = Self::task(&Self::project(&account, &project_key)?, &reference)?;
+                this.current_account(&account).await?;
+                let provider = this.provider(&account, &g, &root).await?;
+                let item = provider.task(&task).await.map_err(domain)?;
+                if !item.reference.same_task(&task) {
+                    return Err(domain("Provider returned a different task."));
+                }
+                this.auth
+                    .resource(g.id(), TASKS | crate::host::FILES_GIT, &root)
+                    .await?;
+                this.current_account(&account).await?;
+                Ok(async move {
+                    let id = this
+                        .host
+                        .task_to_worktree(project_ref, item.reference, r.branch)
+                        .await?;
+                    Ok(serde_json::to_vec(&json!({"workspace_id":id})).expect("string result"))
+                })
+            },
+        )
         .await
     }
     pub(super) async fn command(
@@ -289,7 +397,7 @@ impl TasksRpc {
                 if task.is_some() {
                     return Err(invalid("Create must not select an existing task."));
                 }
-                let fields = m::object(d.fields.as_ref())?;
+                let fields = d.fields;
                 let draft = i::IssueDraft {
                     title: d.title,
                     body: d.description,
@@ -312,8 +420,10 @@ impl TasksRpc {
                     i::Provider::Jira => {
                         let mut fields = fields;
                         fields["summary"] = json!(draft.title);
-                        fields["description"] =
-                            i::jira::adf::from_markdown(&draft.body).map_err(invalid)?;
+                        if !draft.body.is_empty() || fields.get("description").is_none() {
+                            fields["description"] =
+                                i::jira::adf::from_markdown(&draft.body).map_err(invalid)?;
+                        }
                         if !draft.labels.is_empty() {
                             fields["labels"] = json!(draft.labels);
                         }
@@ -344,7 +454,7 @@ impl TasksRpc {
             }
             A::Status(s) => return status_command(provider, &task_required()?, s).await,
             A::Fields(s) => {
-                let fields = m::object(Some(&s))?;
+                let fields = s;
                 task_required()?;
                 match project.provider {
                     i::Provider::Jira => jira(J::Fields { fields })?,
@@ -360,7 +470,7 @@ impl TasksRpc {
             }
             A::Field(f) => {
                 let t = task_required()?;
-                let v = m::json(&required(f.value)?)?;
+                let v = f.value;
                 match project.provider {
                     i::Provider::Jira => jira(J::Fields {
                         fields: json!({f.field_id:v}),
@@ -395,7 +505,7 @@ impl TasksRpc {
                     } else if let Some(rich) = c.rich_body {
                         jira(J::CommentDocument {
                             comment,
-                            document: m::json(&rich)?,
+                            document: rich,
                         })?
                     } else {
                         i::TaskWrite::EditComment {
@@ -451,7 +561,7 @@ impl TasksRpc {
                 }
                 i::TaskWrite::Milestone {
                     task: t,
-                    number: number(v.id.as_deref())?,
+                    number: number(v.as_deref())?,
                 }
             }
             A::Attachment(v) => {
@@ -461,19 +571,19 @@ impl TasksRpc {
                         "GitHub attachment writes are not supported by the adapter.",
                     ));
                 }
-                match required(v.action)? {
-                    proto::task_attachment_write::Action::DeleteId(id) => {
+                match v.action {
+                    TaskAttachmentAction::DeleteId(id) => {
                         if project.provider == i::Provider::Jira {
                             jira(J::DeleteAttachment { id })?
                         } else {
                             youtrack(Y::DeleteAttachment { id })
                         }
                     }
-                    proto::task_attachment_write::Action::Attach(artifact) => {
-                        self.auth.check_host(&artifact.host_id)?;
+                    TaskAttachmentAction::Attach(artifact) => {
+                        self.auth.check_host(artifact.host.as_str())?;
                         let expected = crate::artifacts::Target::Task {
                             integration_id: p.integration_id.clone(),
-                            project_id: p.project_id.clone(),
+                            project_id: p.project_key.clone(),
                             task_id: t.id,
                             root: root.into(),
                         };
@@ -481,12 +591,12 @@ impl TasksRpc {
                         let owner = g.id().to_owned();
                         let (bytes, media_type) = tokio::task::spawn_blocking(move || {
                             let upload = store
-                                .status(&owner, &artifact.artifact_id)
+                                .status(&owner, &artifact.artifact)
                                 .map_err(storage_status)?;
                             let b = upload.binding();
                             if b.target() != &expected
                                 || b.purpose() != &crate::artifacts::Purpose::TaskAttachment
-                                || upload.artifact_id() != Some(artifact.artifact_id.as_str())
+                                || upload.artifact_id() != Some(artifact.artifact.as_str())
                             {
                                 return Err(Status::permission_denied(
                                     "Attachment is not bound to this task.",
@@ -510,7 +620,7 @@ impl TasksRpc {
                                 let chunk = store
                                     .download(
                                         &owner,
-                                        &artifact.artifact_id,
+                                        &artifact.artifact,
                                         bytes.len() as u64,
                                         crate::artifacts::CHUNK_BYTES,
                                     )
@@ -569,7 +679,7 @@ impl TasksRpc {
             }
             A::Sprint(v) => {
                 task_required()?;
-                jira(J::Sprint { id: v.id })?
+                jira(J::Sprint { id: v })?
             }
             A::Delete(v) => {
                 task_required()?;
@@ -596,9 +706,6 @@ impl TasksRpc {
         }))
     }
 }
-fn intent(account: &i::Account, r: &impl Message) -> Vec<u8> {
-    serde_json::to_vec(&(account.credential.as_str(), r.encode_to_vec())).expect("typed intent")
-}
 fn number(id: Option<&str>) -> Result<Option<u64>, Status> {
     id.map(|v| {
         v.parse::<u64>()
@@ -608,7 +715,7 @@ fn number(id: Option<&str>) -> Result<Option<u64>, Status> {
     })
     .transpose()
 }
-fn update_command(task: &i::TaskRef, r: &proto::UpdateTaskRequest) -> Result<i::TaskWrite, Status> {
+fn update_command(task: &i::TaskRef, r: &TaskChanges) -> Result<i::TaskWrite, Status> {
     if let Some(title) = &r.title
         && (title.trim().is_empty() || title.chars().count() > 256)
     {
@@ -630,12 +737,12 @@ fn update_command(task: &i::TaskRef, r: &proto::UpdateTaskRequest) -> Result<i::
             task: task.clone(),
             title: r.title.clone(),
             body: r.description.clone(),
-            labels: r.labels.as_ref().map(|v| v.values.clone()),
-            assignees: r.assignees.as_ref().map(|v| v.values.clone()),
+            labels: r.labels.clone(),
+            assignees: r.assignees.clone(),
             milestone: r
                 .milestone
                 .as_ref()
-                .map(|v| number(v.id.as_deref()))
+                .map(|v| number(v.as_deref()))
                 .transpose()?,
         });
     }
@@ -658,16 +765,15 @@ fn update_command(task: &i::TaskRef, r: &proto::UpdateTaskRequest) -> Result<i::
     }
     if task.project.provider == i::Provider::Jira {
         if let Some(v) = &r.labels {
-            fields.insert("labels".into(), json!(v.values));
+            fields.insert("labels".into(), json!(v));
         }
         if let Some(v) = &r.assignees {
-            if v.values.len() > 1 {
+            if v.len() > 1 {
                 return Err(invalid("Jira supports one assignee."));
             }
             fields.insert(
                 "assignee".into(),
-                v.values
-                    .first()
+                v.first()
                     .map(|v| json!({"accountId":v}))
                     .unwrap_or(Value::Null),
             );
@@ -695,7 +801,7 @@ fn update_command(task: &i::TaskRef, r: &proto::UpdateTaskRequest) -> Result<i::
 pub(super) async fn status_command(
     provider: &dyn i::TaskProvider,
     task: &i::TaskRef,
-    s: proto::TaskStatusChoice,
+    s: TaskStatus,
 ) -> Result<Option<i::TaskWrite>, Status> {
     let fields = i::status::load(provider, task).await.map_err(domain)?;
     let field = fields
@@ -705,7 +811,7 @@ pub(super) async fn status_command(
     if let Some(reason) = field.read_only_reason() {
         return Err(domain(reason));
     }
-    let form = m::object(s.form_fields.as_ref())?;
+    let form = s.form_fields;
     if let i::status::StatusField::Jira { transitions, .. } = &field {
         let transition = transitions
             .iter()

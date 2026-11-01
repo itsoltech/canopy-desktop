@@ -10,6 +10,426 @@ fn id() -> String {
 }
 
 #[test]
+fn local_recovery_retains_selected_authority_for_exact_retry_and_rejects_a_loser() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("recovery.db");
+    crate::settings::database::create(&path).unwrap();
+    let mut db = Database::open(&path, Access::ReadWrite).unwrap();
+    let chat = id();
+    db.save_chat_history(vec![crate::settings::ChatHistoryBatch {
+        chat: chat.clone(),
+        epochs: vec![(7, "{}".into())],
+        items: vec![(7, 1, "retained history".into())],
+    }])
+    .unwrap();
+    db.initialize_runtime().unwrap();
+    let orphan = db.load_runtime_chat(chat.clone()).unwrap().unwrap();
+    assert_eq!(orphan.authority_root(), "");
+    let reason = orphan.recovery_reason().unwrap().to_owned();
+    let catalog = super::super::super::read_tools(&db.db).unwrap();
+    let tool = catalog
+        .tools
+        .iter()
+        .find(|tool| tool.enabled && tool.is_agent())
+        .unwrap();
+    let profile = tool
+        .profiles
+        .first()
+        .map_or_else(|| tool.id.clone(), |p| p.id.clone());
+    let record = ChatRecord::new(
+        chat.clone(),
+        None,
+        tool.id.clone(),
+        PaneMetadata {
+            kind: PaneKind::Chat,
+            profile_id: Some(profile),
+            chat: Some(Box::new(ChatSettings {
+                id: Some(chat.clone()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .with_history_epoch(7)
+    .unwrap();
+    let request = envelope(
+        &orphan,
+        uuid::Uuid::new_v4(),
+        Command::Recovery {
+            record: Box::new(record.clone()),
+            expected_reason: reason.clone(),
+        },
+    );
+    let (_, remote) = principal(&mut db);
+    assert!(matches!(
+        db.prepare_bus_command(request.clone(), remote),
+        Err(Error::NotAuthorized)
+    ));
+    let winner = db
+        .prepare_bus_command(request.clone(), Principal::local_owner())
+        .unwrap()
+        .input;
+    let mut other = request.clone();
+    other.command_id = uuid::Uuid::new_v4();
+    let loser = db
+        .prepare_bus_command(other, Principal::local_owner())
+        .unwrap()
+        .input;
+    let receipt = db
+        .recover_runtime_chat(winner.clone(), record.clone(), reason.clone())
+        .unwrap();
+    assert_eq!(receipt.state(), CommandState::Succeeded);
+    assert_eq!(
+        db.recover_runtime_chat(winner, record.clone(), reason.clone())
+            .unwrap(),
+        receipt
+    );
+    assert_eq!(
+        db.prepare_bus_command(request, Principal::local_owner())
+            .unwrap()
+            .prior(),
+        Some(&receipt)
+    );
+    assert_eq!(
+        db.recover_runtime_chat(loser, record, reason)
+            .unwrap()
+            .state(),
+        CommandState::Rejected
+    );
+    let recovered = db.load_runtime_chat(chat.clone()).unwrap().unwrap();
+    assert_eq!(recovered.thread_id(), orphan.thread_id());
+    assert!(recovered.recovery_reason().is_none());
+    assert_eq!(
+        db.load_chat_history(&chat).unwrap().items,
+        vec![(7, 1, "retained history".into())]
+    );
+}
+
+#[test]
+fn restart_rejects_ownerless_catalog_admission_and_preserves_unknown_effects() {
+    use crate::{command_bus::CatalogCommand, state::workspace::ProjectId, thread::ProjectRef};
+    let (dir, mut db) = database();
+    let source = chat(&mut db);
+    let (_, principal) = principal(&mut db);
+    let environment = ResourceRef::Environment(crate::thread::EnvironmentRef {
+        host_id: source.thread().unwrap().thread().host_id.clone(),
+    });
+    let project = ResourceRef::Project(
+        ProjectRef::new(
+            source.thread().unwrap().thread().host_id.clone(),
+            ProjectId::new(),
+            None,
+            false,
+        )
+        .unwrap(),
+    );
+    let root = dir.path().to_str().unwrap().to_owned();
+    let mut requests = Vec::new();
+    for (resource, command) in [
+        (
+            environment.clone(),
+            CatalogCommand::Create {
+                agent: "test".into(),
+                profile: "test".into(),
+            },
+        ),
+        (
+            ResourceRef::Thread {
+                thread: source.thread().unwrap().thread().clone(),
+                executor_epoch: source.thread().unwrap().executor_epoch(),
+            },
+            CatalogCommand::Close { plan: id() },
+        ),
+        (
+            environment,
+            CatalogCommand::OpenProject { path: root.clone() },
+        ),
+        (project.clone(), CatalogCommand::CloseProject { plan: id() }),
+        (
+            project,
+            CatalogCommand::CloseTerminal {
+                terminal: id(),
+                plan: id(),
+            },
+        ),
+    ] {
+        for attempting in [false, true] {
+            let request = CommandEnvelope {
+                command_id: uuid::Uuid::new_v4(),
+                resource: resource.clone(),
+                command: Command::Catalog(command.clone()),
+                conditions: Conditions::default(),
+            };
+            let prepared = if matches!(request.resource, ResourceRef::Thread { .. }) {
+                db.prepare_bus_command(request.clone(), principal.clone())
+                    .unwrap()
+            } else {
+                db.prepare_bus_catalog(
+                    request.clone(),
+                    principal.clone(),
+                    Some((root.clone(), root.clone())),
+                )
+                .unwrap()
+                .unwrap()
+            };
+            let scope = request.command.required_scope();
+            let accepted = db.accept_runtime_command(prepared.input, scope).unwrap();
+            if attempting {
+                db.transition_runtime_command(
+                    accepted.key().clone(),
+                    CommandState::Accepted,
+                    CommandState::Attempting,
+                    None,
+                )
+                .unwrap();
+            }
+            requests.push((request, accepted.key().clone(), scope, attempting));
+        }
+    }
+    // Re-initializing the current owner must not cancel its in-flight admission.
+    db.initialize_runtime().unwrap();
+    for (_, key, scope, attempting) in &requests {
+        assert_eq!(
+            db.get_runtime_command(key.clone(), *scope)
+                .unwrap()
+                .unwrap()
+                .state(),
+            if *attempting {
+                CommandState::Attempting
+            } else {
+                CommandState::Accepted
+            }
+        );
+    }
+    drop(db);
+    let mut db = Database::open(&dir.path().join("commands.db"), Access::ReadWrite).unwrap();
+    db.initialize_runtime().unwrap();
+    for (request, key, scope, attempting) in requests {
+        let prepared = if matches!(request.resource, ResourceRef::Thread { .. }) {
+            db.prepare_bus_command(request.clone(), principal.clone())
+                .unwrap()
+        } else {
+            // Exact retry needs neither a live project nor the old preflight.
+            db.prepare_bus_catalog(request.clone(), principal.clone(), None)
+                .unwrap()
+                .unwrap()
+        };
+        let receipt = prepared.prior().unwrap();
+        assert_eq!(
+            receipt.state(),
+            if attempting {
+                CommandState::DeliveryUnknown
+            } else {
+                CommandState::Rejected
+            }
+        );
+        if !attempting {
+            assert!(
+                std::str::from_utf8(receipt.result().unwrap())
+                    .unwrap()
+                    .contains("conditions_changed")
+            );
+        }
+        assert_eq!(
+            db.get_runtime_command(key, scope).unwrap().as_ref(),
+            Some(receipt)
+        );
+    }
+}
+
+#[test]
+fn projectless_terminal_requires_the_in_process_owner_even_with_private_grants() {
+    let (_dir, mut db) = database();
+    let (_, remote) = principal(&mut db);
+    for command in [
+        Command::Terminal(crate::command_bus::TerminalCommand::Open {
+            tool: "shell".into(),
+            profile: None,
+        }),
+        Command::Catalog(crate::command_bus::CatalogCommand::CloseTerminal {
+            terminal: id(),
+            plan: id(),
+        }),
+    ] {
+        let request = CommandEnvelope {
+            command_id: uuid::Uuid::new_v4(),
+            resource: ResourceRef::Environment(crate::thread::EnvironmentRef {
+                host_id: crate::thread::HostId::new(db.runtime_host().unwrap().id().into())
+                    .unwrap(),
+            }),
+            command,
+            conditions: Conditions::default(),
+        };
+        assert!(matches!(
+            db.prepare_bus_command(request.clone(), remote.clone()),
+            Err(Error::NotAuthorized)
+        ));
+        let admitted = db
+            .prepare_bus_command(request.clone(), Principal::local_owner())
+            .unwrap();
+        db.accept_runtime_command(admitted.input.clone(), host::TERMINAL)
+            .unwrap();
+        // Remote grants cannot disclose or conflict with the local intent either.
+        assert!(matches!(
+            db.prepare_bus_command(request.clone(), remote.clone()),
+            Err(Error::NotAuthorized)
+        ));
+        let retry = db
+            .prepare_bus_command(request, Principal::local_owner())
+            .unwrap();
+        assert_eq!(retry.prior().unwrap().state(), CommandState::Accepted);
+    }
+}
+
+#[test]
+fn git_admission_and_dispatch_recheck_all_roots_and_refuse_missing_saved_authority() {
+    use crate::{
+        command_bus::{
+            GitCommand, GitIntent, GitSnapshot, WorktreeAction, WorktreeIntent, git::SavedAuthority,
+        },
+        state::workspace::ProjectId,
+        thread::{HostId, ProjectRef, WorktreeId},
+    };
+    let (dir, mut db) = database();
+    let source = dir.path().join("source").to_str().unwrap().to_owned();
+    let target = dir
+        .path()
+        .join("removed-target")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let (device, principal) = principal(&mut db);
+    let request = CommandEnvelope {
+        command_id: uuid::Uuid::new_v4(),
+        resource: ResourceRef::Project(
+            ProjectRef::new(
+                HostId::new(db.runtime_host().unwrap().id().into()).unwrap(),
+                ProjectId::new(),
+                Some(WorktreeId::new("checkout".into()).unwrap()),
+                true,
+            )
+            .unwrap(),
+        ),
+        command: Command::Git(GitCommand {
+            intent: GitIntent::Worktree(WorktreeIntent {
+                action: WorktreeAction::Merge,
+                branch: "feature".into(),
+                path: None,
+                start_point: None,
+                target_branch: Some("main".into()),
+                delete_branch: false,
+                discard_changes: false,
+                delete_unmerged_branch: false,
+                acknowledge_offline_dirty: false,
+                registration_name: None,
+            }),
+            expected: GitSnapshot {
+                head: String::new(),
+                index: [0; 32],
+                worktree: [0; 32],
+                preflight: Some(id()),
+            },
+        }),
+        conditions: Conditions::default(),
+    };
+    let prepared = db
+        .prepare_bus_catalog(
+            request.clone(),
+            principal.clone(),
+            Some((source.clone(), source.clone())),
+        )
+        .unwrap()
+        .unwrap();
+    let mut input = prepared.input;
+    let raw_intent = input.arguments.clone();
+    SavedAuthority::bind(&mut input, vec![target.clone()]).unwrap();
+    let grant = db.lookup_runtime_device(device.as_bytes().into()).unwrap();
+    let restricted = db
+        .update_runtime_device_authorization(
+            device.clone(),
+            grant.authorization_revision(),
+            host::ALL_SCOPES,
+            vec![source.clone()],
+        )
+        .unwrap();
+    assert!(matches!(
+        db.accept_runtime_command(input.clone(), host::FILES_GIT),
+        Err(Error::NotAuthorized)
+    ));
+    assert!(
+        db.get_runtime_command(input.key.clone(), host::FILES_GIT)
+            .unwrap()
+            .is_none()
+    );
+    let granted = db
+        .update_runtime_device_authorization(
+            device.clone(),
+            restricted.authorization_revision(),
+            host::ALL_SCOPES,
+            vec![source.clone(), target.clone()],
+        )
+        .unwrap();
+    db.accept_runtime_command(input.clone(), host::FILES_GIT)
+        .unwrap();
+    let recovered = db
+        .prepare_bus_catalog(request.clone(), principal.clone(), None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(recovered.prior().unwrap().state(), CommandState::Accepted);
+    assert_eq!(recovered.input.arguments, input.arguments);
+    // Invalid historical payloads never fall back to source-only authorization,
+    // including while the device still has every current grant.
+    for arguments in [raw_intent, b"{\"version\":1,\"roots\":[]}".to_vec()] {
+        db.db
+            .execute(
+                "UPDATE _canopy_command_inbox SET arguments=?1 WHERE command_id=?2",
+                params![arguments, input.key.id()],
+            )
+            .unwrap();
+        assert!(matches!(
+            db.get_runtime_command(input.key.clone(), host::FILES_GIT),
+            Err(Error::NotAuthorized)
+        ));
+        assert!(matches!(
+            db.transition_runtime_command(
+                input.key.clone(),
+                CommandState::Accepted,
+                CommandState::Attempting,
+                None
+            ),
+            Err(Error::NotAuthorized)
+        ));
+        assert!(matches!(
+            db.prepare_bus_catalog(request.clone(), principal.clone(), None),
+            Err(Error::NotAuthorized)
+        ));
+    }
+    db.db
+        .execute(
+            "UPDATE _canopy_command_inbox SET arguments=?1 WHERE command_id=?2",
+            params![input.arguments, input.key.id()],
+        )
+        .unwrap();
+    db.update_runtime_device_authorization(
+        device,
+        granted.authorization_revision(),
+        host::ALL_SCOPES,
+        vec![source],
+    )
+    .unwrap();
+    assert!(matches!(
+        db.transition_runtime_command(
+            input.key,
+            CommandState::Accepted,
+            CommandState::Attempting,
+            None
+        ),
+        Err(Error::NotAuthorized)
+    ));
+}
+
+#[test]
 fn typed_steer_and_goal_use_the_existing_queue_and_dedupe_before_target_resolution() {
     use crate::command_bus::Control;
     let (_dir, mut db) = database();
@@ -131,75 +551,112 @@ fn runtime_acceptance_rechecks_revision_and_commits_its_rejection_before_retry()
 
 #[test]
 fn catalog_retry_uses_saved_authority_before_resolution_or_conflict() {
-    use crate::{command_bus::CatalogCommand, thread::EnvironmentRef};
+    use crate::{
+        command_bus::CatalogCommand,
+        state::workspace::ProjectId,
+        thread::{EnvironmentRef, HostId, ProjectRef},
+    };
     let (_dir, mut db) = database();
     let (device, principal) = principal(&mut db);
-    let request = CommandEnvelope {
-        command_id: uuid::Uuid::new_v4(),
-        resource: ResourceRef::Environment(EnvironmentRef {
-            host_id: crate::thread::HostId::new(db.runtime_host().unwrap().id().into()).unwrap(),
-        }),
-        command: Command::Catalog(CatalogCommand::OpenProject {
-            path: "/original/folder".into(),
-        }),
-        conditions: Conditions::default(),
-    };
-    assert!(
-        db.prepare_bus_catalog(request.clone(), principal.clone(), None)
-            .unwrap()
-            .is_none()
+    let host_id = HostId::new(db.runtime_host().unwrap().id().into()).unwrap();
+    let project = ResourceRef::Project(
+        ProjectRef::new(host_id.clone(), ProjectId::new(), None, false).unwrap(),
     );
-    let prepared = db
-        .prepare_bus_catalog(
-            request.clone(),
-            principal.clone(),
-            Some(("/resolved".into(), "/resolved".into())),
+    let cases = [
+        (
+            ResourceRef::Environment(EnvironmentRef { host_id }),
+            CatalogCommand::OpenProject {
+                path: "/original/folder".into(),
+            },
+            CatalogCommand::OpenProject {
+                path: "/another/folder".into(),
+            },
+        ),
+        (
+            project.clone(),
+            CatalogCommand::CloseProject { plan: id() },
+            CatalogCommand::CloseProject { plan: id() },
+        ),
+        (
+            project,
+            CatalogCommand::CloseTerminal {
+                terminal: id(),
+                plan: id(),
+            },
+            CatalogCommand::CloseTerminal {
+                terminal: id(),
+                plan: id(),
+            },
+        ),
+    ];
+    for (resource, command, changed_command) in cases {
+        let request = CommandEnvelope {
+            command_id: uuid::Uuid::new_v4(),
+            resource,
+            command: Command::Catalog(command),
+            conditions: Conditions::default(),
+        };
+        let scope = request.command.required_scope();
+        assert!(
+            db.prepare_bus_catalog(request.clone(), principal.clone(), None)
+                .unwrap()
+                .is_none()
+        );
+        let prepared = db
+            .prepare_bus_catalog(
+                request.clone(),
+                principal.clone(),
+                Some(("/resolved".into(), "/resolved".into())),
+            )
+            .unwrap()
+            .unwrap();
+        let input = prepared.runtime_input().clone();
+        db.accept_runtime_command(input.clone(), scope).unwrap();
+        db.transition_runtime_command(
+            input.key().clone(),
+            CommandState::Accepted,
+            CommandState::Attempting,
+            None,
         )
-        .unwrap()
         .unwrap();
-    let input = prepared.runtime_input().clone();
-    db.accept_runtime_command(input.clone(), host::CHAT)
-        .unwrap();
-    db.transition_runtime_command(
-        input.key().clone(),
-        CommandState::Accepted,
-        CommandState::Attempting,
-        None,
-    )
-    .unwrap();
-    db.transition_runtime_command(
-        input.key().clone(),
-        CommandState::Attempting,
-        CommandState::DeliveryUnknown,
-        None,
-    )
-    .unwrap();
-    let retry = db
-        .prepare_bus_catalog(request.clone(), principal.clone(), None)
-        .unwrap()
-        .unwrap()
-        .prior
-        .unwrap();
-    assert_eq!(retry.state(), CommandState::DeliveryUnknown);
-    let mut changed = request.clone();
-    changed.command = Command::Catalog(CatalogCommand::OpenProject {
-        path: "/another/folder".into(),
-    });
-    assert!(matches!(
-        db.prepare_bus_catalog(changed.clone(), principal.clone(), None),
-        Err(Error::CommandConflict)
-    ));
-    db.db
-        .execute(
-            "UPDATE _canopy_remote_devices SET roots='[]' WHERE device_id=?1",
-            [&device],
+        db.transition_runtime_command(
+            input.key().clone(),
+            CommandState::Attempting,
+            CommandState::DeliveryUnknown,
+            None,
         )
         .unwrap();
-    for request in [request, changed] {
+        let retry = db
+            .prepare_bus_catalog(request.clone(), principal.clone(), None)
+            .unwrap()
+            .unwrap()
+            .prior
+            .unwrap();
+        assert_eq!(retry.state(), CommandState::DeliveryUnknown);
+        let mut changed = request.clone();
+        changed.command = Command::Catalog(changed_command);
         assert!(matches!(
-            db.prepare_bus_catalog(request, principal.clone(), None),
-            Err(Error::NotAuthorized)
+            db.prepare_bus_catalog(changed.clone(), principal.clone(), None),
+            Err(Error::CommandConflict)
         ));
+        db.db
+            .execute(
+                "UPDATE _canopy_remote_devices SET roots='[]' WHERE device_id=?1",
+                [&device],
+            )
+            .unwrap();
+        for request in [request, changed] {
+            assert!(matches!(
+                db.prepare_bus_catalog(request, principal.clone(), None),
+                Err(Error::NotAuthorized)
+            ));
+        }
+        db.db
+            .execute(
+                "UPDATE _canopy_remote_devices SET roots='[\"*\"]' WHERE device_id=?1",
+                [&device],
+            )
+            .unwrap();
     }
 }
 
@@ -216,8 +673,33 @@ fn typed_fork_keeps_source_identity_and_refuses_another_checkout_or_private() {
             history_epoch: 0,
             item: 2,
             replacement: None,
+            local_destination: None,
         }),
     );
+    let mut local_private = private.clone();
+    local_private.command_id = uuid::Uuid::new_v4();
+    if let Command::Control(Control::Fork {
+        local_destination, ..
+    }) = &mut local_private.command
+    {
+        *local_destination = Some(crate::command_bus::LocalForkDestination {
+            workspace: None,
+            chat: uuid::Uuid::new_v4().to_string(),
+        });
+    }
+    assert!(matches!(
+        db.prepare_bus_command(local_private.clone(), principal.clone()),
+        Err(Error::NotAuthorized)
+    ));
+    let local = db
+        .prepare_bus_command(local_private, Principal::local_owner())
+        .unwrap();
+    assert!(
+        local.prior().is_none(),
+        "local Private Fork keeps the existing behavior"
+    );
+    db.accept_runtime_command(local.input.clone(), host::CHAT)
+        .unwrap();
     let rejected = db
         .prepare_bus_command(private.clone(), principal.clone())
         .unwrap()
@@ -241,6 +723,7 @@ fn typed_fork_keeps_source_identity_and_refuses_another_checkout_or_private() {
             history_epoch: 0,
             item: 2,
             replacement: None,
+            local_destination: None,
         }),
     );
     let prepared = db
@@ -363,6 +846,142 @@ fn execute(
     }
     let dispatch = prepared.resolve(None)?;
     db.dispatch_bus_command(prepared, dispatch)
+}
+
+#[test]
+fn revoke_commits_with_receipt_and_rolls_back_when_admission_is_full() {
+    use crate::{
+        command_bus::AdminCommand,
+        thread::{EnvironmentRef, HostId},
+    };
+    let (_dir, mut db) = database();
+    let (sender, principal) = principal(&mut db);
+    let (target, _) = self::principal(&mut db);
+    let environment = ResourceRef::Environment(EnvironmentRef {
+        host_id: HostId::new(db.runtime_host().unwrap().id().into()).unwrap(),
+    });
+    let request = CommandEnvelope {
+        command_id: uuid::Uuid::new_v4(),
+        resource: environment,
+        command: Command::Admin(AdminCommand::RevokeDevice {
+            device: target.clone(),
+        }),
+        conditions: Conditions::default(),
+    };
+    // A full inbox cannot leave a revoke effect without its durable receipt.
+    let record = chat(&mut db);
+    let fill = execute(
+        &mut db,
+        rename(&record, uuid::Uuid::new_v4(), "retained"),
+        principal.clone(),
+    )
+    .unwrap();
+    db.db
+        .execute(
+            "UPDATE _canopy_command_inbox SET result=zeroblob(?1) WHERE device_id=?2",
+            params![integer(host::REMOTE_INBOX_BYTES).unwrap(), sender],
+        )
+        .unwrap();
+    assert!(matches!(
+        execute(&mut db, request.clone(), principal.clone()),
+        Err(Error::ResourceLimit)
+    ));
+    assert!(db.lookup_runtime_device(target.as_bytes().to_vec()).is_ok());
+    assert_eq!(
+        db.get_runtime_command(fill.key().clone(), 0)
+            .unwrap()
+            .unwrap()
+            .state(),
+        CommandState::Succeeded
+    );
+    // Administrative Close needs no additional row and is idempotent at capacity.
+    assert_eq!(
+        db.close_runtime_command_epoch(sender.clone(), 1).unwrap(),
+        2
+    );
+    assert_eq!(
+        db.close_runtime_command_epoch(sender.clone(), 1).unwrap(),
+        2
+    );
+    let grant = db
+        .lookup_runtime_device(sender.as_bytes().to_vec())
+        .unwrap();
+    let principal = Principal::authenticated(&grant, 2).unwrap();
+    let receipt = execute(&mut db, request.clone(), principal.clone()).unwrap();
+    assert_eq!(receipt.state(), CommandState::Succeeded);
+    assert!(matches!(
+        db.lookup_runtime_device(target.as_bytes().to_vec()),
+        Err(Error::NotAuthorized)
+    ));
+    let revision: i64 = db
+        .db
+        .query_row(
+            "SELECT authorization_revision FROM _canopy_remote_devices WHERE device_id=?1",
+            [&target],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        execute(&mut db, request.clone(), principal.clone()).unwrap(),
+        receipt
+    );
+    assert_eq!(
+        db.db
+            .query_row::<i64, _, _>(
+                "SELECT authorization_revision FROM _canopy_remote_devices WHERE device_id=?1",
+                [&target],
+                |r| r.get(0)
+            )
+            .unwrap(),
+        revision
+    );
+    let mut changed = request;
+    changed.command = Command::Admin(AdminCommand::RevokeDevice { device: id() });
+    assert!(matches!(
+        execute(&mut db, changed.clone(), principal.clone()),
+        Err(Error::CommandConflict)
+    ));
+    db.update_runtime_device_authorization(
+        sender.clone(),
+        grant.authorization_revision(),
+        host::READ,
+        vec!["private".into()],
+    )
+    .unwrap();
+    assert!(matches!(
+        execute(&mut db, changed, principal),
+        Err(Error::NotAuthorized)
+    ));
+    let mut wrong_epoch = receipt.key().clone();
+    wrong_epoch.epoch = 1;
+    assert!(matches!(
+        db.get_runtime_command(wrong_epoch, 0),
+        Err(Error::NotAuthorized)
+    ));
+    // Local recovery remains available even when the local inbox cannot admit.
+    let local = execute(
+        &mut db,
+        rename(&record, uuid::Uuid::new_v4(), "local"),
+        Principal::local_owner(),
+    )
+    .unwrap();
+    db.db
+        .execute(
+            "UPDATE _canopy_command_inbox SET result=zeroblob(?1) WHERE device_id='local'",
+            [integer(host::LOCAL_INBOX_BYTES).unwrap()],
+        )
+        .unwrap();
+    db.revoke_runtime_device(sender.clone()).unwrap();
+    assert!(matches!(
+        db.lookup_runtime_device(sender.as_bytes().to_vec()),
+        Err(Error::NotAuthorized)
+    ));
+    db.acknowledge_runtime_command(local.key().clone()).unwrap();
+    assert!(
+        db.get_runtime_command(local.key().clone(), 0)
+            .unwrap()
+            .is_none()
+    );
 }
 fn send(chat: &ChatRecord, message: String) -> Command {
     Command::Send {
@@ -858,7 +1477,7 @@ fn incoming_retry_precedes_vanished_workspace_and_rotated_context_and_checks_rea
         .unwrap();
     let pull = resources.pulls.publish(
         "/project",
-        crate::remote::proto::PullAttachment {
+        crate::api::proto::PullAttachment {
             number: 42,
             title: "context".into(),
             ..Default::default()
@@ -876,11 +1495,8 @@ fn incoming_retry_precedes_vanished_workspace_and_rotated_context_and_checks_rea
                 context: None,
                 goal: false,
                 attachments: vec![
-                    AttachmentIntent::Path {
-                        workspace: Some((
-                            chat.thread().unwrap().thread().host_id.clone(),
-                            "project".into(),
-                        )),
+                    AttachmentIntent::ThreadPath {
+                        project_file: true,
                         relative: "src/file.rs".into(),
                         label: None,
                     },

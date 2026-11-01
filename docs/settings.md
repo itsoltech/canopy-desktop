@@ -507,11 +507,16 @@ ustawień. Udany callback oznacza trwały zapis; nie wolno zastępować konfigur
 kopią sprzed równoległej edycji. `expected_revision` jest częścią fingerprintu i trafia do każdej mutacji
 `SettingsHost`; właściciel sprawdza ją atomowo razem z zastosowaniem patcha.
 Brak rewizji oznacza patch bez warunku CAS, zachowujący pominięte pola.
+Nowe RPC `canopy.api.v1.SettingsService` adresują hosta przez `EnvironmentRef`.
+Sześć zapisów definicji/profili/integracji ma osobne wpisy rejestru i domenowy
+`SettingsCommand`. Nieaktualna rewizja stwierdzona przed dispatch daje trwałe
+`Rejected/conditions_changed`; retry odczytuje tę samą odmowę po autoryzacji.
 
 Sekrety mają `Unchanged`, `Set` i `Remove`. Przed akceptacją `Set` tworzy niezmienną
 wersję stagingu w osobnym namespace systemowego magazynu. Wersja wiąże host,
-urządzenie, epokę, command ID, pole i HMAC treści. Fingerprint całej znormalizowanej
-komendy również jest HMAC; SQLite nie przechowuje wartości ani prostego hasza
+urządzenie, epokę komend, pełny klucz zasobu, command ID, pole i HMAC treści.
+Fingerprint busa obejmuje domenową edycję z niejawnymi identyfikatorami tych wersji
+oraz warunki, bez kodowania Protobuf; SQLite nie przechowuje wartości ani prostego hasza
 słabego sekretu. Klucz MAC pochodzi z utrwalonej tożsamości hosta. Brak klucza
 blokuje zapis/retry zamiast generować nowy. Wstrzyknięty `SettingsSecrets` pozwala
 testować te granice bez dostępu do prawdziwego magazynu systemowego.
@@ -524,6 +529,13 @@ profilu/integracji; nigdy nie zapisuje staging ID jako aktywnego credentialu.
 niż godzinę. `accepted`, `attempting` i `delivery_unknown` zachowują swoje wersje;
 błąd cleanupu pozostawia wpis do ponowienia. Cleanup i staging korzystają ze
 wspólnej bramki pojedynczej instancji serwisu. Host wywołuje cleanup okresowo.
+Ta sama tabela rozpoznaje środowiskowy klucz inboxu; nie wymaga nowej kolumny.
+Desktop utrwala dokładny request w istniejącym vaulcie klienta, porcjami do limitu
+credentialu. Zwykły journal zapisuje jedynie losowe odwołania. Brak dostępu do
+vaultu zabrania wysyłki/retry; po restarcie klient odtwarza pierwotne RPC, ID,
+epokę i warunek rewizji. Następna komenda usuwa poprzednie referencje dopiero po
+zatwierdzeniu zmiany journalu. Crash przed zapisem journalu może zostawić
+nieużywaną wersję w magazynie klienta; nie powoduje wysyłki.
 
 RPC utrzymuje zaakceptowane wykonanie poza czasem życia żądania. `ResourceLocks`
 ogranicza liczbę przyjętych operacji do 64 i zapewnia drain przed zamknięciem
@@ -531,15 +543,21 @@ runtime. Stan przechodzi accepted → attempting → succeeded/failed/delivery_u
 retry znanego wyniku nie wykonuje efektu ponownie. Błędy właściciela ustawień są
 sanityzowane, aby nie odsyłać przypadkowo wartości formularza lub credentialu.
 
-`remote::artifact_rpc::ArtifactsRpc` obsługuje BeginUpload, PutChunk, GetUpload,
-FinishUpload, CancelUpload i strumieniowy Download. Begin wyznacza stabilny UUID
-z hosta i tożsamości komendy. Ponowienie po utracie ACK odczytuje ten sam upload;
+`remote::artifact_rpc::ArtifactsRpc` obsługuje osobne Begin/Finish/Cancel dla obrazów,
+plików i załączników zadań w `canopy.api.v1`, a także PutChunk, GetUpload i Download.
+Begin wyznacza stabilny UUID z hosta i pełnego klucza komendy.
+Ponowienie po utracie ACK odczytuje ten sam upload;
 zmiana bindingu pod tym samym command ID daje konflikt. Finish/Cancel mają trwały
 receipt; ponowienie Cancel działa również po usunięciu uploadu. Fragmenty nie
 trafiają do inboxu: trwała kontrola offsetu i identycznych nakładających się bajtów
 należy do magazynu. Strumień pobierania ma kolejkę jednego fragmentu 64 KiB,
 sprawdza bieżące uprawnienia podczas odczytów i co sekundę oczekiwania; odbiorca
 nieodbierający danych przez 30 s jest odłączany.
+Nowy Finish/Cancel dowodzi bindingu przez ID i epokę udanego Begin w tym samym
+zasobie. Root pochodzi z hostowego rekordu inboxu, co pozwala dokończyć upload
+po zamknięciu projektu bez zaufania do ścieżki klienta. Własny retry korzysta
+najpierw z własnego zapisanego zakresu i nie wymaga dalszej retencji Begin.
+Istniejący payload i wynik inboxu wystarczają; nie dodano tabeli ani kolumny.
 
 Dozwolone bindingi to Chat/Image, File/FileSave i Task/TaskAttachment. Task wymaga
 pełnej referencji integration/project/task oraz `TASKS`, a globalny Tasks także

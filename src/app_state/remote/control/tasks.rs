@@ -6,6 +6,14 @@ use canopy_desktop::{
 };
 #[tonic::async_trait]
 impl TasksHost for ControlBridge {
+    async fn configure(
+        &self,
+        root: String,
+        change: canopy_desktop::command_bus::tasks::TaskConfiguration,
+    ) -> Result<(), Status> {
+        self.request(|reply| Op::TaskConfiguration(root, change, reply))
+            .await
+    }
     async fn save_filter(&self, filter: TaskFilter) -> Result<(), Status> {
         self.request(|reply| Op::Filter(Some(filter), String::new(), reply))
             .await
@@ -15,7 +23,7 @@ impl TasksHost for ControlBridge {
     }
     async fn task_to_worktree(
         &self,
-        workspace: proto::WorkspaceRef,
+        workspace: canopy_desktop::thread::ProjectRef,
         task: i::TaskRef,
         branch: String,
     ) -> Result<String, Status> {
@@ -24,6 +32,56 @@ impl TasksHost for ControlBridge {
         self.request(|reply| Op::Worktree(workspace, task, branch, runtime, reply))
             .await
     }
+}
+pub(super) fn configure(
+    root: String,
+    change: canopy_desktop::command_bus::tasks::TaskConfiguration,
+    cx: &mut App,
+) -> Result<Committed, Status> {
+    use canopy_desktop::command_bus::tasks::TaskConfiguration;
+    let app = cx.global::<AppState>().clone();
+    let common = if matches!(change, TaskConfiguration::Repository(_)) {
+        Some(
+            app.git
+                .read(cx)
+                .repository(std::path::Path::new(&root))
+                .ok_or_else(|| busy("Repository is unavailable."))?
+                .common
+                .clone(),
+        )
+    } else {
+        None
+    };
+    app.integrations.update(cx, |state, cx| {
+        let mut config = state.config.clone();
+        match change {
+            TaskConfiguration::SelectFilter(value) => {
+                config = config
+                    .select_filter(&value.project, &value.filter_id)
+                    .map_err(invalid)?;
+            }
+            TaskConfiguration::Repository(value) => {
+                let common = common.ok_or_else(|| busy("Repository is unavailable."))?;
+                if let Some(value) = value {
+                    config.overrides.insert(common, value);
+                } else {
+                    config.overrides.remove(&common);
+                }
+            }
+            TaskConfiguration::Links(values) => {
+                if values.is_empty() {
+                    config.links.remove(std::path::Path::new(&root));
+                } else {
+                    config.links.insert(root.into(), values);
+                }
+            }
+        }
+        let (tx, rx) = oneshot::channel();
+        state
+            .save_config_committed(config, "Task configuration", None, None, Some(tx), cx)
+            .map_err(busy)?;
+        Ok(rx)
+    })
 }
 pub(super) fn filter(
     filter: Option<TaskFilter>,
@@ -44,7 +102,7 @@ pub(super) fn filter(
     })
 }
 pub(super) fn worktree(
-    workspace: proto::WorkspaceRef,
+    workspace: canopy_desktop::thread::ProjectRef,
     task: i::TaskRef,
     branch: String,
     runtime: tokio::runtime::Handle,
@@ -54,10 +112,13 @@ pub(super) fn worktree(
 ) {
     let app = cx.global::<AppState>().clone();
     let context = (|| {
-        if app.settings.read(cx).host_id() != Some(workspace.host_id.as_str()) {
+        if app.settings.read(cx).host_id() != Some(workspace.host_id().as_str()) {
             return Err(invalid("Workspace belongs to another host."));
         }
-        let id: WorkspaceId = serde_json::from_str(&workspace.workspace_id).map_err(invalid)?;
+        let checkout = workspace
+            .worktree_id()
+            .ok_or_else(|| invalid("Task worktree requires a checkout."))?;
+        let id: WorkspaceId = serde_json::from_str(checkout.as_str()).map_err(invalid)?;
         let projects = app.projects.read(cx);
         if !projects.ready || projects.busy || projects.quitting {
             return Err(busy("Projects are busy."));
@@ -66,7 +127,7 @@ pub(super) fn worktree(
             .catalog
             .items
             .iter()
-            .find(|p| p.workspace == id)
+            .find(|p| p.workspace == id && p.id == workspace.project_id())
             .ok_or_else(|| Status::not_found("Workspace was removed."))?;
         let path = project
             .worktree_path

@@ -4,23 +4,26 @@ use super::chats::{SessionRow, context::ChatContext};
 use super::projects::{ProjectHeader, WorktreeRow};
 use super::*;
 use crate::ui::components::hover_card::content as card;
+use crate::ui::remote_client::ResourceView;
+use canopy_desktop::api::proto as p;
 use canopy_desktop::chat::provider::Provider;
 use canopy_desktop::{
     git::RepositoryIdentity,
-    remote::{
-        client::{HostClient, Phase},
-        proto as p,
-    },
+    remote::client::{HostClient, Phase},
 };
 use gpui_kit::component::{Sizable, button::ButtonVariants};
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 
 #[derive(Clone)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Navigation carries one selected checkout by value for an application event."
+)]
 pub enum Navigation {
     Local,
     Remote {
         host: Arc<HostClient>,
-        resource: p::ResourceRef,
+        resource: ResourceView,
     },
 }
 impl EventEmitter<Navigation> for Sidebar {}
@@ -47,14 +50,9 @@ impl Sidebar {
         let id = pane.map(|pane| pane.id);
         if self.selected_pane != id {
             self.selected_pane = id;
-            self.remote_selection =
-                pane.and_then(|pane| pane.metadata.remote.as_ref())
-                    .map(|chat| p::ResourceRef {
-                        resource: Some(p::resource_ref::Resource::Chat(p::ChatRef {
-                            host_id: chat.host.clone(),
-                            chat_id: chat.chat.clone(),
-                        })),
-                    });
+            self.remote_selection = pane
+                .and_then(|pane| pane.metadata.remote.as_ref())
+                .map(|chat| ResourceView::Thread(chat.as_ref().clone()));
             cx.emit(Navigation::Local);
         }
         cx.notify();
@@ -71,7 +69,11 @@ impl Sidebar {
             .into_iter()
             .filter_map(|host| {
                 host.shared_catalog()
-                    .filter(|c| c.host_id == host.id().as_str())
+                    .filter(|c| {
+                        c.environment
+                            .as_ref()
+                            .is_some_and(|e| e.host_id == host.id().as_str())
+                    })
                     .map(|c| (host, c))
             })
             .collect()
@@ -227,12 +229,7 @@ impl Sidebar {
         rows
     }
 
-    fn navigate(
-        &mut self,
-        host: Arc<HostClient>,
-        resource: p::ResourceRef,
-        cx: &mut Context<Self>,
-    ) {
+    fn navigate(&mut self, host: Arc<HostClient>, resource: ResourceView, cx: &mut Context<Self>) {
         self.remote_selection = Some(resource.clone());
         cx.emit(Navigation::Remote { host, resource });
         cx.notify();
@@ -245,20 +242,17 @@ impl Sidebar {
         cx: &Context<Self>,
     ) {
         for (host, catalog) in self.remote_catalogs(cx) {
-            let mut chats = std::collections::HashMap::<&str, Vec<&p::ChatSummary>>::new();
-            for chat in &catalog.chats {
-                if let Some(workspace) = &chat.workspace {
-                    chats
-                        .entry(workspace.workspace_id.as_str())
-                        .or_default()
-                        .push(chat);
+            let mut chats = std::collections::HashMap::<&str, Vec<&p::CatalogThread>>::new();
+            for chat in &catalog.threads {
+                if let Some(workspace) = &chat.project_catalog_id {
+                    chats.entry(workspace.as_str()).or_default().push(chat);
                 }
             }
             let mut terminals = std::collections::HashMap::<&str, Vec<&p::TerminalSummary>>::new();
             for terminal in &catalog.terminals {
-                if let Some(workspace) = &terminal.workspace {
+                if !terminal.project_catalog_id.is_empty() {
                     terminals
-                        .entry(workspace.workspace_id.as_str())
+                        .entry(terminal.project_catalog_id.as_str())
                         .or_default()
                         .push(terminal);
                 }
@@ -269,19 +263,18 @@ impl Sidebar {
                     .origin
                     .as_deref()
                     .and_then(RepositoryIdentity::from_origin);
-                let key = project_key(origin.as_ref(), host.id().as_str(), &project.project_id);
+                let key = project_key(origin.as_ref(), host.id().as_str(), &project.path);
                 let Some(disclosure) = self.project_groups.get(&key) else {
                     continue;
                 };
                 let title = origin
                     .as_ref()
                     .map_or_else(|| project.name.clone(), |o| o.path().to_owned());
-                let shared = |workspace: &p::WorkspaceRef| -> Vec<&p::ChatSummary> {
+                let shared = |workspace: &p::ProjectCheckout| -> Vec<&p::CatalogThread> {
                     chats
-                        .get(workspace.workspace_id.as_str())
+                        .get(workspace.catalog_id.as_str())
                         .into_iter()
                         .flatten()
-                        .filter(|chat| chat.workspace.as_ref() == Some(workspace))
                         .copied()
                         .collect()
                 };
@@ -289,17 +282,17 @@ impl Sidebar {
                     .checkouts
                     .iter()
                     .filter_map(|c| {
-                        let workspace = c
-                            .workspace
-                            .clone()
+                        c.project
+                            .as_ref()
                             .filter(|w| w.host_id == host.id().as_str())?;
-                        Some((c, workspace))
+                        Some((c, c.clone()))
                     })
                     .collect();
                 let tally = Tally::count(
                     checkouts
                         .iter()
                         .flat_map(|(_, w)| shared(w))
+                        .filter_map(|chat| chat.summary.as_ref())
                         .map(|chat| Activity::remote(chat.state, chat.goal.is_some())),
                 );
                 let header = self.project_header(
@@ -352,10 +345,10 @@ impl Sidebar {
                         ));
                     }
                     for terminal in terminals
-                        .get(workspace.workspace_id.as_str())
+                        .get(workspace.catalog_id.as_str())
                         .into_iter()
                         .flatten()
-                        .filter(|t| t.workspace.as_ref() == Some(&workspace))
+                        .filter(|t| t.project_catalog_id == workspace.catalog_id)
                     {
                         sessions.extend(self.remote_terminal(
                             &host,
@@ -368,27 +361,28 @@ impl Sidebar {
                     let tally = Tally::count(
                         shared(&workspace)
                             .into_iter()
+                            .filter_map(|chat| chat.summary.as_ref())
                             .map(|chat| Activity::remote(chat.state, chat.goal.is_some())),
                     );
-                    let resource = p::ResourceRef {
-                        resource: Some(p::resource_ref::Resource::Workspace(workspace.clone())),
-                    };
+                    let resource = ResourceView::Project(workspace.clone());
                     let selected = self.remote_selection.as_ref() == Some(&resource);
                     let target = host.clone();
                     rows.push(self.worktree_row(
                         WorktreeRow {
                             key: format!(
                                 "worktree-remote-{}-{}",
-                                workspace.host_id, workspace.workspace_id
+                                host.id().as_str(),
+                                workspace.catalog_id
                             ),
                             group: format!(
                                 "remote:{}:{}",
-                                workspace.host_id, workspace.workspace_id
+                                host.id().as_str(),
+                                workspace.catalog_id
                             ),
                             label: label.clone(),
                             main,
                             selected,
-                            disabled: checkout.closing.unwrap_or(false),
+                            disabled: checkout.closing,
                             host: Some(name.clone()),
                             card: Rc::new(super::cards::WorktreeCard {
                                 head: label,
@@ -430,28 +424,30 @@ impl Sidebar {
     fn remote_chat(
         &self,
         host: &Arc<HostClient>,
-        chat: &p::ChatSummary,
+        catalog_thread: &p::CatalogThread,
         context: &ChatContext,
         index: usize,
         cx: &Context<Self>,
     ) -> Option<AnyElement> {
-        let reference = chat
-            .chat
+        let reference = catalog_thread
+            .thread
             .clone()
             .filter(|c| c.host_id == host.id().as_str())?;
+        let chat = catalog_thread.summary.as_ref()?;
         let provider = Provider::from_tool(&chat.agent_id);
         let agent = provider.map_or(chat.agent_id.clone(), |p| p.name().to_owned());
         let activity = Activity::remote(chat.state, chat.goal.is_some());
         let name = host.name();
-        let resource = p::ResourceRef {
-            resource: Some(p::resource_ref::Resource::Chat(reference.clone())),
-        };
+        let resource = ResourceView::Thread(canopy_desktop::state::workspace::RemoteChat::new(
+            reference.host_id.clone(),
+            catalog_thread.catalog_id.clone(),
+        )?);
         let selected = self.remote_selection.as_ref() == Some(&resource);
         let status = Self::remote_status(host, activity);
         let target = host.clone();
         Some(self.session_row(
             SessionRow {
-                key: format!("remote-{}-{}", reference.host_id, reference.chat_id),
+                key: format!("remote-{}-{}", reference.host_id, catalog_thread.catalog_id),
                 title: chat.title.clone(),
                 mark: activity::provider_mark(provider),
                 activity,
@@ -514,9 +510,7 @@ impl Sidebar {
             _ => Self::remote_status(host, activity),
         };
         let name = host.name();
-        let resource = p::ResourceRef {
-            resource: Some(p::resource_ref::Resource::Terminal(reference.clone())),
-        };
+        let resource = ResourceView::Terminal(reference.clone());
         let selected = self.remote_selection.as_ref() == Some(&resource);
         let target = host.clone();
         Some(self.session_row(
@@ -575,7 +569,11 @@ impl Sidebar {
         };
         let mut rows = vec![];
         for (host, catalog) in self.remote_catalogs(cx) {
-            for chat in catalog.chats.iter().filter(|chat| chat.workspace.is_none()) {
+            for chat in catalog
+                .threads
+                .iter()
+                .filter(|chat| chat.project_catalog_id.is_none())
+            {
                 rows.extend(self.remote_chat(&host, chat, &private, first + rows.len(), cx));
             }
         }

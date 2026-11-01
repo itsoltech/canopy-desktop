@@ -29,6 +29,7 @@ pub(super) struct HostQueue {
     /// The catalog record this runtime last saved; Send waits for it.
     record: Option<ChatRecord>,
     saving_record: bool,
+    record_waiters: Vec<futures_channel::oneshot::Sender<Result<ChatRecord, String>>>,
     /// Writes in flight that decide what goes next; nothing is dispatched meanwhile.
     busy: usize,
     /// The message this run wrote to the agent (and what was written, to give back
@@ -73,6 +74,48 @@ fn error(error: canopy_desktop::settings::Error) -> String {
 }
 
 impl ChatRuntime {
+    pub(super) fn fail_record_waiters(&mut self, error: &str) {
+        for waiter in std::mem::take(&mut self.queue.record_waiters) {
+            let _ = waiter.send(Err(error.to_owned()));
+        }
+    }
+    pub(super) fn settle_record_waiters(&mut self) {
+        if !self.queue.saving_record && !matches!(self.history, super::History::Loading(_)) {
+            for waiter in std::mem::take(&mut self.queue.record_waiters) {
+                let _ = waiter.send(
+                    self.queue
+                        .record
+                        .clone()
+                        .ok_or_else(|| "The thread record is unavailable.".into()),
+                );
+            }
+        }
+    }
+    pub(crate) fn persisted_record(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ChatRecord, String>> {
+        if self.closed {
+            return Task::ready(Err("The thread is closed.".into()));
+        }
+        self.save_record_local(cx);
+        let (sender, receiver) = futures_channel::oneshot::channel();
+        if !self.queue.saving_record && !matches!(self.history, super::History::Loading(_)) {
+            let _ = sender.send(
+                self.queue
+                    .record
+                    .clone()
+                    .ok_or_else(|| "The thread record could not be saved.".into()),
+            );
+        } else {
+            self.queue.record_waiters.push(sender);
+        }
+        cx.spawn(async move |_, _| {
+            receiver
+                .await
+                .map_err(|_| "The thread owner stopped.".to_owned())?
+        })
+    }
     /// Publish only records already committed by the shared bus. Refreshing on a
     /// retry never accepts or resends a message a second time.
     pub fn bus_committed(&mut self, record: ChatRecord, queue: ChatQueue, cx: &mut Context<Self>) {
@@ -350,6 +393,7 @@ impl ChatRuntime {
             let Some(record) = record else {
                 let _ = this.update(cx, |this, cx| {
                     this.queue.saving_record = false;
+                    this.fail_record_waiters("The thread project folder is unavailable.");
                     this.notice = Some(ChatNotice::error(
                         "Couldn't save this chat: its project folder is unavailable.",
                     ));
@@ -393,6 +437,12 @@ impl ChatRuntime {
                             // Saved meanwhile under a newer account or history part.
                             this.save_record(cx);
                             if !this.queue.saving_record {
+                                for waiter in std::mem::take(&mut this.queue.record_waiters) {
+                                    let _ =
+                                        waiter.send(this.queue.record.clone().ok_or_else(|| {
+                                            "The thread record is unavailable.".into()
+                                        }));
+                                }
                                 for (draft, steer) in std::mem::take(&mut this.queue.held) {
                                     this.send_draft_as(draft, steer, cx);
                                 }
@@ -400,6 +450,9 @@ impl ChatRuntime {
                             this.dispatch(cx);
                         }
                         (Err(e), _) => {
+                            for waiter in std::mem::take(&mut this.queue.record_waiters) {
+                                let _ = waiter.send(Err(e.to_string()));
+                            }
                             this.notice = Some(ChatNotice::error(format!(
                                 "Couldn't save this chat: {}",
                                 error(e)

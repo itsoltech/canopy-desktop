@@ -23,7 +23,7 @@ pub struct Sidebar {
     worktree_groups: std::collections::HashMap<String, Disclosure>,
     project_groups: std::collections::HashMap<String, Disclosure>,
     connections: Option<Entity<super::remote_client::Connections>>,
-    remote_selection: Option<canopy_desktop::remote::proto::ResourceRef>,
+    remote_selection: Option<crate::ui::remote_client::ResourceView>,
     selected_pane: Option<canopy_desktop::state::workspace::PaneId>,
     remote_error: Option<String>,
     _connections_observer: Option<Subscription>,
@@ -85,7 +85,7 @@ impl Sidebar {
                                         )
                                         .as_ref(),
                                     &id,
-                                    &p.project_id,
+                                    &p.path,
                                 )
                             })
                             .collect::<Vec<_>>()
@@ -247,27 +247,19 @@ impl Sidebar {
             .filter(|host| host.phase() == canopy_desktop::remote::client::Phase::Ready)
             .collect();
         let selected_host = self.remote_selection.as_ref().and_then(|resource| {
-            use canopy_desktop::remote::proto::resource_ref::Resource;
-            let id = match resource.resource.as_ref()? {
-                Resource::Workspace(w) => &w.host_id,
-                Resource::Chat(c) => &c.host_id,
-                Resource::Terminal(t) => &t.host_id,
-                _ => return None,
-            };
+            let id = resource.host_id()?;
             self.remote_hosts(cx)
                 .into_iter()
                 .find(|host| host.id().as_str() == id)
         });
         // A chat started on a computer goes in its selected worktree, if any.
-        let selected_workspace = self
-            .remote_selection
-            .as_ref()
-            .and_then(|resource| match resource.resource.as_ref()? {
-                canopy_desktop::remote::proto::resource_ref::Resource::Workspace(w) => {
-                    Some(w.clone())
-                }
-                _ => None,
-            });
+        let selected_workspace =
+            self.remote_selection
+                .as_ref()
+                .and_then(|resource| match resource {
+                    crate::ui::remote_client::ResourceView::Project(w) => Some(w.clone()),
+                    _ => None,
+                });
         let tooltip = if let Some(host) = &selected_host {
             with_shortcut(format!("New chat on {}", host.name()))
         } else if self.remote_selection.is_some() {
@@ -374,9 +366,11 @@ impl Sidebar {
                     .iter()
                     .fold(menu.separator().label("Other computers"), |menu, host| {
                         let host = host.clone();
-                        let workspace = selected_workspace
-                            .clone()
-                            .filter(|w| w.host_id == host.id().as_str());
+                        let workspace = selected_workspace.clone().filter(|w| {
+                            w.project
+                                .as_ref()
+                                .is_some_and(|p| p.host_id == host.id().as_str())
+                        });
                         menu.item(
                             PopupMenuItem::new(format!("New chat on {}", host.name())).on_click(
                                 move |_, _, cx| {
@@ -440,9 +434,9 @@ impl Render for Sidebar {
             .remote_catalogs(cx)
             .iter()
             .map(|(_, c)| {
-                c.chats
+                c.threads
                     .iter()
-                    .filter(|chat| chat.workspace.is_none())
+                    .filter(|chat| chat.project_catalog_id.is_none())
                     .count()
             })
             .sum::<usize>();
@@ -682,7 +676,7 @@ mod tests {
             let checkout = std::path::PathBuf::from("/worktrees/chats-sidebar");
             app.projects.update(cx, |p, cx| {
                 p.ready = true;
-                p.open_worktree(root.clone(), checkout.clone(), cx);
+                p.install_test_worktree(root.clone(), checkout.clone(), cx);
                 p.open_chat(
                     p.catalog.active,
                     "Fix conversation navigation",

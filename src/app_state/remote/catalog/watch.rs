@@ -32,7 +32,7 @@ struct Watch {
     this: CatalogRpc,
     credential: Vec<u8>,
     events: CatalogWatch,
-    host: tokio_watch::Receiver<proto::HostStatus>,
+    host: tokio_watch::Receiver<canopy_desktop::api::proto::HostStatus>,
     leases: async_channel::Receiver<()>,
     lease_sender: async_channel::Sender<()>,
     forwarders: Vec<Forwarder>,
@@ -128,7 +128,10 @@ impl Watch {
     /// Waits for a change and queues what this device may see of it.
     async fn step(&mut self) -> Result<(), Status> {
         match self.wake().await {
-            Wake::Catalog(event) => self.last = Some(event),
+            Wake::Catalog(event) => {
+                self.this.update_roots(&event)?;
+                self.last = Some(event);
+            }
             Wake::Changed => {}
             Wake::End(status) => return Err(status),
         }
@@ -194,12 +197,12 @@ impl Watch {
 /// The device's current authorization, refused when the host is closing.
 pub(super) async fn authorize(
     auth: &RpcAuth,
-    host: &mut tokio_watch::Receiver<proto::HostStatus>,
+    host: &mut tokio_watch::Receiver<canopy_desktop::api::proto::HostStatus>,
     credential: &[u8],
 ) -> Result<DeviceGrant, Status> {
     let readiness = host.borrow_and_update().readiness;
-    if readiness == proto::HostReadiness::Draining as i32
-        || readiness == proto::HostReadiness::StorageFault as i32
+    if readiness == canopy_desktop::api::proto::HostReadiness::Draining as i32
+        || readiness == canopy_desktop::api::proto::HostReadiness::StorageFault as i32
     {
         return Err(Status::unavailable("The host is closing; reconnect later."));
     }
@@ -385,9 +388,9 @@ pub(super) fn diff(sent: Option<&Sent>, current: &proto::Catalog) -> (Plan, Sent
     let next = Sent {
         projects: projects.finalize().into(),
         chats: current
-            .chats
+            .threads
             .iter()
-            .filter_map(|c| Some((c.chat.as_ref()?.chat_id.clone(), digest(c))))
+            .map(|c| (c.catalog_id.clone(), digest(c)))
             .collect(),
         terminals: current
             .terminals
@@ -398,22 +401,23 @@ pub(super) fn diff(sent: Option<&Sent>, current: &proto::Catalog) -> (Plan, Sent
     let Some(sent) = sent.filter(|sent| sent.projects == next.projects) else {
         return (Plan::Snapshot, next);
     };
-    let host = &current.host_id;
+    let host = current
+        .environment
+        .as_ref()
+        .map(|e| e.host_id.clone())
+        .unwrap_or_default();
     let mut changes = vec![];
-    for chat in &current.chats {
-        let Some(id) = chat.chat.as_ref().map(|c| &c.chat_id) else {
-            continue;
-        };
+    for chat in &current.threads {
+        let id = &chat.catalog_id;
         if sent.chats.get(id) != next.chats.get(id) {
-            changes.push(Change::Chat(chat.clone()));
+            changes.push(Change::Thread(Box::new(chat.clone())));
         }
     }
     for id in sent.chats.keys().filter(|id| !next.chats.contains_key(*id)) {
-        changes.push(Change::Deleted(proto::ResourceRef {
-            resource: Some(proto::resource_ref::Resource::Chat(proto::ChatRef {
-                host_id: host.clone(),
-                chat_id: id.clone(),
-            })),
+        changes.push(Change::Deleted(proto::CatalogDeleted {
+            resource: Some(proto::catalog_deleted::Resource::ThreadCatalogId(
+                id.clone(),
+            )),
         }));
     }
     for terminal in &current.terminals {
@@ -429,8 +433,8 @@ pub(super) fn diff(sent: Option<&Sent>, current: &proto::Catalog) -> (Plan, Sent
         .keys()
         .filter(|id| !next.terminals.contains_key(*id))
     {
-        changes.push(Change::Deleted(proto::ResourceRef {
-            resource: Some(proto::resource_ref::Resource::Terminal(
+        changes.push(Change::Deleted(proto::CatalogDeleted {
+            resource: Some(proto::catalog_deleted::Resource::Terminal(
                 proto::TerminalRef {
                     host_id: host.clone(),
                     terminal_id: id.clone(),

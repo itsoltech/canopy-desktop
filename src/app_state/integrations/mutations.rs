@@ -7,6 +7,105 @@ pub struct WriteFinished {
 }
 impl EventEmitter<WriteFinished> for IntegrationsState {}
 impl IntegrationsState {
+    pub(super) fn configuration_commands(
+        &self,
+        config: &Config,
+        cx: &App,
+    ) -> Result<
+        Vec<(
+            super::super::file_ops::LocalResource,
+            canopy_desktop::command_bus::Command,
+        )>,
+        String,
+    > {
+        use super::super::file_ops::LocalResource;
+        use canopy_desktop::command_bus::{
+            Command, SettingsCommand, TaskCommand, tasks::TaskConfiguration,
+        };
+        let environment = LocalResource::environment(cx)?;
+        let mut commands: Vec<_> = SettingsCommand::integration_changes(&self.config, config)
+            .into_iter()
+            .map(|edit| (environment.clone(), Command::Settings(edit)))
+            .collect();
+        for filter in &config.task_filters {
+            if !self.config.task_filters.contains(filter) {
+                commands.push((
+                    environment.clone(),
+                    Command::Task(TaskCommand::SaveFilter(filter.clone())),
+                ));
+            }
+        }
+        for filter in self
+            .config
+            .task_filters
+            .iter()
+            .filter(|f| !config.task_filters.iter().any(|v| v.id == f.id))
+        {
+            commands.push((
+                environment.clone(),
+                Command::Task(TaskCommand::RemoveFilter(filter.id.clone())),
+            ));
+        }
+        for selection in &config.filter_selections {
+            if !self.config.filter_selections.contains(selection) {
+                commands.push((
+                    environment.clone(),
+                    Command::Task(TaskCommand::Configure(TaskConfiguration::SelectFilter(
+                        selection.clone(),
+                    ))),
+                ));
+            }
+        }
+        let git = cx.global::<AppState>().git.read(cx);
+        let common_keys: std::collections::BTreeSet<_> = self
+            .config
+            .overrides
+            .keys()
+            .chain(config.overrides.keys())
+            .collect();
+        for common in common_keys {
+            if self.config.overrides.get(common) == config.overrides.get(common) {
+                continue;
+            }
+            let repository = self
+                .repository
+                .as_ref()
+                .filter(|r| &r.common == common)
+                .map(|r| r.repository.as_path())
+                .or_else(|| {
+                    git.entries
+                        .values()
+                        .filter_map(|v| v.as_ref().ok().and_then(|v| v.as_ref()))
+                        .find(|r| &r.common == common)
+                        .map(|r| r.root.as_path())
+                })
+                .ok_or("Repository metadata is unavailable. Refresh the project.")?;
+            commands.push((
+                LocalResource::capture(repository, cx)?,
+                Command::Task(TaskCommand::Configure(TaskConfiguration::Repository(
+                    config.overrides.get(common).cloned(),
+                ))),
+            ));
+        }
+        let linked_paths: std::collections::BTreeSet<_> = self
+            .config
+            .links
+            .keys()
+            .chain(config.links.keys())
+            .collect();
+        for path in linked_paths {
+            if self.config.links.get(path) == config.links.get(path) {
+                continue;
+            }
+            commands.push((
+                LocalResource::capture(path, cx)?,
+                Command::Task(TaskCommand::Configure(TaskConfiguration::Links(
+                    config.links.get(path).cloned().unwrap_or_default(),
+                ))),
+            ));
+        }
+        Ok(commands)
+    }
     /// A write lives in the global owner, survives view closure and is awaited on quit.
     pub fn submit(
         &mut self,
@@ -31,6 +130,10 @@ impl IntegrationsState {
         let origin = self.path.clone();
         let http = cx.http_client();
         let credential = account.credential.clone();
+        let resource = match &self.path {
+            Some(path) => super::super::file_ops::LocalResource::capture(path, cx)?,
+            None => super::super::file_ops::LocalResource::environment(cx)?,
+        };
         self.busy = true;
         self.read = None;
         self.detail = None;
@@ -39,6 +142,19 @@ impl IntegrationsState {
         self.write =
             Some(cx.spawn(async move |this, cx| {
                 let mut result = async {
+                    let intent = cx.background_executor().spawn({
+                        let resource = resource.clone();
+                        let command = command.clone();
+                        let integration = account.id.clone();
+                        async move {
+                            canopy_desktop::command_bus::TaskCommand::from_write(integration.clone(), &command,
+                                |media, bytes| resource.stage_task(&integration, &command.project().key,
+                                    &command.task().ok_or("Attachment requires a task.")?.id, media, bytes))
+                        }
+                    }).await.map_err(WriteError::Rejected)?;
+                    let input = resource.bus.begin_local_task(resource.resource.clone(), resource.root.clone(), intent, account.clone())
+                        .await.map_err(|e| WriteError::Rejected(e.to_string()))?;
+                    let outcome = async {
                     let token = cx
                         .background_executor()
                         .spawn({
@@ -48,6 +164,13 @@ impl IntegrationsState {
                         .await
                         .map_err(WriteError::Rejected)?;
                     client(http, &account, token)?.write(&command).await
+                    }.await;
+                    let uncertain = matches!(outcome, Err(WriteError::Uncertain(_)));
+                    match resource.bus.finish_local_outcome(input, outcome.map_err(|e| e.to_string()), uncertain).await {
+                        Ok(receipt) => Ok(receipt),
+                        Err(error) if uncertain => Err(WriteError::Uncertain(error)),
+                        Err(error) => Err(WriteError::Rejected(error)),
+                    }
                 }
                 .await;
                 let mut config_update = None;

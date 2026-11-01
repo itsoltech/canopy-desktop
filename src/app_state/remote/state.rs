@@ -9,7 +9,6 @@ use canopy_desktop::{
         auth::{RpcAuth, WorkspaceRoots},
         enrollment::EnrollmentRpc,
         host::HostState,
-        proto,
         resources::{FilesRpc, GitRpc, ResourceLocks},
         server::{self, RunningServer, ServerServices},
         settings_rpc::{PlatformSettingsSecrets, SettingsRpc, SettingsSecrets},
@@ -121,10 +120,12 @@ struct HostSession {
 impl HostSession {
     async fn stop(self) -> Result<(), String> {
         self.registry.set_local_peer(None);
-        let acknowledged_fault =
-            self.state.status().readiness == proto::HostReadiness::StorageFault as i32;
-        self.state
-            .set(proto::HostReadiness::Draining, String::new());
+        let acknowledged_fault = self.state.status().readiness
+            == canopy_desktop::api::proto::HostReadiness::StorageFault as i32;
+        self.state.set(
+            canopy_desktop::api::proto::HostReadiness::Draining,
+            String::new(),
+        );
         // Refuse every feature's admission before waiting on stream teardown.
         self.operations
             .drain()
@@ -144,7 +145,7 @@ pub struct RemoteState {
     attempted: bool,
     session: Option<HostSession>,
     pub error: Option<String>,
-    pub invite: Option<proto::PairingInvite>,
+    pub invite: Option<canopy_desktop::api::proto::PairingInvite>,
     pub devices: Vec<DeviceGrant>,
     task: Option<Task<()>>,
     pairing_events: Option<Task<()>>,
@@ -365,7 +366,7 @@ impl RemoteState {
                             "catalog",
                         ]
                         .into_iter()
-                        .map(|operation| proto::Capability {
+                        .map(|operation| canopy_desktop::api::proto::Capability {
                             operation: operation.into(),
                             supported: true,
                             reason: String::new(),
@@ -475,9 +476,7 @@ impl RemoteState {
                 let chats = ChatsRpc::new(
                     auth.clone(),
                     bridge.clone(),
-                    roots.clone(),
                     artifacts.clone(),
-                    operations.clone(),
                     state.clone(),
                     attachments,
                     replay.clone(),
@@ -513,7 +512,6 @@ impl RemoteState {
                     bridge,
                     roots.clone(),
                     (*terminals).clone(),
-                    chats.clone(),
                     state.clone(),
                     operations.clone(),
                 )
@@ -546,11 +544,6 @@ impl RemoteState {
                 let artifacts =
                     ArtifactsRpc::new(auth.clone(), roots, operations.clone(), artifacts);
                 let features = tonic::service::Routes::new(
-                    proto::chat_service_server::ChatServiceServer::new(chats.clone())
-                        .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
-                        .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
-                )
-                .add_service(
                     canopy_desktop::api::proto::catalog_service_server::CatalogServiceServer::new(api.clone())
                         .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
                         .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
@@ -566,38 +559,28 @@ impl RemoteState {
                         .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
                 )
                 .add_service(
-                    proto::peer_service_server::PeerServiceServer::new(peer_rpc)
+                    canopy_desktop::api::proto::peer_service_server::PeerServiceServer::new(peer_rpc)
                         .max_decoding_message_size(64 * 1024)
                         .max_encoding_message_size(64 * 1024),
                 )
-                .add_service(
-                    proto::catalog_service_server::CatalogServiceServer::new(catalog)
-                        .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
-                        .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
-                )
                 .add_service(terminal_rpc.into_server())
                 .add_service(
-                    proto::files_service_server::FilesServiceServer::new(files)
+                    canopy_desktop::api::proto::files_service_server::FilesServiceServer::new(files)
                         .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
                         .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
                 )
                 .add_service(
-                    proto::git_service_server::GitServiceServer::new(git)
+                    canopy_desktop::api::proto::git_service_server::GitServiceServer::new(git)
                         .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
                         .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
                 )
                 .add_service(
-                    proto::tasks_service_server::TasksServiceServer::new(tasks)
+                    canopy_desktop::api::proto::tasks_service_server::TasksServiceServer::new(tasks)
                         .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
                         .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
                 )
                 .add_service(
-                    proto::settings_service_server::SettingsServiceServer::new(settings.clone())
-                        .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
-                        .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
-                )
-                .add_service(
-                    proto::artifacts_service_server::ArtifactsServiceServer::new(artifacts)
+                    canopy_desktop::api::proto::artifacts_service_server::ArtifactsServiceServer::new(artifacts)
                         .max_decoding_message_size(canopy_desktop::host::CONTROL_BYTES)
                         .max_encoding_message_size(canopy_desktop::host::CONTROL_BYTES),
                 );
@@ -642,7 +625,7 @@ impl RemoteState {
                                 if this
                                     .update(cx, |this, cx| {
                                         if current.readiness
-                                            == proto::HostReadiness::StorageFault as i32
+                                            == canopy_desktop::api::proto::HostReadiness::StorageFault as i32
                                         {
                                             this.error = Some(current.reason);
                                         }
@@ -741,7 +724,8 @@ impl RemoteState {
     pub fn retry(&mut self, cx: &mut Context<Self>) {
         if !self.busy {
             if self.session.as_ref().is_some_and(|s| {
-                s.state.status().readiness == proto::HostReadiness::StorageFault as i32
+                s.state.status().readiness
+                    == canopy_desktop::api::proto::HostReadiness::StorageFault as i32
             }) {
                 self.configure(true, &self.preferences.address.to_string(), cx);
                 return;

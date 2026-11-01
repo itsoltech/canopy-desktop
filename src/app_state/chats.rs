@@ -170,12 +170,25 @@ pub struct Chats {
     stopping: bool,
     agents_ready: bool,
     opening: Option<Task<()>>,
+    local_commands: HashMap<uuid::Uuid, Task<()>>,
     /// Renders pages for agents' `preview_html` (DEC-077); `None` where unsupported.
     pages: Option<canopy_desktop::chat::pages::PageService>,
     _previews: Option<Task<()>>,
 }
 
 impl Chats {
+    pub(crate) fn chat_of_pane(&self, pane: PaneId) -> Option<&str> {
+        self.panes.get(&pane).map(String::as_str).or_else(|| {
+            self.known
+                .get(&pane)?
+                .0
+                .metadata
+                .chat
+                .as_ref()?
+                .id
+                .as_deref()
+        })
+    }
     /// The runtime pane `id` (or a detached chat's key) presents, when it has one.
     pub fn runtime(&self, id: PaneId) -> Option<&Entity<ChatRuntime>> {
         self.runtimes.get(self.panes.get(&id)?)
@@ -486,6 +499,7 @@ impl Chats {
             stopping: false,
             agents_ready: false,
             opening: None,
+            local_commands: HashMap::new(),
             pages: None,
             _previews: None,
         }
@@ -1000,7 +1014,7 @@ impl Chats {
             chats,
             move |cx| {
                 let registry = cx.global::<AppState>().chats.clone();
-                registry.update(cx, |registry, cx| registry.delete_detached(&chat, cx));
+                registry.update(cx, |registry, cx| registry.delete_local(chat.clone(), cx));
             },
             true,
             cx,
@@ -1159,6 +1173,8 @@ impl Chats {
             id: Some(ChatSettings::new_id()),
             agent_options: Default::default(),
         };
+        let chat = settings.id.clone().expect("new chat identity");
+        let account = profile.clone().unwrap_or_else(|| tool.id.clone());
         let metadata = move |cwd| PaneMetadata {
             cwd: Some(cwd),
             profile_id: profile,
@@ -1168,39 +1184,98 @@ impl Chats {
             chat: Some(Box::new(settings)),
             ..Default::default()
         };
-        match target {
-            ChatTarget::Project(id) => {
-                let Some(cwd) = project_cwd(id, cx) else {
-                    self.error = Some("This project is no longer open.".into());
-                    cx.notify();
-                    return;
-                };
-                self.place(Some(id), provider, metadata(cwd), cx);
-            }
+        let destination = match target {
+            ChatTarget::Project(id) => project_cwd(id, cx)
+                .ok_or_else(|| "This project is no longer open.".to_owned())
+                .and_then(|cwd| {
+                    super::file_ops::LocalResource::capture(&cwd, cx)
+                        .map(|owner| (owner, Some(id), Some(cwd)))
+                }),
             ChatTarget::NoProject => {
-                // The private folder is created off the UI thread, then the tab opens.
-                self.opening = Some(cx.spawn(async move |this, cx| {
-                    let folder = cx
-                        .background_executor()
-                        .spawn(async {
-                            let data = canopy_desktop::platform::directories::data_dir()?;
-                            canopy_desktop::chat::scratch::create(&data)
-                        })
-                        .await;
-                    let _ = this.update(cx, |this, cx| {
-                        this.opening = None;
-                        match folder {
-                            Ok(cwd) => this.place(None, provider, metadata(cwd), cx),
-                            Err(error) => {
-                                this.error =
-                                    Some(format!("Could not create the chat folder: {error}"));
-                                cx.notify();
-                            }
-                        }
-                    });
-                }));
+                super::file_ops::LocalResource::environment(cx).map(|owner| (owner, None, None))
             }
-        }
+        };
+        let (owner, workspace, cwd) = match destination {
+            Ok(destination) => destination,
+            Err(error) => {
+                self.error = Some(error.to_owned());
+                cx.notify();
+                return;
+            }
+        };
+        let Some(client) = app.settings.read(cx).client() else {
+            return;
+        };
+        self.opening = Some(cx.spawn(async move |this, cx| {
+            let result = async {
+                let input = owner
+                    .bus
+                    .begin_local_catalog(
+                        owner.resource.clone(),
+                        owner.root.clone(),
+                        chat.clone(),
+                        canopy_desktop::command_bus::CatalogCommand::Create {
+                            agent: provider.tool().into(),
+                            profile: account,
+                        },
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let outcome = async {
+                    let cwd = match cwd {
+                        Some(cwd) => cwd,
+                        None => {
+                            cx.background_executor()
+                                .spawn(async {
+                                    let data = canopy_desktop::platform::directories::data_dir()?;
+                                    canopy_desktop::chat::scratch::create(&data)
+                                })
+                                .await?
+                        }
+                    };
+                    let metadata = metadata(cwd);
+                    let root = workspace
+                        .map(|id| serde_json::to_string(&id))
+                        .transpose()
+                        .map_err(|e| e.to_string())?;
+                    let record = canopy_desktop::host::ChatRecord::new(
+                        chat,
+                        root,
+                        provider.tool().into(),
+                        metadata.clone(),
+                    )
+                    .and_then(|record| {
+                        if workspace.is_some() {
+                            record.with_authority_root(owner.root.clone())
+                        } else {
+                            Some(record)
+                        }
+                    })
+                    .ok_or("Invalid chat identity.")?;
+                    let record = client
+                        .save_runtime_chat(record)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    this.update(cx, |this, cx| {
+                        app.settings
+                            .update(cx, |settings, _| settings.record_saved(record));
+                        this.place(workspace, provider, metadata, cx);
+                    })
+                    .map_err(|_| "Chat owner stopped.".to_owned())?;
+                    Ok::<_, String>(())
+                }
+                .await;
+                owner.bus.finish_local_resource(input, outcome).await
+            }
+            .await;
+            let _ = this.update(cx, |this, cx| {
+                this.opening = None;
+                if let Err(error) = result {
+                    this.error = Some(error);
+                }
+                cx.notify();
+            });
+        }));
     }
 
     /// Opens a fork of a conversation in `target`: its copy is saved first, then the
@@ -1225,59 +1300,125 @@ impl Chats {
         settings.id = Some(id.clone());
         // Permissions remembered for a chat stay with it.
         settings.allowed.clear();
-        let copy = cx
-            .global::<AppState>()
-            .chat_history
-            .clone()
-            .update(cx, |history, cx| {
-                history.fork(&request.source, &id, request.cut.clone(), cx)
-            });
+        let app = cx.global::<AppState>().clone();
+        let Some(source) = self.runtimes.get(&request.source).cloned() else {
+            self.error = Some("The source conversation is no longer available.".into());
+            cx.notify();
+            return;
+        };
+        let record = source.update(cx, |runtime, cx| runtime.persisted_record(cx));
+        let Some(client) = app.settings.read(cx).client() else {
+            return;
+        };
         self.opening = Some(cx.spawn(async move |this, cx| {
-            let copied = copy.await;
-            let cwd = match &project {
-                Some((_, cwd)) => Ok(cwd.clone()),
-                None => {
-                    cx.background_executor()
-                        .spawn(async {
-                            let data = canopy_desktop::platform::directories::data_dir()?;
-                            canopy_desktop::chat::scratch::create(&data)
+            let result = async {
+                use canopy_desktop::command_bus::{
+                    Command, CommandBus, Control, LocalForkDestination, ResourceRef,
+                };
+                let record = record.await?;
+                let thread = record
+                    .thread()
+                    .ok_or("The source thread identity is unavailable.")?;
+                let bus = CommandBus::new(client.clone());
+                let workspace = project.as_ref().map(|(id, _)| *id);
+                let input = bus
+                    .begin_local_resource(
+                        ResourceRef::Thread {
+                            thread: thread.thread().clone(),
+                            executor_epoch: thread.executor_epoch(),
+                        },
+                        record.authority_root().into(),
+                        Command::Control(Control::Fork {
+                            history_epoch: request.cut.epoch,
+                            item: request.cut.end.0,
+                            replacement: None,
+                            local_destination: Some(LocalForkDestination {
+                                workspace: workspace
+                                    .map(|id| serde_json::to_string(&id))
+                                    .transpose()
+                                    .map_err(|e| e.to_string())?,
+                                chat: id.clone(),
+                            }),
+                        }),
+                        Vec::new(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let outcome = async {
+                    let copy = cx.update(|cx| {
+                        app.chat_history.update(cx, |history, cx| {
+                            history.fork(&request.source, &id, request.cut.clone(), cx)
                         })
+                    });
+                    copy.await?;
+                    let cwd = match &project {
+                        Some((_, cwd)) => cwd.clone(),
+                        None => {
+                            cx.background_executor()
+                                .spawn(async {
+                                    let data = canopy_desktop::platform::directories::data_dir()?;
+                                    canopy_desktop::chat::scratch::create(&data)
+                                })
+                                .await?
+                        }
+                    };
+                    let title = format!("{} (fork)", request.title);
+                    let metadata = PaneMetadata {
+                        cwd: Some(cwd),
+                        profile_id: request.profile.clone(),
+                        // The session to branch off; the new one replaces it once it has an id.
+                        resume_id: Some(request.session.clone()),
+                        title: Some(title.clone()),
+                        kind: PaneKind::Chat,
+                        chat: Some(Box::new(settings)),
+                        ..Default::default()
+                    };
+                    let root = workspace
+                        .map(|id| serde_json::to_string(&id))
+                        .transpose()
+                        .map_err(|e| e.to_string())?;
+                    let fork = canopy_desktop::host::ChatRecord::new(
+                        id,
+                        root,
+                        request.provider.tool().into(),
+                        metadata.clone(),
+                    )
+                    .and_then(|fork| {
+                        if workspace.is_some() {
+                            fork.with_authority_root(project.as_ref()?.1.to_str()?.into())
+                        } else {
+                            Some(fork)
+                        }
+                    })
+                    .ok_or("Invalid fork identity.")?;
+                    let fork = client
+                        .save_runtime_chat(fork)
                         .await
+                        .map_err(|e| e.to_string())?;
+                    this.update(cx, |this, cx| {
+                        app.settings
+                            .update(cx, |settings, _| settings.record_saved(fork));
+                        this.place_titled(
+                            project.map(|(id, _)| id),
+                            request.provider.tool(),
+                            metadata,
+                            &title,
+                            cx,
+                        );
+                    })
+                    .map_err(|_| "Chat owner stopped.".to_owned())?;
+                    Ok::<_, String>(())
                 }
-            };
+                .await;
+                bus.finish_local_resource(input, outcome).await
+            }
+            .await;
             let _ = this.update(cx, |this, cx| {
                 this.opening = None;
-                let cwd = match (copied, cwd) {
-                    (Ok(()), Ok(cwd)) => cwd,
-                    (Err(error), _) => {
-                        this.error = Some(format!("Could not fork the chat: {error}"));
-                        cx.notify();
-                        return;
-                    }
-                    (_, Err(error)) => {
-                        this.error = Some(format!("Could not create the chat folder: {error}"));
-                        cx.notify();
-                        return;
-                    }
-                };
-                let title = format!("{} (fork)", request.title);
-                let metadata = PaneMetadata {
-                    cwd: Some(cwd),
-                    profile_id: request.profile.clone(),
-                    // The session to branch off; the new one replaces it once it has an id.
-                    resume_id: Some(request.session.clone()),
-                    title: Some(title.clone()),
-                    kind: PaneKind::Chat,
-                    chat: Some(Box::new(settings)),
-                    ..Default::default()
-                };
-                this.place_titled(
-                    project.map(|(id, _)| id),
-                    request.provider.tool(),
-                    metadata,
-                    &title,
-                    cx,
-                );
+                if let Err(error) = result {
+                    this.error = Some(error);
+                }
+                cx.notify();
             });
         }));
     }
@@ -1352,30 +1493,56 @@ impl Chats {
         let Some(chat) = closed.chat_id().map(str::to_owned) else {
             return;
         };
-        let delete = cx
-            .global::<AppState>()
-            .chat_history
-            .clone()
-            .update(cx, |history, cx| history.delete(&chat, cx));
-        cx.spawn(async move |this, cx| {
-            if let Err(error) = delete.await {
+        let owner = match super::file_ops::LocalResource::environment(cx) {
+            Ok(owner) => owner,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        let history = cx.global::<AppState>().chat_history.clone();
+        let cwd = closed.metadata.cwd.clone();
+        let id = uuid::Uuid::new_v4();
+        self.local_commands.insert(
+            id,
+            cx.spawn(async move |this, cx| {
+                let result = async {
+                    let input = owner
+                        .begin(canopy_desktop::command_bus::Command::Catalog(
+                            canopy_desktop::command_bus::CatalogCommand::ForgetClosed {
+                                chat: chat.clone(),
+                            },
+                        ))
+                        .await?;
+                    let outcome = async {
+                        cx.update(|cx| history.update(cx, |history, cx| history.delete(&chat, cx)))
+                            .await?;
+                        if let Some(cwd) = cwd {
+                            cx.background_spawn(async move {
+                                let data = canopy_desktop::platform::directories::data_dir()?;
+                                if canopy_desktop::chat::scratch::owns(&data, &cwd) {
+                                    canopy_desktop::chat::scratch::remove(&data, &cwd)?;
+                                }
+                                Ok::<_, String>(())
+                            })
+                            .await?;
+                        }
+                        Ok::<_, String>(())
+                    }
+                    .await;
+                    owner.bus.finish_local_resource(input, outcome).await
+                }
+                .await;
                 let _ = this.update(cx, |this, cx| {
-                    this.error = Some(error);
+                    this.local_commands.remove(&id);
+                    if let Err(error) = result {
+                        this.error = Some(error);
+                    }
                     cx.notify();
                 });
-            }
-        })
-        .detach();
-        if let Some(cwd) = closed.metadata.cwd.clone() {
-            cx.background_spawn(async move {
-                if let Ok(data) = canopy_desktop::platform::directories::data_dir()
-                    && canopy_desktop::chat::scratch::owns(&data, &cwd)
-                {
-                    let _ = canopy_desktop::chat::scratch::remove(&data, &cwd);
-                }
-            })
-            .detach();
-        }
+            }),
+        );
     }
 
     fn place(
@@ -1547,6 +1714,8 @@ impl Chats {
     /// Quit: stop every chat process. An error keeps the application open.
     pub fn shutdown(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
         self.stopping = true;
+        let opening = self.opening.take();
+        let commands: Vec<_> = self.local_commands.drain().map(|(_, task)| task).collect();
         for (id, _) in self.cleanup_errors() {
             self.retry_cleanup(id, cx);
         }
@@ -1563,6 +1732,12 @@ impl Chats {
         let close = self.close_all(runtimes, true, cx);
         let cleanup = self.pending_cleanup(None, cx);
         cx.spawn(async move |this, cx| {
+            if let Some(opening) = opening {
+                opening.await;
+            }
+            for command in commands {
+                command.await;
+            }
             let mut result = close.await;
             for job in cleanup {
                 let closed = job.await;
@@ -2062,11 +2237,21 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn new_chat_follows_the_selected_checkout_without_creating_a_private_chat(
+    async fn new_chat_follows_the_selected_checkout_without_creating_a_private_chat(
         cx: &mut TestAppContext,
     ) {
-        cx.update(|cx| {
+        cx.background_executor.allow_parking();
+        let directory = tempfile::tempdir().unwrap();
+        let client =
+            canopy_desktop::settings::SettingsClient::create(directory.path().join("settings.db"))
+                .await
+                .unwrap();
+        let host = client.initialize_runtime().await.unwrap();
+        let app = cx.update(|cx| {
             let app = AppState::install_test(Workspace::new(), cx);
+            app.settings.update(cx, |settings, _| {
+                settings.install_test_client(client.clone(), host);
+            });
             app.tools.update(cx, |tools, _| {
                 tools.ready = true;
                 tools.environment = Some(Ok(Arc::new(ShellEnvironment {
@@ -2074,15 +2259,39 @@ mod tests {
                     vars: Default::default(),
                 })));
             });
-            app.projects.update(cx, |projects, _| projects.ready = true);
-            let scratch = app.workspace.read(cx).id;
-            for checkout in ["/repo", "/worktrees/feature-sidebar"] {
-                let path = std::path::PathBuf::from(checkout);
+            app.projects.update(cx, |projects, _| {
+                projects.install_test_client(client.clone());
+            });
+            app
+        });
+        let scratch = cx.update(|cx| app.workspace.read(cx).id);
+        let repository = directory.path().join("repo");
+        for checkout in ["repo", "feature-sidebar"] {
+            let path = directory.path().join(checkout);
+            std::fs::create_dir(&path).unwrap();
+            let path = std::fs::canonicalize(path).unwrap();
+            cx.update(|cx| {
                 app.projects.update(cx, |projects, cx| {
-                    projects.open_worktree("/repo".into(), path.clone(), cx)
+                    projects.open_worktree(repository.clone(), path.clone(), cx)
                 });
-                let target = app.projects.read(cx).catalog.active.unwrap();
+            });
+            for _ in 0..500 {
+                cx.run_until_parked();
+                if cx.update(|cx| !app.projects.read(cx).busy) {
+                    break;
+                }
+                cx.executor()
+                    .advance_clock(std::time::Duration::from_millis(200));
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            cx.update(|cx| {
+                assert!(!app.projects.read(cx).busy, "project commit did not finish");
+                assert!(app.projects.read(cx).error.is_none());
                 app.chats.update(cx, |chats, cx| chats.open_current(cx));
+            });
+            settle(cx, |cx| !app.chats.read(cx).is_opening()).await;
+            cx.update(|cx| {
+                let target = app.projects.read(cx).catalog.active.unwrap();
                 let workspace = app.workspace.read(cx);
                 assert_eq!(workspace.id, target);
                 assert_ne!(workspace.id, scratch);
@@ -2099,7 +2308,11 @@ mod tests {
                 );
                 assert!(!app.chats.read(cx).is_opening());
                 assert!(app.chats.read(cx).error.is_none());
-            }
-        });
+            });
+        }
+        let records = client.load_runtime_chats().await.unwrap();
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().all(|record| record.workspace().is_some()));
+        client.shutdown().await.unwrap();
     }
 }

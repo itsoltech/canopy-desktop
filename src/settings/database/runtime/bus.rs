@@ -14,6 +14,9 @@ impl Database {
         resolution: Option<(String, String)>,
     ) -> Result<Option<PreparedCommand>> {
         require_host(self)?;
+        if matches!(envelope.command, Command::Recovery { .. }) && !principal.is_local_owner() {
+            return Err(Error::NotAuthorized);
+        }
         if envelope.resource.host_id().as_str() != self.runtime_host()?.id() {
             return Err(Error::NotFound);
         }
@@ -25,22 +28,63 @@ impl Database {
             | (
                 ResourceRef::Environment(_),
                 Command::Catalog(crate::command_bus::CatalogCommand::OpenProject { .. }),
+            )
+            | (
+                ResourceRef::Project(_),
+                Command::File(_)
+                | Command::Git(_)
+                | Command::Terminal(_)
+                | Command::Artifact(_)
+                | Command::Task(_),
+            )
+            | (
+                ResourceRef::Project(_),
+                Command::Catalog(
+                    crate::command_bus::CatalogCommand::CloseProject { .. }
+                    | crate::command_bus::CatalogCommand::CloseTerminal { .. },
+                ),
             ) => (),
             _ => return Err(Error::InvalidRuntimeState),
+        }
+        if matches!(
+            envelope.command,
+            Command::File(_)
+                | Command::Task(_)
+                | Command::Git(_)
+                | Command::Terminal(_)
+                | Command::Artifact(_)
+                | Command::Catalog(
+                    crate::command_bus::CatalogCommand::CloseProject { .. }
+                        | crate::command_bus::CatalogCommand::CloseTerminal { .. }
+                )
+        ) && envelope.conditions.expected_revision.is_some()
+        {
+            return Err(Error::InvalidRuntimeState);
         }
         let scope = envelope.command.required_scope();
         let mut input = envelope.input(&principal, "catalog".into())?;
         authorize(&self.db, &input.key, scope, true)?;
-        let saved: Option<(String,String,u32)> = self.db.query_row(
-            "SELECT target,required_root,required_scope FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
-            params![input.key.device,input.key.id,input.key.resource,integer(input.key.executor_epoch)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
-        let prior = if let Some((target, root, saved_scope)) = saved {
+        let saved: Option<(String,String,u32,Option<Vec<u8>>)> = self.db.query_row(
+            "SELECT target,required_root,required_scope,arguments FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
+            params![input.key.device,input.key.id,input.key.resource,integer(input.key.executor_epoch)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        let prior = if let Some((target, root, saved_scope, arguments)) = saved {
             authorize_root(&self.db, &input.key, saved_scope, &root, true)?;
             input.target = target;
             input.root = Some(root);
-            existing(&self.db, &input)?
+            let prior = existing(&self.db, &input)?;
+            if matches!(envelope.command, Command::Git(_))
+                || crate::command_bus::tasks::requires_account(&input.method)
+            {
+                // Preserve the original host-derived authority on Accepted recovery.
+                // The client intent was compared before replacing its payload.
+                input.arguments = arguments.ok_or(Error::NotAuthorized)?;
+            }
+            prior
         } else if let Some((target, root)) = resolution {
-            input.target = target;
+            input.target = match &envelope.command {
+                Command::File(command) => command.identity(root.clone())?.resource(),
+                _ => target,
+            };
             input.root = Some(root);
             authorize_root(&self.db, &input.key, scope, command_root(&input)?, true)?;
             None
@@ -60,17 +104,61 @@ impl Database {
         principal: Principal,
     ) -> Result<PreparedCommand> {
         require_host(self)?;
+        if matches!(envelope.command, Command::Recovery { .. }) && !principal.is_local_owner() {
+            return Err(Error::NotAuthorized);
+        }
+        if matches!(
+            &envelope.command,
+            Command::Control(crate::command_bus::Control::Fork {
+                local_destination: Some(_),
+                ..
+            })
+        ) && !principal.is_local_owner()
+        {
+            return Err(Error::NotAuthorized);
+        }
+        if matches!(
+            envelope.command,
+            Command::Artifact(_) | Command::Admin(_) | Command::Peer(_) | Command::Task(_)
+        ) && envelope.conditions.expected_revision.is_some()
+        {
+            return Err(Error::InvalidRuntimeState);
+        }
         if envelope.resource.host_id().as_str() != self.runtime_host()?.id() {
             return Err(Error::NotFound);
+        }
+        // Private/scratch terminals have no project or thread. Only the real
+        // in-process owner may address them; an ADMIN/Private grant is not enough.
+        if matches!(envelope.resource, ResourceRef::Environment(_))
+            && matches!(
+                envelope.command,
+                Command::Terminal(_)
+                    | Command::Catalog(
+                        crate::command_bus::CatalogCommand::CloseTerminal { .. }
+                            | crate::command_bus::CatalogCommand::ForgetClosed { .. }
+                    )
+            )
+            && !principal.is_local_owner()
+        {
+            return Err(Error::NotAuthorized);
         }
         let (target, record) = match &envelope.resource {
             ResourceRef::Thread { thread, .. } => {
                 if matches!(
                     envelope.command,
                     Command::Preferences { .. }
+                        | Command::Task(_)
+                        | Command::Settings(_)
+                        | Command::Admin(_)
+                        | Command::Peer(_)
+                        | Command::Git(_)
+                        | Command::Terminal(_)
                         | Command::Catalog(
                             crate::command_bus::CatalogCommand::Create { .. }
                                 | crate::command_bus::CatalogCommand::OpenProject { .. }
+                                | crate::command_bus::CatalogCommand::CloseProject { .. }
+                                | crate::command_bus::CatalogCommand::CloseTerminal { .. }
+                                | crate::command_bus::CatalogCommand::ForgetClosed { .. }
                         )
                 ) {
                     return Err(Error::InvalidRuntimeState);
@@ -80,25 +168,63 @@ impl Database {
                 (target, record)
             }
             ResourceRef::Environment(_)
-                if matches!(envelope.command, Command::Preferences { .. }) =>
+                if matches!(
+                    envelope.command,
+                    Command::Preferences { .. }
+                        | Command::Task(_)
+                        | Command::Terminal(_)
+                        | Command::Catalog(
+                            crate::command_bus::CatalogCommand::CloseTerminal { .. }
+                                | crate::command_bus::CatalogCommand::ForgetClosed { .. }
+                        )
+                        | Command::Artifact(_)
+                        | Command::Settings(_)
+                        | Command::Admin(_)
+                        | Command::Peer(_)
+                ) =>
             {
                 ("private".into(), None)
             }
             _ => return Err(Error::InvalidRuntimeState),
         };
-        let mut input = envelope.input(&principal, target)?;
+        let mut input = envelope.input(&principal, target.clone())?;
         let scope = envelope.command.required_scope();
         // The current grant precedes saved-result or conflict disclosure. A saved
         // root is retained even when the target has been removed from the catalog.
         input.root = Some(
-            if matches!(envelope.resource, ResourceRef::Environment(_)) {
+            if let Command::Recovery { record, .. } = &envelope.command {
+                // Recovery replaces an unresolved authority. Keep the selected
+                // authority stable across retries, including the first receipt.
+                record.authority_root().into()
+            } else if matches!(envelope.resource, ResourceRef::Environment(_)) {
                 "private".into()
             } else {
                 chat_root(&self.db, &input.target, &input.key)?
             },
         );
         authorize_root(&self.db, &input.key, scope, command_root(&input)?, true)?;
+        if let Command::File(command) = &envelope.command {
+            let root = if input.key.device() == host::LOCAL_PRINCIPAL
+                && command_root(&input)? == "private"
+            {
+                record
+                    .as_ref()
+                    .and_then(|r| r.metadata().cwd.as_ref())
+                    .and_then(|p| p.to_str())
+                    .ok_or(Error::NotAuthorized)?
+            } else {
+                command_root(&input)?
+            };
+            input.target = command.identity(root.into())?.resource();
+        }
         let mut prior = existing(&self.db, &input)?;
+        if prior.is_some() && crate::command_bus::tasks::requires_account(&input.method) {
+            input.arguments = self.db.query_row(
+                "SELECT arguments FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
+                params![input.key.device,input.key.id,input.key.resource,integer(input.key.executor_epoch)?],
+                |r| r.get::<_, Option<Vec<u8>>>(0),
+            )?.ok_or(Error::NotAuthorized)?;
+        }
         if prior.is_none()
             && let ResourceRef::Thread { executor_epoch, .. } = &envelope.resource
             && record
@@ -113,8 +239,12 @@ impl Database {
             tx.commit()?;
         }
         if prior.is_none() && matches!(envelope.resource, ResourceRef::Thread { .. }) {
-            chat_commands::live_chat(&self.db, &input.target)?;
-            if private_fork(&envelope.command, record.as_ref().ok_or(Error::NotFound)?) {
+            if !matches!(envelope.command, Command::Recovery { .. }) {
+                chat_commands::live_chat(&self.db, &target)?;
+            }
+            if !principal.is_local_owner()
+                && private_fork(&envelope.command, record.as_ref().ok_or(Error::NotFound)?)
+            {
                 let tx = self
                     .db
                     .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -162,6 +292,17 @@ impl Database {
         tx.execute_batch("SAVEPOINT bus_effect")?;
         let result = (|| -> Result<CommandReceipt> {
             Ok(match dispatch {
+                Dispatch::RevokeDevice(device) => match revoke_device(&tx, &device) {
+                    Ok(()) => insert_command(&tx, &input, CommandState::Succeeded, None, scope)?,
+                    Err(Error::NotFound) => insert_command(
+                        &tx,
+                        &input,
+                        CommandState::Rejected,
+                        Some(br#"{"reason":"not_found: The device does not exist."}"#),
+                        scope,
+                    )?,
+                    Err(error) => return Err(error),
+                },
                 Dispatch::Rename(title) => {
                     let mut record = load_chat(&tx, "chat_id=?1 AND closed_at IS NULL", &chat)?
                         .ok_or(Error::NotFound)?;
@@ -320,7 +461,7 @@ pub(super) fn runtime_admission(
     let intent = if input.key.resource.is_empty() {
         None
     } else {
-        Some(serde_json::from_slice::<(String, String, u64, Command, crate::command_bus::Conditions)>(&input.arguments)
+        Some(serde_json::from_slice::<(String, String, u64, Command, crate::command_bus::Conditions)>(&crate::command_bus::git::client_arguments(input)?)
             .map_err(|_| Error::InvalidRuntimeState)?)
     };
     let scope = intent
@@ -329,6 +470,13 @@ pub(super) fn runtime_admission(
             command.required_scope()
         });
     authorize_root(tx, &input.key, scope, command_root(input)?, true)?;
+    if input.method.starts_with("git.") {
+        let saved =
+            crate::command_bus::git::SavedAuthority::read(&input.arguments, command_root(input)?)?;
+        for root in saved.roots {
+            authorize_root(tx, &input.key, scope, &root, true)?;
+        }
+    }
     if let Some(prior) = existing(tx, input)? {
         return Ok(Some(prior));
     }
@@ -345,26 +493,82 @@ pub(super) fn runtime_admission(
             Command::Catalog(
                 crate::command_bus::CatalogCommand::Create { .. }
                     | crate::command_bus::CatalogCommand::OpenProject { .. }
+                    | crate::command_bus::CatalogCommand::CloseProject { .. }
+                    | crate::command_bus::CatalogCommand::CloseTerminal { .. }
             )
         ) {
             return Ok(None);
         }
-        let record = load_chat(tx, "chat_id=?1 AND closed_at IS NULL", &input.target)?
-            .ok_or(Error::NotFound)?;
+        if matches!(
+            command,
+            Command::Catalog(crate::command_bus::CatalogCommand::ForgetClosed { .. })
+        ) && input.key.resource.starts_with("environment:")
+        {
+            return if input.key.device() == crate::host::LOCAL_PRINCIPAL && input.key.epoch() == 0 {
+                Ok(None)
+            } else {
+                Err(Error::NotAuthorized)
+            };
+        }
+        if matches!(
+            command,
+            Command::File(_)
+                | Command::Git(_)
+                | Command::Terminal(_)
+                | Command::Artifact(_)
+                | Command::Task(_)
+        ) && input.key.resource.starts_with("project:")
+        {
+            return Ok(None);
+        }
+        if matches!(
+            command,
+            Command::Artifact(_)
+                | Command::Settings(_)
+                | Command::Admin(_)
+                | Command::Peer(_)
+                | Command::Task(_)
+        ) && input.key.resource.starts_with("environment:")
+        {
+            return Ok(None);
+        }
+        if matches!(command, Command::Terminal(_)) && input.key.resource.starts_with("environment:")
+        {
+            if input.key.device() != crate::host::LOCAL_PRINCIPAL || input.key.epoch() != 0 {
+                return Err(Error::NotAuthorized);
+            }
+            return Ok(None);
+        }
+        let target = if matches!(command, Command::File(_)) {
+            tx.query_row(
+                "SELECT legacy_chat_id FROM _canopy_thread_alias WHERE thread_id=?1",
+                [&input.key.resource],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or(Error::NotFound)?
+        } else {
+            input.target.clone()
+        };
+        let record =
+            load_chat(tx, "chat_id=?1 AND closed_at IS NULL", &target)?.ok_or(Error::NotFound)?;
         authorize_root(tx, &input.key, scope, record.authority_root(), true)?;
         let thread = record.thread().ok_or(Error::InvalidRuntimeState)?;
         if thread.executor_epoch() != epoch
-            || record.authority_root() != command_root(input)?
+            || !matches!(command, Command::Recovery { .. })
+                && record.authority_root() != command_root(input)?
             || conditions
                 .expected_revision
                 .is_some_and(|r| r != thread.revision())
         {
             return reject_conditions(tx, input, scope).map(Some);
         }
-        if private_fork(&command, &record) {
+        if input.key.device() != crate::host::LOCAL_PRINCIPAL && private_fork(&command, &record) {
             return reject_private_fork(tx, input, scope).map(Some);
         }
-        chat_commands::live_chat(tx, &input.target)?;
+        if !matches!(command, Command::Recovery { .. }) {
+            chat_commands::live_chat(tx, &target)?;
+        }
     }
     Ok(None)
 }
@@ -374,7 +578,8 @@ pub(super) fn runtime_scope(input: &CommandInput, fallback: u32) -> Result<u32> 
         return Ok(fallback);
     }
     let (_, _, _, command, _): (String, String, u64, Command, crate::command_bus::Conditions) =
-        serde_json::from_slice(&input.arguments).map_err(|_| Error::InvalidRuntimeState)?;
+        serde_json::from_slice(&crate::command_bus::git::client_arguments(input)?)
+            .map_err(|_| Error::InvalidRuntimeState)?;
     Ok(command.required_scope())
 }
 

@@ -1,7 +1,7 @@
 import type { UploadJournal } from './uploads'
 import type { NativeRemote } from './bridge'
 import { fromBase64, toBase64 } from './protobuf'
-import type { Catalog, CommandReceipt, MessageDraft, SendContext } from './schema'
+import type { Catalog, CommandReceipt, MessageDraft, SendContext, ThreadTarget } from './schema'
 
 export type DirectRoute = { kind: 'direct'; address: string; port: number }
 export type SshRoute = { kind: 'ssh'; address: string; port: number; sshAddress: string; sshPort: number; username: string; fingerprint: string; credentialRef: string }
@@ -28,6 +28,7 @@ export type OutboxEntry = {
   draft: MessageDraft
   createdAt: string
   epoch?: string
+  target?: ThreadTarget
   receipt?: CommandReceipt
 }
 export type HostState = {

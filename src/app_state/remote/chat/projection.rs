@@ -110,7 +110,7 @@ struct Data {
     stream: String,
     earlier: bool,
     closed: bool,
-    queue: proto::ChatQueue,
+    queue: proto::ThreadQueue,
     durability: Durability,
     /// The `saved_sequence` last published.
     announced: u64,
@@ -119,13 +119,13 @@ struct Data {
 /// How a chat's paths are presented: its checkout (or private folder) root.
 #[derive(Clone)]
 pub(super) struct Context {
-    workspace: Option<proto::WorkspaceRef>,
+    project_file: bool,
     root: PathBuf,
 }
 impl Context {
-    pub(super) fn of(auth: &RpcAuth, record: &ChatRecord) -> Self {
+    pub(super) fn of(_auth: &RpcAuth, record: &ChatRecord) -> Self {
         Self {
-            workspace: workspace(auth, record),
+            project_file: record.workspace().is_some(),
             root: record
                 .metadata()
                 .cwd
@@ -170,8 +170,8 @@ fn host_path(path: &Path, label: Option<&str>, context: &Context) -> proto::Atta
         .unwrap_or_default();
     proto::Attachment {
         label,
-        content: Some(proto::attachment::Content::Path(proto::FileRef {
-            workspace: relative.and(context.workspace.clone()),
+        content: Some(proto::attachment::Content::File(proto::FileAttachment {
+            project_file: relative.is_some() && context.project_file,
             relative_path: relative.unwrap_or_default().into(),
         })),
     }
@@ -232,7 +232,7 @@ pub(super) fn project(
         epoch,
         revision,
         run,
-        context.workspace.as_ref(),
+        context.project_file,
         &context.root,
         images,
     )?;
@@ -264,7 +264,7 @@ fn cursor(value: &sync::Cursor) -> proto::Cursor {
     }
 }
 pub(in crate::app_state::remote) fn state(status: &str, working: bool, decisions: usize) -> i32 {
-    use proto::ChatState as S;
+    use proto::ThreadState as S;
     let state = if decisions > 0 {
         S::NeedsDecision
     } else if working {
@@ -272,9 +272,9 @@ pub(in crate::app_state::remote) fn state(status: &str, working: bool, decisions
     } else {
         match status {
             "Not started" => S::Dormant,
-            "Starting" => S::ChatStarting,
+            "Starting" => S::Starting,
             "Stopping" => S::Interrupting,
-            "Failed" => S::ChatFailed,
+            "Failed" => S::Failed,
             "Exited" => S::Exited,
             _ => S::Idle,
         }
@@ -285,10 +285,9 @@ pub(super) fn summary(
     auth: &RpcAuth,
     record: &ChatRecord,
     snapshot: &ChatSnapshot,
-) -> proto::ChatSummary {
-    proto::ChatSummary {
-        chat: Some(reference(auth, record.id())),
-        workspace: workspace(auth, record),
+) -> proto::ThreadStatus {
+    proto::ThreadStatus {
+        thread: reference(auth, record),
         title: snapshot.title.clone().unwrap_or_else(|| "New chat".into()),
         agent_id: record.agent().into(),
         profile_id: record.metadata().profile_id.clone(),
@@ -307,7 +306,7 @@ pub(super) fn summary(
                 })
                 .count() as u32
         }),
-        run_id: Some(snapshot.run.to_string()),
+        run_id: Some(snapshot.run),
         history_epoch: snapshot.history_epoch,
         goal: snapshot.goal.as_ref().map(goal_state),
     }
@@ -522,7 +521,7 @@ impl ChatsRpc {
         let images = self.images(record.id(), files, HashMap::new()).await?;
         let context = Context::of(&self.auth, record);
         let presented = presentable(&mut source.attachments, &context);
-        let mut draft = wire::draft(&source, context.workspace.as_ref(), &context.root, &images)?;
+        let mut draft = wire::draft(&source, context.project_file, &context.root, &images)?;
         restore(&mut draft, presented);
         for attachment in &mut draft.attachments {
             if let Some(proto::attachment::Content::Pull(pull)) = &mut attachment.content {
@@ -578,9 +577,9 @@ impl ChatsRpc {
         record: &ChatRecord,
         context: &Context,
         snapshot: &ChatSnapshot,
-    ) -> Result<proto::ChatQueue, Status> {
+    ) -> Result<proto::ThreadQueue, Status> {
         let Some(queue) = snapshot.queue.clone() else {
-            return Ok(proto::ChatQueue::default());
+            return Ok(proto::ThreadQueue::default());
         };
         let store = self.artifacts.clone();
         let host = self.auth.host_id().to_owned();
@@ -608,8 +607,7 @@ impl ChatsRpc {
                     }
                 }
                 let presented = presentable(&mut source.attachments, &context);
-                let mut draft =
-                    wire::draft(&source, context.workspace.as_ref(), &context.root, &images)?;
+                let mut draft = wire::draft(&source, context.project_file, &context.root, &images)?;
                 restore(&mut draft, presented);
                 for id in entry.draft().artifact_ids() {
                     let image = store
@@ -617,14 +615,23 @@ impl ChatsRpc {
                         .map_err(storage_status)?;
                     draft.attachments.push(proto::Attachment {
                         label: "Image".into(),
-                        content: Some(proto::attachment::Content::Image(reference(image))),
+                        content: Some(proto::attachment::Content::Image({
+                            let artifact = reference(image);
+                            proto::ImageAttachment {
+                                host_id: artifact.host_id,
+                                artifact_id: artifact.artifact_id,
+                                sha256: artifact.sha256,
+                                size: artifact.size,
+                                media_type: artifact.media_type,
+                            }
+                        })),
                     });
                 }
                 let delivery = match entry.state() {
                     host::QueueState::Queued => proto::QueueDelivery::Queued,
-                    host::QueueState::Attempting => proto::QueueDelivery::QueueAttempting,
+                    host::QueueState::Attempting => proto::QueueDelivery::Attempting,
                     host::QueueState::Delivered => proto::QueueDelivery::Delivered,
-                    host::QueueState::Failed => proto::QueueDelivery::QueueFailed,
+                    host::QueueState::Failed => proto::QueueDelivery::Failed,
                     host::QueueState::Dismissed => proto::QueueDelivery::Dismissed,
                     host::QueueState::DeliveryUnknown => proto::QueueDelivery::Unknown,
                 };
@@ -635,7 +642,7 @@ impl ChatsRpc {
                     resolved_by_user: entry.resolved_by_user(),
                 });
             }
-            Ok(proto::ChatQueue {
+            Ok(proto::ThreadQueue {
                 revision: queue.revision(),
                 paused: queue.paused(),
                 entries,
@@ -819,8 +826,8 @@ impl ChatsRpc {
         context: &Context,
         event: ChatEvent,
     ) -> Result<(), Status> {
-        use proto::chat_event::Event;
-        let chat = reference(&self.auth, record.id());
+        use proto::thread_event::Event;
+        let chat = required(reference(&self.auth, record))?;
         match event {
             ChatEvent::Items { serial, items } => {
                 let incoming: Vec<_> = items.into_iter().map(|(_, i)| Arc::new(i)).collect();
@@ -966,14 +973,14 @@ impl ChatsRpc {
         Ok(())
     }
     /// Publishes a higher saved watermark.
-    fn announce(&self, data: &mut Data, chat: &proto::ChatRef) -> Result<(), Status> {
+    fn announce(&self, data: &mut Data, chat: &proto::ThreadRef) -> Result<(), Status> {
         let saved = data.durability.saved();
         if saved > data.announced {
             data.announced = saved;
             self.publish(
                 &data.stream,
                 chat,
-                proto::chat_event::Event::SavedSequence(saved),
+                proto::thread_event::Event::SavedSequence(saved),
             )?;
         }
         Ok(())
@@ -981,16 +988,16 @@ impl ChatsRpc {
     fn publish(
         &self,
         stream: &str,
-        chat: &proto::ChatRef,
-        event: proto::chat_event::Event,
+        chat: &proto::ThreadRef,
+        event: proto::thread_event::Event,
     ) -> Result<u64, Status> {
         let started = std::time::Instant::now();
         let result = self
             .replay
             .publish(
                 stream,
-                proto::ChatEvent {
-                    chat: Some(chat.clone()),
+                proto::ThreadEvent {
+                    thread: Some(chat.clone()),
                     cursor: None,
                     event: Some(event),
                 }
@@ -1000,7 +1007,7 @@ impl ChatsRpc {
             .map_err(sync_status);
         canopy_desktop::remote::metrics::record(
             &chat.host_id,
-            &chat.chat_id,
+            &chat.thread_id,
             None,
             0,
             canopy_desktop::remote::metrics::Stage::Fanout,
@@ -1019,13 +1026,13 @@ impl ChatsRpc {
         record: ChatRecord,
         grant: DeviceGrant,
         since: Option<proto::Cursor>,
-    ) -> Result<RpcStream<proto::ChatEvent>, Status> {
+    ) -> Result<RpcStream<proto::ThreadEvent>, Status> {
         let permit = self.reads.admit(grant.id())?;
         let p = self.projector(&record).await?;
         let client = self.attach(record.id(), &p);
-        let chat = reference(&self.auth, record.id());
-        let event = |event| proto::ChatEvent {
-            chat: Some(chat.clone()),
+        let chat = required(reference(&self.auth, &record))?;
+        let event = |event| proto::ThreadEvent {
+            thread: Some(chat.clone()),
             cursor: None,
             event: Some(event),
         };
@@ -1051,7 +1058,7 @@ impl ChatsRpc {
                         data.durability.saved()
                     };
                     out.events.push_back(Part::Event(event(
-                        proto::chat_event::Event::SnapshotStart(proto::SnapshotStart {
+                        proto::thread_event::Event::SnapshotStart(proto::SnapshotStart {
                             boundary: Some(boundary.clone()),
                             summary: Some(summary(&self.auth, &record, &data.snapshot)),
                             queue: Some(data.queue.clone()),
@@ -1062,7 +1069,7 @@ impl ChatsRpc {
                     let earlier = data.earlier || selected.len() < data.items.len();
                     out.events.extend(selected.into_iter().map(Part::Slot));
                     out.events.push_back(Part::Event(event(
-                        proto::chat_event::Event::SnapshotEnd(proto::SnapshotEnd {
+                        proto::thread_event::Event::SnapshotEnd(proto::SnapshotEnd {
                             boundary: Some(boundary),
                             has_earlier_history: earlier,
                         }),
@@ -1170,7 +1177,7 @@ pub(super) struct Out<E> {
     fragments: Option<Box<dyn Iterator<Item = proto::ItemFragment> + Send>>,
     /// Held until the transfer part is sent (read admission).
     pub(super) permit: Option<ReadPermit>,
-    pub(super) chat: Option<proto::ChatRef>,
+    pub(super) chat: Option<proto::ThreadRef>,
 }
 impl<E> Default for Out<E> {
     fn default() -> Self {
@@ -1184,24 +1191,24 @@ impl<E> Default for Out<E> {
 }
 /// How a transfer's items and fragments are framed for one stream type.
 pub(super) trait Frame: Sized {
-    fn items(chat: &proto::ChatRef, items: Vec<proto::TranscriptItem>) -> Self;
-    fn fragment(chat: &proto::ChatRef, fragment: proto::ItemFragment) -> Self;
+    fn items(chat: &proto::ThreadRef, items: Vec<proto::TranscriptItem>) -> Self;
+    fn fragment(chat: &proto::ThreadRef, fragment: proto::ItemFragment) -> Self;
 }
-impl Frame for proto::ChatEvent {
-    fn items(chat: &proto::ChatRef, items: Vec<proto::TranscriptItem>) -> Self {
+impl Frame for proto::ThreadEvent {
+    fn items(chat: &proto::ThreadRef, items: Vec<proto::TranscriptItem>) -> Self {
         Self {
-            chat: Some(chat.clone()),
+            thread: Some(chat.clone()),
             cursor: None,
-            event: Some(proto::chat_event::Event::SnapshotItems(proto::ItemChunk {
-                items,
-            })),
+            event: Some(proto::thread_event::Event::SnapshotItems(
+                proto::ItemChunk { items },
+            )),
         }
     }
-    fn fragment(chat: &proto::ChatRef, fragment: proto::ItemFragment) -> Self {
+    fn fragment(chat: &proto::ThreadRef, fragment: proto::ItemFragment) -> Self {
         Self {
-            chat: Some(chat.clone()),
+            thread: Some(chat.clone()),
             cursor: None,
-            event: Some(proto::chat_event::Event::ItemFragment(fragment)),
+            event: Some(proto::thread_event::Event::ItemFragment(fragment)),
         }
     }
 }
@@ -1250,17 +1257,17 @@ impl<E: Frame> Out<E> {
 
 /// One client's live stream: snapshot (if any), replayed frames, then the tail.
 struct Live {
-    out: Out<proto::ChatEvent>,
+    out: Out<proto::ThreadEvent>,
     replay: VecDeque<sync::Delivery>,
     subscription: sync::Subscription,
-    host: tokio::sync::watch::Receiver<proto::HostStatus>,
+    host: tokio::sync::watch::Receiver<canopy_desktop::api::proto::HostStatus>,
     auth: RpcAuth,
     grant: DeviceGrant,
     record: ChatRecord,
     _client: Client,
 }
 impl Live {
-    async fn next(&mut self) -> Result<proto::ChatEvent, Status> {
+    async fn next(&mut self) -> Result<proto::ThreadEvent, Status> {
         self.subscription.check().map_err(sync_status)?;
         if let Some(event) = self.out.next() {
             return Ok(event);
@@ -1277,7 +1284,7 @@ impl Live {
                 }
             },
         };
-        let mut event = proto::ChatEvent::decode(delivery.payload())
+        let mut event = proto::ThreadEvent::decode(delivery.payload())
             .map_err(|_| Status::internal("Invalid host stream encoding."))?;
         event.cursor = Some(cursor(delivery.cursor()));
         Ok(event)
@@ -1286,8 +1293,8 @@ impl Live {
     /// further disclosure (SEC-04).
     async fn recheck(&mut self) -> Result<(), Status> {
         let readiness = self.host.borrow_and_update().readiness;
-        if readiness == proto::HostReadiness::Draining as i32
-            || readiness == proto::HostReadiness::StorageFault as i32
+        if readiness == canopy_desktop::api::proto::HostReadiness::Draining as i32
+            || readiness == canopy_desktop::api::proto::HostReadiness::StorageFault as i32
         {
             return Err(Status::unavailable("The host is closing; reconnect later."));
         }

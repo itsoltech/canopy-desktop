@@ -12,7 +12,7 @@ export function TaskAttachmentPreview({ host, task, attachment }: { host: HostSe
   return <>{artifact ? <ArtifactPreview host={host} artifact={artifact} /> : <Action title={`Open ${attachment.name}`} run={async () => {
     let first: ArtifactRef | undefined, offset = 0n, complete = false
     const stream = await host.transport.subscribe('TasksService/ReadAttachment', { task, attachment_id: attachment.id }, chunk => {
-      if (!chunk.artifact || chunk.artifact.host_id !== task.host_id || complete || chunk.offset !== String(offset)) throw Error('Invalid task attachment stream')
+      if (!chunk.artifact || chunk.artifact.host_id !== host.snapshot().hostId || complete || chunk.offset !== String(offset)) throw Error('Invalid task attachment stream')
       if (first && first.artifact_id !== chunk.artifact.artifact_id) throw Error('Attachment changed')
       first = chunk.artifact; offset += BigInt(chunk.data.length); complete = chunk.complete
       if (offset > 64n * 1024n * 1024n) throw Error('Attachment exceeds 64 MiB preview limit')

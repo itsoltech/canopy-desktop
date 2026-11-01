@@ -1,4 +1,5 @@
 use super::{controls::*, *};
+use canopy_desktop::{api::proto as p, remote::client::SettingsMutation};
 use gpui_kit::component::{
     IndexPath,
     checkbox::Checkbox,
@@ -7,7 +8,7 @@ use gpui_kit::component::{
 
 #[derive(Clone)]
 pub(super) enum Draft {
-    Preferences(p::HostPreferences),
+    Preferences(p::Preferences),
     Agent(p::AgentDefinition),
     Profile(p::Profile, bool),
     Integration(p::Integration),
@@ -27,28 +28,19 @@ impl Write {
         self,
         host: Arc<HostClient>,
         revision: u64,
-    ) -> Result<p::CommandReceipt, String> {
+    ) -> Result<canopy_desktop::api::proto::CommandReceipt, String> {
         if let Self::Preferences(request) = self {
             return host.update_preferences(request, revision).await;
         }
-        host.mutate(Some(revision), move |channel, command| async move {
-            let mut client = p::settings_service_client::SettingsServiceClient::new(channel);
+        host.update_settings(
             match self {
                 Self::Preferences(_) => unreachable!("preferences use the typed command client"),
-                Self::Agent(mut r) => {
-                    r.command = Some(command);
-                    client.save_agent_definition(r).await
-                }
-                Self::Profile(mut r) => {
-                    r.command = Some(command);
-                    client.save_profile(r).await
-                }
-                Self::Integration(mut r) => {
-                    r.command = Some(command);
-                    client.save_integration(r).await
-                }
-            }
-        })
+                Self::Agent(r) => SettingsMutation::SaveAgent(r),
+                Self::Profile(r) => SettingsMutation::SaveProfile(Box::new(r)),
+                Self::Integration(r) => SettingsMutation::SaveIntegration(r),
+            },
+            revision,
+        )
         .await
     }
 }
@@ -442,7 +434,7 @@ impl Editor {
                 }
                 Write::Agent(p::SaveAgentDefinitionRequest {
                     agent: Some(agent),
-                    environment: env,
+                    variables: env,
                     ..Default::default()
                 })
             }
@@ -492,7 +484,7 @@ impl Editor {
                 }
                 Write::Profile(p::SaveProfileRequest {
                     profile: Some(profile),
-                    environment: env,
+                    variables: env,
                     credential: secret(&self.credential)?,
                     settings: Some(p::ProfileSettingsUpdate {
                         options: (!*acp).then_some(s),
@@ -539,7 +531,7 @@ impl Render for Editor {
                 "Type",
                 "Set when the agent is created.",
                 row().child(badge(
-                    ["Claude", "Codex", "ACP"]
+                    ["Claude", "Codex", "ACP", "Shell", "Process"]
                         .get(self.backend)
                         .copied()
                         .unwrap_or("ACP"),

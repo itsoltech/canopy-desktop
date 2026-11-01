@@ -6,10 +6,10 @@ if (!root) throw Error('Run using scripts/test-remote.mjs')
 const { CatalogFeed, readCatalog } = require(resolve(root, 'catalog.js'))
 
 const boundary = sequence => ({ runtime_epoch: 'e', stream_id: 'catalog/1', sequence: String(sequence) })
-const chat = id => ({ chat: { host_id: 'h', chat_id: id }, title: id })
-const page = (projects, chats) => ({ host_id: 'h', projects, chats, terminals: [] })
+const chat = id => ({ catalog_id: id, thread: { host_id: 'h', thread_id: id }, summary: { thread: { host_id: 'h', thread_id: id }, title: id } })
+const page = (projects, threads) => ({ environment: { host_id: 'h' }, projects, threads, terminals: [] })
 const part = (sequence, first, last, value) => ({ cursor: boundary(sequence), snapshot_part: { boundary: boundary(sequence), page: value, first, last } })
-const project = checkouts => ({ project_id: '/repo', name: 'repo', path: '/repo', checkouts: checkouts.map(path => ({ name: path, path })) })
+const project = checkouts => ({ name: 'repo', path: '/repo', checkouts: checkouts.map(path => ({ catalog_id: path, name: path, path })) })
 
 test('a paged catalog is installed whole, a split project merged, deltas after its boundary', () => {
   const feed = new CatalogFeed('h')
@@ -18,18 +18,18 @@ test('a paged catalog is installed whole, a split project merged, deltas after i
   assert.equal(feed.apply(old, part(3, false, false, page([project(['/b'])], [chat('x')]))), undefined)
   const whole = feed.apply(old, part(3, false, true, page([], [chat('y')])))
   assert.deepEqual(whole.projects.map(p => p.checkouts.map(c => c.path)), [['/a', '/b']])
-  assert.deepEqual(whole.chats.map(c => c.title), ['x', 'y'])
-  assert.deepEqual(old.chats.map(c => c.title), ['old'], 'the installed catalog is never changed in place')
-  const next = feed.apply(whole, { cursor: boundary(4), chat: chat('z') })
-  assert.deepEqual(next.chats.map(c => c.title), ['x', 'y', 'z'])
-  assert.throws(() => feed.apply(next, { cursor: boundary(6), chat: chat('q') }), /gap/)
+  assert.deepEqual(whole.threads.map(c => c.summary.title), ['x', 'y'])
+  assert.deepEqual(old.threads.map(c => c.summary.title), ['old'], 'the installed catalog is never changed in place')
+  const next = feed.apply(whole, { cursor: boundary(4), thread: chat('z') })
+  assert.deepEqual(next.threads.map(c => c.summary.title), ['x', 'y', 'z'])
+  assert.throws(() => feed.apply(next, { cursor: boundary(6), thread: chat('q') }), /gap/)
 })
 
 test('a delta or a foreign boundary during a snapshot drops the staging', () => {
   const feed = new CatalogFeed('h')
   const old = page([], [chat('old')])
   feed.apply(old, part(1, true, false, page([], [chat('a')])))
-  assert.throws(() => feed.apply(old, { cursor: boundary(2), chat: chat('b') }), /during a snapshot/)
+  assert.throws(() => feed.apply(old, { cursor: boundary(2), thread: chat('b') }), /during a snapshot/)
   // The dropped snapshot cannot be completed by its last page.
   assert.throws(() => feed.apply(old, part(1, false, true, page([], [chat('c')]))), /before the first page/)
   feed.apply(old, part(5, true, false, page([], [chat('a')])))
@@ -38,10 +38,10 @@ test('a delta or a foreign boundary during a snapshot drops the staging', () => 
 
 test('readCatalog returns only a complete catalog', async () => {
   const stream = events => ({ async subscribe(method, request, receive) {
-    assert.equal(method, 'CatalogService/ReadCatalog'); assert.equal(request.host_id, 'h')
+    assert.equal(method, 'CatalogService/ReadCatalog'); assert.equal(request.environment.host_id, 'h')
     return { done: (async () => { for (const event of events) await receive(event) })() }
   } })
   const catalog = await readCatalog(stream([part(0, true, false, page([], [chat('a')])), part(0, false, true, page([], [chat('b')]))]), 'h')
-  assert.deepEqual(catalog.chats.map(c => c.title), ['a', 'b'])
+  assert.deepEqual(catalog.threads.map(c => c.summary.title), ['a', 'b'])
   await assert.rejects(readCatalog(stream([part(0, true, false, page([], [chat('a')]))]), 'h'), /ended before/)
 })

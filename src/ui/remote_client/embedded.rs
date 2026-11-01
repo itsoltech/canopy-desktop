@@ -8,7 +8,7 @@ pub struct RemoteWorkspace {
 impl RemoteWorkspace {
     pub(in crate::ui) fn tools(
         host: Arc<HostClient>,
-        workspace: Option<p::WorkspaceRef>,
+        workspace: Option<p::ProjectCheckout>,
         page: Page,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -27,7 +27,7 @@ impl RemoteWorkspace {
     }
     pub fn new(
         host: Arc<HostClient>,
-        resource: p::ResourceRef,
+        resource: ResourceView,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -41,12 +41,7 @@ impl RemoteWorkspace {
         });
         Self { view }
     }
-    pub fn open(
-        &mut self,
-        host: Arc<HostClient>,
-        resource: p::ResourceRef,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn open(&mut self, host: Arc<HostClient>, resource: ResourceView, cx: &mut Context<Self>) {
         self.view.update(cx, |view, cx| {
             if view.registry.is_none() {
                 view.host = Some(host);
@@ -106,37 +101,40 @@ impl RemoteWindow {
                         return;
                     };
                     let host_id = host.id().as_str();
-                    match resource.resource {
-                        Some(p::resource_ref::Resource::Workspace(workspace))
-                            if workspace.host_id == host_id =>
+                    match resource {
+                        ResourceView::Project(workspace)
+                            if workspace
+                                .project
+                                .as_ref()
+                                .is_some_and(|p| p.host_id == host_id) =>
                         {
                             view.workspace = Some(workspace);
                             view.navigate(Page::Files, cx);
-                            view.fields["path"]
-                                .update(cx, |field, cx| field.set_value("", window, cx));
+                            view.fields["path"].update(cx, |f, cx| f.set_value("", window, cx));
                             if view.ready() {
                                 view.load_directory(cx);
                             }
                         }
-                        Some(p::resource_ref::Resource::Chat(chat)) if chat.host_id == host_id => {
-                            view.workspace = host.shared_catalog().and_then(|catalog| {
-                                catalog
-                                    .chats
+                        ResourceView::Thread(chat) if chat.host == host_id => {
+                            view.workspace = host.shared_catalog().and_then(|c| {
+                                let id = c
+                                    .threads
                                     .iter()
-                                    .find(|c| c.chat.as_ref() == Some(&chat))
-                                    .and_then(|c| c.workspace.clone())
+                                    .find(|t| t.catalog_id == chat.chat)?
+                                    .project_catalog_id
+                                    .as_ref()?;
+                                checkout(&c, id)
                             });
-                            view.open_chat(chat, window, cx);
+                            view.open_chat(chat.chat, window, cx);
                         }
-                        Some(p::resource_ref::Resource::Terminal(terminal))
-                            if terminal.host_id == host_id =>
-                        {
-                            view.workspace = host.shared_catalog().and_then(|catalog| {
-                                catalog
+                        ResourceView::Terminal(terminal) if terminal.host_id == host_id => {
+                            view.workspace = host.shared_catalog().and_then(|c| {
+                                let id = &c
                                     .terminals
                                     .iter()
-                                    .find(|t| t.terminal.as_ref() == Some(&terminal))
-                                    .and_then(|t| t.workspace.clone())
+                                    .find(|t| t.terminal.as_ref() == Some(&terminal))?
+                                    .project_catalog_id;
+                                checkout(&c, id)
                             });
                             view.navigate(Page::Terminal, cx);
                             view.terminal = Some(terminal);
@@ -260,11 +258,22 @@ impl RemoteWorkspace {
         let Some((host, workspace, path)) = file.environment_address() else {
             return;
         };
+        let project = self
+            .view
+            .read(cx)
+            .host
+            .as_ref()
+            .filter(|h| h.id().as_str() == host)
+            .and_then(|h| h.shared_catalog())
+            .and_then(|c| checkout(&c, workspace))
+            .and_then(|c| c.project);
+        let Some(project) = project else {
+            return;
+        };
         self.open_file(
             p::FileRef {
-                workspace: Some(p::WorkspaceRef {
-                    host_id: host.to_owned(),
-                    workspace_id: workspace.to_owned(),
+                target: Some(p::ResourceTarget {
+                    resource: Some(p::resource_target::Resource::Project(project)),
                 }),
                 relative_path: path.to_string_lossy().into_owned(),
             },
@@ -313,7 +322,11 @@ impl RemoteWindow {
                 catalog
                     .terminals
                     .iter()
-                    .filter(|t| t.workspace == self.workspace)
+                    .filter(|t| {
+                        self.workspace
+                            .as_ref()
+                            .is_some_and(|w| w.catalog_id == t.project_catalog_id)
+                    })
                     .cloned()
                     .collect::<Vec<_>>()
             })
@@ -428,11 +441,16 @@ mod tests {
                 .set(registry)
                 .unwrap_or_else(|_| panic!("new registry"));
         });
-        let resource = |index: usize| p::ResourceRef {
-            resource: Some(p::resource_ref::Resource::Workspace(p::WorkspaceRef {
-                host_id: hosts[index].id().as_str().into(),
-                workspace_id: format!("tree-{index}"),
-            })),
+        let resource = |index: usize| {
+            super::super::ResourceView::Project(p::ProjectCheckout {
+                catalog_id: format!("tree-{index}"),
+                project: Some(p::ProjectRef {
+                    host_id: hosts[index].id().as_str().into(),
+                    project_id: format!("project-{index}"),
+                    worktree_id: None,
+                }),
+                ..Default::default()
+            })
         };
         let mut view = None;
         let window = cx.open_window(size(px(900.), px(700.)), |window, cx| {
@@ -448,14 +466,21 @@ mod tests {
             remote
                 .workspace
                 .as_ref()
-                .is_some_and(|w| w.workspace_id == "tree-1")
+                .is_some_and(|w| w.catalog_id == "tree-1")
         })
         .await;
         cx.update(|cx| {
             let remote = view.read(cx).view.read(cx);
             assert_eq!(remote.host.as_ref().unwrap().id(), hosts[1].id());
             assert_eq!(
-                remote.workspace.as_ref().unwrap().host_id,
+                remote
+                    .workspace
+                    .as_ref()
+                    .unwrap()
+                    .project
+                    .as_ref()
+                    .unwrap()
+                    .host_id,
                 hosts[1].id().as_str()
             );
             assert!(remote.embedded);

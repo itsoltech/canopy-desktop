@@ -3,6 +3,7 @@ syntax = "proto3";
 package canopy.api.v1;
 
 import "google/protobuf/descriptor.proto";
+import "google/protobuf/struct.proto";
 
 // Metadata mirrors the Rust command registry. The bus owns enforcement.
 message CommandOption {
@@ -43,6 +44,14 @@ service CatalogService {
   rpc ListPullRequests(ListPullRequestsRequest) returns (PullRequests);
   rpc ReadThreadPage(ReadThreadPageRequest) returns (stream ArtifactChunk);
   rpc PreflightClose(PreflightCloseRequest) returns (ClosePlan);
+  rpc PreflightCloseProject(PreflightCloseProjectRequest) returns (ProjectClosePlan);
+  rpc PreflightCloseTerminal(PreflightCloseTerminalRequest) returns (TerminalClosePlan);
+  rpc CloseProject(CloseProjectRequest) returns (CommandReceipt) {
+    option (command) = {name: "projects.close" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc CloseTerminal(CloseTerminalRequest) returns (CommandReceipt) {
+    option (command) = {name: "terminal.close" risk: RISK_DELIVERY scopes: SCOPE_TERMINAL};
+  }
   rpc CreateThread(CreateThreadRequest) returns (CommandReceipt) {
     option (command) = {name: "chat.create" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
   }
@@ -132,9 +141,461 @@ service ThreadService {
 }
 
 service SettingsService {
+  rpc GetSettings(GetSettingsRequest) returns (HostSettings);
   rpc UpdatePreferences(UpdatePreferencesRequest) returns (CommandReceipt) {
     option (command) = {name: "settings.preferences" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
   }
+  rpc SaveAgentDefinition(SaveAgentDefinitionRequest) returns (CommandReceipt) {
+    option (command) = {name: "settings.agent.save" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
+  }
+  rpc RemoveAgentDefinition(RemoveAgentDefinitionRequest) returns (CommandReceipt) {
+    option (command) = {name: "settings.agent.remove" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
+  }
+  rpc SaveProfile(SaveProfileRequest) returns (CommandReceipt) {
+    option (command) = {name: "settings.profile.save" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
+  }
+  rpc RemoveProfile(RemoveProfileRequest) returns (CommandReceipt) {
+    option (command) = {name: "settings.profile.remove" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
+  }
+  rpc SaveIntegration(SaveIntegrationRequest) returns (CommandReceipt) {
+    option (command) = {name: "settings.integration.save" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
+  }
+  rpc RemoveIntegration(RemoveIntegrationRequest) returns (CommandReceipt) {
+    option (command) = {name: "settings.integration.remove" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
+  }
+}
+
+message Empty {}
+message GetSettingsRequest { EnvironmentRef environment = 1; }
+message SecretUpdate { oneof action { Empty unchanged = 1; bytes set = 2; Empty remove = 3; } }
+message EnvironmentField { string name = 1; bool configured = 2; }
+message EnvironmentUpdate { string name = 1; SecretUpdate value = 2; }
+message AgentDefinition { string id = 1; string name = 2; BackendKind backend_kind = 3; string command = 4; repeated string arguments = 5; repeated EnvironmentField environment = 6; optional bool enabled = 7; optional string default_profile_id = 8; }
+message StringValues { repeated string values = 1; }
+message Profile {
+  string id = 1; string agent_id = 2; string name = 3; repeated EnvironmentField environment = 4; bool credential_configured = 5;
+  optional string model = 6; StringValues arguments = 7; ProfileAgentSettings settings = 8;
+}
+// Only presence and nonsecret options are returned. Omitted writes preserve state.
+message ProfileAgentSettings {
+  optional string permission_mode = 1; optional string effort_level = 2;
+  optional string base_url = 3; optional string provider = 4;
+  optional string approval_mode = 5; optional string sandbox = 6;
+  optional bool full_auto = 7; optional bool bypass_approvals = 8;
+  optional string config_profile = 9;
+  bool system_prompt_configured = 10; bool settings_override_configured = 11;
+}
+message ProfileSettingsUpdate { ProfileAgentSettings options = 1; SecretUpdate append_system_prompt = 2; SecretUpdate settings_json = 3; }
+message Integration {
+  string id = 1; string kind = 2; string name = 3; string endpoint = 4; bool credential_configured = 5;
+  optional string owner = 6; optional string email = 7; optional string cloud_id = 8;
+}
+message HostSettings { EnvironmentRef environment = 1; uint64 revision = 2; repeated AgentDefinition agents = 3; repeated Profile profiles = 4; repeated Integration integrations = 5; Preferences preferences = 6; }
+message SaveAgentDefinitionRequest { CommandMeta command = 1; EnvironmentRef environment = 2; AgentDefinition agent = 3; repeated EnvironmentUpdate variables = 4; }
+message RemoveAgentDefinitionRequest { CommandMeta command = 1; EnvironmentRef environment = 2; string agent_id = 3; }
+message SaveProfileRequest { CommandMeta command = 1; EnvironmentRef environment = 2; Profile profile = 3; repeated EnvironmentUpdate variables = 4; SecretUpdate credential = 5; ProfileSettingsUpdate settings = 6; }
+message RemoveProfileRequest { CommandMeta command = 1; EnvironmentRef environment = 2; string profile_id = 3; }
+message SaveIntegrationRequest { CommandMeta command = 1; EnvironmentRef environment = 2; Integration integration = 3; SecretUpdate credential = 4; }
+message RemoveIntegrationRequest { CommandMeta command = 1; EnvironmentRef environment = 2; string integration_id = 3; }
+
+// Bootstrap proof and local approval precede any authenticated command principal.
+service HostService {
+  rpc GetInfo(GetInfoRequest) returns (HostInfo);
+  rpc WatchHost(WatchHostRequest) returns (stream HostStatus);
+  rpc ListDevices(ListDevicesRequest) returns (Devices);
+  rpc ReadDiagnostics(ReadDiagnosticsRequest) returns (DiagnosticsSnapshot);
+  rpc GetCommand(GetCommandRequest) returns (GetCommandResponse);
+  // Maintenance of the caller's inbox does not create an inbox command.
+  rpc ResolveCommand(ResolveCommandRequest) returns (ResolveCommandResponse);
+  rpc CloseCommandEpoch(CloseCommandEpochRequest) returns (CommandEpoch);
+  rpc RevokeDevice(RevokeDeviceRequest) returns (CommandReceipt) {
+    option (command) = {name: "host.revoke" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
+  }
+}
+message GetInfoRequest { EnvironmentRef environment = 1; }
+message WatchHostRequest { EnvironmentRef environment = 1; }
+message ReadDiagnosticsRequest { EnvironmentRef environment = 1; }
+message Limits {
+  uint64 control_bytes = 1; uint64 chunk_bytes = 2; uint64 client_queue_bytes = 3;
+  uint64 history_page_bytes = 4; uint32 history_page_items = 5; uint32 chat_processes = 6;
+}
+message HostInfo {
+  EnvironmentRef environment = 1; string application_version = 2; uint32 protocol_version = 3;
+  repeated Capability capabilities = 4; uint64 command_epoch = 5; Limits limits = 6;
+}
+enum HostReadiness {
+  HOST_READINESS_UNSPECIFIED = 0; HOST_READINESS_STARTING = 1; HOST_READINESS_READY = 2;
+  HOST_READINESS_DRAINING = 3; HOST_READINESS_STORAGE_FAULT = 4;
+}
+message HostStatus { EnvironmentRef environment = 1; HostReadiness readiness = 2; string reason = 3; Cursor cursor = 4; }
+message ListDevicesRequest { EnvironmentRef environment = 1; optional string page_token = 2; bool include_revoked = 3; }
+message Devices { EnvironmentRef environment = 1; repeated Device devices = 2; optional string next_page_token = 3; }
+message CommandResource {
+  oneof target { ThreadTarget thread = 1; ProjectRef project = 2; EnvironmentRef environment = 3; }
+}
+message GetCommandRequest {
+  EnvironmentRef environment = 1; string command_id = 2; uint64 command_epoch = 3;
+  // Omission supports ID lookup only when the authorized result is unambiguous.
+  CommandResource resource = 4;
+}
+message ResolveCommandRequest {
+  EnvironmentRef environment = 1; string command_id = 2; uint64 command_epoch = 3;
+  CommandResource resource = 4;
+}
+enum CommandLookupState {
+  COMMAND_LOOKUP_STATE_UNSPECIFIED = 0; COMMAND_LOOKUP_STATE_FOUND = 1;
+  COMMAND_LOOKUP_STATE_NOT_FOUND = 2; COMMAND_LOOKUP_STATE_RETIRED = 3;
+}
+message GetCommandResponse { CommandLookupState state = 1; CommandReceipt receipt = 2; }
+message ResolveCommandResponse { CommandReceipt receipt = 1; }
+message CloseCommandEpochRequest { EnvironmentRef environment = 1; uint64 expected_epoch = 2; }
+message CommandEpoch { EnvironmentRef environment = 1; uint64 epoch = 2; }
+message RevokeDeviceRequest { CommandMeta command = 1; EnvironmentRef environment = 2; string device_id = 3; }
+message StageSummary { string stage = 1; uint64 count = 2; uint64 total_us = 3; uint64 max_us = 4; uint64 p95_upper_us = 5; }
+message TimingRecord {
+  uint64 sequence = 1; string host_id = 2; string resource_id = 3; string command_id = 4;
+  uint64 generation = 5; string stage = 6; uint64 duration_us = 7; string state = 8;
+  string error_code = 9; string device_id = 10; uint64 command_epoch = 11;
+}
+message DiagnosticsSnapshot {
+  uint32 schema_version = 1; string process_instance_id = 2; repeated StageSummary summaries = 3;
+  repeated TimingRecord records = 4; uint64 dropped_records = 5; uint64 rejected_keys = 6;
+}
+
+service PeerService {
+  rpc GetPeerRequest(GetPeerRequestRequest) returns (PeerCertificateRequest);
+  rpc ConnectPeer(ConnectPeerRequest) returns (CommandReceipt) {
+    option (command) = {name: "peer.connect" risk: RISK_CONFIGURATION scopes: SCOPE_ADMIN};
+  }
+}
+message GetPeerRequestRequest { EnvironmentRef environment = 1; }
+message PeerCertificateRequest { EnvironmentRef environment = 1; bytes certificate_signing_request = 2; }
+message PeerHost {
+  EnvironmentRef environment = 1; string name = 2; string server_name = 3; bytes certificate = 4;
+  bytes certificate_sha256 = 5; repeated string addresses = 6; uint32 port = 7; bool return_tunnel = 8;
+}
+message ConnectPeerRequest {
+  CommandMeta command = 1; EnvironmentRef environment = 2; PeerHost peer = 3;
+  bytes certificate = 4; repeated bytes certificate_chain = 5;
+}
+
+service EnrollmentService {
+  rpc RequestPairing(RequestPairingRequest) returns (PairingStatus);
+  rpc GetPairingStatus(GetPairingStatusRequest) returns (PairingStatus);
+}
+message PairingInvite {
+  uint32 protocol_version = 1; string host_id = 2; string server_name = 3;
+  string address = 4; uint32 port = 5; bytes host_certificate = 6;
+  bytes certificate_sha256 = 7; bytes one_time_token = 8; uint64 expires_unix = 9;
+}
+message RequestPairingRequest { bytes one_time_token = 1; bytes certificate_signing_request = 2; string device_name = 3; EnvironmentRef environment = 4; }
+message GetPairingStatusRequest { string request_id = 1; bytes proof = 2; EnvironmentRef environment = 3; }
+enum PairingState { PAIRING_STATE_UNSPECIFIED = 0; PAIRING_STATE_PENDING = 1; PAIRING_STATE_APPROVED = 2; PAIRING_STATE_DENIED = 3; PAIRING_STATE_EXPIRED = 4; }
+message Device { string device_id = 1; string name = 2; repeated Scope scopes = 3; repeated string roots = 4; bool revoked = 5; }
+message PairingStatus {
+  string request_id = 1; PairingState state = 2; optional bytes certificate = 3;
+  repeated bytes certificate_chain = 4; optional Device device = 5;
+}
+
+service ArtifactsService {
+  rpc GetUpload(GetUploadRequest) returns (UploadStatus);
+  // Chunk transport is bounded and idempotent by offset/hash, outside the inbox.
+  rpc PutChunk(PutChunkRequest) returns (UploadStatus);
+  rpc Download(DownloadRequest) returns (stream ArtifactChunk);
+  rpc BeginImageUpload(BeginImageUploadRequest) returns (CommandReceipt) {
+    option (command) = {name: "artifacts.image.begin" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc FinishImageUpload(FinishImageUploadRequest) returns (CommandReceipt) {
+    option (command) = {name: "artifacts.image.finish" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc CancelImageUpload(CancelImageUploadRequest) returns (CommandReceipt) {
+    option (command) = {name: "artifacts.image.cancel" risk: RISK_DELIVERY scopes: SCOPE_CHAT};
+  }
+  rpc BeginFileUpload(BeginFileUploadRequest) returns (CommandReceipt) {
+    option (command) = {name: "artifacts.file.begin" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc FinishFileUpload(FinishFileUploadRequest) returns (CommandReceipt) {
+    option (command) = {name: "artifacts.file.finish" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc CancelFileUpload(CancelFileUploadRequest) returns (CommandReceipt) {
+    option (command) = {name: "artifacts.file.cancel" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc BeginTaskUpload(BeginTaskUploadRequest) returns (CommandReceipt) {
+    option (command) = {name: "artifacts.task.begin" risk: RISK_DELIVERY scopes: SCOPE_TASKS};
+  }
+  rpc FinishTaskUpload(FinishTaskUploadRequest) returns (CommandReceipt) {
+    option (command) = {name: "artifacts.task.finish" risk: RISK_DELIVERY scopes: SCOPE_TASKS};
+  }
+  rpc CancelTaskUpload(CancelTaskUploadRequest) returns (CommandReceipt) {
+    option (command) = {name: "artifacts.task.cancel" risk: RISK_DELIVERY scopes: SCOPE_TASKS};
+  }
+}
+
+service TerminalService {
+  rpc ReadHistory(TerminalServiceReadHistoryRequest) returns (stream TerminalHistoryEvent);
+  rpc TerminalSession(stream TerminalSessionRequest) returns (stream TerminalServerEvent);
+  rpc OpenTerminal(OpenTerminalRequest) returns (CommandReceipt) {
+    option (command) = {name: "terminal.open" risk: RISK_DELIVERY scopes: SCOPE_TERMINAL};
+  }
+  rpc AcquireInput(AcquireInputRequest) returns (CommandReceipt) {
+    option (command) = {name: "terminal.acquire" risk: RISK_DELIVERY scopes: SCOPE_TERMINAL};
+  }
+  rpc ReleaseInput(ReleaseInputRequest) returns (CommandReceipt) {
+    option (command) = {name: "terminal.release" risk: RISK_DELIVERY scopes: SCOPE_TERMINAL};
+  }
+  rpc StopTerminal(StopTerminalRequest) returns (CommandReceipt) {
+    option (command) = {name: "terminal.stop" risk: RISK_DELIVERY scopes: SCOPE_TERMINAL};
+  }
+  rpc RestartTerminal(RestartTerminalRequest) returns (CommandReceipt) {
+    option (command) = {name: "terminal.restart" risk: RISK_DELIVERY scopes: SCOPE_TERMINAL};
+  }
+}
+
+service FilesService {
+  rpc ListDirectory(ListDirectoryRequest) returns (DirectoryEntries);
+  rpc SearchFiles(SearchFilesRequest) returns (DirectoryEntries);
+  rpc ReadFile(ReadFileRequest) returns (stream FileChunk);
+  rpc SaveFile(SaveFileRequest) returns (CommandReceipt) {
+    option (command) = {name: "files.save" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc CreateFile(CreateFileRequest) returns (CommandReceipt) {
+    option (command) = {name: "files.create" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc SetDirtyPresence(SetDirtyPresenceRequest) returns (CommandReceipt) {
+    option (command) = {name: "files.presence" risk: RISK_METADATA scopes: SCOPE_FILES_GIT};
+  }
+}
+
+service GitService {
+  rpc Preflight(PreflightRequest) returns (GitPlan);
+  rpc GetStatus(GetStatusRequest) returns (GitStatus);
+  rpc ReadDiff(ReadDiffRequest) returns (stream DiffChunk);
+  rpc ReadHistory(ReadHistoryRequest) returns (GitHistory);
+  rpc ListRefs(ListRefsRequest) returns (GitRefs);
+  rpc Stage(StageRequest) returns (CommandReceipt) {
+    option (command) = {name: "git.stage" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc Unstage(UnstageRequest) returns (CommandReceipt) {
+    option (command) = {name: "git.unstage" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc Discard(DiscardRequest) returns (CommandReceipt) {
+    option (command) = {name: "git.discard" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc Commit(CommitRequest) returns (CommandReceipt) {
+    option (command) = {name: "git.commit" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc Pull(PullRequest) returns (CommandReceipt) {
+    option (command) = {name: "git.pull" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc Push(PushRequest) returns (CommandReceipt) {
+    option (command) = {name: "git.push" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+  rpc ChangeWorktree(ChangeWorktreeRequest) returns (CommandReceipt) {
+    option (command) = {name: "git.worktree" risk: RISK_DELIVERY scopes: SCOPE_FILES_GIT};
+  }
+}
+
+message GetStatusRequest {
+  ProjectRef project = 1;
+}
+
+message ListRefsRequest {
+  ProjectRef project = 1;
+}
+
+message GitStatus {
+  ProjectRef project = 1;
+  string head_oid = 2;
+  string branch = 3;
+  repeated GitFile files = 4;
+  optional string operation = 5;
+  GitPrecondition expected = 6;
+}
+
+message GitFile {
+  string path = 1;
+  string index_status = 2;
+  string worktree_status = 3;
+  optional string previous_path = 4;
+}
+
+message ReadDiffRequest {
+  ProjectRef project = 1;
+  string path = 2;
+  bool staged = 3;
+  optional string commit = 4;
+}
+
+message DiffLine {
+  optional uint32 old_line = 1;
+  optional uint32 new_line = 2;
+  string kind = 3;
+  string text = 4;
+}
+
+message DiffChunk {
+  repeated DiffLine lines = 1;
+  bool binary = 2;
+  bool complete = 3;
+  bool truncated = 4;
+}
+
+message ReadHistoryRequest {
+  ProjectRef project = 1;
+  optional string before_oid = 2;
+  uint32 limit = 3;
+}
+
+message GitCommit {
+  string oid = 1;
+  string title = 2;
+  string author = 3;
+  int64 time_unix = 4;
+  repeated string parents = 5;
+}
+
+message GitHistory {
+  repeated GitCommit commits = 1;
+  optional string next_before_oid = 2;
+}
+
+message GitRef {
+  string name = 1;
+  string oid = 2;
+  string kind = 3;
+}
+
+message GitRefs {
+  repeated GitRef refs = 1;
+}
+
+message GitPrecondition {
+  string head_oid = 1;
+  bytes index_hash = 2;
+  bytes worktree_hash = 3;
+  optional string preflight_id = 4;
+}
+
+message StageRequest {
+  CommandMeta command = 1;
+  ProjectRef project = 2;
+  repeated string paths = 3;
+  GitPrecondition expected = 4;
+}
+
+message UnstageRequest {
+  CommandMeta command = 1;
+  ProjectRef project = 2;
+  repeated string paths = 3;
+  GitPrecondition expected = 4;
+}
+
+message DiscardRequest {
+  CommandMeta command = 1;
+  ProjectRef project = 2;
+  repeated string paths = 3;
+  GitPrecondition expected = 4;
+}
+
+message CommitRequest {
+  CommandMeta command = 1;
+  ProjectRef project = 2;
+  string message = 3;
+  GitPrecondition expected = 4;
+  bool sign = 5;
+}
+
+message PullRequest {
+  CommandMeta command = 1;
+  ProjectRef project = 2;
+  string remote = 3;
+  GitPrecondition expected = 4;
+  optional string upstream_branch = 5;
+}
+
+message PushRequest {
+  CommandMeta command = 1;
+  ProjectRef project = 2;
+  string remote = 3;
+  GitPrecondition expected = 4;
+  optional string upstream_branch = 5;
+}
+
+message ChangeWorktreeRequest {
+  CommandMeta command = 1;
+  ProjectRef project = 2;
+  GitWorktreeIntent intent = 3;
+  GitPrecondition expected = 4;
+}
+
+enum WorktreeAction {
+  WORKTREE_ACTION_UNSPECIFIED = 0;
+  WORKTREE_ACTION_CREATE = 1;
+  WORKTREE_ACTION_REMOVE = 2;
+  WORKTREE_ACTION_MERGE = 3;
+  WORKTREE_ACTION_STOP = 4;
+  WORKTREE_ACTION_DELETE_BRANCH = 5;
+}
+
+enum GitPathOperation {
+  GIT_PATH_OPERATION_UNSPECIFIED = 0;
+  GIT_PATH_OPERATION_STAGE = 1;
+  GIT_PATH_OPERATION_UNSTAGE = 2;
+  GIT_PATH_OPERATION_DISCARD = 3;
+}
+
+enum GitNetworkAction {
+  GIT_NETWORK_ACTION_UNSPECIFIED = 0;
+  GIT_NETWORK_ACTION_PULL = 1;
+  GIT_NETWORK_ACTION_PUSH = 2;
+}
+
+message GitPathIntent {
+  GitPathOperation operation = 1;
+  repeated string paths = 2;
+}
+
+message GitCommitIntent {
+  string message = 1;
+  bool sign = 2;
+}
+
+message GitNetworkIntent {
+  GitNetworkAction action = 1;
+  string remote = 2;
+  optional string upstream_branch = 3;
+}
+
+message GitWorktreeIntent {
+  WorktreeAction action = 1;
+  string branch = 2;
+  optional string path = 3;
+  optional string start_point = 4;
+  optional string target_branch = 5;
+  bool delete_branch = 6;
+  bool discard_changes = 7;
+  bool delete_unmerged_branch = 8;
+  bool acknowledge_offline_dirty = 9;
+}
+
+message PreflightRequest {
+  ProjectRef project = 1;
+  oneof intent {
+    GitPathIntent paths = 2;
+    GitCommitIntent commit = 3;
+    GitNetworkIntent network = 4;
+    GitWorktreeIntent worktree = 5;
+  }
+}
+
+message GitPlan {
+  ProjectRef project = 1;
+  string plan_id = 2;
+  GitPrecondition expected = 3;
+  repeated string impacts = 4;
+  bool can_execute = 5;
+  string reason = 6;
+  int64 expires_unix = 7;
 }
 
 message EnvironmentRef {
@@ -384,12 +845,18 @@ message CommandReceipt {
     ProjectRef project = 13;
   }
   DomainError error = 7;
+  bool resolved_by_user = 18;
   oneof result {
     RenameResult rename = 8;
     SendResult send = 9;
     QueueResult queue = 10;
     PreferencesResult preferences = 11;
     RuntimeResult runtime = 12;
+    FileResult file = 14;
+    GitResult git = 15;
+    TerminalResult terminal = 16;
+    ArtifactResult artifact = 17;
+    TaskResult task = 19;
   }
 }
 
@@ -476,7 +943,6 @@ enum ToolKind {
   TOOL_KIND_UNSPECIFIED = 0; TOOL_KIND_READ = 1; TOOL_KIND_EDIT = 2; TOOL_KIND_EXECUTE = 3;
   TOOL_KIND_SEARCH = 4; TOOL_KIND_FETCH = 5; TOOL_KIND_PLAN = 6; TOOL_KIND_SUBAGENT = 7; TOOL_KIND_OTHER = 8;
 }
-message DiffLine { optional uint32 old_line = 1; optional uint32 new_line = 2; string kind = 3; string text = 4; }
 message PlanEntry { string content = 1; string status = 2; optional string priority = 3; }
 message Decision {
   string decision_id = 1; string run_id = 2; string title = 3; string state = 4;
@@ -523,7 +989,7 @@ message CatalogDeleted { oneof resource { string thread_catalog_id = 1; Terminal
 message SummaryEvent { Cursor cursor = 1; oneof change { Catalog snapshot = 2; CatalogThread thread = 3; TerminalSummary terminal = 4; CatalogDeleted deleted = 5; CatalogSnapshotPart snapshot_part = 6; } }
 message ListAgentsRequest { EnvironmentRef environment = 1; ProjectRef project = 2; optional string page_token = 3; }
 message AvailableAccount { string account_id = 1; string label = 2; bool native_default = 3; }
-enum BackendKind { BACKEND_KIND_UNSPECIFIED = 0; BACKEND_KIND_NATIVE_STREAM = 1; BACKEND_KIND_NATIVE_SERVER = 2; BACKEND_KIND_PROTOCOL = 3; }
+enum BackendKind { BACKEND_KIND_UNSPECIFIED = 0; BACKEND_KIND_NATIVE_STREAM = 1; BACKEND_KIND_NATIVE_SERVER = 2; BACKEND_KIND_PROTOCOL = 3; BACKEND_KIND_SHELL = 4; BACKEND_KIND_PROCESS = 5; }
 message AvailableAgent { string agent_id = 1; string name = 2; BackendKind backend_kind = 3; repeated AvailableAccount accounts = 4; }
 message AgentDiscovery { repeated AvailableAgent agents = 1; optional string next_page_token = 2; }
 message GetAgentCatalogRequest { EnvironmentRef environment = 1; ProjectRef project = 2; string agent_id = 3; string account_id = 4; bool refresh = 5; }
@@ -540,4 +1006,202 @@ message CloseRisk { string title = 1; bool working = 2; uint32 queued = 3; uint3
 message ClosePlan { ThreadRef thread = 1; string plan_id = 2; repeated CloseRisk risks = 3; bool can_execute = 4; string reason = 5; }
 message CreateThreadRequest { CommandMeta command = 1; oneof resource { ProjectRef project = 2; EnvironmentRef environment = 3; } string agent_id = 4; string profile_id = 5; }
 message CloseThreadRequest { CommandMeta command = 1; ThreadTarget target = 2; string plan_id = 3; }
+message PreflightCloseProjectRequest { ProjectRef project = 1; }
+message PreflightCloseTerminalRequest { ProjectRef project = 1; string terminal_id = 2; }
+message DirtyBufferPresence {
+  string device_id = 1;
+  FileRef file = 2;
+  bytes base_hash = 3;
+  int64 last_seen_unix = 4;
+  bool online = 5;
+}
+message ProjectClosePlan {
+  ProjectRef project = 1;
+  string plan_id = 2;
+  repeated CloseRisk risks = 3;
+  repeated DirtyBufferPresence dirty = 4;
+  bool can_execute = 5;
+  string reason = 6;
+}
+message TerminalClosePlan {
+  ProjectRef project = 1;
+  string terminal_id = 2;
+  string plan_id = 3;
+  repeated CloseRisk risks = 4;
+  bool can_execute = 5;
+  string reason = 6;
+}
+message CloseProjectRequest { CommandMeta command = 1; ProjectRef project = 2; string plan_id = 3; }
+message CloseTerminalRequest { CommandMeta command = 1; ProjectRef project = 2; string terminal_id = 3; string plan_id = 4; }
 message OpenProjectRequest { CommandMeta command = 1; EnvironmentRef environment = 2; string host_path = 3; }
+
+// A resource belongs either to a checkout or to a thread. The host resolves a
+// thread's checkout; no request can supply both identities.
+message ResourceTarget {
+  oneof resource {
+    ProjectRef project = 1;
+    ThreadTarget thread = 2;
+  }
+}
+message FileRef { ResourceTarget target = 1; string relative_path = 2; }
+message ListDirectoryRequest { FileRef directory = 1; optional string page_token = 2; }
+message SearchFilesRequest { ResourceTarget target = 1; string query = 2; uint32 limit = 3; }
+message DirectoryEntry { string relative_path = 1; string name = 2; bool directory = 3; uint64 size = 4; }
+message DirectoryEntries { ResourceTarget target = 1; repeated DirectoryEntry entries = 2; optional string next_page_token = 3; optional string warning = 4; bool incomplete = 5; }
+message ReadFileRequest { FileRef file = 1; uint64 offset = 2; uint64 max_bytes = 3; }
+message FileChunk { FileRef file = 1; bytes base_hash = 2; uint64 offset = 3; bytes data = 4; bool complete = 5; }
+message SaveFileRequest { CommandMeta command = 1; FileRef file = 2; bytes expected_hash = 3; ArtifactRef content = 4; }
+message CreateFileRequest { CommandMeta command = 1; FileRef file = 2; bool directory = 3; ArtifactRef content = 4; }
+message SetDirtyPresenceRequest { CommandMeta command = 1; FileRef file = 2; bytes base_hash = 3; bool dirty = 4; }
+message FileResult { bytes hash = 1; }
+message GitResult { string output = 1; }
+
+message OpenTerminalRequest { CommandMeta command = 1; ProjectRef project = 2; string tool_id = 3; optional string profile_id = 4; }
+message StopTerminalRequest { CommandMeta command = 1; ProjectRef project = 2; string terminal_id = 3; string run_id = 4; }
+message RestartTerminalRequest { CommandMeta command = 1; ProjectRef project = 2; string terminal_id = 3; string run_id = 4; }
+message AcquireInputRequest { CommandMeta command = 1; ProjectRef project = 2; string terminal_id = 3; bool take_over = 4; }
+message ReleaseInputRequest { CommandMeta command = 1; ProjectRef project = 2; string terminal_id = 3; string run_id = 4; uint64 fencing_token = 5; }
+message TerminalResult { string terminal_id = 1; string run_id = 2; InputLease lease = 3; }
+message InputLease { TerminalRef terminal = 1; string run_id = 2; uint64 fencing_token = 3; uint32 expires_in_ms = 4; bool held = 5; }
+message TerminalSubscribe { TerminalRef terminal = 1; optional Cursor since = 2; }
+message TerminalInput { TerminalRef terminal = 1; string run_id = 2; uint64 fencing_token = 3; uint64 input_id = 4; bytes data = 5; }
+message TerminalResize { TerminalRef terminal = 1; string run_id = 2; uint64 fencing_token = 3; uint32 columns = 4; uint32 rows = 5; }
+message TerminalRenew { TerminalRef terminal = 1; string run_id = 2; uint64 fencing_token = 3; }
+message TerminalSessionRequest { oneof event { TerminalSubscribe subscribe = 1; TerminalInput input = 2; TerminalResize resize = 3; TerminalRenew renew = 4; } }
+// Stable masks independent of the terminal parser's ABI.
+enum TerminalInputMode {
+  TERMINAL_INPUT_MODE_UNSPECIFIED = 0; TERMINAL_INPUT_MODE_APPLICATION_CURSOR = 1; TERMINAL_INPUT_MODE_APPLICATION_KEYPAD = 2;
+  TERMINAL_INPUT_MODE_BRACKETED_PASTE = 4; TERMINAL_INPUT_MODE_ALTERNATE_SCREEN = 8; TERMINAL_INPUT_MODE_CURSOR_VISIBLE = 16;
+  TERMINAL_INPUT_MODE_NEW_LINE_MODE = 32; TERMINAL_INPUT_MODE_FOCUS_REPORTING = 64; TERMINAL_INPUT_MODE_MOUSE_CLICK = 128; TERMINAL_INPUT_MODE_MOUSE_DRAG = 256;
+  TERMINAL_INPUT_MODE_MOUSE_MOTION = 512; TERMINAL_INPUT_MODE_SGR_MOUSE = 1024; TERMINAL_INPUT_MODE_UTF8_MOUSE = 2048; TERMINAL_INPUT_MODE_ALTERNATE_SCROLL = 4096;
+}
+enum TerminalCellFlag {
+  TERMINAL_CELL_FLAG_UNSPECIFIED = 0; TERMINAL_CELL_FLAG_CELL_BOLD = 1; TERMINAL_CELL_FLAG_CELL_ITALIC = 2; TERMINAL_CELL_FLAG_CELL_UNDERLINE = 4;
+  TERMINAL_CELL_FLAG_CELL_INVERSE = 8; TERMINAL_CELL_FLAG_CELL_DIM = 16; TERMINAL_CELL_FLAG_CELL_STRIKEOUT = 32; TERMINAL_CELL_FLAG_CELL_WIDE = 64;
+  TERMINAL_CELL_FLAG_CELL_WIDE_SPACER = 128; TERMINAL_CELL_FLAG_CELL_LEADING_WIDE_SPACER = 256; TERMINAL_CELL_FLAG_CELL_HIDDEN = 512;
+  TERMINAL_CELL_FLAG_CELL_WRAPLINE = 1024; TERMINAL_CELL_FLAG_CELL_DOUBLE_UNDERLINE = 2048; TERMINAL_CELL_FLAG_CELL_UNDERCURL = 4096;
+  TERMINAL_CELL_FLAG_CELL_DOTTED_UNDERLINE = 8192; TERMINAL_CELL_FLAG_CELL_DASHED_UNDERLINE = 16384;
+}
+// Colors are packed R<<24 | G<<16 | B<<8 | A. Wide spacers occupy no text span.
+message TerminalCell { uint32 column = 1; uint32 row = 2; string text = 3; uint32 foreground_rgba = 4; uint32 background_rgba = 5; uint32 flags = 6; uint32 column_span = 7; }
+// Complete frames atomically replace the viewport; other frames patch it.
+message TerminalFrame { uint32 columns = 1; uint32 rows = 2; repeated TerminalCell cells = 3; uint32 cursor_column = 4; uint32 cursor_row = 5; uint64 input_modes = 6; bool lost_scrollback = 7; bool complete = 8; }
+// Contiguous <=64 KiB parts, <=32 MiB total, one assembly per subscription.
+// Commit the resumable cursor only after hash verification and atomic install.
+message TerminalFrameFragment { string frame_id = 1; uint64 offset = 2; uint64 total_bytes = 3; bytes sha256 = 4; bytes data = 5; }
+message TerminalInputAck { uint64 input_id = 1; bool queued = 2; optional DomainError error = 3; }
+message TerminalServerEvent { TerminalRef terminal = 1; string run_id = 2; Cursor cursor = 3; oneof event { TerminalFrame frame = 4; InputLease lease = 5; TerminalInputAck input_ack = 6; ResyncRequired resync = 7; DomainError error = 8; TerminalFrameFragment frame_fragment = 9; } }
+// Tokens bind a captured run and projection revision without moving host view.
+message TerminalServiceReadHistoryRequest { TerminalRef terminal = 1; string run_id = 2; uint32 offset_from_bottom = 3; uint32 rows = 4; optional string page_token = 5; }
+message TerminalHistoryStart { Cursor boundary = 1; uint32 offset_from_bottom = 2; uint32 retained_rows = 3; bool lost_scrollback = 4; optional string previous_page_token = 5; }
+message TerminalHistoryEvent { TerminalRef terminal = 1; string run_id = 2; oneof part { TerminalHistoryStart start = 3; TerminalFrame frame = 4; Cursor end = 5; TerminalFrameFragment frame_fragment = 6; } }
+
+message UploadContent { uint64 size = 1; bytes sha256 = 2; string media_type = 3; }
+message BeginImageUploadRequest { CommandMeta command = 1; ThreadTarget target = 2; UploadContent content = 3; }
+message UploadOrigin { string command_id = 1; uint64 command_epoch = 2; }
+message FinishImageUploadRequest { CommandMeta command = 1; ThreadTarget target = 2; string upload_id = 3; UploadOrigin origin = 4; }
+message CancelImageUploadRequest { CommandMeta command = 1; ThreadTarget target = 2; string upload_id = 3; UploadOrigin origin = 4; }
+message BeginFileUploadRequest { CommandMeta command = 1; FileRef file = 2; UploadContent content = 3; }
+message FinishFileUploadRequest { CommandMeta command = 1; FileRef file = 2; string upload_id = 3; UploadOrigin origin = 4; }
+message CancelFileUploadRequest { CommandMeta command = 1; FileRef file = 2; string upload_id = 3; UploadOrigin origin = 4; }
+// Provider project identity is separate from the host resource granting access.
+message TaskProject { oneof resource { ProjectRef project = 1; EnvironmentRef environment = 2; } string integration_id = 3; string project_key = 4; }
+message TaskRef { TaskProject project = 1; string task_id = 2; }
+message BeginTaskUploadRequest { CommandMeta command = 1; TaskRef task = 2; UploadContent content = 3; }
+message FinishTaskUploadRequest { CommandMeta command = 1; TaskRef task = 2; string upload_id = 3; UploadOrigin origin = 4; }
+message CancelTaskUploadRequest { CommandMeta command = 1; TaskRef task = 2; string upload_id = 3; UploadOrigin origin = 4; }
+message ArtifactResult { string upload_id = 1; ArtifactRef artifact = 2; }
+message ByteRange { uint64 offset = 1; uint64 length = 2; }
+message UploadStatus { EnvironmentRef environment = 1; string upload_id = 2; repeated ByteRange received = 3; ArtifactRef artifact = 4; }
+message GetUploadRequest { EnvironmentRef environment = 1; string upload_id = 2; }
+message PutChunkRequest { EnvironmentRef environment = 1; string upload_id = 2; uint64 offset = 3; bytes data = 4; }
+message DownloadRequest { ArtifactRef artifact = 1; uint64 offset = 2; }
+
+// Integration keys identify the provider project; the resource identifies its
+// host authority. They are never interpreted as filesystem paths.
+service TasksService {
+  rpc ListIntegrations(ListIntegrationsRequest) returns (TaskIntegrations);
+  rpc ListProjects(ListProjectsRequest) returns (TaskChoicePage);
+  rpc QueryTasks(QueryTasksRequest) returns (TaskPage);
+  rpc GetTask(GetTaskRequest) returns (Task);
+  rpc GetSchema(GetSchemaRequest) returns (TaskSchema);
+  rpc ReadOptions(ReadOptionsRequest) returns (TaskChoicePage);
+  rpc ReadComments(ReadCommentsRequest) returns (TaskCommentPage);
+  rpc ReadAttachment(ReadAttachmentRequest) returns (stream ArtifactChunk);
+  rpc ApplyMutation(ApplyMutationRequest) returns (CommandReceipt) {
+    option (command) = { name: "tasks.mutate" risk: RISK_DELIVERY scopes: SCOPE_TASKS };
+  }
+  rpc UpdateTask(UpdateTaskRequest) returns (CommandReceipt) {
+    option (command) = { name: "tasks.update" risk: RISK_DELIVERY scopes: SCOPE_TASKS };
+  }
+  rpc SaveFilter(SaveFilterRequest) returns (CommandReceipt) {
+    option (command) = { name: "tasks.save_filter" risk: RISK_CONFIGURATION scopes: SCOPE_TASKS };
+  }
+  rpc RemoveFilter(RemoveFilterRequest) returns (CommandReceipt) {
+    option (command) = { name: "tasks.remove_filter" risk: RISK_CONFIGURATION scopes: SCOPE_TASKS };
+  }
+  rpc TaskToWorktree(TaskToWorktreeRequest) returns (CommandReceipt) {
+    option (command) = { name: "tasks.worktree" risk: RISK_DELIVERY scopes: SCOPE_TASKS scopes: SCOPE_FILES_GIT };
+  }
+  rpc ConfigureTaskProject(ConfigureTaskProjectRequest) returns (CommandReceipt) {
+    option (command) = { name: "tasks.configure" risk: RISK_CONFIGURATION scopes: SCOPE_TASKS };
+  }
+}
+message TaskProjectKey { string provider = 1; string key = 2; optional string endpoint = 3; }
+message TaskFilterSelection { TaskProjectKey project = 1; string filter_id = 2; }
+message TaskRepositoryOverride { TaskProjectKey project = 1; }
+message TaskLinkedTask { TaskProjectKey project = 1; string task_id = 2; string title = 3; }
+message TaskLinks { repeated TaskLinkedTask tasks = 1; }
+message ConfigureTaskProjectRequest {
+  CommandMeta command = 1;
+  oneof resource { ProjectRef project = 2; EnvironmentRef environment = 3; }
+  oneof change { TaskFilterSelection filter = 4; TaskRepositoryOverride repository = 5; TaskLinks links = 6; }
+}
+message ListIntegrationsRequest { oneof resource { ProjectRef project = 1; EnvironmentRef environment = 2; } }
+message ListProjectsRequest { TaskProject project = 1; optional string page_token = 2; }
+message QueryTasksRequest { TaskProject project = 1; string query = 2; optional string page_token = 3; optional string filter_id = 4; optional string filter_expression = 5; string state = 6; }
+message GetTaskRequest { TaskRef task = 1; }
+message Task { TaskRef task = 1; string title = 2; string description = 3; string state = 4; string url = 5; repeated ArtifactRef attachments = 6; repeated string labels = 7; repeated string assignees = 8; optional TaskChoice milestone = 9; repeated TaskStatusField statuses = 10; repeated TaskField fields = 11; repeated TaskAttachment task_attachments = 12; repeated Capability capabilities = 13; repeated TaskLink links = 14; }
+message TaskLink { string id = 1; string kind = 2; string other_task = 3; string label = 4; bool outward = 5; }
+message TaskPage { repeated Task tasks = 1; optional string next_page_token = 2; optional uint64 total_count = 3; repeated TaskFilter filters = 4; }
+message UpdateTaskRequest { CommandMeta command = 1; TaskRef task = 2; optional string title = 3; optional string description = 4; TaskStatusChoice status = 5; optional StringValues labels = 6; optional StringValues assignees = 7; optional TaskOptionalChoice milestone = 8; }
+message TaskToWorktreeRequest { CommandMeta command = 1; TaskRef task = 2; string branch = 3; }
+message TaskChoice { string id = 1; string label = 2; optional string description = 3; google.protobuf.Value value = 4; }
+message TaskChoicePage { repeated TaskChoice choices = 1; optional string next_page_token = 2; }
+message TaskOptionalChoice { optional string id = 1; }
+message TaskIntegration { string id = 1; string name = 2; string provider = 3; bool configured = 4; }
+message TaskIntegrations { repeated TaskIntegration integrations = 1; }
+message ReadOptionsRequest { TaskProject project = 1; string kind = 2; optional string page_token = 3; optional string board_id = 4; }
+message TaskFilter { string id = 1; string name = 2; string expression = 3; string provider = 4; bool builtin = 5; }
+message SaveFilterRequest { CommandMeta command = 1; EnvironmentRef environment = 2; TaskFilter filter = 3; }
+message RemoveFilterRequest { CommandMeta command = 1; EnvironmentRef environment = 2; string filter_id = 3; }
+enum TaskSchemaPurpose { TASK_SCHEMA_PURPOSE_UNSPECIFIED = 0; TASK_SCHEMA_PURPOSE_TASK_CREATE = 1; TASK_SCHEMA_PURPOSE_TASK_EDIT = 2; TASK_SCHEMA_PURPOSE_TASK_TRANSITIONS = 3; TASK_SCHEMA_PURPOSE_TASK_TYPES = 4; TASK_SCHEMA_PURPOSE_TASK_LINK_TYPES = 5; TASK_SCHEMA_PURPOSE_TASK_BOARDS = 6; TASK_SCHEMA_PURPOSE_TASK_SPRINTS = 7; TASK_SCHEMA_PURPOSE_TASK_HISTORY = 8; }
+message GetSchemaRequest { TaskProject project = 1; optional TaskRef task = 2; TaskSchemaPurpose purpose = 3; optional string issue_type_id = 4; optional string board_id = 5; optional string page_token = 6; }
+message TaskField { string id = 1; string name = 2; string kind = 3; bool required = 4; bool read_only = 5; bool multiple = 6; repeated TaskChoice choices = 7; google.protobuf.Value current_value = 8; google.protobuf.Value default_value = 9; google.protobuf.Struct provider_schema = 10; optional string read_only_reason = 11; }
+message TaskTransition { string id = 1; string name = 2; string destination = 3; repeated TaskField required_fields = 4; }
+message TaskStatusField { string id = 1; string name = 2; string label = 3; optional string selected_id = 4; repeated TaskChoice choices = 5; optional string read_only_reason = 6; optional string hint = 7; bool requires_form = 8; }
+message TaskSchema { repeated TaskField fields = 1; repeated TaskTransition transitions = 2; repeated TaskChoice choices = 3; repeated string activity = 4; optional string next_page_token = 5; }
+message TaskStatusChoice { string field_id = 1; string choice_id = 2; google.protobuf.Struct form_fields = 3; optional string comment = 4; }
+message TaskComment { string id = 1; string author = 2; string created_at = 3; string body = 4; string url = 5; bool can_edit = 6; bool can_delete = 7; google.protobuf.Value rich_body = 8; }
+message ReadCommentsRequest { TaskRef task = 1; optional string page_token = 2; }
+message TaskCommentPage { repeated TaskComment comments = 1; optional string next_page_token = 2; uint64 total_count = 3; }
+message TaskAttachment { string id = 1; string name = 2; string media_type = 3; uint64 size = 4; bool can_delete = 5; }
+message ReadAttachmentRequest { TaskRef task = 1; string attachment_id = 2; }
+message TaskIssueDraft { string title = 1; string description = 2; repeated string labels = 3; repeated string assignees = 4; optional string milestone_id = 5; google.protobuf.Struct fields = 6; }
+message TaskCommentWrite { optional string comment_id = 1; string body = 2; google.protobuf.Value rich_body = 3; bool delete = 4; }
+message TaskFieldWrite { string field_id = 1; google.protobuf.Value value = 2; }
+message TaskTagWrite { string id = 1; bool add = 2; }
+message TaskAssigneeWrite { string id = 1; bool add = 2; }
+message TaskAttachmentWrite { oneof action { ArtifactRef attach = 1; string delete_id = 2; } string name = 3; }
+message TaskLinkWrite { string kind = 1; string other_task = 2; bool outward = 3; optional string delete_link_id = 4; }
+message TaskWorklogWrite { uint64 seconds = 1; string started = 2; string comment = 3; }
+message TaskDelete { string confirmation = 1; bool subtasks = 2; }
+message ApplyMutationRequest {
+  CommandMeta command = 1; TaskProject project = 2; optional string task_id = 3;
+  oneof action { TaskIssueDraft create = 4; TaskFieldWrite field = 5; google.protobuf.Struct fields = 6;
+    TaskStatusChoice status = 7; TaskCommentWrite comment = 8; TaskTagWrite tag = 9;
+    TaskAssigneeWrite assignee = 10; TaskOptionalChoice milestone = 11; TaskAttachmentWrite attachment = 12;
+    TaskLinkWrite link = 13; TaskWorklogWrite worklog = 14; bool watching = 15; bool voted = 16;
+    TaskDelete delete = 17; TaskOptionalChoice sprint = 18; }
+}
+message TaskResult { optional string task_id = 1; optional string url = 2; optional string comment_id = 3; optional string attachment_id = 4; optional string notice = 5; optional string worktree_catalog_id = 6; optional string deleted_task_id = 7; optional string deleted_comment_id = 8; }

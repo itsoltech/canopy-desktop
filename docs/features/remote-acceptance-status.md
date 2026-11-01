@@ -30,7 +30,69 @@ zalicza automatycznie scenariusza GUI ani komórki macierzy platform.
 
 ## Dowody i pozostały odbiór
 
-Wspólny przebieg na Linux (2026-10-25), z `--locked`:
+Wszystkie usługi, codegen i klienci używają API v1; poprzedni pakiet i adaptery
+zgodności są usunięte. Adapter Files udostępnia listowanie, search,
+read, save, create i dirty presence pod typowanym celem projektu albo wątku.
+Sprawdzenia celu nie wykonują I/O zasobu; retry korzysta z zapisanej autoryzacji
+korzenia przed odczytem receipt lub konfliktem fingerprintu. Bieżąca dokumentacja
+zakresu i ograniczeń jest w [API v1](../api-v1.md).
+Adapter Git wybranego checkoutu używa ProjectRef i istniejącego właściciela
+preflightów, blokad, libgit2 i lifecycle. Inbox zachowuje również autorytatywne
+korzenie wszystkich celów, atomowo z przyjęciem i osobno od fingerprintu klienta.
+Terminal używa ProjectRef dla pięciu mutacji oraz zachowuje dotychczasowy protokół
+streamu i historii. Retry lease nie przejmuje wejścia od późniejszego holdera.
+Artifacts ma osobne komendy Begin/Finish/Cancel dla obrazu, pliku i zadania z
+zachowaniem ich zakresów. Finish po zamknięciu projektu korzysta z autorytatywnego
+wyniku Begin, a własny retry z zapisanego zakresu. Settings używa EnvironmentRef
+i domenowych edycji z niejawnymi wersjami sekretów. Dokładne RPC klienta pozostaje
+w dotychczasowym vaulcie; zwykły journal nie przechowuje sekretów.
+Host i Enrollment używają v1 z EnvironmentRef. Revoke jest komendą busa z efektem
+i receipt w jednej transakcji. Close/Resolve zachowują osobny wąski protokół;
+odczyt pełnej tożsamości ponownie autoryzuje oryginalną operację. Testy obejmują
+rollback revoke przy pełnym inboxie i lokalny revoke/cleanup przy limicie.
+Test wyścigu Close z admission potwierdza wspólną granicę workera. Testy TLS
+obejmują ponowny Close, zachowanie Unknown/Resolve i odebranie uprawnień.
+Peer używa dedykowanej komendy ADMIN/Private; testy obejmują dokładny retry
+po utracie potwierdzenia, konflikt intencji i odebranie ADMIN.
+Testy retry obejmują przyjęty, niewykonany Files oraz Begin/Finish, utratę planu
+Git i usunięcie celu. Restart rzeczywistej bazy odrzuca dawną komendę terminala
+i zachowuje Unknown bez ponownego uruchomienia. Odebranie dostępu podczas
+skutku zatrzymuje ujawnienie odpowiedzi, zachowując znany wynik w inboxie.
+
+| Wymaganie | Stan implementacji migrowanych zasobów | Pozostała granica |
+| --- | --- | --- |
+| CMD-02/03/12 | Wspólny fingerprint, dedupe, ponowna autoryzacja i dokładne RPC w journalu klienta | Niezależny review i odbiór natywny |
+| RPC-09/13 | ProjectRef z metadanych katalogu albo cel wątku, bez równoległego projektu | Lokalny wyjątek terminala Private opisany w D16; bez zdalnego rozszerzenia |
+| RPC-10/11 | Typowane komendy wszystkich usług, w tym Tasks, z receipt i metadanymi porównywanymi z rejestrem | Rzeczywisty rejestr MCP jest następnym zadaniem |
+| CMD-08/10/11, Host | Revoke atomowe z receipt; osobny protokół Close/Resolve, zachowanie unknown i pełnej tożsamości; test wyścigu Close/admission | Końcowy przegląd |
+| RPC-08, BUS-01/05, AC-36 | Usunięto stary proto/codegen/runtime i adaptery projekcji; lokalny edytor/create/Git/Terminal/Tasks/configuration używa busa; CI pilnuje usuniętych referencji, lint i generatora | AC-36 nie jest w całości zaliczone: MCP i odbiór GUI/natywny pozostają niewykonane |
+
+Powyższe stany nie są wynikiem odbioru GUI, mobile ani E0.
+
+Końcowa weryfikacja niezacommitowanej implementacji PR3 na Linux (2026-11-01):
+
+- `cargo test --locked --lib`: 375 PASS, 1 ignored po poprawkach review.
+  `cargo test --locked --bin canopy-desktop`: 168 PASS, 2 ignored.
+  Oba pełne przebiegi bez błędów; znany niestabilny test cleanupu discovery
+  przeszedł bez powtarzania. Wcześniej poprawiono asercję kolejności
+  asynchronicznych powiadomień w teście binarium.
+- `cargo clippy --locked --all-targets -- -D warnings`: PASS, bez ostrzeżeń.
+- `buf lint` 1.57.2 i `node scripts/generate-remote.mjs --check`: PASS.
+  Breaking względem pierwszego wydania jeszcze nie dotyczy niewydanego API.
+- Mobile: `npm run typecheck`: PASS; `node scripts/test-remote.mjs`: 29 PASS.
+
+Testy obejmują lokalny terminal bez projektu, odmowę katalogowania i odczytu
+Private/scratch mimo pełnego grantu urządzenia, odcięcie historii po usunięciu
+projektu oraz restart niewykonanego lifecycle katalogu bez blokującego `Accepted`.
+Regresje po review obejmują trwałe odmowy uploadu i jawne rozstrzyganie bez
+replay niepewnego Finish oraz restart `tasks.worktree` z usuniętym celem:
+trwała odmowa nie blokuje zamknięcia epoki.
+Naprawa Recovery zachowuje ThreadId, historię i wybrany root przy identycznym retry;
+lokalne Delete działa również przed pierwszym otwarciem starego zapisanego czatu.
+Schemat i lockfile nie zmieniły się w PR3. GUI, E0 i natywne moduły mobile
+nie były uruchamiane; rzeczywisty parytet MCP nadal wymaga następnego zadania.
+
+Historyczny wspólny przebieg na Linux (2026-10-25), z `--locked`:
 
 - `cargo test --locked --lib`: 278 PASS, 1 ignored.
 - Binarium: 117 PASS, 2 ignored; dodatkowo 19 wybranych zestawów integracyjnych:
@@ -46,8 +108,8 @@ Wspólny przebieg na Linux (2026-10-25), z `--locked`:
 
 Ignored pozostają niewykonanymi przypadkami, nie wynikiem PASS. Liczby dotyczą
 tych konkretnych przebiegów; testy celowane po dalszej poprawce nie zastępują
-kwalifikacji natywnej. Clippy nie zgłasza błędów kompilacji; istniejące ostrzeżenia
-platformowego kodu podglądów są oddzielne od wyniku testów.
+kwalifikacji natywnej. Ostrzeżenia platformowego kodu podglądów z historycznego
+przebiegu nie dotyczą wyniku końcowego Clippy PR3 podanego powyżej.
 
 | Obszar | Dostępny dowód | Granica |
 | --- | --- | --- |

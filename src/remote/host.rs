@@ -1,14 +1,16 @@
 //! Host liveness is separate from transport keepalive and command outcomes.
 use super::{
     auth::{RpcAuth, storage_status},
-    enrollment::scope_names,
-    proto,
+    enrollment::scope_values,
     resources::ResourceLocks,
     sync::ReplayHub,
 };
-use crate::host::{self, CommandKey, CommandState, DeviceGrant};
+use crate::{
+    api::{decode, proto, resources},
+    command_bus::{AdminCommand, Command, CommandBus, Principal, ResourceRef},
+    host::{self, CommandKey, DeviceGrant},
+};
 use futures_lite::stream;
-use prost::Message;
 use std::{
     collections::HashMap,
     pin::Pin,
@@ -17,6 +19,8 @@ use std::{
 use tokio::sync::watch;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
+#[cfg(test)]
+mod tests;
 
 pub type RpcStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
@@ -29,7 +33,9 @@ pub struct HostState {
 impl HostState {
     pub fn new(host: &str, capabilities: Vec<proto::Capability>) -> Self {
         let (state, _) = watch::channel(proto::HostStatus {
-            host_id: host.into(),
+            environment: Some(proto::EnvironmentRef {
+                host_id: host.into(),
+            }),
             readiness: proto::HostReadiness::Starting as i32,
             reason: String::new(),
             cursor: Some(proto::Cursor {
@@ -117,20 +123,22 @@ impl HostState {
             || name == "grpc.health.v1.Health"
             || matches!(
                 name,
-                "canopy.remote.v1.HostService" | "canopy.remote.v1.EnrollmentService"
+                "canopy.api.v1.HostService"
+                    | "canopy.api.v1.EnrollmentService"
+                    | "canopy.api.v1.PeerService"
             )
         {
             return true;
         }
         let operation = match name {
-            "canopy.remote.v1.CatalogService" => "catalog",
-            "canopy.remote.v1.ChatService" => "chat",
-            "canopy.remote.v1.FilesService" => "files",
-            "canopy.remote.v1.GitService" => "git",
-            "canopy.remote.v1.TerminalService" => "terminal",
-            "canopy.remote.v1.TasksService" => "tasks",
-            "canopy.remote.v1.SettingsService" => "settings",
-            "canopy.remote.v1.ArtifactsService" => "artifacts",
+            "canopy.api.v1.CatalogService" => "catalog",
+            "canopy.api.v1.ThreadService" => "chat",
+            "canopy.api.v1.FilesService" => "files",
+            "canopy.api.v1.GitService" => "git",
+            "canopy.api.v1.TerminalService" => "terminal",
+            "canopy.api.v1.TasksService" => "tasks",
+            "canopy.api.v1.SettingsService" => "settings",
+            "canopy.api.v1.ArtifactsService" => "artifacts",
             _ => name,
         };
         self.capabilities
@@ -172,12 +180,98 @@ impl HostRpc {
             operations,
         }
     }
+    fn environment(&self) -> proto::EnvironmentRef {
+        proto::EnvironmentRef {
+            host_id: self.auth.host_id().into(),
+        }
+    }
+    fn check_environment(&self, value: Option<&proto::EnvironmentRef>) -> Result<(), Status> {
+        let value = decode::environment(decode::required(value.cloned())?)?;
+        self.auth.check_host(value.host_id.as_str())
+    }
+    fn command_key(
+        &self,
+        grant: &DeviceGrant,
+        request: proto::GetCommandRequest,
+    ) -> Result<(CommandKey, Option<proto::command_receipt::Resource>), Status> {
+        self.check_environment(request.environment.as_ref())?;
+        let mut key =
+            CommandKey::remote(grant.id().into(), request.command_epoch, request.command_id)
+                .ok_or_else(|| Status::invalid_argument("Invalid command identity."))?;
+        let Some(address) = request.resource else {
+            return Ok((key, None));
+        };
+        let (resource, wire) = match decode::required(address.target)? {
+            proto::command_resource::Target::Thread(target) => (
+                decode::target(target.clone())?,
+                proto::command_receipt::Resource::Target(target),
+            ),
+            proto::command_resource::Target::Project(project) => (
+                resources::resource(&proto::ResourceTarget {
+                    resource: Some(proto::resource_target::Resource::Project(project.clone())),
+                })?,
+                proto::command_receipt::Resource::Project(project),
+            ),
+            proto::command_resource::Target::Environment(environment) => (
+                ResourceRef::Environment(decode::environment(environment.clone())?),
+                proto::command_receipt::Resource::Environment(environment),
+            ),
+        };
+        self.auth.check_host(resource.host_id().as_str())?;
+        (key.resource, key.executor_epoch) = resource.storage_key();
+        Ok((key, Some(wire)))
+    }
+    async fn command_receipt(
+        &self,
+        value: &host::CommandReceipt,
+        resource: Option<proto::command_receipt::Resource>,
+    ) -> Result<proto::CommandReceipt, Status> {
+        let resource = resource.or_else(|| {
+            ResourceRef::from_storage_key(
+                crate::thread::HostId::new(self.auth.host_id().into())?,
+                value.key().resource(),
+                value.key().executor_epoch(),
+            )
+            .map(|resource| match resource {
+                ResourceRef::Environment(_) => {
+                    proto::command_receipt::Resource::Environment(self.environment())
+                }
+                ResourceRef::Thread {
+                    thread,
+                    executor_epoch,
+                } => proto::command_receipt::Resource::Target(proto::ThreadTarget {
+                    thread: Some(proto::ThreadRef {
+                        host_id: thread.host_id.to_string(),
+                        thread_id: thread.thread_id.to_string(),
+                    }),
+                    executor_epoch,
+                }),
+                ResourceRef::Project(project) => {
+                    proto::command_receipt::Resource::Project(proto::ProjectRef {
+                        host_id: project.host_id().to_string(),
+                        project_id: serde_json::to_string(&project.project_id())
+                            .expect("project identity"),
+                        worktree_id: project.worktree_id().map(|w| w.as_str().into()),
+                    })
+                }
+            })
+        });
+        if let Some(resource) = resource {
+            crate::api::committed_receipt(&self.auth, value, Some(resource)).await
+        } else {
+            // Only historical commands outside the typed namespace lack an address.
+            if !value.key().resource().is_empty() {
+                return Err(Status::data_loss("Retained command address is invalid."));
+            }
+            crate::api::committed_receipt(&self.auth, value, None).await
+        }
+    }
 }
 fn device(grant: &DeviceGrant) -> proto::Device {
     proto::Device {
         device_id: grant.id().into(),
         name: grant.name().into(),
-        scopes: scope_names(grant.scopes()),
+        scopes: scope_values(grant.scopes()),
         roots: grant.roots().into(),
         revoked: grant.revoked(),
     }
@@ -192,9 +286,10 @@ fn peer<T>(request: &Request<T>) -> Result<Vec<u8>, Status> {
 impl proto::host_service_server::HostService for HostRpc {
     async fn read_diagnostics(
         &self,
-        request: Request<proto::Empty>,
+        request: Request<proto::ReadDiagnosticsRequest>,
     ) -> Result<Response<proto::DiagnosticsSnapshot>, Status> {
         let grant = self.auth.authenticate(&request).await?;
+        self.check_environment(request.get_ref().environment.as_ref())?;
         self.auth
             .resource(grant.id(), host::ADMIN, "private")
             .await?;
@@ -240,12 +335,12 @@ impl proto::host_service_server::HostService for HostRpc {
     }
     async fn get_info(
         &self,
-        request: Request<proto::HostRequest>,
+        request: Request<proto::GetInfoRequest>,
     ) -> Result<Response<proto::HostInfo>, Status> {
         let grant = self.auth.authenticate(&request).await?;
-        self.auth.check_host(&request.get_ref().host_id)?;
+        self.check_environment(request.get_ref().environment.as_ref())?;
         Ok(Response::new(proto::HostInfo {
-            host_id: self.auth.host_id().into(),
+            environment: Some(self.environment()),
             application_version: env!("CARGO_PKG_VERSION").into(),
             protocol_version: 1,
             capabilities: self.state.capabilities.to_vec(),
@@ -263,10 +358,10 @@ impl proto::host_service_server::HostService for HostRpc {
     type WatchHostStream = RpcStream<proto::HostStatus>;
     async fn watch_host(
         &self,
-        request: Request<proto::HostRequest>,
+        request: Request<proto::WatchHostRequest>,
     ) -> Result<Response<Self::WatchHostStream>, Status> {
         let grant = self.auth.authenticate(&request).await?;
-        self.auth.check_host(&request.get_ref().host_id)?;
+        self.check_environment(request.get_ref().environment.as_ref())?;
         let credential = peer(&request)?;
         let auth = self.auth.clone();
         let events = self.state.state.subscribe();
@@ -302,10 +397,10 @@ impl proto::host_service_server::HostService for HostRpc {
     }
     async fn list_devices(
         &self,
-        request: Request<proto::DeviceListRequest>,
+        request: Request<proto::ListDevicesRequest>,
     ) -> Result<Response<proto::Devices>, Status> {
         let grant = self.auth.authenticate(&request).await?;
-        self.auth.check_host(&request.get_ref().host_id)?;
+        self.check_environment(request.get_ref().environment.as_ref())?;
         self.auth
             .resource(grant.id(), host::ADMIN, "private")
             .await?;
@@ -320,7 +415,7 @@ impl proto::host_service_server::HostService for HostRpc {
             .resource(grant.id(), host::ADMIN, "private")
             .await?;
         Ok(Response::new(proto::Devices {
-            host_id: self.auth.host_id().into(),
+            environment: Some(self.environment()),
             devices: devices.iter().map(device).collect(),
             next_page_token,
         }))
@@ -328,29 +423,25 @@ impl proto::host_service_server::HostService for HostRpc {
     async fn get_command(
         &self,
         request: Request<proto::GetCommandRequest>,
-    ) -> Result<Response<proto::CommandReceipt>, Status> {
+    ) -> Result<Response<proto::GetCommandResponse>, Status> {
         let grant = self.auth.authenticate(&request).await?;
         let request = request.into_inner();
-        self.auth.check_host(&request.host_id)?;
-        let key = CommandKey::remote(
-            grant.id().into(),
-            request.command_epoch,
-            request.command_id.clone(),
-        )
-        .ok_or_else(|| Status::invalid_argument("Invalid command identity."))?;
+        let (key, resource) = self.command_key(&grant, request)?;
         let result = self.auth.client().get_runtime_command(key, 0).await;
         let state = match result {
-            Ok(Some(receipt)) => return Ok(Response::new(self.auth.receipt(&receipt))),
-            Ok(None) => proto::OperationState::NotFound,
-            Err(crate::settings::Error::CommandRetired) => proto::OperationState::CommandRetired,
+            Ok(Some(receipt)) => {
+                return Ok(Response::new(proto::GetCommandResponse {
+                    state: proto::CommandLookupState::Found as i32,
+                    receipt: Some(self.command_receipt(&receipt, resource).await?),
+                }));
+            }
+            Ok(None) => proto::CommandLookupState::NotFound,
+            Err(crate::settings::Error::CommandRetired) => proto::CommandLookupState::Retired,
             Err(error) => return Err(storage_status(error)),
         };
-        Ok(Response::new(proto::CommandReceipt {
-            host_id: self.auth.host_id().into(),
-            command_id: request.command_id,
-            command_epoch: request.command_epoch,
+        Ok(Response::new(proto::GetCommandResponse {
             state: state as i32,
-            ..Default::default()
+            receipt: None,
         }))
     }
     async fn close_command_epoch(
@@ -358,7 +449,7 @@ impl proto::host_service_server::HostService for HostRpc {
         request: Request<proto::CloseCommandEpochRequest>,
     ) -> Result<Response<proto::CommandEpoch>, Status> {
         let grant = self.auth.authenticate(&request).await?;
-        self.auth.check_host(&request.get_ref().host_id)?;
+        self.check_environment(request.get_ref().environment.as_ref())?;
         self.state.accepting()?;
         let epoch = self
             .auth
@@ -367,20 +458,26 @@ impl proto::host_service_server::HostService for HostRpc {
             .await
             .map_err(storage_status)?;
         Ok(Response::new(proto::CommandEpoch {
-            host_id: self.auth.host_id().into(),
+            environment: Some(self.environment()),
             epoch,
         }))
     }
     async fn resolve_command(
         &self,
-        request: Request<proto::GetCommandRequest>,
-    ) -> Result<Response<proto::CommandReceipt>, Status> {
+        request: Request<proto::ResolveCommandRequest>,
+    ) -> Result<Response<proto::ResolveCommandResponse>, Status> {
         let grant = self.auth.authenticate(&request).await?;
         self.state.accepting()?;
         let request = request.into_inner();
-        self.auth.check_host(&request.host_id)?;
-        let key = CommandKey::remote(grant.id().into(), request.command_epoch, request.command_id)
-            .ok_or_else(|| Status::invalid_argument("Invalid command identity."))?;
+        let (key, resource) = self.command_key(
+            &grant,
+            proto::GetCommandRequest {
+                environment: request.environment,
+                command_id: request.command_id,
+                command_epoch: request.command_epoch,
+                resource: request.resource,
+            },
+        )?;
         let owned = self.operations.begin()?;
         let this = self.clone();
         let receipt = tokio::spawn(async move {
@@ -391,7 +488,7 @@ impl proto::host_service_server::HostService for HostRpc {
                 .resolve_runtime_command(key)
                 .await
                 .map_err(storage_status)?;
-            Ok::<_, Status>(this.auth.receipt(&receipt))
+            this.command_receipt(&receipt, resource).await
         })
         .await
         .map_err(|_| {
@@ -399,7 +496,9 @@ impl proto::host_service_server::HostService for HostRpc {
                 "The command review outcome is uncertain. Read the command before retrying.",
             )
         })??;
-        Ok(Response::new(receipt))
+        Ok(Response::new(proto::ResolveCommandResponse {
+            receipt: Some(receipt),
+        }))
     }
     async fn revoke_device(
         &self,
@@ -408,78 +507,36 @@ impl proto::host_service_server::HostService for HostRpc {
         let grant = self.auth.authenticate(&request).await?;
         self.auth.scope(&grant, host::ADMIN)?;
         self.state.accepting()?;
-        let mut request = request.into_inner();
-        let meta = request
-            .command
-            .take()
-            .ok_or_else(|| Status::invalid_argument("Command is required."))?;
-        if uuid::Uuid::parse_str(&request.device_id).is_err() {
-            return Err(Status::invalid_argument("Invalid device."));
-        }
-        let input = self.auth.input(
-            &meta,
-            &grant,
-            "host.revoke",
-            request.device_id.clone(),
-            request.encode_to_vec(),
-            "private".into(),
+        let request = request.into_inner();
+        self.check_environment(request.environment.as_ref())?;
+        let environment = decode::required(request.environment)?;
+        let meta = decode::required(request.command)?;
+        let envelope = decode::envelope(
+            meta.clone(),
+            ResourceRef::Environment(decode::environment(environment.clone())?),
+            Command::Admin(AdminCommand::RevokeDevice {
+                device: request.device_id.clone(),
+            }),
         )?;
+        let principal =
+            Principal::authenticated(&grant, meta.command_epoch).map_err(storage_status)?;
         let this = self.clone();
         let owned = self.operations.begin()?;
         let receipt = tokio::spawn(async move {
             let _owned = owned;
-            let receipt = this
-                .auth
-                .client()
-                .accept_runtime_command(input, host::ADMIN)
+            let receipt = CommandBus::new(this.auth.client().clone())
+                .execute(envelope, principal, None)
                 .await
                 .map_err(storage_status)?;
-            if receipt.state() != CommandState::Accepted {
-                return Ok::<_, Status>(this.auth.receipt(&receipt));
+            if receipt.state() == host::CommandState::Succeeded {
+                this.hub.revoke_device(&request.device_id);
+                this.state.authorization_changed();
             }
-            this.auth
-                .client()
-                .transition_runtime_command(
-                    receipt.key().clone(),
-                    CommandState::Accepted,
-                    CommandState::Attempting,
-                    None,
-                )
-                .await
-                .map_err(storage_status)?;
-            let result = this
-                .auth
-                .client()
-                .revoke_runtime_device(request.device_id.clone())
-                .await;
-            this.hub.revoke_device(&request.device_id);
-            this.state.authorization_changed();
-            let (state, bytes) = match result {
-                Ok(()) => (CommandState::Succeeded, None),
-                Err(error) => (
-                    CommandState::Failed,
-                    Some(
-                        proto::DomainError {
-                            code: "revoke_failed".into(),
-                            message: error.to_string(),
-                            retryable: false,
-                        }
-                        .encode_to_vec(),
-                    ),
-                ),
-            };
-            let final_receipt = this
-                .auth
-                .client()
-                .transition_runtime_command(
-                    receipt.key().clone(),
-                    CommandState::Attempting,
-                    state,
-                    bytes,
-                )
-                .await
-                .map_err(storage_status)?;
-            Ok(this.auth.receipt(&final_receipt))
+            resources::receipt_for_resource(
+                &this.auth,
+                &receipt,
+                proto::command_receipt::Resource::Environment(environment),
+            )
         })
         .await
         .map_err(|_| Status::internal("Device operation stopped."))??;

@@ -2,11 +2,11 @@ import { recoveryDelay } from './recovery'
 import type { HostSession } from './hosts'
 import { ChatEventAssembler, ResyncRequired } from './fragments'
 import { ChatProjectionOwner, HistoryPageAssembler, type ChatProjection } from './projection'
-import type { ChatRef, ItemKey, TranscriptItem } from './schema'
+import type { ThreadRef, ItemKey, TranscriptItem } from './schema'
 import { uniqueId } from './commands'
 import { timing, timingStart } from './metrics'
 export class ChatViewOwner {
-  readonly chat: ChatRef
+  readonly chat: ThreadRef
   private projection = new ChatProjectionOwner()
   private controller?: AbortController
   private listeners = new Set<() => void>()
@@ -18,7 +18,11 @@ export class ChatViewOwner {
   private historyLoaded = false
   private historyWindow?: TranscriptItem[]
   private historyAbort?: AbortController
-  constructor(readonly host: HostSession, chatId: string) { this.chat = { host_id: host.snapshot().hostId, chat_id: chatId } }
+  constructor(readonly host: HostSession, chatId: string) {
+    const thread = host.snapshot().catalog?.threads.find(t => t.catalog_id === chatId)?.thread
+    if (!thread || thread.host_id !== host.snapshot().hostId) throw Error('Thread identity is unavailable; refresh the host catalog')
+    this.chat = thread
+  }
   snapshot(): ChatProjection & { error?: string } { return { ...this.projection.snapshot(), items: this.historyWindow ?? this.projection.snapshot().items, error: this.error } }
   subscribe(callback: () => void): () => void { this.listeners.add(callback); return () => { this.listeners.delete(callback) } }
   private publish(): void { for (const listener of this.listeners) listener() }
@@ -39,14 +43,14 @@ export class ChatViewOwner {
       const assembler = new ChatEventAssembler(this.chat, uniqueId(), this.host.transport.native)
       try {
         this.projection.discardSnapshot()
-        const stream = await this.host.transport.subscribe('ChatService/SubscribeChat', { chat: this.chat }, async event => {
+        const stream = await this.host.transport.subscribe('ThreadService/SubscribeThread', { thread: this.chat }, async event => {
           if (generation !== this.generation || controller.signal.aborted) return
           const received = timingStart()
           let applied = false
           try { await assembler.push(event, value => {
             if (generation !== this.generation || controller.signal.aborted) return
             if (this.projection.apply(value)) { this.error = undefined; this.publish() }
-          }); applied = true } finally { timing(this.chat.host_id, this.chat.chat_id, undefined, 'client_receive_apply', received, applied) }
+          }); applied = true } finally { timing(this.chat.host_id, this.chat.thread_id, undefined, 'client_receive_apply', received, applied) }
         }, controller.signal)
         await stream.done
         if (!controller.signal.aborted) throw new ResyncRequired('Chat subscription ended')
@@ -61,7 +65,7 @@ export class ChatViewOwner {
     this.historyAbort?.abort(); const abort = new AbortController(); this.historyAbort = abort
     const page = new HistoryPageAssembler(this.chat, uniqueId(), this.host.transport.native)
     try {
-      const stream = await this.host.transport.subscribe('ChatService/ReadHistoryPage', { chat: this.chat, limit: 100, page_token: this.historyToken, before: this.historyToken ? undefined : this.snapshot().items[0]?.key }, value => page.push(value), abort.signal)
+      const stream = await this.host.transport.subscribe('ThreadService/ReadHistoryPage', { thread: this.chat, limit: 100, page_token: this.historyToken, before: this.historyToken ? undefined : this.snapshot().items[0]?.key }, value => page.push(value), abort.signal)
       await stream.done
       if (abort.signal.aborted) return
       const result = page.result()
@@ -77,7 +81,7 @@ export class ChatViewOwner {
     this.historyAbort?.abort(); const abort = new AbortController(); this.historyAbort = abort
     const page = new HistoryPageAssembler(this.chat, uniqueId(), this.host.transport.native)
     try {
-      const stream = await this.host.transport.subscribe('ChatService/ReadHistoryPage', { chat: this.chat, limit: 100, around }, value => page.push(value), abort.signal)
+      const stream = await this.host.transport.subscribe('ThreadService/ReadHistoryPage', { thread: this.chat, limit: 100, around }, value => page.push(value), abort.signal)
       await stream.done
       if (abort.signal.aborted) return
       const result = page.result()

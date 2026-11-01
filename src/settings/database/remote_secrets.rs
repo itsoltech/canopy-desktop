@@ -24,7 +24,7 @@ impl Database {
         host(self)?;
         if !crate::artifacts::valid_id(&id)
             || fingerprint.len() != 32
-            || !key.resource().is_empty()
+            || key.resource() != format!("environment:{}", self.runtime_host()?.id())
             || key.executor_epoch() != 0
         {
             return Err(Error::InvalidRuntimeState);
@@ -37,7 +37,7 @@ impl Database {
         if epoch as u64 != key.epoch() {
             return Err(Error::CommandRetired);
         }
-        let existing:Option<Vec<u8>>=tx.query_row("SELECT fingerprint FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource='' AND executor_epoch=0",params![key.device(),key.id()],|r|r.get(0)).optional()?;
+        let existing:Option<Vec<u8>>=tx.query_row("SELECT fingerprint FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=0",params![key.device(),key.id(),key.resource()],|r|r.get(0)).optional()?;
         if existing.is_some_and(|f| f != fingerprint) {
             return Err(Error::CommandConflict);
         }
@@ -65,8 +65,9 @@ impl Database {
     /// are used only during dispatch; active config uses its owner's own keys.
     pub fn collect_remote_secrets(&self) -> Result<Vec<String>> {
         host(self)?;
-        Ok(self.db.prepare("SELECT s.version_id FROM _canopy_settings_secrets s LEFT JOIN _canopy_command_inbox c ON c.device_id=s.device_id AND c.command_id=s.command_id AND c.command_epoch=s.command_epoch AND c.resource='' AND c.executor_epoch=0 WHERE c.state IN ('succeeded','failed','rejected') OR (c.command_id IS NULL AND s.created_at<?1) LIMIT 8192")?
-            .query_map([crate::artifacts::now()-3600],|r|r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?)
+        let environment = format!("environment:{}", self.runtime_host()?.id());
+        Ok(self.db.prepare("SELECT DISTINCT s.version_id FROM _canopy_settings_secrets s LEFT JOIN _canopy_command_inbox c ON c.device_id=s.device_id AND c.command_id=s.command_id AND c.command_epoch=s.command_epoch AND (c.resource='' OR c.resource=?2) AND c.executor_epoch=0 WHERE (c.state IN ('succeeded','failed','rejected') OR (c.command_id IS NULL AND s.created_at<?1)) AND NOT EXISTS(SELECT 1 FROM _canopy_command_inbox u WHERE u.device_id=s.device_id AND u.command_id=s.command_id AND u.command_epoch=s.command_epoch AND (u.resource='' OR u.resource=?2) AND u.executor_epoch=0 AND u.state IN ('accepted','attempting','delivery_unknown')) LIMIT 8192")?
+            .query_map(params![crate::artifacts::now()-3600, environment],|r|r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?)
     }
     pub fn forget_remote_secret(&mut self, id: String) -> Result<()> {
         host(self)?;

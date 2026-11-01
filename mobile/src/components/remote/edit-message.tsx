@@ -3,13 +3,13 @@ import { Action, Field } from './common'
 import { ArtifactPreview } from './artifact'
 import { ThemedText } from '@/components/themed-text'
 import type { HostSession } from '@/lib/remote/grpc/hosts'
-import type { ChatRef } from '@/lib/remote/grpc/schema'
+import type { ThreadRef } from '@/lib/remote/grpc/schema'
 import { command, checkReceipt } from '@/lib/remote/grpc/commands'
-export function EditMessage({ host, chat, runId }: { host: HostSession; chat: ChatRef; runId: string }) {
-  const [edit, setEdit] = useState(host.store.snapshot().edits![chat.chat_id]), [failure, setFailure] = useState('')
+export function EditMessage({ host, chat, chatId, runId }: { host: HostSession; chat: ThreadRef; chatId: string; runId: string }) {
+  const [edit, setEdit] = useState(host.store.snapshot().edits![chatId]), [failure, setFailure] = useState('')
   const save = async (next: typeof edit) => {
     setEdit(next)
-    await host.store.update(state => { (state.edits ??= {})[chat.chat_id] = next; return null })
+    await host.store.update(state => { (state.edits ??= {})[chatId] = next; return null })
   }
   return <><ThemedText>Edit sent message{edit.preview.first_message ? ' · First message' : ''}</ThemedText>
     <ThemedText type="small">The original conversation history is retained. Your separate unsent composer draft is unchanged.</ThemedText>
@@ -19,7 +19,7 @@ export function EditMessage({ host, chat, runId }: { host: HostSession; chat: Ch
     {!edit.preview.files?.possible && <ThemedText>{edit.preview.files?.reason || 'File rewind is unavailable for this message.'}</ThemedText>}
     <Action title={`${edit.restoreFiles ? '✓ ' : ''}Restore files before editing`} disabled={!edit.preview.files?.possible} run={() => save({ ...edit, restoreFiles: !edit.restoreFiles })} />
     <Action title="Refresh edit preview" run={async () => {
-      const preview = await host.transport.unary('ChatService/PreviewEdit', { chat, run_id: runId, item: edit.preview.item })
+      const preview = await host.transport.unary('ThreadService/PreviewEdit', { thread: chat, run_id: runId, item: edit.preview.item })
       if (!preview.editable) throw Error(preview.reason)
       await save({ ...edit, preview, restoreFiles: false })
     }} />
@@ -27,13 +27,13 @@ export function EditMessage({ host, chat, runId }: { host: HostSession; chat: Ch
     <Action title={edit.restoreFiles ? 'Restore files and send replacement' : 'Send replacement'} disabled={!edit.draft.text.trim() && !edit.draft.attachments.length} run={async () => {
       await save(edit)
       try {
-        const receipt = await host.mutate('ChatService/EditMessage', { command: command(host.store), chat, run_id: edit.preview.run_id, item: edit.preview.item, draft: edit.draft, restore_files: edit.restoreFiles })
-        if (receipt.error) throw Error([receipt.error.code, receipt.error.message, receipt.operation_output].filter(Boolean).join('\n'))
+        const receipt = await host.mutate('ThreadService/EditMessage', { command: command(host.store), target: await host.threadTarget(chat), run_id: edit.preview.run_id, item: edit.preview.item, draft: edit.draft, restore_files: edit.restoreFiles })
+        if (receipt.error) throw Error([receipt.error.code, receipt.error.message].filter(Boolean).join('\n'))
         checkReceipt(receipt)
-        if (receipt.state === 3) await host.store.update(state => { if (JSON.stringify(state.edits?.[chat.chat_id]?.draft) === JSON.stringify(edit.draft)) delete state.edits?.[chat.chat_id]; return null })
+        if (receipt.state === 3) await host.store.update(state => { if (JSON.stringify(state.edits?.[chatId]?.draft) === JSON.stringify(edit.draft)) delete state.edits?.[chatId]; return null })
         else setFailure('Edit accepted; query its result before another submission. The replacement draft is retained.')
       } catch (error) { setFailure(`${String(error)}\nReplacement retained. Refresh the preview for changed conditions. If files were not restored, turn off file restoration before a new explicit attempt.`); throw error }
     }} />
-    <Action title="Cancel editing" run={() => host.store.update(state => { delete state.edits?.[chat.chat_id]; return null })} />
+    <Action title="Cancel editing" run={() => host.store.update(state => { delete state.edits?.[chatId]; return null })} />
   </>
 }

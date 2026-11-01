@@ -72,7 +72,10 @@ struct Host {
 #[tonic::async_trait]
 impl SettingsHost for Host {
     async fn snapshot(&self) -> Result<proto::HostSettings, Status> {
-        Ok(proto::HostSettings::default())
+        Ok(proto::HostSettings {
+            revision: *self.preferences_revision.lock().await,
+            ..Default::default()
+        })
     }
     async fn update_preferences(
         &self,
@@ -115,14 +118,15 @@ impl SettingsHost for Host {
         Ok(())
     }
     async fn save_profile(&self, e: ProfileEdit, expected: Option<u64>) -> Result<(), Status> {
-        if expected.is_some_and(|revision| revision != 42) {
-            return Err(Status::aborted("stale revision"));
-        }
-        self.calls.fetch_add(1, Ordering::SeqCst);
         self.started.notify_one();
         if self.pause.load(Ordering::SeqCst) {
             self.release.notified().await;
         }
+        let current = *self.preferences_revision.lock().await;
+        if expected.is_some_and(|revision| revision != current) {
+            return Err(Status::aborted("stale revision"));
+        }
+        self.calls.fetch_add(1, Ordering::SeqCst);
         if let SecretChange::Set(v) = e.credential() {
             let value = self.secrets.read(v).await?;
             self.values.lock().unwrap().push(value);
@@ -227,7 +231,7 @@ async fn typed_preferences_receipt_keeps_original_values_revision_and_domain_rej
                     Principal::authenticated(&grant, meta.command_epoch).map_err(storage_status)?,
                 )
                 .await?;
-            crate::api::compat::receipt(
+            crate::api::project_receipt(
                 &rpc.auth,
                 &receipt,
                 api::command_receipt::Resource::Environment(environment),
@@ -243,11 +247,6 @@ async fn typed_preferences_receipt_keeps_original_values_revision_and_domain_rej
     assert!(!values.notch_enabled);
     assert_eq!(values.chat_effort.as_deref(), Some("high"));
     assert_eq!(values.chat_mode.as_deref(), Some("plan"));
-    let retained = crate::api::compat::legacy_receipt(first.clone(), "private".into());
-    let retained: serde_json::Value =
-        serde_json::from_str(retained.operation_output.as_deref().unwrap()).unwrap();
-    assert_eq!(retained["values"]["notch_enabled"], false);
-    assert_eq!(retained["revision"], 43);
     let mut later = original.clone();
     later.command.as_mut().unwrap().command_id = uuid::Uuid::new_v4().to_string();
     later.command.as_mut().unwrap().expected_revision = Some(43);
@@ -284,7 +283,6 @@ async fn typed_preferences_receipt_keeps_original_values_revision_and_domain_rej
 fn request(rpc: &SettingsRpc, value: &str) -> proto::SaveProfileRequest {
     proto::SaveProfileRequest {
         command: Some(proto::CommandMeta {
-            host_id: rpc.auth.host_id().into(),
             command_id: uuid::Uuid::new_v4().to_string(),
             command_epoch: 1,
             expected_revision: None,
@@ -298,7 +296,10 @@ fn request(rpc: &SettingsRpc, value: &str) -> proto::SaveProfileRequest {
         credential: Some(proto::SecretUpdate {
             action: Some(proto::secret_update::Action::Set(value.as_bytes().to_vec())),
         }),
-        environment: vec![],
+        environment: Some(proto::EnvironmentRef {
+            host_id: rpc.auth.host_id().into(),
+        }),
+        variables: vec![],
         settings: None,
     }
 }
@@ -394,6 +395,10 @@ async fn request_cancellation_keeps_accepted_secret_and_unknown_retains_version(
         .await
         .unwrap();
     assert_eq!(receipt.state, proto::OperationState::DeliveryUnknown as i32);
+    // A historical namespace may contain the same ID. Its completed outcome
+    // must not release versions still owned by the uncertain typed command.
+    let db = rusqlite::Connection::open(d.path().join("db")).unwrap();
+    db.execute("INSERT INTO _canopy_command_inbox(resource,executor_epoch,device_id,command_id,command_epoch,method,target,fingerprint,required_scope,required_root,arguments,state,result,created_at,updated_at) SELECT '',0,device_id,command_id,command_epoch,method,target,fingerprint,required_scope,required_root,arguments,'succeeded',result,created_at,updated_at FROM _canopy_command_inbox WHERE command_id=?1", [&receipt.command_id]).unwrap();
     rpc.cleanup().await.unwrap();
     assert_eq!(secrets.entries.lock().unwrap().len(), 1);
     assert_eq!(&*host.values.lock().unwrap(), &["original"]);
@@ -460,8 +465,10 @@ async fn admin_without_global_root_and_uncertified_reads_are_rejected() {
     );
     assert_eq!(host.calls.load(Ordering::SeqCst), 0);
     assert_eq!(
-        rpc.get_settings(Request::new(proto::HostRequest {
-            host_id: rpc.auth.host_id().into()
+        rpc.get_settings(Request::new(proto::GetSettingsRequest {
+            environment: Some(proto::EnvironmentRef {
+                host_id: rpc.auth.host_id().into()
+            })
         }))
         .await
         .unwrap_err()
@@ -522,8 +529,8 @@ async fn owner_checks_revision_before_effect_and_retry_keeps_original_expectatio
         .write(g.clone(), writes::Write::profile(stale.clone()))
         .await
         .unwrap();
-    assert_eq!(receipt.state, proto::OperationState::Failed as i32);
-    assert_eq!(receipt.error.unwrap().code, "conflict");
+    assert_eq!(receipt.state, proto::OperationState::Rejected as i32);
+    assert_eq!(receipt.error.unwrap().code, "conditions_changed");
     assert_eq!(host.calls.load(Ordering::SeqCst), 0);
     stale.command.as_mut().unwrap().expected_revision = Some(42);
     assert_eq!(
@@ -542,6 +549,46 @@ async fn owner_checks_revision_before_effect_and_retry_keeps_original_expectatio
         proto::OperationState::Succeeded as i32
     );
     assert_eq!(host.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn revision_change_after_preparation_is_a_durable_rejection_without_an_edit() {
+    let d = tempfile::tempdir().unwrap();
+    let (rpc, grant, host, _) = fixture(d.path()).await;
+    host.pause.store(true, Ordering::SeqCst);
+    let mut original = request(&rpc, "kept-private");
+    original.command.as_mut().unwrap().expected_revision = Some(42);
+    let task = tokio::spawn({
+        let rpc = rpc.clone();
+        let grant = grant.clone();
+        let request = original.clone();
+        async move { rpc.write(grant, writes::Write::profile(request)).await }
+    });
+    host.started.notified().await;
+    *host.preferences_revision.lock().await = 43;
+    host.release.notify_one();
+    let rejected = task.await.unwrap().unwrap();
+    assert_eq!(rejected.state, proto::OperationState::Rejected as i32);
+    assert_eq!(rejected.error.as_ref().unwrap().code, "conditions_changed");
+    assert!(host.values.lock().unwrap().is_empty());
+    assert_eq!(host.calls.load(Ordering::SeqCst), 0);
+    *host.preferences_revision.lock().await = 42;
+    host.pause.store(false, Ordering::SeqCst);
+    assert_eq!(
+        rpc.write(grant.clone(), writes::Write::profile(original.clone()))
+            .await
+            .unwrap(),
+        rejected
+    );
+    original.command.as_mut().unwrap().expected_revision = Some(43);
+    assert_eq!(
+        rpc.write(grant, writes::Write::profile(original))
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::Aborted
+    );
+    rpc.auth.client().shutdown().await.unwrap();
 }
 
 #[tokio::test]
@@ -567,7 +614,7 @@ async fn typed_profile_secret_overrides_preserve_unicode_empty_env_and_never_ent
         append_system_prompt: set(&prompt),
         settings_json: set(&json),
     });
-    r.environment = vec![proto::EnvironmentUpdate {
+    r.variables = vec![proto::EnvironmentUpdate {
         name: "EMPTY".into(),
         value: set(""),
     }];

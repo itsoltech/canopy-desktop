@@ -15,7 +15,7 @@ impl RemoteWindow {
         let workspace = self
             .workspace
             .as_ref()
-            .map(|workspace| workspace.workspace_id.clone());
+            .map(|workspace| workspace.catalog_id.clone());
         self.discovery_revision += 1;
         let revision = self.discovery_revision;
         let generation = self.generation;
@@ -69,7 +69,7 @@ impl RemoteWindow {
         let workspace = self
             .workspace
             .as_ref()
-            .map(|workspace| workspace.workspace_id.clone());
+            .map(|workspace| workspace.catalog_id.clone());
         let agent_id = self.value("agent", cx);
         let profile_id = Some(self.value("profile", cx));
         self.run_in(
@@ -220,7 +220,7 @@ impl RemoteWindow {
                     .projects
                     .iter()
                     .flat_map(|p| &p.checkouts)
-                    .any(|w| w.workspace.as_ref() == Some(workspace) && w.closing.unwrap_or(false))
+                    .any(|w| w.catalog_id == workspace.catalog_id && w.closing)
             })
     }
 }

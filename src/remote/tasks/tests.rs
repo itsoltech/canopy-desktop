@@ -54,6 +54,13 @@ impl HttpClient for Http {
 struct Host;
 #[tonic::async_trait]
 impl TasksHost for Host {
+    async fn configure(
+        &self,
+        _: String,
+        _: crate::command_bus::tasks::TaskConfiguration,
+    ) -> Result<(), Status> {
+        panic!("unexpected config effect")
+    }
     async fn save_filter(&self, _: i::filters::TaskFilter) -> Result<(), Status> {
         panic!("unexpected config effect")
     }
@@ -62,7 +69,7 @@ impl TasksHost for Host {
     }
     async fn task_to_worktree(
         &self,
-        _: proto::WorkspaceRef,
+        _: crate::thread::ProjectRef,
         _: i::TaskRef,
         _: String,
     ) -> Result<String, Status> {
@@ -101,12 +108,22 @@ async fn fixture(dir: &std::path::Path) -> (TasksRpc, DeviceGrant) {
         grant,
     )
 }
-fn meta(rpc: &TasksRpc) -> proto::CommandMeta {
+fn meta(_: &TasksRpc) -> proto::CommandMeta {
     proto::CommandMeta {
-        host_id: rpc.auth.host_id().into(),
         command_id: uuid::Uuid::new_v4().to_string(),
         command_epoch: 1,
         expected_revision: None,
+    }
+}
+fn environment(rpc: &TasksRpc) -> proto::TaskProject {
+    proto::TaskProject {
+        resource: Some(proto::task_project::Resource::Environment(
+            proto::EnvironmentRef {
+                host_id: rpc.auth.host_id().into(),
+            },
+        )),
+        integration_id: uuid::Uuid::new_v4().to_string(),
+        project_key: "team/repo".into(),
     }
 }
 
@@ -114,28 +131,47 @@ fn meta(rpc: &TasksRpc) -> proto::CommandMeta {
 async fn cancelled_rpc_keeps_accepted_effect_and_durable_unknown_is_never_retried() {
     let dir = tempfile::tempdir().unwrap();
     let (rpc, g) = fixture(dir.path()).await;
-    let input = rpc
-        .auth
-        .input(
-            &meta(&rpc),
+    let context = environment(&rpc);
+    let (prepared, resource) = rpc
+        .prepare(
             &g,
-            "tasks.mutate",
-            "issue".into(),
-            vec![1],
-            "private".into(),
+            meta(&rpc),
+            &context,
+            TaskCommand::Mutate {
+                integration: context.integration_id.clone(),
+                project: context.project_key.clone(),
+                task: Some("42".into()),
+                action: crate::command_bus::tasks::TaskAction::Watching(true),
+            },
         )
+        .await
         .unwrap();
+    let mut input = prepared.runtime_input().clone();
+    crate::command_bus::tasks::AccountBinding::bind(
+        &mut input,
+        i::Account {
+            id: context.integration_id.clone(),
+            provider: i::Provider::Github,
+            login: "test".into(),
+            credential: "credential-reference".into(),
+            scope: i::AccountScope::Default,
+        },
+    )
+    .unwrap();
     let key = input.key().clone();
     let (started, wait) = tokio::sync::oneshot::channel();
     let (release, released) = tokio::sync::oneshot::channel();
     let worker = rpc.clone();
     let first = input.clone();
+    let first_resource = resource.clone();
     let task = tokio::spawn(async move {
         worker
-            .mutation(first, move || async move {
-                started.send(()).unwrap();
-                released.await.unwrap();
-                Err(Status::unknown("Provider disconnected after dispatch."))
+            .mutation(first, first_resource, TASKS, false, move || async move {
+                Ok(async move {
+                    started.send(()).unwrap();
+                    released.await.unwrap();
+                    Err(Status::unknown("Provider disconnected after dispatch."))
+                })
             })
             .await
     });
@@ -151,7 +187,7 @@ async fn cancelled_rpc_keeps_accepted_effect_and_durable_unknown_is_never_retrie
         .unwrap()
         .unwrap();
     assert_eq!(saved.state(), CommandState::DeliveryUnknown);
-    let output = rpc.auth.receipt(&saved);
+    let output = rpc.auth.receipt(&saved).unwrap();
     assert_eq!(output.error.unwrap().code, "delivery_unknown");
     // New service instance after drain shares the durable inbox, never a retry.
     let retry = TasksRpc::new(
@@ -163,44 +199,467 @@ async fn cancelled_rpc_keeps_accepted_effect_and_durable_unknown_is_never_retrie
         rpc.host.clone(),
     );
     let result = retry
-        .mutation(input, || async {
-            panic!("must not repeat an uncertain provider mutation")
+        .mutation(input, resource, TASKS, false, || async {
+            Ok(async { panic!("must not repeat an uncertain provider mutation") })
         })
         .await
         .unwrap();
     assert_eq!(result.state, proto::OperationState::DeliveryUnknown as i32);
     rpc.auth.client().shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn accepted_task_keeps_original_account_and_reconfiguration_rejects_before_dispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let (rpc, grant) = fixture(dir.path()).await;
+    let context = environment(&rpc);
+    let command = meta(&rpc);
+    let intent = TaskCommand::Mutate {
+        integration: context.integration_id.clone(),
+        project: context.project_key.clone(),
+        task: Some("42".into()),
+        action: crate::command_bus::tasks::TaskAction::Watching(true),
+    };
+    let (first, _) = rpc
+        .prepare(&grant, command.clone(), &context, intent.clone())
+        .await
+        .unwrap();
+    let account = i::Account {
+        id: context.integration_id.clone(),
+        provider: i::Provider::Github,
+        login: "original".into(),
+        credential: "original-immutable-reference".into(),
+        scope: i::AccountScope::Default,
+    };
+    let mut input = first.runtime_input().clone();
+    crate::command_bus::tasks::AccountBinding::bind(&mut input, account.clone()).unwrap();
+    rpc.auth
+        .client()
+        .accept_runtime_command(input, TASKS)
+        .await
+        .unwrap();
+    let (retry, resource) = rpc
+        .prepare(&grant, command.clone(), &context, intent)
+        .await
+        .unwrap();
+    let (input, retained) = rpc
+        .account_input(&retry, &context.integration_id)
+        .await
+        .unwrap();
+    assert_eq!(retained, account);
+    // Configuration removal must become a durable rejection, with no credential
+    // lookup or provider request. A changed credential/endpoint fails the same fence.
+    let worker = rpc.clone();
+    let receipt = rpc
+        .mutation(input, resource, TASKS, false, move || async move {
+            worker.current_account(&retained).await?;
+            Ok(async { panic!("removed account must not dispatch") })
+        })
+        .await
+        .unwrap();
+    assert_eq!(receipt.state, proto::OperationState::Rejected as i32);
+    assert_eq!(receipt.error.as_ref().unwrap().code, "conditions_changed");
+    let (saved, _) = rpc
+        .prepare(
+            &grant,
+            command.clone(),
+            &context,
+            TaskCommand::Mutate {
+                integration: context.integration_id.clone(),
+                project: context.project_key.clone(),
+                task: Some("42".into()),
+                action: crate::command_bus::tasks::TaskAction::Watching(true),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.prior().unwrap().state(), CommandState::Rejected);
+    let conflict = rpc
+        .prepare(
+            &grant,
+            command,
+            &context,
+            TaskCommand::Mutate {
+                integration: context.integration_id.clone(),
+                project: context.project_key.clone(),
+                task: Some("42".into()),
+                action: crate::command_bus::tasks::TaskAction::Watching(false),
+            },
+        )
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(conflict.code(), tonic::Code::Aborted);
+    rpc.auth
+        .client()
+        .revoke_runtime_device(grant.id().into())
+        .await
+        .unwrap();
+    assert_eq!(
+        rpc.prepare(
+            &grant,
+            meta(&rpc),
+            &context,
+            TaskCommand::RemoveFilter(uuid::Uuid::new_v4().to_string())
+        )
+        .await
+        .err()
+        .unwrap()
+        .code(),
+        tonic::Code::PermissionDenied
+    );
+    rpc.auth.client().shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn accepted_destructive_task_is_rejected_without_replaying_the_host_effect() {
+    let dir = tempfile::tempdir().unwrap();
+    let (rpc, grant) = fixture(dir.path()).await;
+    let command = meta(&rpc);
+    let context = environment(&rpc);
+    let filter_id = uuid::Uuid::new_v4().to_string();
+    let (prepared, _) = rpc
+        .prepare(
+            &grant,
+            command.clone(),
+            &context,
+            TaskCommand::RemoveFilter(filter_id.clone()),
+        )
+        .await
+        .unwrap();
+    rpc.auth
+        .client()
+        .accept_runtime_command(prepared.runtime_input().clone(), TASKS)
+        .await
+        .unwrap();
+    let request = proto::RemoveFilterRequest {
+        command: Some(command),
+        environment: Some(proto::EnvironmentRef {
+            host_id: rpc.auth.host_id().into(),
+        }),
+        filter_id,
+    };
+    let rejected = rpc.remove(grant.clone(), request.clone()).await.unwrap();
+    assert_eq!(rejected.state, proto::OperationState::Rejected as i32);
+    assert_eq!(rpc.remove(grant, request).await.unwrap(), rejected);
+    rpc.auth.client().shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn removed_project_rejects_an_accepted_task_before_provider_access() {
+    let dir = tempfile::tempdir().unwrap();
+    let (rpc, _) = fixture(dir.path()).await;
+    let root = dir.path().canonicalize().unwrap();
+    rpc.auth
+        .client()
+        .register_runtime_device(
+            crate::host::DeviceRegistration::new(
+                uuid::Uuid::new_v4().to_string(),
+                "project device".into(),
+                vec![9; 32],
+                TASKS,
+                vec![root.to_str().unwrap().into()],
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let grant = rpc
+        .auth
+        .client()
+        .lookup_runtime_device(vec![9; 32])
+        .await
+        .unwrap();
+    let mut projects = crate::state::projects::Projects::default();
+    projects.open(root.clone());
+    let context = proto::TaskProject {
+        resource: Some(proto::task_project::Resource::Project(proto::ProjectRef {
+            host_id: rpc.auth.host_id().into(),
+            project_id: serde_json::to_string(&projects.current().unwrap().id).unwrap(),
+            worktree_id: None,
+        })),
+        integration_id: uuid::Uuid::new_v4().to_string(),
+        project_key: "team/repo".into(),
+    };
+    rpc.roots.replace_projects(projects.items).unwrap();
+    let meta = meta(&rpc);
+    let command = TaskCommand::Mutate {
+        integration: context.integration_id.clone(),
+        project: context.project_key.clone(),
+        task: Some("42".into()),
+        action: crate::command_bus::tasks::TaskAction::Watching(true),
+    };
+    let (prepared, _) = rpc
+        .prepare(&grant, meta.clone(), &context, command.clone())
+        .await
+        .unwrap();
+    let mut input = prepared.runtime_input().clone();
+    crate::command_bus::tasks::AccountBinding::bind(
+        &mut input,
+        i::Account {
+            id: context.integration_id.clone(),
+            provider: i::Provider::Github,
+            login: "test".into(),
+            credential: "immutable-reference".into(),
+            scope: i::AccountScope::Default,
+        },
+    )
+    .unwrap();
+    rpc.auth
+        .client()
+        .accept_runtime_command(input, TASKS)
+        .await
+        .unwrap();
+    rpc.roots.replace_projects(vec![]).unwrap();
+    let (retry, resource) = rpc.prepare(&grant, meta, &context, command).await.unwrap();
+    let rejected = rpc
+        .mutation(
+            retry.runtime_input().clone(),
+            resource,
+            TASKS,
+            false,
+            || async {
+                panic!("removed project must not resolve credentials or contact the provider");
+                #[allow(unreachable_code)]
+                Ok(async { Ok(vec![]) })
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.state, proto::OperationState::Rejected as i32);
+    assert_eq!(rejected.error.unwrap().code, "conditions_changed");
+    rpc.auth.client().shutdown().await.unwrap();
+}
+#[tokio::test]
+async fn restarted_worktree_with_removed_target_is_rejected_durably_and_releases_epoch() {
+    use crate::command_bus::tasks::AccountBinding;
+    let dir = tempfile::tempdir().unwrap();
+    let (rpc, _) = fixture(dir.path()).await;
+    let root = dir.path().canonicalize().unwrap();
+    let scopes = TASKS | crate::host::FILES_GIT;
+    rpc.auth
+        .client()
+        .register_runtime_device(
+            crate::host::DeviceRegistration::new(
+                uuid::Uuid::new_v4().to_string(),
+                "project device".into(),
+                vec![9; 32],
+                scopes,
+                vec![root.to_str().unwrap().into()],
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let grant = rpc
+        .auth
+        .client()
+        .lookup_runtime_device(vec![9; 32])
+        .await
+        .unwrap();
+    let mut projects = crate::state::projects::Projects::default();
+    projects.open_worktree(root.clone(), root);
+    let project = projects.current().unwrap();
+    let context = proto::TaskProject {
+        resource: Some(proto::task_project::Resource::Project(proto::ProjectRef {
+            host_id: rpc.auth.host_id().into(),
+            project_id: serde_json::to_string(&project.id).unwrap(),
+            worktree_id: Some(serde_json::to_string(&project.workspace).unwrap()),
+        })),
+        ..environment(&rpc)
+    };
+    rpc.roots.replace_projects(projects.items).unwrap();
+    let command = meta(&rpc);
+    let request = proto::TaskToWorktreeRequest {
+        command: Some(command.clone()),
+        task: Some(proto::TaskRef {
+            project: Some(context.clone()),
+            task_id: "42".into(),
+        }),
+        branch: "task-42".into(),
+    };
+    let (prepared, _) = rpc
+        .prepare(
+            &grant,
+            command,
+            &context,
+            TaskCommand::Worktree {
+                integration: context.integration_id.clone(),
+                project: context.project_key.clone(),
+                task: "42".into(),
+                branch: request.branch.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let mut input = prepared.runtime_input().clone();
+    AccountBinding::bind(
+        &mut input,
+        i::Account {
+            id: context.integration_id,
+            provider: i::Provider::Github,
+            login: "test".into(),
+            credential: "immutable-reference".into(),
+            scope: i::AccountScope::Default,
+        },
+    )
+    .unwrap();
+    let key = input.key().clone();
+    rpc.auth
+        .client()
+        .accept_runtime_command(input, scopes)
+        .await
+        .unwrap();
+    rpc.auth.client().shutdown().await.unwrap();
+    let host_id = rpc.auth.host_id().to_owned();
+    drop(rpc);
+
+    let client = crate::settings::SettingsClient::open(
+        dir.path().join("db"),
+        crate::settings::Access::ReadWrite,
+    )
+    .await
+    .unwrap();
+    client.initialize_runtime().await.unwrap();
+    let rpc = TasksRpc::new(
+        RpcAuth::new(host_id, client.clone()).unwrap(),
+        WorkspaceRoots::default(),
+        ResourceLocks::default(),
+        Http::new(vec![]),
+        Arc::new(ArtifactStore::open(client.clone(), dir.path().join("artifacts")).unwrap()),
+        Arc::new(Host),
+    );
+    let grant = client.lookup_runtime_device(vec![9; 32]).await.unwrap();
+    assert_eq!(
+        client
+            .get_runtime_command(key.clone(), scopes)
+            .await
+            .unwrap()
+            .unwrap()
+            .state(),
+        CommandState::Accepted
+    );
+    let receipt = rpc.worktree(grant.clone(), request.clone()).await.unwrap();
+    assert_eq!(receipt.state, proto::OperationState::Rejected as i32);
+    assert_eq!(receipt.error.as_ref().unwrap().code, "conditions_changed");
+    assert_eq!(
+        rpc.worktree(grant.clone(), request.clone()).await.unwrap(),
+        receipt
+    );
+    assert_eq!(
+        client
+            .get_runtime_command(key, scopes)
+            .await
+            .unwrap()
+            .unwrap()
+            .state(),
+        CommandState::Rejected
+    );
+    let restricted = client
+        .update_runtime_device_authorization(
+            grant.id().into(),
+            grant.authorization_revision(),
+            scopes,
+            vec!["private".into()],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rpc.worktree(grant.clone(), request.clone())
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::PermissionDenied
+    );
+    client
+        .update_runtime_device_authorization(
+            grant.id().into(),
+            restricted.authorization_revision(),
+            scopes,
+            vec![dir.path().canonicalize().unwrap().to_str().unwrap().into()],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        client
+            .close_runtime_command_epoch(grant.id().into(), 1)
+            .await
+            .unwrap(),
+        2
+    );
+    client
+        .revoke_runtime_device(grant.id().into())
+        .await
+        .unwrap();
+    assert_eq!(
+        rpc.worktree(grant, request).await.unwrap_err().code(),
+        tonic::Code::PermissionDenied
+    );
+    client.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn combined_status_and_fields_are_rejected_before_account_or_target_lookup() {
+    let dir = tempfile::tempdir().unwrap();
+    let (rpc, grant) = fixture(dir.path()).await;
+    let error = rpc
+        .update(
+            grant,
+            proto::UpdateTaskRequest {
+                command: Some(meta(&rpc)),
+                task: Some(proto::TaskRef {
+                    project: Some(environment(&rpc)),
+                    task_id: "42".into(),
+                }),
+                title: Some("New title".into()),
+                status: Some(proto::TaskStatusChoice::default()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        error.message(),
+        "Submit status separately from other fields."
+    );
+    rpc.auth.client().shutdown().await.unwrap();
+}
+
 #[tokio::test]
 async fn tls_identity_and_canonical_grants_are_required_for_reads() {
     use proto::tasks_service_server::TasksService;
     let dir = tempfile::tempdir().unwrap();
     let (rpc, g) = fixture(dir.path()).await;
     let error = rpc
-        .list_projects(Request::new(proto::TaskProjectsRequest {
-            host_id: rpc.auth.host_id().into(),
+        .list_projects(Request::new(proto::ListProjectsRequest {
+            project: Some(environment(&rpc)),
             ..Default::default()
         }))
         .await
         .unwrap_err();
     assert_eq!(error.code(), tonic::Code::Unauthenticated);
     assert_eq!(
-        rpc.authorize(&g, rpc.auth.host_id(), None).await.unwrap(),
+        rpc.authorize_scope(&g, &environment(&rpc), TASKS)
+            .await
+            .unwrap(),
         "private"
     );
-    let root = dir.path().canonicalize().unwrap();
-    rpc.roots
-        .replace(std::collections::HashMap::from([(
-            "workspace".into(),
-            root,
-        )]))
-        .unwrap();
-    let workspace = proto::WorkspaceRef {
+    let mut projects = crate::state::projects::Projects::default();
+    projects.open(dir.path().canonicalize().unwrap());
+    let project = projects.current().unwrap();
+    let reference = proto::ProjectRef {
         host_id: rpc.auth.host_id().into(),
-        workspace_id: "workspace".into(),
+        project_id: serde_json::to_string(&project.id).unwrap(),
+        worktree_id: None,
+    };
+    rpc.roots.replace_projects(projects.items).unwrap();
+    let project = proto::TaskProject {
+        resource: Some(proto::task_project::Resource::Project(reference)),
+        ..environment(&rpc)
     };
     assert_eq!(
-        rpc.authorize(&g, rpc.auth.host_id(), Some(&workspace))
+        rpc.authorize_scope(&g, &project, TASKS)
             .await
             .unwrap_err()
             .code(),
@@ -313,9 +772,13 @@ async fn required_transition_form_preserves_native_value_and_never_submits_defau
         choice_id: "finish:opaque".into(),
         ..Default::default()
     };
-    let err = writes::status_command(&provider, &jira_task(), choice.clone())
-        .await
-        .unwrap_err();
+    let err = writes::status_command(
+        &provider,
+        &jira_task(),
+        decode::status(choice.clone()).unwrap(),
+    )
+    .await
+    .unwrap_err();
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert!(http.sent.lock().unwrap().iter().all(|(m, _)| m == "GET"));
     let http = Http::new(vec![
@@ -340,7 +803,7 @@ async fn required_transition_form_preserves_native_value_and_never_submits_defau
             mapping::value(&json!({"id":"9007199254740993"})),
         )]),
     });
-    let command = writes::status_command(&provider, &jira_task(), choice)
+    let command = writes::status_command(&provider, &jira_task(), decode::status(choice).unwrap())
         .await
         .unwrap()
         .unwrap();
@@ -440,10 +903,9 @@ async fn task_download_artifact_is_bound_not_reusable_as_upload_and_revoked_imme
     )
     .unwrap();
     let p = proto::TaskProject {
-        host_id: rpc.auth.host_id().into(),
         integration_id: integration,
-        project_id: "CAN".into(),
-        workspace: None,
+        project_key: "CAN".into(),
+        ..environment(&rpc)
     };
     let task = jira_task();
     let result = rpc
@@ -456,12 +918,15 @@ async fn task_download_artifact_is_bound_not_reusable_as_upload_and_revoked_imme
                 reference: &p,
                 root: "private",
             },
-            proto::task_mutation_request::Action::Attachment(proto::TaskAttachmentWrite {
-                action: Some(proto::task_attachment_write::Action::Attach(
-                    artifact.clone(),
-                )),
-                name: "test.txt".into(),
-            }),
+            decode::action(proto::apply_mutation_request::Action::Attachment(
+                proto::TaskAttachmentWrite {
+                    action: Some(proto::task_attachment_write::Action::Attach(
+                        artifact.clone(),
+                    )),
+                    name: "test.txt".into(),
+                },
+            ))
+            .unwrap(),
         )
         .await;
     assert_eq!(result.unwrap_err().code(), tonic::Code::PermissionDenied);

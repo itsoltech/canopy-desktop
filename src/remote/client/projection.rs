@@ -1,12 +1,12 @@
-use crate::remote::proto as p;
+use crate::api::proto as p;
 use prost::Message;
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Default)]
 pub struct ChatProjection {
     pub items: Vec<p::TranscriptItem>,
-    pub summary: Option<p::ChatSummary>,
-    pub queue: Option<p::ChatQueue>,
+    pub summary: Option<p::ThreadStatus>,
+    pub queue: Option<p::ThreadQueue>,
     pub cursor: Option<p::Cursor>,
     pub has_earlier: bool,
     staging: Option<Box<ChatProjection>>,
@@ -33,20 +33,20 @@ impl ChatProjection {
             summary: cached
                 .summary
                 .as_ref()
-                .and_then(|b| p::ChatSummary::decode(b.as_slice()).ok()),
+                .and_then(|b| p::ThreadStatus::decode(b.as_slice()).ok()),
             queue: cached
                 .queue
                 .as_ref()
-                .and_then(|b| p::ChatQueue::decode(b.as_slice()).ok()),
+                .and_then(|b| p::ThreadQueue::decode(b.as_slice()).ok()),
             ..Default::default()
         }
     }
 
-    pub fn apply(&mut self, chat: &p::ChatRef, event: p::ChatEvent) -> Result<bool, String> {
-        if event.chat.as_ref() != Some(chat) {
+    pub fn apply(&mut self, chat: &p::ThreadRef, event: p::ThreadEvent) -> Result<bool, String> {
+        if event.thread.as_ref() != Some(chat) {
             return Err("Chat event belongs to another resource.".into());
         }
-        use p::chat_event::Event;
+        use p::thread_event::Event;
         if let Some(Event::SnapshotStart(start)) = event.event {
             if self.staging.is_some() {
                 return Err("Nested chat snapshot.".into());
@@ -154,8 +154,8 @@ impl ChatProjection {
         self.cursor = event.cursor;
         Ok(true)
     }
-    fn reduce(&mut self, body: p::chat_event::Event, snapshot: bool) -> Result<(), String> {
-        use p::chat_event::Event;
+    fn reduce(&mut self, body: p::thread_event::Event, snapshot: bool) -> Result<(), String> {
+        use p::thread_event::Event;
         let target = if snapshot {
             self.staging.as_deref_mut().unwrap()
         } else {
@@ -237,10 +237,10 @@ impl ChatProjection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn chat() -> p::ChatRef {
-        p::ChatRef {
+    fn chat() -> p::ThreadRef {
+        p::ThreadRef {
             host_id: "host-a".into(),
-            chat_id: "chat".into(),
+            thread_id: "chat".into(),
         }
     }
     fn cursor(sequence: u64) -> p::Cursor {
@@ -250,9 +250,9 @@ mod tests {
             sequence,
         }
     }
-    fn event(body: p::chat_event::Event, sequence: Option<u64>) -> p::ChatEvent {
-        p::ChatEvent {
-            chat: Some(chat()),
+    fn event(body: p::thread_event::Event, sequence: Option<u64>) -> p::ThreadEvent {
+        p::ThreadEvent {
+            thread: Some(chat()),
             cursor: sequence.map(cursor),
             event: Some(body),
         }
@@ -276,7 +276,7 @@ mod tests {
             .apply(
                 &chat(),
                 event(
-                    p::chat_event::Event::SnapshotStart(p::SnapshotStart {
+                    p::thread_event::Event::SnapshotStart(p::SnapshotStart {
                         boundary: Some(cursor(10)),
                         ..Default::default()
                     }),
@@ -290,7 +290,7 @@ mod tests {
             .apply(
                 &chat(),
                 event(
-                    p::chat_event::Event::SnapshotEnd(p::SnapshotEnd {
+                    p::thread_event::Event::SnapshotEnd(p::SnapshotEnd {
                         boundary: Some(cursor(10)),
                         has_earlier_history: false,
                     }),
@@ -319,7 +319,7 @@ mod tests {
             !projection
                 .apply(
                     &chat(),
-                    event(p::chat_event::Event::ItemFragment(part.clone()), None)
+                    event(p::thread_event::Event::ItemFragment(part.clone()), None)
                 )
                 .unwrap()
         );
@@ -332,7 +332,7 @@ mod tests {
             projection
                 .apply(
                     &chat(),
-                    event(p::chat_event::Event::ItemFragment(last), None)
+                    event(p::thread_event::Event::ItemFragment(last), None)
                 )
                 .is_err()
         );
@@ -346,7 +346,7 @@ mod tests {
             .apply(
                 &chat(),
                 event(
-                    p::chat_event::Event::SnapshotItems(p::ItemChunk {
+                    p::thread_event::Event::SnapshotItems(p::ItemChunk {
                         items: vec![item()],
                     }),
                     None,
@@ -366,17 +366,17 @@ mod tests {
             projection
                 .apply(
                     &chat(),
-                    event(p::chat_event::Event::AppendText(append), Some(11))
+                    event(p::thread_event::Event::AppendText(append), Some(11))
                 )
                 .is_err()
         );
         assert_eq!(projection.items[0], item());
         assert_eq!(projection.cursor, Some(cursor(10)));
         let mut wrong = event(
-            p::chat_event::Event::QueueChanged(Default::default()),
+            p::thread_event::Event::QueueChanged(Default::default()),
             Some(12),
         );
-        wrong.chat.as_mut().unwrap().host_id = "host-b".into();
+        wrong.thread.as_mut().unwrap().host_id = "host-b".into();
         assert!(projection.apply(&chat(), wrong).is_err());
     }
     #[test]
@@ -389,7 +389,7 @@ mod tests {
             .apply(
                 &chat(),
                 event(
-                    p::chat_event::Event::SnapshotItems(p::ItemChunk {
+                    p::thread_event::Event::SnapshotItems(p::ItemChunk {
                         items: vec![trimmed],
                     }),
                     None,
@@ -410,7 +410,7 @@ mod tests {
                 .clone()
                 .apply(
                     &chat(),
-                    event(p::chat_event::Event::AppendText(append.clone()), Some(12))
+                    event(p::thread_event::Event::AppendText(append.clone()), Some(12))
                 )
                 .is_err()
         );
@@ -418,7 +418,7 @@ mod tests {
             projection
                 .apply(
                     &chat(),
-                    event(p::chat_event::Event::AppendText(append), Some(11))
+                    event(p::thread_event::Event::AppendText(append), Some(11))
                 )
                 .is_err()
         );

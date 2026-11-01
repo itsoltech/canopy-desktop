@@ -2,7 +2,7 @@
 
 Ten dokument jest częścią [planu domenowego](agent-runtime-remote-plan.md).
 Opisuje testy docelowe. Nie stanowi raportu wykonania testów.
-Zmieniony 2026-10-31 zgodnie z [ADR 0001](adr/0001-thread-architecture.md).
+Zmieniony 2026-11-01 zgodnie z [ADR 0001](adr/0001-thread-architecture.md).
 
 ## 1 Reguły odbioru i dowody
 
@@ -210,13 +210,26 @@ hasza słabego sekretu w bazie/diagnostyce; utrata klucza nie pozwala powtórzy�
 
 | Test | Wymagania planu | Kroki i warunek PASS |
 | --- | --- | --- |
-| AC-36 P/T/R | BUS-01..05, RPC-08..13 | Uruchom test kontraktowy deskryptor proto, rejestr komend i lista narzędzi MCP. Usuń kolejno RPC, narzędzie i wpis rejestru dla jednej komendy. Uruchom `buf lint` i `buf breaking`. Wykonaj tę samą komendę przez UI, gRPC i MCP z brakującym uprawnieniem. Odczytaj plik projektu z Git i bez Git przez `ProjectRef`, z `worktree_id` i bez niego, oraz plik wątku przez `ThreadRef`. PASS: test wykrywa każdy brak; brak `Execute`, `ChatRef`, `WorkspaceRef` i `canopy.remote.v1`; niezgodny `worktree_id` odrzucony przed I/O, a `ThreadRef` rozwiązuje projekt i worktree wątku; ta sama odmowa i ten sam fingerprint dla trzech wejść; zmiana ustawienia zwraca nową rewizję. |
+| AC-36 P/T/R | BUS-01..05, RPC-08..13 | Uruchom test kontraktowy deskryptor proto, rejestr komend i lista narzędzi MCP. Usuń kolejno RPC, narzędzie i wpis rejestru dla jednej komendy. Uruchom `buf lint`; od pierwszego wydania v1 także `buf breaking` względem wydanego deskryptora. Wykonaj tę samą komendę przez UI, gRPC i MCP z brakującym uprawnieniem. Odczytaj plik projektu z Git i bez Git przez `ProjectRef`, z `worktree_id` i bez niego, oraz plik wątku przez `ThreadRef`. PASS: test wykrywa każdy brak; brak `Execute`, `ChatRef`, `WorkspaceRef` i `canopy.remote.v1`; niezgodny `worktree_id` odrzucony przed I/O, a `ThreadRef` rozwiązuje projekt i worktree wątku; ta sama odmowa i ten sam fingerprint dla trzech wejść; zmiana ustawienia zwraca nową rewizję. |
 | AC-37 T/N | REPL-01..07, OWN-09, DATA-05 | Utwórz wątki na A i B. Zmień metadane wątku A z B. Wyłącz A, czytaj i przeszukuj jego transkrypt na B, potem usuń wątek na A i włącz A. Przerwij strumień katalogu w trakcie snapshotu. PASS: B ma pełną replikę tylko do odczytu w tych samych tabelach historii; zmiana z B przechodzi przez inbox A z kontrolą rewizji; usunięcie znika z B po snapshocie; brak relay i brak lokalnego zapisu repliki; wątek nie zmienia środowiska. |
 | AC-38 T/E | MCP-01..05, BUS-02 | Połącz M z A i B z grantem Ask dla files_git, Deny dla terminal i admin bez potwierdzeń. Wylistuj wątki, zmień konfigurację wykonującą kod, wykonaj komendę Ask i Deny. Odwołaj principal M na A. PASS: M widzi wątki obu hostów z HostId i metadanymi; Ask czeka na potwierdzenie, Deny jest odrzucone, admin działa bez potwierdzenia; każda komenda UI ma narzędzie; revoke na A nie zmienia M na B ani innych principali. |
 | AC-39 T | APP-09, REPL-06 | Zmień preferencję użytkownika na A i B offline, połącz hosty. Zmień ustawienie hosta i urządzenia. PASS: preferencja użytkownika zbiega się według HLC/LWW na obu hostach; ustawienie hosta zostaje na hoście; ustawienie urządzenia nie przestawia innego urządzenia. |
 | AC-40 C/E | OWN-10..11 | Uruchom drugą instancję aplikacji tego samego użytkownika OS na tym samym katalogu danych. Wykonaj akcję widoku z MCP. Osobno uruchom instancję z innym `CANOPY_DATA_DIR`. PASS: druga instancja nie pokazuje osobnego stanu; istnieje jedno okno główne; akcja MCP zmienia stan globalny renderowany przez to okno bez adresowania okna; instancja z izolowanym katalogiem startuje niezależnie. |
 
 ## 9 Wymagane artefakty odbioru
+
+Uzupełnienie AC-36 dla D16: lokalny terminal Private/scratch bez projektu i wątku
+przechodzi przez bus z EnvironmentRef. Test granicy ma przyjąć lokalne open/close
+i odrzucić te same intencje dla uwierzytelnionego urządzenia, również z grantem
+Private i pełnymi scope, przed dedupe lub ujawnieniem wyniku. Publiczny Terminal
+nie przyjmuje EnvironmentRef ani dowolnej ścieżki. Katalog, historia i strumień
+nie ujawniają terminala Private/scratch także przy cwd równym projektowi oraz
+korzeniu `*`; usunięcie projektu przerywa dalsze ujawnianie historii i wyjścia.
+CI sprawdza usunięte referencje,
+`buf lint`, aktualność generatora mobile oraz testy biblioteki i binarium.
+Do pierwszego wydania brak baseline breaking nie blokuje niewydanej migracji;
+od wydania CI wymaga niezmiennego tagu `canopy-api-v1`. Rzeczywisty rejestr MCP
+pozostaje jawnym TODO następnego zadania, więc jego parytet nadal jest NOT RUN.
 
 Raport końcowy musi zawierać:
 

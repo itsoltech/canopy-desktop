@@ -81,6 +81,7 @@ pub struct TerminalView {
     /// Link the left button went down on, and the cell; opens if released there.
     pressed_link: Option<(canopy_desktop::terminal::links::Link, (usize, usize))>,
     task: Option<Task<()>>,
+    input_control: Option<Task<()>>,
     pump: Option<Task<()>>,
 }
 impl TerminalView {
@@ -256,6 +257,7 @@ impl TerminalView {
             link: None,
             pressed_link: None,
             task: None,
+            input_control: None,
             pump: None,
         }
     }

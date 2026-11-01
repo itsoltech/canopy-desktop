@@ -48,7 +48,7 @@ impl Sidebar {
                 remote.insert(super::remote::project_key(
                     origin.as_ref(),
                     host.id().as_str(),
-                    &project.project_id,
+                    &project.path,
                 ));
             }
         }

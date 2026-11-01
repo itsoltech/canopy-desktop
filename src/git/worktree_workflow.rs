@@ -578,6 +578,10 @@ fn publish_merge(
     Ok(warning)
 }
 
+pub fn analyze_branch(repository: &Path, source: &str, target: &str) -> Result<BranchAnalysis> {
+    branch_analysis(&root_repo(repository)?, source, target)
+}
+
 pub fn delete_branch_after_removal(repository: &Path, analysis: &BranchAnalysis) -> Result<()> {
     let info = inspect(repository)?.ok_or("Not a Git repository.")?;
     if info

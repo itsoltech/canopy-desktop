@@ -15,6 +15,37 @@ fn local() -> CommandKey {
 fn remote(device: &str) -> CommandKey {
     CommandKey::remote(device.into(), 1, id()).unwrap()
 }
+async fn recovery_input(
+    c: &SettingsClient,
+    source: &ChatRecord,
+    record: &ChatRecord,
+    reason: &str,
+) -> host::CommandInput {
+    use canopy_desktop::command_bus::{
+        Command, CommandBus, CommandEnvelope, Principal, ResourceRef,
+    };
+    let thread = source.thread().unwrap();
+    CommandBus::new(c.clone())
+        .prepare(
+            CommandEnvelope {
+                command_id: uuid::Uuid::new_v4(),
+                resource: ResourceRef::Thread {
+                    thread: thread.thread().clone(),
+                    executor_epoch: thread.executor_epoch(),
+                },
+                command: Command::Recovery {
+                    record: Box::new(record.clone()),
+                    expected_reason: reason.into(),
+                },
+                conditions: Default::default(),
+            },
+            Principal::local_owner(),
+        )
+        .await
+        .unwrap()
+        .runtime_input()
+        .clone()
+}
 async fn register(c: &SettingsClient, name: &str, credential: Vec<u8>, root: &str) -> String {
     let device = id();
     c.register_runtime_device(
@@ -294,7 +325,7 @@ fn orphan_recovery_requires_explicit_account_and_current_epoch_and_has_one_winne
             .unwrap()
         };
         let missing = make(None, 7);
-        let cmd = missing.recovery_command(local(), &reason).unwrap();
+        let cmd = recovery_input(&c, &orphan, &missing, &reason).await;
         assert!(matches!(
             c.recover_runtime_chat(cmd, missing, reason.clone()).await,
             Err(Error::InvalidRuntimeState)
@@ -307,24 +338,30 @@ fn orphan_recovery_requires_explicit_account_and_current_epoch_and_has_one_winne
         }])
         .await
         .unwrap();
-        let cmd = stale.recovery_command(local(), &reason).unwrap();
-        assert!(matches!(
-            c.recover_runtime_chat(cmd, stale, reason.clone()).await,
-            Err(Error::ResourceConflict)
-        ));
+        let cmd = recovery_input(&c, &orphan, &stale, &reason).await;
+        assert_eq!(
+            c.recover_runtime_chat(cmd, stale, reason.clone())
+                .await
+                .unwrap()
+                .state(),
+            host::CommandState::Rejected
+        );
         let record = make(Some("claude-default".into()), 8);
-        let winner = record.recovery_command(local(), &reason).unwrap();
-        let loser = record.recovery_command(local(), &reason).unwrap();
+        let winner = recovery_input(&c, &orphan, &record, &reason).await;
+        let loser = recovery_input(&c, &orphan, &record, &reason).await;
         c.recover_runtime_chat(winner.clone(), record.clone(), reason.clone())
             .await
             .unwrap();
         c.recover_runtime_chat(winner, record.clone(), reason.clone())
             .await
             .unwrap();
-        assert!(matches!(
-            c.recover_runtime_chat(loser, record, reason).await,
-            Err(Error::ResourceConflict)
-        ));
+        assert_eq!(
+            c.recover_runtime_chat(loser, record, reason)
+                .await
+                .unwrap()
+                .state(),
+            host::CommandState::Rejected
+        );
         let loaded = c.load_runtime_chats().await.unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].id(), chat_id);

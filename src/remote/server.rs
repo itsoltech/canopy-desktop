@@ -4,11 +4,11 @@ use super::{
     auth::RpcAuth,
     enrollment::EnrollmentRpc,
     host::{HealthRpc, HostRpc, HostState},
-    proto,
     resources::ResourceLocks,
     sync::ReplayHub,
     tls::HostIdentity,
 };
+use crate::api::proto;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{service::Routes, transport::Server};
@@ -97,7 +97,7 @@ pub async fn start(address: SocketAddr, services: ServerServices) -> Result<Runn
                                 .max_encoding_message_size(crate::host::CONTROL_BYTES),
                         )
                         .add_service(
-                            proto::enrollment_service_server::EnrollmentServiceServer::new(
+                            crate::api::proto::enrollment_service_server::EnrollmentServiceServer::new(
                                 services.enrollment,
                             )
                             .max_decoding_message_size(64 * 1024)

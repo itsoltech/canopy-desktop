@@ -20,8 +20,8 @@ export class CatalogStaging {
   private accept(hostId: string, part: CatalogSnapshotPart): { boundary: Cursor; catalog: Catalog } | undefined {
     const { boundary, page } = part
     if (!boundary || !page) throw new CatalogResync('Invalid catalog page')
-    if (page.host_id !== hostId) throw Error('Catalog identity mismatch')
-    if (part.first) this.staged = { boundary, catalog: { host_id: hostId, projects: [], chats: [], terminals: [] }, bytes: 0 }
+    if (page.environment?.host_id !== hostId) throw Error('Catalog identity mismatch')
+    if (part.first) this.staged = { boundary, catalog: { environment: { host_id: hostId }, projects: [], threads: [], terminals: [] }, bytes: 0 }
     const staged = this.staged
     if (!staged) throw new CatalogResync('Catalog page before the first page')
     if (!sameCursor(staged.boundary, boundary)) throw new CatalogResync('Catalog snapshot boundary changed')
@@ -30,16 +30,16 @@ export class CatalogStaging {
     const target = staged.catalog
     for (const project of page.projects) {
       const last = target.projects[target.projects.length - 1]
-      if (last?.project_id === project.project_id) {
+      if (last?.path === project.path) {
         // A project continued from the previous page: same metadata, the rest of its checkouts.
         if (last.name !== project.name || last.path !== project.path || last.origin !== project.origin) throw new CatalogResync('Conflicting catalog project page')
         last.checkouts.push(...project.checkouts)
       } else {
-        if (target.projects.some(p => p.project_id === project.project_id)) throw new CatalogResync('Repeated catalog project')
+        if (target.projects.some(p => p.path === project.path)) throw new CatalogResync('Repeated catalog project')
         target.projects.push({ ...project, checkouts: [...project.checkouts] })
       }
     }
-    target.chats.push(...page.chats)
+    target.threads.push(...page.threads)
     target.terminals.push(...page.terminals)
     if (!part.last) return undefined
     this.staged = undefined
@@ -63,7 +63,7 @@ export class CatalogFeed {
       return whole.catalog
     }
     if (event.snapshot) {
-      if (event.snapshot.host_id !== hostId) throw Error('Catalog identity mismatch')
+      if (event.snapshot.environment?.host_id !== hostId) throw Error('Catalog identity mismatch')
       this.staging.discard(); this.cursor = event.cursor
       return event.snapshot
     }
@@ -74,17 +74,17 @@ export class CatalogFeed {
     if (BigInt(event.cursor.sequence) !== BigInt(cursor.sequence) + 1n) throw new CatalogResync('Catalog sequence gap')
     if (!current) throw new CatalogResync('Summary delta before snapshot')
     let next: Catalog
-    if (event.chat?.chat) {
-      if (event.chat.chat.host_id !== hostId) throw Error('Chat identity mismatch')
-      const id = event.chat.chat.chat_id
-      next = { ...current, chats: current.chats.filter(c => c.chat?.chat_id !== id).concat([event.chat]) }
+    if (event.thread?.thread) {
+      if (event.thread.thread.host_id !== hostId || event.thread.summary?.thread?.thread_id !== event.thread.thread.thread_id) throw Error('Thread identity mismatch')
+      const id = event.thread.catalog_id
+      next = { ...current, threads: current.threads.filter(c => c.catalog_id !== id).concat([event.thread]) }
     } else if (event.terminal?.terminal) {
       if (event.terminal.terminal.host_id !== hostId) throw Error('Terminal identity mismatch')
       const id = event.terminal.terminal.terminal_id
       next = { ...current, terminals: current.terminals.filter(t => t.terminal?.terminal_id !== id).concat([event.terminal]) }
-    } else if (event.deleted?.chat) {
-      const id = event.deleted.chat.chat_id
-      next = { ...current, chats: current.chats.filter(c => c.chat?.chat_id !== id) }
+    } else if (event.deleted?.thread_catalog_id) {
+      const id = event.deleted.thread_catalog_id
+      next = { ...current, threads: current.threads.filter(c => c.catalog_id !== id) }
     } else if (event.deleted?.terminal) {
       const id = event.deleted.terminal.terminal_id
       next = { ...current, terminals: current.terminals.filter(t => t.terminal?.terminal_id !== id) }
@@ -102,7 +102,7 @@ export interface CatalogStreamClient {
 export async function readCatalog(client: CatalogStreamClient, hostId: string, signal?: AbortSignal): Promise<Catalog> {
   const staging = new CatalogStaging()
   let result: Catalog | undefined
-  const stream = await client.subscribe('CatalogService/ReadCatalog', { host_id: hostId }, event => {
+  const stream = await client.subscribe('CatalogService/ReadCatalog', { environment: { host_id: hostId } }, event => {
     if (result) throw new CatalogResync('Catalog event after the last page')
     if (!event.snapshot_part) throw new CatalogResync('Unexpected catalog event')
     result = staging.push(hostId, event.snapshot_part)?.catalog

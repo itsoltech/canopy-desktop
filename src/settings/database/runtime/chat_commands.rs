@@ -44,6 +44,7 @@ impl Database {
             return Ok(None);
         };
         authorize_root(&self.db, &key, saved_scope, &root, false)?;
+        authorize_saved(&self.db, &key, false)?;
         if method != saved_method
             || target != saved_target
             || fingerprint != saved_fingerprint

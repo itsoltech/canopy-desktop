@@ -20,11 +20,6 @@ pub struct PullIntent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AttachmentIntent {
     Value(Attachment),
-    Path {
-        workspace: Option<(HostId, String)>,
-        relative: String,
-        label: Option<String>,
-    },
     ThreadPath {
         project_file: bool,
         relative: String,
@@ -67,7 +62,7 @@ fn relative(value: &str) -> Result<PathBuf> {
 }
 impl DraftIntent {
     pub(super) fn has_workspace_files(&self) -> bool {
-        matches!(self, Self::Incoming { attachments, .. } if attachments.iter().any(|a| matches!(a, AttachmentIntent::Path { workspace: Some(_), .. } | AttachmentIntent::ThreadPath { project_file: true, .. })))
+        matches!(self, Self::Incoming { attachments, .. } if attachments.iter().any(|a| matches!(a, AttachmentIntent::ThreadPath { project_file: true, .. })))
     }
     pub(super) fn normalize(&mut self) -> Result<()> {
         match self {
@@ -87,12 +82,7 @@ impl DraftIntent {
                 }
                 for attachment in attachments {
                     match attachment {
-                        AttachmentIntent::Path {
-                            relative: path,
-                            label,
-                            ..
-                        }
-                        | AttachmentIntent::ThreadPath {
+                        AttachmentIntent::ThreadPath {
                             relative: path,
                             label,
                             ..
@@ -176,36 +166,6 @@ impl DraftIntent {
                     }
                     images.push(artifact.clone());
                 }
-                AttachmentIntent::Path {
-                    workspace,
-                    relative: path,
-                    label,
-                } => {
-                    let root = if let Some((host, workspace)) = workspace {
-                        if host != prepared.envelope.resource.host_id()
-                            || record.workspace() != Some(workspace.as_str())
-                        {
-                            return Err(Error::NotAuthorized);
-                        }
-                        // Prepared admission already checked current grants for this
-                        // canonical root. A caller cannot name another checkout.
-                        let roots = &resources.ok_or(Error::InvalidRuntimeState)?.roots;
-                        let root = roots.resolve_host_workspace(workspace)?;
-                        if root.to_str() != Some(record.authority_root()) {
-                            return Err(Error::NotAuthorized);
-                        }
-                        root
-                    } else {
-                        if record.workspace().is_some() {
-                            return Err(Error::InvalidRuntimeState);
-                        }
-                        record.metadata().cwd.clone().ok_or(Error::NotFound)?
-                    };
-                    values.push(Attachment::Path {
-                        path: root.join(relative(path)?),
-                        label: label.clone(),
-                    });
-                }
                 AttachmentIntent::Value(Attachment::Command {
                     name,
                     skill,
@@ -242,7 +202,7 @@ impl DraftIntent {
                 }
                 AttachmentIntent::Value(value) => values.push(value.clone()),
                 AttachmentIntent::Pull { value, label } => {
-                    let pull = crate::remote::proto::PullAttachment {
+                    let pull = crate::api::proto::PullAttachment {
                         number: value.number,
                         title: value.title.clone(),
                         url: value.url.clone(),
@@ -285,6 +245,9 @@ pub(super) fn resolve_command(
     resources: Option<&DraftResources>,
 ) -> Result<Dispatch> {
     Ok(match &prepared.envelope.command {
+        Command::Admin(AdminCommand::RevokeDevice { device }) => {
+            Dispatch::RevokeDevice(device.clone())
+        }
         Command::Rename { title } => Dispatch::Rename(title.clone()),
         Command::ThreadSend {
             message,
@@ -342,7 +305,17 @@ pub(super) fn resolve_command(
                 },
             },
         },
-        Command::Preferences { .. } | Command::Control(_) | Command::Catalog(_) => {
+        Command::Preferences { .. }
+        | Command::Task(_)
+        | Command::Peer(_)
+        | Command::Settings(_)
+        | Command::Recovery { .. }
+        | Command::Control(_)
+        | Command::Catalog(_)
+        | Command::File(_)
+        | Command::Terminal(_)
+        | Command::Artifact(_)
+        | Command::Git(_) => {
             return Err(Error::InvalidRuntimeState);
         }
     })

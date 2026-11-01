@@ -573,7 +573,14 @@ impl TasksView {
     }
     fn render_footer(&self, task: &p::Task, cx: &mut Context<Self>) -> Div {
         let disabled = !self.ready();
-        let scoped = task.task.as_ref().is_some_and(|t| t.workspace.is_some());
+        let scoped = task
+            .task
+            .as_ref()
+            .and_then(|t| t.project.as_ref())
+            .and_then(|p| p.resource.as_ref())
+            .is_some_and(
+                |r| matches!(r, p::task_project::Resource::Project(p) if p.worktree_id.is_some()),
+            );
         let busy_form = self.editing
             || self.mode != FormMode::Detail
             || self.action.is_some()
@@ -598,17 +605,18 @@ impl TasksView {
                     .text_color(t::muted())
                     .child(self.notice.clone()),
             )
-            .children(self.returned_workspace.as_ref().map(|id| {
-                let workspace = p::WorkspaceRef {
-                    host_id: self.host.id().as_str().into(),
-                    workspace_id: id.clone(),
-                };
-                button("open-created-worktree", "Open worktree")
-                    .disabled(disabled)
-                    .on_click(
-                        cx.listener(move |_, _, _, cx| cx.emit(OpenWorkspace(workspace.clone()))),
-                    )
-            }))
+            .children(
+                self.returned_workspace
+                    .as_ref()
+                    .and_then(|id| self.host.shared_catalog().and_then(|c| checkout(&c, id)))
+                    .map(|workspace| {
+                        button("open-created-worktree", "Open worktree")
+                            .disabled(disabled)
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.emit(OpenWorkspace(workspace.clone()))
+                            }))
+                    }),
+            )
             .child(
                 input(&self.branch)
                     .w(px(180.))

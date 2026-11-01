@@ -2,7 +2,7 @@ use super::{
     HostClient, rpc_error,
     store::{MutationRecord, OutboxEntry},
 };
-use crate::remote::proto as p;
+use crate::api::proto as p;
 use prost::Message;
 use std::future::Future;
 use tonic::transport::Channel;
@@ -10,10 +10,7 @@ use tonic::transport::Channel;
 pub(super) fn terminal_state(state: i32) -> bool {
     matches!(
         p::OperationState::try_from(state),
-        Ok(p::OperationState::Succeeded
-            | p::OperationState::Failed
-            | p::OperationState::Rejected
-            | p::OperationState::CommandRetired)
+        Ok(p::OperationState::Succeeded | p::OperationState::Failed | p::OperationState::Rejected)
     )
 }
 impl HostClient {
@@ -72,6 +69,16 @@ impl HostClient {
             });
             Ok(())
         })?;
+        let retained = self.snapshot().record.mutations;
+        for entry in record.mutations {
+            if !retained
+                .iter()
+                .any(|r| r.id == entry.id && r.epoch == entry.epoch)
+                && let Some((kind, bytes)) = entry.api_intent
+            {
+                self.remove_settings_intent(&kind, &bytes);
+            }
+        }
         let started = std::time::Instant::now();
         let response = call(channel, meta.clone()).await;
         crate::remote::metrics::record(
@@ -98,40 +105,121 @@ impl HostClient {
         self.changed();
         check_receipt(receipt)
     }
-    /// Input control is ephemeral and never replayed after a lost response.
+    pub(super) async fn terminal_project(
+        &self,
+        terminal: &crate::api::proto::TerminalRef,
+    ) -> Result<crate::api::proto::ProjectRef, String> {
+        if terminal.host_id != self.id().as_str() {
+            return Err("Terminal belongs to another host.".into());
+        }
+        let workspace = self
+            .snapshot()
+            .catalog
+            .and_then(|catalog| {
+                catalog
+                    .terminals
+                    .into_iter()
+                    .find(|row| {
+                        row.terminal.as_ref().is_some_and(|t| {
+                            t.host_id == terminal.host_id && t.terminal_id == terminal.terminal_id
+                        })
+                    })
+                    .map(|row| row.project_catalog_id)
+            })
+            .ok_or("Terminal project is unavailable. Refresh the catalog.")?;
+        self.project_ref(&workspace).await
+    }
+    pub async fn open_terminal(
+        &self,
+        workspace: String,
+        tool_id: String,
+        profile_id: Option<String>,
+    ) -> Result<p::CommandReceipt, String> {
+        let project = self.project_ref(&workspace).await?;
+        self.mutate_api(
+            super::api_commands::ApiIntent::OpenTerminal(crate::api::proto::OpenTerminalRequest {
+                command: None,
+                project: Some(project),
+                tool_id,
+                profile_id,
+            }),
+            String::new(),
+            None,
+        )
+        .await
+    }
+    pub async fn terminal_lifecycle(
+        &self,
+        terminal: crate::api::proto::TerminalRef,
+        run_id: String,
+        restart: bool,
+    ) -> Result<p::CommandReceipt, String> {
+        let project = Some(self.terminal_project(&terminal).await?);
+        let terminal_id = terminal.terminal_id;
+        let intent = if restart {
+            super::api_commands::ApiIntent::RestartTerminal(
+                crate::api::proto::RestartTerminalRequest {
+                    command: None,
+                    project,
+                    terminal_id,
+                    run_id,
+                },
+            )
+        } else {
+            super::api_commands::ApiIntent::StopTerminal(crate::api::proto::StopTerminalRequest {
+                command: None,
+                project,
+                terminal_id,
+                run_id,
+            })
+        };
+        self.mutate_api(intent, String::new(), None).await
+    }
+    /// Lease commands retain the exact request; stream input is never replayed.
     pub async fn acquire_input(
         &self,
-        terminal: p::TerminalRef,
+        terminal: crate::api::proto::TerminalRef,
         take_over: bool,
-    ) -> Result<p::InputLease, String> {
-        let _gate = self.mutation.lock().await;
-        let command = self.command(None)?;
-        p::terminal_service_client::TerminalServiceClient::new(self.channel()?)
-            .acquire_input(p::AcquireInputRequest {
-                command: Some(command),
-                terminal: Some(terminal),
-                take_over,
-            })
-            .await
-            .map_err(rpc_error)
-            .map(|r| r.into_inner())
+    ) -> Result<crate::api::proto::InputLease, String> {
+        let project = self.terminal_project(&terminal).await?;
+        let receipt = self
+            .mutate_api_typed(
+                super::api_commands::ApiIntent::AcquireInput(
+                    crate::api::proto::AcquireInputRequest {
+                        command: None,
+                        project: Some(project),
+                        terminal_id: terminal.terminal_id,
+                        take_over,
+                    },
+                ),
+                String::new(),
+                None,
+            )
+            .await?;
+        let Some(crate::api::proto::command_receipt::Result::Terminal(result)) = receipt.result
+        else {
+            return Err("Terminal lease result is missing.".into());
+        };
+        result.lease.ok_or("Terminal lease is missing.".into())
     }
     pub async fn release_input(
         &self,
-        terminal: p::TerminalRef,
-        lease: p::InputLease,
+        terminal: crate::api::proto::TerminalRef,
+        lease: crate::api::proto::InputLease,
     ) -> Result<(), String> {
-        let _gate = self.mutation.lock().await;
-        let command = self.command(None)?;
-        p::terminal_service_client::TerminalServiceClient::new(self.channel()?)
-            .release_input(p::ReleaseInputRequest {
-                command: Some(command),
-                terminal: Some(terminal),
+        let project = self.terminal_project(&terminal).await?;
+        self.mutate_api(
+            super::api_commands::ApiIntent::ReleaseInput(crate::api::proto::ReleaseInputRequest {
+                command: None,
+                project: Some(project),
+                terminal_id: terminal.terminal_id,
                 run_id: lease.run_id,
                 fencing_token: lease.fencing_token,
-            })
-            .await
-            .map_err(rpc_error)?;
+            }),
+            String::new(),
+            None,
+        )
+        .await?;
         Ok(())
     }
     pub(super) fn command(&self, revision: Option<u64>) -> Result<p::CommandMeta, String> {
@@ -140,7 +228,6 @@ impl HostClient {
             return Err("Command epoch is closing.".into());
         }
         Ok(p::CommandMeta {
-            host_id: self.id.0.clone(),
             command_id: uuid::Uuid::new_v4().to_string(),
             command_epoch: record
                 .epoch
@@ -235,17 +322,17 @@ impl HostClient {
     /// Offline enqueue never dispatches. The exact host/chat/context are durable.
     pub fn enqueue(
         &self,
-        chat: p::ChatRef,
+        catalog_id: String,
+        target: p::ThreadTarget,
         context: p::SendContext,
         draft: p::MessageDraft,
         uploads: Vec<String>,
         revision: u64,
     ) -> Result<(String, bool), String> {
-        if chat.host_id != self.id.0
-            || context
-                .workspace
-                .as_ref()
-                .is_some_and(|w| w.host_id != self.id.0)
+        if target
+            .thread
+            .as_ref()
+            .is_none_or(|t| t.host_id != self.id.0)
         {
             return Err("Message belongs to another host.".into());
         }
@@ -256,11 +343,11 @@ impl HostClient {
         {
             return Err("Offline outbox supports text and prepared images only. Send contextual attachments while online.".into());
         }
-        let chat_id = chat.chat_id.clone();
+        let chat_id = catalog_id.clone();
         let id = uuid::Uuid::new_v4().to_string();
         let request = p::SendMessageRequest {
             command: None,
-            chat: Some(chat),
+            target: Some(target),
             message_id: uuid::Uuid::new_v4().to_string(),
             draft: Some(draft),
             expected_context: Some(context),
@@ -275,6 +362,7 @@ impl HostClient {
             return Err("Local outbox is full. Resolve or remove saved messages first.".into());
         }
         r.outbox.push(OutboxEntry {
+            catalog_id: Some(catalog_id),
             api_request: None,
             id: id.clone(),
             request,
@@ -344,8 +432,7 @@ impl HostClient {
                 .iter()
                 .find(|u| &u.id == id)
                 .ok_or("Missing saved image.")?;
-            let begin = p::BeginUploadRequest::decode(upload.begin.as_slice())
-                .map_err(|_| "Invalid saved image.")?;
+            let begin = upload.draft()?.content;
             if begin.size > 32 * 1024 * 1024 {
                 return Err("Saved image exceeds 32 MiB.".into());
             }
@@ -364,8 +451,13 @@ impl HostClient {
                 .attachments
                 .push(crate::chat::attachments::prepare_image(&bytes, image_dir)?);
         }
-        let chat = request.chat.as_ref().ok_or("Missing saved chat.")?;
-        let key = format!("native-draft:{}", chat.chat_id);
+        let key = format!(
+            "native-draft:{}",
+            entry
+                .catalog_id
+                .as_ref()
+                .ok_or("Missing saved catalog identity; draft retained.")?
+        );
         let value = serde_json::to_string(&(
             &draft.text,
             &draft.attachments,
@@ -462,15 +554,18 @@ impl HostClient {
         } else {
             let catalog = self.snapshot_catalog().await?;
             let summary = catalog
-                .chats
+                .threads
                 .iter()
-                .find(|c| c.chat == request.chat)
+                .find(|c| c.thread == request.target.as_ref().and_then(|t| t.thread.clone()))
                 .ok_or("Chat no longer exists on its original host.")?;
+            let summary = summary
+                .summary
+                .as_ref()
+                .ok_or("Thread status is missing.")?;
             let context = p::SendContext {
-                agent_id: summary.agent_id.clone(),
+                account_id: summary.agent_id.clone(),
                 profile_id: summary.profile_id.clone(),
                 history_epoch: summary.history_epoch,
-                workspace: summary.workspace.clone(),
             };
             if request.expected_context.as_ref() != Some(&context) {
                 return Err("The chat account, history or workspace changed. Preserve this message and review its original context before sending.".into());
@@ -484,7 +579,13 @@ impl HostClient {
                     .attachments
                     .push(p::Attachment {
                         label: "Image".into(),
-                        content: Some(p::attachment::Content::Image(artifact)),
+                        content: Some(p::attachment::Content::Image(p::ImageAttachment {
+                            host_id: artifact.host_id,
+                            artifact_id: artifact.artifact_id,
+                            media_type: artifact.media_type,
+                            size: artifact.size,
+                            sha256: artifact.sha256,
+                        })),
                     });
             }
             let mut meta = self.command(None)?;
@@ -525,20 +626,11 @@ impl HostClient {
             .dispatch(
                 channel,
                 self.id().as_str(),
-                request
-                    .chat
-                    .as_ref()
-                    .map(|c| c.chat_id.clone())
-                    .unwrap_or_default(),
+                entry.catalog_id.clone().unwrap_or_default(),
             )
             .await;
-        let resource = crate::remote::metrics::resource_id(
-            request
-                .chat
-                .as_ref()
-                .map(|chat| chat.chat_id.as_str())
-                .unwrap_or("outbox"),
-        );
+        let resource =
+            crate::remote::metrics::resource_id(entry.catalog_id.as_deref().unwrap_or("outbox"));
         crate::remote::metrics::record(
             self.id().as_str(),
             &resource,
@@ -595,24 +687,10 @@ impl HostClient {
             .find(|(key, _, _)| key == id)
             .ok_or("Saved message not found.")?;
         let meta = request.command.ok_or("The message has not been sent.")?;
-        let mut client = p::host_service_client::HostServiceClient::new(self.channel()?);
-        let query = p::GetCommandRequest {
-            host_id: self.id().as_str().into(),
-            command_id: meta.command_id.clone(),
-            command_epoch: meta.command_epoch,
-        };
-        let mut receipt = client
-            .get_command(query.clone())
-            .await
-            .map_err(rpc_error)?
-            .into_inner();
+        let mut receipt = self.inspect_command(&meta).await?;
         self.validate_receipt(&meta, &receipt)?;
         if receipt.state == p::OperationState::DeliveryUnknown as i32 && !receipt.resolved_by_user {
-            receipt = client
-                .resolve_command(query)
-                .await
-                .map_err(rpc_error)?
-                .into_inner();
+            receipt = self.archive_command(&meta).await?;
             self.validate_receipt(&meta, &receipt)?;
             if !receipt.resolved_by_user {
                 return Err("The host did not confirm the review.".into());
@@ -658,6 +736,7 @@ impl HostClient {
                 request.command = None;
                 request.message_id = uuid::Uuid::new_v4().to_string();
                 record.outbox.push(OutboxEntry {
+                    catalog_id: old.catalog_id,
                     api_request: None,
                     id: next.clone(),
                     request: request.encode_to_vec(),
@@ -673,7 +752,7 @@ impl HostClient {
     }
     pub async fn reconcile(&self) -> Result<(), String> {
         let _gate = self.mutation.lock().await;
-        let mut client = p::host_service_client::HostServiceClient::new(self.channel()?);
+        self.reconcile_uploads_locked().await?;
         let record = self.snapshot().record;
         for entry in record.mutations {
             if entry
@@ -684,23 +763,15 @@ impl HostClient {
             {
                 continue;
             }
-            if entry.api_intent.is_some() {
-                let receipt = self.retry_api(&entry, String::new()).await?;
-                self.store_api_receipt(&entry.id, &receipt)?;
-                continue;
-            }
-            let receipt = client
-                .get_command(p::GetCommandRequest {
-                    host_id: self.id.0.clone(),
+            let receipt = self
+                .inspect_command(&p::CommandMeta {
                     command_id: entry.id.clone(),
                     command_epoch: entry.epoch,
+                    expected_revision: None,
                 })
-                .await
-                .map_err(rpc_error)?
-                .into_inner();
+                .await?;
             self.validate_receipt(
                 &p::CommandMeta {
-                    host_id: self.id.0.clone(),
                     command_id: entry.id.clone(),
                     command_epoch: entry.epoch,
                     expected_revision: None,
@@ -723,23 +794,10 @@ impl HostClient {
             {
                 continue;
             }
-            if entry.api_request.is_some() {
-                let receipt = self.retry_api_outbox(&entry).await?;
-                self.save_outbox_receipt(&entry.id, &receipt)?;
-                continue;
-            }
             let request = p::SendMessageRequest::decode(entry.request.as_slice())
                 .map_err(|_| "Invalid saved message.")?;
             let meta = request.command.ok_or("Missing saved command identity.")?;
-            let receipt = client
-                .get_command(p::GetCommandRequest {
-                    host_id: meta.host_id.clone(),
-                    command_id: meta.command_id.clone(),
-                    command_epoch: meta.command_epoch,
-                })
-                .await
-                .map_err(rpc_error)?
-                .into_inner();
+            let receipt = self.inspect_command(&meta).await?;
             self.validate_receipt(&meta, &receipt)?;
             self.save_outbox_receipt(&entry.id, &receipt)?;
         }
@@ -759,51 +817,62 @@ impl HostClient {
     async fn close_epoch_inner(&self, reviewed: bool) -> Result<(), String> {
         let _gate = self.mutation.lock().await;
         let record = self.snapshot().record;
-        if record.uploads.iter().any(|u| {
-            u.artifact.is_none()
-                && p::BeginUploadRequest::decode(u.begin.as_slice())
-                    .ok()
-                    .is_some_and(|b| b.command.is_some())
-        }) {
+        let epoch = record
+            .closing_epoch
+            .or(record.epoch)
+            .ok_or("Missing command epoch.")?;
+        for upload in record
+            .uploads
+            .iter()
+            .filter(|upload| upload.blocks_epoch(epoch))
+        {
+            self.reconcile_upload_locked(&upload.id).await?;
+        }
+        let record = self.snapshot().record;
+        if record
+            .uploads
+            .iter()
+            .any(|upload| upload.blocks_epoch(epoch))
+        {
             return Err("An unresolved upload prevents epoch closure.".into());
         }
         if !reviewed
             && (record.outbox.iter().any(|e| {
                 e.attempted
+                    && p::SendMessageRequest::decode(e.request.as_slice())
+                        .ok()
+                        .and_then(|r| r.command)
+                        .is_some_and(|m| m.command_epoch == epoch)
                     && e.receipt
                         .as_ref()
                         .and_then(|b| p::CommandReceipt::decode(b.as_slice()).ok())
                         .is_none_or(|r| !terminal_state(r.state))
             }) || record.mutations.iter().any(|e| {
-                e.receipt
-                    .as_ref()
-                    .and_then(|b| p::CommandReceipt::decode(b.as_slice()).ok())
-                    .is_none_or(|r| !terminal_state(r.state))
+                e.epoch == epoch
+                    && e.receipt
+                        .as_ref()
+                        .and_then(|b| p::CommandReceipt::decode(b.as_slice()).ok())
+                        .is_none_or(|r| !terminal_state(r.state))
             }))
         {
             return Err(
                 "Unresolved operations prevent epoch closure. Inspect their outcomes first.".into(),
             );
         }
-        let epoch = record
-            .closing_epoch
-            .or(record.epoch)
-            .ok_or("Missing command epoch.")?;
-        self.update_record(|r| {
-            r.closing_epoch = Some(epoch);
-            Ok(())
-        })?;
         if reviewed {
-            let mut client = p::host_service_client::HostServiceClient::new(self.channel()?);
             let mut commands = record
                 .mutations
                 .iter()
+                .filter(|entry| entry.epoch == epoch)
                 .map(|entry| (entry.id.clone(), entry.epoch, entry.receipt.clone(), None))
                 .collect::<Vec<_>>();
             for entry in record.outbox.iter().filter(|entry| entry.attempted) {
                 let request = p::SendMessageRequest::decode(entry.request.as_slice())
                     .map_err(|_| "Invalid saved message.")?;
                 let meta = request.command.ok_or("Missing saved command identity.")?;
+                if meta.command_epoch != epoch {
+                    continue;
+                }
                 commands.push((
                     meta.command_id,
                     meta.command_epoch,
@@ -819,31 +888,33 @@ impl HostClient {
                 }) {
                     continue;
                 }
-                let request = p::GetCommandRequest {
-                    host_id: self.id.0.clone(),
-                    command_id: id.clone(),
-                    command_epoch: epoch,
-                };
                 let meta = p::CommandMeta {
-                    host_id: self.id.0.clone(),
                     command_id: id.clone(),
                     command_epoch: epoch,
                     expected_revision: None,
                 };
-                let mut receipt = client
-                    .get_command(request.clone())
-                    .await
-                    .map_err(rpc_error)?
-                    .into_inner();
+                let lookup = self.lookup_command(&meta).await?;
+                match p::CommandLookupState::try_from(lookup.state) {
+                    Ok(p::CommandLookupState::Retired) => continue,
+                    Ok(p::CommandLookupState::NotFound) => {
+                        // Do not freeze the client in closing mode before it can
+                        // explicitly recover the exact original typed request.
+                        self.update_record(|record| {
+                            if record.closing_epoch == Some(epoch) {
+                                record.closing_epoch = None;
+                            }
+                            Ok(())
+                        })?;
+                        return Err("The host has no result for an attempted operation. Its intent is preserved; recover the original typed command before closing this epoch.".into());
+                    }
+                    _ => (),
+                }
+                let mut receipt = lookup.receipt.ok_or("Command result is missing.")?;
                 self.validate_receipt(&meta, &receipt)?;
                 if receipt.state == p::OperationState::DeliveryUnknown as i32
                     && !receipt.resolved_by_user
                 {
-                    receipt = client
-                        .resolve_command(request)
-                        .await
-                        .map_err(rpc_error)?
-                        .into_inner();
+                    receipt = self.archive_command(&meta).await?;
                     self.validate_receipt(&meta, &receipt)?;
                     if !receipt.resolved_by_user {
                         return Err("Host did not acknowledge operation review.".into());
@@ -865,15 +936,24 @@ impl HostClient {
                 }
             }
         }
-        let result = p::host_service_client::HostServiceClient::new(self.channel()?)
-            .close_command_epoch(p::CloseCommandEpochRequest {
-                host_id: self.id.0.clone(),
-                expected_epoch: epoch,
-            })
-            .await
-            .map_err(rpc_error)?
-            .into_inner();
-        if result.host_id != self.id.0 || result.epoch != epoch + 1 {
+        self.update_record(|r| {
+            r.closing_epoch = Some(epoch);
+            Ok(())
+        })?;
+        let result =
+            crate::api::proto::host_service_client::HostServiceClient::new(self.channel()?)
+                .close_command_epoch(crate::api::proto::CloseCommandEpochRequest {
+                    environment: Some(crate::api::proto::EnvironmentRef {
+                        host_id: self.id.0.clone(),
+                    }),
+                    expected_epoch: epoch,
+                })
+                .await
+                .map_err(rpc_error)?
+                .into_inner();
+        if result.environment.as_ref().map(|e| e.host_id.as_str()) != Some(self.id.0.as_str())
+            || result.epoch != epoch + 1
+        {
             return Err("Unexpected epoch closure result.".into());
         }
         self.update_record(|r| {
@@ -894,9 +974,7 @@ pub fn check_receipt(receipt: p::CommandReceipt) -> Result<p::CommandReceipt, St
         p::OperationState::try_from(receipt.state),
         Ok(p::OperationState::Failed
             | p::OperationState::Rejected
-            | p::OperationState::DeliveryUnknown
-            | p::OperationState::CommandRetired
-            | p::OperationState::NotFound)
+            | p::OperationState::DeliveryUnknown)
     ) {
         return Err(format!(
             "Operation state {}. Inspect recovery before retrying.",
@@ -1053,6 +1131,7 @@ mod draft_tests {
                 command_epoch: meta.command_epoch,
                 state: api::OperationState::Succeeded as i32,
                 resource: Some(api::command_receipt::Resource::Target(target)),
+                resolved_by_user: false,
                 error: None,
                 result: Some(api::command_receipt::Result::Send(api::SendResult {
                     message_id: r.message_id,
@@ -1101,24 +1180,18 @@ mod draft_tests {
         let (registry, host) = fixture(path.clone());
         host.state.lock().unwrap().channel =
             Some(tonic::transport::Endpoint::from_static("http://127.0.0.1:1").connect_lazy());
-        let chat = p::ChatRef {
+        let chat = p::ThreadRef {
             host_id: host.id().as_str().into(),
-            chat_id: uuid::Uuid::new_v4().to_string(),
+            thread_id: crate::thread::ThreadId::new().to_string(),
         };
         let target = api::ThreadTarget {
             thread: Some(api::ThreadRef {
                 host_id: chat.host_id.clone(),
-                thread_id: crate::thread::ThreadId::new().to_string(),
+                thread_id: chat.thread_id.clone(),
             }),
             executor_epoch: 7,
         };
-        let legacy = ChatMutation::Send(p::SendMessageRequest {
-            chat: Some(chat.clone()),
-            message_id: "retained-message".into(),
-            draft: Some(draft("retain both draft and original target")),
-            ..Default::default()
-        });
-        let typed = ApiIntent::Send(api::SendMessageRequest {
+        let typed = ChatMutation::Send(api::SendMessageRequest {
             target: Some(target.clone()),
             message_id: "retained-message".into(),
             draft: Some(api::MessageDraft {
@@ -1129,9 +1202,7 @@ mod draft_tests {
         });
         let result = tokio::time::timeout(
             std::time::Duration::from_millis(10),
-            host.submit_chat_mutation_prepared(legacy, Some(typed), |_, _, _| {
-                std::future::pending()
-            }),
+            host.submit_chat_mutation_with(typed, |_, _| std::future::pending()),
         )
         .await;
         assert!(result.is_err());
@@ -1182,18 +1253,21 @@ mod draft_tests {
         restored.state.lock().unwrap().channel = Some(channel);
         // Only ThreadService exists: rediscovery or a legacy fallback fails.
         let retried = restored.retry_chat_mutation(&saved.id).await.unwrap();
-        assert_eq!(retried.message_id, "retained-message");
+        assert!(
+            matches!(retried.result, Some(p::command_receipt::Result::Send(p::SendResult { message_id })) if message_id == "retained-message")
+        );
         assert_eq!(recorder.0.lock().unwrap()[0].encode_to_vec(), bytes);
         // A pre-migration attempted send cannot acquire today's thread identity.
         restored
             .update_record(|r| {
                 r.mutations[0].api_intent = None;
+                r.mutations[0].receipt = None;
                 Ok(())
             })
             .unwrap();
         let refusal = restored.retry_chat_mutation(&saved.id).await.unwrap_err();
-        assert!(refusal.contains("no original thread address"));
-        assert_eq!(restored.chat_mutations(&chat)[0].0, saved.id);
+        assert_eq!(refusal, "Saved typed request is missing.");
+        assert_eq!(restored.snapshot().record.mutations[0].id, saved.id);
         stop.send(()).unwrap();
         server.await.unwrap();
     }
@@ -1206,12 +1280,15 @@ mod draft_tests {
         // The injected dispatcher never uses this lazy channel or any service.
         host.state.lock().unwrap().channel =
             Some(tonic::transport::Endpoint::from_static("http://127.0.0.1:1").connect_lazy());
-        let chat = p::ChatRef {
+        let chat = p::ThreadRef {
             host_id: host.id().as_str().into(),
-            chat_id: "chat".into(),
+            thread_id: crate::thread::ThreadId::new().to_string(),
         };
         let intent = ChatMutation::Send(p::SendMessageRequest {
-            chat: Some(chat.clone()),
+            target: Some(p::ThreadTarget {
+                thread: Some(chat.clone()),
+                executor_epoch: 3,
+            }),
             message_id: "original-message".into(),
             draft: Some(draft("keep this draft")),
             ..Default::default()
@@ -1257,21 +1334,38 @@ mod draft_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("client.json");
         let (registry, host) = fixture(path.clone());
-        let chat = p::ChatRef {
-            host_id: host.id().as_str().into(),
-            chat_id: "chat".into(),
+        let chat = p::ThreadTarget {
+            thread: Some(p::ThreadRef {
+                host_id: host.id().as_str().into(),
+                thread_id: crate::thread::ThreadId::new().to_string(),
+            }),
+            executor_epoch: 3,
         };
         let context = p::SendContext {
-            agent_id: "remote-agent".into(),
+            account_id: "remote-agent".into(),
             history_epoch: 9,
             ..Default::default()
         };
         let first = host
-            .enqueue(chat.clone(), context.clone(), draft("queued"), vec![], 1)
+            .enqueue(
+                "chat".into(),
+                chat.clone(),
+                context.clone(),
+                draft("queued"),
+                vec![],
+                1,
+            )
             .unwrap()
             .0;
         let second = host
-            .enqueue(chat.clone(), context.clone(), draft("later"), vec![], 1)
+            .enqueue(
+                "chat".into(),
+                chat.clone(),
+                context.clone(),
+                draft("later"),
+                vec![],
+                1,
+            )
             .unwrap()
             .0;
         host.move_unsent(&second, &first).unwrap();
@@ -1310,7 +1404,7 @@ mod draft_tests {
             let path = dir.path().join("client.json");
             let (registry, host) = fixture(path.clone());
             let context = p::SendContext {
-                agent_id: "agent".into(),
+                account_id: "agent".into(),
                 history_epoch: 7,
                 ..Default::default()
             };
@@ -1332,9 +1426,13 @@ mod draft_tests {
                     barrier.wait();
                     if enqueue {
                         host.enqueue(
-                            p::ChatRef {
-                                host_id: host.id().as_str().into(),
-                                chat_id: "chat".into(),
+                            "chat".into(),
+                            p::ThreadTarget {
+                                thread: Some(p::ThreadRef {
+                                    host_id: host.id().as_str().into(),
+                                    thread_id: crate::thread::ThreadId::new().to_string(),
+                                }),
+                                executor_epoch: 3,
                             },
                             context,
                             draft("same text"),
@@ -1431,12 +1529,12 @@ mod draft_tests {
         let (registry, host) = fixture(path.clone());
         host.state.lock().unwrap().channel =
             Some(tonic::transport::Endpoint::from_static("http://127.0.0.1:1").connect_lazy());
-        let chat = p::ChatRef {
+        let chat = p::ThreadRef {
             host_id: host.id().as_str().into(),
-            chat_id: "chat".into(),
+            thread_id: crate::thread::ThreadId::new().to_string(),
         };
         let context = p::SendContext {
-            agent_id: "agent-a".into(),
+            account_id: "agent-a".into(),
             history_epoch: 9,
             ..Default::default()
         };
@@ -1453,7 +1551,10 @@ mod draft_tests {
         let finish = Arc::new(tokio::sync::Notify::new());
         let intent = ChatMutation::Send(p::SendMessageRequest {
             command: None,
-            chat: Some(chat.clone()),
+            target: Some(p::ThreadTarget {
+                thread: Some(chat.clone()),
+                executor_epoch: 3,
+            }),
             message_id: "original-message".into(),
             draft: Some(original.clone()),
             expected_context: Some(context.clone()),

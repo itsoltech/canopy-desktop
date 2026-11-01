@@ -379,6 +379,15 @@ impl ToolsState {
         }) {
             return Err("Invalid active secret write.".into());
         }
+        let local = completion
+            .is_none()
+            .then(|| super::file_ops::LocalResource::environment(cx))
+            .transpose()?;
+        let commands =
+            canopy_desktop::command_bus::SettingsCommand::tool_changes(&self.catalog, &catalog)
+                .into_iter()
+                .map(canopy_desktop::command_bus::Command::Settings)
+                .collect();
         self.saving = true;
         self.error = None;
         cx.notify();
@@ -386,6 +395,21 @@ impl ToolsState {
         let credentials = self.credentials.clone();
         self.task = Some(cx.spawn(async move |this, cx| {
             let writer = credentials.clone();
+            let inputs = if let Some(local) = &local {
+                match local.begin_many(commands).await {
+                    Ok(inputs) => inputs,
+                    Err(error) => {
+                        let _ = this.update(cx, |this, cx| {
+                            this.saving = false;
+                            this.error = Some(error);
+                            cx.notify();
+                        });
+                        return;
+                    }
+                }
+            } else {
+                Vec::new()
+            };
             let written = cx
                 .background_executor()
                 .spawn(async move {
@@ -447,17 +471,20 @@ impl ToolsState {
                     }
                 }
             };
-            let outcome = result
+            let mut outcome = result
                 .as_ref()
                 .map(|_| ())
                 .map_err(|(error, _)| error.clone());
+            if let Some(local) = local {
+                outcome = local.finish_many(inputs, outcome).await;
+            }
             let published = this.update(cx, |this, cx| {
                 this.saving = false;
                 match result {
                     Ok((catalog, cleanup_warning)) => {
                         this.catalog = catalog;
                         this.refresh(cx);
-                        this.error = cleanup_warning;
+                        this.error = outcome.as_ref().err().cloned().or(cleanup_warning);
                     }
                     Err((error, recovery)) => {
                         this.catalog = recovery;

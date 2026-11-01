@@ -1,9 +1,96 @@
 use super::*;
-use crate::remote::{
-    peer::{LocalPeer, device_id},
-    proto as p,
+use crate::{
+    command_bus::PeerConnection,
+    remote::peer::{LocalPeer, device_id},
 };
 use std::net::IpAddr;
+
+impl HostClient {
+    /// Reconnection can establish reciprocal trust before publishing its channel.
+    /// The exact command still belongs to the same durable journal and gate.
+    pub(crate) async fn connect_peer_on(
+        &self,
+        channel: Channel,
+        mut request: crate::api::proto::ConnectPeerRequest,
+        epoch: u64,
+    ) -> Result<bool, String> {
+        use super::{
+            api_commands::ApiIntent,
+            commands::{check_receipt, terminal_state},
+            store::MutationRecord,
+        };
+        let _gate = self.mutation.lock().await;
+        let record = self.snapshot().record;
+        if record.closing_epoch.is_some() {
+            return Ok(record.mutual);
+        }
+        let pending = record.mutations.iter().find(|entry| {
+            entry
+                .receipt
+                .as_ref()
+                .and_then(|bytes| p::CommandReceipt::decode(bytes.as_slice()).ok())
+                .is_none_or(|receipt| !receipt.resolved_by_user && !terminal_state(receipt.state))
+        });
+        let mut intent = if let Some(entry) = pending {
+            let Some((kind, bytes)) = &entry.api_intent else {
+                return Ok(record.mutual);
+            };
+            // Other unresolved operations must remain inspectable after connection.
+            if kind != "peer.connect" || entry.epoch != epoch {
+                return Ok(record.mutual);
+            }
+            ApiIntent::decode(kind, bytes)?
+        } else {
+            request.command = Some(crate::api::proto::CommandMeta {
+                command_id: uuid::Uuid::new_v4().to_string(),
+                command_epoch: epoch,
+                expected_revision: None,
+            });
+            let mut intent = ApiIntent::ConnectPeer(request);
+            let meta = intent
+                .meta()
+                .clone()
+                .ok_or("Missing peer command identity.")?;
+            let (kind, bytes) = intent.encode();
+            if bytes.len() > crate::host::CONTROL_BYTES {
+                return Err("Peer command exceeds the control limit.".into());
+            }
+            self.update_record(|record| {
+                // The gate and pending check above prove every prior entry is
+                // resolved. Match ordinary typed admission's bounded journal.
+                record.mutations.clear();
+                record.mutations.push(MutationRecord {
+                    id: meta.command_id.clone(),
+                    epoch,
+                    receipt: None,
+                    chat_intent: None,
+                    api_intent: Some((kind.into(), bytes)),
+                });
+                record.epoch = Some(epoch);
+                Ok(())
+            })?;
+            for entry in record.mutations {
+                if let Some((kind, bytes)) = entry.api_intent {
+                    self.remove_settings_intent(&kind, &bytes);
+                }
+            }
+            intent
+        };
+        let meta = intent
+            .meta()
+            .clone()
+            .ok_or("Missing peer command identity.")?;
+        let receipt = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            intent.dispatch(channel, self.id().as_str(), String::new()),
+        )
+        .await
+        .map_err(|_| "Peer outcome is uncertain; the original command is retained.".to_owned())??;
+        self.store_api_receipt(&meta.command_id, &receipt)?;
+        let receipt = check_receipt(receipt)?;
+        Ok(receipt.state == p::OperationState::Succeeded as i32)
+    }
+}
 
 impl ClientRegistry {
     pub fn set_local_peer(&self, peer: Option<Arc<LocalPeer>>) {
@@ -12,9 +99,7 @@ impl ClientRegistry {
     pub(crate) fn install_peer(
         &self,
         local: &LocalPeer,
-        peer: p::PeerHost,
-        certificate: Vec<u8>,
-        chain: Vec<Vec<u8>>,
+        peer: PeerConnection,
         observed: Option<IpAddr>,
     ) -> Result<Arc<HostClient>, String> {
         let _writer = self
@@ -22,14 +107,15 @@ impl ClientRegistry {
             .peer_write
             .lock()
             .map_err(|_| "Peer storage unavailable.")?;
-        let id = HostId::parse(&peer.host_id)?;
-        if peer.host_id == local.host_id()
+        let certificate = peer.device_certificate;
+        let chain = peer.certificate_chain;
+        let id = HostId::parse(peer.host.as_str())?;
+        if peer.host.as_str() == local.host_id()
             || peer.name.trim().is_empty()
             || peer.name.len() > 256
             || peer.name.chars().any(char::is_control)
-            || peer.server_name != format!("canopy-{}.local", peer.host_id)
+            || peer.server_name != format!("canopy-{}.local", peer.host)
             || peer.port == 0
-            || peer.port > 65535
             || peer.addresses.len() > 8
             || peer.certificate.len() > 16384
             || certificate.len() > 16384
@@ -37,18 +123,12 @@ impl ClientRegistry {
             || chain.len() > 8
             || chain.iter().map(Vec::len).sum::<usize>() > 16384
             || (peer.return_tunnel && !observed.is_some_and(|ip| ip.is_loopback()))
-            || peer.certificate_sha256 != sha2::Sha256::digest(&peer.certificate).as_slice()
+            || peer.fingerprint != sha2::Sha256::digest(&peer.certificate).as_slice()
         {
             return Err("Invalid reciprocal computer identity.".into());
         }
         let key = local.key();
-        rustls::sign::CertifiedKey::from_der(
-            vec![certificate.clone().into()],
-            rustls::pki_types::PrivateKeyDer::from_pem_slice(key.as_bytes())
-                .map_err(|_| "Invalid local peer key.")?,
-            &rustls::crypto::ring::default_provider(),
-        )
-        .map_err(|_| "Reciprocal certificate does not match this computer.")?;
+        local.validate_certificate(&certificate)?;
         let mut addresses = Vec::new();
         if !peer.return_tunnel
             && let Some(ip) = observed.filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
@@ -73,7 +153,7 @@ impl ClientRegistry {
         let routes = addresses
             .into_iter()
             .map(|ip| {
-                let address = std::net::SocketAddr::new(ip, peer.port as u16);
+                let address = std::net::SocketAddr::new(ip, peer.port);
                 store::ConnectionRoute::new(
                     if peer.return_tunnel {
                         "SSH return".into()
@@ -94,12 +174,12 @@ impl ClientRegistry {
             &endpoint,
             &peer.server_name,
             &peer.certificate,
-            &peer.certificate_sha256,
+            &peer.fingerprint,
             None,
         )?;
         if let Some(existing) = self.get(&id) {
             existing.update_record(|record| {
-                if record.certificate != peer.certificate || record.fingerprint != peer.certificate_sha256 {
+                if record.certificate != peer.certificate || record.fingerprint != peer.fingerprint {
                     return Err("The saved computer identity differs. Remove the old connection before pairing again.".into());
                 }
                 record.mutual = true;
@@ -121,7 +201,7 @@ impl ClientRegistry {
         let committed = self.inner.store.lock().unwrap().committed_host(&id)?;
         if let Some(committed) = committed {
             if committed.certificate != peer.certificate
-                || committed.fingerprint != peer.certificate_sha256
+                || committed.fingerprint != peer.fingerprint
             {
                 return Err("The committed computer identity differs.".into());
             }
@@ -132,7 +212,7 @@ impl ClientRegistry {
         }
         // Retry after a disk failure uses the same staging slots, rather than
         // leaking another private key bundle into the vault on every attempt.
-        let reference = device_id(local.host_id(), &format!("credential:{}", peer.host_id));
+        let reference = device_id(local.host_id(), &format!("credential:{}", peer.host));
         let pem = std::iter::once(&certificate)
             .chain(&chain)
             .map(|der| pairing::pem_certificate(der))
@@ -144,8 +224,8 @@ impl ClientRegistry {
             endpoint,
             server_name: peer.server_name,
             certificate: peer.certificate,
-            fingerprint: peer.certificate_sha256,
-            device_id: device_id(&peer.host_id, local.host_id()),
+            fingerprint: peer.fingerprint,
+            device_id: device_id(peer.host.as_str(), local.host_id()),
             credential_ref: reference.clone(),
             mutual: true,
             passive_peer: true,
@@ -176,7 +256,6 @@ impl ClientRegistry {
     }
 }
 
-use rustls::pki_types::pem::PemObject;
 use sha2::Digest;
 
 pub(crate) fn start_connection(host: Arc<HostClient>) {

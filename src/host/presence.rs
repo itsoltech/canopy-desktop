@@ -22,27 +22,30 @@ impl FileIdentity {
             || path
                 .components()
                 .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
-            || relative_path.is_empty()
-            || relative_path.len() > 4096
-            || relative_path.contains(['\0', '\\'])
-            || Path::new(&relative_path)
-                .components()
-                .any(|c| !matches!(c, Component::Normal(_)))
+            || !Self::valid_relative_path(&relative_path)
         {
-            return None;
-        }
-        let normalized = Path::new(&relative_path)
-            .components()
-            .map(|c| c.as_os_str().to_str())
-            .collect::<Option<Vec<_>>>()?
-            .join("/");
-        if normalized != relative_path {
             return None;
         }
         Some(Self {
             root,
             relative_path,
         })
+    }
+    pub(crate) fn valid_relative_path(relative_path: &str) -> bool {
+        if relative_path.is_empty()
+            || relative_path.len() > 4096
+            || relative_path.contains(['\0', '\\'])
+            || Path::new(relative_path)
+                .components()
+                .any(|c| !matches!(c, Component::Normal(_)))
+        {
+            return false;
+        }
+        Path::new(relative_path)
+            .components()
+            .map(|c| c.as_os_str().to_str())
+            .collect::<Option<Vec<_>>>()
+            .is_some_and(|parts| parts.join("/") == relative_path)
     }
     pub fn root(&self) -> &str {
         &self.root

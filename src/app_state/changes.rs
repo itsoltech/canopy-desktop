@@ -214,6 +214,40 @@ impl ChangesState {
             return Err("Git is busy.".into());
         }
         let client = self.client.clone().ok_or("Git worker unavailable.")?;
+        let resource =
+            super::file_ops::LocalResource::capture(&path, cx).map_err(SharedString::from)?;
+        let (operation, selected) = match &edit {
+            Edit::Stage(file) => (canopy_desktop::command_bus::GitPaths::Stage, file.as_ref()),
+            Edit::Unstage(file) => (
+                canopy_desktop::command_bus::GitPaths::Unstage,
+                file.as_ref(),
+            ),
+            Edit::Discard(file) => (canopy_desktop::command_bus::GitPaths::Discard, Some(file)),
+        };
+        let paths = if let Some(file) = selected {
+            vec![
+                file.path
+                    .to_str()
+                    .ok_or("Unsupported file path encoding.")?
+                    .into(),
+            ]
+        } else {
+            self.data
+                .as_ref()
+                .ok_or("Wait for Git changes to load.")?
+                .files
+                .iter()
+                .filter(|f| {
+                    f.staged == matches!(operation, canopy_desktop::command_bus::GitPaths::Unstage)
+                })
+                .map(|f| {
+                    f.path
+                        .to_str()
+                        .map(str::to_owned)
+                        .ok_or("Unsupported file path encoding.")
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
         self.busy = true;
         self.error = None;
         cx.global::<AppState>()
@@ -222,7 +256,17 @@ impl ChangesState {
             .update(cx, |g, cx| g.set_operation_busy(true, cx));
         cx.notify();
         self.task = Some(cx.spawn(async move |this, cx| {
-            let result = client.edit(path.clone(), edit).await;
+            let result = async {
+                let input = resource
+                    .begin_git(
+                        canopy_desktop::command_bus::GitIntent::Paths { operation, paths },
+                        cx.background_executor(),
+                    )
+                    .await?;
+                let outcome = client.edit(path.clone(), edit).await;
+                resource.bus.finish_local_resource(input, outcome).await
+            }
+            .await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 if let Err(error) = result
@@ -258,6 +302,8 @@ impl ChangesState {
             .ok_or("Shell environment is loading.")?
             .map_err(SharedString::from)?;
         let client = self.client.clone().ok_or("Git worker unavailable.")?;
+        let resource =
+            super::file_ops::LocalResource::capture(&path, cx).map_err(SharedString::from)?;
         self.busy = true;
         self.committing = true;
         self.commit_phase = Some("Preparing commit…".into());
@@ -283,16 +329,29 @@ impl ChangesState {
             .update(cx, |g, cx| g.set_operation_busy(true, cx));
         cx.notify();
         self.task = Some(cx.spawn(async move |this, cx| {
-            let result = client
-                .commit_with_hooks(canopy_desktop::git::CommitRequest {
-                    path: path.clone(),
-                    message,
-                    head: data.head.clone(),
-                    env: (*env).clone(),
-                    cancel,
-                    progress: Some(progress_tx),
-                })
-                .await;
+            let result = async {
+                let input = resource
+                    .begin_git(
+                        canopy_desktop::command_bus::GitIntent::Commit {
+                            message: message.clone(),
+                            sign: false,
+                        },
+                        cx.background_executor(),
+                    )
+                    .await?;
+                let outcome = client
+                    .commit_with_hooks(canopy_desktop::git::CommitRequest {
+                        path: path.clone(),
+                        message,
+                        head: data.head.clone(),
+                        env: (*env).clone(),
+                        cancel,
+                        progress: Some(progress_tx),
+                    })
+                    .await;
+                resource.bus.finish_local_resource(input, outcome).await
+            }
+            .await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 this.committing = false;
@@ -364,6 +423,8 @@ impl ChangesState {
             return Err("The selected worktree changed. Try again.".into());
         }
         let client = self.client.clone().ok_or("Git worker unavailable.")?;
+        let resource =
+            super::file_ops::LocalResource::capture(&path, cx).map_err(SharedString::from)?;
         self.busy = true;
         self.networking = true;
         self.network_operation = Some((path.clone(), operation));
@@ -386,7 +447,15 @@ impl ChangesState {
                     if plan.remotes.is_empty() { return Err("This repository has no remote. Add a remote before pulling or pushing.".into()); }
                     return Ok(Err(UpstreamRequest { plan, operation }));
                 }
-                client.network(plan, operation, upstream, cancel).await.map(Ok)
+                let destination = upstream.as_ref().or(plan.upstream.as_ref()).ok_or("Select an upstream branch.")?;
+                let intent = match operation {
+                    canopy_desktop::git::network::Operation::Pull => canopy_desktop::command_bus::GitIntent::Pull { remote: destination.remote.clone(), upstream: Some(destination.branch.clone()) },
+                    canopy_desktop::git::network::Operation::Push => canopy_desktop::command_bus::GitIntent::Push { remote: destination.remote.clone(), upstream: Some(destination.branch.clone()) },
+                };
+                let input = resource.begin_git(intent, cx.background_executor()).await?;
+                let outcome = client.network(plan, operation, upstream, cancel).await;
+                let uncertain = outcome.is_err();
+                resource.bus.finish_local_outcome(input, outcome, uncertain).await.map(Ok)
             }.await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;

@@ -2,8 +2,8 @@
 //! agents. Wire identities remain epoch-scoped; paths are display data, never
 //! local filesystem authority.
 use crate::{
+    api::proto as p,
     chat::{self, transcript as t},
-    remote::proto as p,
 };
 use serde_json::json;
 pub fn call_id(epoch: u64, id: &str) -> String {
@@ -31,7 +31,7 @@ pub fn attachment(value: &p::Attachment) -> Option<t::Attachment> {
             data: None,
             label,
         },
-        Content::Path(file) => t::Attachment::Path {
+        Content::File(file) => t::Attachment::Path {
             path: file.relative_path.clone().into(),
             label,
         },
@@ -314,7 +314,7 @@ mod tests {
             4,
             1,
             2,
-            None,
+            false,
             std::path::Path::new("/"),
             &Default::default(),
         )
@@ -387,7 +387,7 @@ mod tests {
     fn a_file_and_an_image_keep_their_host_reference_in_the_shared_composer() {
         let a = p::Attachment {
             label: "picture".into(),
-            content: Some(p::attachment::Content::Image(p::ArtifactRef {
+            content: Some(p::attachment::Content::Image(p::ImageAttachment {
                 artifact_id: "image-id".into(),
                 media_type: "image/png".into(),
                 ..Default::default()

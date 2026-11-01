@@ -188,6 +188,8 @@ impl ConnectionRoute {
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct OutboxEntry {
     #[serde(default)]
+    pub(crate) catalog_id: Option<String>,
+    #[serde(default)]
     pub api_request: Option<Vec<u8>>,
     pub id: String,
     pub request: Vec<u8>,
@@ -212,8 +214,27 @@ pub(crate) struct CachedChat {
     pub summary: Option<Vec<u8>>,
     pub queue: Option<Vec<u8>>,
 }
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(crate) struct UploadCommandResult {
+    pub receipt: Option<Vec<u8>>,
+    pub retired: bool,
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct UploadRecord {
+    #[serde(default)]
+    pub api_begin: Option<(String, Vec<u8>)>,
+    #[serde(default)]
+    pub api_finish: Option<(String, Vec<u8>)>,
+    #[serde(default)]
+    pub api_cancel: Option<(String, Vec<u8>)>,
+    #[serde(default)]
+    pub begin_result: UploadCommandResult,
+    #[serde(default)]
+    pub finish_result: UploadCommandResult,
+    #[serde(default)]
+    pub cancel_result: UploadCommandResult,
+    #[serde(default)]
+    pub bulk_unavailable: bool,
     pub id: String,
     pub begin: Vec<u8>,
     pub finish: Option<Vec<u8>>,

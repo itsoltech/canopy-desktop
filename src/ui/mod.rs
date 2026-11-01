@@ -442,12 +442,9 @@ impl Workspace {
                 match event {
                     sidebar::Navigation::Local => this.remote = None,
                     sidebar::Navigation::Remote { host, resource } => {
-                        if let Some(canopy_desktop::remote::proto::resource_ref::Resource::Chat(
-                            chat,
-                        )) = &resource.resource
-                        {
+                        if let remote_client::ResourceView::Thread(chat) = resource {
                             this.remote = None;
-                            this.open_remote_chat(host.clone(), chat.clone(), cx);
+                            this.open_remote_chat(host.clone(), chat.chat.clone(), cx);
                             return;
                         }
                         if let Some(view) = &this.remote {

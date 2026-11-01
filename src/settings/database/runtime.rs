@@ -135,8 +135,18 @@ fn authorize_root(
     Ok(())
 }
 fn authorize_saved(db: &Connection, key: &CommandKey, check_epoch: bool) -> Result<()> {
-    let (scope,root):(u32,String)=db.query_row("SELECT required_scope,required_root FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3 AND resource=?4 AND executor_epoch=?5",params![key.device,key.id,integer(key.epoch)?,key.resource,integer(key.executor_epoch)?],|r|Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or(Error::NotFound)?;
-    authorize_root(db, key, scope, &root, check_epoch)
+    let (scope,root,method,arguments):(u32,String,String,Option<Vec<u8>>)=db.query_row("SELECT required_scope,required_root,method,arguments FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND command_epoch=?3 AND resource=?4 AND executor_epoch=?5",params![key.device,key.id,integer(key.epoch)?,key.resource,integer(key.executor_epoch)?],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?.ok_or(Error::NotFound)?;
+    authorize_root(db, key, scope, &root, check_epoch)?;
+    if method.starts_with("git.") {
+        let saved = crate::command_bus::git::SavedAuthority::read(
+            arguments.as_deref().ok_or(Error::NotAuthorized)?,
+            &root,
+        )?;
+        for root in saved.roots {
+            authorize_root(db, key, scope, &root, check_epoch)?;
+        }
+    }
+    Ok(())
 }
 fn command_root(input: &CommandInput) -> Result<&str> {
     input
@@ -186,6 +196,18 @@ fn receipt(db: &Connection, key: &CommandKey) -> Result<Option<CommandReceipt>> 
 fn legacy_command_key(db: &Connection, key: CommandKey, scope: u32) -> Result<CommandKey> {
     authorize(db, &key, scope, false)?;
     if !key.resource.is_empty() {
+        let epoch: Option<i64> = db.query_row(
+            "SELECT command_epoch FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2 AND resource=?3 AND executor_epoch=?4",
+            params![key.device,key.id,key.resource,integer(key.executor_epoch)?], |r| r.get(0),
+        ).optional()?;
+        if let Some(epoch) = epoch {
+            let mut saved = key.clone();
+            saved.epoch = unsigned(epoch)?;
+            authorize_saved(db, &saved, false)?;
+            if saved.epoch != key.epoch {
+                return Err(Error::CommandConflict);
+            }
+        }
         return Ok(key);
     }
     let rows = db.prepare("SELECT resource,executor_epoch,command_epoch FROM _canopy_command_inbox WHERE device_id=?1 AND command_id=?2")?
@@ -220,7 +242,17 @@ fn existing(db: &Connection, input: &CommandInput) -> Result<Option<CommandRecei
     if let Some((method, target, fingerprint, epoch, arguments, root)) = prior {
         authorize_saved(db, &input.key, true)?;
         if root != command_root(input)?
-            || arguments.as_deref() != Some(input.arguments.as_slice())
+            || if method.starts_with("git.") {
+                !arguments
+                    .as_deref()
+                    .is_some_and(|saved| crate::command_bus::git::same_arguments(saved, input))
+            } else if crate::command_bus::tasks::requires_account(&method) {
+                !arguments
+                    .as_deref()
+                    .is_some_and(|saved| crate::command_bus::tasks::same_arguments(saved, input))
+            } else {
+                arguments.as_deref() != Some(input.arguments.as_slice())
+            }
             || method != input.method
             || target != input.target
             || fingerprint != input.fingerprint
@@ -322,6 +354,13 @@ impl Database {
         }
         authorization::upgrade_default_sharing(&tx)?;
         tx.execute("UPDATE _canopy_command_inbox SET state='delivery_unknown',updated_at=?1 WHERE state='attempting'",[now()])?;
+        // Catalog effects belong to the previous app owner and its ephemeral
+        // preflight. They never crossed the attempt fence, so retire that intent
+        // with a known refusal instead of leaving an ownerless Accepted forever.
+        tx.execute(
+            "UPDATE _canopy_command_inbox SET state='rejected',result=?1,updated_at=?2 WHERE state='accepted' AND method IN ('chat.create','chat.delete','projects.open','projects.close','terminal.close')",
+            params![br#"{"reason":"conditions_changed: The host restarted before catalog dispatch; review the current state and submit a new command."}"#.as_slice(), now()],
+        )?;
         tx.execute(
             "UPDATE _canopy_chat_queue SET state='delivery_unknown' WHERE state='attempting'",
             [],
@@ -340,7 +379,7 @@ impl Database {
         self.runtime_lease = Some(lease);
         self.runtime_host()
     }
-    fn runtime_host(&self) -> Result<RuntimeHost> {
+    pub(super) fn runtime_host(&self) -> Result<RuntimeHost> {
         let (id, identity_ref): (String, Option<String>) = self.db.query_row(
             "SELECT host_id,tls_identity_ref FROM _canopy_runtime_host WHERE id=1",
             [],
@@ -444,15 +483,7 @@ impl Database {
         let tx = self
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let changed=tx.execute("UPDATE _canopy_remote_devices SET revoked_at=?2,authorization_revision=authorization_revision+1 WHERE device_id=?1",params![device,now()])?;
-        if changed == 0 {
-            return Err(Error::NotFound);
-        }
-        tx.execute("UPDATE _canopy_command_inbox SET state='rejected',updated_at=?2 WHERE device_id=?1 AND state='accepted'",params![device,now()])?;
-        tx.execute(
-            "DELETE FROM _canopy_dirty_presence WHERE device_id=?1",
-            [&device],
-        )?;
+        revoke_device(&tx, &device)?;
         tx.commit()?;
         Ok(())
     }
@@ -573,7 +604,10 @@ impl Database {
                     CommandState::Attempting | CommandState::Rejected
                 ) | (
                     CommandState::Attempting,
-                    CommandState::Succeeded | CommandState::Failed | CommandState::DeliveryUnknown
+                    CommandState::Succeeded
+                        | CommandState::Failed
+                        | CommandState::DeliveryUnknown
+                        | CommandState::Rejected
                 )
             );
             if !allowed {
@@ -585,6 +619,8 @@ impl Database {
             // A host-owned effect may finish after its sender lost authority. Record
             // that known outcome; revoke still prevents dispatch and result disclosure.
             // This API is never exposed as a client-controlled state transition RPC.
+            // Rejected after the attempt fence requires owner proof that no effect
+            // occurred, such as an atomic revision check refusing a settings edit.
             if expected == CommandState::Accepted {
                 authorize_saved(&tx, &key, true)?;
             }
@@ -990,6 +1026,20 @@ impl Database {
         tx.commit()?;
         Ok(result)
     }
+}
+
+// Local revoke calls this without inbox admission, including when its inbox is full.
+fn revoke_device(tx: &Transaction, device: &str) -> Result<()> {
+    let changed=tx.execute("UPDATE _canopy_remote_devices SET revoked_at=coalesce(revoked_at,?2),authorization_revision=authorization_revision+(revoked_at IS NULL) WHERE device_id=?1",params![device,now()])?;
+    if changed == 0 {
+        return Err(Error::NotFound);
+    }
+    tx.execute("UPDATE _canopy_command_inbox SET state='rejected',updated_at=?2 WHERE device_id=?1 AND state='accepted'",params![device,now()])?;
+    tx.execute(
+        "DELETE FROM _canopy_dirty_presence WHERE device_id=?1",
+        [device],
+    )?;
+    Ok(())
 }
 
 fn mutate_queue(

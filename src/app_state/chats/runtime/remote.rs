@@ -91,9 +91,9 @@ type PendingRewind = (ItemId, bool, oneshot::Sender<Result<Rewind, String>>);
 #[derive(Default)]
 pub(super) struct Waits {
     /// An edit's new branch: `Ok` once its message goes out, `Err` when it didn't start.
-    edit: Option<oneshot::Sender<Result<(), String>>>,
+    pub(super) edit: Option<oneshot::Sender<Result<(), String>>>,
     /// A file restore (or its dry run, `true`) of user message `ItemId`.
-    rewind: Option<PendingRewind>,
+    pub(super) rewind: Option<PendingRewind>,
 }
 
 /// One part of the conversation as the runtime holds it now: sessions put away
@@ -902,6 +902,12 @@ impl ChatRuntime {
             id: id.clone(),
             value: value.clone(),
         };
+        if id == "forget_rule" {
+            return self.durable(key, command, cx, move |this, cx| {
+                this.remove_rule_local(&value, cx);
+                Outcome::Succeeded
+            });
+        }
         self.durable(key, command, cx, move |this, cx| match &mut this.session {
             Some(BackendSession::Acp(_)) => {
                 let before = this.notice.clone();
@@ -1302,7 +1308,9 @@ impl ChatRuntime {
                 };
             }
             let outcome = match this.update(cx, |this, cx| {
+                this.applying_command = true;
                 let outcome = effect(this, cx);
+                this.applying_command = false;
                 cx.emit(ChatStateChanged);
                 cx.notify();
                 outcome

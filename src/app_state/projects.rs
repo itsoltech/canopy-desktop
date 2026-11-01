@@ -164,6 +164,20 @@ impl ProjectsState {
         self.ready = true;
         self.enabled = true;
     }
+    /// Construct catalog state for tests of navigation/rendering. Command tests
+    /// use the public entry point with an initialized settings worker instead.
+    #[cfg(test)]
+    pub(crate) fn install_test_worktree(
+        &mut self,
+        repository: std::path::PathBuf,
+        path: std::path::PathBuf,
+        cx: &mut Context<Self>,
+    ) {
+        let mut catalog = self.catalog.clone();
+        catalog.open_worktree(repository, path);
+        self.ready = true;
+        self.publish(catalog, cx);
+    }
     pub fn new() -> Self {
         Self {
             catalog: Projects::default(),
@@ -471,7 +485,7 @@ impl ProjectsState {
                     Ok(path) => {
                         let mut next = this.catalog.clone();
                         next.open(path);
-                        this.save(next, cx);
+                        this.save_local_catalog(next, cx);
                     }
                     Err(_) => {
                         this.error = Some("This folder is unavailable or cannot be read.".into());
@@ -817,7 +831,7 @@ impl ProjectsState {
         }
         let mut next = self.catalog.clone();
         next.open_worktree_with_base(repository, path, base);
-        self.save(next, cx);
+        self.save_local_catalog(next, cx);
     }
     pub fn close_repository(&mut self, repository: &std::path::Path, cx: &mut Context<Self>) {
         if !self.available() {
@@ -849,7 +863,7 @@ impl ProjectsState {
                     let panes = panes.clone();
                     move |cx| {
                         target.update(cx, |state, cx| {
-                            state.close_confirmed(&ids, &panes, &chats, cx)
+                            state.close_confirmed(&ids, &panes, &chats, false, cx)
                         })
                     }
                 },
@@ -897,7 +911,7 @@ impl ProjectsState {
                     let panes = panes.clone();
                     move |cx| {
                         target.update(cx, |state, cx| {
-                            state.close_confirmed(&[id], &panes, &chats, cx)
+                            state.close_confirmed(&[id], &panes, &chats, false, cx)
                         })
                     }
                 },
@@ -983,7 +997,7 @@ impl ProjectsState {
             .map(|p| p.id)
             .collect();
         let chats = cx.global::<AppState>().chats.read(cx).detached_in(&[id]);
-        self.close_confirmed(&[id], &panes, &chats, cx);
+        self.close_confirmed(&[id], &panes, &chats, true, cx);
         Ok(())
     }
     fn close_confirmed(
@@ -991,6 +1005,7 @@ impl ProjectsState {
         ids: &[WorkspaceId],
         panes: &[PaneId],
         chats: &[String],
+        admitted: bool,
         cx: &mut Context<Self>,
     ) {
         if !self.available() {
@@ -1016,7 +1031,114 @@ impl ProjectsState {
         for id in ids {
             next.close(*id);
         }
-        self.save(next, cx);
+        if admitted {
+            self.save(next, cx);
+        } else {
+            self.save_local_catalog(next, cx);
+        }
+    }
+    /// Local catalog edits share admission with RPCs, then retain the existing
+    /// publication and session writer. Selection-only saves are view state.
+    fn save_local_catalog(&mut self, next: Projects, cx: &mut Context<Self>) {
+        use canopy_desktop::command_bus::{CatalogCommand, Command};
+        let commands = (|| -> Result<Vec<_>, String> {
+            let mut commands = Vec::new();
+            for added in next.items.iter().filter(|p| {
+                !self
+                    .catalog
+                    .items
+                    .iter()
+                    .any(|old| old.workspace == p.workspace)
+            }) {
+                let mut owner = super::file_ops::LocalResource::environment(cx)?;
+                let root = added
+                    .worktree_path
+                    .as_ref()
+                    .unwrap_or(&added.path)
+                    .to_str()
+                    .ok_or("Unsupported path encoding.")?
+                    .to_owned();
+                owner.root = root.clone();
+                commands.push((
+                    owner,
+                    Command::Catalog(CatalogCommand::OpenProject { path: root }),
+                ));
+            }
+            for removed in self
+                .catalog
+                .items
+                .iter()
+                .filter(|p| !next.items.iter().any(|new| new.workspace == p.workspace))
+            {
+                let owner = super::file_ops::LocalResource::capture(
+                    removed.worktree_path.as_deref().unwrap_or(&removed.path),
+                    cx,
+                )?;
+                commands.push((
+                    owner,
+                    Command::Catalog(CatalogCommand::CloseProject {
+                        plan: uuid::Uuid::new_v4().to_string(),
+                    }),
+                ));
+            }
+            Ok(commands)
+        })();
+        let commands = match commands {
+            Ok(commands) if commands.is_empty() => {
+                self.save(next, cx);
+                return;
+            }
+            Ok(commands) => commands,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        self.busy = true;
+        self.task = Some(cx.spawn(async move |this, cx| {
+            let result = async {
+                let inputs = super::file_ops::LocalResource::begin_set(commands).await?;
+                let published = this
+                    .update(cx, |this, cx| {
+                        this.save(next, cx);
+                        if let Some(error) = &this.error {
+                            return Err(error.clone());
+                        }
+                        Ok(this.committed(cx))
+                    })
+                    .map_err(|_| "Project owner stopped.".to_owned())
+                    .and_then(|v| v);
+                let outcome = match published {
+                    Ok(committed) => committed
+                        .await
+                        .map_err(|_| "Project writer stopped.".to_owned())
+                        .and_then(|v| v),
+                    Err(error) => Err(error),
+                };
+                // A failed persistence barrier after publication is uncertain.
+                let mut finalization = Ok(());
+                for (owner, input) in inputs {
+                    if let Err(error) = owner
+                        .bus
+                        .finish_local_outcome(input, outcome.clone(), outcome.is_err())
+                        .await
+                    {
+                        finalization = Err(error);
+                    }
+                }
+                finalization
+            }
+            .await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = false;
+                if let Err(error) = result {
+                    this.error = Some(error);
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
     fn save(&mut self, next: Projects, cx: &mut Context<Self>) {
         if self.quitting {
@@ -1166,7 +1288,7 @@ mod tests {
             app.tools.update(cx, |tools, _| tools.ready = true);
             app.projects.update(cx, |projects, cx| {
                 projects.ready = true;
-                projects.open_worktree(a.path().into(), a.path().into(), cx);
+                projects.install_test_worktree(a.path().into(), a.path().into(), cx);
             });
             let first = app.workspace.read(cx).id;
             let shell = app.workspace.update(cx, |w, _| {
@@ -1174,7 +1296,7 @@ mod tests {
                 w.active().unwrap().focused
             });
             app.projects.update(cx, |projects, cx| {
-                projects.open_worktree(b.path().into(), b.path().into(), cx);
+                projects.install_test_worktree(b.path().into(), b.path().into(), cx);
                 projects.show_terminal(first, cx);
             });
             assert_ne!(app.workspace.read(cx).id, first);

@@ -71,15 +71,36 @@ impl Database {
         dirty: bool,
     ) -> Result<CommandReceipt> {
         require_host(self)?;
-        let normalized = file
-            .presence_command(input.key.clone(), base_hash, dirty)
-            .ok_or(Error::InvalidRuntimeState)?;
-        same_intent(&input, &normalized)?;
+        if input.key.resource.is_empty() {
+            let normalized = file
+                .presence_command(input.key.clone(), base_hash, dirty)
+                .ok_or(Error::InvalidRuntimeState)?;
+            same_intent(&input, &normalized)?;
+        } else {
+            let (_, _, _, command, _): (
+                String,
+                String,
+                u64,
+                crate::command_bus::Command,
+                crate::command_bus::Conditions,
+            ) = serde_json::from_slice(&input.arguments).map_err(|_| Error::InvalidRuntimeState)?;
+            match command {
+                crate::command_bus::Command::File(crate::command_bus::FileCommand::Presence {
+                    path,
+                    base_hash: expected,
+                    dirty: value,
+                }) if path == file.relative_path()
+                    && expected == base_hash
+                    && value == dirty
+                    && input.target == file.resource()
+                    && input.root.as_deref() == Some(file.root()) => {}
+                _ => return Err(Error::CommandConflict),
+            }
+        }
         let tx = self
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        authorize_root(&tx, &input.key, host::FILES_GIT, file.root(), true)?;
-        if let Some(receipt) = existing(&tx, &input)? {
+        if let Some(receipt) = bus::runtime_admission(&tx, &input, host::FILES_GIT)? {
             return Ok(receipt);
         }
         if dirty {

@@ -252,6 +252,7 @@ impl EditorView {
         // One Canopy write of a file at a time (an agent or another device may be
         // writing it); the gate takes the canonical checkout, resolved off this thread.
         let gate = crate::app_state::file_ops::gate(cx);
+        let resource = crate::app_state::file_ops::LocalResource::capture(&root, cx);
         self.saving = true;
         self.read_task = None;
         cx.emit(EditorChanged);
@@ -260,12 +261,25 @@ impl EditorView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
+                    use canopy_desktop::command_bus::{Command, FileCommand};
+                    use sha2::{Digest, Sha256};
+                    let resource = resource?;
                     let canonical = std::fs::canonicalize(&root).map_err(|e| e.to_string())?;
                     let _reservation =
                         gate.try_reserve_file(&canonical, &path).ok_or_else(|| {
                             "Canopy is writing this file. Save again in a moment.".to_owned()
                         })?;
-                    document.save(&root, &path, &text)
+                    let path_text = path.to_str().ok_or("Unsupported file path encoding.")?;
+                    let content = resource.stage_file(path_text, text.as_bytes())?;
+                    let input = resource
+                        .begin(Command::File(FileCommand::Save {
+                            path: path_text.into(),
+                            expected_hash: Sha256::digest(&document.original).into(),
+                            content,
+                        }))
+                        .await?;
+                    let outcome = document.save(&root, &path, &text);
+                    resource.bus.finish_local_resource(input, outcome).await
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -449,10 +463,34 @@ mod tests {
         Entity<EditorView>,
         Option<Entity<EditorView>>,
     ) {
+        cx.background_executor.allow_parking();
+        let (client, host, artifacts) = futures_lite::future::block_on(async {
+            let client =
+                canopy_desktop::settings::SettingsClient::create(root.join("editor-test.db"))
+                    .await
+                    .unwrap();
+            let host = client.initialize_runtime().await.unwrap();
+            let artifacts = Arc::new(
+                canopy_desktop::artifacts::ArtifactStore::open(
+                    client.clone(),
+                    root.join("editor-test-artifacts"),
+                )
+                .unwrap(),
+            );
+            (client, host, artifacts)
+        });
         cx.update(|cx| {
             gpui_kit::init(cx);
             super::super::theme::init(cx);
             init_for_platform(cx, true);
+            let app = crate::app_state::AppState::install_test(Workspace::new(), cx);
+            app.settings.update(cx, |settings, _| {
+                settings.install_test_client(client.clone(), host);
+                settings.install_test_artifacts(artifacts);
+            });
+            app.projects.update(cx, |projects, _| {
+                projects.catalog.open(root.to_path_buf());
+            });
             let first_pane = pane(root, "first.txt");
             let second_pane = second.map(|name| pane(root, name));
             let mut terminal_workspace = Workspace::new();
@@ -486,6 +524,19 @@ mod tests {
         })
     }
 
+    fn finish_save(editor: &Entity<EditorView>, cx: &mut VisualTestContext) {
+        // The real SQLite owner runs on an OS thread. Pump the headless app
+        // until that committed operation has returned to the editor owner.
+        for _ in 0..500 {
+            cx.run_until_parked();
+            if !editor.read_with(cx, |view, _| view.saving) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("editor save did not finish");
+    }
+
     #[gpui_kit::test]
     fn windows_ctrl_s_saves_the_focused_real_editor(cx: &mut TestAppContext) {
         let directory = tempfile::tempdir().unwrap();
@@ -501,7 +552,7 @@ mod tests {
         assert!(editor.read_with(&cx, |view, _| view.dirty));
 
         cx.simulate_keystrokes("ctrl-s");
-        cx.run_until_parked();
+        finish_save(&editor, &mut cx);
 
         assert_eq!(
             std::fs::read_to_string(root.join("first.txt")).unwrap(),
@@ -528,7 +579,7 @@ mod tests {
         assert!(editor.read_with(&cx, |view, _| view.conflict));
 
         cx.simulate_keystrokes("ctrl-s");
-        cx.run_until_parked();
+        finish_save(&editor, &mut cx);
 
         assert_eq!(std::fs::read_to_string(path).unwrap(), "external");
         editor.read_with(&cx, |view, _| {
@@ -563,7 +614,7 @@ mod tests {
             second.read_with(&cx, |view, cx| view.input.read(cx).value().to_string());
         cx.update(|window, cx| first_focus.focus(window, cx));
         cx.simulate_keystrokes("ctrl-s");
-        cx.run_until_parked();
+        finish_save(&first, &mut cx);
         assert_eq!(
             std::fs::read_to_string(root.join("first.txt")).unwrap(),
             first_expected

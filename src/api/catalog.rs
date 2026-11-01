@@ -39,6 +39,22 @@ pub trait CatalogPublisher: Send + Sync + 'static {
         &self,
         request: Request<p::PreflightCloseRequest>,
     ) -> Result<Response<p::ClosePlan>, Status>;
+    async fn preflight_close_project(
+        &self,
+        request: Request<p::PreflightCloseProjectRequest>,
+    ) -> Result<Response<p::ProjectClosePlan>, Status>;
+    async fn preflight_close_terminal(
+        &self,
+        request: Request<p::PreflightCloseTerminalRequest>,
+    ) -> Result<Response<p::TerminalClosePlan>, Status>;
+    async fn close_project(
+        &self,
+        request: Request<p::CloseProjectRequest>,
+    ) -> Result<Response<p::CommandReceipt>, Status>;
+    async fn close_terminal(
+        &self,
+        request: Request<p::CloseTerminalRequest>,
+    ) -> Result<Response<p::CommandReceipt>, Status>;
     async fn create_thread(
         &self,
         request: Request<p::CreateThreadRequest>,

@@ -376,14 +376,16 @@ mod paging_tests {
         let mut pages = 0;
         loop {
             let (rows, next) = db.runtime_devices_page(cursor.clone(), true).unwrap();
-            let page = crate::remote::proto::Devices {
-                host_id: "host".into(),
+            let page = crate::api::proto::Devices {
+                environment: Some(crate::api::proto::EnvironmentRef {
+                    host_id: "host".into(),
+                }),
                 devices: rows
                     .iter()
-                    .map(|d| crate::remote::proto::Device {
+                    .map(|d| crate::api::proto::Device {
                         device_id: d.id().into(),
                         name: d.name().into(),
-                        scopes: vec!["read".into()],
+                        scopes: vec![crate::api::proto::Scope::Read as i32],
                         roots: d.roots().into(),
                         revoked: d.revoked(),
                     })

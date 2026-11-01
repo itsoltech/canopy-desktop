@@ -1,7 +1,7 @@
 //! The verified TLS peer, not request metadata or a device name, selects authority.
-use super::proto;
+use crate::api::proto;
 use crate::{
-    host::{CommandInput, CommandKey, CommandReceipt, CommandState, DeviceGrant},
+    host::{CommandInput, CommandKey, CommandReceipt, DeviceGrant},
     settings::{Error, SettingsClient},
 };
 use sha2::{Digest, Sha256};
@@ -77,7 +77,6 @@ impl RpcAuth {
         meta: &proto::CommandMeta,
         device: &DeviceGrant,
     ) -> Result<CommandKey, Status> {
-        self.check_host(&meta.host_id)?;
         CommandKey::remote(
             device.id().into(),
             meta.command_epoch,
@@ -107,157 +106,123 @@ impl RpcAuth {
         .and_then(|input| input.with_root(root))
         .ok_or_else(|| Status::invalid_argument("Invalid command arguments."))
     }
-    pub fn receipt(&self, receipt: &CommandReceipt) -> proto::CommandReceipt {
-        let state = match receipt.state() {
-            CommandState::Accepted => proto::OperationState::Accepted,
-            CommandState::Attempting => proto::OperationState::Attempting,
-            CommandState::Succeeded => proto::OperationState::Succeeded,
-            CommandState::Failed => proto::OperationState::Failed,
-            CommandState::Rejected => proto::OperationState::Rejected,
-            CommandState::DeliveryUnknown => proto::OperationState::DeliveryUnknown,
-        };
-        let message = if receipt.method() == "chat.send" {
-            receipt
-                .result()
-                .and_then(|b| std::str::from_utf8(b).ok())
-                .unwrap_or("")
-        } else {
-            ""
-        };
-        let succeeded = receipt.state() == CommandState::Succeeded;
-        let resource_result = receipt.method().starts_with("files.")
-            || receipt.method().starts_with("git.")
-            || receipt.method().starts_with("tasks.")
-            || receipt.method().starts_with("settings.")
-            || receipt.method().starts_with("artifacts.")
-            || receipt.method().starts_with("terminal.")
-            || receipt.method().starts_with("host.");
-        let failed = matches!(
-            receipt.state(),
-            CommandState::Failed | CommandState::Rejected | CommandState::DeliveryUnknown
-        );
-        let error = if resource_result
-            && matches!(
-                receipt.state(),
-                CommandState::Failed | CommandState::Rejected | CommandState::DeliveryUnknown
-            ) {
-            receipt
-                .result()
-                .and_then(|bytes| <proto::DomainError as prost::Message>::decode(bytes).ok())
-        } else if failed
-            && (receipt.method().starts_with("chat.") || receipt.method().starts_with("projects."))
-        {
-            receipt
-                .result()
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-                .and_then(|v| v.get("reason")?.as_str().map(str::to_owned))
-                .map(|reason| proto::DomainError {
-                    code: match reason.split(':').next().unwrap_or_default() {
-                        code @ ("stale_run" | "already_resolved" | "conditions_changed"
-                        | "chat_exists" | "not_editable" | "files_not_restored"
-                        | "edit_not_started" | "shell_unavailable") => code.into(),
-                        _ => "operation_failed".into(),
-                    },
-                    message: reason,
-                    retryable: false,
-                })
-        } else {
-            None
-        };
-        proto::CommandReceipt {
-            host_id: self.host_id().into(),
-            command_id: receipt.key().id().into(),
-            command_epoch: receipt.key().epoch(),
-            state: state as i32,
-            resource_id: if succeeded && receipt.method() == "projects.open" {
-                receipt
-                    .result()
-                    .and_then(|bytes| {
-                        serde_json::from_slice::<crate::state::workspace::WorkspaceId>(bytes).ok()
-                    })
-                    .and_then(|id| serde_json::to_string(&id).ok())
-                    .unwrap_or_else(|| receipt.target().into())
-            } else {
-                receipt.target().into()
-            },
-            message_id: message.into(),
-            error,
-            resolved_by_user: receipt.resolved_by_user(),
-            file_hash: (succeeded && receipt.method() == "files.save")
-                .then(|| receipt.result().map(<[u8]>::to_vec))
-                .flatten(),
-            operation_output: (succeeded
-                && (receipt.method().starts_with("git.")
-                    || receipt.method().starts_with("tasks.")
-                    || receipt.method().starts_with("settings.")
-                    || receipt.method().starts_with("terminal.")
-                    || receipt.method().starts_with("projects.")
-                    || receipt.method() == "chat.shell"
-                    || receipt.method() == "chat.rename"
-                    || receipt.method().starts_with("artifacts.")))
-            .then(|| {
-                receipt
-                    .result()
-                    .and_then(|bytes| String::from_utf8(bytes.to_vec()).ok())
-            })
-            .flatten(),
-            queue_revision: (succeeded && receipt.method().starts_with("chat.queue"))
-                .then(|| {
-                    receipt
-                        .result()
-                        .and_then(|bytes| serde_json::from_slice(bytes).ok())
-                })
-                .flatten(),
-        }
+    pub fn receipt(&self, receipt: &CommandReceipt) -> Result<proto::CommandReceipt, Status> {
+        crate::api::project_receipt(self, receipt, None)
     }
 }
 /// Host-resolved roots only. Registering a root does not grant a device access.
 #[derive(Clone, Default)]
 pub struct WorkspaceRoots {
-    roots: Arc<RwLock<HashMap<String, PathBuf>>>,
+    catalog: Arc<RwLock<WorkspaceCatalog>>,
+}
+#[derive(Default)]
+struct WorkspaceCatalog {
+    roots: HashMap<String, PathBuf>,
+    projects: Vec<crate::state::projects::Project>,
 }
 impl WorkspaceRoots {
+    /// Authoritative identities and Git metadata supplied by the catalog owner.
+    /// No resource request infers identity from a filesystem path.
+    pub fn replace_projects(
+        &self,
+        projects: Vec<crate::state::projects::Project>,
+    ) -> Result<(), Status> {
+        let roots = projects
+            .iter()
+            .map(|p| {
+                serde_json::to_string(&p.workspace)
+                    .map(|id| (id, p.worktree_path.as_ref().unwrap_or(&p.path).clone()))
+                    .map_err(|_| Status::internal("Invalid checkout metadata."))
+            })
+            .collect::<Result<_, _>>()?;
+        validate_roots(&roots)?;
+        *self
+            .catalog
+            .write()
+            .map_err(|_| Status::internal("Project registry is unavailable."))? =
+            WorkspaceCatalog { roots, projects };
+        Ok(())
+    }
+    pub fn project(
+        &self,
+        reference: crate::api::proto::ProjectRef,
+        auth: &RpcAuth,
+    ) -> Result<(crate::thread::ProjectRef, PathBuf), Status> {
+        auth.check_host(&reference.host_id)?;
+        let catalog = self
+            .catalog
+            .read()
+            .map_err(|_| Status::internal("Project registry is unavailable."))?;
+        let record = catalog
+            .projects
+            .iter()
+            .find(|p| {
+                serde_json::to_string(&p.id).ok().as_deref() == Some(reference.project_id.as_str())
+                    && reference.worktree_id.as_ref().is_none_or(|id| {
+                        serde_json::to_string(&p.workspace).ok().as_ref() == Some(id)
+                    })
+            })
+            .ok_or_else(|| Status::not_found("Project checkout is unavailable."))?;
+        let host = crate::thread::HostId::new(auth.host_id().into())
+            .ok_or_else(|| Status::internal("Invalid host identity."))?;
+        let checked = crate::api::checked_project_ref(reference, &host, record)?;
+        Ok((
+            checked,
+            record
+                .worktree_path
+                .as_ref()
+                .unwrap_or(&record.path)
+                .clone(),
+        ))
+    }
+    /// Bus lookup after admission verified the host and current resource grant.
+    pub fn workspace_id(&self, root: &Path) -> Result<String, Status> {
+        self.catalog
+            .read()
+            .map_err(|_| Status::internal("Project registry is unavailable."))?
+            .roots
+            .iter()
+            .find(|(_, path)| path.as_path() == root)
+            .map(|(id, _)| id.clone())
+            .ok_or_else(|| Status::not_found("Project checkout is unavailable."))
+    }
     /// Bus lookup after admission verified the host and current resource grant.
     pub fn resolve_host_workspace(&self, workspace: &str) -> crate::settings::Result<PathBuf> {
-        self.roots
+        self.catalog
             .read()
             .map_err(|_| Error::InvalidRuntimeState)?
+            .roots
             .get(workspace)
             .cloned()
             .ok_or(Error::NotFound)
     }
     /// The owner supplies already canonical paths, prepared outside render.
     pub fn replace(&self, roots: HashMap<String, PathBuf>) -> Result<(), Status> {
-        if roots
-            .iter()
-            .any(|(id, path)| id.is_empty() || id.len() > 256 || !path.is_absolute())
-        {
-            return Err(Status::invalid_argument("Invalid workspace roots."));
-        }
+        validate_roots(&roots)?;
         *self
-            .roots
+            .catalog
             .write()
-            .map_err(|_| Status::internal("Workspace registry is unavailable."))? = roots;
+            .map_err(|_| Status::internal("Workspace registry is unavailable."))? =
+            WorkspaceCatalog {
+                roots,
+                projects: Vec::new(),
+            };
         Ok(())
-    }
-    pub fn resolve(
-        &self,
-        workspace: &proto::WorkspaceRef,
-        auth: &RpcAuth,
-    ) -> Result<PathBuf, Status> {
-        auth.check_host(&workspace.host_id)?;
-        self.roots
-            .read()
-            .map_err(|_| Status::internal("Workspace registry is unavailable."))?
-            .get(&workspace.workspace_id)
-            .cloned()
-            .ok_or_else(|| Status::not_found("Workspace is no longer available."))
     }
     pub fn root_string(path: &Path) -> Result<&str, Status> {
         path.to_str().ok_or_else(|| {
             Status::invalid_argument("Workspace path cannot be represented by the protocol.")
         })
     }
+}
+fn validate_roots(roots: &HashMap<String, PathBuf>) -> Result<(), Status> {
+    if roots
+        .iter()
+        .any(|(id, path)| id.is_empty() || id.len() > 256 || !path.is_absolute())
+    {
+        return Err(Status::invalid_argument("Invalid workspace roots."));
+    }
+    Ok(())
 }
 pub fn storage_status(error: Error) -> Status {
     match error {

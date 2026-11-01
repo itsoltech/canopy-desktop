@@ -88,7 +88,7 @@ pub(super) fn estimate(
     terminals: &[TerminalInfo],
 ) -> usize {
     let host = auth.host_id().len();
-    let checkout = size_of::<proto::WorkspaceSummary>();
+    let checkout = size_of::<proto::ProjectCheckout>();
     let project = size_of::<proto::ProjectSummary>();
     let mut bytes = size_of::<proto::Catalog>() + host;
     for w in &event.workspaces {
@@ -116,7 +116,7 @@ pub(super) fn estimate(
     }
     let index = (event.records.len() * 8 / 7 + 8).next_power_of_two();
     bytes += index * (size_of::<(&str, &ChatRecord)>() + 1);
-    let chat = size_of::<proto::ChatSummary>();
+    let chat = size_of::<proto::CatalogThread>() + size_of::<proto::ThreadStatus>();
     bytes += 4 * chat;
     for record in &event.records {
         if !visible(grant, record.authority_root()) {
@@ -154,16 +154,18 @@ pub(super) fn estimate(
 pub(super) fn footprint(catalog: &proto::Catalog) -> usize {
     let text = |s: &String| s.capacity();
     let optional = |s: &Option<String>| s.as_ref().map_or(0, String::capacity);
-    let workspace = |w: &Option<proto::WorkspaceRef>| {
-        w.as_ref()
-            .map_or(0, |w| w.host_id.capacity() + w.workspace_id.capacity())
+    let project_ref = |w: &Option<proto::ProjectRef>| {
+        w.as_ref().map_or(0, |w| {
+            w.host_id.capacity() + w.project_id.capacity() + optional(&w.worktree_id)
+        })
     };
     let checkouts = |p: &proto::ProjectSummary| {
-        p.checkouts.capacity() * size_of::<proto::WorkspaceSummary>()
+        p.checkouts.capacity() * size_of::<proto::ProjectCheckout>()
             + p.checkouts
                 .iter()
                 .map(|c| {
-                    workspace(&c.workspace)
+                    project_ref(&c.project)
+                        + text(&c.catalog_id)
                         + text(&c.name)
                         + text(&c.path)
                         + optional(&c.repository_path)
@@ -175,28 +177,21 @@ pub(super) fn footprint(catalog: &proto::Catalog) -> usize {
         + catalog
             .projects
             .iter()
-            .map(|p| {
-                text(&p.project_id)
-                    + text(&p.name)
-                    + text(&p.path)
-                    + optional(&p.origin)
-                    + checkouts(p)
-            })
+            .map(|p| text(&p.name) + text(&p.path) + optional(&p.origin) + checkouts(p))
             .sum::<usize>();
-    let chats = catalog.chats.capacity() * size_of::<proto::ChatSummary>()
+    let chats = catalog.threads.capacity() * size_of::<proto::CatalogThread>()
         + catalog
-            .chats
+            .threads
             .iter()
             .map(|c| {
-                c.chat
+                c.thread
                     .as_ref()
-                    .map_or(0, |c| c.host_id.capacity() + c.chat_id.capacity())
-                    + workspace(&c.workspace)
-                    + text(&c.title)
-                    + text(&c.agent_id)
-                    + optional(&c.profile_id)
-                    + optional(&c.run_id)
-                    + c.goal.as_ref().map_or(0, Message::encoded_len)
+                    .map_or(0, |c| c.host_id.capacity() + c.thread_id.capacity())
+                    + text(&c.catalog_id)
+                    + optional(&c.project_catalog_id)
+                    + c.summary
+                        .as_ref()
+                        .map_or(0, |s| size_of::<proto::ThreadStatus>() + s.encoded_len())
             })
             .sum::<usize>();
     let terminals = catalog.terminals.capacity() * size_of::<proto::TerminalSummary>()
@@ -207,12 +202,16 @@ pub(super) fn footprint(catalog: &proto::Catalog) -> usize {
                 t.terminal
                     .as_ref()
                     .map_or(0, |t| t.host_id.capacity() + t.terminal_id.capacity())
-                    + workspace(&t.workspace)
+                    + text(&t.project_catalog_id)
                     + text(&t.title)
                     + optional(&t.input_device_id)
             })
             .sum::<usize>();
-    size_of::<proto::Catalog>() + text(&catalog.host_id) + projects + chats + terminals
+    size_of::<proto::Catalog>()
+        + catalog.environment.as_ref().map_or(0, |e| text(&e.host_id))
+        + projects
+        + chats
+        + terminals
 }
 
 /// Cuts a projection into `CatalogSnapshotPart`s sharing `boundary`.
@@ -257,7 +256,7 @@ impl Pager {
         }
         let catalog = &self.projection.catalog;
         self.done = self.project == catalog.projects.len()
-            && self.chat == catalog.chats.len()
+            && self.chat == catalog.threads.len()
             && self.terminal == catalog.terminals.len();
         let part = proto::CatalogSnapshotPart {
             boundary: Some(self.boundary.clone()),
@@ -272,7 +271,7 @@ impl Pager {
     fn page(&mut self) -> proto::Catalog {
         let catalog = &self.projection.catalog;
         let mut page = proto::Catalog {
-            host_id: catalog.host_id.clone(),
+            environment: catalog.environment.clone(),
             ..Default::default()
         };
         let mut size = page.encoded_len();
@@ -282,7 +281,6 @@ impl Pager {
             // Only the metadata: the checkouts are copied page by page below.
             let mut entry = proto::ProjectSummary {
                 origin: project.origin.clone(),
-                project_id: project.project_id.clone(),
                 name: project.name.clone(),
                 path: project.path.clone(),
                 checkouts: vec![],
@@ -314,14 +312,14 @@ impl Pager {
             self.project += 1;
             self.checkout = 0;
         }
-        while let Some(chat) = catalog.chats.get(self.chat) {
+        while let Some(chat) = catalog.threads.get(self.chat) {
             let add = message::encoded_len(3, chat);
             if !fits(size, add, rows) {
                 return page;
             }
             size += add;
             rows += 1;
-            page.chats.push(chat.clone());
+            page.threads.push(chat.clone());
             self.chat += 1;
         }
         while let Some(terminal) = catalog.terminals.get(self.terminal) {
@@ -352,7 +350,7 @@ pub(super) fn read(
         credential: Vec<u8>,
         grant: DeviceGrant,
         pager: Pager,
-        host: tokio::sync::watch::Receiver<proto::HostStatus>,
+        host: tokio::sync::watch::Receiver<canopy_desktop::api::proto::HostStatus>,
         wire: Option<ByteReservation>,
     }
     impl Read {

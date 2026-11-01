@@ -8,7 +8,7 @@ impl RemoteWindow {
         Some(format!(
             "{}:{}",
             self.host.as_ref()?.id().as_str(),
-            self.workspace.as_ref()?.workspace_id
+            self.workspace.as_ref()?.catalog_id
         ))
     }
     pub(super) fn open_notes(&mut self, cx: &mut Context<Self>) {
@@ -79,7 +79,7 @@ impl RemoteWindow {
                 }
                 let bytes = input.read(cx).value().as_bytes().to_vec();
                 let file = p::FileRef {
-                    workspace: this.workspace.clone(),
+                    target: this.workspace.as_ref().and_then(project_target),
                     relative_path: path.clone(),
                 };
                 this.run_in(
@@ -87,25 +87,13 @@ impl RemoteWindow {
                     async move {
                         let artifact = host
                             .upload(
-                                p::ResourceRef {
-                                    resource: Some(p::resource_ref::Resource::File(file.clone())),
-                                },
-                                "file-save",
+                                canopy_desktop::remote::client::UploadTarget::File(file.clone()),
+                                "file_save",
                                 "text/markdown",
                                 bytes,
                             )
                             .await?;
-                        host.mutate(None, move |channel, command| async move {
-                            p::files_service_client::FilesServiceClient::new(channel)
-                                .create_file(p::CreateFileRequest {
-                                    command: Some(command),
-                                    file: Some(file),
-                                    directory: false,
-                                    content: Some(artifact),
-                                })
-                                .await
-                        })
-                        .await?;
+                        host.create_file(file, false, Some(artifact)).await?;
                         Ok(Update::Done(format!(
                             "Exported to {path}. The notes stay here as well."
                         )))

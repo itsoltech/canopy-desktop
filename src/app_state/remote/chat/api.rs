@@ -1,25 +1,10 @@
 //! Typed API adapter for the existing runtime owner and projections.
 use super::*;
-use canopy_desktop::api::projection::{self as mapping, Location};
 use canopy_desktop::{
     api::proto as p,
     command_bus::{Control, DraftResources, PreparedCommand},
 };
 use futures_lite::StreamExt;
-
-fn location(auth: &RpcAuth, record: &ChatRecord) -> Result<Location, Status> {
-    let stored = record
-        .thread()
-        .ok_or_else(|| Status::internal("Missing thread identity."))?;
-    Ok(Location {
-        thread: p::ThreadRef {
-            host_id: auth.host_id().into(),
-            thread_id: stored.thread().thread_id.to_string(),
-        },
-        catalog: reference(auth, record.id()),
-        workspace: workspace(auth, record),
-    })
-}
 
 pub(super) fn authorized<T: Send + 'static>(
     rpc: ChatsRpc,
@@ -50,20 +35,10 @@ impl canopy_desktop::api::ThreadPublisher for ChatsRpc {
         grant: DeviceGrant,
         request: Request<p::SubscribeThreadRequest>,
     ) -> Result<RpcStream<p::ThreadEvent>, Status> {
-        let location = location(&self.auth, &record)?;
         let stream = self
-            .subscribe(
-                record.clone(),
-                grant.clone(),
-                request.into_inner().since.map(mapping::value),
-            )
+            .subscribe(record.clone(), grant.clone(), request.into_inner().since)
             .await?;
-        Ok(authorized(
-            self.clone(),
-            record,
-            grant,
-            mapping::thread_stream(location, stream, self.replay.clone()),
-        ))
+        Ok(authorized(self.clone(), record, grant, stream))
     }
     async fn history(
         &self,
@@ -71,27 +46,10 @@ impl canopy_desktop::api::ThreadPublisher for ChatsRpc {
         grant: DeviceGrant,
         request: Request<p::ReadHistoryPageRequest>,
     ) -> Result<RpcStream<p::HistoryPageEvent>, Status> {
-        let location = location(&self.auth, &record)?;
-        let r = request.into_inner();
         let stream = self
-            .history(
-                record.clone(),
-                grant.clone(),
-                proto::HistoryPageRequest {
-                    chat: Some(location.catalog.clone()),
-                    page_token: r.page_token,
-                    limit: r.limit,
-                    around: r.around.map(mapping::value),
-                    before: r.before.map(mapping::value),
-                },
-            )
+            .history(record.clone(), grant.clone(), request.into_inner())
             .await?;
-        Ok(authorized(
-            self.clone(),
-            record,
-            grant,
-            mapping::history_stream(location, stream, self.replay.clone()),
-        ))
+        Ok(authorized(self.clone(), record, grant, stream))
     }
     async fn search(
         &self,
@@ -99,90 +57,108 @@ impl canopy_desktop::api::ThreadPublisher for ChatsRpc {
         grant: DeviceGrant,
         request: Request<p::SearchHistoryRequest>,
     ) -> Result<p::HistoryMatches, Status> {
-        let location = location(&self.auth, &record)?;
-        let r = request.into_inner();
-        let result = self
-            .search(
-                record,
-                grant,
-                proto::SearchHistoryRequest {
-                    chat: Some(location.catalog),
-                    text: r.query,
-                    page_token: r.page_token,
-                },
-            )
-            .await?;
-        Ok(p::HistoryMatches {
-            matches: result
-                .matches
-                .into_iter()
-                .map(|m| p::HistoryMatch {
-                    item: m.key.map(mapping::value),
-                    excerpt: m.excerpt,
-                })
-                .collect(),
-            next_page_token: result.next_page_token,
-            incomplete: result.incomplete,
-        })
+        self.search(record, grant, request.into_inner()).await
     }
     async fn options(
         &self,
         record: ChatRecord,
-        _grant: DeviceGrant,
-        request: Request<p::GetAgentOptionsRequest>,
+        grant: DeviceGrant,
+        _request: Request<p::GetAgentOptionsRequest>,
     ) -> Result<p::AgentOptions, Status> {
-        let location = location(&self.auth, &record)?;
-        let (metadata, extensions, _) = request.into_parts();
-        let request = Request::from_parts(
-            metadata,
-            extensions,
-            proto::ChatRequest {
-                chat: Some(location.catalog),
-            },
-        );
-        let result =
-            <Self as proto::chat_service_server::ChatService>::get_agent_options(self, request)
-                .await?
-                .into_inner();
+        let snapshot = self
+            .bridge
+            .snapshot(record.id().into())
+            .await
+            .map_err(bridge_status)?;
+        self.auth
+            .resource(grant.id(), host::READ, record.authority_root())
+            .await?;
+        let mut offered = capabilities(&snapshot.capabilities);
+        for (operation, reason) in [
+            ("edit", snapshot.edit_unavailable),
+            ("shell", snapshot.shell_unavailable),
+        ] {
+            let reason = reason.or_else(|| {
+                (operation == "shell" && self.auth.scope(&grant, host::TERMINAL).is_err())
+                    .then(|| "Terminal access is not enabled for this device.".into())
+            });
+            offered.push(p::Capability {
+                operation: operation.into(),
+                supported: reason.is_none(),
+                reason: reason.unwrap_or_default(),
+            });
+        }
         Ok(p::AgentOptions {
-            thread: Some(location.thread),
-            options: result.options.into_iter().map(mapping::value).collect(),
-            capabilities: result
-                .capabilities
+            thread: reference(&self.auth, &record),
+            options: snapshot
+                .options
                 .into_iter()
-                .map(mapping::value)
+                .map(|o| p::AgentOption {
+                    id: o.id,
+                    label: o.label,
+                    category: o.category,
+                    current_value: o.value,
+                    choices: o
+                        .choices
+                        .into_iter()
+                        .map(|c| p::OptionChoice {
+                            id: c.id,
+                            label: c.label,
+                            description: c.description,
+                        })
+                        .collect(),
+                    effect: option_effect(o.effect).into(),
+                })
                 .collect(),
+            capabilities: offered,
         })
     }
     async fn preview(
         &self,
         record: ChatRecord,
-        _grant: DeviceGrant,
+        grant: DeviceGrant,
         request: Request<p::PreviewEditRequest>,
     ) -> Result<p::EditPreview, Status> {
-        let location = location(&self.auth, &record)?;
-        let (metadata, extensions, r) = request.into_parts();
-        let request = Request::from_parts(
-            metadata,
-            extensions,
-            proto::PreviewEditRequest {
-                chat: Some(location.catalog.clone()),
-                run_id: r.run_id.to_string(),
-                item: r.item.map(mapping::value),
-            },
-        );
-        let result = <Self as proto::chat_service_server::ChatService>::preview_edit(self, request)
-            .await?
-            .into_inner();
+        let r = request.into_inner();
+        let item = required(r.item)?;
+        let preview = self
+            .bridge
+            .edit_preview(
+                record.id().into(),
+                r.run_id,
+                item.history_epoch,
+                item.item_id,
+            )
+            .await
+            .map_err(bridge_status)?;
+        self.auth
+            .resource(grant.id(), host::CHAT, record.authority_root())
+            .await?;
+        let original = match preview.original {
+            Some(draft) => Some(self.editable_draft(&record, draft).await?),
+            None => None,
+        };
+        let files = preview.files;
         Ok(p::EditPreview {
-            thread: Some(location.thread.clone()),
+            thread: reference(&self.auth, &record),
             run_id: r.run_id,
-            item: result.item.map(mapping::value),
-            editable: result.editable,
-            reason: result.reason,
-            first_message: result.first_message,
-            original: result.original.map(|d| location.draft(d)).transpose()?,
-            files: result.files.map(mapping::value),
+            item: Some(item),
+            editable: preview.editable.is_ok(),
+            reason: preview
+                .editable
+                .as_ref()
+                .err()
+                .map(|e| edit_reason(e))
+                .unwrap_or_default(),
+            first_message: preview.editable == Ok(true),
+            original,
+            files: Some(p::FileRestorePreview {
+                possible: files.possible,
+                paths: files.paths,
+                insertions: files.insertions,
+                deletions: files.deletions,
+                reason: files.reason.unwrap_or_default(),
+            }),
         })
     }
     async fn committed(&self, receipt: &host::CommandReceipt) {

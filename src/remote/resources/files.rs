@@ -1,6 +1,8 @@
 use super::*;
+use crate::api::{proto, resources as api};
 use crate::{
     artifacts::{ArtifactStore, CHUNK_BYTES, Purpose, Target},
+    command_bus::{FileCommand, FileContent},
     files,
     git::GitClient,
     host::{FILES_GIT, FileIdentity, READ},
@@ -40,11 +42,11 @@ impl FilesRpc {
         file: &proto::FileRef,
         scope: u32,
     ) -> Result<(PathBuf, FileIdentity), Status> {
-        let root = workspace(
+        let root = api::read_root(
             &self.auth,
             &self.roots,
             grant,
-            file.workspace.as_ref(),
+            required(file.target.as_ref())?,
             scope,
         )
         .await?;
@@ -62,23 +64,6 @@ impl FilesRpc {
             ));
         }
         Ok((root, identity))
-    }
-    fn input(
-        &self,
-        meta: &proto::CommandMeta,
-        grant: &DeviceGrant,
-        method: &str,
-        identity: &FileIdentity,
-        bytes: Vec<u8>,
-    ) -> Result<CommandInput, Status> {
-        self.auth.input(
-            meta,
-            grant,
-            method,
-            identity.resource(),
-            bytes,
-            identity.root().into(),
-        )
     }
     async fn content(
         &self,
@@ -160,11 +145,11 @@ impl proto::files_service_server::FilesService for FilesRpc {
         let grant = self.auth.authenticate(&request).await?;
         let request = request.into_inner();
         let file = required(request.directory)?;
-        let root = workspace(
+        let root = api::read_root(
             &self.auth,
             &self.roots,
             &grant,
-            file.workspace.as_ref(),
+            required(file.target.as_ref())?,
             READ,
         )
         .await?;
@@ -221,7 +206,7 @@ impl proto::files_service_server::FilesService for FilesRpc {
         }
         let end = (offset + 100).min(entries.len());
         Ok(Response::new(proto::DirectoryEntries {
-            workspace: file.workspace,
+            target: file.target,
             entries: entries[offset..end].to_vec(),
             next_page_token: (end < entries.len()).then(|| format!("{hash}:{end}")),
             incomplete: listing.warning.is_some(),
@@ -234,11 +219,11 @@ impl proto::files_service_server::FilesService for FilesRpc {
     ) -> Result<Response<proto::DirectoryEntries>, Status> {
         let grant = self.auth.authenticate(&request).await?;
         let request = request.into_inner();
-        let root = workspace(
+        let root = api::read_root(
             &self.auth,
             &self.roots,
             &grant,
-            request.workspace.as_ref(),
+            required(request.target.as_ref())?,
             READ,
         )
         .await?;
@@ -262,7 +247,7 @@ impl proto::files_service_server::FilesService for FilesRpc {
         })
         .await?;
         Ok(Response::new(proto::DirectoryEntries {
-            workspace: request.workspace,
+            target: request.target,
             entries,
             next_page_token: None,
             incomplete: warning.is_some(),
@@ -297,11 +282,11 @@ impl proto::files_service_server::FilesService for FilesRpc {
         };
         let (tx, rx) = tokio::sync::mpsc::channel(2);
         let auth = self.auth.clone();
-        let root = workspace(
+        let root = api::read_root(
             &self.auth,
             &self.roots,
             &grant,
-            file.workspace.as_ref(),
+            required(file.target.as_ref())?,
             READ,
         )
         .await?;
@@ -338,24 +323,47 @@ impl proto::files_service_server::FilesService for FilesRpc {
         request: Request<proto::SaveFileRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
         let grant = self.auth.authenticate(&request).await?;
-        let mut request = request.into_inner();
+        let request = request.into_inner();
         let file = required(request.file.clone())?;
-        let (root, identity) = self.file(&grant, &file, FILES_GIT).await?;
+        let target = required(file.target.clone())?;
         let hash: [u8; 32] = request
             .expected_hash
             .as_slice()
             .try_into()
             .map_err(|_| Status::invalid_argument("Expected SHA256 is required."))?;
         let content = required(request.content.clone())?;
-        let meta = required(request.command.take())?;
-        let input = self.input(
-            &meta,
+        let command = FileCommand::Save {
+            path: file.relative_path,
+            expected_hash: hash,
+            content: content_identity(&content)?,
+        };
+        let prepared = api::prepare_file(
+            &self.auth,
+            &self.roots,
             &grant,
-            "files.save",
-            &identity,
-            request.encode_to_vec(),
-        )?;
+            required(request.command)?,
+            &target,
+            command.clone(),
+        )
+        .await?;
+        if let Some(prior) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return Ok(Response::new(api::receipt(&self.auth, prior, &target)?));
+        }
+        let input = prepared.runtime_input().clone();
+        let identity = command
+            .identity(
+                input
+                    .root
+                    .clone()
+                    .ok_or_else(|| Status::internal("Missing file authority."))?,
+            )
+            .map_err(storage_status)?;
+        let root = PathBuf::from(identity.root());
         let service = self.clone();
+        let validation_target = target.clone();
         let operation = self.locks.begin()?;
         let result = tokio::spawn(async move {
             let _operation = operation;
@@ -367,24 +375,18 @@ impl proto::files_service_server::FilesService for FilesRpc {
                 .await
                 .map_err(storage_status)?;
             if accepted.state() != CommandState::Accepted {
-                return Ok::<_, Status>(receipt(&service.auth, &accepted));
+                return Ok::<_, Status>(accepted);
             }
-            service
-                .auth
-                .client()
-                .transition_runtime_command(
-                    accepted.key().clone(),
-                    CommandState::Accepted,
-                    CommandState::Attempting,
-                    None,
+            let ready = async {
+                api::revalidate_root(
+                    &service.auth,
+                    &service.roots,
+                    &grant,
+                    &validation_target,
+                    FILES_GIT,
+                    &root,
                 )
-                .await
-                .map_err(storage_status)?;
-            let outcome = async {
-                service
-                    .auth
-                    .resource(grant.id(), FILES_GIT, identity.root())
-                    .await?;
+                .await?;
                 let revision = service
                     .auth
                     .client()
@@ -396,24 +398,59 @@ impl proto::files_service_server::FilesService for FilesRpc {
                     .map(|p| p.revision());
                 let text = service.content(&grant, &identity, content).await?;
                 let path = PathBuf::from(identity.relative_path());
-                let new_hash = blocking(move || {
-                    let document = files::Document::load(&root, &path).map_err(domain)?;
+                let check_root = root.clone();
+                let document = blocking(move || {
+                    let document = files::Document::load(&check_root, &path).map_err(domain)?;
                     if Sha256::digest(&document.original).as_slice() != hash {
                         return Err(Status::aborted(
                             "File changed on disk. Your edits remain on your device.",
                         ));
                     }
-                    let saved = document
-                        .save(&root, &path, &text)
-                        .map_err(Status::aborted)?;
-                    Ok(<[u8; 32]>::from(Sha256::digest(&saved.original)))
+                    Ok(document)
                 })
                 .await?;
-                Ok::<_, Status>((revision, new_hash))
+                Ok::<_, Status>((revision, document, text))
             }
             .await;
+            let (revision, document, text) = match ready {
+                Ok(ready) => ready,
+                Err(error) => return reject_precondition(&service.auth, &accepted, error).await,
+            };
+            service
+                .auth
+                .client()
+                .transition_runtime_command(
+                    accepted.key().clone(),
+                    CommandState::Accepted,
+                    CommandState::Attempting,
+                    None,
+                )
+                .await
+                .map_err(storage_status)?;
+            let path = PathBuf::from(identity.relative_path());
+            let outcome = blocking(move || {
+                let saved = document
+                    .save(&root, &path, &text)
+                    .map_err(Status::aborted)?;
+                Ok(<[u8; 32]>::from(Sha256::digest(&saved.original)))
+            })
+            .await;
+            let transport_error = outcome
+                .as_ref()
+                .err()
+                .filter(|error| {
+                    matches!(
+                        error.code(),
+                        tonic::Code::Unavailable
+                            | tonic::Code::Internal
+                            | tonic::Code::Unknown
+                            | tonic::Code::PermissionDenied
+                            | tonic::Code::Unauthenticated
+                    )
+                })
+                .cloned();
             let final_receipt = match outcome {
-                Ok((revision, hash)) => service
+                Ok(hash) => service
                     .auth
                     .client()
                     .finish_file_save(accepted.key().clone(), identity, revision, hash)
@@ -421,8 +458,11 @@ impl proto::files_service_server::FilesService for FilesRpc {
                     .map_err(storage_status)?,
                 Err(error) => {
                     let detail = proto::DomainError {
-                        code: if error.code() == tonic::Code::Aborted {
-                            "conflict"
+                        code: if matches!(
+                            error.code(),
+                            tonic::Code::Aborted | tonic::Code::FailedPrecondition
+                        ) {
+                            "conditions_changed"
                         } else {
                             "operation_failed"
                         }
@@ -436,18 +476,36 @@ impl proto::files_service_server::FilesService for FilesRpc {
                         .transition_runtime_command(
                             accepted.key().clone(),
                             CommandState::Attempting,
-                            CommandState::Failed,
+                            if matches!(
+                                error.code(),
+                                tonic::Code::Unavailable
+                                    | tonic::Code::Internal
+                                    | tonic::Code::Unknown
+                            ) {
+                                CommandState::DeliveryUnknown
+                            } else {
+                                CommandState::Failed
+                            },
                             Some(detail.encode_to_vec()),
                         )
                         .await
                         .map_err(storage_status)?
                 }
             };
-            Ok(receipt(&service.auth, &final_receipt))
+            if let Some(error) = transport_error {
+                return Err(error);
+            }
+            Ok(final_receipt)
         })
         .await
         .map_err(|_| Status::unavailable("Save outcome requires reconciliation."))??;
-        Ok(Response::new(result))
+        self.auth
+            .client()
+            .get_runtime_command(result.key().clone(), 0)
+            .await
+            .map_err(storage_status)?
+            .ok_or_else(|| Status::unavailable("Save outcome requires reconciliation."))?;
+        Ok(Response::new(api::receipt(&self.auth, &result, &target)?))
     }
 
     async fn create_file(
@@ -455,72 +513,136 @@ impl proto::files_service_server::FilesService for FilesRpc {
         request: Request<proto::CreateFileRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
         let grant = self.auth.authenticate(&request).await?;
-        let mut request = request.into_inner();
+        let request = request.into_inner();
         let file = required(request.file.clone())?;
-        let (root, identity) = self.file(&grant, &file, FILES_GIT).await?;
-        let meta = required(request.command.take())?;
+        let target = required(file.target.clone())?;
         if request.directory && request.content.is_some() {
             return Err(Status::invalid_argument("Directories cannot have content."));
         }
-        let input = self.input(
-            &meta,
+        let command = FileCommand::Create {
+            path: file.relative_path,
+            directory: request.directory,
+            content: request.content.as_ref().map(content_identity).transpose()?,
+        };
+        let prepared = api::prepare_file(
+            &self.auth,
+            &self.roots,
             &grant,
-            "files.create",
-            &identity,
-            request.encode_to_vec(),
-        )?;
+            required(request.command)?,
+            &target,
+            command.clone(),
+        )
+        .await?;
+        if let Some(prior) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return Ok(Response::new(api::receipt(&self.auth, prior, &target)?));
+        }
+        let input = prepared.runtime_input().clone();
+        let identity = command
+            .identity(
+                input
+                    .root
+                    .clone()
+                    .ok_or_else(|| Status::internal("Missing file authority."))?,
+            )
+            .map_err(storage_status)?;
+        let root = PathBuf::from(identity.root());
         let service = self.clone();
-        let result = mutation(
+        let validation_target = target.clone();
+        let result = validated_mutation(
             self.auth.clone(),
             self.locks.clone(),
             root.clone(),
             input,
             move || async move {
-                service
-                    .auth
-                    .resource(grant.id(), FILES_GIT, identity.root())
-                    .await?;
+                api::revalidate_root(
+                    &service.auth,
+                    &service.roots,
+                    &grant,
+                    &validation_target,
+                    FILES_GIT,
+                    &root,
+                )
+                .await?;
                 let text = match request.content {
                     Some(reference) => Some(service.content(&grant, &identity, reference).await?),
                     None => None,
                 };
+                let check_root = root.clone();
+                let check_path = PathBuf::from(identity.relative_path());
                 blocking(move || {
-                    let path = Path::new(identity.relative_path());
-                    if request.directory {
-                        std::fs::create_dir(files::resolve(&root, path).map_err(domain)?)
-                            .map_err(domain)?;
-                    } else {
-                        if let Some(text) = text {
-                            files::create_text(&root, path, &text).map_err(domain)?;
-                        } else {
-                            files::create(&root, path).map_err(domain)?;
-                        }
+                    let path = files::resolve(&check_root, &check_path).map_err(domain)?;
+                    match std::fs::symlink_metadata(path) {
+                        Ok(_) => Err(Status::aborted("The file or folder already exists.")),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                        Err(error) => Err(domain(error)),
                     }
-                    Ok(Vec::new())
                 })
-                .await
+                .await?;
+                Ok(async move {
+                    blocking(move || {
+                        let path = Path::new(identity.relative_path());
+                        if request.directory {
+                            std::fs::create_dir(files::resolve(&root, path).map_err(domain)?)
+                                .map_err(domain)?;
+                        } else {
+                            if let Some(text) = text {
+                                files::create_text(&root, path, &text).map_err(domain)?;
+                            } else {
+                                files::create(&root, path).map_err(domain)?;
+                            }
+                        }
+                        Ok(Vec::new())
+                    })
+                    .await
+                })
             },
         )
         .await?;
-        Ok(Response::new(result))
+        Ok(Response::new(api::receipt(&self.auth, &result, &target)?))
     }
     async fn set_dirty_presence(
         &self,
-        request: Request<proto::DirtyPresenceRequest>,
+        request: Request<proto::SetDirtyPresenceRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
         let grant = self.auth.authenticate(&request).await?;
         let request = request.into_inner();
         let file = required(request.file)?;
-        let (root, identity) = self.file(&grant, &file, FILES_GIT).await?;
+        let target = required(file.target)?;
         let hash: [u8; 32] = request
             .base_hash
             .as_slice()
             .try_into()
             .map_err(|_| Status::invalid_argument("Expected SHA256 is required."))?;
-        let meta = required(request.command)?;
-        let input = identity
-            .presence_command(self.auth.key(&meta, &grant)?, hash, request.dirty)
-            .ok_or_else(|| Status::invalid_argument("Invalid presence."))?;
+        let command = FileCommand::Presence {
+            path: file.relative_path,
+            base_hash: hash,
+            dirty: request.dirty,
+        };
+        let prepared = api::prepare_file(
+            &self.auth,
+            &self.roots,
+            &grant,
+            required(request.command)?,
+            &target,
+            command.clone(),
+        )
+        .await?;
+        if let Some(prior) = prepared.prior() {
+            return Ok(Response::new(api::receipt(&self.auth, prior, &target)?));
+        }
+        let input = prepared.runtime_input().clone();
+        let identity = command
+            .identity(
+                input
+                    .root
+                    .clone()
+                    .ok_or_else(|| Status::internal("Missing file authority."))?,
+            )
+            .map_err(storage_status)?;
+        let root = PathBuf::from(identity.root());
         let service = self.clone();
         let operation = self.locks.begin()?;
         let result = tokio::spawn(async move {
@@ -531,13 +653,26 @@ impl proto::files_service_server::FilesService for FilesRpc {
                 .client()
                 .set_runtime_dirty_presence(input, identity, hash, request.dirty)
                 .await
-                .map(|r| receipt(&service.auth, &r))
                 .map_err(storage_status)
         })
         .await
         .map_err(|_| Status::unavailable("Presence outcome requires reconciliation."))??;
-        Ok(Response::new(result))
+        Ok(Response::new(api::receipt(&self.auth, &result, &target)?))
     }
+}
+fn content_identity(value: &proto::ArtifactRef) -> Result<FileContent, Status> {
+    Ok(FileContent {
+        host: crate::thread::HostId::new(value.host_id.clone())
+            .ok_or_else(|| Status::invalid_argument("Invalid artifact host."))?,
+        artifact: value.artifact_id.clone(),
+        media_type: value.media_type.clone(),
+        size: value.size,
+        sha256: value
+            .sha256
+            .as_slice()
+            .try_into()
+            .map_err(|_| Status::invalid_argument("Expected SHA256 is required."))?,
+    })
 }
 fn directory_entry(
     root: &Path,

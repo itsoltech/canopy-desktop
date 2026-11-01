@@ -39,11 +39,23 @@ impl Workspace {
                     .chats
                     .clone()
                     .update(cx, |chats, _| chats.detach_views(&ids));
-                target.update(cx, |state, cx| {
-                    if state.id == workspace && state.close(tab).is_ok() {
-                        cx.notify();
-                    }
-                })
+                cx.global::<crate::app_state::AppState>()
+                    .terminals
+                    .clone()
+                    .update(cx, |terminals, cx| {
+                        let target = target.clone();
+                        terminals.close_local_panes(
+                            ids.clone(),
+                            move |cx| {
+                                target.update(cx, |state, cx| {
+                                    if state.id == workspace && state.close(tab).is_ok() {
+                                        cx.notify();
+                                    }
+                                });
+                            },
+                            cx,
+                        );
+                    });
             },
             cx,
         );

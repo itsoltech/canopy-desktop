@@ -5,19 +5,24 @@ mod api_reads;
 pub mod catalog;
 mod chat_commands;
 mod commands;
+mod host;
 mod peers;
 pub mod presentation;
-pub use chat_commands::ChatMutation;
+pub use api_commands::ApiIntent as ChatMutation;
 pub mod pairing;
 mod projection;
 mod resources;
 mod routes;
+mod settings;
 pub mod ssh;
 pub mod store;
-use crate::remote::{proto as p, tls};
+mod tasks;
+mod uploads;
+use crate::{api::proto as p, remote::tls};
 pub use projection::ChatProjection;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+pub use settings::SettingsMutation;
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -27,7 +32,9 @@ use std::{
     },
 };
 use store::{CredentialStore, HostRecord, Store};
+pub use tasks::TaskMutation;
 use tonic::transport::Channel;
+pub use uploads::UploadTarget;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -147,7 +154,7 @@ pub struct HostSnapshot {
     pub phase: Phase,
     pub error: Option<String>,
     pub catalog: Option<p::Catalog>,
-    pub info: Option<p::HostInfo>,
+    pub info: Option<crate::api::proto::HostInfo>,
 }
 struct HostState {
     record: HostRecord,
@@ -156,7 +163,7 @@ struct HostState {
     channel: Option<Channel>,
     tunnel: Option<ssh::SshTunnel>,
     catalog: Option<Arc<p::Catalog>>,
-    info: Option<p::HostInfo>,
+    info: Option<crate::api::proto::HostInfo>,
     watch: Option<tokio::task::AbortHandle>,
     view_revisions: BTreeMap<String, u64>,
     active_route: Option<String>,
@@ -360,7 +367,7 @@ impl HostClient {
         let mutual = if !record.passive_peer
             && let Some(peer) = &peer
         {
-            peer.connect_back(channel.clone(), &record, return_port)
+            peer.connect_back(channel.clone(), self, info.command_epoch, return_port)
                 .await?
         } else {
             record.mutual
@@ -393,8 +400,8 @@ impl HostClient {
         let weak = Arc::downgrade(self);
         let task = tokio::spawn(async move {
             let result = async {
-                let mut health = p::host_service_client::HostServiceClient::new(channel.clone())
-                    .watch_host(p::HostRequest { host_id: record.id.0.clone() }).await.map_err(rpc_error)?.into_inner();
+                let mut health = crate::api::proto::host_service_client::HostServiceClient::new(channel.clone())
+                    .watch_host(crate::api::proto::WatchHostRequest { environment: Some(crate::api::proto::EnvironmentRef { host_id: record.id.0.clone() }) }).await.map_err(rpc_error)?.into_inner();
                 let mut stream = crate::api::proto::catalog_service_client::CatalogServiceClient::new(channel)
                     .watch_summaries(crate::api::proto::WatchSummariesRequest {
                         environment: Some(crate::api::proto::EnvironmentRef { host_id: record.id.0.clone() }),
@@ -409,7 +416,7 @@ impl HostClient {
                         event = stream.message() => event.map_err(rpc_error)?.ok_or("Catalog stream disconnected.")?,
                         status = health.message() => {
                             let status = status.map_err(rpc_error)?.ok_or("Host status stream disconnected.")?;
-                            if status.host_id != record.id.0 { return Err("Host status identity mismatch.".into()); }
+                            if status.environment.as_ref().map(|e| e.host_id.as_str()) != Some(record.id.0.as_str()) { return Err("Host status identity mismatch.".into()); }
                             if status.readiness != 2 { return Err(format!("Host is not ready: {}", status.reason)); }
                             continue;
                         }
@@ -428,7 +435,6 @@ impl HostClient {
                         // Pages of a snapshot are staged; the catalog changes only
                         // with a whole snapshot or a delta after it.
                         let started = std::time::Instant::now();
-                        let event = crate::api::catalog_projection::legacy_event(event, &host.id.0).map_err(rpc_error)?;
                         let applied = feed.apply(&host.id.0, &mut state.catalog, event);
                         crate::remote::metrics::record(
                             &host.id.0,
@@ -707,42 +713,24 @@ mod tests {
         let host = registry.insert(record()).unwrap();
         host.state.lock().unwrap().channel =
             Some(tonic::transport::Endpoint::from_static("http://127.0.0.1:1").connect_lazy());
-        let chat = p::ChatRef {
+        let chat = p::ThreadRef {
             host_id: host.id().as_str().into(),
-            chat_id: "chat".into(),
+            thread_id: crate::thread::ThreadId::new().to_string(),
         };
-        let intent = ChatMutation::RunShell(p::RunShellRequest {
-            chat: Some(chat.clone()),
-            run_id: "7".into(),
-            command_line: "echo preserve-intent".into(),
-            ..Default::default()
-        });
-        // Target discovery precedes mutation ownership. Simulate its completed
-        // result so this failure occurs during dispatch, where retaining the
-        // original request is required rather than recording an unsent lookup.
-        let prepared = api_commands::ApiIntent::Shell(crate::api::proto::RunShellRequest {
-            target: Some(crate::api::proto::ThreadTarget {
-                thread: Some(crate::api::proto::ThreadRef {
-                    host_id: chat.host_id.clone(),
-                    thread_id: crate::thread::ThreadId::new().to_string(),
-                }),
+        let intent = ChatMutation::Shell(p::RunShellRequest {
+            target: Some(p::ThreadTarget {
+                thread: Some(chat.clone()),
                 executor_epoch: 3,
             }),
             run_id: 7,
             command_line: "echo preserve-intent".into(),
-            command: None,
+            ..Default::default()
         });
         let host_id = chat.host_id.clone();
         assert!(
-            host.submit_chat_mutation_prepared(
-                intent.clone(),
-                Some(prepared.clone()),
-                move |_, api, channel| async move {
-                    api.unwrap()
-                        .dispatch(channel, &host_id, "chat".into())
-                        .await
-                }
-            )
+            host.submit_chat_mutation_with(intent.clone(), move |api, channel| async move {
+                api.dispatch(channel, &host_id, "chat".into()).await
+            })
             .await
             .is_err()
         );
@@ -750,7 +738,7 @@ mod tests {
         assert_eq!(pending.len(), 1);
         let original = pending[0].0.clone();
         assert!(
-            host.submit_chat_mutation_prepared(intent, Some(prepared), |_, _, _| async {
+            host.submit_chat_mutation_with(intent, |_, _| async {
                 panic!("an unresolved operation must prevent a second dispatch")
             })
             .await
@@ -767,7 +755,7 @@ mod tests {
             .unwrap();
         let entries = restored.chat_mutations(&chat);
         assert_eq!(entries[0].0, original);
-        let ChatMutation::RunShell(request) = &entries[0].1 else {
+        let ChatMutation::Shell(request) = &entries[0].1 else {
             panic!("wrong recovered operation")
         };
         assert_eq!(request.command_line, "echo preserve-intent");

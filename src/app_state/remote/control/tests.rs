@@ -72,7 +72,11 @@ async fn preferences_cas_waits_for_commit_and_preserves_queued_local_change(
     let first = bridge.snapshot().await.unwrap();
     let first_revision = first.revision;
     let patch = serde_json::from_value(serde_json::json!({"notch_enabled":false})).unwrap();
-    let request = preferences(&first.host_id, patch, first.revision);
+    let request = preferences(
+        &first.environment.as_ref().unwrap().host_id,
+        patch,
+        first.revision,
+    );
     let retry = request.clone();
     // A second request can finish admission before the first one commits, then
     // reach the owner after its CAS revision has advanced.
@@ -146,7 +150,13 @@ async fn preferences_cas_waits_for_commit_and_preserves_queued_local_change(
         bridge
             .update_preferences(
                 preferences(
-                    &bridge.snapshot().await.unwrap().host_id,
+                    &bridge
+                        .snapshot()
+                        .await
+                        .unwrap()
+                        .environment
+                        .unwrap()
+                        .host_id,
                     patch,
                     first_revision
                 ),
@@ -194,7 +204,11 @@ async fn failed_preferences_commit_keeps_live_values_and_revision(cx: &mut TestA
     assert!(
         bridge
             .update_preferences(
-                preferences(&before.host_id, patch, before.revision),
+                preferences(
+                    &before.environment.as_ref().unwrap().host_id,
+                    patch,
+                    before.revision
+                ),
                 canopy_desktop::command_bus::Principal::local_owner()
             )
             .await
@@ -405,7 +419,7 @@ async fn partial_profile_edit_preserves_unmentioned_local_options_and_durable_ca
 async fn task_worktree_returns_only_after_catalog_and_task_link_commit(cx: &mut TestAppContext) {
     use canopy_desktop::{
         integrations::{ProjectTarget, TaskRef},
-        remote::{proto, tasks::TasksHost},
+        remote::tasks::TasksHost,
     };
     cx.background_executor.allow_parking();
     let dir = tempfile::tempdir().unwrap();
@@ -454,13 +468,31 @@ async fn task_worktree_returns_only_after_catalog_and_task_link_commit(cx: &mut 
     let create = runtime.spawn({
         let bridge = bridge.clone();
         let task = task.clone();
+        let project = cx.update(|cx| {
+            app.projects
+                .read(cx)
+                .catalog
+                .items
+                .iter()
+                .find(|p| p.workspace == workspace)
+                .unwrap()
+                .id
+        });
         async move {
             bridge
                 .task_to_worktree(
-                    proto::WorkspaceRef {
-                        host_id,
-                        workspace_id: serde_json::to_string(&workspace).unwrap(),
-                    },
+                    canopy_desktop::thread::ProjectRef::new(
+                        canopy_desktop::thread::HostId::new(host_id).unwrap(),
+                        project,
+                        Some(
+                            canopy_desktop::thread::WorktreeId::new(
+                                serde_json::to_string(&workspace).unwrap(),
+                            )
+                            .unwrap(),
+                        ),
+                        true,
+                    )
+                    .unwrap(),
                     task,
                     "task-42".into(),
                 )

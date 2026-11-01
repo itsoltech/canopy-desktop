@@ -75,8 +75,8 @@ export class PairingClient {
   private async pollOnce(signal?: AbortSignal): Promise<PairingStatus> {
     const channel = await this.channel()
     const result = this.pending.requestId
-      ? await channel.unary('EnrollmentService/GetPairingStatus', { request_id: this.pending.requestId, proof: this.invite.one_time_token }, signal)
-      : await channel.unary('EnrollmentService/RequestPairing', { one_time_token: this.invite.one_time_token, certificate_signing_request: fromBase64(this.pending.csr), device_name: this.pending.deviceName }, signal)
+      ? await channel.unary('EnrollmentService/GetPairingStatus', { environment: { host_id: this.invite.host_id }, request_id: this.pending.requestId, proof: this.invite.one_time_token }, signal)
+      : await channel.unary('EnrollmentService/RequestPairing', { environment: { host_id: this.invite.host_id }, one_time_token: this.invite.one_time_token, certificate_signing_request: fromBase64(this.pending.csr), device_name: this.pending.deviceName }, signal)
     if (!result.request_id || this.pending.requestId && result.request_id !== this.pending.requestId) throw Error('Pairing request identity mismatch')
     if (!this.pending.requestId) {
       this.pending = { ...this.pending, requestId: result.request_id }
@@ -85,7 +85,7 @@ export class PairingClient {
     return result
   }
   async complete(status: PairingStatus): Promise<HostConnection> {
-    if (status.state !== 'approved' || status.request_id !== this.pending.requestId || !status.device || status.device.revoked || !status.certificate || status.certificate_chain.length > 3) throw Error('Pairing is not approved')
+    if (status.state !== 2 || status.request_id !== this.pending.requestId || !status.device || status.device.revoked || !status.certificate || status.certificate_chain.length > 3) throw Error('Pairing is not approved')
     const key = pendingKey(this.ref)
     const certificateChain = [status.certificate, ...status.certificate_chain].map(certificatePEM).join('')
     const credentialRef = this.ref + '-device'

@@ -6,10 +6,10 @@ use super::{
     HistorySearch, PendingOutcome, PendingRequest, SavedMessageEdit, ThreadFile, ThreadFolder,
     ThreadPlace, ThreadProject,
 };
+use canopy_desktop::api::proto as p;
 use canopy_desktop::{
-    remote::{
-        client::{ChatMutation, ChatProjection, HostClient, HostId, Phase, presentation as wire},
-        proto as p,
+    remote::client::{
+        ChatMutation, ChatProjection, HostClient, HostId, Phase, presentation as wire,
     },
     state::workspace::RemoteChat,
 };
@@ -20,18 +20,20 @@ pub(super) async fn discover_accounts(
     workspace: Option<String>,
 ) -> Result<Vec<super::Account>, String> {
     tokio::time::timeout(std::time::Duration::from_secs(30), async move {
-        let workspace = workspace.map(|workspace_id| p::WorkspaceRef {
-            host_id: host.id().as_str().into(),
-            workspace_id,
-        });
+        let project = match workspace {
+            Some(id) => Some(host.project_ref(&id).await?),
+            None => None,
+        };
         let mut accounts = Vec::new();
         let mut token = None;
         let mut seen = HashSet::new();
         loop {
             let page = host
-                .list_agents(p::AgentDiscoveryRequest {
-                    host_id: host.id().as_str().into(),
-                    workspace: workspace.clone(),
+                .list_agents(p::ListAgentsRequest {
+                    environment: Some(p::EnvironmentRef {
+                        host_id: host.id().as_str().into(),
+                    }),
+                    project: project.clone(),
                     page_token: token,
                 })
                 .await?;
@@ -66,13 +68,17 @@ pub(super) async fn create_chat(
     agent: String,
     profile: Option<String>,
 ) -> Result<RemoteChat, String> {
-    let workspace = workspace.map(|workspace_id| p::WorkspaceRef {
-        host_id: host.id().as_str().into(),
-        workspace_id,
-    });
     let receipt = host.create_thread(workspace, agent, profile).await?;
-    RemoteChat::new(host.id().as_str().into(), receipt.resource_id)
-        .ok_or_else(|| "The computer returned an invalid chat.".into())
+    let Some(p::command_receipt::Result::Runtime(result)) = receipt.result else {
+        return Err("Creation result is missing.".into());
+    };
+    RemoteChat::new(
+        host.id().as_str().into(),
+        result
+            .catalog_id
+            .ok_or("Created catalog identity is missing.")?,
+    )
+    .ok_or_else(|| "The computer returned an invalid chat.".into())
 }
 
 /// Creation selected from the environment catalog uses the same existing host
@@ -92,13 +98,16 @@ pub(super) fn create_environment(host: Arc<HostClient>, workspace: Option<String
         }
     };
     let task = executor.spawn(async move {
+        let project = match &workspace {
+            Some(id) => Some(host.project_ref(id).await?),
+            None => None,
+        };
         let agents = host
-            .list_agents(p::AgentDiscoveryRequest {
-                host_id: host.id().as_str().into(),
-                workspace: workspace.clone().map(|workspace_id| p::WorkspaceRef {
+            .list_agents(p::ListAgentsRequest {
+                environment: Some(p::EnvironmentRef {
                     host_id: host.id().as_str().into(),
-                    workspace_id,
                 }),
+                project,
                 page_token: None,
             })
             .await?
@@ -170,6 +179,7 @@ impl<T> Drop for ReadTask<T> {
 }
 
 pub(crate) struct RemoteSession {
+    target: Option<p::ThreadTarget>,
     pub reference: RemoteChat,
     pub host: Option<Arc<HostClient>>,
     pub projection: ChatProjection,
@@ -215,9 +225,9 @@ impl RemoteSession {
                 .map(|entry| {
                     let state = match p::QueueDelivery::try_from(entry.delivery) {
                         Ok(p::QueueDelivery::Queued) => QueueState::Queued,
-                        Ok(p::QueueDelivery::QueueAttempting) => QueueState::Attempting,
+                        Ok(p::QueueDelivery::Attempting) => QueueState::Attempting,
                         Ok(p::QueueDelivery::Delivered) => QueueState::Delivered,
-                        Ok(p::QueueDelivery::QueueFailed) => QueueState::Failed,
+                        Ok(p::QueueDelivery::Failed) => QueueState::Failed,
                         Ok(p::QueueDelivery::Dismissed) => QueueState::Dismissed,
                         _ => QueueState::DeliveryUnknown,
                     };
@@ -243,10 +253,10 @@ impl RemoteSession {
             host: self.host.as_ref().map(|host| host.name()),
             ..Default::default()
         };
-        let Some(summary) = &self.projection.summary else {
+        let Some(_) = &self.projection.summary else {
             return place;
         };
-        let Some(workspace) = &summary.workspace else {
+        let Some(workspace) = self.project_catalog_id() else {
             place.private = true;
             return place;
         };
@@ -258,7 +268,7 @@ impl RemoteSession {
                     project
                         .checkouts
                         .iter()
-                        .find(|checkout| checkout.workspace.as_ref() == Some(workspace))?,
+                        .find(|checkout| checkout.catalog_id == workspace)?,
                 ))
             })
         }) {
@@ -303,7 +313,10 @@ impl RemoteSession {
 
     pub(super) fn tool_file(&self, call: &str) -> Option<ThreadFile> {
         let file = self.tool_calls(call).find_map(|tool| tool.files.first())?;
-        let workspace = file.workspace.as_ref()?;
+        if !file.project_file {
+            return None;
+        }
+        let workspace = self.project_catalog_id()?;
         Some(ThreadFile {
             target: canopy_desktop::chat::mentions::Target {
                 path: file.relative_path.clone().into(),
@@ -314,8 +327,8 @@ impl RemoteSession {
                 |host| format!("{} · {}", file.relative_path, host.name()),
             ),
             origin: FileOrigin::Environment {
-                host: workspace.host_id.clone(),
-                workspace: workspace.workspace_id.clone(),
+                host: self.reference.host.clone(),
+                workspace,
             },
         })
     }
@@ -345,7 +358,7 @@ impl RemoteSession {
     pub(super) fn pending_request(&self) -> Option<PendingRequest> {
         let host = self.host.as_ref()?;
         let (id, mutation, receipt) =
-            host.chat_mutations(&self.chat())
+            host.chat_mutations(&self.thread())
                 .into_iter()
                 .find(|(_, _, receipt)| {
                     receipt.as_ref().is_none_or(|receipt| {
@@ -359,9 +372,9 @@ impl RemoteSession {
         };
         let (kind, text) = match mutation {
             ChatMutation::Send(r) => (("Message", "message"), draft(r.draft.as_ref())),
-            ChatMutation::Edit(r) => (("Edit", "edit"), draft(r.draft.as_ref())),
+            ChatMutation::MessageEdit(r) => (("Edit", "edit"), draft(r.draft.as_ref())),
             ChatMutation::Fork(r) => (("Fork", "fork"), draft(r.replacement.as_ref())),
-            ChatMutation::RunShell(r) => (
+            ChatMutation::Shell(r) => (
                 ("Command", "command"),
                 Some(format!("!{}", r.command_line.trim())),
             ),
@@ -374,6 +387,7 @@ impl RemoteSession {
             ChatMutation::Agent(_) => (("Agent selection", "agent selection"), None),
             ChatMutation::Goal(_) => (("Goal", "goal"), None),
             ChatMutation::Background(_) => (("Stop request", "stop request"), None),
+            _ => (("Operation", "operation"), None),
         };
         Some(PendingRequest {
             id,
@@ -477,6 +491,7 @@ impl RemoteSession {
     }
     pub fn new(reference: RemoteChat) -> Self {
         Self {
+            target: None,
             reference,
             host: None,
             projection: Default::default(),
@@ -502,17 +517,27 @@ impl RemoteSession {
             pump: None,
         }
     }
-    pub fn chat(&self) -> p::ChatRef {
-        p::ChatRef {
-            host_id: self.reference.host.clone(),
-            chat_id: self.reference.chat.clone(),
-        }
+    pub fn chat(&self) -> p::ThreadTarget {
+        self.target.clone().unwrap_or_default()
     }
-    pub fn run(&self) -> String {
+    fn thread(&self) -> p::ThreadRef {
+        self.chat().thread.unwrap_or_default()
+    }
+    fn project_catalog_id(&self) -> Option<String> {
+        self.host
+            .as_ref()?
+            .shared_catalog()?
+            .threads
+            .iter()
+            .find(|t| t.catalog_id == self.reference.chat)?
+            .project_catalog_id
+            .clone()
+    }
+    pub fn run(&self) -> u64 {
         self.projection
             .summary
             .as_ref()
-            .and_then(|s| s.run_id.clone())
+            .and_then(|s| s.run_id)
             .unwrap_or_default()
     }
     pub fn enabled(&self, name: &str) -> bool {
@@ -532,10 +557,9 @@ impl RemoteSession {
     pub fn context(&self) -> Option<p::SendContext> {
         let s = self.projection.summary.as_ref()?;
         Some(p::SendContext {
-            agent_id: s.agent_id.clone(),
+            account_id: s.agent_id.clone(),
             profile_id: s.profile_id.clone(),
             history_epoch: s.history_epoch,
-            workspace: s.workspace.clone(),
         })
     }
     pub(super) fn backend(&self, tool: &str) -> Option<BackendKind> {
@@ -545,10 +569,10 @@ impl RemoteSession {
             .find(|agent| agent.agent_id == tool)?
             .backend_kind;
         match p::BackendKind::try_from(kind).ok()? {
-            p::BackendKind::ClaudeStreamJson => Some(BackendKind::Claude),
-            p::BackendKind::CodexAppServer => Some(BackendKind::Codex),
-            p::BackendKind::Acp => Some(BackendKind::Acp),
-            p::BackendKind::Unspecified => None,
+            p::BackendKind::NativeStream => Some(BackendKind::Claude),
+            p::BackendKind::NativeServer => Some(BackendKind::Codex),
+            p::BackendKind::Protocol => Some(BackendKind::Acp),
+            p::BackendKind::Unspecified | p::BackendKind::Shell | p::BackendKind::Process => None,
         }
     }
     pub fn options(&self) -> Vec<AgentOption> {
@@ -598,7 +622,7 @@ impl RemoteSession {
             .filter_map(|entry| {
                 let state = match p::QueueDelivery::try_from(entry.delivery).ok()? {
                     p::QueueDelivery::Queued => LineState::Queued,
-                    p::QueueDelivery::QueueAttempting => LineState::Sending,
+                    p::QueueDelivery::Attempting => LineState::Sending,
                     p::QueueDelivery::Unknown => LineState::Unknown,
                     _ => return None,
                 };
@@ -613,7 +637,7 @@ impl RemoteSession {
             .collect();
         if let Some(host) = &self.host {
             for (id, request, receipt) in host.outbox() {
-                if request.chat.as_ref() != Some(&self.chat())
+                if request.target.as_ref() != Some(&self.chat())
                     || receipt
                         .as_ref()
                         .is_some_and(|r| [3, 4, 5, 7].contains(&r.state))
@@ -667,11 +691,7 @@ impl ChatRuntime {
         cx: &mut Context<Self>,
     ) -> Task<Result<Vec<AttachmentSuggestion>, String>> {
         let source = self.transport.grpc().unwrap();
-        let Some((host, workspace)) = source
-            .host
-            .clone()
-            .zip(source.context().and_then(|context| context.workspace))
-        else {
+        let Some((host, workspace)) = source.host.clone().zip(source.project_catalog_id()) else {
             return Task::ready(Err("This chat has no project folder.".into()));
         };
         let executor = match crate::ui::remote_client::executor(cx) {
@@ -679,11 +699,11 @@ impl ChatRuntime {
             Err(error) => return Task::ready(Err(error.to_string())),
         };
         let task = executor.spawn(async move {
-            use canopy_desktop::remote::client::rpc_error;
+            let project = host.project_ref(&workspace).await?;
             if pulls {
                 let found = host
-                    .list_pull_requests(p::PullRequestsRequest {
-                        workspace: Some(workspace),
+                    .list_pull_requests(p::ListPullRequestsRequest {
+                        project: Some(project),
                         query,
                         page_token: None,
                     })
@@ -713,15 +733,15 @@ impl ChatRuntime {
                 }
                 Ok::<_, String>((suggestions, originals))
             } else {
-                let found = p::files_service_client::FilesServiceClient::new(host.channel()?)
-                    .search_files(p::SearchFilesRequest {
-                        workspace: Some(workspace),
+                let found = host
+                    .search_files(
+                        p::ResourceTarget {
+                            resource: Some(p::resource_target::Resource::Project(project)),
+                        },
                         query,
-                        limit: limit as u32,
-                    })
-                    .await
-                    .map_err(rpc_error)?
-                    .into_inner();
+                        limit as u32,
+                    )
+                    .await?;
                 Ok((
                     found
                         .entries
@@ -810,8 +830,8 @@ impl ChatRuntime {
         let search = executor.spawn(async move {
             let page = host
                 .search_thread_history(p::SearchHistoryRequest {
-                    chat: Some(chat),
-                    text: query,
+                    thread: chat.thread,
+                    query,
                     page_token: token,
                 })
                 .await?;
@@ -819,7 +839,7 @@ impl ChatRuntime {
                 matches: page
                     .matches
                     .into_iter()
-                    .filter_map(|found| found.key)
+                    .filter_map(|found| found.item)
                     .map(|key| HistoryPosition {
                         history_epoch: key.history_epoch,
                         item_id: key.item_id,
@@ -860,7 +880,13 @@ impl ChatRuntime {
                 .originals
                 .get(file)
                 .and_then(|attachment| match &attachment.content {
-                    Some(p::attachment::Content::Image(image)) => Some(image.clone()),
+                    Some(p::attachment::Content::Image(image)) => Some(p::ArtifactRef {
+                        host_id: image.host_id.clone(),
+                        artifact_id: image.artifact_id.clone(),
+                        sha256: image.sha256.clone(),
+                        size: image.size,
+                        media_type: image.media_type.clone(),
+                    }),
                     _ => None,
                 });
         if let Some((host, artifact)) = source.host.clone().zip(artifact) {
@@ -896,7 +922,9 @@ impl ChatRuntime {
             Err(error) => return Task::ready(Err(error.to_string())),
         };
         let download = executor.spawn(async move {
-            let bytes = host.read_chat_page(chat, key).await?;
+            let bytes = host
+                .read_chat_page(chat.thread.ok_or("Missing thread.")?, key)
+                .await?;
             let html = String::from_utf8(bytes).map_err(|_| "Invalid UTF-8 page.".to_owned())?;
             Ok(crate::ui::remote_client::isolated_html(&html))
         });
@@ -934,9 +962,10 @@ impl ChatRuntime {
             _ => {}
         }
         self.remote_queue(
-            p::change_queue_request::Change::Move(p::QueueMove {
+            ChatMutation::Move(p::MoveQueueMessageRequest {
                 message_id: message,
                 before_message_id: Some(before),
+                ..Default::default()
             }),
             cx,
         );
@@ -965,15 +994,13 @@ impl ChatRuntime {
                     encode_draft(&host, &chat, &context, &originals, draft, namespace, false)
                         .await?;
                 let receipt = host
-                    .change_queue(
-                        chat,
-                        revision,
-                        p::change_queue_request::Change::Edit(p::QueueEdit {
-                            message_id: message,
-                            draft: Some(draft),
-                        }),
-                        Some(context),
-                    )
+                    .submit_chat_mutation(ChatMutation::Edit(p::EditQueueMessageRequest {
+                        command: None,
+                        target: Some(chat),
+                        queue_revision: revision,
+                        message_id: message,
+                        draft: Some(draft),
+                    }))
                     .await?;
                 if receipt.state != p::OperationState::Succeeded as i32 {
                     return Err(receipt
@@ -992,8 +1019,9 @@ impl ChatRuntime {
             return;
         }
         self.remote_queue(
-            p::change_queue_request::Change::Remove(p::QueueRemove {
+            ChatMutation::Remove(p::RemoveQueueMessageRequest {
                 message_id: message,
+                ..Default::default()
             }),
             cx,
         );
@@ -1022,10 +1050,11 @@ impl ChatRuntime {
             UnknownResolution::Dismissed => (p::UnknownResolution::Dismiss, None),
         };
         self.remote_queue(
-            p::change_queue_request::Change::Resolve(p::QueueResolve {
+            ChatMutation::Resolve(p::ResolveUnknownQueueMessageRequest {
                 message_id: message,
                 resolution: resolution as i32,
                 new_message_id,
+                ..Default::default()
             }),
             cx,
         );
@@ -1039,7 +1068,9 @@ impl ChatRuntime {
     ) {
         let (action, answers, note, accept_edits) = match response {
             Response::Allow => (p::NativeDecisionAction::AllowOnce, vec![], None, false),
-            Response::AllowForChat => (p::NativeDecisionAction::AllowForChat, vec![], None, false),
+            Response::AllowForChat => {
+                (p::NativeDecisionAction::AllowForThread, vec![], None, false)
+            }
             Response::Deny(note) => (p::NativeDecisionAction::Deny, vec![], note, false),
             Response::Answer(answers) => (p::NativeDecisionAction::Answer, answers, None, false),
             Response::ApprovePlan { accept_edits } => (
@@ -1080,13 +1111,7 @@ impl ChatRuntime {
     }
 
     pub(super) fn goal_grpc(&mut self, command: ChatCommand, cx: &mut Context<Self>) {
-        let action = match command {
-            ChatCommand::PauseGoal => p::GoalAction::PauseGoal,
-            ChatCommand::ResumeGoal => p::GoalAction::ResumeGoal,
-            ChatCommand::ClearGoal => p::GoalAction::ClearGoal,
-            _ => return,
-        };
-        self.client_goal(action, cx);
+        self.client_goal(command, cx);
     }
 
     pub(crate) fn client_resume(&mut self, cx: &mut Context<Self>) {
@@ -1099,7 +1124,7 @@ impl ChatRuntime {
             .outbox()
             .into_iter()
             .filter(|(_, r, result)| {
-                r.chat.as_ref() == Some(&chat)
+                r.target.as_ref() == Some(&chat)
                     && result
                         .as_ref()
                         .is_none_or(|r| !r.resolved_by_user && ![3, 4, 5, 7].contains(&r.state))
@@ -1112,15 +1137,17 @@ impl ChatRuntime {
                 let mut revision = queue.as_ref().map(|q| q.revision);
                 for id in saved {
                     let receipt = host.send_outbox(&id).await?;
-                    revision = receipt.queue_revision.or(revision);
+                    if let Some(p::command_receipt::Result::Queue(q)) = receipt.result {
+                        revision = Some(q.revision);
+                    }
                 }
                 if let Some(revision) = revision {
-                    host.change_queue(
-                        chat,
-                        revision,
-                        p::change_queue_request::Change::Pause(p::QueuePause { paused: false }),
-                        None,
-                    )
+                    host.submit_chat_mutation(ChatMutation::Pause(p::PauseQueueRequest {
+                        command: None,
+                        target: Some(chat),
+                        queue_revision: revision,
+                        paused: false,
+                    }))
                     .await?;
                 }
                 Ok(())
@@ -1161,16 +1188,23 @@ impl ChatRuntime {
         let Some(context) = source.context() else {
             return;
         };
-        let tool = context.agent_id.clone();
+        let tool = context.account_id.clone();
+        let project = source.project_catalog_id();
         let target = cx.global::<AppState>().projects.read(cx).catalog.active;
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
             .spawn(async move {
                 let receipt = host
-                    .create_thread(context.workspace, context.agent_id, context.profile_id)
+                    .create_thread(project, context.account_id, context.profile_id)
                     .await?;
-                RemoteChat::new(host.id().as_str().into(), receipt.resource_id)
-                    .ok_or_else(|| "Invalid chat identity.".to_owned())
+                let Some(p::command_receipt::Result::Runtime(result)) = receipt.result else {
+                    return Err("Missing created thread identity.".into());
+                };
+                RemoteChat::new(
+                    host.id().as_str().into(),
+                    result.catalog_id.ok_or("Missing created thread alias.")?,
+                )
+                .ok_or_else(|| "Invalid chat identity.".to_owned())
             });
         cx.spawn(async move |this, cx| {
             let result = task.await.unwrap_or_else(|e| Err(e.to_string()));
@@ -1214,9 +1248,9 @@ impl ChatRuntime {
         let chat = source.chat();
         self.remote_task(
             async move {
-                host.submit_chat_mutation(ChatMutation::Agent(p::SetChatAgentRequest {
+                host.submit_chat_mutation(ChatMutation::Agent(p::SetThreadAgentRequest {
                     command: None,
-                    chat: Some(chat),
+                    target: Some(chat),
                     agent_id: tool,
                     profile_id: profile,
                     model,
@@ -1243,7 +1277,7 @@ impl ChatRuntime {
             async move {
                 host.submit_chat_mutation(ChatMutation::Background(p::StopBackgroundRequest {
                     command: None,
-                    chat: Some(chat),
+                    target: Some(chat),
                     run_id: run,
                     call_id: call,
                 }))
@@ -1264,7 +1298,7 @@ impl ChatRuntime {
             async move {
                 host.submit_chat_mutation(ChatMutation::Steer(p::SteerRequest {
                     command: None,
-                    chat: Some(chat),
+                    target: Some(chat),
                     run_id: run,
                     message_id: message,
                     draft: None,
@@ -1335,14 +1369,12 @@ impl ChatRuntime {
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
             .spawn(async move {
-                host.change_queue(
-                    chat,
-                    revision,
-                    p::change_queue_request::Change::Remove(p::QueueRemove {
-                        message_id: message,
-                    }),
-                    None,
-                )
+                host.submit_chat_mutation(ChatMutation::Remove(p::RemoveQueueMessageRequest {
+                    command: None,
+                    target: Some(chat),
+                    queue_revision: revision,
+                    message_id: message,
+                }))
                 .await
             });
         cx.spawn(
@@ -1364,13 +1396,7 @@ impl ChatRuntime {
     /// Connection context for the independent Files/Git/terminal tools panel.
     pub(crate) fn project_tools_context(&self) -> Option<(Arc<HostClient>, Option<String>)> {
         let source = self.transport.grpc()?;
-        Some((
-            source.host.clone()?,
-            source
-                .context()
-                .and_then(|context| context.workspace)
-                .map(|workspace| workspace.workspace_id),
-        ))
+        Some((source.host.clone()?, source.project_catalog_id()))
     }
     pub(crate) fn remote_host(&self) -> Option<Arc<HostClient>> {
         self.transport.grpc()?.host.clone()
@@ -1402,7 +1428,10 @@ impl ChatRuntime {
         let chat = source.chat();
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
-            .spawn(async move { host.thread_options(chat).await });
+            .spawn(async move {
+                host.thread_options(chat.thread.ok_or("Missing thread.")?)
+                    .await
+            });
         let task = source.own_read(task);
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(options)) = task.await {
@@ -1434,30 +1463,39 @@ impl ChatRuntime {
             return;
         };
         let chat = source.chat();
-        let destination = destination.map(|workspace_id| p::WorkspaceRef {
-            host_id: source.reference.host.clone(),
-            workspace_id,
-        });
+        if source.project_catalog_id().is_some() && destination != source.project_catalog_id() {
+            self.note(
+                "Fork is supported only in the source project and worktree. Choose that location."
+                    .into(),
+                cx,
+            );
+            return;
+        }
         let tool = self.pane.tool.clone();
         let target = cx.global::<AppState>().projects.read(cx).catalog.active;
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
             .spawn(async move {
                 let receipt = host
-                    .submit_chat_mutation(ChatMutation::Fork(p::ForkChatRequest {
+                    .submit_chat_mutation(ChatMutation::Fork(p::ForkThreadRequest {
                         command: None,
-                        chat: Some(chat),
+                        target: Some(chat),
                         history_epoch: item.history_epoch,
                         item_id: item.item_id,
-                        destination,
                         replacement: None,
                     }))
                     .await?;
                 if receipt.state != p::OperationState::Succeeded as i32 {
                     return Err("Fork is pending. Review its saved result before retrying.".into());
                 }
-                let reference = RemoteChat::new(host.id().as_str().into(), receipt.resource_id)
-                    .ok_or("Invalid fork identity.")?;
+                let Some(p::command_receipt::Result::Runtime(result)) = receipt.result else {
+                    return Err("Fork result is missing.".into());
+                };
+                let reference = RemoteChat::new(
+                    host.id().as_str().into(),
+                    result.catalog_id.ok_or("Fork identity is missing.")?,
+                )
+                .ok_or("Invalid fork identity.")?;
                 Ok::<_, String>(reference)
             });
         cx.spawn(async move |this, cx| {
@@ -1532,10 +1570,10 @@ impl ChatRuntime {
         if remote.pump.is_some() {
             return;
         }
-        let chat = remote.chat();
-        let cached = host.cached_chat(&chat.chat_id);
+        let catalog_id = remote.reference.chat.clone();
+        let cached = host.cached_chat(&catalog_id);
         let record = host.snapshot().record;
-        if let Some(value) = record.view(&format!("chat:{}", chat.chat_id)) {
+        if let Some(value) = record.view(&format!("chat:{catalog_id}")) {
             let (text, context, _) =
                 serde_json::from_str::<(String, Option<Vec<u8>>, Vec<String>)>(value).unwrap_or((
                     value.to_owned(),
@@ -1548,7 +1586,7 @@ impl ChatRuntime {
                 ..Default::default()
             };
             if let Some((bytes, _)) = record
-                .view(&format!("context:{}", chat.chat_id))
+                .view(&format!("context:{catalog_id}"))
                 .and_then(|v| serde_json::from_str::<(Vec<u8>, Option<Vec<u8>>)>(v).ok())
                 && let Ok(value) = p::MessageDraft::decode(bytes.as_slice())
             {
@@ -1558,7 +1596,7 @@ impl ChatRuntime {
         }
         remote.host = Some(host.clone());
         if let Some((preview, (text, attachments, context, goal))) = record
-            .view(&format!("native-edit:{}", chat.chat_id))
+            .view(&format!("native-edit:{catalog_id}"))
             .and_then(|v| serde_json::from_str::<SavedEditing>(v).ok())
             && let Ok(preview) = p::EditPreview::decode(preview.as_slice())
         {
@@ -1573,7 +1611,7 @@ impl ChatRuntime {
             ));
         }
         if let Some((text, attachments, context, goal, expected)) = record
-            .view(&format!("native-draft:{}", chat.chat_id))
+            .view(&format!("native-draft:{catalog_id}"))
             .and_then(|value| {
                 serde_json::from_str::<(
                     String,
@@ -1607,6 +1645,11 @@ impl ChatRuntime {
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                 }
                 let result = async {
+                    let target = host.thread_target(&catalog_id).await?;
+                    let chat = target.thread.clone().ok_or("Thread address is missing.")?;
+                    if tx.send(ClientEvent::Target(target)).await.is_err() {
+                        return Ok(());
+                    }
                     let options = host.thread_options(chat.clone()).await?;
                     if tx.send(ClientEvent::Options(options)).await.is_err() {
                         return Ok(());
@@ -1621,8 +1664,8 @@ impl ChatRuntime {
                     {
                         let boundary = matches!(
                             &event.event,
-                            Some(p::chat_event::Event::SnapshotEnd(_))
-                                | Some(p::chat_event::Event::ReplaceItem(p::TranscriptItem {
+                            Some(p::thread_event::Event::SnapshotEnd(_))
+                                | Some(p::thread_event::Event::ReplaceItem(p::TranscriptItem {
                                     body: Some(p::transcript_item::Body::TurnEnd(_)),
                                     ..
                                 }))
@@ -1630,7 +1673,7 @@ impl ChatRuntime {
                         if projection.apply(&chat, event)? {
                             if boundary || saved.elapsed() >= std::time::Duration::from_millis(500)
                             {
-                                host.cache_chat(&chat.chat_id, &projection)?;
+                                host.cache_chat(&catalog_id, &projection)?;
                                 saved = std::time::Instant::now();
                             }
                             if tx
@@ -1661,6 +1704,9 @@ impl ChatRuntime {
             while let Ok(event) = rx.recv().await {
                 if this
                     .update(cx, |this, cx| match event {
+                        ClientEvent::Target(target) => {
+                            this.transport.grpc_mut().unwrap().target = Some(target)
+                        }
                         ClientEvent::Projection(projection) => this.apply_remote(*projection, cx),
                         ClientEvent::Options(options) => {
                             this.transport.grpc_mut().unwrap().options = options;
@@ -1715,8 +1761,7 @@ impl ChatRuntime {
         if let Some(run) = projection
             .summary
             .as_ref()
-            .and_then(|summary| summary.run_id.as_deref())
-            .and_then(|run| run.parse::<u64>().ok())
+            .and_then(|summary| summary.run_id)
         {
             // Shared preflights fence the executor's run, not a device-generated
             // generation assigned while the subscription was being constructed.
@@ -1756,15 +1801,15 @@ impl ChatRuntime {
         self.epoch = epoch;
         self.serial = epoch.saturating_add(1);
         remote.status = match projection.summary.as_ref().map(|s| s.state) {
-            Some(v) if v == p::ChatState::Working as i32 => Status::Working,
-            Some(v) if v == p::ChatState::NeedsDecision as i32 => Status::NeedsDecision,
-            Some(v) if v == p::ChatState::ChatStarting as i32 => Status::Starting,
-            Some(v) if v == p::ChatState::Interrupting as i32 => Status::Interrupting,
-            Some(v) if v == p::ChatState::Exited as i32 => Status::Exited {
+            Some(v) if v == p::ThreadState::Working as i32 => Status::Working,
+            Some(v) if v == p::ThreadState::NeedsDecision as i32 => Status::NeedsDecision,
+            Some(v) if v == p::ThreadState::Starting as i32 => Status::Starting,
+            Some(v) if v == p::ThreadState::Interrupting as i32 => Status::Interrupting,
+            Some(v) if v == p::ThreadState::Exited as i32 => Status::Exited {
                 code: None,
                 signal: None,
             },
-            Some(v) if v == p::ChatState::ChatFailed as i32 => {
+            Some(v) if v == p::ThreadState::Failed as i32 => {
                 Status::Failed("The agent stopped with an error.".into())
             }
             _ => Status::Ready,
@@ -1815,24 +1860,31 @@ impl ChatRuntime {
         };
         let summary = source.projection.summary.clone().or_else(|| {
             host.shared_catalog()?
-                .chats
+                .threads
                 .iter()
-                .find(|c| c.chat.as_ref() == Some(&source.chat()))
-                .cloned()
+                .find(|c| c.catalog_id == source.reference.chat)
+                .and_then(|c| c.summary.clone())
         });
         let Some(summary) = summary else {
             return;
         };
+        let project = source.project_catalog_id();
         let work = crate::ui::remote_client::executor(cx)
             .unwrap()
             .spawn(async move {
+                let project = match project {
+                    Some(id) => Some(host.project_ref(&id).await?),
+                    None => None,
+                };
                 let mut agents = vec![];
                 let mut token = None;
                 loop {
                     let page = host
-                        .list_agents(p::AgentDiscoveryRequest {
-                            host_id: host.id().as_str().into(),
-                            workspace: summary.workspace.clone(),
+                        .list_agents(p::ListAgentsRequest {
+                            environment: Some(p::EnvironmentRef {
+                                host_id: host.id().as_str().into(),
+                            }),
+                            project: project.clone(),
                             page_token: token,
                         })
                         .await?;
@@ -1843,9 +1895,11 @@ impl ChatRuntime {
                     }
                 }
                 let catalog = host
-                    .agent_catalog(p::AgentCatalogRequest {
-                        host_id: host.id().as_str().into(),
-                        workspace: summary.workspace,
+                    .agent_catalog(p::GetAgentCatalogRequest {
+                        environment: Some(p::EnvironmentRef {
+                            host_id: host.id().as_str().into(),
+                        }),
+                        project,
                         agent_id: summary.agent_id.clone(),
                         account_id: summary.profile_id.unwrap_or(summary.agent_id),
                         refresh: false,
@@ -1996,6 +2050,7 @@ impl ChatRuntime {
         let run = source.run();
         let originals = source.originals.clone();
         let revision = if consume { source.draft_revision } else { 0 };
+        let catalog_id = source.reference.chat.clone();
         let tombstone = HostClient::next_view_revision();
         let namespace = self.settings.id.clone();
         let executor = crate::ui::remote_client::executor(cx).unwrap();
@@ -2008,11 +2063,11 @@ impl ChatRuntime {
                 && draft.attachments.iter().all(|a| a.is_image());
             let (request, uploads) =
                 encode_draft(&host, &chat, &context, &originals, draft, namespace, stage).await?;
-            let key = format!("native-draft:{}", chat.chat_id);
+            let key = format!("native-draft:{catalog_id}");
             if steer {
                 host.submit_chat_mutation(ChatMutation::Steer(p::SteerRequest {
                     command: None,
-                    chat: Some(chat),
+                    target: Some(chat),
                     run_id: run,
                     message_id: uuid::Uuid::new_v4().to_string(),
                     draft: Some(request),
@@ -2025,20 +2080,27 @@ impl ChatRuntime {
                 && !request.goal
                 && request.context.is_none()
             {
-                let (id, _) = host.enqueue(chat, context, request, uploads, revision)?;
+                let (id, _) = host.enqueue(
+                    catalog_id.clone(),
+                    chat,
+                    context,
+                    request,
+                    uploads,
+                    revision,
+                )?;
                 if host.phase() == Phase::Ready {
                     host.send_outbox(&id).await?;
                 }
             } else {
                 host.submit_chat_mutation(ChatMutation::Send(p::SendMessageRequest {
                     command: None,
-                    chat: Some(chat.clone()),
+                    target: Some(chat.clone()),
                     message_id: uuid::Uuid::new_v4().to_string(),
                     draft: Some(request),
                     expected_context: Some(context),
                 }))
                 .await?;
-                host.clear_composer_version(&chat.chat_id, revision)?;
+                host.clear_composer_version(&catalog_id, revision)?;
             }
             if consume {
                 host.save_view_version(key, String::new(), tombstone)?;
@@ -2121,7 +2183,7 @@ impl ChatRuntime {
             return Task::ready(Err("Connect to the computer first.".into()));
         };
         let request = p::PreviewEditRequest {
-            chat: Some(source.chat()),
+            thread: Some(source.thread()),
             run_id: source.run(),
             item: Some(p::ItemKey {
                 history_epoch: self.epoch,
@@ -2192,23 +2254,21 @@ impl ChatRuntime {
         let namespace = self.settings.id.clone();
         let clear_key = format!("native-draft:{}", source.reference.chat);
         let edit_key = format!("native-edit:{}", source.reference.chat);
+        let target = source.chat();
         let tombstone = HostClient::next_view_revision();
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
             .spawn(async move {
+                if preview.thread != target.thread {
+                    return Err("Edit thread identity changed.".into());
+                }
                 let (draft, _) = encode_draft(
-                    &host,
-                    preview.chat.as_ref().ok_or("Missing chat.")?,
-                    &context,
-                    &originals,
-                    draft,
-                    namespace,
-                    false,
+                    &host, &target, &context, &originals, draft, namespace, false,
                 )
                 .await?;
-                host.submit_chat_mutation(ChatMutation::Edit(p::EditMessageRequest {
+                host.submit_chat_mutation(ChatMutation::MessageEdit(p::EditMessageRequest {
                     command: None,
-                    chat: preview.chat,
+                    target: Some(target),
                     run_id: preview.run_id,
                     item: preview.item,
                     draft: Some(draft),
@@ -2239,7 +2299,7 @@ impl ChatRuntime {
         };
         let request = p::RunShellRequest {
             command: None,
-            chat: Some(source.chat()),
+            target: Some(source.chat()),
             run_id: source.run(),
             command_line,
         };
@@ -2250,7 +2310,7 @@ impl ChatRuntime {
             .unwrap()
             .spawn(async move {
                 let receipt = host
-                    .submit_chat_mutation(ChatMutation::RunShell(request))
+                    .submit_chat_mutation(ChatMutation::Shell(request))
                     .await?;
                 host.save_view_version(clear_key, String::new(), tombstone)?;
                 Ok::<_, String>(receipt)
@@ -2276,7 +2336,7 @@ impl ChatRuntime {
         };
         let request = p::StopShellRequest {
             command: None,
-            chat: Some(source.chat()),
+            target: Some(source.chat()),
             run_id: source.run(),
             item: Some(p::ItemKey {
                 history_epoch: self.epoch,
@@ -2307,7 +2367,10 @@ impl ChatRuntime {
             .flatten();
         let task = crate::ui::remote_client::executor(cx)
             .unwrap()
-            .spawn(async move { host.history_page(chat, None, around, before).await });
+            .spawn(async move {
+                host.history_page(chat.thread.ok_or("Missing thread.")?, None, around, before)
+                    .await
+            });
         let task = source.own_read(task);
         let source = self.transport.grpc_mut().unwrap();
         source.history_loading = true;
@@ -2355,14 +2418,17 @@ impl ChatRuntime {
         let run = source.run();
         self.remote_task(
             async move {
-                let request = p::ChatCommandRequest {
-                    command: None,
-                    chat: Some(chat),
-                    run_id: (!run.is_empty()).then_some(run),
-                };
                 host.submit_chat_mutation(match command {
-                    "interrupt" => ChatMutation::Interrupt(request),
-                    _ => ChatMutation::Restart(request),
+                    "interrupt" => ChatMutation::Interrupt(p::InterruptRequest {
+                        command: None,
+                        target: Some(chat),
+                        run_id: run,
+                    }),
+                    _ => ChatMutation::Restart(p::RestartRequest {
+                        command: None,
+                        target: Some(chat),
+                        run_id: run,
+                    }),
                 })
                 .await?;
                 Ok(())
@@ -2382,7 +2448,7 @@ impl ChatRuntime {
             async move {
                 host.submit_chat_mutation(ChatMutation::Option(p::SetAgentOptionRequest {
                     command: None,
-                    chat: Some(chat),
+                    target: Some(chat),
                     option_id: id,
                     value_id: value,
                 }))
@@ -2424,9 +2490,15 @@ impl ChatRuntime {
             async move {
                 host.submit_chat_mutation(ChatMutation::Respond(p::RespondDecisionRequest {
                     command: None,
-                    chat: Some(chat),
-                    run_id: decision.run_id,
-                    decision_id: decision.decision_id,
+                    target: Some(chat),
+                    run_id: decision
+                        .run_id
+                        .parse()
+                        .map_err(|_| "Invalid decision run.")?,
+                    decision_id: decision
+                        .decision_id
+                        .parse()
+                        .map_err(|_| "Invalid decision identity.")?,
                     response: Some(response),
                 }))
                 .await?;
@@ -2435,11 +2507,7 @@ impl ChatRuntime {
             cx,
         );
     }
-    pub(crate) fn remote_queue(
-        &mut self,
-        change: p::change_queue_request::Change,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn remote_queue(&mut self, mut change: ChatMutation, cx: &mut Context<Self>) {
         let Some(source) = self.transport.grpc() else {
             return;
         };
@@ -2450,15 +2518,38 @@ impl ChatRuntime {
             return;
         };
         let chat = source.chat();
+        match &mut change {
+            ChatMutation::Edit(r) => {
+                r.target = Some(chat);
+                r.queue_revision = revision;
+            }
+            ChatMutation::Move(r) => {
+                r.target = Some(chat);
+                r.queue_revision = revision;
+            }
+            ChatMutation::Remove(r) => {
+                r.target = Some(chat);
+                r.queue_revision = revision;
+            }
+            ChatMutation::Pause(r) => {
+                r.target = Some(chat);
+                r.queue_revision = revision;
+            }
+            ChatMutation::Resolve(r) => {
+                r.target = Some(chat);
+                r.queue_revision = revision;
+            }
+            _ => return,
+        }
         self.remote_task(
             async move {
-                host.change_queue(chat, revision, change, None).await?;
+                host.submit_chat_mutation(change).await?;
                 Ok(())
             },
             cx,
         );
     }
-    pub(crate) fn client_goal(&mut self, action: p::GoalAction, cx: &mut Context<Self>) {
+    pub(crate) fn client_goal(&mut self, action: ChatCommand, cx: &mut Context<Self>) {
         let Some(source) = self.transport.grpc() else {
             return;
         };
@@ -2466,15 +2557,24 @@ impl ChatRuntime {
             return;
         };
         let chat = source.chat();
+        let request = match action {
+            ChatCommand::PauseGoal => ChatMutation::PauseGoal(p::PauseGoalRequest {
+                command: None,
+                target: Some(chat),
+            }),
+            ChatCommand::ResumeGoal => ChatMutation::ResumeGoal(p::ResumeGoalRequest {
+                command: None,
+                target: Some(chat),
+            }),
+            ChatCommand::ClearGoal => ChatMutation::ClearGoal(p::ClearGoalRequest {
+                command: None,
+                target: Some(chat),
+            }),
+            _ => return,
+        };
         self.remote_task(
             async move {
-                host.submit_chat_mutation(ChatMutation::Goal(p::SetGoalRequest {
-                    command: None,
-                    chat: Some(chat),
-                    objective: None,
-                    action: Some(action as i32),
-                }))
-                .await?;
+                host.submit_chat_mutation(request).await?;
                 Ok(())
             },
             cx,
@@ -2482,6 +2582,7 @@ impl ChatRuntime {
     }
 }
 enum ClientEvent {
+    Target(p::ThreadTarget),
     Projection(Box<ChatProjection>),
     Options(p::AgentOptions),
     Error(String),
@@ -2500,7 +2601,7 @@ fn remember_attachment(originals: &mut HashMap<String, p::Attachment>, a: &p::At
     let key = match a.content.as_ref() {
         Some(p::attachment::Content::Image(i)) => format!("remote:{}", i.artifact_id),
         Some(p::attachment::Content::Pull(p)) => format!("pull:{}", p.number),
-        Some(p::attachment::Content::Path(f)) => format!("path:{}", f.relative_path),
+        Some(p::attachment::Content::File(f)) => format!("path:{}", f.relative_path),
         _ => return,
     };
     originals.insert(key, a.clone());
@@ -2508,8 +2609,8 @@ fn remember_attachment(originals: &mut HashMap<String, p::Attachment>, a: &p::At
 
 async fn encode_draft(
     host: &HostClient,
-    chat: &p::ChatRef,
-    context: &p::SendContext,
+    chat: &p::ThreadTarget,
+    _context: &p::SendContext,
     originals: &HashMap<String, p::Attachment>,
     mut value: Draft,
     namespace: Option<String>,
@@ -2550,10 +2651,8 @@ async fn encode_draft(
                     .decode(data.as_ref())
                     .map_err(|_| "Invalid image data.")?;
                 let id = host.prepare_attachment(
-                    p::ResourceRef {
-                        resource: Some(p::resource_ref::Resource::Chat(chat.clone())),
-                    },
-                    "chat-image",
+                    canopy_desktop::remote::client::UploadTarget::Image(chat.clone()),
+                    "image",
                     media_type,
                     &bytes,
                 )?;
@@ -2561,15 +2660,26 @@ async fn encode_draft(
                     uploads.push(id);
                     continue;
                 }
-                p::attachment::Content::Image(host.resume_upload(&id).await?)
+                let image = host.resume_upload(&id).await?;
+                p::attachment::Content::Image(p::ImageAttachment {
+                    host_id: image.host_id,
+                    artifact_id: image.artifact_id,
+                    media_type: image.media_type,
+                    size: image.size,
+                    sha256: image.sha256,
+                })
             }
             A::Image { .. } => return Err("The image is not available. Attach it again.".into()),
             A::Path { path, .. } => {
                 if path.is_absolute() {
                     return Err("Choose a file from the remote workspace, not a local path.".into());
                 }
-                p::attachment::Content::Path(p::FileRef {
-                    workspace: context.workspace.clone(),
+                p::attachment::Content::File(p::FileAttachment {
+                    project_file: host.shared_catalog().is_some_and(|c| {
+                        c.threads
+                            .iter()
+                            .any(|t| t.thread == chat.thread && t.project_catalog_id.is_some())
+                    }),
                     relative_path: path.to_string_lossy().into_owned(),
                 })
             }
@@ -2627,8 +2737,7 @@ mod tests {
     #[test]
     fn pending_delivery_never_offers_automatic_or_unsafe_retry() {
         assert!(pending_outcome(None).can_send_again());
-        assert!(pending_outcome(Some(p::OperationState::NotFound as i32)).can_send_again());
-        assert!(!pending_outcome(Some(p::OperationState::NotFound as i32)).can_check());
+        assert!(!pending_outcome(Some(p::OperationState::Unspecified as i32)).can_send_again());
         for state in [
             p::OperationState::Accepted,
             p::OperationState::Attempting,
@@ -2689,7 +2798,7 @@ mod tests {
                 assert!(r.owned_chat_id().is_none());
                 r.transport.grpc_mut().unwrap().agents = vec![p::AvailableAgent {
                     agent_id: "claude".into(),
-                    backend_kind: p::BackendKind::Acp as i32,
+                    backend_kind: p::BackendKind::Protocol as i32,
                     ..Default::default()
                 }];
                 // The host owns backend selection even when a local tool has
@@ -2703,14 +2812,14 @@ mod tests {
                 assert!(r.native().is_none());
                 assert!(r.host_queue().is_none());
                 let mut projection = ChatProjection::default();
-                projection.summary = Some(p::ChatSummary {
+                projection.summary = Some(p::ThreadStatus {
                     history_epoch: 4,
-                    run_id: Some("9".into()),
+                    run_id: Some(9),
                     agent_id: "claude".into(),
-                    state: p::ChatState::Working as i32,
+                    state: p::ThreadState::Working as i32,
                     ..Default::default()
                 });
-                projection.queue = Some(p::ChatQueue {
+                projection.queue = Some(p::ThreadQueue {
                     revision: 7,
                     paused: true,
                     entries: vec![p::QueueEntry {

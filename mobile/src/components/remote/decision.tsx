@@ -3,15 +3,15 @@ import { Action, Field } from './common'
 import { ThemedText } from '@/components/themed-text'
 import { command, checkReceipt } from '@/lib/remote/grpc/commands'
 import type { HostSession } from '@/lib/remote/grpc/hosts'
-import type { ChatRef, Decision, NativeDecision } from '@/lib/remote/grpc/schema'
+import type { ThreadRef, Decision, NativeDecision } from '@/lib/remote/grpc/schema'
 
 /** A decision lives only with its run/id. Unmount and disconnect never answer it. */
-export function DecisionForm({ host, chat, decision, ready }: { host: HostSession; chat: ChatRef; decision: Decision; ready: boolean }) {
+export function DecisionForm({ host, chat, decision, ready }: { host: HostSession; chat: ThreadRef; decision: Decision; ready: boolean }) {
   const [chosen, setChosen] = useState<Record<number, string[]>>({})
   const [typed, setTyped] = useState<Record<number, string>>({})
   const [note, setNote] = useState(''), [acceptEdits, setAcceptEdits] = useState(false)
-  const answer = async (native: NativeDecision) => checkReceipt(await host.mutate('ChatService/RespondDecision', {
-    command: command(host.store), chat, run_id: decision.run_id, decision_id: decision.decision_id, native,
+  const answer = async (native: NativeDecision) => checkReceipt(await host.mutate('ThreadService/RespondDecision', {
+    command: command(host.store), target: await host.threadTarget(chat), run_id: decision.run_id, decision_id: decision.decision_id, native,
   }))
   const respond = (action: NativeDecision['action']) => answer({ action, answers: [], note: note || undefined, accept_edits: acceptEdits })
   const answers = decision.questions.map((q, i) => {
@@ -20,7 +20,7 @@ export function DecisionForm({ host, chat, decision, ready }: { host: HostSessio
   })
   return <>
     {decision.description && <ThemedText selectable>{decision.description}</ThemedText>}
-    {decision.options.map(option => <Action key={option.id} title={option.label} disabled={!ready} run={async () => checkReceipt(await host.mutate('ChatService/RespondDecision', { command: command(host.store), chat, run_id: decision.run_id, decision_id: decision.decision_id, option_id: option.id }))} />)}
+    {decision.options.map(option => <Action key={option.id} title={option.label} disabled={!ready} run={async () => checkReceipt(await host.mutate('ThreadService/RespondDecision', { command: command(host.store), target: await host.threadTarget(chat), run_id: decision.run_id, decision_id: decision.decision_id, option_id: option.id }))} />)}
     {decision.native_kind === 'question' && <>
       {decision.questions.map((q, i) => <React.Fragment key={`${decision.decision_id}:${i}`}>
         <ThemedText>{q.header ? `${q.header}: ` : ''}{q.question}</ThemedText>

@@ -1,5 +1,6 @@
 //! Native Git operations. Never executes the git CLI.
 mod identity;
+pub mod snapshot;
 pub use identity::{RepositoryIdentity, checkout_identity};
 pub mod hooks;
 mod https_credentials;
@@ -17,7 +18,7 @@ use std::path::{Path, PathBuf};
 pub use worktree_identity::WorktreeHead;
 pub use worktree_workflow::{
     BranchAnalysis, MergeKind, RemovalAction, RemovalApproval, RemovalResult, WorktreeAnalysis,
-    WorktreeRemovalOutcome, analyze_worktree, delete_branch_after_removal,
+    WorktreeRemovalOutcome, analyze_branch, analyze_worktree, delete_branch_after_removal,
     execute_worktree_removal,
 };
 pub type Result<T> = std::result::Result<T, String>;

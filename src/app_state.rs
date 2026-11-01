@@ -634,6 +634,13 @@ impl SettingsState {
         self.client = Some(client);
         self.runtime = Some(host);
     }
+    #[cfg(test)]
+    pub fn install_test_artifacts(
+        &mut self,
+        artifacts: std::sync::Arc<canopy_desktop::artifacts::ArtifactStore>,
+    ) {
+        self.artifacts = Some(artifacts);
+    }
     /// The settings worker, once the database is open and the runtime initialized.
     pub fn client(&self) -> Option<SettingsClient> {
         self.client.clone()

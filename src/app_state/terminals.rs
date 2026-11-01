@@ -38,8 +38,103 @@ pub struct Terminals {
     stop_jobs: HashMap<WorkspaceId, WorkspaceStop>,
     retiring: Vec<RetiringTerminal>,
     detached: HashMap<String, DetachedTerminal>,
+    close_jobs: HashMap<PaneId, (Vec<PaneId>, Task<()>)>,
 }
 impl Terminals {
+    /// Admit explicit local terminal closes before changing layout or stopping
+    /// processes. Quit and cleanup of an already admitted operation stay available
+    /// even at the inbox limit.
+    pub(crate) fn close_local_panes(
+        &mut self,
+        panes: Vec<PaneId>,
+        close: impl FnOnce(&mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let views: Vec<_> = panes
+            .iter()
+            .filter_map(|p| self.views.get(p).cloned())
+            .collect();
+        let Some(key) = panes.first().copied() else {
+            close(cx);
+            return;
+        };
+        if views.is_empty() {
+            close(cx);
+            return;
+        }
+        if self.stopping
+            || self
+                .close_jobs
+                .values()
+                .any(|(closing, _)| panes.iter().any(|pane| closing.contains(pane)))
+        {
+            return;
+        }
+        let commands = views
+            .iter()
+            .map(|view| {
+                let view = view.read(cx);
+                Ok((
+                    view.local_resource(cx)?,
+                    canopy_desktop::command_bus::Command::Catalog(
+                        canopy_desktop::command_bus::CatalogCommand::CloseTerminal {
+                            terminal: view.terminal_id().into(),
+                            plan: uuid::Uuid::new_v4().to_string(),
+                        },
+                    ),
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>();
+        let commands = match commands {
+            Ok(c) => c,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        self.close_jobs.insert(
+            key,
+            (
+                panes,
+                cx.spawn(async move |this, cx| {
+                    let result = async {
+                        let inputs = super::file_ops::LocalResource::begin_set(commands).await?;
+                        let tasks = this
+                            .update(cx, |_, cx| {
+                                close(cx);
+                                views
+                                    .iter()
+                                    .map(|view| view.update(cx, |view, cx| view.shutdown(cx)))
+                                    .collect::<Vec<_>>()
+                            })
+                            .map_err(|_| "Terminal owner stopped.".to_owned());
+                        let outcome = match tasks {
+                            Err(error) => Err(error),
+                            Ok(tasks) => {
+                                let mut result = Ok(());
+                                for task in tasks {
+                                    if let Err(error) = task.await {
+                                        result = Err(error);
+                                    }
+                                }
+                                result
+                            }
+                        };
+                        super::file_ops::LocalResource::finish_set(inputs, outcome).await
+                    }
+                    .await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.close_jobs.remove(&key);
+                        if let Err(error) = result {
+                            this.error = Some(error);
+                        }
+                        cx.notify();
+                    });
+                }),
+            ),
+        );
+    }
     /// Every terminal view with its workspace: pane terminals and device-opened ones.
     pub fn all(&self) -> Vec<(WorkspaceId, Entity<TerminalView>)> {
         self.views
@@ -221,6 +316,7 @@ impl Terminals {
             stop_jobs: HashMap::new(),
             retiring: vec![],
             detached: HashMap::new(),
+            close_jobs: HashMap::new(),
         }
     }
     pub fn bind(&mut self, app: &AppState, cx: &mut Context<Self>) {
@@ -600,8 +696,12 @@ impl Terminals {
             .map(|view| view.update(cx, |view, cx| view.shutdown(cx)))
             .collect();
         let stop_jobs: Vec<_> = self.stop_jobs.drain().map(|(_, job)| job).collect();
+        let close_jobs: Vec<_> = self.close_jobs.drain().map(|(_, (_, job))| job).collect();
         cx.spawn(async move |this, cx| {
             let mut result = Ok(());
+            for job in close_jobs {
+                job.await;
+            }
             for (view, task) in views.iter().zip(tasks) {
                 let cleanup = task.await;
                 match &cleanup {

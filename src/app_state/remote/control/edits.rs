@@ -1,7 +1,7 @@
 use super::*;
 use canopy_desktop::{
-    chat::agent::BackendKind,
     integrations as i,
+    remote::settings_rpc::ToolBackend,
     state::{
         agent_settings::AgentSettings,
         tools::{Profile, ToolDefinition, ToolKind},
@@ -47,7 +47,7 @@ impl ControlBridge {
 }
 #[tonic::async_trait]
 impl SettingsHost for ControlBridge {
-    async fn snapshot(&self) -> Result<proto::HostSettings, Status> {
+    async fn snapshot(&self) -> Result<canopy_desktop::api::proto::HostSettings, Status> {
         self.request(Op::Snapshot).await
     }
     async fn update_preferences(
@@ -194,14 +194,16 @@ pub(super) fn apply(edit: Edit, cx: &mut App) -> Result<Committed, Status> {
     match edit {
         Edit::Agent(edit, env) => {
             let kind = match edit.backend() {
-                BackendKind::Claude => ToolKind::Claude,
-                BackendKind::Codex => ToolKind::Codex,
-                BackendKind::Acp => ToolKind::Custom,
+                ToolBackend::NativeStream => ToolKind::Claude,
+                ToolBackend::NativeServer => ToolKind::Codex,
+                ToolBackend::Protocol | ToolBackend::Process => ToolKind::Custom,
+                ToolBackend::Shell => ToolKind::Shell,
             };
             if (kind == ToolKind::Claude && edit.id() != "claude")
                 || (kind == ToolKind::Codex && edit.id() != "codex")
-                || (edit.backend() == BackendKind::Acp
+                || (matches!(edit.backend(), ToolBackend::Protocol | ToolBackend::Process)
                     && matches!(edit.id(), "shell" | "claude" | "codex"))
+                || (kind == ToolKind::Shell && edit.id() != "shell")
             {
                 return Err(invalid(
                     "Backend does not match the built-in agent identity.",
@@ -220,12 +222,12 @@ pub(super) fn apply(edit: Edit, cx: &mut App) -> Result<Committed, Status> {
                         enabled: true,
                         profiles: vec![],
                         default_profile: None,
-                        acp: edit.backend() == BackendKind::Acp,
+                        acp: edit.backend() == ToolBackend::Protocol,
                         env_refs: BTreeMap::new(),
                     });
             tool.name = edit.name().into();
             tool.kind = kind;
-            tool.acp = edit.backend() == BackendKind::Acp;
+            tool.acp = edit.backend() == ToolBackend::Protocol;
             tool.executable = edit.command().into();
             tool.arguments = edit.arguments().to_vec();
             if let Some(enabled) = edit.enabled() {
@@ -244,7 +246,7 @@ pub(super) fn apply(edit: Edit, cx: &mut App) -> Result<Committed, Status> {
             let tool = catalog
                 .get(&id)
                 .ok_or_else(|| Status::not_found("Agent was removed."))?;
-            if !tool.acp {
+            if tool.kind != ToolKind::Custom {
                 return Err(invalid(
                     "Built-in tools cannot be removed; disable the tool instead.",
                 ));

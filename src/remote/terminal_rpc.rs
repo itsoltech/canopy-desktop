@@ -14,16 +14,17 @@ mod tests;
 use super::{
     auth::{RpcAuth, WorkspaceRoots, storage_status},
     host::RpcStream,
-    proto,
     resources::ResourceLocks,
 };
 use crate::{
+    api::{self, proto},
+    command_bus::{Command, TerminalCommand},
     host::{CommandState, DeviceGrant, READ, TERMINAL},
     terminal::control::{Holder, Refused, Run},
 };
+use prost::Message;
 use sha2::{Digest, Sha256};
 use std::{
-    future::Future,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -93,10 +94,7 @@ impl TerminalInfo {
                 host_id: host.into(),
                 terminal_id: self.id.clone(),
             }),
-            workspace: self.workspace.as_ref().map(|id| proto::WorkspaceRef {
-                host_id: host.into(),
-                workspace_id: id.clone(),
-            }),
+            project_catalog_id: self.workspace.clone().unwrap_or_default(),
             title: self.title.clone(),
             running: self.running,
             input_device_id: lease
@@ -192,6 +190,9 @@ impl TerminalRpc {
     ) -> Result<Vec<proto::TerminalSummary>, Status> {
         let mut rows = Vec::new();
         for info in self.host.terminals().await? {
+            if self.project_terminal(&info).is_err() {
+                continue;
+            }
             let root = WorkspaceRoots::root_string(info.root())?;
             if self.auth.resource(grant.id(), READ, root).await.is_ok() {
                 rows.push(info.summary(self.auth.host_id()));
@@ -223,11 +224,27 @@ impl TerminalRpc {
             .terminal(&terminal.terminal_id)
             .await?
             .ok_or_else(|| Status::not_found("The terminal is no longer available."))?;
+        self.project_terminal(&info)?;
         let grant = self
             .auth
             .resource(grant.id(), scope, WorkspaceRoots::root_string(info.root())?)
             .await?;
         Ok((grant, info))
+    }
+    /// An absolute root or a Private grant cannot turn a scratch terminal into
+    /// a project resource. Both identities must come from the existing owners.
+    fn project_terminal(&self, info: &TerminalInfo) -> Result<(), Status> {
+        let workspace = info
+            .workspace()
+            .ok_or_else(|| Status::not_found("The terminal has no shared project."))?;
+        let root = self
+            .roots
+            .resolve_host_workspace(workspace)
+            .map_err(storage_status)?;
+        if root != info.root() {
+            return Err(Status::not_found("The terminal project changed."));
+        }
+        Ok(())
     }
     fn reference(&self, id: &str) -> proto::TerminalRef {
         proto::TerminalRef {
@@ -249,83 +266,171 @@ impl TerminalRpc {
             held,
         }
     }
-    /// The normalized command record, bound to the terminal's canonical root.
-    fn input(
+    /// Project metadata and retained authority are checked before terminal I/O.
+    async fn command(
         &self,
-        grant: &DeviceGrant,
-        meta: Option<&proto::CommandMeta>,
-        method: &'static str,
-        target: String,
-        arguments: Vec<u8>,
-        root: &Path,
-    ) -> Result<crate::host::CommandInput, Status> {
-        let meta = meta.ok_or_else(|| Status::invalid_argument("Command is required."))?;
-        self.auth.input(
+        grant: DeviceGrant,
+        meta: Option<proto::CommandMeta>,
+        project: Option<proto::ProjectRef>,
+        command: TerminalCommand,
+    ) -> Result<proto::CommandReceipt, Status> {
+        let meta = required(meta)?;
+        let project = required(project)?;
+        let target = proto::ResourceTarget {
+            resource: Some(proto::resource_target::Resource::Project(project.clone())),
+        };
+        let prepared = api::resources::prepare(
+            &self.auth,
+            &self.roots,
+            &grant,
             meta,
-            grant,
-            method,
-            target,
-            arguments,
-            WorkspaceRoots::root_string(root)?.into(),
+            &target,
+            Command::Terminal(command.clone()),
         )
-    }
-    /// Accepted → attempting → outcome, owned by a detached task: dropping the RPC
-    /// neither cancels a started effect nor loses its recorded result.
-    async fn command<F, Fut>(
-        &self,
-        input: crate::host::CommandInput,
-        effect: F,
-    ) -> Result<proto::CommandReceipt, Status>
-    where
-        F: FnOnce() -> Fut + Send + 'static,
-        Fut: Future<Output = Result<Vec<u8>, Status>> + Send + 'static,
-    {
-        let operation = self.locks.begin()?;
-        let auth = self.auth.clone();
-        tokio::spawn(async move {
-            let _operation = operation;
-            let accepted = auth
-                .client()
-                .accept_runtime_command(input, TERMINAL)
-                .await
-                .map_err(storage_status)?;
-            if accepted.state() != CommandState::Accepted {
-                return Ok(receipt(&auth, &accepted));
-            }
-            auth.client()
-                .transition_runtime_command(
-                    accepted.key().clone(),
-                    CommandState::Accepted,
-                    CommandState::Attempting,
-                    None,
-                )
-                .await
-                .map_err(storage_status)?;
-            let (state, bytes) = match effect().await {
-                Ok(bytes) => (CommandState::Succeeded, bytes),
-                Err(error) => {
-                    let state = if error.code() == tonic::Code::Unknown {
-                        CommandState::DeliveryUnknown
-                    } else {
-                        CommandState::Failed
-                    };
-                    (state, prost::Message::encode_to_vec(&domain_error(&error)))
+        .await?;
+        if let Some(prior) = prepared
+            .prior()
+            .filter(|r| r.state() != CommandState::Accepted)
+        {
+            return api::resources::receipt(&self.auth, prior, &target);
+        }
+        let recovering = prepared.prior().is_some();
+        let input = prepared.runtime_input().clone();
+        let root = PathBuf::from(
+            input
+                .root
+                .as_ref()
+                .ok_or_else(|| Status::internal("Missing terminal authority."))?,
+        );
+        let id = terminal_id(&input);
+        let service = self.clone();
+        let validation_target = target.clone();
+        let done = super::resources::validated_mutation(
+            self.auth.clone(),
+            self.locks.clone(),
+            root.clone(),
+            input,
+            move || async move {
+                if recovering {
+                    return Err(Status::failed_precondition(
+                        "Review the current terminal state and submit a new command.",
+                    ));
                 }
-            };
-            let done = auth
-                .client()
-                .transition_runtime_command(
-                    accepted.key().clone(),
-                    CommandState::Attempting,
-                    state,
-                    Some(bytes),
+                api::resources::revalidate_root(
+                    &service.auth,
+                    &service.roots,
+                    &grant,
+                    &validation_target,
+                    TERMINAL,
+                    &root,
                 )
-                .await
-                .map_err(storage_status)?;
-            Ok(receipt(&auth, &done))
-        })
-        .await
-        .map_err(|_| Status::unavailable("Command outcome requires reconciliation."))?
+                .await?;
+                let workspace = service.roots.workspace_id(&root)?;
+                let holder = Holder::device(grant.id(), grant.name());
+                let info = match &command {
+                    TerminalCommand::Open { .. } => None,
+                    TerminalCommand::Acquire { terminal, .. }
+                    | TerminalCommand::Release { terminal, .. }
+                    | TerminalCommand::Stop { terminal, .. }
+                    | TerminalCommand::Restart { terminal, .. } => {
+                        let info = service.host.terminal(terminal).await?.ok_or_else(|| {
+                            Status::not_found("The terminal is no longer available.")
+                        })?;
+                        service.project_terminal(&info)?;
+                        if info.root() != root || info.workspace() != Some(workspace.as_str()) {
+                            return Err(Status::failed_precondition(
+                                "The terminal checkout changed.",
+                            ));
+                        }
+                        match &command {
+                            TerminalCommand::Stop { run, .. }
+                            | TerminalCommand::Restart { run, .. }
+                            | TerminalCommand::Release { run, .. } => {
+                                check_run(&info, run)?;
+                            }
+                            TerminalCommand::Acquire { take_over, .. } => {
+                                let run = info.run().ok_or_else(|| {
+                                    Status::failed_precondition("The terminal is not running.")
+                                })?;
+                                let lease = run.lease();
+                                if !take_over && lease.holder().is_some() && !lease.held_by(&holder)
+                                {
+                                    return Err(Status::failed_precondition(
+                                        "Terminal input belongs to another holder.",
+                                    ));
+                                }
+                            }
+                            _ => (),
+                        }
+                        if let TerminalCommand::Release { fencing_token, .. } = &command {
+                            let lease = info.run().unwrap().lease();
+                            if !lease.held_by(&holder) || lease.token() != *fencing_token {
+                                return Err(Status::failed_precondition(
+                                    "Terminal input moved to another owner.",
+                                ));
+                            }
+                        }
+                        Some(info)
+                    }
+                };
+                Ok(async move {
+                    let mut result = proto::TerminalResult::default();
+                    match command {
+                        TerminalCommand::Open { tool, profile } => {
+                            let info = service
+                                .host
+                                .open(OpenTerminal {
+                                    terminal: id,
+                                    workspace,
+                                    root,
+                                    tool,
+                                    profile,
+                                    holder,
+                                })
+                                .await?;
+                            result.terminal_id = info.id().into();
+                            result.run_id =
+                                info.run().map_or_else(String::new, |run| run.id().into());
+                        }
+                        TerminalCommand::Acquire {
+                            terminal,
+                            take_over,
+                        } => {
+                            let run = info.as_ref().unwrap().run().unwrap();
+                            run.acquire(holder, take_over).map_err(|e| refused(&e))?;
+                            result.lease = Some(service.lease(&terminal, run, grant.id()));
+                            result.terminal_id = terminal;
+                            result.run_id = run.id().into();
+                        }
+                        TerminalCommand::Release {
+                            terminal,
+                            run,
+                            fencing_token,
+                        } => {
+                            let current = check_run(info.as_ref().unwrap(), &run)?;
+                            current
+                                .release(&holder, fencing_token)
+                                .map_err(|e| refused(&e))?;
+                            result.lease = Some(service.lease(&terminal, &current, grant.id()));
+                            result.terminal_id = terminal;
+                            result.run_id = run;
+                        }
+                        TerminalCommand::Stop { terminal, run } => {
+                            service.host.stop(&terminal, &run).await?;
+                            result.terminal_id = terminal;
+                            result.run_id = run;
+                        }
+                        TerminalCommand::Restart { terminal, run } => {
+                            result.run_id = service.host.restart(&terminal, &run, holder).await?;
+                            result.terminal_id = terminal;
+                        }
+                    }
+                    Ok(result.encode_to_vec())
+                })
+            },
+        )
+        .await?;
+        api::resources::receipt(&self.auth, &done, &target)
     }
     /// The open stream count is bounded; a guard returns its slot.
     fn admit_stream(&self) -> Result<StreamSlot, Status> {
@@ -345,9 +450,19 @@ impl Drop for StreamSlot {
 }
 
 /// Deterministic per command, so a retried Open names the same terminal.
-fn terminal_id(device: &str, meta: &proto::CommandMeta) -> String {
-    let digest =
-        Sha256::digest(format!("{device}\n{}\n{}", meta.command_epoch, meta.command_id).as_bytes());
+fn terminal_id(input: &crate::host::CommandInput) -> String {
+    let key = &input.key;
+    let digest = Sha256::digest(
+        format!(
+            "{}\n{}\n{}\n{}\n{}",
+            key.device(),
+            key.epoch(),
+            key.id(),
+            key.resource(),
+            key.executor_epoch()
+        )
+        .as_bytes(),
+    );
     let mut bytes = [0; 16];
     bytes.copy_from_slice(&digest[..16]);
     uuid::Builder::from_random_bytes(bytes)
@@ -382,20 +497,8 @@ pub(super) fn refused(error: &Refused) -> Status {
         Refused::Input(_) => Status::resource_exhausted(error.to_string()),
     }
 }
-fn receipt(auth: &RpcAuth, receipt: &crate::host::CommandReceipt) -> proto::CommandReceipt {
-    let mut result = auth.receipt(receipt);
-    let bytes = receipt.result();
-    match receipt.state() {
-        CommandState::Failed | CommandState::Rejected | CommandState::DeliveryUnknown => {
-            result.error = bytes.and_then(|bytes| prost::Message::decode(bytes).ok());
-        }
-        CommandState::Succeeded => {
-            result.operation_output =
-                bytes.and_then(|bytes| String::from_utf8(bytes.to_vec()).ok());
-        }
-        _ => {}
-    }
-    result
+fn required<T>(value: Option<T>) -> Result<T, Status> {
+    value.ok_or_else(|| Status::invalid_argument("Required field is missing."))
 }
 fn check_run(info: &TerminalInfo, run_id: &str) -> Result<Arc<Run>, Status> {
     info.run()
@@ -409,18 +512,17 @@ impl proto::terminal_service_server::TerminalService for TerminalRpc {
     type ReadHistoryStream = RpcStream<proto::TerminalHistoryEvent>;
     async fn read_history(
         &self,
-        request: Request<proto::TerminalHistoryRequest>,
+        request: Request<proto::TerminalServiceReadHistoryRequest>,
     ) -> Result<Response<Self::ReadHistoryStream>, Status> {
         let slot = self.admit_stream()?;
         let (grant, info) = self
             .authorize(&request, request.get_ref().terminal.as_ref(), READ)
             .await?;
         let events = history::read(self, &info, request.into_inner()).await?;
-        let root = WorkspaceRoots::root_string(info.root())?.to_owned();
         Ok(Response::new(history::stream(
             self.clone(),
             grant.id().to_owned(),
-            root,
+            info,
             events,
             slot,
         )))
@@ -431,96 +533,63 @@ impl proto::terminal_service_server::TerminalService for TerminalRpc {
         request: Request<proto::OpenTerminalRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
         let grant = self.auth.authenticate(&request).await?;
-        self.auth.scope(&grant, TERMINAL)?;
         let request = request.into_inner();
-        let workspace = request
-            .workspace
-            .as_ref()
-            .ok_or_else(|| Status::invalid_argument("Workspace is required."))?;
-        let root = self.roots.resolve(workspace, &self.auth)?;
-        let grant = self
-            .auth
-            .resource(grant.id(), TERMINAL, WorkspaceRoots::root_string(&root)?)
-            .await?;
-        if request.tool_id.is_empty()
-            || request.tool_id.len() > 256
-            || request.profile_id.as_ref().is_some_and(|p| p.len() > 256)
-        {
-            return Err(Status::invalid_argument("Invalid terminal tool."));
-        }
-        let meta = request
-            .command
-            .clone()
-            .ok_or_else(|| Status::invalid_argument("Command is required."))?;
-        let id = terminal_id(grant.id(), &meta);
-        let arguments = serde_json::to_vec(&serde_json::json!({
-            "workspace": workspace.workspace_id,
-            "tool": request.tool_id,
-            "profile": request.profile_id,
-        }))
-        .map_err(|_| Status::internal("Command arguments could not be encoded."))?;
-        let open = OpenTerminal {
-            terminal: id.clone(),
-            workspace: workspace.workspace_id.clone(),
-            root: root.clone(),
-            tool: request.tool_id,
-            profile: request.profile_id,
-            holder: Holder::device(grant.id(), grant.name()),
-        };
-        let host = self.host.clone();
-        let receipt = self
-            .command(
-                self.input(&grant, Some(&meta), "terminal.open", id, arguments, &root)?,
-                move || async move {
-                    let info = host.open(open).await?;
-                    Ok(info.id().as_bytes().to_vec())
+        Ok(Response::new(
+            self.command(
+                grant,
+                request.command,
+                request.project,
+                TerminalCommand::Open {
+                    tool: request.tool_id,
+                    profile: request.profile_id,
                 },
             )
-            .await?;
-        Ok(Response::new(receipt))
+            .await?,
+        ))
     }
     async fn acquire_input(
         &self,
         request: Request<proto::AcquireInputRequest>,
-    ) -> Result<Response<proto::InputLease>, Status> {
-        let (grant, info) = self
-            .authorize(&request, request.get_ref().terminal.as_ref(), TERMINAL)
-            .await?;
+    ) -> Result<Response<proto::CommandReceipt>, Status> {
+        let grant = self.auth.authenticate(&request).await?;
         let request = request.into_inner();
-        if let Some(meta) = &request.command {
-            self.auth.check_host(&meta.host_id)?;
-        }
-        let run = info
-            .run()
-            .cloned()
-            .ok_or_else(|| Status::failed_precondition("The terminal is not running."))?;
-        run.acquire(Holder::device(grant.id(), grant.name()), request.take_over)
-            .map_err(|error| refused(&error))?;
-        Ok(Response::new(self.lease(info.id(), &run, grant.id())))
+        Ok(Response::new(
+            self.command(
+                grant,
+                request.command,
+                request.project,
+                TerminalCommand::Acquire {
+                    terminal: request.terminal_id,
+                    take_over: request.take_over,
+                },
+            )
+            .await?,
+        ))
     }
     async fn release_input(
         &self,
         request: Request<proto::ReleaseInputRequest>,
-    ) -> Result<Response<proto::InputLease>, Status> {
-        let (grant, info) = self
-            .authorize(&request, request.get_ref().terminal.as_ref(), TERMINAL)
-            .await?;
+    ) -> Result<Response<proto::CommandReceipt>, Status> {
+        let grant = self.auth.authenticate(&request).await?;
         let request = request.into_inner();
-        if let Some(meta) = &request.command {
-            self.auth.check_host(&meta.host_id)?;
-        }
-        let run = check_run(&info, &request.run_id)?;
-        run.release(
-            &Holder::device(grant.id(), grant.name()),
-            request.fencing_token,
-        )
-        .map_err(|error| refused(&error))?;
-        Ok(Response::new(self.lease(info.id(), &run, grant.id())))
+        Ok(Response::new(
+            self.command(
+                grant,
+                request.command,
+                request.project,
+                TerminalCommand::Release {
+                    terminal: request.terminal_id,
+                    run: request.run_id,
+                    fencing_token: request.fencing_token,
+                },
+            )
+            .await?,
+        ))
     }
     type TerminalSessionStream = RpcStream<proto::TerminalServerEvent>;
     async fn terminal_session(
         &self,
-        request: Request<tonic::Streaming<proto::TerminalClientEvent>>,
+        request: Request<tonic::Streaming<proto::TerminalSessionRequest>>,
     ) -> Result<Response<Self::TerminalSessionStream>, Status> {
         let grant = self.auth.authenticate(&request).await?;
         self.auth.scope(&grant, READ)?;
@@ -535,59 +604,40 @@ impl proto::terminal_service_server::TerminalService for TerminalRpc {
     }
     async fn stop_terminal(
         &self,
-        request: Request<proto::TerminalCommandRequest>,
+        request: Request<proto::StopTerminalRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
-        let (grant, info) = self
-            .authorize(&request, request.get_ref().terminal.as_ref(), TERMINAL)
-            .await?;
+        let grant = self.auth.authenticate(&request).await?;
         let request = request.into_inner();
-        let host = self.host.clone();
-        let (terminal, run) = (info.id().to_owned(), request.run_id.clone());
-        let receipt = self
-            .command(
-                self.input(
-                    &grant,
-                    request.command.as_ref(),
-                    "terminal.stop",
-                    terminal.clone(),
-                    run.as_bytes().to_vec(),
-                    info.root(),
-                )?,
-                move || async move {
-                    host.stop(&terminal, &run).await?;
-                    Ok(Vec::new())
+        Ok(Response::new(
+            self.command(
+                grant,
+                request.command,
+                request.project,
+                TerminalCommand::Stop {
+                    terminal: request.terminal_id,
+                    run: request.run_id,
                 },
             )
-            .await?;
-        Ok(Response::new(receipt))
+            .await?,
+        ))
     }
     async fn restart_terminal(
         &self,
-        request: Request<proto::TerminalCommandRequest>,
+        request: Request<proto::RestartTerminalRequest>,
     ) -> Result<Response<proto::CommandReceipt>, Status> {
-        let (grant, info) = self
-            .authorize(&request, request.get_ref().terminal.as_ref(), TERMINAL)
-            .await?;
+        let grant = self.auth.authenticate(&request).await?;
         let request = request.into_inner();
-        let host = self.host.clone();
-        let holder = Holder::device(grant.id(), grant.name());
-        let (terminal, run) = (info.id().to_owned(), request.run_id.clone());
-        let receipt = self
-            .command(
-                self.input(
-                    &grant,
-                    request.command.as_ref(),
-                    "terminal.restart",
-                    terminal.clone(),
-                    run.as_bytes().to_vec(),
-                    info.root(),
-                )?,
-                move || async move {
-                    let run = host.restart(&terminal, &run, holder).await?;
-                    Ok(run.into_bytes())
+        Ok(Response::new(
+            self.command(
+                grant,
+                request.command,
+                request.project,
+                TerminalCommand::Restart {
+                    terminal: request.terminal_id,
+                    run: request.run_id,
                 },
             )
-            .await?;
-        Ok(Response::new(receipt))
+            .await?,
+        ))
     }
 }
