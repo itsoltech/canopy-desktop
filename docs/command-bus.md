@@ -132,8 +132,29 @@ busa; CAS preferencji pozostaje u Settings/ControlBridge. Zmiana etykiety zdalne
 taba pozostaje operacją widoku; nie staje się hostowym Rename.
 Lokalna edycja od razu otwiera wiadomość z pamięci; preview zmian plików dociera
 osobno. Spóźnione odpowiedzi są sprawdzane względem runu i nadal otwartej edycji.
-Anulowanie obserwacji preview nie porzuca ograniczonego czasowo oczekiwania
-właściciela runtime; po odpowiedzi lub timeout zwalnia ono blokadę kolejnego podglądu.
+Local zachowuje dotychczasowe restore-then-fork: `fork_point` wybiera wiadomość,
+sesja obsługuje dry run i właściwe przywrócenie, a `restart_edited` kontynuuje gałąź.
+Nie używa hostowego `edit_target`, receipt ani dodatkowych warunków idle/kolejki/decyzji.
+Nieedytowalny wybór pozostaje cichym no-op. Anulowanie podglądu nie pozostawia
+waitera komendy; odpowiedź należy do sesji. Przeniesienie lokalnej edycji do trwałej
+komendy hosta jest późniejszą pracą. Grpc zachowuje trwałe Edit i odzyskiwanie wyniku.
+Wspólne mapowanie `edit_reason` nadal odpowiada za tekst hostowych odmów edycji
+i lokalną odmowę starego runu; kody receipt nie są prezentowane przez lokalny flow.
+
+Wynik przygotowania określa moment czyszczenia composera: zwykły Local Send bez
+odtwarzania obrazów czyści synchronicznie przed wysłaniem; zapisane obrazy najpierw
+otrzymują dane. Local Steer czyści przed tym odczytem, Goal czyści i opuszcza tryb
+celu od razu, a udany synchroniczny Shell czyści i opuszcza `!`. Grpc nadal czeka na
+potwierdzenie swojej operacji. Local Edit pozycji kolejki czyści przed oczekiwaniem
+na jej zwolnienie; Grpc zachowuje pole do odpowiedzi i chroni nowszy szkic.
+Czyszczenie po `DraftConsumed` usuwa także badge'y
+czekające na wstawienie, aby nie pojawiły się ponownie w pustym polu.
+Przygotowanie nadal zachowuje cel sprzed async odczytu. Odrzucony spóźniony Steer
+dołącza swój szkic do później wpisanej treści, zamiast nadpisywać nowszy composer.
+
+Istniejące ograniczenie: nieudane receipt edycji, które nie przechodzą przez
+`acknowledge_runtime_command`, mogą pozostawać w `_canopy_command_inbox`.
+Ten zakres nie zmienia cleanupu ani retencji inboxu.
 
 Wymagane nowe typy wynikają z D1 i SIMPLE-01..03:
 
@@ -143,6 +164,9 @@ Wymagane nowe typy wynikają z D1 i SIMPLE-01..03:
 | `Account` | Jeden katalog kont wykonującego środowiska; zastępuje składanie dwóch list w composerze |
 | `HistoryPosition`, `HistorySearch` | Stronicowane trafienia i kotwice bez `ItemKey`/`HistoryMatches` w wyszukiwaniu widoku |
 | `SavedMessageEdit` | Odtworzenie wcześniejszego composera i sprawdzenie bieżącego run bez wire preview w widoku |
+| `MessageEdit`, prywatny `EditOrigin`, `MessageEditPreview`, `EditedBranch` | Wybór zachowuje punkt forka i kontekst Local lub adres hostowego Edit; zastępuje odczyt sesji i interpretację transportu w widoku |
+| `EditProgress`, `EditSubmission` | Oddzielają przygotowanie obrazów, przywracanie, gotowość forka i oczekiwanie na receipt; widok zachowuje dotychczasowy moment czyszczenia i komunikaty bez wyboru transportu |
+| `ComposerOperation`, `ComposerSubmission`, `ComposerClear`, `DraftPreparation` | Zamiast zawsze asynchronicznego submitu opisują faktyczną gotowość i moment czyszczenia; token zatrzymuje cel sprzed odczytu obrazów, UI nie zna jego tożsamości transportowej |
 | `AttachmentSuggestion` | Wspólny wynik istniejącego wyszukiwania plików/PR; podpisany kontekst Grpc zostaje przy adapterze |
 | `ThreadDestination`, prywatny `Destination` | Zachowanie adresu wybranego przed async fork; paleta nie interpretuje `WorkspaceRef` ani hostowego katalogu |
 | `ContextReading`, `ContextSource` | Wspólny odczyt kontekstu z zachowaniem różnego opisu źródła; usuwa analizę wire transcriptu w UI |

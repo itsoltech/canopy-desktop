@@ -801,10 +801,7 @@ impl ChatRuntime {
             .is_some_and(|session| session.run() == saved.run_id)
             && self.epoch == item.history_epoch;
         Some(SavedMessageEdit {
-            position: HistoryPosition {
-                history_epoch: item.history_epoch,
-                item_id: item.item_id,
-            },
+            target: self.host_message_edit(ItemId(item.item_id)),
             previous,
             current,
         })

@@ -5,7 +5,8 @@ pub use integrations::{GithubUnavailable, IntegrationsState, WriteFinished};
 pub use task_drafts::DraftsState;
 mod editors;
 pub(crate) use chats::{
-    Account, AttachmentSuggestion, HistoryPosition, Recovering, ThreadDestination,
+    Account, AttachmentSuggestion, ComposerClear, ComposerOperation, DraftPreparation,
+    EditProgress, EditSubmission, HistoryPosition, MessageEdit, Recovering, ThreadDestination,
 };
 pub use chats::{
     AgentOption, Archived, ChatForkRequested, ChatGuardRequest, ChatNotice, ChatNoticeKind,

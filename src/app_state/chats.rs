@@ -24,7 +24,8 @@ pub use commands::{ChatSummary, DeletePreflight, ForkChat, ForkReplacement, NewC
 pub(in crate::app_state) use runtime::ThreadTransport;
 pub use runtime::backend_of;
 pub(crate) use runtime::{
-    Account, AttachmentSuggestion, HistoryPosition, Recovering, ThreadDestination,
+    Account, AttachmentSuggestion, ComposerClear, ComposerOperation, DraftPreparation,
+    EditProgress, EditSubmission, HistoryPosition, MessageEdit, Recovering, ThreadDestination,
 };
 pub use runtime::{
     AgentOption, Archived, ChatNotice, ChatNoticeKind, ChatRuntime, ChatRuntimeEvent,

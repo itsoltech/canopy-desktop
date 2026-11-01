@@ -104,27 +104,23 @@ impl ChatView {
     }
 
     /// Enter in goal mode: the field's text becomes the goal.
-    pub(super) fn submit_goal(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn submit_goal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let draft = self.composer_draft(cx);
         let text = plain_condition(&draft);
         if text.is_empty() || text.chars().count() > goal::LIMIT || !self.rt(cx).accepts_messages()
         {
             return;
         }
-        self.save_remote_draft(cx);
-        let revision = self.remote_revision;
-        self.runtime.update(cx, |runtime, cx| {
-            runtime.submit_composer_draft(
-                Draft {
-                    text,
-                    goal: true,
-                    ..Default::default()
-                },
-                false,
-                revision,
-                cx,
-            )
-        });
+        self.submit_composer(
+            Draft {
+                text,
+                goal: true,
+                ..Default::default()
+            },
+            false,
+            window,
+            cx,
+        );
     }
 
     /// The condition is over the limit: Enter does nothing.

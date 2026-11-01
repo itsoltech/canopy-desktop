@@ -105,8 +105,9 @@ struct Shell {
 mod host_services;
 mod transport;
 pub(crate) use transport::{
-    Account, AttachmentSuggestion, ContextSource, HistoryPosition, PendingOutcome, PendingRequest,
-    Recovering, ThreadDestination, ThreadFile, ThreadPlace, ThreadTransport,
+    Account, AttachmentSuggestion, ComposerClear, ComposerOperation, ContextSource,
+    DraftPreparation, EditProgress, EditSubmission, HistoryPosition, MessageEdit, PendingOutcome,
+    PendingRequest, Recovering, ThreadDestination, ThreadFile, ThreadPlace, ThreadTransport,
 };
 mod queue;
 // The remote bridge's typed chat operations; the gRPC server is their caller.

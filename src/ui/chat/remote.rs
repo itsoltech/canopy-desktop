@@ -23,8 +23,7 @@ impl ChatView {
             return;
         };
         self.editing = Some(super::edit::Editing {
-            item: canopy_desktop::chat::transcript::ItemId(saved.position.item_id),
-            run: self.rt(cx).generation(),
+            target: saved.target,
             draft: saved.previous,
             preview: None,
             restore: false,
@@ -51,23 +50,22 @@ impl ChatView {
         let Some(edit) = self.editing.as_mut().filter(|e| !e.checking) else {
             return;
         };
-        let item = edit.item;
-        let run = edit.run;
+        let target = edit.target.clone();
         edit.checking = true;
         edit.error = None;
         edit.recheck = false;
-        let (_, task) = self
+        let selection = self
             .runtime
-            .update(cx, |r, cx| r.preview_message_edit(item, cx));
+            .update(cx, |r, cx| r.preview_message_edit(target.item, cx));
+        let Some(task) = selection.and_then(|selection| selection.checking) else {
+            self.editing.as_mut().unwrap().checking = false;
+            return;
+        };
         cx.notify();
         self.edit_preview = Some(cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                let Some(edit) = this
-                    .editing
-                    .as_mut()
-                    .filter(|e| e.item == item && e.run == run)
-                else {
+                let Some(edit) = this.editing.as_mut().filter(|e| e.target == target) else {
                     return;
                 };
                 edit.checking = false;

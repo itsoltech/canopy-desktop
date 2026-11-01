@@ -7,7 +7,9 @@ use super::{
     queue::{QueueBar, Waiting},
     rows::Rows,
 };
-use crate::app_state::{ChatRuntime, ChatRuntimeEvent};
+use crate::app_state::{
+    ChatRuntime, ChatRuntimeEvent, ComposerClear, ComposerOperation, DraftPreparation,
+};
 use crate::ui::components::ButtonLoading;
 use canopy_desktop::chat::mentions::FileRef;
 use canopy_desktop::{
@@ -431,7 +433,7 @@ impl ChatView {
             }
             ChatRuntimeEvent::DraftConsumed(revision) => {
                 if self.remote_revision == *revision {
-                    self.attachments.pending.clear();
+                    self.attachments.clear_composer();
                     self.code_parts.clear();
                     self.shell = false;
                     self.goal_mode = false;
@@ -555,6 +557,7 @@ impl ChatView {
         let policy = motion::policy(cx);
         self.sync_decision(policy, cx);
         self.sync_activity(cx);
+        self.sync_edit(cx);
         self.tick(cx);
         let working = self.is_working(cx);
         self.action.retarget(
@@ -599,12 +602,16 @@ impl ChatView {
         if self.shell_mode(cx) {
             let text = self.composer.read(cx).value().to_string();
             self.save_remote_draft(cx);
-            let revision = self.remote_revision;
-            match self.runtime.update(cx, |runtime, cx| {
-                runtime.submit_composer_shell(text, revision, cx)
-            }) {
+            match self
+                .runtime
+                .update(cx, |runtime, cx| runtime.submit_composer_shell(text, cx))
+            {
                 // One command per `!`, as in Claude Code.
-                Ok(()) => {}
+                Ok(ComposerClear::WhenReady | ComposerClear::BeforePreparation) => {
+                    self.clear_composer(window, cx);
+                    self.set_shell(false, window, cx);
+                }
+                Ok(ComposerClear::OnAcceptance) => {}
                 Err(error) => self.shell_error = Some(error),
             }
             cx.notify();
@@ -617,12 +624,88 @@ impl ChatView {
         {
             return;
         }
+        self.submit_composer(draft, false, window, cx);
+    }
+
+    pub(super) fn submit_composer(
+        &mut self,
+        draft: Draft,
+        steer: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.save_remote_draft(cx);
-        let revision = self.remote_revision;
-        self.activity_sent();
-        self.runtime.update(cx, |runtime, cx| {
-            runtime.submit_composer_draft(draft, false, revision, cx)
-        });
+        let goal = draft.goal;
+        let ComposerOperation {
+            clear,
+            draft,
+            submission,
+        } = self.rt(cx).prepare_composer_draft(draft, steer);
+        if matches!(clear, ComposerClear::BeforePreparation) {
+            self.clear_composer(window, cx);
+            if goal {
+                self.set_goal_mode(false, window, cx);
+            }
+        }
+        let preparation = self
+            .runtime
+            .update(cx, |runtime, cx| runtime.prepare_draft(draft, cx));
+        match preparation {
+            DraftPreparation::Ready(draft) => {
+                if matches!(clear, ComposerClear::WhenReady) {
+                    self.clear_composer(window, cx);
+                }
+                if !steer && !self.rt(cx).accepts_messages() {
+                    return;
+                }
+                if !steer {
+                    self.activity_sent();
+                }
+                self.runtime.update(cx, |runtime, cx| {
+                    runtime.submit_composer_draft(submission, draft, cx)
+                });
+            }
+            DraftPreparation::Loading(prepared) => {
+                cx.spawn(async move |this, cx| {
+                    let result = prepared.await;
+                    let _ = this.update(cx, |this, cx| match result {
+                        Ok(draft) => {
+                            if !this.rt(cx).composer_submission_current(&submission) {
+                                if matches!(clear, ComposerClear::BeforePreparation) {
+                                    let recovered = append_recovered_draft(this.composer_draft(cx), draft);
+                                    this.restore_draft(recovered, cx);
+                                }
+                                this.runtime.update(cx, |runtime, cx| {
+                                    runtime.note(
+                                        "The chat changed while preparing attachments. Your draft is kept; review it before sending.".into(),
+                                        cx,
+                                    );
+                                });
+                                return;
+                            }
+                            if matches!(clear, ComposerClear::WhenReady) {
+                                this.attachments.clear_composer();
+                                this.decision.composer = Some(super::decision::ComposerChange {
+                                    text: Some(String::new().into()),
+                                    placeholder: super::decision::COMPOSER_PLACEHOLDER,
+                                });
+                            }
+                            if !steer && !this.rt(cx).accepts_messages() {
+                                return;
+                            }
+                            if !steer {
+                                this.activity_sent();
+                            }
+                            this.runtime.update(cx, |runtime, cx| {
+                                runtime.submit_composer_draft(submission, draft, cx)
+                            });
+                        }
+                        Err(error) => this.runtime.update(cx, |runtime, cx| runtime.note(error, cx)),
+                    });
+                })
+                .detach();
+            }
+        }
     }
 
     pub(super) fn send_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
@@ -818,11 +901,7 @@ impl ChatView {
             }
             // Steering is the agent's own feature; without it the message waits.
             if self.is_working(cx) && self.capabilities(cx).steer {
-                self.save_remote_draft(cx);
-                let revision = self.remote_revision;
-                self.runtime.update(cx, |runtime, cx| {
-                    runtime.submit_composer_draft(draft, true, revision, cx)
-                });
+                self.submit_composer(draft, true, window, cx);
             } else {
                 self.submit(window, cx);
             }
@@ -849,28 +928,20 @@ impl ChatView {
     pub(super) fn edit(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let draft = self.composer_draft(cx);
         let revision = self.remote_revision;
-        let taken = self
+        let (clear, taken) = self
             .runtime
             .update(cx, |runtime, cx| runtime.take_queued(id, draft, cx));
         // The composer is cleared now and refilled once the queue gave the message up.
+        if matches!(clear, ComposerClear::BeforePreparation) {
+            self.clear_composer(window, cx);
+        }
         cx.spawn_in(window, async move |this, cx| {
             if let Some(mut queued) = taken.await {
                 let _ = this.update_in(cx, |this, window, cx| {
-                    if this.remote_revision != revision {
-                        let mut current = this.composer_draft(cx);
-                        if !current.text.is_empty() && !queued.text.is_empty() {
-                            current.text.push_str("\n\n");
-                        }
-                        current.text.push_str(&queued.text);
-                        current.attachments.append(&mut queued.attachments);
-                        if let Some(context) = queued.context {
-                            current.context = Some(match current.context {
-                                Some(current) => format!("{current}\n\n{context}"),
-                                None => context,
-                            });
-                        }
-                        current.goal |= queued.goal;
-                        queued = current;
+                    if matches!(clear, ComposerClear::OnAcceptance)
+                        && this.remote_revision != revision
+                    {
+                        queued = append_recovered_draft(this.composer_draft(cx), queued);
                         this.shell_error = Some(
                             "The draft changed; the queued content was appended for review.".into(),
                         );
@@ -1006,6 +1077,23 @@ impl ChatView {
     }
 }
 
+/// Recovery appends to newer composer content instead of overwriting it.
+fn append_recovered_draft(mut current: Draft, recovered: Draft) -> Draft {
+    if !current.text.is_empty() && !recovered.text.is_empty() {
+        current.text.push_str("\n\n");
+    }
+    current.text.push_str(&recovered.text);
+    current.attachments.extend(recovered.attachments);
+    if let Some(context) = recovered.context {
+        current.context = Some(match current.context {
+            Some(current) => format!("{current}\n\n{context}"),
+            None => context,
+        });
+    }
+    current.goal |= recovered.goal;
+    current
+}
+
 /// Background subagents still running after the agent's turn ended.
 fn waiting_subagents(
     transcript: &canopy_desktop::chat::transcript::Transcript,
@@ -1089,4 +1177,50 @@ fn thread_thinking(transcript: &canopy_desktop::chat::transcript::Transcript, ca
         matches!(&item.body, Body::Tool(tool)
             if tool.call_id == call && presentation::thread_thinking(transcript, call, tool))
     })
+}
+
+#[cfg(test)]
+mod draft_tests {
+    use super::{Draft, append_recovered_draft};
+    use canopy_desktop::chat::transcript::Attachment;
+
+    #[test]
+    fn a_late_prepared_draft_preserves_newer_text_attachments_and_context() {
+        let newer = Attachment::Quote {
+            text: "new quote".into(),
+            label: Some("[new]".into()),
+        };
+        let saved = Attachment::Image {
+            file: "saved.png".into(),
+            media_type: "image/png".into(),
+            width: 1,
+            height: 1,
+            data: Some("cGl4ZWxz".into()),
+            label: Some("[image]".into()),
+        };
+        let current = Draft {
+            text: "new [new]".into(),
+            attachments: vec![newer.clone()],
+            context: Some("new context".into()),
+            goal: true,
+        };
+        let recovered = Draft {
+            text: "old [image]".into(),
+            attachments: vec![saved.clone()],
+            context: Some("old context".into()),
+            goal: false,
+        };
+        let merged = append_recovered_draft(current, recovered.clone());
+        assert_eq!(merged.text, "new [new]\n\nold [image]");
+        assert_eq!(merged.attachments, vec![newer, saved]);
+        assert_eq!(
+            merged.context.as_deref(),
+            Some("new context\n\nold context")
+        );
+        assert!(merged.goal);
+        assert_eq!(
+            append_recovered_draft(Draft::default(), recovered.clone()),
+            recovered
+        );
+    }
 }

@@ -5,6 +5,8 @@
 use super::*;
 
 mod grpc;
+#[cfg(test)]
+mod tests;
 pub(crate) use grpc::Recovering;
 use grpc::RemoteSession;
 
@@ -31,9 +33,99 @@ pub(crate) struct HistorySearch {
 }
 
 pub(crate) struct SavedMessageEdit {
-    pub position: HistoryPosition,
+    pub target: MessageEdit,
     pub previous: Draft,
     pub current: bool,
+}
+
+/// Captured edit selection. Views never interpret the executor's fork address.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct MessageEdit {
+    pub item: ItemId,
+    pub run: u64,
+    epoch: u64,
+    origin: EditOrigin,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum EditOrigin {
+    Branch {
+        fork: Option<String>,
+        context: Option<String>,
+    },
+    Host,
+}
+
+impl MessageEdit {
+    pub(crate) fn restore_files(
+        &self,
+        requested: bool,
+        preview: Option<&canopy_desktop::chat::backend::RewindPreview>,
+    ) -> bool {
+        requested
+            && match self.origin {
+                EditOrigin::Branch { .. } => preview.is_some_and(|preview| preview.possible),
+                EditOrigin::Host => true,
+            }
+    }
+}
+
+pub(crate) struct MessageEditPreview {
+    pub target: MessageEdit,
+    pub original: Option<Draft>,
+    pub checking: Option<Task<Result<EditPreview, String>>>,
+}
+
+pub(crate) enum EditProgress {
+    Unchanged,
+    Preview(canopy_desktop::chat::backend::RewindPreview),
+    Restored,
+    RestoreFailed(String),
+}
+
+pub(crate) struct EditedBranch {
+    fork: Option<String>,
+    draft: Draft,
+}
+
+pub(crate) enum EditSubmission {
+    Preparing(Task<Result<Draft, String>>),
+    Restoring,
+    AwaitingAcceptance,
+    Restart(EditedBranch),
+    RestoreFailed(String),
+    Refused { message: String, recheck: bool },
+}
+
+/// Clearing is an operation's progress, not a property of the thread's location.
+#[derive(Clone, Copy)]
+pub(crate) enum ComposerClear {
+    BeforePreparation,
+    WhenReady,
+    OnAcceptance,
+}
+
+pub(crate) enum DraftPreparation {
+    Ready(Draft),
+    Loading(Task<Result<Draft, String>>),
+}
+
+pub(crate) struct ComposerOperation {
+    pub clear: ComposerClear,
+    pub draft: Draft,
+    pub submission: ComposerSubmission,
+}
+
+pub(crate) struct ComposerSubmission {
+    steer: bool,
+    target: Option<(String, Option<String>, u64, Option<u64>)>,
+}
+
+fn materialize_draft_images(folder: &std::path::Path, draft: Draft) -> Result<Draft, String> {
+    Ok(Draft {
+        attachments: canopy_desktop::chat::attachments::with_data(folder, draft.attachments)?,
+        ..draft
+    })
 }
 
 pub(crate) struct ContextReading {
@@ -803,35 +895,90 @@ impl ChatRuntime {
         &mut self,
         item: ItemId,
         cx: &mut Context<Self>,
-    ) -> (Option<Draft>, Task<Result<EditPreview, String>>) {
+    ) -> Option<MessageEditPreview> {
         match self.transport {
-            ThreadTransport::Grpc(_) => (None, self.preview_edit_grpc(item, cx)),
+            ThreadTransport::Grpc(_) => Some(MessageEditPreview {
+                target: self.host_message_edit(item),
+                original: None,
+                checking: Some(self.preview_edit_grpc(item, cx)),
+            }),
             ThreadTransport::Local => {
-                let original = match self.edit_target(self.generation, self.epoch, item.0, cx) {
-                    Ok((_, original)) => original,
-                    Err(error) => return (None, Task::ready(Err(error))),
+                let session = self.native()?;
+                let fork = session.fork_point(item)?;
+                let original =
+                    session
+                        .transcript()
+                        .items()
+                        .iter()
+                        .find_map(|entry| match &entry.body {
+                            Body::User(message) if entry.id == item => Some(Draft {
+                                text: message.text.clone(),
+                                attachments: message.attachments.clone(),
+                                context: message.context.clone(),
+                                goal: message.goal,
+                            }),
+                            _ => None,
+                        })?;
+                let target = MessageEdit {
+                    item,
+                    run: self.generation,
+                    epoch: self.epoch,
+                    origin: EditOrigin::Branch {
+                        fork,
+                        context: original.context.clone(),
+                    },
                 };
-                let preview = self.remote_edit_preview(self.generation, self.epoch, item.0, cx);
-                // The owner must finish its bounded dry-run wait even if the
-                // composer cancels its observation, or the next edit stays busy.
-                let (reply, answer) = futures_channel::oneshot::channel();
-                cx.spawn(async move |_, _| {
-                    let _ = reply.send(preview.await);
+                // The session owns dry-run answers. Cancelling the view leaves no
+                // remote command waiter or detached task to strand.
+                self.rewind_files(item, true, cx);
+                Some(MessageEditPreview {
+                    target,
+                    original: Some(original),
+                    checking: None,
                 })
-                .detach();
-                // The local message is already held in memory. Let its composer
-                // open immediately while the existing owner checks file changes.
-                (
-                    Some(original),
-                    cx.spawn(async move |_, _| {
-                        let preview = answer
-                            .await
-                            .map_err(|_| "The edit preview stopped.".to_owned())?;
-                        preview.editable.as_ref().map_err(Clone::clone)?;
-                        Ok(preview)
-                    }),
-                )
             }
+        }
+    }
+
+    fn host_message_edit(&self, item: ItemId) -> MessageEdit {
+        MessageEdit {
+            item,
+            run: self.generation,
+            epoch: self.epoch,
+            origin: EditOrigin::Host,
+        }
+    }
+
+    pub(crate) fn message_edit_progress(
+        &self,
+        target: &MessageEdit,
+        sending: bool,
+    ) -> EditProgress {
+        use canopy_desktop::chat::session::Rewind;
+        if matches!(target.origin, EditOrigin::Host) {
+            return EditProgress::Unchanged;
+        }
+        let current = target.run == self.generation && target.epoch == self.epoch;
+        let outcome = current
+            .then(|| self.native()?.rewind())
+            .flatten()
+            .filter(|(item, _)| *item == target.item);
+        match outcome.map(|(_, outcome)| outcome) {
+            Some(Rewind::Preview(preview)) if !sending => EditProgress::Preview(preview.clone()),
+            Some(Rewind::Unavailable(_)) if !sending => EditProgress::Preview(Default::default()),
+            Some(Rewind::Done) if sending => EditProgress::Restored,
+            Some(Rewind::Failed(error)) if sending => {
+                EditProgress::RestoreFailed(format!("Couldn't restore the files: {error}"))
+            }
+            _ if sending
+                && (!current
+                    || self
+                        .backend()
+                        .is_none_or(|session| session.status().ended())) =>
+            {
+                EditProgress::RestoreFailed("The chat ended before the files were restored.".into())
+            }
+            _ => EditProgress::Unchanged,
         }
     }
 
@@ -851,82 +998,78 @@ impl ChatRuntime {
 
     pub(crate) fn commit_message_edit(
         &mut self,
-        item: ItemId,
+        target: &MessageEdit,
         draft: Draft,
         restore: bool,
         revision: u64,
-        expected_run: u64,
         cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        if expected_run != self.generation {
-            return Err(
-                "The original run has changed. Review the saved request or cancel this edit."
-                    .into(),
-            );
-        }
+    ) -> EditSubmission {
         match self.transport {
             ThreadTransport::Grpc(_) => {
+                if target.run != self.generation {
+                    return EditSubmission::Refused {
+                        message: "The original run has changed. Review the saved request or cancel this edit.".into(),
+                        recheck: true,
+                    };
+                }
                 if self
                     .transport
                     .grpc()
                     .is_none_or(|session| session.preview.is_none())
                 {
-                    return Err(format!(
-                        "{} no longer has this edit's preview.",
-                        self.environment_name()
-                            .unwrap_or_else(|| "The other computer".into())
-                    ));
+                    return EditSubmission::Refused {
+                        message: format!(
+                            "{} no longer has this edit's preview.",
+                            self.environment_name()
+                                .unwrap_or_else(|| "The other computer".into())
+                        ),
+                        recheck: true,
+                    };
                 }
                 self.client_edit(draft, restore, revision, cx);
+                EditSubmission::AwaitingAcceptance
             }
             ThreadTransport::Local => {
-                let key = canopy_desktop::host::CommandKey::local(uuid::Uuid::new_v4().to_string())
-                    .expect("UUID");
-                let edited = self.remote_edit(
-                    key.clone().into(),
-                    ChatCommand::Edit {
-                        run: self.generation,
-                        history_epoch: self.epoch,
-                        item: item.0,
-                        draft: canopy_desktop::host::QueueDraft::from(draft),
-                        restore_files: restore,
-                    },
-                    cx,
-                );
-                let client = self.client(cx);
-                cx.spawn(async move |this, cx| {
-                    let result = edited.await.and_then(|receipt| {
-                        if receipt.state() == canopy_desktop::host::CommandState::Succeeded {
-                            return Ok(());
-                        }
-                        let reason = receipt
-                            .result()
-                            .and_then(|bytes| {
-                                serde_json::from_slice::<serde_json::Value>(bytes).ok()
-                            })
-                            .and_then(|value| {
-                                value
-                                    .get("reason")
-                                    .and_then(|reason| reason.as_str())
-                                    .map(str::to_owned)
-                            })
-                            .unwrap_or_else(|| "The edit's outcome is not confirmed.".into());
-                        Err(reason)
-                    });
-                    if result.is_ok()
-                        && let Some(client) = client
-                    {
-                        let _ = client.acknowledge_runtime_command(key).await;
-                    }
-                    let _ = this.update(cx, |_, cx| {
-                        cx.emit(ChatRuntimeEvent::EditFinished { revision, result });
-                        cx.notify();
-                    });
+                let EditOrigin::Branch { fork, context } = &target.origin else {
+                    return EditSubmission::Refused {
+                        message: "This conversation can't be continued from there.".into(),
+                        recheck: false,
+                    };
+                };
+                if target.run != self.generation || target.epoch != self.epoch {
+                    return EditSubmission::Refused {
+                        message: crate::app_state::remote::edit_reason("stale_run"),
+                        recheck: false,
+                    };
+                }
+                let mut draft = match self.prepare_draft(draft, cx) {
+                    DraftPreparation::Ready(draft) => draft,
+                    DraftPreparation::Loading(task) => return EditSubmission::Preparing(task),
+                };
+                draft.context = context.clone();
+                if restore {
+                    return if self.rewind_files(target.item, false, cx) {
+                        EditSubmission::Restoring
+                    } else {
+                        EditSubmission::RestoreFailed("Files can't be restored now.".into())
+                    };
+                }
+                if fork.is_some() && self.pane.metadata.resume_id.is_none() {
+                    return EditSubmission::Refused {
+                        message: "This conversation can't be continued from there.".into(),
+                        recheck: false,
+                    };
+                }
+                EditSubmission::Restart(EditedBranch {
+                    fork: fork.clone(),
+                    draft,
                 })
-                .detach();
             }
         }
-        Ok(())
+    }
+
+    pub(crate) fn restart_message_edit(&mut self, branch: EditedBranch, cx: &mut Context<Self>) {
+        self.restart_edited(branch.fork, branch.draft, cx);
     }
 
     pub(crate) fn saved_draft(&self) -> Option<Draft> {
@@ -1270,75 +1413,88 @@ impl ChatRuntime {
                     let chat = chat.ok_or("This chat can't keep attachments.")?;
                     let data = canopy_desktop::platform::directories::data_dir()?;
                     let folder = canopy_desktop::chat::history::attachments_dir(&data, &chat);
-                    Ok(Draft {
-                        attachments: canopy_desktop::chat::attachments::with_data(
-                            &folder,
-                            draft.attachments,
-                        )?,
-                        ..draft
-                    })
+                    materialize_draft_images(&folder, draft)
                 })
             }
         }
     }
 
-    pub(crate) fn submit_composer_draft(
-        &mut self,
-        draft: Draft,
-        steer: bool,
-        revision: u64,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn prepare_draft(&self, draft: Draft, cx: &mut Context<Self>) -> DraftPreparation {
         match self.transport {
-            ThreadTransport::Grpc(_) => self.send_remote(draft, steer, cx),
-            ThreadTransport::Local => {
-                let target = (
+            ThreadTransport::Local
+                if canopy_desktop::chat::attachments::needs_data(&draft.attachments) =>
+            {
+                DraftPreparation::Loading(self.prepare_thread_draft(draft, cx))
+            }
+            _ => DraftPreparation::Ready(draft),
+        }
+    }
+
+    pub(crate) fn prepare_composer_draft(&self, draft: Draft, steer: bool) -> ComposerOperation {
+        let (clear, target) = match self.transport {
+            ThreadTransport::Grpc(_) => (ComposerClear::OnAcceptance, None),
+            ThreadTransport::Local => (
+                if steer || draft.goal {
+                    ComposerClear::BeforePreparation
+                } else {
+                    ComposerClear::WhenReady
+                },
+                Some((
                     self.pane.tool.clone(),
                     self.pane.metadata.profile_id.clone(),
                     self.epoch,
-                );
-                let run = self.generation;
-                let prepared = self.prepare_thread_draft(draft, cx);
-                cx.spawn(async move |this, cx| {
-                    let result = prepared.await;
-                    let _ = this.update(cx, |this, cx| match result {
-                        Ok(draft) => {
-                            if this.closed
-                                || target != (this.pane.tool.clone(), this.pane.metadata.profile_id.clone(), this.epoch)
-                                || (steer && this.generation != run)
-                            {
-                                this.note("The chat changed while preparing attachments. Your draft is kept; review it before sending.".into(), cx);
-                                return;
-                            }
-                            cx.emit(ChatRuntimeEvent::DraftConsumed(revision));
-                            if steer {
-                                this.steer_draft(draft, cx);
-                            } else {
-                                this.send_draft(draft, cx);
-                            }
-                        }
-                        Err(error) => this.note(error, cx),
-                    });
-                })
-                .detach();
-            }
+                    steer.then_some(self.generation),
+                )),
+            ),
+        };
+        ComposerOperation {
+            clear,
+            draft,
+            submission: ComposerSubmission { steer, target },
+        }
+    }
+
+    pub(crate) fn composer_submission_current(&self, submission: &ComposerSubmission) -> bool {
+        submission
+            .target
+            .as_ref()
+            .is_none_or(|(tool, profile, epoch, run)| {
+                !self.closed
+                    && tool == &self.pane.tool
+                    && profile == &self.pane.metadata.profile_id
+                    && *epoch == self.epoch
+                    && run.is_none_or(|run| run == self.generation)
+            })
+    }
+
+    pub(crate) fn submit_composer_draft(
+        &mut self,
+        submission: ComposerSubmission,
+        draft: Draft,
+        cx: &mut Context<Self>,
+    ) {
+        match self.transport {
+            ThreadTransport::Grpc(_) => self.send_remote(draft, submission.steer, cx),
+            ThreadTransport::Local if submission.steer => self.steer_draft(draft, cx),
+            ThreadTransport::Local => self.send_draft(draft, cx),
         }
     }
 
     pub(crate) fn submit_composer_shell(
         &mut self,
         command: String,
-        revision: u64,
         cx: &mut Context<Self>,
-    ) -> Result<(), String> {
+    ) -> Result<ComposerClear, String> {
         match self.transport {
             ThreadTransport::Local => {
                 self.run_shell(&command, cx)?;
-                cx.emit(ChatRuntimeEvent::DraftConsumed(revision));
+                Ok(ComposerClear::WhenReady)
             }
-            ThreadTransport::Grpc(_) => self.client_shell(command, cx),
+            ThreadTransport::Grpc(_) => {
+                self.client_shell(command, cx);
+                Ok(ComposerClear::OnAcceptance)
+            }
         }
-        Ok(())
     }
 
     pub(crate) fn retry_last(&mut self, cx: &mut Context<Self>) {
@@ -1452,15 +1608,21 @@ impl ChatRuntime {
         }
     }
 
-    pub fn take_queued(
+    pub(crate) fn take_queued(
         &mut self,
         message: String,
         replacement: Draft,
         cx: &mut Context<Self>,
-    ) -> Task<Option<Draft>> {
+    ) -> (ComposerClear, Task<Option<Draft>>) {
         match self.transport {
-            ThreadTransport::Local => self.take_queued_local(message, replacement, cx),
-            ThreadTransport::Grpc(_) => self.client_take_queued(message, replacement, cx),
+            ThreadTransport::Local => (
+                ComposerClear::BeforePreparation,
+                self.take_queued_local(message, replacement, cx),
+            ),
+            ThreadTransport::Grpc(_) => (
+                ComposerClear::OnAcceptance,
+                self.client_take_queued(message, replacement, cx),
+            ),
         }
     }
 

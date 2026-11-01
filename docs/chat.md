@@ -1217,6 +1217,17 @@ nie tworzy lokalnego procesu agenta ani lokalnej historii tej rozmowy. Konwersje
 wire, stream, pump i recovery należą do `runtime/transport/grpc.rs`. Szczegóły
 pokrycia i uzasadnienie typów: [granica transportu](command-bus.md#dostęp-do-wątku-local-i-grpc).
 
+Local Edit pozostaje restore-then-fork za tą granicą: otwiera edytowalną wiadomość
+od razu, cicho pomija pozostałe, pyta sesję o pliki i czyści composer dopiero przed
+`restart_edited`. Komunikaty przywracania zachowują dotychczasowe teksty:
+„Files can't be restored now.”, „Couldn't restore the files: …” oraz
+„The chat ended before the files were restored.”. Migracja lokalnej edycji do
+trwałego hostowego Edit pozostaje osobnym etapem; Grpc nadal korzysta z receipt.
+Local Send bez zapisanych obrazów czyści pole synchronicznie przed wysłaniem;
+zapisane obrazy opóźniają ten moment do materializacji. Steer czyści przed odczytem
+obrazów, Goal od razu opuszcza tryb celu, a udany Shell od razu opuszcza `!`.
+UI otrzymuje gotowość i postęp operacji, bez rozgałęziania według transportu.
+
 `PaneMetadata.remote` zawiera wyłącznie UUID hosta i czatu. Zwykłe taby, przeciąganie,
 splity i odtwarzanie sesji są własnością urządzenia. Ten sam czat można oglądać w
 kilku pane'ach i na kilku komputerach. Tab podaje nazwę komputera; jego zamknięcie

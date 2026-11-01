@@ -3,6 +3,7 @@
 //! a separator. Files changed after the message can be restored first, when the CLI
 //! kept their checkpoints.
 use super::{render::centered, view::ChatView};
+use crate::app_state::{EditProgress, EditSubmission, MessageEdit};
 use crate::ui::{components::*, theme as t};
 use canopy_desktop::chat::{claude::wire::RewindPreview, session::Draft, transcript::ItemId};
 use canopy_desktop::motion;
@@ -10,8 +11,7 @@ use gpui_kit::component::{IconName, Sizable, spinner::Spinner};
 use gpui_kit::{prelude::FluentBuilder, *};
 
 pub(super) struct Editing {
-    pub item: ItemId,
-    pub run: u64,
+    pub target: MessageEdit,
     /// Composer content from before the edit, back on Cancel.
     pub draft: Draft,
     /// What restoring files would change, once the CLI has answered.
@@ -37,18 +37,23 @@ impl ChatView {
         if self.edit_check.as_ref().is_some_and(|(_, l)| l.active()) {
             return;
         }
-        let (original, preview) = self
+        let Some(selection) = self
             .runtime
-            .update(cx, |runtime, cx| runtime.preview_message_edit(item, cx));
-        let run = self.rt(cx).generation();
-        let opened = original.is_some();
-        if let Some(original) = original {
-            self.open_message_edit(item, original, None, window, cx);
-        } else {
-            let mut loading = ButtonLoading::default();
-            loading.set(true, cx);
-            self.edit_check = Some((item, loading));
+            .update(cx, |runtime, cx| runtime.preview_message_edit(item, cx))
+        else {
+            return;
+        };
+        self.edit_preview = None;
+        let target = selection.target;
+        if let Some(original) = selection.original {
+            self.open_message_edit(target.clone(), original, None, window, cx);
         }
+        let Some(preview) = selection.checking else {
+            return;
+        };
+        let mut loading = ButtonLoading::default();
+        loading.set(true, cx);
+        self.edit_check = Some((item, loading));
         let revision = self.remote_revision;
         cx.notify();
         self.edit_preview = Some(cx.spawn_in(window, async move |this, cx| {
@@ -57,14 +62,7 @@ impl ChatView {
                 if let Some((_, loading)) = &mut this.edit_check {
                     loading.set(false, cx);
                 }
-                if this.rt(cx).generation() != run
-                    || (!opened && this.remote_revision != revision)
-                    || (opened
-                        && this
-                            .editing
-                            .as_ref()
-                            .is_none_or(|edit| edit.item != item || edit.run != run))
-                {
+                if this.rt(cx).generation() != target.run || this.remote_revision != revision {
                     cx.notify();
                     return;
                 }
@@ -79,20 +77,13 @@ impl ChatView {
                                 deletions: f.deletions,
                             }
                         });
-                        if opened {
-                            let edit = this.editing.as_mut().unwrap();
-                            if edit.sending.is_none() {
-                                edit.preview = files;
-                            }
-                        } else {
-                            this.open_message_edit(
-                                item,
-                                preview.original.unwrap_or_default(),
-                                files,
-                                window,
-                                cx,
-                            );
-                        }
+                        this.open_message_edit(
+                            target,
+                            preview.original.unwrap_or_default(),
+                            files,
+                            window,
+                            cx,
+                        );
                     }
                     Err(error) => this.shell_error = Some(error),
                 }
@@ -103,20 +94,18 @@ impl ChatView {
 
     fn open_message_edit(
         &mut self,
-        item: ItemId,
+        target: MessageEdit,
         original: Draft,
         preview: Option<RewindPreview>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let previous = self.composer_draft(cx);
-        let run = self.rt(cx).generation();
         self.runtime.update(cx, |runtime, cx| {
             runtime.save_message_edit(Some(previous.clone()), cx)
         });
         self.editing = Some(Editing {
-            item,
-            run,
+            target,
             draft: previous,
             preview,
             restore: false,
@@ -155,22 +144,102 @@ impl ChatView {
         {
             return;
         }
+        let restore = self.editing.as_ref().is_some_and(|edit| {
+            edit.target
+                .restore_files(edit.restore, edit.preview.as_ref())
+        });
+        self.send_edit_draft(draft, restore, cx);
+    }
+
+    fn send_edit_draft(&mut self, draft: Draft, restore: bool, cx: &mut Context<Self>) {
+        let Some(target) = self
+            .editing
+            .as_ref()
+            .filter(|edit| edit.sending.is_none())
+            .map(|edit| edit.target.clone())
+        else {
+            return;
+        };
         self.save_remote_draft(cx);
-        let editing = self.editing.as_mut().unwrap();
-        let (item, restore, run) = (editing.item, editing.restore, editing.run);
-        editing.sending = Some(draft.clone());
-        editing.error = None;
-        editing.recheck = false;
         let revision = self.remote_revision;
-        if let Err(error) = self.runtime.update(cx, |runtime, cx| {
-            runtime.commit_message_edit(item, draft, restore, revision, run, cx)
-        }) {
-            let editing = self.editing.as_mut().unwrap();
-            editing.sending = None;
-            editing.error = Some(error);
-            editing.recheck = true;
+        let outcome = self.runtime.update(cx, |runtime, cx| {
+            runtime.commit_message_edit(&target, draft.clone(), restore, revision, cx)
+        });
+        match outcome {
+            EditSubmission::Preparing(prepared) => {
+                self.edit_preview = Some(cx.spawn(async move |this, cx| {
+                    let result = prepared.await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.rt(cx).generation() != target.run
+                            || this
+                                .editing
+                                .as_ref()
+                                .is_none_or(|edit| edit.target != target)
+                        {
+                            return;
+                        }
+                        match result {
+                            Ok(draft) => this.send_edit_draft(draft, restore, cx),
+                            Err(error) => this
+                                .runtime
+                                .update(cx, |runtime, cx| runtime.note(error, cx)),
+                        }
+                    });
+                }));
+            }
+            EditSubmission::Restoring | EditSubmission::AwaitingAcceptance => {
+                let editing = self.editing.as_mut().unwrap();
+                editing.sending = Some(draft);
+                editing.error = None;
+                editing.recheck = false;
+            }
+            EditSubmission::Restart(branch) => {
+                self.editing = None;
+                // The composer empties once the edit is on its way, before restart.
+                self.decision.composer = Some(super::decision::ComposerChange {
+                    text: Some(String::new().into()),
+                    placeholder: super::decision::COMPOSER_PLACEHOLDER,
+                });
+                self.attachments.pending.clear();
+                self.runtime
+                    .update(cx, |runtime, cx| runtime.restart_message_edit(branch, cx));
+            }
+            EditSubmission::RestoreFailed(error) => self.edit_restore_failed(error),
+            EditSubmission::Refused { message, recheck } => {
+                let editing = self.editing.as_mut().unwrap();
+                editing.sending = None;
+                editing.error = Some(message);
+                editing.recheck = recheck;
+            }
         }
         cx.notify();
+    }
+
+    pub(super) fn sync_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(edit) = &self.editing else {
+            return;
+        };
+        let sending = edit.sending.is_some();
+        match self.rt(cx).message_edit_progress(&edit.target, sending) {
+            EditProgress::Preview(preview) if edit.preview.is_none() => {
+                self.editing.as_mut().unwrap().preview = Some(preview)
+            }
+            EditProgress::Restored => {
+                let draft = self.editing.as_mut().unwrap().sending.take().unwrap();
+                self.send_edit_draft(draft, false, cx);
+            }
+            EditProgress::RestoreFailed(error) => self.edit_restore_failed(error),
+            _ => {}
+        }
+    }
+
+    fn edit_restore_failed(&mut self, error: String) {
+        if let Some(editing) = &mut self.editing {
+            editing.error = Some(error);
+            editing.restore = false;
+            editing.sending = None;
+            editing.recheck = false;
+        }
     }
 
     /// The pencil's spinner while the host checks message `item` for editing.

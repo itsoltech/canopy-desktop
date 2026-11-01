@@ -58,6 +58,13 @@ pub(super) struct Attachments {
     pub lightbox_presence: Option<Presence>,
 }
 
+impl Attachments {
+    pub(super) fn clear_composer(&mut self) {
+        self.pending.clear();
+        self.insert.clear();
+    }
+}
+
 /// The folder of the chat's attached images.
 fn folder(chat: Option<&str>) -> Result<PathBuf, String> {
     let chat = chat.ok_or("This chat can't keep attachments.")?;
@@ -230,6 +237,16 @@ impl ChatView {
             text: Some(content),
             placeholder: super::decision::COMPOSER_PLACEHOLDER,
         });
+    }
+
+    pub(super) fn clear_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.composer
+            .update(cx, |state, cx| state.clean(window, cx));
+        if !self.code_parts.is_empty() {
+            self.code_parts.clear();
+            cx.notify();
+        }
+        self.attachments.clear_composer();
     }
 
     fn next_attachment(&mut self) -> u64 {
@@ -1101,6 +1118,30 @@ fn unreadable_on_host(host: &str, paths: &[PathBuf]) -> String {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    fn consuming_a_composer_discards_badges_waiting_for_insertion() {
+        let mut attachments = Attachments::default();
+        attachments.pending.push(Pending {
+            id: 1,
+            text: "[file]".into(),
+            state: AttachState::Ready(Attachment::Path {
+                path: "file".into(),
+                label: Some("[file]".into()),
+            }),
+            preview: None,
+            image: false,
+        });
+        attachments
+            .insert
+            .push(InlineToken::new(token_id(1), "[file]"));
+        attachments.clear_composer();
+        assert!(attachments.pending.is_empty());
+        assert!(
+            attachments.insert.is_empty(),
+            "accepted content must not reappear at the next composer render"
+        );
+    }
 
     #[test]
     fn mentions_become_badge_links_and_the_rest_reads_literally() {

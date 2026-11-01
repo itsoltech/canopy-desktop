@@ -1239,7 +1239,7 @@ impl proto::chat_service_server::ChatService for ChatsRpc {
 }
 
 /// An edit refusal as the device shows it: the text after its `code: ` prefix.
-fn edit_reason(error: &str) -> String {
+pub(in crate::app_state) fn edit_reason(error: &str) -> String {
     match error {
         "stale_run" => "The chat restarted since; open the message again.".into(),
         error => error
