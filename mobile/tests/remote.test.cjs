@@ -8,6 +8,7 @@ const { encode, decode, toBase64 } = require(resolve(root, 'protobuf.js'))
 const { HostStore } = require(resolve(root, 'persistence.js'))
 const { ClientOutbox } = require(resolve(root, 'outbox.js'))
 const { GrpcTransport } = require(resolve(root, 'transport.js'))
+const { scopeLabel } = require(resolve(root, 'permissions.js'))
 const connection = { hostId: 'host-a', deviceId: 'device-a', name: 'A', serverName: 'canopy.local', fingerprint: 'a'.repeat(64), hostCertificate: 'test', credentialRef: 'credential-a', routes: [{ kind: 'direct', address: '127.0.0.1', port: 1234 }], route: 0 }
 const context = { account_id: 'acp', history_epoch: '7' }
 const target = { thread: { host_id: 'host-a', thread_id: 'thread-a' }, executor_epoch: '1' }
@@ -61,6 +62,10 @@ test('protobuf encoding interoperates with protoc: unicode, max uint64, optional
   assert.deepEqual(decode('PutChunkRequest', encode('PutChunkRequest', file)), file)
   assert.throws(() => decode('PutChunkRequest', Uint8Array.from([34, 128])), /truncated/)
   assert.throws(() => encode('TerminalSessionRequest', { input: {}, resize: {} }), /oneof/)
+})
+test('device permissions decoded from protobuf display readable scope labels, including future values', () => {
+  const devices = decode('Devices', encode('Devices', { devices: [{ device_id: 'phone', name: 'Phone', scopes: [1, 2, 3, 4, 5, 6, 7, 0, 99] }] }))
+  assert.equal(devices.devices[0].scopes.map(scopeLabel).join(', '), 'Read, Chat, Approve, Files/Git, Terminal, Tasks, Admin, Unspecified, Unknown scope (99)')
 })
 test('outbox persists envelope before send; disk failure causes no effect and preserves draft', async () => {
   const io = storage(), store = await HostStore.open(io, connection), outbox = new ClientOutbox(store), remote = server()

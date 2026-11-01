@@ -7,6 +7,8 @@ i komponenty NotchOverlay w repozytorium Electron.
 ## Wygląd i ruch
 
 Czarna wyspa pokazuje rzeczywiste sesje Claude/Codex z globalnego AgentsState.
+Sesje `Starting` są widoczne w filtrze All; filtr Working pokazuje dopiero
+stan `Working` potwierdzony przez agenta.
 Wysokość belki pochodzi z wysokości menu/work area (fallback 37); szerokość
 zwinięta to round(height × 5.5) + 80.
 Rozwinięcie ma 480 jednostek szerokości, wiersz 48 i padding dolny 6.

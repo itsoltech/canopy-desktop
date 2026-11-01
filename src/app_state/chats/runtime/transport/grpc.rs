@@ -2783,6 +2783,10 @@ mod tests {
         cx: &mut TestAppContext,
     ) {
         cx.update(|cx| {
+            cx.observe_new::<crate::ui::remote_client::Connections>(|_, _, _| {
+                panic!("A projection-only test must not load saved connections")
+            })
+            .detach();
             let mut workspace = canopy_desktop::state::workspace::Workspace::new();
             workspace.open_conversation("Remote", "claude");
             let mut pane = workspace.all_panes().remove(0);
@@ -2793,7 +2797,12 @@ mod tests {
                 )
                 .unwrap(),
             ));
-            let runtime = cx.new(|cx| ChatRuntime::new(pane, cx));
+            // `new` queues EntityCreated with a strong handle, keeping the chat
+            // alive through its deferred attach even after we drop our handle.
+            // Insert a reserved entity so this projection-only fixture can be
+            // released before attachment starts a real Tokio registry worker.
+            let slot = cx.reserve_entity();
+            let runtime = cx.insert_entity(slot, |cx| ChatRuntime::new(pane, cx));
             runtime.update(cx, |r, cx| {
                 assert!(r.owned_chat_id().is_none());
                 r.transport.grpc_mut().unwrap().agents = vec![p::AvailableAgent {
@@ -2906,5 +2915,6 @@ mod tests {
             // Drop before the deferred attach: this test cannot load a user registry.
             drop(runtime);
         });
+        cx.run_until_parked();
     }
 }
