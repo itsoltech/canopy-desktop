@@ -828,6 +828,8 @@ Dokumentacja procedur: [chat](chat.md), [persist](persistence.md),
 [Git Changes](git-changes.md), [Git network](git-network.md), [integracje](integrations.md),
 [settings](settings.md), [Windows](windows.md). Historyczny
 [remote Electrona](features/remote-control.md) nie jest protokołem docelowym.
+Sterowanie Canopy przez zewnętrznych agentów AI opisuje osobny
+[plan serwera MCP](mcp-control-plan.md). Korzysta z handlerów i kontraktu tego planu.
 
 Źródła kontraktów zewnętrznych:
 
