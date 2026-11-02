@@ -498,7 +498,15 @@ export async function resolvePanelTask(
   )
 
   if (!apply()) return
-  const list = contexts.filter((c): c is PanelTaskContext => c !== null)
+  // Two requested keys can resolve to one canonical key (e.g. a moved Jira issue), and the
+  // panels key their lists by taskKey: keep one entry per key, preferring the linked task.
+  const list: PanelTaskContext[] = []
+  for (const c of contexts) {
+    if (!c) continue
+    const dup = list.findIndex((t) => t.taskKey === c.taskKey)
+    if (dup < 0) list.push(c)
+    else if (c.source === 'active' && list[dup].source !== 'active') list[dup] = c
+  }
   panelTasks = list
   const activeIdx = list.findIndex((c) => c.source === 'active')
   panelTaskIndex = activeIdx >= 0 ? activeIdx : Math.max(0, list.length - 1)

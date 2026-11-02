@@ -175,6 +175,9 @@ export const confirmState: {
 } = $state({ current: null })
 
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
+  // A newer confirmation replaces the visible one; settle the old promise as cancelled so its
+  // caller doesn't wait forever (e.g. a remote `tabs.close` while a desktop confirm is open).
+  confirmState.current?.onCancel()
   return new Promise((resolve) => {
     confirmState.current = {
       ...opts,
@@ -191,6 +194,9 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
 }
 
 export function prompt(opts: PromptOptions): Promise<PromptResult | null> {
+  // Same for a prompt replacing an open prompt: resolve the superseded one as cancelled.
+  const current = dialogState.current
+  if (current.type === 'input') current.props.onCancel()
   return new Promise((resolve) => {
     dialogState.current = {
       type: 'input',

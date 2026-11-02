@@ -66,6 +66,8 @@
       }
     | undefined = $state()
   let lastLoadedPath: string | null = null
+  // Bumped on every load and file switch so a slow read can't overwrite a newer file's state.
+  let loadSeq = 0
   let skipNextWatcherEvent = false
   let indentInfo: IndentInfo = $state({ type: 'space', size: 4 })
 
@@ -112,6 +114,7 @@
   }
 
   async function loadFile(path: string): Promise<void> {
+    const seq = ++loadSeq
     loading = true
     error = null
     saveError = null
@@ -123,6 +126,8 @@
     externalChangeDetected = false
     try {
       const readResult = await loadEditorFile(paneId, path, MAX_EDIT_BYTES)
+      // A newer load or file switch (sub-tab change, watcher reload) superseded this read.
+      if (seq !== loadSeq) return
       if (!readResult.ok) {
         error = readResult.message
         return
@@ -151,9 +156,10 @@
       fileMtimeMs = readResult.mtimeMs
       dirty = false
     } catch (e) {
+      if (seq !== loadSeq) return
       error = e instanceof Error ? e.message : 'Failed to read file'
     } finally {
-      loading = false
+      if (seq === loadSeq) loading = false
     }
   }
 
@@ -448,6 +454,8 @@
       })
     }
     lastLoadedPath = path
+    // Invalidate any read still in flight for the previous file.
+    loadSeq++
     const existingState = editorFiles.find((f) => f.filePath === path)
     if (existingState?.currentContent !== undefined) {
       restoreFromState(existingState)

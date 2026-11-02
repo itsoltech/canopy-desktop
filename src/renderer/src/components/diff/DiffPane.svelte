@@ -582,7 +582,7 @@
                       >
                         {#if hasAgent}
                           <button
-                            class="comment-trigger absolute left-px top-1/2 -translate-y-1/2 w-5.5 h-5.5 rounded-lg border-0 bg-accent text-bg text-base font-bold leading-none cursor-pointer opacity-0 z-10 flex items-center justify-center transition-opacity duration-fast motion-reduce:transition-none hover:brightness-110 active:brightness-85"
+                            class="comment-trigger absolute left-px top-1/2 -translate-y-1/2 w-5.5 h-5.5 rounded-lg border-0 bg-accent text-bg text-base font-bold leading-none cursor-pointer opacity-0 focus-visible:opacity-100 z-10 flex items-center justify-center transition-opacity duration-fast motion-reduce:transition-none hover:brightness-110 active:brightness-85"
                             title="Add review comment"
                             aria-label="Add review comment"
                             onclick={() =>

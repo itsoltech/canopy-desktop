@@ -21,6 +21,8 @@ describe('shouldBlockAppShortcuts', () => {
     ['b', false, false],
     [',', false, false],
     ['n', true, false],
+    ['{', true, false],
+    ['}', true, false],
     ['ArrowLeft', false, true],
   ])('recognizes app shortcut %s so a modal can consume it', (key, shift, alt) => {
     expect(isAppShortcut(key, shift, alt)).toBe(true)

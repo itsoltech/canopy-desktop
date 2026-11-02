@@ -61,7 +61,10 @@ export interface SetupContext {
 
 function shellQuote(s: string): string {
   if (process.platform === 'win32') {
-    return '"' + s.replace(/"/g, '\\"') + '"'
+    // Commands run via `powershell -Command`. Double-quoted PowerShell strings expand `$(...)`
+    // and `$var`, so a path containing them would execute; single-quoted literals don't
+    // interpolate, and `''` is the only escape they need.
+    return "'" + s.replace(/'/g, "''") + "'"
   }
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }

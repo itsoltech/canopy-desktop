@@ -21,7 +21,7 @@ import { registerIpcHandlers, type IpcCommandBridge } from './ipc/handlers'
 import { AgentSessionManager } from './agents/AgentSessionManager'
 import { resolveLoginEnv } from './shell/loginEnv'
 import { WindowManager } from './WindowManager'
-import { BrowserManager } from './browser/BrowserManager'
+import { BROWSER_PARTITION, BrowserManager } from './browser/BrowserManager'
 import { CredentialStore } from './db/CredentialStore'
 import { SettingsExportService } from './settings/SettingsExport'
 import { NotchOverlayManager } from './notch/NotchOverlayManager'
@@ -305,6 +305,20 @@ if (!gotTheLock) {
   app.quit()
 }
 
+async function confirmDeepLink(target: string, tool: string | undefined): Promise<boolean> {
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    buttons: ['Open', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message: tool ? 'Open workspace and launch tool?' : 'Open workspace?',
+    detail: tool
+      ? `An external application wants to open:\n${target}\n\nand launch the tool "${tool}".`
+      : `An external application wants to open:\n${target}`,
+  })
+  return response === 0
+}
+
 async function handleCanopyUrl(url: string): Promise<void> {
   if (!canCreateApplicationWindow()) return
 
@@ -338,11 +352,14 @@ async function handleCanopyUrl(url: string): Promise<void> {
     })
     const dedupePaths = [gitInfo.repoRoot ?? resolved, ...gitInfo.worktrees.map((wt) => wt.path)]
 
-    // Dedupe: focus existing window for this path (no confirmation needed)
+    // Dedupe: focus existing window for this path. Focusing needs no confirmation, but a link
+    // that also launches a tool runs a command in the workspace, so the user must approve it.
     const existing = dedupePaths
       .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
       .find((win) => win !== null)
     if (existing) {
+      if (tool && !(await confirmDeepLink(resolved, tool))) return
+      if (existing.isDestroyed()) return
       ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
       existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
@@ -351,15 +368,7 @@ async function handleCanopyUrl(url: string): Promise<void> {
     }
 
     // Confirm before opening a new workspace from external deep link
-    const { response } = await dialog.showMessageBox({
-      type: 'question',
-      buttons: ['Open', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-      message: 'Open workspace?',
-      detail: `An external application wants to open:\n${resolved}`,
-    })
-    if (response !== 0) return
+    if (!(await confirmDeepLink(resolved, tool))) return
 
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
@@ -702,8 +711,14 @@ app.whenReady().then(async () => {
 
       // Force secure defaults
       webPreferences.nodeIntegration = false
+      webPreferences.nodeIntegrationInSubFrames = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      // Keep every guest in the isolated browser session; without a partition a tampered
+      // <webview> would share the app's default session and its looser permission policy.
+      webPreferences.partition = BROWSER_PARTITION
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -1004,7 +1019,18 @@ app.whenReady().then(async () => {
 
     if (configsJson) {
       try {
-        windowConfigs = JSON.parse(configsJson) as WindowConfig[]
+        const parsed: unknown = JSON.parse(configsJson)
+        // Valid JSON of the wrong shape (`{}`, `[null]`, an entry without `paths`) would
+        // otherwise throw below, outside this try, and abort startup on every launch.
+        windowConfigs = Array.isArray(parsed)
+          ? parsed.filter(
+              (c): c is WindowConfig =>
+                typeof c === 'object' &&
+                c !== null &&
+                Array.isArray(c.paths) &&
+                c.paths.every((p: unknown) => typeof p === 'string'),
+            )
+          : []
       } catch {
         // Invalid JSON
       }

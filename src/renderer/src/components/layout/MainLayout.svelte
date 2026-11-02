@@ -477,8 +477,9 @@
       return
     }
 
-    // Don't process other shortcuts while palette is open
-    if (paletteOpen) return
+    // Don't process other shortcuts while the palette or Quick Open is open — they would act on
+    // the pane behind the overlay.
+    if (paletteOpen || quickOpenOpen) return
 
     const path = workspaceState.selectedWorktreePath
 
@@ -559,13 +560,13 @@
       )
     }
 
-    // Cmd+Shift+[ and Cmd+Shift+]
-    if (e.key === '[' && e.shiftKey && path) {
+    // Cmd+Shift+[ and Cmd+Shift+] — with Shift held, US layouts report `{` and `}`
+    if ((e.key === '[' || e.key === '{') && e.shiftKey && path) {
       e.preventDefault()
       prevTab(path).catch((err) => console.error('prevTab failed:', err))
     }
 
-    if (e.key === ']' && e.shiftKey && path) {
+    if ((e.key === ']' || e.key === '}') && e.shiftKey && path) {
       e.preventDefault()
       nextTab(path).catch((err) => console.error('nextTab failed:', err))
     }

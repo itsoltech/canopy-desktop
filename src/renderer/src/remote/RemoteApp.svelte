@@ -95,6 +95,10 @@
       controller = new PeerController()
       controller.onPhaseChange = (p) => {
         phase = p
+        // The RPC behind a dead connection rejects every call; stop pinging it every 3 s.
+        if (p.kind === 'disconnected' || p.kind === 'error' || p.kind === 'rejected') {
+          stopPingLoop()
+        }
       }
       controller.onApiReady = (api) => {
         remoteApi = api
@@ -1339,6 +1343,16 @@
     outline: 2px solid var(--color-accent-muted);
     outline-offset: 2px;
     border-radius: 4px;
+  }
+
+  /* `all: unset` also drops the browser focus ring; restore one for keyboard users. */
+  .iconbar-btn:focus-visible,
+  .row:focus-visible,
+  .back-btn:focus-visible,
+  .icon-btn:focus-visible,
+  .action-btn:focus-visible {
+    outline: 2px solid var(--color-accent-muted);
+    outline-offset: 2px;
   }
 
   .row-actions {

@@ -1884,7 +1884,10 @@ const api = {
   onProfilesChanged: (callback: (profiles: AgentProfileMasked[]) => void) => {
     const handler = (_event: IpcRendererEvent, data: AgentProfileMasked[]): void => callback(data)
     ipcRenderer.on('profile:changed', handler)
-    return () => ipcRenderer.removeListener('profile:changed', handler)
+    // Block body: removeListener returns ipcRenderer, which must not cross the bridge.
+    return (): void => {
+      ipcRenderer.removeListener('profile:changed', handler)
+    }
   },
 
   // Run Configurations
@@ -1906,7 +1909,10 @@ const api = {
     const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]): void =>
       callback(data)
     ipcRenderer.on('runConfig:postRunResult', handler)
-    return () => ipcRenderer.removeListener('runConfig:postRunResult', handler)
+    // Block body: removeListener returns ipcRenderer, which must not cross the bridge.
+    return (): void => {
+      ipcRenderer.removeListener('runConfig:postRunResult', handler)
+    }
   },
 }
 

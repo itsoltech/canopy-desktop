@@ -8,7 +8,8 @@ export function isAppShortcut(key: string, shiftKey: boolean, altKey: boolean): 
     return true
   }
   if (normalized >= '1' && normalized <= '9') return true
-  if (shiftKey && ['n', 'i', '[', ']'].includes(normalized)) return true
+  // With Shift held, US layouts report Cmd/Ctrl+Shift+[ and ] as `{` and `}`.
+  if (shiftKey && ['n', 'i', '[', ']', '{', '}'].includes(normalized)) return true
   if (normalized === 'p') return !shiftKey
   if (['b', 'l', 'o', 'w'].includes(normalized)) return !shiftKey
   return ['k', ',', 't', 'd'].includes(normalized)

@@ -532,7 +532,9 @@ export class RemoteSessionService {
    * `hostWcId`; this method just guards on session state.
    */
   forwardSignalToPeer(msg: Record<string, unknown>): ResultAsync<void, RemoteServerError> {
-    if (this.status.kind !== 'peerArrived' && this.status.kind !== 'paired') {
+    // WebRTC negotiation is only allowed once the device is accepted (or auto-accepted as
+    // trusted); during `peerArrived` the user has not answered the accept prompt yet.
+    if (this.status.kind !== 'paired') {
       return errAsync({ _tag: 'NoPendingPeer' })
     }
     this.resetIdleTimer()
@@ -690,6 +692,10 @@ export class RemoteSessionService {
   }
 
   private handlePeerSignal(msg: unknown): void {
+    // A peer that has only presented the pairing token is still waiting on the user's accept
+    // decision. Forwarding its offer early would let it open the RPC data channel (terminal
+    // output, workspace snapshot) without consent, so drop signals until the session is paired.
+    if (this.status.kind !== 'paired') return
     // Peer signals are forwarded *only* to the host renderer. Broadcasting to
     // every window would give other tabs a chance to race-reply to SDP/ICE,
     // which would confuse the peer. The host window is the one that called

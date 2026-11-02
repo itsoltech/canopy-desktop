@@ -14,6 +14,22 @@ function tomlPath(configDir: string): string {
   return join(configDir, CONFIG_DIR, CONFIG_FILE)
 }
 
+/**
+ * `run.toml` is git-shared and hand-editable, and the UI keys configurations by name. Drop
+ * nameless entries and later duplicates (e.g. left by a merge) from what discovery shows, rather
+ * than handing the renderer colliding keys. Edits still operate on the file as written.
+ */
+function uniqueNamedConfigurations(value: unknown): RunConfiguration[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  return value.filter((c): c is RunConfiguration => {
+    if (typeof c !== 'object' || c === null || typeof c.name !== 'string' || !c.name) return false
+    if (seen.has(c.name)) return false
+    seen.add(c.name)
+    return true
+  })
+}
+
 export class RunConfigManager {
   discover(repoRoot: string): ResultAsync<RunConfigSource[], RunConfigError> {
     return fromExternalCall(this.scanForConfigs(repoRoot), () => ({
@@ -141,9 +157,7 @@ export class RunConfigManager {
         try {
           const raw = await readFile(filePath, 'utf-8')
           const parsed = parse(raw) as Record<string, unknown>
-          const configurations = Array.isArray(parsed.configurations)
-            ? (parsed.configurations as RunConfiguration[])
-            : []
+          const configurations = uniqueNamedConfigurations(parsed.configurations)
           const configDir = dir
           const relativePath = relative(repoRoot, configDir) || '.'
           sources.push({ configDir, relativePath, file: { configurations } })

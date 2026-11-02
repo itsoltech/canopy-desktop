@@ -71,3 +71,18 @@ describe('sidebar Git display modes', () => {
     expect(config.find((item) => item.id === 'pullRequests')?.visible).toBe(false)
   })
 })
+
+describe('saved sidebar preferences', () => {
+  it('keeps only the first entry when a section id repeats', () => {
+    const config = getSidebarConfig(
+      JSON.stringify([
+        { id: 'git', visible: true },
+        { id: 'tools', visible: true },
+        { id: 'git', visible: false },
+      ]),
+    )
+
+    expect(config.filter((item) => item.id === 'git')).toEqual([{ id: 'git', visible: true }])
+    expect(new Set(config.map((item) => item.id)).size).toBe(config.length)
+  })
+})

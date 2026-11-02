@@ -332,11 +332,21 @@ export class WindowManager {
   }
 
   setGitWatcher(wcId: number, repoRoot: string, watcher: GitWatcher): void {
+    // Callers store the watcher after awaiting `start()`. If the window closed meanwhile, nothing
+    // would ever dispose it, so stop it instead of storing it.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
     let watchers = this.gitWatchers.get(wcId)
     if (!watchers) {
       watchers = new Map()
       this.gitWatchers.set(wcId, watchers)
     }
+    // Overlapping watch requests for the same repo: stop the watcher being replaced rather than
+    // orphaning its native subscription.
+    const existing = watchers.get(repoRoot)
+    if (existing && existing !== watcher) void existing.stop()
     watchers.set(repoRoot, watcher)
   }
 
@@ -397,6 +407,14 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    // Same race as setGitWatcher: the window may have closed while `start()` was awaited, or an
+    // overlapping request may already have stored a watcher for this window.
+    if (!this.windows.has(wcId)) {
+      void watcher.stop()
+      return
+    }
+    const existing = this.fileWatchers.get(wcId)
+    if (existing && existing !== watcher) void existing.stop()
     this.fileWatchers.set(wcId, watcher)
   }
 

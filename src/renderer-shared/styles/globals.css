@@ -519,4 +519,10 @@
   .keystroke-overlay.inferno {
     animation: none;
   }
+
+  /* Catch-all for loaders that don't carry their own motion-reduce:animate-none. */
+  .animate-spin,
+  .animate-spin-slow {
+    animation: none;
+  }
 }

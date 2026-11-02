@@ -64,7 +64,9 @@ export function getSidebarConfig(raw: string): SidebarSectionConfig[] {
     )
     const known = SECTION_DEFS.map((d) => d.id)
     const ids = validated.map((s) => s.id)
-    const result = validated.filter((s) => known.includes(s.id))
+    // The sidebar keys sections by id; a stored pref with a repeated id (hand edit, settings
+    // import) must not break rendering, so keep the first occurrence only.
+    const result = validated.filter((s, i) => known.includes(s.id) && ids.indexOf(s.id) === i)
     for (const def of SECTION_DEFS) {
       if (!ids.includes(def.id)) {
         const defaultItem = DEFAULT_CONFIG.find((d) => d.id === def.id)

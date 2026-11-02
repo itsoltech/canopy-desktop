@@ -12,6 +12,7 @@ import {
 import os from 'os'
 import fs from 'fs'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import { ok, err, type Result } from 'neverthrow'
 import type { PtyManager } from '../pty/PtyManager'
 import type { TerminalStreamService } from '../pty/TerminalStreamService'
@@ -4709,14 +4710,14 @@ export function registerIpcHandlers(
     if (!(bytes instanceof ArrayBuffer) || bytes.byteLength === 0) throw new Error('Invalid image')
     if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('Image too large (max 20 MB)')
     const dir = path.join(os.tmpdir(), 'canopy-agent-images')
-    await fs.promises.mkdir(dir, { recursive: true })
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 })
     // The images only need to survive until the agent has read them — cap the directory at the
     // newest few files so repeated sends can't grow the temp dir without bound.
     try {
       const entries = await fs.promises.readdir(dir)
       const stats = await Promise.all(
         entries
-          .filter((name) => /^image-\d+\.png$/.test(name))
+          .filter((name) => /^image-\d+(?:-[0-9a-f]{8})?\.png$/.test(name))
           .map(async (name) => ({
             name,
             mtime: (await fs.promises.stat(path.join(dir, name))).mtimeMs,
@@ -4729,8 +4730,13 @@ export function registerIpcHandlers(
     } catch {
       // Best-effort cleanup — never fail the save over it.
     }
-    const filePath = path.join(dir, `image-${Date.now()}.png`)
-    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)))
+    // The temp dir is shared on Linux: write an owner-only file under an unguessable name, and
+    // refuse (`wx`) to write through a file or symlink another user planted there.
+    const filePath = path.join(dir, `image-${Date.now()}-${randomUUID().slice(0, 8)}.png`)
+    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)), {
+      mode: 0o600,
+      flag: 'wx',
+    })
     return filePath
   })
 
@@ -4963,8 +4969,13 @@ export function registerIpcHandlers(
       const mainWorktreePath = mainWorktree?.path ?? resolvedRepo
 
       const sender = event.sender
+      const senderId = sender.id
       const controller = new AbortController()
-      setupAbortControllers.set(sender.id, controller)
+      setupAbortControllers.set(senderId, controller)
+      // Setup commands run in PTYs that PtyManager doesn't own, so window teardown never
+      // reaches them: stop them when the requesting window goes away.
+      const abortOnDestroyed = (): void => controller.abort()
+      sender.once('destroyed', abortOnDestroyed)
 
       try {
         return await runWorktreeSetup(
@@ -4982,7 +4993,11 @@ export function registerIpcHandlers(
           controller.signal,
         )
       } finally {
-        setupAbortControllers.delete(sender.id)
+        sender.removeListener('destroyed', abortOnDestroyed)
+        // A newer setup from the same window may own the slot by now.
+        if (setupAbortControllers.get(senderId) === controller) {
+          setupAbortControllers.delete(senderId)
+        }
       }
     },
   )
@@ -5424,13 +5439,19 @@ export function registerIpcHandlers(
     // the window's workspace paths (project-scoped skills). The regex check
     // above alone is too permissive — a path like `/tmp/evil/.claude/skills/x`
     // also contains the segment and would otherwise pass.
-    // Refuse if realpath fails for the target: a dangling-symlink fallback to
-    // the unresolved path would let a non-existent target slip past the
-    // home/workspace check and reach unlink (which would then fail anyway,
-    // but the precondition has to hold before we touch the filesystem).
+    // Resolve the parent directory but not the entry itself. When the skill
+    // entry is a symlink (Canopy deploys local skills that way, and a cloned
+    // repo can ship one), unlink then removes the link — never the file it
+    // points at, which none of the checks above or below would cover.
+    // Refuse if the parent cannot be resolved or the entry does not exist, so
+    // the precondition holds before we touch the filesystem.
     let resolvedTarget: string
     try {
-      resolvedTarget = await fs.promises.realpath(filePath)
+      resolvedTarget = path.join(
+        await fs.promises.realpath(path.dirname(filePath)),
+        path.basename(filePath),
+      )
+      await fs.promises.lstat(resolvedTarget)
     } catch {
       unwrapOrThrow(
         err({
@@ -5465,9 +5486,10 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
     }
-    // Delete the realpath that was containment-checked above, not the
-    // pre-realpath path, so a symlink swap between the check and the unlink
-    // cannot redirect the deletion outside home/workspace (TOCTOU).
+    // Delete the path that was containment-checked above (resolved parent +
+    // entry name), not the pre-realpath path, so a directory symlink swap
+    // between the check and the unlink cannot redirect the deletion outside
+    // home/workspace (TOCTOU).
     await fs.promises.unlink(resolvedTarget)
     return { success: true }
   })

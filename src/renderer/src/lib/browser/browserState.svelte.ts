@@ -67,7 +67,10 @@ export function getFavorites(): BrowserFavorite[] {
   const raw = prefs['browser.favorites']
   if (!raw) return []
   try {
-    return JSON.parse(raw) as BrowserFavorite[]
+    const list = JSON.parse(raw) as BrowserFavorite[]
+    // The start page keys favorites by URL: drop duplicates an older edit may have persisted,
+    // otherwise every browser pane's start page would fail to render.
+    return list.filter((fav, i) => list.findIndex((f) => f.url === fav.url) === i)
   } catch {
     return []
   }
@@ -103,7 +106,11 @@ export function removeFavoritesByHost(url: string): void {
 }
 
 export function updateFavorite(oldUrl: string, updated: BrowserFavorite): void {
-  const list = getFavorites().map((f) => (f.url === oldUrl ? updated : f))
+  // Editing a favorite onto another favorite's URL merges the two instead of persisting a
+  // duplicate URL.
+  const list = getFavorites()
+    .filter((f) => f.url === oldUrl || f.url !== updated.url)
+    .map((f) => (f.url === oldUrl ? updated : f))
   setPref('browser.favorites', JSON.stringify(list))
 }
 

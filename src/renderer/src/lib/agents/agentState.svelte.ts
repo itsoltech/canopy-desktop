@@ -17,6 +17,8 @@ export interface TaskRecord {
 }
 
 export interface NotificationRecord {
+  /** Unique key for rendering — two notifications can share a millisecond timestamp. */
+  id: number
   title: string
   message: string
   type: string
@@ -63,6 +65,7 @@ export type BadgeType = 'none' | 'unread' | 'permission'
 
 const MAX_NOTIFICATIONS = 20
 const MAX_TASKS = 50
+let notificationSeq = 0
 
 export const agentSessions: Record<string, AgentSessionState> = $state({})
 export const agentBadges: Record<string, BadgeType> = $state({})
@@ -280,6 +283,7 @@ export function handleHookEvent(ptySessionId: string, event: NormalizedHookEvent
       session.notifications = [
         ...session.notifications.slice(-(MAX_NOTIFICATIONS - 1)),
         {
+          id: ++notificationSeq,
           title: event.title ?? '',
           message: event.message ?? '',
           type: event.notificationType ?? '',

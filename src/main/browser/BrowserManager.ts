@@ -43,7 +43,7 @@ const APP_SHORTCUTS = new Set([
   '9',
 ])
 
-const BROWSER_PARTITION = 'persist:browser'
+export const BROWSER_PARTITION = 'persist:browser'
 
 export class BrowserManager {
   private entries = new Map<string, WebviewEntry>()
@@ -113,6 +113,9 @@ export class BrowserManager {
     // only ever target a <webview> guest — never a main renderer or another
     // window's contents — so reject anything that isn't a webview guest.
     if (wc.getType() !== 'webview') return
+    // ...and only a guest embedded by the renderer asking for it: another window's webview
+    // would otherwise hand this caller its DevTools, debugger and credential fill.
+    if (wc.hostWebContents?.id !== sender.id) return
 
     // Idempotency guard: the listeners wired up below are anonymous closures
     // that teardown() cannot selectively remove. If this exact guest is already
@@ -122,6 +125,9 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // A re-created guest for this browserId replaces the old entry: tear it down first so its
+    // DevTools view and debugger session aren't left attached to the window.
+    if (existing) this.teardown(browserId)
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
