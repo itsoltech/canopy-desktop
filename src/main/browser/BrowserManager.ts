@@ -122,6 +122,9 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // A replaced entry still owns its DevTools view (attached to the window) and
+    // debugger; tear it down before dropping the reference.
+    if (existing) this.teardown(browserId)
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
@@ -372,15 +375,26 @@ export class BrowserManager {
   }
 
   /**
-   * Fill credential into form fields using an isolated JS world (ID 999).
-   * Page scripts cannot intercept values set from an isolated world.
+   * Fill credential into form fields using an isolated JS world (ID 999), so the
+   * page cannot tamper with the fill script itself. The filled values are still
+   * visible to the page once set, which is why the fill is bound to the host the
+   * credential was decrypted for.
    */
-  fillCredential(browserId: string, username: string, password: string): void {
+  fillCredential(
+    browserId: string,
+    senderId: number,
+    domain: string,
+    username: string,
+    password: string,
+  ): void {
     const entry = this.entries.get(browserId)
-    if (!entry) return
+    if (!entry || entry.sender.id !== senderId) return
 
     const wc = this.guestContents.get(entry.webContentsId) ?? findWebContents(entry.webContentsId)
     if (!wc || wc.isDestroyed()) return
+    // The credential was looked up for `domain`, possibly after an OS auth prompt
+    // during which the page could navigate elsewhere. Never fill another host.
+    if (URL.parse(wc.getURL())?.host !== domain) return
 
     const code = `
       (function() {

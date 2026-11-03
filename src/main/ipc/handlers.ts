@@ -2487,8 +2487,14 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     'browser:fillCredential',
-    (_event, payload: { browserId: string; username: string; password: string }) => {
-      browserManager.fillCredential(payload.browserId, payload.username, payload.password)
+    (event, payload: { browserId: string; domain: string; username: string; password: string }) => {
+      browserManager.fillCredential(
+        payload.browserId,
+        event.sender.id,
+        payload.domain,
+        payload.username,
+        payload.password,
+      )
     },
   )
 
@@ -4955,6 +4961,10 @@ export function registerIpcHandlers(
       } catch {
         return { success: false, errors: ['Invalid worktree setup config'] }
       }
+      // Valid JSON of the wrong shape (e.g. `null`) must not throw on `.length` below.
+      if (!Array.isArray(actions)) {
+        return { success: false, errors: ['Invalid worktree setup config'] }
+      }
 
       if (actions.length === 0) return { success: true, errors: [] }
 
@@ -5461,6 +5471,23 @@ export function registerIpcHandlers(
           _tag: 'InvalidSource',
           source: payload.filePath,
           reason: 'Skill files must live under the user home directory or a workspace path',
+        } as SkillError),
+        skillErrorMessage,
+      )
+    }
+    // The extension and skill-directory checks above ran on the lexical path. A
+    // symlink in a skill directory (e.g. a dotfiles-managed command) resolves to a
+    // file elsewhere, and unlinking that target would delete an unrelated file, so
+    // re-apply both checks to the resolved path.
+    if (
+      !['.md', '.mdc', '.yaml', '.yml'].includes(path.extname(resolvedTarget).toLowerCase()) ||
+      !skillDirPatterns.some((p) => p.test(resolvedTarget))
+    ) {
+      unwrapOrThrow(
+        err({
+          _tag: 'InvalidSource',
+          source: payload.filePath,
+          reason: 'Skill file resolves outside the agent skill directories',
         } as SkillError),
         skillErrorMessage,
       )

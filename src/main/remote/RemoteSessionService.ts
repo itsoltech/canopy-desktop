@@ -694,6 +694,12 @@ export class RemoteSessionService {
     // every window would give other tabs a chance to race-reply to SDP/ICE,
     // which would confuse the peer. The host window is the one that called
     // `remote:start` and owns the RTCPeerConnection.
+    //
+    // Only a paired peer may negotiate WebRTC. The legitimate peer waits for
+    // `accepted` before building its offer, so anything arriving earlier (e.g.
+    // during the accept prompt) would open the RPC data channel before the user
+    // approved the device.
+    if (this.status.kind !== 'paired') return
     if (this.hostWcId === null) return
     const wc = webContentsNs.fromId(this.hostWcId)
     if (!wc || wc.isDestroyed()) return

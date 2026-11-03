@@ -306,7 +306,14 @@ export class ProfileStore {
 
       const existing = findStmt.get(p.agentType, trimmed) as ProfileRow | undefined
       if (existing) {
-        updateStmt.run(prefsJson, apiKeyEnc, p.sortIndex ?? existing.sort_index, existing.id)
+        // An import without a key (e.g. exported from a machine where this profile had none)
+        // keeps the local key, matching save(); it must not silently delete a secret.
+        updateStmt.run(
+          prefsJson,
+          apiKeyEnc ?? existing.api_key_enc,
+          p.sortIndex ?? existing.sort_index,
+          existing.id,
+        )
       } else {
         insertStmt.run(
           randomUUID(),

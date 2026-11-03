@@ -14,6 +14,19 @@ export interface TaskTrackerConnection {
   username?: string
 }
 
+/**
+ * Preference key that holds a legacy connection's token. Connection records live in a stored
+ * preference, so `authPrefKey` is untrusted: only the canonical per-connection key written by
+ * `addConnection` may be read, written, or deleted. Any other value (e.g. a forged record pointing
+ * at `claude.apiKey`) would hand an unrelated decrypted secret to the record's `baseUrl`.
+ */
+export function legacyConnectionTokenKey(
+  connection: Pick<TaskTrackerConnection, 'id' | 'authPrefKey'>,
+): string | null {
+  const expected = `taskTracker.token.${connection.id}`
+  return connection.authPrefKey === expected ? expected : null
+}
+
 /** Normalized status category — drives status chip colors in the UI. Jira reports it directly
  *  (statusCategory); other providers approximate (e.g. YouTrack resolved states → 'done'). */
 export type TrackerStatusCategory = 'todo' | 'in-progress' | 'done'

@@ -111,7 +111,12 @@
     })
   }
 
+  // Bumped by every load/restore so a slower, superseded read (tab switch, refresh,
+  // watcher reload) cannot overwrite the file that is now active.
+  let loadSeq = 0
+
   async function loadFile(path: string): Promise<void> {
+    const seq = ++loadSeq
     loading = true
     error = null
     saveError = null
@@ -123,6 +128,7 @@
     externalChangeDetected = false
     try {
       const readResult = await loadEditorFile(paneId, path, MAX_EDIT_BYTES)
+      if (seq !== loadSeq) return
       if (!readResult.ok) {
         error = readResult.message
         return
@@ -151,9 +157,10 @@
       fileMtimeMs = readResult.mtimeMs
       dirty = false
     } catch (e) {
+      if (seq !== loadSeq) return
       error = e instanceof Error ? e.message : 'Failed to read file'
     } finally {
-      loading = false
+      if (seq === loadSeq) loading = false
     }
   }
 
@@ -164,6 +171,7 @@
     fileLineEnding?: 'LF' | 'CRLF'
     dirty?: boolean
   }): void {
+    loadSeq++
     const orig = state.originalContent ?? state.currentContent ?? ''
     const cur = state.currentContent ?? orig
     content = orig
@@ -608,7 +616,7 @@
   {/if}
 
   {#if saveError}
-    <div class="error-banner">
+    <div class="error-banner" role="alert">
       <span>{saveError}</span>
       <button
         class="dismiss-btn"
@@ -656,7 +664,7 @@
     {:else if canEdit}
       <CodeMirrorEditor
         bind:this={editorRef}
-        initialValue={originalContent}
+        initialValue={editedContent}
         initialIndentUnit={indentUnitString(indentInfo)}
         filePath={activeFilePath}
         onChange={handleChange}
@@ -665,7 +673,7 @@
     {:else if content !== null}
       <CodeMirrorEditor
         bind:this={editorRef}
-        initialValue={originalContent}
+        initialValue={editedContent}
         initialIndentUnit={indentUnitString(indentInfo)}
         filePath={activeFilePath}
         readOnly={true}

@@ -21,6 +21,8 @@
   tabindex="0"
   onclick={onOpen}
   onkeydown={(event) => {
+    // Keys pressed on a nested button (e.g. Unlink) belong to that button.
+    if (event.target !== event.currentTarget) return
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
       onOpen()

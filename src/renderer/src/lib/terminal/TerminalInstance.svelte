@@ -40,6 +40,10 @@
   let containerEl: HTMLDivElement
   let termRef: Terminal | null = null
   let fitAddonRef: FitAddon | null = null
+  // Reactive mirror of "termRef is set". termRef is a plain let assigned later in
+  // initTerminal(), so effects that bail out on it at mount never re-run; the
+  // preference effects read this flag first to subscribe and run once it flips.
+  let termReady = $state(false)
   let cleanupPtyDataSubscription: (() => void) | null = null
   let webglAddonRef: WebglAddon | null = null
   let webglAttached = $state(false)
@@ -147,9 +151,20 @@
     }
   })
 
+  // A font change alters the cell size, so cols/rows must be recomputed; the
+  // container size is unchanged, so the ResizeObserver will not do it.
+  function refitAfterFontChange(): void {
+    requestAnimationFrame(() => {
+      const fit = fitAddonRef
+      if (!fit || !containerEl?.clientWidth || !containerEl.clientHeight) return
+      const dims = fit.proposeDimensions()
+      if (dims && dims.cols >= 10 && dims.rows >= 3) fit.fit()
+    })
+  }
+
   // React to preference changes for theme/font
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const themeName = prefs.theme || 'Default'
     const theme = getTheme(themeName)
     termRef.options.theme = theme
@@ -159,14 +174,19 @@
   })
 
   $effect(() => {
-    if (!termRef) return
+    if (!termReady || !termRef) return
     const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
+    if (termRef.options.fontSize === size) return
     termRef.options.fontSize = size
+    refitAfterFontChange()
   })
 
   $effect(() => {
-    if (!termRef) return
-    termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    if (!termReady || !termRef) return
+    const family = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    if (termRef.options.fontFamily === family) return
+    termRef.options.fontFamily = family
+    refitAfterFontChange()
   })
 
   function shellEscape(path: string): string {
@@ -562,6 +582,7 @@
       // Defer initial fit to after browser layout is complete
       requestAnimationFrame(() => fitAddon.fit())
       termRef = term
+      termReady = true
 
       dataDisposable = term.onData((data) => {
         writeInput(data)
@@ -723,6 +744,7 @@
       if (dataDisposable) dataDisposable.dispose()
       const term = termRef
       termRef = null
+      termReady = false
       fitAddonRef = null
       if (resizeDebounceTimer !== null) clearTimeout(resizeDebounceTimer)
       if (resizeObserver) resizeObserver.disconnect()

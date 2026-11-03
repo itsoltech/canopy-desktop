@@ -680,7 +680,10 @@
         </div>
       {/if}
       {#if submitError}
-        <p class="m-0 px-2.5 py-2 rounded-md bg-danger-bg text-sm text-danger-text break-words">
+        <p
+          role="alert"
+          class="m-0 px-2.5 py-2 rounded-md bg-danger-bg text-sm text-danger-text break-words"
+        >
           {submitError}
         </p>
       {/if}

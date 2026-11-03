@@ -430,7 +430,10 @@ export class SignalingServer {
 
       // Already paired — forward to orchestrator. The orchestrator validates
       // structure (offer/answer/ice/bye) and either replies via sendToPeer or
-      // forwards to the desktop renderer's RemoteHostController.
+      // forwards to the desktop renderer's RemoteHostController. A socket that
+      // was replaced by a newer peer keeps `paired` locally but is no longer
+      // the active peer, so its late frames are dropped.
+      if (this.activePeer !== ws) return
       this.handlers?.onPeerSignal(parsed)
     })
 

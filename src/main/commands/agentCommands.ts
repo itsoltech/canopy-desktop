@@ -4,6 +4,9 @@ import type { PtyManager } from '../pty/PtyManager'
 import type { WindowManager } from '../WindowManager'
 import type { AgentCommandResult } from './types'
 
+// eslint-disable-next-line no-control-regex
+const BRACKETED_PASTE_MARKERS = /\x1b\[20[01]~/g
+
 interface AgentCommandServiceDeps {
   ptyManager: PtyManager
   agentSessionManager: AgentSessionManager
@@ -70,7 +73,11 @@ export class AgentCommandService {
     // is already sitting in the agent's input. Sent contexts stack in the input instead — the
     // user confirms explicitly in the agent panel. The newline INSIDE the paste is literal
     // (bracketed), separating this message from the next stacked one.
-    this.deps.ptyManager.write(sessionId, `\x1b[200~${text}\n\x1b[201~`)
+    // Paste markers inside the payload are stripped: task descriptions and comments are
+    // third-party text, and an embedded `ESC[201~` would end the paste early and turn the
+    // rest (including any `\r`) into typed, submitted input.
+    const body = text.replace(BRACKETED_PASTE_MARKERS, '')
+    this.deps.ptyManager.write(sessionId, `\x1b[200~${body}\n\x1b[201~`)
   }
 
   private contextText(payload: AgentContextPayload): string {

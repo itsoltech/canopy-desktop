@@ -92,12 +92,12 @@ Users can add custom viewport presets stored in the `viewports.custom` preferenc
 
 1. User triggers autofill for a stored credential on the current page.
 2. The renderer calls `getCredentialDecrypted(id, domain, 'autofill')`. On the first autofill of the session the main process prompts the OS for authentication (Touch ID on macOS, `UserConsentVerifier` on Windows, a confirmation dialog on Linux). After a successful prompt the session is flagged as authenticated and subsequent autofills within the same app session skip both the OS prompt and `safeStorage.decryptString()` — matching Chrome's autofill behavior. The flag and the in-memory decrypted credential cache live only in the main process and are cleared on app quit or on any credential save/delete/import. The `'reveal'` purpose used by Settings → Saved Passwords always re-authenticates and never consults the cache, so revealing a plaintext password in the UI always requires a fresh OS prompt — matching Chrome's `chrome://password-manager`.
-3. With the decrypted credential the renderer calls `fillBrowserCredential(browserId, username, password)`.
-4. `BrowserManager.fillCredential()` executes JavaScript in an isolated world (ID 999) that:
+3. With the decrypted credential the renderer calls `fillBrowserCredential(browserId, domain, username, password)`.
+4. `BrowserManager.fillCredential()` refuses the fill unless the browser entry belongs to the calling window and the guest page is still on `domain` (the page may navigate while the OS prompt is open). It then executes JavaScript in an isolated world (ID 999) that:
    - Finds the first `<input type="password">` on the page.
    - Locates the nearest username field within the same form (by type `email`/`text` or name attributes containing `user`/`email`/`login`, or `autocomplete="username"`).
    - Sets values on both fields and dispatches `input` and `change` events with `bubbles: true` so frameworks detect the change.
-5. The isolated world prevents page scripts from intercepting the injected values.
+5. The isolated world keeps page scripts from tampering with the fill script. Once filled, the values are part of the page's DOM and readable by that page, so the in-page autofill icon and account picker ignore synthetic (`isTrusted: false`) clicks and only a real user click requests a fill.
 
 The autofill click in the picker, the capture-on-submit signal, and the password-field detection all reach the renderer over `console.log` markers (`__CANOPY_FILL__:<id>`, `__CANOPY_CREDS_READY__`, `__CANOPY_PW_FIELD_FOUND__`) consumed by the webview's `console-message` event. The renderer reads the payload defensively because Electron 35+ may deliver the message string directly on the event, nested inside the event (`e.message.message`), or on `e.detail.message`. If a future Electron upgrade reshapes the event again, that handler is the place to update.
 
@@ -155,7 +155,8 @@ When a browser tab is closed, the renderer calls `teardownBrowserWebview(browser
 - All permission requests (camera, microphone, geolocation, notifications, etc.) are denied via `setPermissionRequestHandler`.
 - Popups (`window.open()`, `target="_blank"`) are denied at the Electron level via `setWindowOpenHandler`. Valid HTTP(S) URLs are instead forwarded to the renderer, which opens them as a new browser pane tab in the same worktree. The `<webview>` has `allowpopups` set so the handler is actually invoked. Forwarding is throttled to one popup per 500ms per webview to prevent flooding from malicious pages.
 - Navigation is restricted to `http:` and `https:` protocols.
-- Credential autofill runs in isolated JavaScript world 999 to prevent page scripts from observing the injected values.
+- Credential autofill runs in isolated JavaScript world 999, is bound to the host the credential was decrypted for, and only fills on a real user click.
+- `will-attach-webview` strips preloads and forces `nodeIntegration`/`nodeIntegrationInSubFrames` off, `contextIsolation`, `sandbox` and `webSecurity` on, `allowRunningInsecureContent` off, and the `persist:browser` partition, regardless of the `<webview>` attributes. Popups are denied from guest creation until `BrowserManager.setup()` installs the forwarding handler.
 - The Chrome Debugger Protocol is attached only when device emulation is active and detached when emulation is cleared.
 
 ## Source files

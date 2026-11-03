@@ -253,6 +253,8 @@
           tabindex="0"
           onclick={() => handleClick(file)}
           onkeydown={(e) => {
+            // Keys pressed on the nested Stage/Revert buttons belong to those buttons.
+            if (e.target !== e.currentTarget) return
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               handleClick(file)

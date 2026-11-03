@@ -274,6 +274,12 @@ function disposeRuntimeForQuit(options: { disposeWindows: boolean; forceExit?: b
   }
 }
 
+function isRestorableWindowConfig(value: unknown): value is WindowConfig {
+  if (typeof value !== 'object' || value === null || !('paths' in value)) return false
+  const { paths } = value
+  return Array.isArray(paths) && paths.every((p) => typeof p === 'string')
+}
+
 function persistOpenWindowConfigs(configs?: WindowConfig[]): void {
   const currentConfigs = configs ?? windowManager.getAllWindowConfigs()
   const nextConfigs =
@@ -303,6 +309,20 @@ if (process.defaultApp) {
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
+}
+
+async function confirmDeepLinkOpen(path: string, tool: string | undefined): Promise<boolean> {
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    buttons: ['Open', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message: tool ? 'Open workspace and launch tool?' : 'Open workspace?',
+    detail: tool
+      ? `An external application wants to open:\n${path}\n\nand launch the tool "${tool}".`
+      : `An external application wants to open:\n${path}`,
+  })
+  return response === 0
 }
 
 async function handleCanopyUrl(url: string): Promise<void> {
@@ -338,11 +358,14 @@ async function handleCanopyUrl(url: string): Promise<void> {
     })
     const dedupePaths = [gitInfo.repoRoot ?? resolved, ...gitInfo.worktrees.map((wt) => wt.path)]
 
-    // Dedupe: focus existing window for this path (no confirmation needed)
+    // Dedupe: focus existing window for this path. Focusing needs no confirmation,
+    // but launching a tool does — any web page can trigger a `canopy://` URL.
     const existing = dedupePaths
       .map((dedupePath) => windowManager.getWindowForPath(dedupePath))
       .find((win) => win !== null)
     if (existing) {
+      if (tool && !(await confirmDeepLinkOpen(resolved, tool))) return
+      if (existing.isDestroyed()) return
       ipcCommandBridge?.grantAttachPath(existing.webContents.id, resolved)
       existing.webContents.send('url:action', { action, path: resolved, tool, worktree })
       if (existing.isMinimized()) existing.restore()
@@ -351,15 +374,7 @@ async function handleCanopyUrl(url: string): Promise<void> {
     }
 
     // Confirm before opening a new workspace from external deep link
-    const { response } = await dialog.showMessageBox({
-      type: 'question',
-      buttons: ['Open', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-      message: 'Open workspace?',
-      detail: `An external application wants to open:\n${resolved}`,
-    })
-    if (response !== 0) return
+    if (!(await confirmDeepLinkOpen(resolved, tool))) return
 
     const win = windowManager.createWindow()
     win.once('ready-to-show', () => {
@@ -696,14 +711,28 @@ app.whenReady().then(async () => {
   // Even if an attacker modifies webview attributes in the DOM, this handler
   // forces safe webPreferences and blocks non-http(s) sources.
   app.on('web-contents-created', (_event, contents) => {
+    // Guests get their real popup policy in BrowserManager.setup(), which runs only
+    // after the renderer's dom-ready round trip. Deny popups until then instead of
+    // Electron's default allow.
+    if (contents.getType() === 'webview') {
+      contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    }
+
     contents.on('will-attach-webview', (event, webPreferences, params) => {
       // Strip preload scripts — browser webviews must not have preload
       delete webPreferences.preload
 
       // Force secure defaults
       webPreferences.nodeIntegration = false
+      webPreferences.nodeIntegrationInSubFrames = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      // Pin every guest to the browser session that carries the deny-all
+      // permission handlers (BrowserManager.ensurePartition), regardless of
+      // the `partition` attribute in the DOM.
+      params.partition = 'persist:browser'
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -1004,7 +1033,10 @@ app.whenReady().then(async () => {
 
     if (configsJson) {
       try {
-        windowConfigs = JSON.parse(configsJson) as WindowConfig[]
+        const parsed: unknown = JSON.parse(configsJson)
+        // Free-form persisted text: keep only entries whose `paths` is a string array, so a
+        // wrong shape (e.g. `null` or `{}`) cannot abort the whole restore on every launch.
+        if (Array.isArray(parsed)) windowConfigs = parsed.filter(isRestorableWindowConfig)
       } catch {
         // Invalid JSON
       }

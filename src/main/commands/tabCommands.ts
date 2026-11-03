@@ -132,8 +132,15 @@ export class ToolSessionService {
         settingsOverrides,
       )
       args = [...agentSession.settingsArgs, ...args]
-      if (payload.resumeSessionId) {
-        args.push(...this.deps.agentSessionManager.getResumeArgs(tool.id, payload.resumeSessionId))
+      // The resume id comes from the renderer or a persisted layout and becomes a CLI argument;
+      // a value starting with `-` would be parsed by the agent CLI as a flag, not a session id.
+      const resumeSessionId = payload.resumeSessionId
+      if (
+        typeof resumeSessionId === 'string' &&
+        resumeSessionId &&
+        !resumeSessionId.startsWith('-')
+      ) {
+        args.push(...this.deps.agentSessionManager.getResumeArgs(tool.id, resumeSessionId))
       }
       args.push(...this.deps.agentSessionManager.getCliArgs(tool.id, prefsReader))
       env = {

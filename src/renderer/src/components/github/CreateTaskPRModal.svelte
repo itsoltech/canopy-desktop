@@ -212,7 +212,7 @@
     <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
       {#if loading}
         <div class="flex items-center justify-center gap-2 py-8 text-md text-text-muted">
-          <LoaderCircle size={16} class="animate-spin" />
+          <LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />
           <span>{task ? 'Rendering from the PR template…' : 'Preparing the form…'}</span>
         </div>
       {:else if loadError}
@@ -316,7 +316,7 @@
         disabled={creating || loading || !!loadError || !title.trim()}
       >
         {#if creating}
-          <LoaderCircle size={13} class="animate-spin" />
+          <LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />
           Creating…
         {:else}
           Create PR

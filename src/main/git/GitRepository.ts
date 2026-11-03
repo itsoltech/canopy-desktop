@@ -1,6 +1,6 @@
 import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
 import simpleGit from 'simple-git'
-import { readFileSync, statSync } from 'fs'
+import { lstatSync, readFileSync, readlinkSync } from 'fs'
 import { join } from 'path'
 import type { GitError } from './errors'
 import type { ParsedDiff, DiffFile } from './types'
@@ -45,17 +45,24 @@ function buildUntrackedDiffFile(repoRoot: string, filePath: string): Result<Diff
   const absPath = join(repoRoot, filePath)
   let content: string
   try {
-    const sz = statSync(absPath).size
-    if (sz > UNTRACKED_MAX_BYTES) {
-      return ok({
-        path: filePath,
-        status: 'added' as const,
-        hunks: [],
-        additions: 0,
-        deletions: 0,
-      })
+    const st = lstatSync(absPath)
+    if (st.isSymbolicLink()) {
+      // Git records a symlink as its target path, not the target's content. Reading
+      // through the link would put whatever it points at (inside or outside the repo)
+      // into the diff payload.
+      content = readlinkSync(absPath)
+    } else {
+      if (st.size > UNTRACKED_MAX_BYTES) {
+        return ok({
+          path: filePath,
+          status: 'added' as const,
+          hunks: [],
+          additions: 0,
+          deletions: 0,
+        })
+      }
+      content = readFileSync(absPath, 'utf-8')
     }
-    content = readFileSync(absPath, 'utf-8')
   } catch (e) {
     return err(gitErr('readFile', e))
   }

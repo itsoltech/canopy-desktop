@@ -11,6 +11,7 @@ describe('preference key policy', () => {
     'credential.bindings.v2',
     'credential.secret.v2.credential-id',
     'taskTracker.token.jira:https://jira.example.com',
+    'taskTracker.connections',
   ])('keeps %s behind main-process-only preference IPC', (key) => {
     expect(isMainProcessOnlyPreferenceKey(key)).toBe(true)
   })

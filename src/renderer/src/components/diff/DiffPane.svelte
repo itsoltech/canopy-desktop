@@ -279,7 +279,8 @@
   function scrollToFocusedFile(): void {
     if (focusedFileIndex >= 0 && focusedFileIndex < files.length) {
       const file = files[focusedFileIndex]
-      const el = document.getElementById(`diff-file-${CSS.escape(file.path)}`)
+      // getElementById takes the literal id (no selector escaping), matching line 88.
+      const el = document.getElementById(`diff-file-${file.path}`)
       if (el && bodyEl) {
         suppressObserver = true
         workspaceState.diffVisibleFile = file.path
@@ -501,6 +502,8 @@
               aria-expanded={!collapsedFiles.has(file.path)}
               onclick={() => toggleCollapse(file.path)}
               onkeydown={(e) => {
+                // Keys pressed on the nested Copy button belong to that button.
+                if (e.target !== e.currentTarget) return
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   toggleCollapse(file.path)

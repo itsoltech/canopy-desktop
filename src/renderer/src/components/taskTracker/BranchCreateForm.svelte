@@ -498,7 +498,7 @@
         class:text-text-muted={!operationError}
       >
         {#if operationError}
-          <p class="m-0 font-medium">{operationError}</p>
+          <p class="m-0 font-medium" role="alert">{operationError}</p>
           {#if createdWorktreePath}
             <p class="mt-1 mb-0">
               The worktree was created. Start or focus an agent there, then use Retry Send.

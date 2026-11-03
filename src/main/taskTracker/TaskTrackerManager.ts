@@ -33,6 +33,7 @@ import type {
   CreateTaskInput,
   CreatedTask,
 } from './types'
+import { legacyConnectionTokenKey } from './types'
 
 const CONNECTIONS_PREF_KEY = 'taskTracker.connections'
 
@@ -672,7 +673,8 @@ export class TaskTrackerManager {
   }
 
   private getToken(connection: TaskTrackerConnection): Result<string, TaskTrackerError> {
-    const token = this.preferencesStore.get(connection.authPrefKey)
+    const tokenKey = legacyConnectionTokenKey(connection)
+    const token = tokenKey ? this.preferencesStore.get(tokenKey) : null
     if (!token) return err({ _tag: 'AuthTokenMissing', connectionName: connection.name })
     return ok(token)
   }
@@ -750,8 +752,9 @@ export class TaskTrackerManager {
     const conn = connections[idx]
     connections[idx] = { ...conn, ...updates }
 
-    if (newToken) {
-      this.preferencesStore.set(conn.authPrefKey, newToken)
+    const tokenKey = legacyConnectionTokenKey(conn)
+    if (newToken && tokenKey) {
+      this.preferencesStore.set(tokenKey, newToken)
     }
 
     this.saveConnections(connections)
@@ -761,8 +764,9 @@ export class TaskTrackerManager {
   removeConnection(connectionId: string): void {
     const connections = this.getConnections()
     const conn = connections.find((c) => c.id === connectionId)
-    if (conn) {
-      this.preferencesStore.delete(conn.authPrefKey)
+    const tokenKey = conn ? legacyConnectionTokenKey(conn) : null
+    if (tokenKey) {
+      this.preferencesStore.delete(tokenKey)
     }
     this.saveConnections(connections.filter((c) => c.id !== connectionId))
   }

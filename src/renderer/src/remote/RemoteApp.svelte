@@ -95,6 +95,11 @@
       controller = new PeerController()
       controller.onPhaseChange = (p) => {
         phase = p
+        // The RPC behind the ping loop is disposed once the peer disconnects or fails;
+        // onApiReady restarts the loop for the next connection.
+        if (p.kind === 'disconnected' || p.kind === 'rejected' || p.kind === 'error') {
+          stopPingLoop()
+        }
       }
       controller.onApiReady = (api) => {
         remoteApi = api

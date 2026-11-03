@@ -408,6 +408,8 @@
         icon.onmouseleave = () => { icon.style.background = 'color-mix(in srgb,currentColor 8%,transparent)'; icon.style.boxShadow = '0 0 0 1px oklch(0.6 0 0 / 0.2)' }
 
         icon.onclick = (e) => {
+          // Ignore synthetic clicks: a page script must not open the picker on its own.
+          if (!e.isTrusted) return
           e.preventDefault(); e.stopPropagation()
           let existing = document.getElementById('__canopy_cred_picker')
           if (existing) { existing.remove(); return }
@@ -450,6 +452,8 @@
             btn.onmouseenter = () => { btn.style.background = 'oklch(1 0 0 / 0.06)' }
             btn.onmouseleave = () => { btn.style.background = 'none' }
             btn.onclick = (ev) => {
+              // Only a real user click may request an autofill.
+              if (!ev.isTrusted) return
               ev.preventDefault(); ev.stopPropagation()
               console.log('__CANOPY_FILL__:' + c.id)
               picker.remove()
@@ -487,8 +491,9 @@
     const domain = new URL(url).host
     const cred = await window.api.getCredentialDecrypted(credId, domain, 'autofill')
     if (!cred) return
-    // Fill via main process isolated world — page scripts cannot intercept
-    await window.api.fillBrowserCredential(browserId, cred.username, cred.password)
+    // Fill via the main process isolated world; main refuses if the page left `domain`
+    // while the credential was being decrypted (e.g. during the OS auth prompt).
+    await window.api.fillBrowserCredential(browserId, domain, cred.username, cred.password)
   }
 
   /** Inject early capture script — stores credentials on form submit/button click */
