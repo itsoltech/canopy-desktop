@@ -88,6 +88,10 @@
   let progressState = $state(0)
   let progressValue = $state(0)
   let finishTimer: ReturnType<typeof setTimeout> | null = null
+  // Set once the modal is closed. A create call still in flight must not start the
+  // setup run or arm finishTimer afterwards: that timer's onClose() would close
+  // whichever dialog is open by then.
+  let destroyed = false
 
   let repoRoot = $derived(repoRootProp ?? workspaceState.repoRoot!)
   // Tracker config (.canopy/config.json) is resolved against the ACTIVE WORKTREE — that's where
@@ -167,6 +171,7 @@
   }
 
   onDestroy(() => {
+    destroyed = true
     if (finishTimer) clearTimeout(finishTimer)
     window.api.abortWorktreeSetup()
     cleanupProgressListener?.()
@@ -325,15 +330,19 @@
 
   async function updateTaskBranchPreview(): Promise<void> {
     if (!selectedTask || taskBranchEdited) return
+    const taskKey = selectedTask.key
+    // A slower preview for a previously picked task must not overwrite the branch name
+    // of the task that is selected now (or one the user has started editing).
+    const stillCurrent = (): boolean => selectedTask?.key === taskKey && !taskBranchEdited
     try {
       const result = await window.api.taskTrackerPrepareBranchFromTask({
         connectionId: taskModeState.trackerId,
         task: $state.snapshot(selectedTask) as TrackerTaskLite,
         repoRoot: trackerRepoRoot,
       })
-      taskBranchName = result.branchName
+      if (stillCurrent()) taskBranchName = result.branchName
     } catch {
-      taskBranchName = selectedTask.key
+      if (stillCurrent()) taskBranchName = taskKey
     }
   }
 
@@ -508,6 +517,7 @@
   }
 
   async function runSetup(): Promise<void> {
+    if (destroyed) return
     cleanupProgressListener = window.api.onWorktreeSetupProgress((data) => {
       setupLabel = data.label
       setupCurrent = data.actionIndex + 1
@@ -532,7 +542,7 @@
   }
 
   function finishCreation(): void {
-    if (step === 'done') return
+    if (destroyed || step === 'done') return
     step = 'done'
     if (finishTimer) clearTimeout(finishTimer)
     finishTimer = setTimeout(

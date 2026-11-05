@@ -379,6 +379,11 @@
     }
   }
 
+  // The page can write any string to the console, so the autofill trigger carries a token
+  // that only lives in the injected closure; a bare `__CANOPY_FILL__:<id>` from page script
+  // is ignored. One token per pane keeps an already-injected picker valid on re-injection.
+  const autofillNonce = crypto.randomUUID()
+
   function injectAutofillIcon(
     creds: Array<{ id: string; username: string; title?: string }>,
   ): void {
@@ -388,6 +393,7 @@
     const credsJson = JSON.stringify(
       creds.map((c) => ({ id: c.id, u: c.username, t: c.title || '' })),
     )
+    const nonceJson = JSON.stringify(autofillNonce)
 
     w.executeJavaScript(
       `
@@ -396,6 +402,7 @@
         const pw = document.querySelector('input[type="password"]')
         if (!pw) return
         const creds = ${credsJson}
+        const nonce = ${nonceJson}
 
         const svgKey = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>'
 
@@ -451,7 +458,9 @@
             btn.onmouseleave = () => { btn.style.background = 'none' }
             btn.onclick = (ev) => {
               ev.preventDefault(); ev.stopPropagation()
-              console.log('__CANOPY_FILL__:' + c.id)
+              // Only a real user click may fill: page script calling btn.click() is ignored.
+              if (!ev.isTrusted) return
+              console.log('__CANOPY_FILL__:' + nonce + ':' + c.id)
               picker.remove()
             }
             picker.appendChild(btn)
@@ -1032,7 +1041,9 @@
         .with(
           P.when((m) => m.startsWith('__CANOPY_FILL__:')),
           (m) => {
-            handleAutofillCredential(m.slice('__CANOPY_FILL__:'.length))
+            const tokenPrefix = `__CANOPY_FILL__:${autofillNonce}:`
+            if (!m.startsWith(tokenPrefix)) return
+            handleAutofillCredential(m.slice(tokenPrefix.length))
           },
         )
         .otherwise(() => {})

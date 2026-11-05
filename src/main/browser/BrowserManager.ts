@@ -122,6 +122,9 @@ export class BrowserManager {
     // browserId arrives with a different wcId and is still wired below.
     const existing = this.entries.get(browserId)
     if (existing && existing.webContentsId === wcId) return
+    // A new guest replaces the old one for this browserId: release the old entry's
+    // DevTools view (a WebContentsView attached to the window) before overwriting it.
+    if (existing) this.teardown(browserId)
 
     const entry: WebviewEntry = {
       webContentsId: wcId,
@@ -130,6 +133,11 @@ export class BrowserManager {
       devToolsMode: 'bottom',
     }
     this.entries.set(browserId, entry)
+    // Release the entry and its DevTools view if the guest dies without the renderer
+    // calling browser:teardown (renderer reload or crash).
+    wc.once('destroyed', () => {
+      if (this.entries.get(browserId)?.webContentsId === wcId) this.teardown(browserId)
+    })
 
     // target="_blank" / window.open → forward URL to renderer so it can open a new browser tab
     // Throttled to prevent a malicious page from flooding the app via window.open() in a loop

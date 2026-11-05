@@ -213,12 +213,16 @@
     return content.toLowerCase().includes(searchLower)
   }
 
+  // Compile the highlight pattern once per query, not once per rendered diff line.
+  // (String#replace with a global regex resets lastIndex, so reuse is safe.)
+  let highlightRegex = $derived(
+    searchLower ? new RegExp(`(${escapeRegex(escapeHtml(searchLower))})`, 'gi') : null,
+  )
+
   function highlightMatch(text: string): string {
-    if (!searchLower) return escapeHtml(text)
     const escaped = escapeHtml(text)
-    const queryEscaped = escapeHtml(searchLower)
-    const regex = new RegExp(`(${escapeRegex(queryEscaped)})`, 'gi')
-    return escaped.replace(regex, '<mark class="search-highlight">$1</mark>')
+    if (!highlightRegex) return escaped
+    return escaped.replace(highlightRegex, '<mark class="search-highlight">$1</mark>')
   }
 
   function escapeHtml(str: string): string {

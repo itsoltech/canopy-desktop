@@ -147,26 +147,41 @@
     }
   })
 
-  // React to preference changes for theme/font
+  // React to preference changes for theme/font. Read the prefs BEFORE the termRef
+  // guard: termRef is a plain let assigned after mount (fonts.ready + rAF), so an
+  // effect that returned first on its initial run would track nothing and never re-run.
   $effect(() => {
-    if (!termRef) return
     const themeName = prefs.theme || 'Default'
     const theme = getTheme(themeName)
+    if (!termRef) return
     termRef.options.theme = theme
     if (containerEl) {
       containerEl.style.backgroundColor = theme.background ?? 'var(--color-bg)'
     }
   })
 
+  // Font metrics change the cell size without resizing the container, so the
+  // ResizeObserver never fires; re-fit the grid (same guards as the observer).
+  function refitAfterFontChange(): void {
+    const fit = fitAddonRef
+    if (!fit || !containerEl || !containerEl.clientWidth || !containerEl.clientHeight) return
+    const dims = fit.proposeDimensions()
+    if (!dims || dims.cols < 10 || dims.rows < 3) return
+    fit.fit()
+  }
+
   $effect(() => {
-    if (!termRef) return
     const size = parseInt(prefs.fontSize || '', 10) || DEFAULT_FONT_SIZE
+    if (!termRef) return
     termRef.options.fontSize = size
+    refitAfterFontChange()
   })
 
   $effect(() => {
+    const fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
     if (!termRef) return
-    termRef.options.fontFamily = prefs.fontFamily || DEFAULT_FONT_FAMILY
+    termRef.options.fontFamily = fontFamily
+    refitAfterFontChange()
   })
 
   function shellEscape(path: string): string {

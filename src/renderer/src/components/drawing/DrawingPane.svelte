@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, untrack } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import {
     drawingsState,
@@ -122,9 +122,9 @@
     }
   })
 
-  onDestroy(() => {
-    if (currentKey) drawingsState[currentKey] = [...strokes]
-  })
+  // No write-back on destroy: the effect above already mirrors every `strokes`
+  // reassignment into drawingsState, and closing the last drawing pane clears the store
+  // before this component unmounts — writing here would resurrect the cleared drawing.
 
   // --- Pointer handling ---
 

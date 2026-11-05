@@ -71,10 +71,15 @@ function createFileTreeStore() {
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
   async function expandDir(dirPath: string): Promise<void> {
+    // A worktree switch (reset) during the read must not graft the old tree's
+    // listing into the new one.
+    const root = rootPath
     try {
       const entries = await window.api.fileTreeReadDir(dirPath)
+      if (rootPath !== root) return
       expandedDirs[dirPath] = entries
     } catch (e) {
+      if (rootPath !== root) return
       // Show empty rather than leaving in collapsed state
       expandedDirs[dirPath] = []
       console.warn('fileTreeReadDir failed:', dirPath, e)
@@ -104,9 +109,12 @@ function createFileTreeStore() {
 
   async function refreshGitStatus(repoRoot: string): Promise<void> {
     if (!rootPath) return
+    const root = rootPath
     try {
       const previousPaths = [...gitFileStatus.keys()]
-      const nextStatus = await window.api.fileTreeGetGitStatus(repoRoot, rootPath)
+      const nextStatus = await window.api.fileTreeGetGitStatus(repoRoot, root)
+      // Drop the result if the tree was reset to another root while git ran.
+      if (rootPath !== root) return
       // eslint-disable-next-line svelte/prefer-svelte-reactivity
       const affectedPaths = new Set<string>(nextStatus.affectedPaths)
 

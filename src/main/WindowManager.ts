@@ -337,6 +337,10 @@ export class WindowManager {
       watchers = new Map()
       this.gitWatchers.set(wcId, watchers)
     }
+    // Overlapping git:watch calls for the same repo each start a watcher; stop the one
+    // being replaced so its native subscription does not outlive its map entry.
+    const previous = watchers.get(repoRoot)
+    if (previous && previous !== watcher) void previous.stop()
     watchers.set(repoRoot, watcher)
   }
 
@@ -397,6 +401,9 @@ export class WindowManager {
   }
 
   setFileWatcher(wcId: number, watcher: FileTreeWatcher): void {
+    // Overlapping files:watch calls each start a watcher; stop the one being replaced.
+    const previous = this.fileWatchers.get(wcId)
+    if (previous && previous !== watcher) void previous.stop()
     this.fileWatchers.set(wcId, watcher)
   }
 

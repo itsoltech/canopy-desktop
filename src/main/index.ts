@@ -704,6 +704,17 @@ app.whenReady().then(async () => {
       webPreferences.nodeIntegration = false
       webPreferences.contextIsolation = true
       webPreferences.sandbox = true
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      webPreferences.nodeIntegrationInSubFrames = false
+      webPreferences.nodeIntegrationInWorker = false
+
+      // Pin every guest to the isolated browser partition (BrowserManager's
+      // 'persist:browser'), whatever the attribute says. Without a partition a
+      // guest would share the default session behind the app UI, including its
+      // clipboard permission grant.
+      params.partition = 'persist:browser'
+      webPreferences.partition = 'persist:browser'
 
       // Only allow http(s) or about:blank as source
       const src = params.src
@@ -1150,6 +1161,12 @@ app.whenReady().then(async () => {
     notchOverlay?.dispose()
   })
 
+  // On macOS the app outlives its last window; re-create the overlay (after the main
+  // window, as above) when a window comes back. initialize() is a no-op if it exists.
+  const restoreNotchOverlay = (): void => {
+    if (preferencesStore.get('notch.enabled') === 'true') notchOverlay?.initialize()
+  }
+
   ipcMain.on('notch:setEnabled', (event, { enabled }: { enabled: boolean }) => {
     if (!notchOverlay) return
     if (!windowManager.getWindowById(BrowserWindow.fromWebContents(event.sender)?.id ?? -1)) return
@@ -1175,14 +1192,17 @@ app.whenReady().then(async () => {
       handleCanopyUrl(url)
     } else {
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
+      restoreNotchOverlay()
     }
   })
 
   app.on('activate', function () {
     if (!canCreateApplicationWindow()) return
 
-    if (BrowserWindow.getAllWindows().length === 0)
+    if (BrowserWindow.getAllWindows().length === 0) {
       windowManager.createWindow({ bounds: cascadeBounds(windowManager.getLastFocusedBounds()) })
+      restoreNotchOverlay()
+    }
   })
 })
 

@@ -72,7 +72,10 @@
   </span>
 
   <span class="flex flex-col gap-0.5 min-w-0 flex-1 overflow-hidden">
-    <span class="text-md font-medium truncate text-notch-text">
+    <span
+      class="text-md font-medium truncate text-notch-text"
+      title={[session.workspaceName, session.branch, session.title].filter(Boolean).join(' · ')}
+    >
       {session.workspaceName}
       {#if session.branch}
         <span class="text-notch-text-dim font-normal ml-1.5 text-sm">{session.branch}</span>

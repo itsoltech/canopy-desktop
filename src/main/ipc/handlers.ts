@@ -1422,6 +1422,12 @@ export function registerIpcHandlers(
       // can still query git state on demand if the watcher fails to start.
       console.warn(gitErrorMessage(startResult.error))
     }
+    // The window may have closed while the watcher was starting. disposeWindow() has
+    // already run by then, so registering the watcher now would leak it.
+    if (event.sender.isDestroyed() || !windowManager.getWindowById(senderId)) {
+      void watcher.stop()
+      return
+    }
     windowManager.setGitWatcher(senderId, payload.repoRoot, watcher)
   })
 
@@ -1485,6 +1491,11 @@ export function registerIpcHandlers(
     const result = await watcher.start()
     if (result.isErr()) {
       throw new Error(fileWatcherErrorMessage(result.error))
+    }
+    // The window may have closed while the watcher was starting (see git:watch).
+    if (event.sender.isDestroyed() || !windowManager.getWindowById(senderId)) {
+      void watcher.stop()
+      return
     }
     windowManager.setFileWatcher(senderId, watcher)
   })
@@ -4709,7 +4720,14 @@ export function registerIpcHandlers(
     if (!(bytes instanceof ArrayBuffer) || bytes.byteLength === 0) throw new Error('Invalid image')
     if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('Image too large (max 20 MB)')
     const dir = path.join(os.tmpdir(), 'canopy-agent-images')
-    await fs.promises.mkdir(dir, { recursive: true })
+    // os.tmpdir() is shared on Linux (/tmp): keep the directory private and refuse one
+    // that is a symlink or was planted by another user, so screenshots are not readable
+    // (or redirectable) by other local accounts.
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 })
+    const dirStat = await fs.promises.lstat(dir)
+    if (!dirStat.isDirectory() || (process.getuid && dirStat.uid !== process.getuid())) {
+      throw new Error('Refusing to use an unsafe temp directory for agent images')
+    }
     // The images only need to survive until the agent has read them — cap the directory at the
     // newest few files so repeated sends can't grow the temp dir without bound.
     try {
@@ -4730,7 +4748,11 @@ export function registerIpcHandlers(
       // Best-effort cleanup — never fail the save over it.
     }
     const filePath = path.join(dir, `image-${Date.now()}.png`)
-    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)))
+    // Owner-only, and 'wx' (O_EXCL) never writes through a pre-existing path or symlink.
+    await fs.promises.writeFile(filePath, Buffer.from(new Uint8Array(bytes)), {
+      mode: 0o600,
+      flag: 'wx',
+    })
     return filePath
   })
 
@@ -4965,6 +4987,10 @@ export function registerIpcHandlers(
       const sender = event.sender
       const controller = new AbortController()
       setupAbortControllers.set(sender.id, controller)
+      // Stop the setup commands if the window closes mid-run instead of letting
+      // them run on with nobody to report to.
+      const abortOnDestroy = (): void => controller.abort()
+      sender.once('destroyed', abortOnDestroy)
 
       try {
         return await runWorktreeSetup(
@@ -4982,7 +5008,11 @@ export function registerIpcHandlers(
           controller.signal,
         )
       } finally {
-        setupAbortControllers.delete(sender.id)
+        sender.removeListener('destroyed', abortOnDestroy)
+        // A newer run from the same window may own the slot by now; only clear our own.
+        if (setupAbortControllers.get(sender.id) === controller) {
+          setupAbortControllers.delete(sender.id)
+        }
       }
     },
   )
@@ -5424,13 +5454,17 @@ export function registerIpcHandlers(
     // the window's workspace paths (project-scoped skills). The regex check
     // above alone is too permissive — a path like `/tmp/evil/.claude/skills/x`
     // also contains the segment and would otherwise pass.
-    // Refuse if realpath fails for the target: a dangling-symlink fallback to
-    // the unresolved path would let a non-existent target slip past the
-    // home/workspace check and reach unlink (which would then fail anyway,
-    // but the precondition has to hold before we touch the filesystem).
+    // Resolve the parent directory, not the file itself: unlink removes the
+    // directory entry, so a symlinked skill file (installMethod 'symlink', or a
+    // link committed to a repo) loses its link instead of the file it points at
+    // — which may be the user's original source or any file under $HOME.
+    // Refuse if the parent cannot be resolved.
     let resolvedTarget: string
     try {
-      resolvedTarget = await fs.promises.realpath(filePath)
+      resolvedTarget = path.join(
+        await fs.promises.realpath(path.dirname(filePath)),
+        path.basename(filePath),
+      )
     } catch {
       unwrapOrThrow(
         err({
@@ -5465,7 +5499,7 @@ export function registerIpcHandlers(
         skillErrorMessage,
       )
     }
-    // Delete the realpath that was containment-checked above, not the
+    // Delete the resolved entry that was containment-checked above, not the
     // pre-realpath path, so a symlink swap between the check and the unlink
     // cannot redirect the deletion outside home/workspace (TOCTOU).
     await fs.promises.unlink(resolvedTarget)

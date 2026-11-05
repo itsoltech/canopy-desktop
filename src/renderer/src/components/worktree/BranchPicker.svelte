@@ -268,8 +268,9 @@
               pick(branch)
             }}
           >
-            <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
-              >{branch}</span
+            <span
+              class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+              title={branch}>{branch}</span
             >
             {#if showRemoteOnlyTag && isRemoteOnly(branch, branches)}
               <span class="ml-2 text-xs text-text-faint flex-shrink-0">(remote only)</span>

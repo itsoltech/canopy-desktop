@@ -386,6 +386,12 @@ export class WorkspaceCommandService {
         paths: [repoRoot],
       })
     }
+    // The window may have closed while the watcher was starting; disposeWindow() has
+    // already run by then, so registering the watcher now would leak it.
+    if (sender.isDestroyed() || !this.deps.windowManager.getWindowById(sender.id)) {
+      void watcher.stop()
+      return
+    }
     this.deps.windowManager.setGitWatcher(sender.id, repoRoot, watcher)
   }
 

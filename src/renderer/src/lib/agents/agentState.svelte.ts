@@ -433,6 +433,9 @@ export function handleStatusUpdate(ptySessionId: string, data: NormalizedStatusD
 }
 
 export function setBadge(ptySessionId: string, badge: BadgeType): void {
+  // A hook event can arrive after removeAgentSession(); writing the badge then would
+  // re-create an entry that nothing prunes. Badges only exist alongside a live session.
+  if (!agentSessions[ptySessionId]) return
   agentBadges[ptySessionId] = badge
 }
 
