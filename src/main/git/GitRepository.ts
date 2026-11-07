@@ -1,5 +1,5 @@
 import { ok, err, okAsync, errAsync, type Result, type ResultAsync } from 'neverthrow'
-import simpleGit from 'simple-git'
+import { simpleGit } from 'simple-git'
 import { readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import type { GitError } from './errors'

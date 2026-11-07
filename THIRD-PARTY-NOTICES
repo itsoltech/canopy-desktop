@@ -3,7 +3,7 @@ https://www.npmjs.com/package/generate-license-file
 
 The following npm packages may be included in this product:
 
- - dompurify@3.4.12
+ - dompurify@3.4.17
  - sumchecker@3.0.1
 
 These packages each contain the following license:
@@ -490,8 +490,10 @@ Apache License
 
 The following npm packages may be included in this product:
 
+ - @types/estree@1.0.10
  - @types/estree@1.0.8
- - @types/node@24.13.2
+ - @types/node@24.19.2
+ - @types/node@26.6.6
  - @types/trusted-types@2.0.7
 
 These packages each contain the following license:
@@ -552,8 +554,8 @@ MIT License
 
 The following npm packages may be included in this product:
 
- - lightningcss-win32-x64-msvc@1.32.0
- - lightningcss@1.32.0
+ - lightningcss-linux-x64-gnu@1.33.0
+ - lightningcss@1.33.0
 
 These packages each contain the following license:
 
@@ -1020,7 +1022,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - jsonfile@6.2.0
+ - jsonfile@6.2.1
 
 This package contains the following license:
 
@@ -1229,7 +1231,7 @@ software or this license, under any kind of legal claim.***
 
 The following npm package may be included in this product:
 
- - simple-icons@16.26.0
+ - simple-icons@16.36.0
 
 This package contains the following license:
 
@@ -1268,13 +1270,13 @@ For more information, please see <https://creativecommons.org/publicdomain/zero/
 
 The following npm package may be included in this product:
 
- - @anthropic-ai/claude-agent-sdk@0.3.207
+ - @anthropic-ai/claude-agent-sdk@0.3.318
 
 This package contains the following license:
 
 # Claude Agent SDK
 
-![](https://img.shields.io/badge/Node.js-18%2B-brightgreen?style=flat-square) [![npm]](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)
+![](https://img.shields.io/badge/Node.js-18.14%2B-brightgreen?style=flat-square) [![npm]](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)
 
 [npm]: https://img.shields.io/npm/v/@anthropic-ai/claude-agent-sdk.svg?style=flat-square
 
@@ -1289,6 +1291,10 @@ Install the Claude Agent SDK:
 ```sh
 npm install @anthropic-ai/claude-agent-sdk
 ```
+
+## The `/core` entry (for apps that bundle the SDK)
+
+`@anthropic-ai/claude-agent-sdk/core` exports the same `query()`, `startup()`, `prewarm()`, `tool()`, `createSdkMcpServer()`, `renameSession()`/`tagSession()`/`deleteSession()`, `resolveSettings()`/`filterEscalatingDefaultMode()` and runtime constants as the root entry, and nothing else — no session listing/reading/import helpers — so its eagerly loaded code is about a quarter of the root's; the settings resolver behind `resolveSettings()` and the code behind the three session mutations load on first call. Unlike the root entry it does **not** inline the SDK's peer dependencies: `zod` (^4, as declared in this package's `peerDependencies`) and `@modelcontextprotocol/sdk` (^1.29) are imported from your install — specifically the `zod/v4` subpath, plus `zod/v3` when the settings resolver loads — which is what you want when your bundler already carries them. (zod 3.25+, which carries the v4 engine under `zod/v4`, also works in practice, but ^4 is the supported range.) Import from **either** the root **or** `/core` in a given process, not both — they are separate bundles, and mixing them loads two copies of the SDK's classes and state. Its types require TypeScript 5.0+.
 
 ## Compiled binaries (`bun build --compile`)
 
@@ -1329,7 +1335,7 @@ When you use the Claude Agent SDK, we collect feedback, which includes usage dat
 
 ### How we use your data
 
-See our [data usage policies](https://docs.anthropic.com/en/docs/claude-code/data-usage).
+See our [data usage policies](https://code.claude.com/docs/en/data-usage).
 
 ### Privacy safeguards
 
@@ -1341,7 +1347,7 @@ For full details, please review our [Commercial Terms of Service](https://www.an
 
 The following npm package may be included in this product:
 
- - marked@18.0.6
+ - marked@18.1.3
 
 This package contains the following license:
 
@@ -2082,7 +2088,7 @@ Repository: https://github.com/yargs/yargs-parser.git
 
 The following npm package may be included in this product:
 
- - vite@7.3.5
+ - vite@7.3.7
 
 This package contains the following license:
 
@@ -4211,7 +4217,7 @@ Repository: https://github.com/websockets/ws
 
 The following npm package may be included in this product:
 
- - @anthropic-ai/claude-agent-sdk-win32-x64@0.3.207
+ - @anthropic-ai/claude-agent-sdk-linux-x64@0.3.318
 
 This package contains the following license:
 
@@ -4823,6 +4829,30 @@ limitations under the License.
 
 The following npm package may be included in this product:
 
+ - rc@1.2.8
+
+This package contains the following license:
+
+Apache License, Version 2.0
+
+Copyright (c) 2011 Dominic Tarr
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+-----------
+
+The following npm package may be included in this product:
+
  - @electron-internal/extract-zip@1.0.3
 
 This package contains the following license:
@@ -4833,7 +4863,7 @@ BSD-2-Clause
 
 The following npm package may be included in this product:
 
- - ws@8.21.0
+ - ws@8.22.1
 
 This package contains the following license:
 
@@ -5147,7 +5177,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 The following npm package may be included in this product:
 
- - svelte@5.56.4
+ - svelte@5.57.3
 
 This package contains the following license:
 
@@ -5249,7 +5279,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - devalue@5.8.1
+ - devalue@5.9.4
 
 This package contains the following license:
 
@@ -5349,7 +5379,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - esrap@2.2.13
+ - esrap@2.4.0
 
 This package contains the following license:
 
@@ -5393,7 +5423,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - electron@43.1.0
+ - electron@43.8.7
 
 This package contains the following license:
 
@@ -5445,7 +5475,7 @@ PERFORMANCE OF THIS SOFTWARE.
 
 The following npm package may be included in this product:
 
- - smol-toml@1.7.0
+ - smol-toml@1.9.1
 
 This package contains the following license:
 
@@ -5496,11 +5526,12 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 -----------
 
-The following npm package may be included in this product:
+The following npm packages may be included in this product:
 
  - magic-string@0.30.21
+ - magic-string@1.4.5
 
-This package contains the following license:
+These packages each contain the following license:
 
 Copyright 2018 Rich Harris
 
@@ -5576,7 +5607,7 @@ The following npm packages may be included in this product:
 
  - @jridgewell/gen-mapping@0.3.13
  - @jridgewell/remapping@2.3.5
- - @jridgewell/sourcemap-codec@1.5.5
+ - @jridgewell/sourcemap-codec@1.6.0
  - @jridgewell/trace-mapping@0.3.31
 
 These packages each contain the following license:
@@ -5600,6 +5631,28 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+-----------
+
+The following npm package may be included in this product:
+
+ - yaml@2.9.1
+
+This package contains the following license:
+
+Copyright Eemeli Aro <eemeli@gmail.com>
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
 
 -----------
 
@@ -5661,7 +5714,7 @@ terms above.
 
 The following npm package may be included in this product:
 
- - enhanced-resolve@5.21.6
+ - enhanced-resolve@5.26.1
 
 This package contains the following license:
 
@@ -5770,7 +5823,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 The following npm package may be included in this product:
 
- - @lucide/svelte@1.24.0
+ - @lucide/svelte@1.68.0
 
 This package contains the following license:
 
@@ -5822,16 +5875,16 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - @esbuild/win32-x64@0.28.1
- - @rollup/rollup-win32-x64-gnu@4.60.0
- - @rollup/rollup-win32-x64-msvc@4.60.0
- - @simple-git/args-pathspec@1.0.3
- - @simple-git/argv-parser@1.1.1
+ - @esbuild/linux-x64@0.28.1
+ - @napi-rs/wasm-runtime@1.2.2
+ - @rollup/rollup-linux-x64-gnu@4.60.0
+ - @rollup/rollup-linux-x64-musl@4.60.0
+ - @tailwindcss/oxide-wasm32-wasi@4.3.4
+ - @tybys/wasm-util@0.10.3
  - is-reference@3.0.3
  - lazy-val@1.0.5
  - locate-character@3.0.0
  - qrcode-generator@1.5.2
- - simple-git@3.36.0
 
 These packages each contain the following license:
 
@@ -5841,7 +5894,7 @@ MIT
 
 The following npm package may be included in this product:
 
- - acorn@8.16.0
+ - acorn@8.19.0
 
 This package contains the following license:
 
@@ -5994,7 +6047,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - turndown@7.2.4
+ - turndown@7.2.5
 
 This package contains the following license:
 
@@ -6084,8 +6137,8 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - @parcel/watcher-win32-x64@2.5.6
- - @parcel/watcher@2.5.6
+ - @parcel/watcher-linux-x64-glibc@2.6.0
+ - @parcel/watcher@2.6.0
 
 These packages each contain the following license:
 
@@ -6147,7 +6200,7 @@ The following npm packages may be included in this product:
 
  - @lezer/common@1.5.2
  - @lezer/css@1.3.3
- - @lezer/highlight@1.2.3
+ - @lezer/highlight@1.2.5
  - @lezer/html@1.3.13
  - @lezer/javascript@1.5.4
  - @lezer/lr@1.4.10
@@ -6244,8 +6297,8 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - @codemirror/autocomplete@6.20.3
- - @codemirror/commands@6.10.4
+ - @codemirror/autocomplete@6.20.4
+ - @codemirror/commands@6.11.1
  - @codemirror/lang-angular@0.1.4
  - @codemirror/lang-cpp@6.0.3
  - @codemirror/lang-css@6.3.1
@@ -6264,12 +6317,13 @@ The following npm packages may be included in this product:
  - @codemirror/lang-wast@6.0.2
  - @codemirror/lang-xml@6.1.0
  - @codemirror/language-data@6.5.2
- - @codemirror/language@6.12.4
+ - @codemirror/language@6.13.1
  - @codemirror/legacy-modes@6.5.2
  - @codemirror/lint@6.9.5
- - @codemirror/search@6.7.1
- - @codemirror/state@6.7.1
- - @codemirror/view@6.43.6
+ - @codemirror/search@6.7.2
+ - @codemirror/state@6.7.6
+ - @codemirror/streamparser@6.0.0
+ - @codemirror/view@6.43.15
  - codemirror@6.0.2
 
 These packages each contain the following license:
@@ -6641,7 +6695,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - ts-pattern@5.9.0
+ - ts-pattern@5.9.2
 
 This package contains the following license:
 
@@ -6699,6 +6753,38 @@ SOFTWARE.
 
 -----------
 
+The following npm packages may be included in this product:
+
+ - @emnapi/core@1.11.3
+ - @emnapi/runtime@1.11.3
+ - @emnapi/wasi-threads@1.2.3
+
+These packages each contain the following license:
+
+MIT License
+
+Copyright (c) 2021-present Toyobayashi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----------
+
 The following npm package may be included in this product:
 
  - @replit/codemirror-indentation-markers@6.5.3
@@ -6731,7 +6817,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - @sveltejs/acorn-typescript@1.0.10
+ - @sveltejs/acorn-typescript@1.0.13
 
 This package contains the following license:
 
@@ -7051,8 +7137,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 The following npm packages may be included in this product:
 
- - undici-types@7.18.2
- - undici@7.28.0
+ - undici-types@7.24.6
+ - undici-types@8.9.0
+ - undici@7.30.2
 
 These packages each contain the following license:
 
@@ -7162,11 +7249,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 The following npm packages may be included in this product:
 
- - @tailwindcss/node@4.3.2
- - @tailwindcss/oxide-win32-x64-msvc@4.3.2
- - @tailwindcss/oxide@4.3.2
- - @tailwindcss/vite@4.3.2
- - tailwindcss@4.3.2
+ - @tailwindcss/node@4.3.4
+ - @tailwindcss/oxide-linux-x64-gnu@4.3.4
+ - @tailwindcss/oxide@4.3.4
+ - @tailwindcss/vite@4.3.4
+ - tailwindcss@4.3.4
 
 These packages each contain the following license:
 
@@ -7424,7 +7511,7 @@ The following npm packages may be included in this product:
  - lru-cache@6.0.0
  - once@1.4.0
  - semver@7.7.4
- - semver@7.8.5
+ - semver@7.8.6
  - wrappy@1.0.2
  - yallist@4.0.0
 
@@ -7445,39 +7532,6 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
------------
-
-The following npm package may be included in this product:
-
- - rc@1.2.8
-
-This package contains the following license:
-
-The MIT License
-
-Copyright (c) 2011 Dominic Tarr
-
-Permission is hereby granted, free of charge, 
-to any person obtaining a copy of this software and 
-associated documentation files (the "Software"), to 
-deal in the Software without restriction, including 
-without limitation the rights to use, copy, modify, 
-merge, publish, distribute, sublicense, and/or sell 
-copies of the Software, and to permit persons to whom 
-the Software is furnished to do so, 
-subject to the following conditions:
-
-The above copyright notice and this permission notice 
-shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
-OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR 
-ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, 
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 -----------
 
@@ -7666,7 +7720,7 @@ THE SOFTWARE.
 The following npm packages may be included in this product:
 
  - builder-util-runtime@9.7.0
- - electron-updater@6.8.9
+ - electron-updater@6.8.11
 
 These packages each contain the following license:
 
@@ -8007,6 +8061,37 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+-----------
+
+The following npm packages may be included in this product:
+
+ - @simple-git/args-pathspec@1.0.4
+ - @simple-git/argv-parser@2.0.1
+ - simple-git@4.0.2
+
+These packages each contain the following license:
+
+The MIT License (MIT)
+
+Copyright (c) 2025 Steve King
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 -----------
 
