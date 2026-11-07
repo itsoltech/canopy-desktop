@@ -30,7 +30,7 @@
     "config:prod": "NODE_ENV=production expo config --json"
   },
   "dependencies": {
-    "@config-plugins/react-native-webrtc": "^15.0.1",
+    "@config-plugins/react-native-webrtc": "^15.0.2",
     "@expo/ui": "~56.0.18",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
@@ -65,7 +65,7 @@
     "react-native-webrtc": "^124.0.7",
     "react-native-webview": "13.16.1",
     "react-native-worklets": "0.8.3",
-    "ts-pattern": "^5.9.0"
+    "ts-pattern": "^5.9.2"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
