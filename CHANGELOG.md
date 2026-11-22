@@ -1,3 +1,10 @@
+## [0.13.0-next.31](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.30...v0.13.0-next.31) (2026-11-22)
+
+### Bug Fixes
+
+* announce the end of Canopy Desktop maintenance ([#464](https://github.com/itsoltech/canopy-desktop/issues/464)) ([f155eb9](https://github.com/itsoltech/canopy-desktop/commit/f155eb92245d11c14c9081a5aa3ae6a3717a24ff))
+* **deps:** adapt to simple-git 4 and skip lib checks in svelte-check ([6efb71d](https://github.com/itsoltech/canopy-desktop/commit/6efb71d2834e61a6e93c2a76a78958d3c37c8f5a))
+
 ## [0.13.0-next.30](https://github.com/itsoltech/canopy-desktop/compare/v0.13.0-next.29...v0.13.0-next.30) (2026-09-05)
 
 ### Features
