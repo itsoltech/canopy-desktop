@@ -91,7 +91,7 @@
     "@types/ws": "^8.18.2",
     "electron": "^43.8.7",
     "electron-builder": "^26.18.0",
-    "electron-vite": "^5.0.0",
+    "electron-vite": "^6.0.0",
     "eslint": "^10.14.0",
     "eslint-plugin-svelte": "^3.24.0",
     "generate-license-file": "^4.2.5",
