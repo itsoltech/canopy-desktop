@@ -4,6 +4,10 @@
 
 <h1 align="center">Canopy</h1>
 
+> [!IMPORTANT]
+> Development and support for **Canopy Desktop** (`canopy-desktop`) have ended.
+> To continue using Canopy, visit the [new Canopy repository](https://github.com/itsoltech/canopy).
+
 <p align="center"><strong>One canopy. Every branch.</strong></p>
 
 <p align="center">

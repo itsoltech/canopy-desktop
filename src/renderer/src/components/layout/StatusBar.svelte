@@ -1,6 +1,15 @@
 <script lang="ts">
   import { match } from 'ts-pattern'
-  import { Settings, GitBranch, Folder, Bell, ArrowDownToLine, Eye, Cpu } from '@lucide/svelte'
+  import {
+    Settings,
+    GitBranch,
+    Folder,
+    Bell,
+    ArrowDownToLine,
+    ArrowUpRight,
+    Eye,
+    Cpu,
+  } from '@lucide/svelte'
   import { workspaceState, projects, toggleRightPanel } from '../../lib/stores/workspace.svelte'
   import { agentSessions, type AgentSessionState } from '../../lib/agents/agentState.svelte'
   import {
@@ -14,6 +23,9 @@
   import { prefs } from '../../lib/stores/preferences.svelte'
   import { perfHudState, enablePerfHud, disablePerfHud } from '../../lib/stores/perfHud.svelte'
   import { showPreferences } from '../../lib/stores/dialogs.svelte'
+  import { migrationGuideUrl } from '../../lib/maintenanceNotice'
+
+  const maintenanceStatus = 'This version is no longer maintained'
 
   // --- Derived: focused pane + agent ---
 
@@ -191,223 +203,235 @@
   }
 </script>
 
-{#if projects.length > 0}
-  <footer
-    class="flex items-center justify-between gap-4 w-full h-status-bar px-3 pb-px bg-bg-glass border-t border-border-subtle font-sans text-xs font-medium text-text-faint select-none flex-shrink-0 app-no-drag"
-  >
-    <!-- LEFT: focused-pane info -->
-    <div class="flex items-center gap-2 min-w-0">
-      {#if focusedPaneKind === 'agent' && activeAgent}
-        <span
-          class="inline-flex items-center h-5 px-1.5 whitespace-nowrap font-medium"
-          class:text-text-secondary={activeAgent.status.type !== 'thinking' &&
-            activeAgent.status.type !== 'toolCalling' &&
-            activeAgent.status.type !== 'compacting' &&
-            activeAgent.status.type !== 'waitingPermission' &&
-            activeAgent.status.type !== 'error'}
-          class:text-accent-text={activeAgent.status.type === 'thinking' ||
-            activeAgent.status.type === 'toolCalling' ||
-            activeAgent.status.type === 'compacting'}
-          class:text-warning-text={activeAgent.status.type === 'waitingPermission'}
-          class:text-danger-text={activeAgent.status.type === 'error'}
+<footer
+  class="flex items-center justify-between gap-4 w-full h-status-bar px-3 pb-px bg-bg-glass border-t border-border-subtle font-sans text-xs font-medium text-text-faint select-none flex-shrink-0 app-no-drag"
+>
+  <div class="flex shrink-0 items-center gap-1 pl-1.5 whitespace-nowrap">
+    <span class="hidden text-warning-text md:inline">{maintenanceStatus}</span>
+    <span class="text-warning-text md:hidden" title={maintenanceStatus}>Unmaintained</span>
+    <a
+      href={migrationGuideUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="inline-flex h-5 items-center gap-1 rounded-sm px-1.5 text-accent-text transition-colors duration-fast hover:bg-hover hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring"
+    >
+      Migration guide <ArrowUpRight size={11} aria-hidden="true" />
+    </a>
+  </div>
+
+  <!-- LEFT: focused-pane info -->
+  <div class="mr-auto flex items-center gap-2 min-w-0 overflow-hidden">
+    {#if focusedPaneKind === 'agent' && activeAgent}
+      <span
+        class="inline-flex items-center h-5 px-1.5 whitespace-nowrap font-medium"
+        class:text-text-secondary={activeAgent.status.type !== 'thinking' &&
+          activeAgent.status.type !== 'toolCalling' &&
+          activeAgent.status.type !== 'compacting' &&
+          activeAgent.status.type !== 'waitingPermission' &&
+          activeAgent.status.type !== 'error'}
+        class:text-accent-text={activeAgent.status.type === 'thinking' ||
+          activeAgent.status.type === 'toolCalling' ||
+          activeAgent.status.type === 'compacting'}
+        class:text-warning-text={activeAgent.status.type === 'waitingPermission'}
+        class:text-danger-text={activeAgent.status.type === 'error'}
+      >
+        {agentStatusLabel(activeAgent)}
+      </span>
+
+      {#if activeAgent.model}
+        <span class="inline-flex items-center h-5 whitespace-nowrap text-text-faint"
+          >{activeAgent.model}</span
         >
-          {agentStatusLabel(activeAgent)}
-        </span>
-
-        {#if activeAgent.model}
-          <span class="inline-flex items-center h-5 whitespace-nowrap text-text-faint"
-            >{activeAgent.model}</span
-          >
-        {/if}
-
-        {#if activeAgent.contextPercent != null}
-          <span
-            class="inline-flex items-center h-5 whitespace-nowrap font-mono tabular-nums"
-            style="color: {contextColor(activeAgent.contextPercent)}"
-            title="Context window usage"
-          >
-            ctx {activeAgent.contextPercent}%
-          </span>
-        {/if}
-
-        {#if activeAgent.costUsd != null}
-          <span
-            class="inline-flex items-center h-5 whitespace-nowrap font-mono text-text-faint"
-            title="Session cost"
-          >
-            {formatCost(activeAgent.costUsd)}
-          </span>
-        {/if}
-
-        {#if taskProgress}
-          <span
-            class="inline-flex items-center h-5 whitespace-nowrap text-text-faint tabular-nums"
-            title="Task progress"
-          >
-            {taskProgress.done}/{taskProgress.total} tasks
-          </span>
-        {/if}
-      {:else if focusedPaneKind === 'shell'}
-        <span class="inline-flex items-center h-5 text-text-faint">Shell</span>
-      {:else if focusedPaneKind === 'notes'}
-        <span class="inline-flex items-center h-5 text-text-faint">Notes</span>
-      {:else if focusedPaneKind === 'drawing'}
-        <span class="inline-flex items-center h-5 text-text-faint">Drawing</span>
       {/if}
-    </div>
 
-    <!-- RIGHT: three sub-groups separated by hairline dividers -->
-    <div class="flex items-center min-w-0">
-      <!-- Sub-group A: git. min-w-0 so the branch chip below can actually shrink — without
+      {#if activeAgent.contextPercent != null}
+        <span
+          class="inline-flex items-center h-5 whitespace-nowrap font-mono tabular-nums"
+          style="color: {contextColor(activeAgent.contextPercent)}"
+          title="Context window usage"
+        >
+          ctx {activeAgent.contextPercent}%
+        </span>
+      {/if}
+
+      {#if activeAgent.costUsd != null}
+        <span
+          class="inline-flex items-center h-5 whitespace-nowrap font-mono text-text-faint"
+          title="Session cost"
+        >
+          {formatCost(activeAgent.costUsd)}
+        </span>
+      {/if}
+
+      {#if taskProgress}
+        <span
+          class="inline-flex items-center h-5 whitespace-nowrap text-text-faint tabular-nums"
+          title="Task progress"
+        >
+          {taskProgress.done}/{taskProgress.total} tasks
+        </span>
+      {/if}
+    {:else if focusedPaneKind === 'shell'}
+      <span class="inline-flex items-center h-5 text-text-faint">Shell</span>
+    {:else if focusedPaneKind === 'notes'}
+      <span class="inline-flex items-center h-5 text-text-faint">Notes</span>
+    {:else if focusedPaneKind === 'drawing'}
+      <span class="inline-flex items-center h-5 text-text-faint">Drawing</span>
+    {/if}
+  </div>
+
+  <!-- RIGHT: three sub-groups separated by hairline dividers -->
+  <div class="items-center min-w-0" class:flex={projects.length > 0} hidden={projects.length === 0}>
+    <!-- Sub-group A: git. min-w-0 so the branch chip below can actually shrink — without
            it a flex item refuses to go under its content width and the ellipsis never fires. -->
-      <div class="flex items-center gap-2 min-w-0">
-        {#if workspaceState.isGitRepo && workspaceState.branch}
-          <span
-            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm text-text-faint min-w-0"
-            role="img"
-            aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
-              ? ', uncommitted changes'
-              : ''}"
-            title="Branch: {workspaceState.branch}"
-          >
-            <GitBranch size={12} class="flex-shrink-0" />
-            <!-- No width cap: the name shows in full whenever the bar has room and only
+    <div class="flex items-center gap-2 min-w-0">
+      {#if workspaceState.isGitRepo && workspaceState.branch}
+        <span
+          class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm text-text-faint min-w-0"
+          role="img"
+          aria-label="Branch: {workspaceState.branch}{workspaceState.isDirty
+            ? ', uncommitted changes'
+            : ''}"
+          title="Branch: {workspaceState.branch}"
+        >
+          <GitBranch size={12} class="flex-shrink-0" />
+          <!-- No width cap: the name shows in full whenever the bar has room and only
                  gives way when it runs out, ellipsis at the end. The old max-w-40 cut two
                  thirds off a 68-character branch even on a wide window. -->
-            <span
-              class="min-w-0 flex-1 overflow-hidden text-ellipsis font-mono text-xs whitespace-nowrap"
-              >{workspaceState.branch}</span
-            >
-            {#if workspaceState.isDirty}
-              <span
-                class="size-1.5 rounded-full bg-warning-text flex-shrink-0"
-                title="Uncommitted changes"
-                aria-hidden="true"
-              ></span>
-            {/if}
-          </span>
-
-          {#if workspaceState.aheadBehind && (workspaceState.aheadBehind.ahead > 0 || workspaceState.aheadBehind.behind > 0)}
-            {@const ahead = workspaceState.aheadBehind.ahead}
-            {@const behind = workspaceState.aheadBehind.behind}
-            <span
-              class="inline-flex items-center gap-1 h-5 px-1.5 rounded-sm bg-border-subtle text-text-secondary font-mono text-2xs font-semibold tabular-nums leading-none"
-              role="img"
-              aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
-                ? ', '
-                : ''}{behind > 0 ? `${behind} behind` : ''}"
-              title="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
-                ? ', '
-                : ''}{behind > 0 ? `${behind} behind` : ''}"
-            >
-              {#if ahead > 0}<span aria-hidden="true">↑{ahead}</span>{/if}
-              {#if behind > 0}<span aria-hidden="true">↓{behind}</span>{/if}
-            </span>
-          {/if}
-        {/if}
-
-        {#if worktreeCount > 1 && worktreeName}
           <span
-            class="inline-flex items-center gap-1.5 h-5 px-1.5 whitespace-nowrap text-text-faint"
-            title="Worktree: {worktreeName}"
+            class="min-w-0 flex-1 overflow-hidden text-ellipsis font-mono text-xs whitespace-nowrap"
+            >{workspaceState.branch}</span
           >
-            <Folder size={12} class="flex-shrink-0" />
-            <span class="overflow-hidden text-ellipsis max-w-35">{worktreeName}</span>
+          {#if workspaceState.isDirty}
+            <span
+              class="size-1.5 rounded-full bg-warning-text flex-shrink-0"
+              title="Uncommitted changes"
+              aria-hidden="true"
+            ></span>
+          {/if}
+        </span>
+
+        {#if workspaceState.aheadBehind && (workspaceState.aheadBehind.ahead > 0 || workspaceState.aheadBehind.behind > 0)}
+          {@const ahead = workspaceState.aheadBehind.ahead}
+          {@const behind = workspaceState.aheadBehind.behind}
+          <span
+            class="inline-flex items-center gap-1 h-5 px-1.5 rounded-sm bg-border-subtle text-text-secondary font-mono text-2xs font-semibold tabular-nums leading-none"
+            role="img"
+            aria-label="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0
+              ? ', '
+              : ''}{behind > 0 ? `${behind} behind` : ''}"
+            title="{ahead > 0 ? `${ahead} ahead` : ''}{ahead > 0 && behind > 0 ? ', ' : ''}{behind >
+            0
+              ? `${behind} behind`
+              : ''}"
+          >
+            {#if ahead > 0}<span aria-hidden="true">↑{ahead}</span>{/if}
+            {#if behind > 0}<span aria-hidden="true">↓{behind}</span>{/if}
           </span>
         {/if}
-      </div>
-
-      {#if perfHudEnabled || agentCount > 0 || permissionSessionId || hasUpdate}
-        <span class="self-stretch w-px bg-border-subtle mx-3" aria-hidden="true"></span>
       {/if}
 
-      <!-- Sub-group B: perf / agents / alerts -->
-      <div class="flex items-center gap-2">
-        {#if perfHudEnabled && perfHudState.metrics}
-          <button
-            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm border-0 bg-border-subtle font-inherit text-text-secondary tabular-nums leading-none cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
-            aria-label="App CPU {perfHudState.metrics.cpu}%, RAM {perfHudState.metrics.memMb} MB"
-            title="App CPU / RAM — click to open settings"
-            onclick={openPerfHudSettings}
-          >
-            <Cpu size={11} class="flex-shrink-0 text-text-faint" />
-            <span class="text-2xs font-mono mt-px"
-              >{perfHudState.metrics.cpu}% · {perfHudState.metrics.memMb} MB</span
-            >
-          </button>
-        {/if}
-
-        {#if agentCount > 0}
-          <button
-            class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
-            aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
-              ? `, ${globalStatusLabel(globalWorstStatus)}`
-              : ''}"
-            title="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
-              ? ` — ${globalStatusLabel(globalWorstStatus)}`
-              : ''}"
-            onclick={focusWorstAgent}
-          >
-            <span
-              class="size-2 rounded-full flex-shrink-0"
-              class:animate-badge-pulse={globalWorstStatus === 'waitingPermission' ||
-                globalWorstStatus === 'working'}
-              class:motion-reduce:animate-none={globalWorstStatus === 'waitingPermission' ||
-                globalWorstStatus === 'working'}
-              style="background: {statusDotColor(globalWorstStatus)}"
-            ></span>
-            <span
-              class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-border-subtle text-text-secondary text-2xs font-semibold tabular-nums leading-none"
-              >{agentCount}</span
-            >
-          </button>
-        {/if}
-
-        {#if permissionSessionId}
-          <button
-            class="inline-flex items-center h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-warning-text animate-badge-pulse motion-reduce:animate-none cursor-pointer transition-colors duration-fast hover:bg-hover"
-            aria-label="Agent waiting for permission"
-            title="Agent waiting for permission"
-            onclick={focusPermissionAgent}
-          >
-            <Bell size={13} class="flex-shrink-0" />
-          </button>
-        {/if}
-
-        {#if hasUpdate}
-          <button
-            class="inline-flex items-center h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-accent-text cursor-pointer transition-colors duration-fast hover:bg-hover"
-            aria-label="Install update v{updateState.version}"
-            title="Update v{updateState.version} ready to install"
-            onclick={installUpdate}
-          >
-            <ArrowDownToLine size={13} class="flex-shrink-0" />
-          </button>
-        {/if}
-      </div>
-
-      <span class="self-stretch w-px bg-border-subtle mx-3" aria-hidden="true"></span>
-
-      <!-- Sub-group C: app actions -->
-      <div class="flex items-center gap-1">
-        <button
-          class="inline-flex items-center justify-center size-5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
-          aria-label="Toggle Inspector"
-          title="Toggle Inspector"
-          onclick={() => toggleRightPanel()}
+      {#if worktreeCount > 1 && worktreeName}
+        <span
+          class="inline-flex items-center gap-1.5 h-5 px-1.5 whitespace-nowrap text-text-faint"
+          title="Worktree: {worktreeName}"
         >
-          <Eye size={13} />
-        </button>
-
-        <button
-          class="inline-flex items-center justify-center size-5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
-          aria-label="Open Settings"
-          title="Open Settings"
-          onclick={() => showPreferences()}
-        >
-          <Settings size={13} />
-        </button>
-      </div>
+          <Folder size={12} class="flex-shrink-0" />
+          <span class="overflow-hidden text-ellipsis max-w-35">{worktreeName}</span>
+        </span>
+      {/if}
     </div>
-  </footer>
-{/if}
+
+    {#if perfHudEnabled || agentCount > 0 || permissionSessionId || hasUpdate}
+      <span class="self-stretch w-px bg-border-subtle mx-3" aria-hidden="true"></span>
+    {/if}
+
+    <!-- Sub-group B: perf / agents / alerts -->
+    <div class="flex items-center gap-2">
+      {#if perfHudEnabled && perfHudState.metrics}
+        <button
+          class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm border-0 bg-border-subtle font-inherit text-text-secondary tabular-nums leading-none cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text"
+          aria-label="App CPU {perfHudState.metrics.cpu}%, RAM {perfHudState.metrics.memMb} MB"
+          title="App CPU / RAM — click to open settings"
+          onclick={openPerfHudSettings}
+        >
+          <Cpu size={11} class="flex-shrink-0 text-text-faint" />
+          <span class="text-2xs font-mono mt-px"
+            >{perfHudState.metrics.cpu}% · {perfHudState.metrics.memMb} MB</span
+          >
+        </button>
+      {/if}
+
+      {#if agentCount > 0}
+        <button
+          class="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
+          aria-label="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+            ? `, ${globalStatusLabel(globalWorstStatus)}`
+            : ''}"
+          title="{agentCount} agent{agentCount !== 1 ? 's' : ''}{globalWorstStatus !== 'none'
+            ? ` — ${globalStatusLabel(globalWorstStatus)}`
+            : ''}"
+          onclick={focusWorstAgent}
+        >
+          <span
+            class="size-2 rounded-full flex-shrink-0"
+            class:animate-badge-pulse={globalWorstStatus === 'waitingPermission' ||
+              globalWorstStatus === 'working'}
+            class:motion-reduce:animate-none={globalWorstStatus === 'waitingPermission' ||
+              globalWorstStatus === 'working'}
+            style="background: {statusDotColor(globalWorstStatus)}"
+          ></span>
+          <span
+            class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-sm bg-border-subtle text-text-secondary text-2xs font-semibold tabular-nums leading-none"
+            >{agentCount}</span
+          >
+        </button>
+      {/if}
+
+      {#if permissionSessionId}
+        <button
+          class="inline-flex items-center h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-warning-text animate-badge-pulse motion-reduce:animate-none cursor-pointer transition-colors duration-fast hover:bg-hover"
+          aria-label="Agent waiting for permission"
+          title="Agent waiting for permission"
+          onclick={focusPermissionAgent}
+        >
+          <Bell size={13} class="flex-shrink-0" />
+        </button>
+      {/if}
+
+      {#if hasUpdate}
+        <button
+          class="inline-flex items-center h-5 px-1.5 rounded-sm border-0 bg-transparent font-inherit text-accent-text cursor-pointer transition-colors duration-fast hover:bg-hover"
+          aria-label="Install update v{updateState.version}"
+          title="Update v{updateState.version} ready to install"
+          onclick={installUpdate}
+        >
+          <ArrowDownToLine size={13} class="flex-shrink-0" />
+        </button>
+      {/if}
+    </div>
+
+    <span class="self-stretch w-px bg-border-subtle mx-3" aria-hidden="true"></span>
+
+    <!-- Sub-group C: app actions -->
+    <div class="flex items-center gap-1">
+      <button
+        class="inline-flex items-center justify-center size-5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
+        aria-label="Toggle Inspector"
+        title="Toggle Inspector"
+        onclick={() => toggleRightPanel()}
+      >
+        <Eye size={13} />
+      </button>
+
+      <button
+        class="inline-flex items-center justify-center size-5 rounded-sm border-0 bg-transparent font-inherit text-text-faint cursor-pointer transition-colors duration-fast hover:bg-hover hover:text-text-secondary"
+        aria-label="Open Settings"
+        title="Open Settings"
+        onclick={() => showPreferences()}
+      >
+        <Settings size={13} />
+      </button>
+    </div>
+  </div>
+</footer>

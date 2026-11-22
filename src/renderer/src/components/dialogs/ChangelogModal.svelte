@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import Markdown from '../shared/Markdown.svelte'
+  import MaintenanceNotice from './MaintenanceNotice.svelte'
 
   let containerEl: HTMLDivElement | undefined = $state()
 
@@ -42,7 +43,7 @@
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
       const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !containerEl.contains(active))) {
+      if (e.shiftKey && (active === first || active === containerEl)) {
         e.preventDefault()
         last.focus()
       } else if (!e.shiftKey && active === last) {
@@ -77,6 +78,7 @@
     </div>
 
     <div class="flex-1 min-h-0 overflow-y-auto py-1">
+      <MaintenanceNotice class={entries.length > 0 ? 'mb-4' : ''} />
       {#if loading}
         <div class="p-6 text-center text-md text-text-muted">Loading release notes...</div>
       {:else if error}

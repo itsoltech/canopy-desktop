@@ -3,6 +3,7 @@
   import { Sparkles } from '@lucide/svelte'
   import { closeDialog } from '../../lib/stores/dialogs.svelte'
   import { onboardingState, finishOnboarding } from '../../lib/stores/onboarding.svelte'
+  import MaintenanceNotice from '../dialogs/MaintenanceNotice.svelte'
 
   interface Props {
     fromVersion: string
@@ -24,7 +25,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Escape' || e.key === 'Enter') {
+    if (e.key === 'Escape' || (e.key === 'Enter' && e.target === containerEl)) {
       e.preventDefault()
       handleDismiss()
     } else if (e.key === 'Tab' && containerEl) {
@@ -34,7 +35,10 @@
       if (focusable.length === 0) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
-      if (e.shiftKey && document.activeElement === first) {
+      if (
+        e.shiftKey &&
+        (document.activeElement === first || document.activeElement === containerEl)
+      ) {
         e.preventDefault()
         last.focus()
       } else if (!e.shiftKey && document.activeElement === last) {
@@ -74,6 +78,7 @@
     </div>
 
     <div class="flex flex-col gap-2 overflow-y-auto min-h-0 flex-1">
+      <MaintenanceNotice />
       {#each onboardingState.steps as step (step.id)}
         <div class="px-3.5 py-3 rounded-xl bg-border-subtle border border-border-subtle">
           <div class="text-md font-medium text-text mb-1">{step.title}</div>
